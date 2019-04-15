@@ -1,13 +1,13 @@
 bl_info = {
 	"name": "iOps",
 	"author": "Titus, Cyrill",
-	"version": (1, 5, 1),
+	"version": (1, 5, 2),
 	"blender": (2, 80, 0),
 	"location": "View3D > Toolbar and View3D",
 	"description": "Interaction operators (iOps) - for workflow speedup",
 	"warning": "",
 	"wiki_url": "email: Titus.mailbox@gmail.com",
-	"tracker_url": "",
+	"tracker_url": "https://github.com/TitusLVR/InteractionOps.git",
 	"category": 'Mesh'}
 
 import bpy
