@@ -1,14 +1,14 @@
 bl_info = {
 	"name": "iOps",
 	"author": "Titus, Cyrill",
-	"version": (1, 5, 2),
+	"version": (1, 4, 1),
 	"blender": (2, 80, 0),
 	"location": "View3D > Toolbar and View3D",
 	"description": "Interaction operators (iOps) - for workflow speedup",
 	"warning": "",
 	"wiki_url": "email: Titus.mailbox@gmail.com",
-	"tracker_url": "https://github.com/TitusLVR/InteractionOps.git",
-	"category": 'Mesh'}
+	"tracker_url": "",
+	"category": "Mesh"}
 
 import bpy
 from bpy.props import *
@@ -16,549 +16,281 @@ import math
 from mathutils import Vector, Matrix, Euler
 import bmesh
 
-from bpy.types import (        
-        Operator,
-        Menu,
-        Panel,
-        PropertyGroup,
-        AddonPreferences,
-        )
-from bpy.props import (
-        BoolProperty,
-        EnumProperty,
-        FloatProperty,
-        IntProperty,
-        PointerProperty,
-        StringProperty,
-        )
-
-IOPS_KEYMAP_NAME = '3D View Generic' # Name of the user keymap (like a group) where the hotkey entries will be added.
-IOPS_KEYMAP_ITEMS = { } # Used for caching keymap items only once.
-
 #WarningMessage
-def ShowMessageBox(text = "", title = "WARNING", icon = 'ERROR'):
+def ShowMessageBox(text = "", title = "WARNING", icon = "ERROR"):
     def draw(self, context):
         self.layout.label(text = text)        
-    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)  
+    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
-def edgeNum_update(self,context):
-    IOPS_OT_AlignObjectToFace.AlignObjectToFace(self.EdgeNum) 
-
+#AlignObjToFace
 class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
-    ''' Align object to selected face '''
+    """ Align object to selected face """
     bl_idname = "iops.align_object_to_face"
     bl_label = "iOps Align object to face"
-    bl_options = {'REGISTER','UNDO'}
+    bl_options = {"REGISTER","UNDO"}
     
     def execute(self, context):
         self.AlignObjectToFace()
-        self.report ({'INFO'}, 'Object aligned')
-        return{'FINISHED'}
-    
-    #AlignObjToFace    
+        self.report ({"INFO"}, "Object aligned")
+        return{"FINISHED"}
+       
     @classmethod   
-    def AlignObjectToFace(cls,edgeNum):
-                
+    def AlignObjectToFace(cls):        
         obj = bpy.context.active_object
-        me = obj.data 
-        fEdges = (me.total_edge_sel)
-        if edgeNum != 0 :
-            if edgeNum <= fEdges:          
-                mx = obj.matrix_world
-                loc = mx.to_translation()      
-                bm = bmesh.from_edit_mesh(me)    
-                face = []
-                loops = []
-                edges = []
-                bm.faces.ensure_lookup_table()
-                for f in bm.faces:
-                    if f.select == True:            
-                        print ("Selected = ",f)
-                        face = f
-                        loops = f.loops
-                        edges = f.edges  
-                                
-                n = face.normal                # Z
-                print ("Z(n)=",n)
-                #t = face.calc_tangent_edge()   # Y
-                bm.edges.ensure_lookup_table()
-                t = bm.edges[edgeNum-1].calc_tangent(loops[edgeNum-1])
-                print ("Y(t)=",t) 
-                c = t.cross(n)                 # X
-                print ("X(c)=",c)
-                    
-                mx_rot = Matrix((c, t, n)).transposed().to_4x4() 
-                obj.matrix_world = mx_rot.inverted()
-                obj.location = loc
-            else:
-                ShowMessageBox("Face has only " + str(fEdges) + " edges")
-        else:
-           ShowMessageBox("Select face please")
-
-class IOPS_OT_Vert(bpy.types.Operator):
-    bl_idname = "iops.vertex"
-    bl_label = "iOps Vertex"
-    bl_options = {'REGISTER','UNDO'}
-    
-    @classmethod
-    def poll(cls, context):                  
-        return context.object is not None        
-    
-    def execute(self, context):
-        print (bpy.context.area.type)
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'VIEW_3D':           
-            if bpy.context.mode != 'EDIT_MESH':                       
-                bpy.ops.object.mode_set(mode='EDIT')            
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                self.report ({'INFO'}, 'Edit mode - Vertex')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_MESH':                
-                if bpy.context.tool_settings.mesh_select_mode[1] == True or bpy.context.tool_settings.mesh_select_mode[2] == True:
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                    self.report ({'INFO'}, 'Vertex select')
-                    return{'FINISHED'} 
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}        
-        
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'IMAGE_EDITOR':
-            if bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.context.tool_settings.uv_select_mode = 'VERTEX'
-                self.report ({'INFO'}, 'UV selection - Vertex')
-                return{'FINISHED'}
-            elif bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')                
-                self.report ({'INFO'}, 'Vertex select')
-                return{'FINISHED'}
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                if bpy.context.tool_settings.uv_select_mode == 'EDGE' or bpy.context.tool_settings.uv_select_mode == 'FACE' or bpy.context.tool_settings.uv_select_mode == 'ISLAND':
-                    bpy.context.tool_settings.uv_select_mode = 'VERTEX'
-                    self.report ({'INFO'}, 'UV selection - Vertex')
-                    return{'FINISHED'}
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'} 
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                if bpy.context.tool_settings.mesh_select_mode[1] == True or bpy.context.tool_settings.mesh_select_mode[2] == True:
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
-                    self.report ({'INFO'}, 'Vertex select')
-                    return{'FINISHED'}              
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}
+        me = obj.data            
+        mx = obj.matrix_world
+        loc = mx.to_translation()      
+        bm = bmesh.from_edit_mesh(me)    
+        face = []
+        for f in bm.faces:
+            if f.select == True:            
+                print ("Selected = ",f)
+                face = f
+                        
+        n = face.normal                # Z
+        t = face.calc_tangent_edge()   # Y
+        c = t.cross(n)                 # X
             
-        if bpy.context.active_object.type == 'CURVE' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'EDIT_CURVE':                       
-                bpy.ops.object.mode_set(mode='EDIT')                
-                self.report ({'INFO'}, 'Edit mode - Curve')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_CURVE':
-                bpy.ops.object.mode_set(mode='OBJECT')
-                self.report ({'INFO'}, 'Object mode')
-                return{'FINISHED'} 
-        
-        if bpy.context.active_object.type == 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'EDIT_GPENCIL':                       
-                bpy.ops.object.mode_set(mode='EDIT_GPENCIL')                
-                self.report ({'INFO'}, 'Edit mode - GPencil')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_GPENCIL':
-                
-                bpy.ops.object.mode_set(mode='OBJECT')
-                self.report ({'INFO'}, 'Object mode')
-                return{'FINISHED'}                                         
-                
-        if bpy.context.active_object.type != 'MESH' or bpy.context.active_object.type != 'CURVE' or bpy.context.active_object.type != 'GPENCIL'  and bpy.context.area.type == 'VIEW_3D':
-            self.report ({'INFO'}, 'Object type not supported yet!')
-            return{'FINISHED'} 
+        mx_rot = Matrix((c, t, n)).transposed().to_4x4() 
+        obj.matrix_world = mx_rot.inverted()
+        obj.location = loc    
 
-class IOPS_OT_Edge (bpy.types.Operator):
-    bl_idname = "iops.edge"
-    bl_label = "iOps Edge"
-    bl_options = {'REGISTER','UNDO'}
-    
-    @classmethod
-    def poll(cls, context):                  
-        return context.object is not None 
-    
-    def execute(self, context):        
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'EDIT_MESH':                       
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-                self.report ({'INFO'}, 'Edit mode - Edge')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_MESH':                        
-                if bpy.context.tool_settings.mesh_select_mode[0] == True or bpy.context.tool_settings.mesh_select_mode[2] == True:
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-                    self.report ({'INFO'}, 'Edge select')
-                    return{'FINISHED'}                     
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}
-         
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'IMAGE_EDITOR':
-            if bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.context.tool_settings.uv_select_mode = 'EDGE'
-                self.report ({'INFO'}, 'UV selection - Edge')
-                return{'FINISHED'}
-            elif bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')                
-                self.report ({'INFO'}, 'Edge select')
-                return{'FINISHED'}
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                if bpy.context.tool_settings.uv_select_mode == 'VERTEX' or bpy.context.tool_settings.uv_select_mode == 'FACE' or bpy.context.tool_settings.uv_select_mode == 'ISLAND':
-                    bpy.context.tool_settings.uv_select_mode = 'EDGE'
-                    self.report ({'INFO'}, 'UV selection - Edge')
-                    return{'FINISHED'}
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'} 
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                if bpy.context.tool_settings.mesh_select_mode[0] == True or bpy.context.tool_settings.mesh_select_mode[2] == True:
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='EDGE')
-                    self.report ({'INFO'}, 'Edge select')
-                    return{'FINISHED'}              
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}
-            
-        if bpy.context.active_object.type == 'CURVE' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'EDIT_CURVE':
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_CURVE':                                         
-                    obj = bpy.context.active_object
-                    spline = obj.data.splines.active
-                    active_points = []
+class IOPS(bpy.types.Operator):
+    bl_idname = "IOPS"
+    bl_label = "iOps"
+    bl_options = {"REGISTER","UNDO"}
 
-                    for pt in spline.bezier_points:
-                        if pt.select_control_point == True:
-                            active_points.append(pt)
-     
-                    if (len(active_points)) >= 2:
-                        bpy.ops.curve.subdivide()               
-                        self.report ({'INFO'}, 'Curve divided')
-                        return{'FINISHED'}
-                    else:
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                        self.report ({'INFO'}, 'Object mode')
-                        return{'FINISHED'}
-        
-        if bpy.context.active_object.type == 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'PAINT_GPENCIL':                       
-                bpy.ops.object.mode_set(mode='PAINT_GPENCIL')                
-                self.report ({'INFO'}, 'Paint mode - GPencil')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_GPENCIL' or bpy.context.mode == 'SCULPT_GPENCIL':                
-                    bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
-                    self.report ({'INFO'}, 'Paint mode - GPencil')
-                    return{'FINISHED'}                               
-            else:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                self.report ({'INFO'}, 'Object mode')
-                return{'FINISHED'}                  
-                    
-        if bpy.context.active_object.type != 'MESH' or bpy.context.active_object.type != 'CURVE' or bpy.context.active_object.type != 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':
-            self.report ({'INFO'}, 'Object type not supported!')
-            return{'FINISHED'}
+    modes_3d = {0:"VERT", 1:"EDGE", 2:"FACE"}
+    modes_uv = {0:"VERTEX", 1:"EDGE", 2:"FACE", 3:"ISLAND"}
+    modes_gpen = {0:"EDIT_GPENCIL", 1:"PAINT_GPENCIL", 2:"SCULPT_GPENCIL"}
+    modes_curve = {0:"EDIT_CURVE"}
+    supported_types = ["MESH", "CURVE", "GPENCIL", "EMPTY"]
 
-class IOPS_OT_Face (bpy.types.Operator):
-    bl_idname = "iops.face"
-    bl_label = "iOps Face"
-    bl_options = {'REGISTER','UNDO'}
-    
-    AlignObjToFace: BoolProperty(
-        name = "Align object to selected face",
-        description = "Align object to selected face (Z-Axis)",        
-        default = False,           
-        )
-    EdgeNum: IntProperty(
-        name = "Edge tangent:",
-        description = "Edge as Y-Axis",        
-        default = 1,
-        soft_min = 1,        
-        update = edgeNum_update,       
-        )
-    
-    @classmethod
-    def poll(cls, context):                  
-        return context.object is not None  
-    
-    def execute(self, context):
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'VIEW_3D':                           
-            if bpy.context.mode != 'EDIT_MESH':                      
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                self.report ({'INFO'}, 'Edit mode - Face')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_MESH':
-                if self.AlignObjToFace != True:                
-                    if bpy.context.tool_settings.mesh_select_mode[0] == True or bpy.context.tool_settings.mesh_select_mode[1] == True:
-                        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')                    
-                        self.report ({'INFO'}, 'Face select')
-                        return{'FINISHED'}
-                    else:  
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                        self.report ({'INFO'}, 'Object mode')
-                        return{'FINISHED'}
-                else: 
-                    
-                    IOPS_OT_AlignObjectToFace.AlignObjectToFace(self.EdgeNum)
-                    print (self.EdgeNum)
-                    self.report ({'INFO'}, 'Object aligned to face.')
-                    return{'FINISHED'}
-                
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'IMAGE_EDITOR':
-            if bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.context.tool_settings.uv_select_mode = 'FACE'
-                self.report ({'INFO'}, 'UV selection - Face')
-                return{'FINISHED'}
-            elif bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')                
-                self.report ({'INFO'}, 'Face select')
-                return{'FINISHED'}
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                if bpy.context.tool_settings.uv_select_mode == 'VERTEX' or bpy.context.tool_settings.uv_select_mode == 'EDGE' or bpy.context.tool_settings.uv_select_mode == 'ISLAND':
-                    bpy.context.tool_settings.uv_select_mode = 'FACE'
-                    self.report ({'INFO'}, 'UV selection - Face')
-                    return{'FINISHED'}
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'} 
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                if bpy.context.tool_settings.mesh_select_mode[0] == True or bpy.context.tool_settings.mesh_select_mode[1] == True:
-                    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='FACE')
-                    self.report ({'INFO'}, 'Face select')
-                    return{'FINISHED'}              
-                else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}
-         
-        if bpy.context.active_object.type == 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':                              
-            if bpy.context.mode != 'SCULPT_GPENCIL':                       
-                bpy.ops.object.mode_set(mode='SCULPT_GPENCIL')                
-                self.report ({'INFO'}, 'Sculpt mode - GPencil')
-                return{'FINISHED'}                           
-            elif bpy.context.mode == 'EDIT_GPENCIL' or bpy.context.mode == 'PAINT_GPENCIL':                
-                    bpy.ops.object.mode_set(mode='SCULPT_GPENCIL')
-                    self.report ({'INFO'}, 'Sculpt mode - GPencil')
-                    return{'FINISHED'}                               
-            else:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                self.report ({'INFO'}, 'Object mode')
-                return{'FINISHED'}                  
-        
-        if bpy.context.active_object.type != 'MESH' or bpy.context.active_object.type != 'CURVE' or bpy.context.active_object.type != 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':
-            self.report ({'INFO'}, 'Object type not supported!')
-            return{'FINISHED'}
-                  
-
-class IOPS_OT_CursorOrigin (bpy.types.Operator):
-    bl_idname = "iops.cursor_origin"
-    bl_label = "iOps Cursor to Selected/Origin to Cursor"
-    bl_options = {'REGISTER','UNDO'}
-    
+    mode_3d = ""
+    mode_uv = ""
+    mode_gpen = ""
+    mode_curve = ""
+       
     @classmethod
     def poll(cls, context):                  
         return context.object is not None
-    
-    def execute(self, context):        
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'VIEW_3D':
-            scn = bpy.context.scene
-            objs = bpy.context.selected_objects              
-            if bpy.context.mode != 'EDIT_MESH':
-                if len(objs) != 0:
-                    for ob in objs:
-                        ob.location = scn.cursor.location
-                        ob.rotation_euler = scn.cursor.rotation_euler
-                    self.report ({'INFO'}, 'Object aligned!')
-                    return{'FINISHED'}
-            else:                
-                bpy.ops.view3d.snap_cursor_to_selected()
-                bpy.ops.object.editmode_toggle()
-                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-                self.report ({'INFO'}, 'Origin placed!')
-                return{'FINISHED'}
-        
-        if bpy.context.active_object.type == 'MESH' and bpy.context.area.type == 'IMAGE_EDITOR':
-            if bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.context.tool_settings.uv_select_mode = 'ISLAND'
-                self.report ({'INFO'}, 'UV selection - Island')
-                return{'FINISHED'}
-            elif bpy.context.mode != 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.context.tool_settings.use_uv_select_sync = False               
-                self.report ({'INFO'}, 'UV and Edit mode selection sync - Disabled')
-                return{'FINISHED'}
-            
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == False:
-                if bpy.context.tool_settings.uv_select_mode == 'VERTEX' or bpy.context.tool_settings.uv_select_mode == 'EDGE' or bpy.context.tool_settings.uv_select_mode == 'FACE':
-                    bpy.context.tool_settings.uv_select_mode = 'ISLAND'
-                    self.report ({'INFO'}, 'UV selection - Island')
-                    return{'FINISHED'}
+      
+    def execute(self, context):
+
+        scene = bpy.context.scene
+
+        #Object <-> Mesh
+        if bpy.context.active_object.type == "MESH": 
+            mode_3d = "VERT" if scene.tool_settings.mesh_select_mode[0] else ""
+            mode_3d = "EDGE" if scene.tool_settings.mesh_select_mode[1] else ""
+            mode_3d = "FACE" if scene.tool_settings.mesh_select_mode[2] else ""
+            # Same modes for active sync in UV 
+            if (bpy.context.area.type == "VIEW_3D" or 
+               (bpy.context.area.type == "IMAGE_EDITOR" and bpy.context.tool_settings.use_uv_select_sync == True)):
+                # Go to Edit Mode       
+                if bpy.context.mode == "OBJECT": 
+                    bpy.ops.object.mode_set(mode="EDIT")            
+                    bpy.ops.mesh.select_mode(type=self.mode_3d)
+                    IOPS.mode_3d = self.mode_3d
+                    return{"FINISHED"}
+                    
+                # Switch selection modes
+                # If activated same selection mode again switch to Object Mode   
+                if bpy.context.mode == "EDIT_MESH" and self.mode_3d != IOPS.mode_3d:                
+                    bpy.ops.mesh.select_mode(type=self.mode_3d)
+                    IOPS.mode_3d = self.mode_3d
+                    return{"FINISHED"}
                 else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'} 
-            elif bpy.context.mode == 'EDIT_MESH' and bpy.context.tool_settings.use_uv_select_sync == True:
-                bpy.context.tool_settings.use_uv_select_sync = False 
-                self.report ({'INFO'}, 'UV and Edit mode selection sync - Disabled')
-                return{'FINISHED'}              
-            else:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    self.report ({'INFO'}, 'Object mode')
-                    return{'FINISHED'}
-        
-        if bpy.context.active_object.type == 'CURVE' and bpy.context.area.type == 'VIEW_3D':
-            scn = bpy.context.scene
-            objs = bpy.context.selected_objects               
-            if bpy.context.mode != 'EDIT_CURVE':
-                if len(objs) != 0:
-                    for ob in objs:
-                        ob.location = scn.cursor.location
-                        ob.rotation_euler = scn.cursor.rotation_euler
-                    self.report ({'INFO'}, 'Object aligned!')
-                    return{'FINISHED'}
-            else:
-                bpy.ops.view3d.snap_cursor_to_selected()
-                bpy.ops.object.editmode_toggle()
-                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-                self.report ({'INFO'}, 'Origin placed!')
-                return{'FINISHED'}
-            
-        if bpy.context.active_object.type == 'EMPTY' and bpy.context.area.type == 'VIEW_3D':
-            scn = bpy.context.scene
-            objs = bpy.context.selected_objects
-            if len(objs) != 0:
-                for ob in objs:
-                    ob.location = scn.cursor.location
-                    ob.rotation_euler = scn.cursor.rotation_euler
-                self.report ({'INFO'}, 'Object aligned!')
-                return{'FINISHED'}
-        
-        if bpy.context.active_object.type == 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':
-            scn = bpy.context.scene
-            objs = bpy.context.selected_objects               
-            if bpy.context.mode != 'EDIT_GPENCIL':
-                if len(objs) != 0:
-                    for ob in objs:
-                        ob.location = scn.cursor.location
-                        ob.rotation_euler = scn.cursor.rotation_euler
-                    self.report ({'INFO'}, 'Object aligned!')
-                    return{'FINISHED'}
-            else:
-                bpy.ops.gpencil.snap_cursor_to_selected()                
-                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-                bpy.ops.object.mode_set(mode='OBJECT')
-                self.report ({'INFO'}, 'Origin placed!')
-                return{'FINISHED'}
-        
-        if bpy.context.active_object.type != 'MESH' or bpy.context.active_object.type != 'CURVE' or bpy.context.active_object.type != 'EMPTY' or bpy.context.active_object.type != 'GPENCIL' and bpy.context.area.type == 'VIEW_3D':
-            self.report ({'INFO'}, 'Object type not supported!')
-            return{'FINISHED'}
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    return{"FINISHED"}   
 
-class IOPS_AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = __name__
+            # UV <-> Mesh 
+            if bpy.context.area.type == "IMAGE_EDITOR": 
+                # Go to Edit Mode and Select All
+                if bpy.context.mode == "OBJECT":
+                    bpy.ops.object.mode_set(mode="EDIT")
+                    bpy.ops.mesh.select_all(action="SELECT")
+                    bpy.context.tool_settings.uv_select_mode = self.mode_uv
+                    IOPS.mode_uv = self.mode_uv
+                    return{"FINISHED"}
+
+                elif self.mode_uv != IOPS.mode_uv:
+                        bpy.context.tool_settings.uv_select_mode = self.mode_uv
+                        IOPS.mode_uv = self.mode_uv
+                        return{"FINISHED"}
+                else:
+                        bpy.ops.object.mode_set(mode="OBJECT")
+                        return{"FINISHED"} 
+
+        # Object <-> Curve    
+        if bpy.context.active_object.type == "CURVE":  
+            mode_curve = "EDIT" if bpy.context.mode != "EDIT_CURVE" else "OBJECT" 
+            bpy.ops.object.mode_set(mode=mode_curve)                             
+            return{"FINISHED"}
+
+        # Object <-> GPencil  
+        if bpy.context.active_object.type == "GPENCIL":
+            mode_gpen = "EDIT_GPENCIL" if bpy.context.mode != "EDIT_GPENCIL" else "OBJECT" 
+            bpy.ops.object.mode_set(mode=mode_gpen)
+            return{"FINISHED"} 
+
+        #Unsupported Types      
+        if bpy.context.active_object.type not in IOPS.supported_types:
+            print(bpy.context.active_object.type,"not supported yet!")
+            return{"FINISHED"} 
+        return{"FINISHED"}
+  
+class IOPS_OT_Vert(IOPS):
+    bl_idname = "iops.vertex"
+    bl_label = "iOps Vertex"
+    mode_3d = IOPS.modes_3d[0]
+    mode_uv = IOPS.modes_uv[0]
+  
+class IOPS_OT_Edge(IOPS):
+    bl_idname = "iops.edge"
+    bl_label = "iOps Edge"
+    mode_3d = IOPS.modes_3d[1]
+    mode_uv = IOPS.modes_uv[1]
+  
+class IOPS_OT_Face(IOPS):
+    bl_idname = "iops.face"
+    bl_label = "iOps Face"
+    mode_3d= IOPS.modes_3d[2]
+    mode_uv = IOPS.modes_uv[2]
+    AlignObjToFace: BoolProperty(
+        name = "Align object to selected face",
+        description = "Align object to selected face",        
+        default = False    
+    )
+   
+class IOPS_OT_Island(IOPS):
+    bl_idname = "iops.island"
+    bl_label = "iOps Island"
+    mode_uv = IOPS.modes_uv[3]
+
+    @classmethod
+    def poll(cls, context):
+        return bpy.context.area.type == "IMAGE_EDITOR"
+
+
+class IOPS_OT_CursorOrigin (IOPS):
+    bl_idname = "iops.cursor_origin"
+    bl_label = "iOps Cursor to Selected/Origin to Cursor"
+    def execute(self, context):
+        # MESH
+        objs = bpy.context.selected_objects              
+        if bpy.context.area.type == "VIEW_3D":
+            if bpy.context.active_object.type == "MESH":
+                if bpy.context.mode == "OBJECT":
+                    if len(objs) != 0:
+                        for ob in objs:
+                            bpy.context.object.location = scene.cursor.location
+                            bpy.context.object.rotation_euler = scene.cursor.rotation_euler
+                        return{"FINISHED"}
+                else:
+                        bpy.ops.view3d.snap_cursor_to_selected()
+                        bpy.ops.object.editmode_toggle()
+                        bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+                        return{"FINISHED"}
+            # CURVE
+            if bpy.context.active_object.type == "CURVE":
+                if bpy.context.mode != "EDIT_CURVE":
+                    if len(objs) != 0:
+                        for ob in objs:
+                            bpy.context.location = scene.cursor.location
+                            bpy.context.rotation_euler = scene.cursor.rotation_euler
+                        return{"FINISHED"}
+                else:
+                    bpy.ops.view3d.snap_cursor_to_selected()
+                    bpy.ops.object.editmode_toggle()
+                    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+                    return{"FINISHED"}
+            # EMPTY    
+            if bpy.context.active_object.type == "EMPTY":
+                if len(objs) != 0:
+                    for ob in objs:
+                        bpy.context.location = scene.cursor.location
+                        bpy.context.rotation_euler = scene.cursor.rotation_euler
+                    return{"FINISHED"}
+            # GPENCIL
+            if bpy.context.active_object.type == "GPENCIL":
+                if bpy.context.mode!= "EDIT_GPENCIL":
+                    if len(objs) != 0:
+                        for ob in objs:
+                            bpy.context.location = scene.cursor.location
+                            bpy.context.rotation_euler = scene.cursor.rotation_euler
+                        return{"FINISHED"}
+                else:
+                    bpy.ops.gpencil.snap_cursor_to_selected()                
+                    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    return{"FINISHED"}     
+            if bpy.context.active_object.type not in IOPS.supported_types:
+                return{"FINISHED"}
+        else:
+            print("Not in 3d View!")
+            return{"FINISHED"}
+
+                       	
+#KeyMaps          
+addon_keymaps = []
+
+def register_keymaps():
+    # pass
+    wm1 = bpy.context.window_manager
+    km1 = wm1.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
+    kmi1 = km1.keymap_items.new("iops.vertex", "F1", "PRESS", alt=False, shift=False)        
+    addon_keymaps.append(km1)
     
-    def draw(self, context):
-        layout = self.layout      
+    wm2 = bpy.context.window_manager
+    km2 = wm2.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
+    kmi2 = km2.keymap_items.new("iops.edge", "F2", "PRESS", alt=False, shift=False)     
+    addon_keymaps.append(km2)
+    
+    wm3 = bpy.context.window_manager
+    km3 = wm3.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
+    kmi3 = km3.keymap_items.new("iops.face", "F3", "PRESS", alt=False, shift=False)     
+    addon_keymaps.append(km3)
+    
+    wm4 = bpy.context.window_manager
+    km4 = wm4.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
+    kmi4 = km4.keymap_items.new("iops.island", "F4", "PRESS", alt=False, shift=False)     
+    addon_keymaps.append(km4)
+    
+    wm5 = bpy.context.window_manager
+    km5 = wm5.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
+    kmi5 = km5.keymap_items.new("iops.cursor_origin", "F4", "PRESS", alt=False, shift=False)     
+    addon_keymaps.append(km5)
+    
+def unregister_keymaps():
+    wm = bpy.context.window_manager
+    for km in addon_keymaps:
+        for kmi in km.keymap_items:
+            km.keymap_items.remove(kmi)
+        wm.keyconfigs.addon.keymaps.remove(km)
+    addon_keymaps.clear()
 
-        # Keymaps.
-        box = layout.box()
-        box.label(text='Keymaps:')
-        try:
-            mainRow = box.row(align=True)
-            mainRow.alignment = 'LEFT'            
-
-            colLabels = mainRow.column(align=True)
-            colLabels.alignment = 'RIGHT'
-
-            colKeys = mainRow.column(align=True)
-            colKeys.alignment = 'EXPAND'
-
-            keymap = context.window_manager.keyconfigs.user.keymaps[IOPS_KEYMAP_NAME]
-            colKeys.context_pointer_set("keymap", keymap) # For the 'wm.keyitem_restore' operator.
-
-            for item in keymap.keymap_items:
-                if item.idname.startswith('iops.'):
-                    colLabels.label(text = item.idname.split('.')[1] + ':')
-                    subRow = colKeys.row()
-                    subRow.alignment = 'LEFT'
-                    subRow.prop(item, 'type', text='', full_event=True)
-                    subRow.prop(item, 'shift')
-                    subRow.prop(item, 'ctrl')
-                    subRow.prop(item, 'alt')
-                    if item.is_user_modified:
-                        subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
-        except:
-            layout.label(text='No keymaps found.', icon='ERROR') 
-
+#Classes for reg and unreg
 classes = (
             IOPS_OT_Vert,
             IOPS_OT_Edge,
             IOPS_OT_Face,             
             IOPS_OT_CursorOrigin,
             IOPS_OT_AlignObjectToFace,
-            IOPS_AddonPreferences,
+            IOPS_OT_Island
             )
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-  
-    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new(IOPS_KEYMAP_NAME, space_type='VIEW_3D', region_type='WINDOW').keymap_items
-    kmi = keymapItems.new('iops.cursor_origin', 'F4', 'PRESS')    
-    kmi.active = True
-    kmi = keymapItems.new('iops.face', 'F3', 'PRESS')    
-    kmi.active = True
-    kmi = keymapItems.new('iops.edge','F2', 'PRESS')    
-    kmi.active = True
-    kmi = keymapItems.new('iops.vertex', 'F1', 'PRESS')
-    kmi.active = True     
-    
+    register_keymaps() 
     print ("iOps - Registred!")
 
-def unregister():    
-       
-    allKeymaps = bpy.context.window_manager.keyconfigs.addon.keymaps
-    keymap = allKeymaps.get(IOPS_KEYMAP_NAME)
-    if keymap:
-        keymapItems = keymap.keymap_items
-        toDelete = tuple(
-            item for item in keymapItems if item.properties.name.startswith('iops.')
-        )
-        for item in toDelete:
-            keymapItems.remove(item)     
-    
+def unregister(): 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-   
+    unregister_keymaps()
     print ("iOps - UnRegistred!") 
     
 if __name__ == "__main__":
     register()
-
-
