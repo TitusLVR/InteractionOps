@@ -256,7 +256,7 @@ def register_keymaps():
     
     wm5 = bpy.context.window_manager
     km5 = wm5.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
-    kmi5 = km5.keymap_items.new("iops.cursor_origin", "F5", "PRESS", alt=False, shift=False)     
+    kmi5 = km5.keymap_items.new("iops.cursor_origin", "F4", "PRESS", alt=False, shift=False)     
     addon_keymaps.append(km5)
     
 def unregister_keymaps():
