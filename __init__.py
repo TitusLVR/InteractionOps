@@ -175,7 +175,7 @@ class IOPS_OT_CursorOrigin (IOPS):
     bl_label = "iOps Cursor to Selected/Origin to Cursor"
     def execute(self, context):
         # MESH
-        objs = bpy.context.selected_objects              
+        objs = bpy.context.selected_objects
         if bpy.context.area.type == "VIEW_3D":
             if bpy.context.active_object.type == "MESH":
                 if bpy.context.mode == "OBJECT":
