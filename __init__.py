@@ -81,9 +81,9 @@ class IOPS(bpy.types.Operator):
 
         #Object <-> Mesh
         if bpy.context.active_object.type == "MESH": 
-            mode_3d = "VERT" if scene.tool_settings.mesh_select_mode[0] else ""
-            mode_3d = "EDGE" if scene.tool_settings.mesh_select_mode[1] else ""
-            mode_3d = "FACE" if scene.tool_settings.mesh_select_mode[2] else ""
+            mode_3d = "VERT" if bpy.context.scenetool_settings.mesh_select_mode[0] else ""
+            mode_3d = "EDGE" if bpy.context.scenetool_settings.mesh_select_mode[1] else ""
+            mode_3d = "FACE" if bpy.context.scenetool_settings.mesh_select_mode[2] else ""
             # Same modes for active sync in UV 
             if (bpy.context.area.type == "VIEW_3D" or 
                (bpy.context.area.type == "IMAGE_EDITOR" and bpy.context.tool_settings.use_uv_select_sync == True)):
@@ -184,8 +184,8 @@ class IOPS_OT_CursorOrigin (IOPS):
                 if bpy.context.mode == "OBJECT":
                     if len(objs) != 0:
                         for ob in objs:
-                            bpy.context.object.location = scene.cursor.location
-                            bpy.context.object.rotation_euler = scene.cursor.rotation_euler
+                            ob.location = bpy.context.scene.cursor.location
+                            ob.rotation_euler = bpy.context.scene.cursor.rotation_euler
                         return{"FINISHED"}
                 else:
                         bpy.ops.view3d.snap_cursor_to_selected()
@@ -197,8 +197,8 @@ class IOPS_OT_CursorOrigin (IOPS):
                 if bpy.context.mode != "EDIT_CURVE":
                     if len(objs) != 0:
                         for ob in objs:
-                            bpy.context.location = scene.cursor.location
-                            bpy.context.rotation_euler = scene.cursor.rotation_euler
+                            ob.location = bpy.context.scene.cursor.location
+                            ob.rotation_euler = bpy.context.scene.cursor.rotation_euler
                         return{"FINISHED"}
                 else:
                     bpy.ops.view3d.snap_cursor_to_selected()
@@ -209,16 +209,16 @@ class IOPS_OT_CursorOrigin (IOPS):
             if bpy.context.active_object.type == "EMPTY":
                 if len(objs) != 0:
                     for ob in objs:
-                        bpy.context.location = scene.cursor.location
-                        bpy.context.rotation_euler = scene.cursor.rotation_euler
+                        ob.location = bpy.context.scene.cursor.location
+                        ob.rotation_euler = bpy.context.scene.cursor.rotation_euler
                     return{"FINISHED"}
             # GPENCIL
             if bpy.context.active_object.type == "GPENCIL":
                 if bpy.context.mode!= "EDIT_GPENCIL":
                     if len(objs) != 0:
                         for ob in objs:
-                            bpy.context.location = scene.cursor.location
-                            bpy.context.rotation_euler = scene.cursor.rotation_euler
+                            ob.location = bpy.context.scene.cursor.location
+                            ob.rotation_euler = bpy.context.scene.cursor.rotation_euler
                         return{"FINISHED"}
                 else:
                     bpy.ops.gpencil.snap_cursor_to_selected()                
@@ -259,7 +259,7 @@ def register_keymaps():
     
     wm5 = bpy.context.window_manager
     km5 = wm5.keyconfigs.addon.keymaps.new(name="Window", space_type="EMPTY",  region_type="WINDOW")
-    kmi5 = km5.keymap_items.new("iops.cursor_origin", "F4", "PRESS", alt=False, shift=False)     
+    kmi5 = km5.keymap_items.new("iops.cursor_origin", "F5", "PRESS", alt=False, shift=False)     
     addon_keymaps.append(km5)
     
 def unregister_keymaps():
