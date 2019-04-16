@@ -76,14 +76,11 @@ class IOPS(bpy.types.Operator):
         return context.object is not None
       
     def execute(self, context):
-
-        scene = bpy.context.scene
-
         #Object <-> Mesh
         if bpy.context.active_object.type == "MESH": 
-            mode_3d = "VERT" if bpy.context.scenetool_settings.mesh_select_mode[0] else ""
-            mode_3d = "EDGE" if bpy.context.scenetool_settings.mesh_select_mode[1] else ""
-            mode_3d = "FACE" if bpy.context.scenetool_settings.mesh_select_mode[2] else ""
+            mode_3d = "VERT" if bpy.context.scene.tool_settings.mesh_select_mode[0] else ""
+            mode_3d = "EDGE" if bpy.context.scene.tool_settings.mesh_select_mode[1] else ""
+            mode_3d = "FACE" if bpy.context.scene.tool_settings.mesh_select_mode[2] else ""
             # Same modes for active sync in UV 
             if (bpy.context.area.type == "VIEW_3D" or 
                (bpy.context.area.type == "IMAGE_EDITOR" and bpy.context.tool_settings.use_uv_select_sync == True)):
