@@ -1,3 +1,9 @@
+import bpy
+from bpy.props import *
+import bmesh
+import math
+from mathutils import Vector, Matrix, Euler
+
 class AlignObjectToFace(bpy.types.Operator):
     """ Align object to selected face """
     bl_idname = "iops.align_object_to_face"
@@ -26,7 +32,7 @@ class AlignObjectToFace(bpy.types.Operator):
         mx = obj.matrix_world
         loc = mx.to_translation()           #  Store location   
         polymesh = obj.data            
-        bm = bmesh.from_edit_mesh(polmesh)    
+        bm = bmesh.from_edit_mesh(polymesh)    
         face = []
 
         # Get active face

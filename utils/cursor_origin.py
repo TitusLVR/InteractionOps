@@ -1,7 +1,9 @@
-class IOPS_CursorOrigin (bpy.types.Operator):
+import bpy
+from ..operators.iops import IOPS
+
+class CursorOrigin(IOPS):
     bl_idname = "iops.cursor_origin"
     bl_label = "iOps Cursor to Selected/Origin to Cursor"
-    bl_options = {"REGISTER","UNDO"}
 
     @classmethod 
     def poll (self, context):
