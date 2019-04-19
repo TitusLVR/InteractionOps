@@ -19,12 +19,12 @@ IOPS_KEYMAP_NAME = '3D View Generic' # Name of the user keymap where the hotkey 
 IOPS_KEYMAP_ITEMS = {}               # Used for caching keymap items only once.
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = __name__
+    bl_idname = __package__
     
     def draw(self, context):
         layout = self.layout      
 
-        # Keymaps.
+        # Keymaps
         box = layout.box()
         box.label(text='Keymaps:')
         try:
@@ -53,3 +53,4 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
         except:
             layout.label(text='No keymaps found.', icon='ERROR') 
+
