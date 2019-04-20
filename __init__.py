@@ -19,9 +19,6 @@ from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F4)
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
-from .prefs.addon_preferences import IOPS_KEYMAP_NAME_VIEW_3D
-from .prefs.addon_preferences import IOPS_KEYMAP_NAME_UV
-from .prefs.addon_preferences import IOPS_KEYMAP_ITEMS
 
 from .utils.cursor_origin import *
 from .utils.align_object_to_face import *
@@ -32,13 +29,13 @@ def ShowMessageBox(text = "", title = "WARNING", icon = "ERROR"):
         self.layout.label(text = text)        
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
-def register_keymaps(KEYMAP, SPACE):
+def register_keymaps():
     keymapItems = (bpy.context
                   .window_manager
                   .keyconfigs
                   .addon
                   .keymaps
-                  .new(KEYMAP, space_type=SPACE, region_type='WINDOW')
+                  .new("Window")
                   .keymap_items)
 
     kmi = keymapItems.new('iops.mode_f1', 'F1', 'PRESS')
@@ -54,9 +51,9 @@ def register_keymaps(KEYMAP, SPACE):
     kmi = keymapItems.new('iops.align_object_to_face', 'F6', 'PRESS')    
     kmi.active = True
      
-def unregister_keymaps(KEYMAP):
+def unregister_keymaps():
     allKeymaps = bpy.context.window_manager.keyconfigs.addon.keymaps
-    keymap = allKeymaps.get(KEYMAP)
+    keymap = allKeymaps.get("Window")
     if keymap:
         keymapItems = keymap.keymap_items
         toDelete = tuple(
@@ -80,14 +77,12 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_cls()
-    register_keymaps(IOPS_KEYMAP_NAME_VIEW_3D, "VIEW_3D")
-    register_keymaps(IOPS_KEYMAP_NAME_UV, "IMAGE_EDITOR")
+    register_keymaps()
     print("IOPS Registered?!")
 
 def unregister():
    unreg_cls()
-   unregister_keymaps(IOPS_KEYMAP_NAME_VIEW_3D)
-   unregister_keymaps(IOPS_KEYMAP_NAME_UV)
+   unregister_keymaps()
    print("IOPS Unregistered!")
     
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import bpy
 from .iops import IOPS
 
 class IOPS_OT_MODE_F1(IOPS):
