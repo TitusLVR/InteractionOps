@@ -12,10 +12,10 @@ from mathutils import Vector, Matrix, Euler
 
 
 def draw_callback_px(self, context):
-        _location   = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
-        _rotation   = "Rotation: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
+        _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
+        _rotation = "Rotation: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
         _align_edge = "Edge index: {0}"
-        _axis_move  = "Move Axis: " + str(self.axis_move)
+        _axis_move = "Move Axis: " + str(self.axis_move)
 
         # Font
         font = 0
@@ -110,9 +110,9 @@ class AlignObjectToFace(bpy.types.Operator):
                        face.edges[idx].verts[1].co).normalized()
 
         # Build vectors for new matrix
-        n = face.normal if flip else (face.normal * -1)        # Z
-        t = vector_edge                                        # Y
-        c = t.cross(n)                                         # X
+        n = face.normal if flip else (face.normal * -1)  # Z
+        t = vector_edge                                  # Y
+        c = t.cross(n)                                   # X
 
         # Assemble new matrix
         if axis == 'Z':
@@ -129,6 +129,11 @@ class AlignObjectToFace(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
+
+        if event.type in {'MIDDLEMOUSE'}:
+            # Allow navigation
+            return {'PASS_THROUGH'}
+        # ---------------------------------------------------------    
         # Moving object while SHIFT is pressed for testing purpose
         # ---------------------------------------------------------
         if event.shift:
@@ -146,7 +151,6 @@ class AlignObjectToFace(bpy.types.Operator):
                 self.move(self.axis_move, 0.5)
                 bpy.context.object.location = self.loc
                 print("Moving along: " + self.axis_move)
-
         # ---------------------------------------------------------
         elif event.type in {'X', 'Y', 'Z'} and event.value == "PRESS":
                 self.axis_rotate = event.type
