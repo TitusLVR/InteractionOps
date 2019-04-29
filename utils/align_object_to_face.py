@@ -133,7 +133,7 @@ class AlignObjectToFace(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE'}:
             # Allow navigation
             return {'PASS_THROUGH'}
-        # ---------------------------------------------------------    
+        # ---------------------------------------------------------
         # Moving object while SHIFT is pressed for testing purpose
         # ---------------------------------------------------------
         if event.shift:

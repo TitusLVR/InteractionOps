@@ -1,23 +1,22 @@
 bl_info = {
-	"name": "iOps",
-	"author": "Titus, Cyrill",
-	"version": (1, 4, 1),
-	"blender": (2, 80, 0),
-	"location": "View3D > Toolbar and View3D",
-	"description": "Interaction operators (iOps) - for workflow speedup",
-	"warning": "",
-	"wiki_url": "https://blenderartists.org/t/interactionops-iops/1146238",
-	"tracker_url": "",
-	"category": "Mesh"
+    "name": "iOps",
+    "author": "Titus, Cyrill",
+    "version": (1, 4, 1),
+    "blender": (2, 80, 0),
+    "location": "View3D > Toolbar and View3D",
+    "description": "Interaction operators (iOps) - for workflow speedup",
+    "warning": "",
+    "wiki_url": "https://blenderartists.org/t/interactionops-iops/1146238",
+    "tracker_url": "",
+    "category": "Mesh"
     }
-import bpy
 
+import bpy
 from .operators.iops import IOPS
 from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
                               IOPS_OT_MODE_F4)
-
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .utils.cursor_origin import *
 from .utils.align_object_to_face import *
