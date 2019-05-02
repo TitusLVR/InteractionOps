@@ -30,7 +30,7 @@ class CurveSubdivide (bpy.types.Operator):
     
     points_num : IntProperty(
     name = "Number of cuts",
-    description = "Max value for X axis",            
+    description = "",            
     default = 1    
     )    
 
@@ -44,8 +44,7 @@ class CurveSubdivide (bpy.types.Operator):
         return {"FINISHED"}        
           
         
-    def subdivide(self, points):
-        """Number of cuts add"""        
+    def subdivide(self, points):        
         obj = bpy.context.active_object
         self.points_num = points
         bpy.ops.curve.subdivide(number_cuts=self.points_num)

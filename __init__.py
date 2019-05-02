@@ -17,9 +17,15 @@ from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
                               IOPS_OT_MODE_F4)
+from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve, 
+                                           IOPS_OT_CursorOrigin_Curve_Edit)
+from .operators.cursor_origin.empty import IOPS_OT_CursorOrigin_Empty
+from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
+                                           IOPS_OT_CursorOrigin_Gpen_Edit)
+from .operators.cursor_origin.mesh import (IOPS_OT_CursorOrigin_Mesh,
+                                           IOPS_OT_CursorOrigin_Mesh_Edit)
+from .operators.align_object_to_face import AlignObjectToFace
 from .prefs.addon_preferences import IOPS_AddonPreferences
-from .utils.cursor_origin import *
-from .utils.align_object_to_face import *
 
 
 # WarningMessage
@@ -46,7 +52,19 @@ def register_keymaps():
     kmi.active = True
     kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
     kmi.active = True
-    kmi = keymapItems.new('iops.cursor_origin', 'F4', 'PRESS')
+    kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_mesh_edit', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_curve', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_curve_edit', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_empty', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_gpen', 'F4', 'PRESS')
+    kmi.active = True
+    kmi = keymapItems.new('iops.cursor_origin_gpen_edit', 'F4', 'PRESS')
     kmi.active = True
     kmi = keymapItems.new('iops.align_object_to_face', 'F6', 'PRESS')
     kmi.active = True
@@ -70,7 +88,13 @@ classes = (IOPS,
            IOPS_OT_MODE_F2,
            IOPS_OT_MODE_F3,
            IOPS_OT_MODE_F4,
-           CursorOrigin,
+           IOPS_OT_CursorOrigin_Curve,
+           IOPS_OT_CursorOrigin_Curve_Edit,
+           IOPS_OT_CursorOrigin_Empty,
+           IOPS_OT_CursorOrigin_Gpen,
+           IOPS_OT_CursorOrigin_Gpen_Edit,
+           IOPS_OT_CursorOrigin_Mesh,
+           IOPS_OT_CursorOrigin_Mesh_Edit,
            AlignObjectToFace,
            )
 

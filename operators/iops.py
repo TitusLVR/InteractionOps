@@ -41,7 +41,9 @@ class IOPS(bpy.types.Operator):
                     
                 # Switch selection modes
                 # If activated same selection mode again switch to Object Mode   
-                if bpy.context.mode == "EDIT_MESH" and self.current_mode_3d != IOPS.current_mode_3d:                
+                if (bpy.context.mode == "EDIT_MESH" and 
+                    self.current_mode_3d != IOPS.current_mode_3d):
+                                    
                     bpy.ops.mesh.select_mode(type=self.current_mode_3d)
                     IOPS.current_mode_3d = self.current_mode_3d
                     return{"FINISHED"}
