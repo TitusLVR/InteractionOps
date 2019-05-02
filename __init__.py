@@ -25,6 +25,7 @@ from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
 from .operators.cursor_origin.mesh import (IOPS_OT_CursorOrigin_Mesh,
                                            IOPS_OT_CursorOrigin_Mesh_Edit)
 from .operators.align_object_to_face import AlignObjectToFace
+from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .prefs.addon_preferences import IOPS_AddonPreferences
 
 
@@ -51,6 +52,8 @@ def register_keymaps():
     kmi = keymapItems.new('iops.mode_f3', 'F3', 'PRESS')
     kmi.active = True
     kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
+    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')
+    kmi.active = True
     kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
     kmi.active = True
@@ -95,7 +98,8 @@ classes = (IOPS,
            IOPS_OT_CursorOrigin_Gpen_Edit,
            IOPS_OT_CursorOrigin_Mesh,
            IOPS_OT_CursorOrigin_Mesh_Edit,
-           AlignObjectToFace,
+           IOPS_OT_CurveSubdivide,
+           AlignObjectToFace
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

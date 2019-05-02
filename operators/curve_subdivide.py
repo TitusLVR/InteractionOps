@@ -21,17 +21,16 @@ def draw_callback_px(self, context):
         blf.draw(font, _points.format(self.points_num))
 
 
-class CurveSubdivide (bpy.types.Operator):
+class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     """ Align object to selected face """
     bl_idname = "iops.curve_subdivide"
     bl_label = "iOps curve subdivide"
     bl_options = {"REGISTER", "UNDO"}
-
     
     points_num : IntProperty(
     name = "Number of cuts",
     description = "",            
-    default = 1    
+    default = 1
     )    
 
     @classmethod
@@ -39,16 +38,13 @@ class CurveSubdivide (bpy.types.Operator):
          return (context.active_object.type == 'CURVE')
      
     def execute(self, context):
-        
         self.subdivide(self.points_num)
         return {"FINISHED"}        
-          
         
     def subdivide(self, points):        
         obj = bpy.context.active_object
         self.points_num = points
         bpy.ops.curve.subdivide(number_cuts=self.points_num)
-        #print (self.points_num)  
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -87,7 +83,6 @@ class CurveSubdivide (bpy.types.Operator):
                             args,
                             'WINDOW',
                             'POST_PIXEL')
-
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
@@ -98,11 +93,8 @@ class CurveSubdivide (bpy.types.Operator):
 def register():
     bpy.utils.register_class(CurveSubdivide)
 
-
 def unregister():
     bpy.utils.unregister_class(CurveSubdivide)
 
-
 if __name__ == "__main__":
     register()
-
