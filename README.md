@@ -1,6 +1,4 @@
 # InteractionOps
-iOps
-InteractionOps (iOps)
 Hello, idea of this addon is speed up switching between:
 
 Object mode and Edit mode
@@ -10,3 +8,4 @@ And more
 Installation:
 
 User preferences > Add-ons > Install from file…> select iOps.zip file.
+
