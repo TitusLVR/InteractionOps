@@ -4,7 +4,7 @@ from ..iops import IOPS
 
 class IOPS_OT_CursorOrigin_Empty(IOPS):
     bl_idname = "iops.cursor_origin_empty"
-    bl_label ="IOPS_OT_CursorOrigin_Empty"
+    bl_label ="EMPTY: Align to cursor"
 
     @classmethod
     def poll (self, context):

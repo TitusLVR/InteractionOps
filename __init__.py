@@ -26,6 +26,9 @@ from .operators.cursor_origin.mesh import (IOPS_OT_CursorOrigin_Mesh,
                                            IOPS_OT_CursorOrigin_Mesh_Edit)
 from .operators.align_object_to_face import AlignObjectToFace
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
+from .operators.mesh_convertSelection import (IOPS_OP_ToFaces,
+                                              IOPS_OP_ToEdges,
+                                              IOPS_OP_ToVerts)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 
 
@@ -52,8 +55,8 @@ def register_keymaps():
     kmi = keymapItems.new('iops.mode_f3', 'F3', 'PRESS')
     kmi.active = True
     kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')
     kmi.active = True
+    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')    
     kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
     kmi.active = True
@@ -71,6 +74,13 @@ def register_keymaps():
     kmi.active = True
     kmi = keymapItems.new('iops.align_object_to_face', 'F6', 'PRESS')
     kmi.active = True
+    kmi = keymapItems.new('iops.to_verts', 'F1', 'PRESS', ctrl=False, alt=True, shift=False)
+    kmi.active = True
+    kmi = keymapItems.new('iops.to_edges', 'F2', 'PRESS', ctrl=False, alt=True, shift=False)
+    kmi.active = True   
+    kmi = keymapItems.new('iops.to_faces', 'F3', 'PRESS', ctrl=False, alt=True, shift=False)
+    kmi.active = True
+   
 
 
 def unregister_keymaps():
@@ -99,6 +109,9 @@ classes = (IOPS,
            IOPS_OT_CursorOrigin_Mesh,
            IOPS_OT_CursorOrigin_Mesh_Edit,
            IOPS_OT_CurveSubdivide,
+           IOPS_OP_ToFaces,
+           IOPS_OP_ToEdges,
+           IOPS_OP_ToVerts,
            AlignObjectToFace
            )
 

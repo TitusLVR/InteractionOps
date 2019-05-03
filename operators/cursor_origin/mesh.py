@@ -4,7 +4,7 @@ from ..iops import IOPS
 
 class IOPS_OT_CursorOrigin_Mesh(IOPS):
     bl_idname = "iops.cursor_origin_mesh"
-    bl_label ="IOPS_OT_CursorOrigin_Mesh"
+    bl_label ="MESH: Object mode - Align to cursor"
 
     @classmethod
     def poll (self, context):
@@ -24,7 +24,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
 
 class IOPS_OT_CursorOrigin_Mesh_Edit(IOPS):
     bl_idname = "iops.cursor_origin_mesh_edit"
-    bl_label ="IOPS_OT_CursorOrigin_EditMesh"
+    bl_label ="MESH: Edit mode - Origin to selected"
 
     @classmethod
     def poll (self, context):

@@ -38,9 +38,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             keymap = context.window_manager.keyconfigs.user.keymaps["Window"]
             colKeys.context_pointer_set("keymap", keymap) # For the 'wm.keyitem_restore' operator.
 
-            for item in keymap.keymap_items:
+            for item in reversed(keymap.keymap_items):
                 if item.idname.startswith('iops.'):
-                    colLabels.label(text = item.idname.split('.')[1] + ':')
+                    op = eval("bpy.ops."+ item.idname + ".get_rna_type()")                    
+                    colLabels.label(text = op.name)
                     subRow = colKeys.row()
                     subRow.alignment = 'LEFT'
                     subRow.prop(item, 'type', text='', full_event=True)

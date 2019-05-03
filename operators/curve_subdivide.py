@@ -48,7 +48,7 @@ def preview_curve_pts(points):
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     """ Align object to selected face """
     bl_idname = "iops.curve_subdivide"
-    bl_label = "iOps curve subdivide"
+    bl_label = "CURVE: Subdivide"
     bl_options = {"REGISTER", "UNDO"}
     
     points_num : IntProperty(
@@ -116,11 +116,3 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
         
-def register():
-    bpy.utils.register_class(CurveSubdivide)
-
-def unregister():
-    bpy.utils.unregister_class(CurveSubdivide)
-
-if __name__ == "__main__":
-    register()

@@ -1,7 +1,9 @@
+import bpy
+
 class IOPS_OP_ToFaces(bpy.types.Operator):
     """ Convert Vertex/Edge selection to face selection """    
     bl_idname = "iops.to_faces"
-    bl_label = "Convert vertex/edge selection to face selection"
+    bl_label = "MESH: Convert vertex/edge selection to face selection"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -19,7 +21,7 @@ class IOPS_OP_ToFaces(bpy.types.Operator):
 class IOPS_OP_ToEdges(bpy.types.Operator):
     """ Convert Vertex/Face selection to edge selection """ 
     bl_idname = "iops.to_edges"
-    bl_label = "Convert vertex/face selection to edge selection"
+    bl_label = "MESH: Convert vertex/face selection to edge selection"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -40,7 +42,7 @@ class IOPS_OP_ToEdges(bpy.types.Operator):
 class IOPS_OP_ToVerts(bpy.types.Operator):
     """ Convert Edge/Face selection to vertex selection """
     bl_idname = "iops.to_verts"
-    bl_label = "Convert edge/face selection to vertex selection"
+    bl_label = "MESH: Convert edge/face selection to vertex selection"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod

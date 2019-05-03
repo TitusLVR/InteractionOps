@@ -4,7 +4,7 @@ from ..iops import IOPS
 
 class IOPS_OT_CursorOrigin_Gpen(IOPS):
     bl_idname = "iops.cursor_origin_gpen"
-    bl_label ="IOPS_OT_CursorOrigin_Gpen"
+    bl_label ="GPENCIL: Object mode - Align to cursor"
 
     @classmethod
     def poll (self, context):
@@ -15,7 +15,7 @@ class IOPS_OT_CursorOrigin_Gpen(IOPS):
 
 class IOPS_OT_CursorOrigin_Gpen_Edit(IOPS):
     bl_idname = "iops.cursor_origin_gpen_edit"
-    bl_label ="IOPS_OT_CursorOrigin_Gpen_Edit"
+    bl_label ="GPENCIL: Edit mode - Origin to selected"
 
     @classmethod
     def poll (self, context):

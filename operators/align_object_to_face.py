@@ -48,7 +48,7 @@ def draw_callback_px(self, context):
 class AlignObjectToFace(bpy.types.Operator):
     """ Align object to selected face """
     bl_idname = "iops.align_object_to_face"
-    bl_label = "iOps Align object to face"
+    bl_label = "MESH: Align object to face"
     bl_options = {"REGISTER", "UNDO"}
 
     axis_move    : StringProperty()

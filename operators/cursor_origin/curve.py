@@ -4,7 +4,7 @@ from ..iops import IOPS
 
 class IOPS_OT_CursorOrigin_Curve(IOPS):
     bl_idname = "iops.cursor_origin_curve"
-    bl_label ="IOPS_OT_CursorOrigin_Curve"
+    bl_label ="CURVE: Object mode - Align to cursor"
 
     @classmethod
     def poll (self, context):
@@ -23,7 +23,7 @@ class IOPS_OT_CursorOrigin_Curve(IOPS):
 
 class IOPS_OT_CursorOrigin_Curve_Edit(IOPS):
     bl_idname = "iops.cursor_origin_curve_edit"
-    bl_label ="IOPS_OT_CursorOrigin_Curve_Edit"
+    bl_label ="CURVE: Edit mode - Origin to selected"
 
     @classmethod
     def poll (self, context):
