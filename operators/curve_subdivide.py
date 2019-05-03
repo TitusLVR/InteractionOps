@@ -1,4 +1,6 @@
 import bpy
+import gpu
+from gpu_extras.batch import batch_for_shader
 import blf
 from bpy.props import (IntProperty,
                        FloatProperty,
@@ -11,7 +13,7 @@ from math import radians, degrees
 from mathutils import Vector, Matrix, Euler
 
 
-def draw_callback_px(self, context):       
+def draw_ui(self, context):       
         _points = "Number of cuts: {0}" 
         # Font
         font = 0
@@ -20,6 +22,28 @@ def draw_callback_px(self, context):
         blf.position(font, 60, 30, 0),
         blf.draw(font, _points.format(self.points_num))
 
+# TODO SORT THIS OUT ##############################
+def draw_preview_pts(self, context):
+    coords = preview_curve_pts()
+    pass
+
+def preview_curve_pts(points):
+        obj = bpy.context.active_object
+        pt_a = points[0]
+        pt_b = points[1]
+        draw_pts = []
+
+        # Store selected curve points
+        if obj.type == "CURVE":
+            selected_pts = []
+            for s in obj.data.splines:
+                for b in s.bezier_points:
+                    if b.select_control_point:
+                        selected_pts.append(b)
+
+        draw_pts = selected_pts  # Test
+        return draw_pts
+##################################################
 
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     """ Align object to selected face """
@@ -36,7 +60,7 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     @classmethod
     def poll(self, context):
          return (context.active_object.type == 'CURVE')
-     
+
     def execute(self, context):
         self.subdivide(self.points_num)
         return {"FINISHED"}        
@@ -76,13 +100,15 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     def invoke(self, context, event):
         if context.object and context.area.type == "VIEW_3D":                       
             self.points_num = 1
+
             # Add drawing handler for text overlay rendering
             args = (self, context)
             self._handle = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_callback_px,
+                            draw_ui,
                             args,
                             'WINDOW',
                             'POST_PIXEL')
+
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
