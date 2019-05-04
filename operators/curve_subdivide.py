@@ -125,7 +125,3 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         else:
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
-<<<<<<< HEAD
-        
-=======
->>>>>>> refactor
