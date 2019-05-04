@@ -49,38 +49,22 @@ def register_keymaps():
                       .keymap_items)
 
     kmi = keymapItems.new('iops.mode_f1', 'F1', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.mode_f2', 'F2', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.mode_f3', 'F3', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')    
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_mesh_edit', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_curve', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_curve_edit', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_empty', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_gpen', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.cursor_origin_gpen_edit', 'F4', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.align_object_to_face', 'F6', 'PRESS')
-    kmi.active = True
     kmi = keymapItems.new('iops.to_verts', 'F1', 'PRESS', ctrl=False, alt=True, shift=False)
-    kmi.active = True
     kmi = keymapItems.new('iops.to_edges', 'F2', 'PRESS', ctrl=False, alt=True, shift=False)
-    kmi.active = True   
     kmi = keymapItems.new('iops.to_faces', 'F3', 'PRESS', ctrl=False, alt=True, shift=False)
     kmi.active = True
-   
 
 
 def unregister_keymaps():
