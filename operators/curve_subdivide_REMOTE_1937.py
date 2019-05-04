@@ -38,7 +38,7 @@ def draw_curve_pts(self, context):
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     """ Subdivide Curve """
     bl_idname = "iops.curve_subdivide"
-    bl_label = "CURVE: Subdivide"
+    bl_label = "iOps curve subdivide"
     bl_options = {"REGISTER", "UNDO"}
     
     points_num : IntProperty(
@@ -125,7 +125,3 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         else:
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
-<<<<<<< HEAD
-        
-=======
->>>>>>> refactor
