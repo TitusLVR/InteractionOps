@@ -94,12 +94,18 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         
         result,location,normal,index,object,matrix = scene.ray_cast(view_layer,ray_origin,view_vector,distance=1.70141e+38)
         #print (index,object)    
+        obj = object
         vertsPos = []
-        if object is not None:
+        if object is not None :
             mesh = object.data
-            verts = mesh.polygons[index].vertices   
+            verts = mesh.polygons[index].vertices
+            bbox = object.bound_box
+            for v in bbox:
+                vertsPos.append(Vector(v[:]) @ object.matrix_world + object.location)
+            print (len(vertsPos))       
             for v in verts:
                 vertsPos.append(mesh.vertices[v.real].co @ object.matrix_world + object.location)
+            print (len(vertsPos))    
             return vertsPos
 
     def modal(self, context, event):
