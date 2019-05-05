@@ -19,14 +19,24 @@ class IOPS(bpy.types.Operator):
     @classmethod
     def poll(cls, context):                  
         return context.object is not None
-      
+    
+    def get_current_mode_3d(self, tool_mode):
+        mode = ""
+        if tool_mode[0]:
+            mode = "VERT"
+        elif tool_mode[1]:
+            mode = "EDGE"
+        elif tool_mode[2]:
+            mode = "FACE"
+        return mode
+
     def execute(self, context):
         #Object <-> Mesh
         scene = bpy.context.scene
+        tool_mode = scene.tool_settings.mesh_select_mode
         if bpy.context.active_object.type == "MESH": 
-            current_mode_3d = "VERT" if scene.tool_settings.mesh_select_mode[0] else ""
-            current_mode_3d = "EDGE" if scene.tool_settings.mesh_select_mode[1] else ""
-            current_mode_3d = "FACE" if scene.tool_settings.mesh_select_mode[2] else ""
+            current_mode_3d = self.get_current_mode_3d(tool_mode)
+            print(current_mode_3d)
             
             if (bpy.context.area.type == "VIEW_3D" or 
                (bpy.context.area.type == "IMAGE_EDITOR" and 
@@ -36,16 +46,15 @@ class IOPS(bpy.types.Operator):
                 if bpy.context.mode == "OBJECT": 
                     bpy.ops.object.mode_set(mode="EDIT")            
                     bpy.ops.mesh.select_mode(type=self.current_mode_3d)
-                    IOPS.current_mode_3d = self.current_mode_3d
+                    current_mode_3d = self.current_mode_3d
                     return{"FINISHED"}
                     
                 # Switch selection modes
                 # If activated same selection mode again switch to Object Mode   
                 if (bpy.context.mode == "EDIT_MESH" and 
-                    self.current_mode_3d != IOPS.current_mode_3d):
-                                    
+                    self.current_mode_3d != current_mode_3d):                  
                     bpy.ops.mesh.select_mode(type=self.current_mode_3d)
-                    IOPS.current_mode_3d = self.current_mode_3d
+                    current_mode_3d = self.current_mode_3d
                     return{"FINISHED"}
                 else:
                     bpy.ops.object.mode_set(mode="OBJECT")
@@ -58,12 +67,12 @@ class IOPS(bpy.types.Operator):
                     bpy.ops.object.mode_set(mode="EDIT")
                     bpy.ops.mesh.select_all(action="SELECT")
                     bpy.context.tool_settings.uv_select_mode = self.current_mode_uv
-                    IOPS.current_mode_uv = self.current_mode_uv
+                    current_mode_uv = self.current_mode_uv
                     return{"FINISHED"}
 
-                elif self.current_mode_uv != IOPS.current_mode_uv:
+                elif self.current_mode_uv != current_mode_uv:
                         bpy.context.tool_settings.uv_select_mode = self.current_mode_uv
-                        IOPS.current_mode_uv = self.current_mode_uv
+                        current_mode_uv = self.current_mode_uv
                         return{"FINISHED"}
                 else:
                         bpy.ops.object.mode_set(mode="OBJECT")
@@ -82,7 +91,7 @@ class IOPS(bpy.types.Operator):
             return{"FINISHED"} 
 
         #Unsupported Types      
-        if bpy.context.active_object.type not in IOPS.supported_types:
+        if bpy.context.active_object.type not in supported_types:
             print(bpy.context.active_object.type,"not supported yet!")
             return{"FINISHED"} 
         return{"FINISHED"}
