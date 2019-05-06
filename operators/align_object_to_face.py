@@ -20,8 +20,12 @@ def draw_edge(self, context):
     shader.uniform_float("color", (1, 1, 0, 1))
     batch.draw(shader)
 
+<<<<<<< HEAD
 def draw_callback_px(self, context):        
 
+=======
+def draw_callback_px(self, context):
+>>>>>>> 2ea05a067d42e334153dee02659024799f5b653e
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
     _axis_move = "Move Axis: " + str(self.axis_move)
@@ -31,21 +35,17 @@ def draw_callback_px(self, context):
     font = 0
     blf.size(font, 20, 72)
 
-
     # Align axis text overlay
     blf.position(font, 60, 150, 0)
     blf.draw(font, "Edge: " + str(_edge))
-
 
     # Align axis text overlay
     blf.position(font, 60, 120, 0)
     blf.draw(font, "Align axis: " + self.axis_rotate)
 
-
     # Move axis text overlay
     blf.position(font, 60, 90, 0)
     blf.draw(font, _align_edge.format(self.get_edge_idx(self.counter)))
-
 
     # Active axis text overlay
     blf.position(font, 60, 60, 0)
@@ -54,7 +54,6 @@ def draw_callback_px(self, context):
     # Location text overlay
     blf.position(font, 60, 30, 0)
     blf.draw(font, _location.format(self.loc[0], self.loc[1], self.loc[2]))
-
 
 
 class AlignObjectToFace(bpy.types.Operator):
