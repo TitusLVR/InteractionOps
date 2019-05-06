@@ -20,16 +20,7 @@ def draw_edge(self, context):
     shader.uniform_float("color", (1, 1, 0, 1))
     batch.draw(shader)
 
-def draw_callback_px(self, context):
-
-        _align_edge = "Edge index: {0}"
-        _axis_move = "Move Axis: " + str(self.axis_move)
-
-        # Font
-        font = 0
-        blf.size(font, 20, 72)
-        blf.color(font,1,1,0,1)
-        
+def draw_callback_px(self, context):        
 
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
@@ -126,8 +117,8 @@ class AlignObjectToFace(bpy.types.Operator):
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
                        face.edges[idx].verts[1].co).normalized()
-        self.edge_co = [face.edges[idx].verts[0].co @ mx + loc,
-                        face.edges[idx].verts[1].co @ mx + loc]
+        self.edge_co = [face.edges[self.get_edge_idx(idx)].verts[0].co @ mx + loc,
+                        face.edges[self.get_edge_idx(idx)].verts[1].co @ mx + loc]
         self.edge_co = [self.edge_co[0][:], self.edge_co[1][:]]
 
         # Build vectors for ne
