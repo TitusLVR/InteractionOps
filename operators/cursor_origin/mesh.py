@@ -19,13 +19,13 @@ def draw_line_cursor(self, context):
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "LINES", {"pos": coords})
     shader.bind()
-    shader.uniform_float("color", (1, 0, 0, 1))
+    shader.uniform_float("color", (0.1, 0.6, 0.4, 1))
     batch.draw(shader)
     # pass
 
 def draw_ui(self, context):
     _F1 = "F1 - Look at Cursor"
-    _F2 = "F2 - Look at Cursor"
+    _F2 = "F2 - Look at Active"
     _F3 = "F3 - Move and Rotate to Cursor"
     _F4 = "F4 - Move to Cursor"
     _rotate = self.rotate
@@ -40,7 +40,7 @@ def draw_ui(self, context):
     blf.draw(font, _F1)
     # F2
     blf.position(font, 60, 90, 0),
-    blf.draw(font, _F1)
+    blf.draw(font, _F2)
     # F3
     blf.position(font, 60, 60, 0),
     blf.draw(font, _F3)
@@ -72,36 +72,25 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
             if rotate:
                 ob.rotation_euler = scene.cursor.rotation_euler
 
-    def look_at_cursor(self,flip):
-        scene = bpy.context.scene
+    def look_at(self, context, target, flip):
         objs = bpy.context.selected_objects
-
-        # Reset matrix
-        for o, m in zip(objs, self.orig_mxs):
-                    o.matrix_world = m
+        self.gpu_verts = []
 
         for o in objs:
-            v = Vector(o.location - scene.cursor.location)
+            # Reset matrix
+            q = o.matrix_world.to_quaternion()
+            m = q.to_matrix()
+            m = m.to_4x4()
+            o.matrix_world @= m.inverted()
+           
+            self.gpu_verts.append(o.location)
+            self.gpu_verts.append(target.location)
+
+            v = Vector(o.location - target.location)
             if flip:
                 rot_mx = v.to_track_quat("-Z", "Y").to_matrix().to_4x4()
             else:
                 rot_mx = v.to_track_quat("Z", "Y").to_matrix().to_4x4()
-            o.matrix_world @= rot_mx
-            
-    def look_at_active(self,flip):
-        scene = bpy.context.scene
-        objs = bpy.context.selected_objects
-        # Reset matrix
-        for o, m in zip(objs, self.orig_mxs):
-                    o.matrix_world = m
-
-        for o in objs:
-            v = Vector(o.location - scene.active_object.location)
-            if flip:
-                rot_mx = v.to_track_quat("-Z", "Y").to_matrix().to_4x4()
-            else:
-                rot_mx = v.to_track_quat("Z", "Y").to_matrix().to_4x4()
-
             o.matrix_world @= rot_mx
 
     
@@ -119,7 +108,12 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
 
             elif event.type == "F1" and event.value == "PRESS":
                     self.flip = not self.flip
-                    self.look_at_cursor(self.flip)
+                    self.look_at(context, context.scene.cursor, self.flip)
+                    self.report({"INFO"}, event.type)
+
+            elif event.type == "F2" and event.value == "PRESS":
+                    self.flip = not self.flip
+                    self.look_at(context, context.view_layer.objects.active, self.flip)
                     self.report({"INFO"}, event.type)
             
             elif event.type == "F3" and event.value == "PRESS":
@@ -152,10 +146,9 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
         self.gpu_verts = []
         objs = context.selected_objects
 
+        # Store matricies for undo
         for o in objs:
             self.orig_mxs.append(o.matrix_world.copy())
-            self.gpu_verts.append(o.location)
-            self.gpu_verts.append(context.scene.cursor.location)
 
         if context.object and context.area.type == "VIEW_3D":
             # Add drawing handler for text overlay rendering
