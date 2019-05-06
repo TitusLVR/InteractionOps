@@ -1,4 +1,4 @@
-fimport bpy
+import bpy
 import blf
 import math
 import gpu

@@ -17,7 +17,7 @@ def draw_edge(self, context):
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "LINES", {"pos": coords})
     shader.bind()
-    shader.uniform_float("color", (1, 0, 0, 1))
+    shader.uniform_float("color", (1, 1, 0, 1))
     batch.draw(shader)
 
 def draw_callback_px(self, context):
@@ -113,7 +113,7 @@ class AlignObjectToFace(bpy.types.Operator):
                        face.edges[idx].verts[1].co).normalized()
         self.edge_co = [face.edges[idx].verts[0].co @ mx + loc,
                         face.edges[idx].verts[1].co @ mx + loc]
-        
+        self.edge_co = [self.edge_co[0][:], self.edge_co[1][:]]
 
         # Build vectors for ne
         n = face.normal if flip else (face.normal * -1)  # Z
