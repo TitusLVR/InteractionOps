@@ -1,7 +1,7 @@
 bl_info = {
     "name": "iOps",
-    "author": "Titus, Cyrill",
-    "version": (1, 4, 1),
+    "author": "Titus, Cyrill, Aleksey",
+    "version": (1, 5, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "Interaction operators (iOps) - for workflow speedup",
@@ -22,8 +22,8 @@ from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve,
 from .operators.cursor_origin.empty import IOPS_OT_CursorOrigin_Empty
 from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
                                            IOPS_OT_CursorOrigin_Gpen_Edit)
-from .operators.cursor_origin.mesh import (IOPS_OT_CursorOrigin_Mesh,
-                                           IOPS_OT_CursorOrigin_Mesh_Edit)
+from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
+from .operators.cursor_origin.mesh_edit import IOPS_OT_CursorOrigin_Mesh_Edit
 from .operators.align_object_to_face import AlignObjectToFace
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.mesh_convertSelection import (IOPS_OP_ToFaces,
