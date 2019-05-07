@@ -24,9 +24,9 @@ def draw_line_cursor(self, context):
     # pass
 
 def draw_ui(self, context):
-    _F1 = "F1 - Look at Cursor"
-    _F2 = "F2 - Look at Active"
-    _F3 = "F3 - Move and Rotate to Cursor"
+    _F1 = "F1 - Look at or away from Cursor"
+    _F2 = "F2 - Look at or away from Active"
+    _F3 = "F3 - Move or Rotate and Move to Cursor"
     _F4 = "F4 - Move to Cursor"
     _rotate = self.rotate
     # Font

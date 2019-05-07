@@ -12,29 +12,6 @@ from bpy.props import (IntProperty,
 from mathutils import Vector, Matrix
 from ..iops import IOPS
 
-# ----------------------------  UI  ---------------------------------------
-
-def draw_ui(self, context):
-    _F4 = "F4 - Move to Cursor"
-    _R  = "R  - Move and Rotate to Cursor"
-    _F1  = "F1  - Look at Cursor"
-    # Font
-    font = 0
-    blf.size(font, 20, 72)
-    # Rotate
-    blf.position(font, 60, 210, 0),
-    blf.draw(font, "Rotate: " + str(_rotate))
-    # F4
-    blf.position(font, 60, 180, 0),
-    blf.draw(font, _F4)
-    # R
-    blf.position(font, 60, 150, 0),
-    blf.draw(font, _R)
-    # 1
-    blf.position(font, 60, 120, 0),
-    blf.draw(font, _F1)
-
-# -------------------------------------------------------------------------
 
 class IOPS_OT_CursorOrigin_Mesh_Edit(IOPS):
     bl_idname = "iops.cursor_origin_mesh_edit"
