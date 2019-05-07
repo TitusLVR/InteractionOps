@@ -153,19 +153,45 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             mesh = object.data
             verts = mesh.polygons[index].vertices
             bbox = object.bound_box
-            matrix = object.matrix_world.copy()
+            matrix = object.matrix_world 
+            identity_mtx = matrix @ matrix.inverted()
+            matrix_trans = matrix.transposed()  
+            
+            bbox_Verts =[]           
+
+            dec_mx = matrix.decompose()
+         
+            mxT=dec_mx[0]
+            mxR=dec_mx[1].to_matrix()
+            mxS=matrix.to_scale()
+#            bbox_MTX = bbox_obj.matrix_world 
+#            
+#            bbox_obj.matrix_world = object.matrix_world 
+#            print ("BBOX_FINAL_MTX", bbox_obj.matrix_world)
+            
+            
+#            for v in bbox:
+#                bbox_Verts.append(v)
+             
+            for v in bbox:                
+                pos = Vector(v) @  matrix_trans               
+                bbox_Verts.append(pos)
+                
             #BBOX COLLECT
-            for v in bbox:
-                pos3D = (Vector(v[:]) @ matrix.inverted() + object.location )            
+            for v in bbox_Verts:
+                #pos3D = (Vector(v[:]) @ posMTX @ rotMTX @ scaleMTX + object.location)
+                pos3D = v            
                 pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
                 bboxBatch3D.append(pos3D)
-                bboxBatch.append(pos2D)                
+                bboxBatch.append(pos2D)            
+            #CleanUP
+            #bpy.data.meshes.remove(bbox_mesh, do_unlink=True,do_id_user=True, do_ui_user=True)                
             #FACE COLLECT          
-            for v in verts:
-                pos3D = (mesh.vertices[v.real].co @ matrix.inverted() + object.location)
-                pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
-                faceBatch3D.append(pos3D)
-                faceBatch.append(pos2D)
+#            for v in verts:
+#                pos3D = (mesh.vertices[v.real].co @ matrix + object.location)
+#                pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
+#                faceBatch3D.append(pos3D)
+#                faceBatch.append(pos2D)
             #return vertsPos            
             return [faceBatch,faceBatch3D, bboxBatch, bboxBatch3D]
         else:
