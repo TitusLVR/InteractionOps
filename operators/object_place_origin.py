@@ -82,20 +82,19 @@ def draw_multicircles_fill_2d_BBOX(self, context):
 
 def draw_bbox_lines(self,context):
     coords = (self.getFaceVertPos(context))[3]
-#    indices = (
-#    (0, 1), (0, 2), (1, 3), (2, 3),
-#    (4, 5), (4, 6), (5, 7), (6, 7),
-#    (0, 4), (1, 5), (2, 6), (3, 7))
-    indices = (
-    (0, 1), (1, 2), (2, 3), (3, 0),
-    (4, 5), (5, 6), (6, 7), (7, 4),
-    (0, 4), (1, 5), (2, 6), (3, 7)
-    )
-    shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)    
-    shader.bind()
-    shader.uniform_float("color", (0.973, 0.723, 0.15, 1))
-    batch.draw(shader)
+    if len(coords) != 0:    
+        if len(coords) == 8:
+            indices = (
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7))
+        else:
+            indices = ()
+        shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+        batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)    
+        shader.bind()
+        shader.uniform_float("color", (0.973, 0.723, 0.15, 1))
+        batch.draw(shader)
 
 #Calculate distance between raycasts
 def calc_distance(step,old_loc,new_loc):
