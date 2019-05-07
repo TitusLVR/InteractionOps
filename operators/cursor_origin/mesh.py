@@ -24,17 +24,34 @@ def draw_line_cursor(self, context):
     # pass
 
 def draw_ui(self, context):
+
+    def get_target():
+        if self.target == context.scene.cursor:
+            return "3D Cursor"
+        elif self.target == context.view_layer.objects.active:
+            return "Active object" 
+
+    _target = get_target()
+    _axis = self.look_axis[0]
+    _rotate = self.rotate
+
     _F1 = "F1 - Look at or away from Cursor"
     _F2 = "F2 - Look at or away from Active"
-    _F3 = "F3 - Move or Rotate and Move to Cursor"
+    _F3 = "F3 - Move or Move + Rotate to Cursor"
     _F4 = "F4 - Move to Cursor"
-    _rotate = self.rotate
+
     # Font
     font = 0
     blf.size(font, 20, 72)
     # Rotate
-    blf.position(font, 60, 150, 0),
+    blf.position(font, 60, 210, 0),
     blf.draw(font, "Match cursor's rotation: " + str(_rotate))
+    # Axis
+    blf.position(font, 60, 180, 0),
+    blf.draw(font, "Look axis: " + str(_axis))
+    # Target
+    blf.position(font, 60, 150, 0),
+    blf.draw(font, "Look at " + _target)
     # F1
     blf.position(font, 60, 120, 0),
     blf.draw(font, _F1)
@@ -56,6 +73,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
     orig_mxs = []
     rotate = False
     flip = False
+    target = None
+    look_axis = []
     gpu_verts = []
 
     @classmethod
@@ -72,7 +91,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
             if rotate:
                 ob.rotation_euler = scene.cursor.rotation_euler
 
-    def look_at(self, context, target, flip):
+    def look_at(self, context, target, axis, flip):
         objs = bpy.context.selected_objects
         self.gpu_verts = []
 
@@ -88,9 +107,9 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
 
             v = Vector(o.location - target.location)
             if flip:
-                rot_mx = v.to_track_quat("-Z", "Y").to_matrix().to_4x4()
+                rot_mx = v.to_track_quat("-" + axis[0], axis[1]).to_matrix().to_4x4()
             else:
-                rot_mx = v.to_track_quat("Z", "Y").to_matrix().to_4x4()
+                rot_mx = v.to_track_quat(axis[0], axis[1]).to_matrix().to_4x4()
             o.matrix_world @= rot_mx
 
     
@@ -108,12 +127,32 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
 
             elif event.type == "F1" and event.value == "PRESS":
                     self.flip = not self.flip
-                    self.look_at(context, context.scene.cursor, self.flip)
+                    self.target = context.scene.cursor
+                    self.look_at(context, self.target, self.look_axis, self.flip)
                     self.report({"INFO"}, event.type)
 
             elif event.type == "F2" and event.value == "PRESS":
                     self.flip = not self.flip
-                    self.look_at(context, context.view_layer.objects.active, self.flip)
+                    self.target = context.view_layer.objects.active
+                    self.look_at(context, self.target, self.look_axis, self.flip)
+                    self.report({"INFO"}, event.type)
+
+            elif event.type == "X" and event.value == "PRESS":
+                    self.flip = not self.flip
+                    self.look_axis = [("X"), ("Z")]
+                    self.look_at(context, self.target, self.look_axis, self.flip)
+                    self.report({"INFO"}, event.type)
+
+            elif event.type == "Y" and event.value == "PRESS":
+                    self.flip = not self.flip
+                    self.look_axis = [("Y"), ("X")]
+                    self.look_at(context, self.target, self.look_axis, self.flip)
+                    self.report({"INFO"}, event.type)
+
+            elif event.type == "Z" and event.value == "PRESS":
+                    self.flip = not self.flip
+                    self.look_axis = [("Z"), ("Y")]
+                    self.look_at(context, self.target, self.look_axis, self.flip)
                     self.report({"INFO"}, event.type)
             
             elif event.type == "F3" and event.value == "PRESS":
@@ -144,6 +183,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
     def invoke(self, context, event):
         self.orig_mxs = []
         self.gpu_verts = []
+        self.look_axis = [("Z"), ("Y")]
+        self.target = context.scene.cursor
         objs = context.selected_objects
 
         # Store matricies for undo

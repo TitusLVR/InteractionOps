@@ -15,17 +15,14 @@ from mathutils import Vector, Matrix
 def draw_edge(self, context):
     coords = self.edge_co
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
-    batch = batch_for_shader(shader, "LINES", {"pos": coords})
+    batch_edge = batch_for_shader(shader, "LINES", {"pos": coords})
+    batch_verts = batch_for_shader(shader, "POINTS", {"pos": coords})
     shader.bind()
-    shader.uniform_float("color", (1, 1, 0, 1))
-    batch.draw(shader)
+    shader.uniform_float("color", (0, 1, 0, 1))
+    batch_edge.draw(shader)
+    batch_verts.draw(shader)
 
-<<<<<<< HEAD
-def draw_callback_px(self, context):        
-
-=======
 def draw_callback_px(self, context):
->>>>>>> 2ea05a067d42e334153dee02659024799f5b653e
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
     _axis_move = "Move Axis: " + str(self.axis_move)
@@ -91,6 +88,7 @@ class AlignObjectToFace(bpy.types.Operator):
 
     def get_edge_idx(self, idx):
         """Return edge index from (counter % number of edges) of a face"""
+
         obj = bpy.context.active_object
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
@@ -116,11 +114,9 @@ class AlignObjectToFace(bpy.types.Operator):
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
                        face.edges[idx].verts[1].co).normalized()
-        self.edge_co = [face.edges[self.get_edge_idx(idx)].verts[0].co @ mx + loc,
-                        face.edges[self.get_edge_idx(idx)].verts[1].co @ mx + loc]
-        self.edge_co = [self.edge_co[0][:], self.edge_co[1][:]]
+        # self.edge_co = [self.edge_co[0][:], self.edge_co[1][:]]
 
-        # Build vectors for ne
+        # Build vectors for new matrix
         n = face.normal if flip else (face.normal * -1)  # Z
         t = vector_edge                                  # Y
         c = t.cross(n)                                   # X
@@ -133,6 +129,8 @@ class AlignObjectToFace(bpy.types.Operator):
         elif axis == 'X':
             mx_rot = Matrix((n, c, t)).transposed().to_4x4()
 
+        self.edge_co = [face.edges[idx].verts[0].co @ mx_rot + loc,
+                        face.edges[idx].verts[1].co @ mx_rot + loc]
 
         # Apply new matrix
         obj.matrix_world = mx_rot.inverted()
@@ -140,10 +138,8 @@ class AlignObjectToFace(bpy.types.Operator):
         obj.scale = scale
 
 
-
     def modal(self, context, event):
         context.area.tag_redraw()
-
         if event.type in {'MIDDLEMOUSE'}:
             # Allow navigation
             return {'PASS_THROUGH'}
@@ -203,7 +199,7 @@ class AlignObjectToFace(bpy.types.Operator):
             self.loc_start = bpy.context.object.location
             self.rot_start = bpy.context.object.rotation_euler
             self.loc = self.loc_start
-            self.edge_idx = 1
+            self.edge_idx = 0
             self.counter = 0
             self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
 
