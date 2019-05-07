@@ -87,7 +87,19 @@ def draw_bbox_lines(self,context):
             indices = (
             (0, 1), (1, 2), (2, 3), (3, 0),
             (4, 5), (5, 6), (6, 7), (7, 4),
-            (0, 4), (1, 5), (2, 6), (3, 7))
+            (0, 4), (1, 5), (2, 6), (3, 7)
+            )
+        elif len(coords) > 8:  
+            indices = (
+                        #Bbox
+                        (0, 1), (1, 2), (2, 3), (3, 0),
+                        (4, 5), (5, 6), (6, 7), (7, 4),
+                        (0, 4), (1, 5), (2, 6), (3, 7),
+                        #SUBD
+                        #(8, 10), (9, 11), (12, 14), (13,15),
+                        #(16,17), (17, 18),(19,16),(11,15),
+                        #(12,8)                        
+                        )
         else:
             indices = ()
         shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
@@ -151,40 +163,36 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         faceBatch3D = []
         if result :
             mesh = object.data
-            verts = mesh.polygons[index].vertices
-            bbox = object.bound_box
+            verts = mesh.polygons[index].vertices            
             matrix = object.matrix_world 
-            identity_mtx = matrix @ matrix.inverted()
-            matrix_trans = matrix.transposed()  
+            matrix_trans = matrix.transposed()
             
-            bbox_Verts =[]           
-
-            dec_mx = matrix.decompose()
-         
-            mxT=dec_mx[0]
-            mxR=dec_mx[1].to_matrix()
-            mxS=matrix.to_scale()
-#            bbox_MTX = bbox_obj.matrix_world 
-#            
-#            bbox_obj.matrix_world = object.matrix_world 
-#            print ("BBOX_FINAL_MTX", bbox_obj.matrix_world)
-            
-            
-#            for v in bbox:
-#                bbox_Verts.append(v)
-             
-            for v in bbox:                
-                pos = Vector(v) @  matrix_trans               
-                bbox_Verts.append(pos)
+            bbox = object.bound_box
+            bbox_Verts3D =[]
+            if len(bbox) != 0:         
+                bbox_Edges = ((0, 1), (1, 2), (2, 3), (3, 0),
+                              (4, 5), (5, 6), (6, 7), (7, 4),
+                              (0, 4), (1, 5), (2, 6), (3, 7))
+                #BBox
+                for v in bbox:                
+                    pos = Vector(v) @  matrix_trans               
+                    bbox_Verts3D.append(pos)
+                #BBox Edge subD
+                for e in bbox_Edges:                    
+                    vert1 = Vector(bbox[(e[0])])
+                    vert2 = Vector(bbox[(e[1])])
+                    vertmid = (vert1+vert2)/2
+                    pos = Vector(vertmid) @  matrix_trans
+                    bbox_Verts3D.append(pos)                                 
+                #BBOX COLLECT
+                for v in bbox_Verts3D:                
+                    pos3D = v            
+                    pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
+                    bboxBatch3D.append(pos3D)
+                    bboxBatch.append(pos2D)
                 
-            #BBOX COLLECT
-            for v in bbox_Verts:
-                #pos3D = (Vector(v[:]) @ posMTX @ rotMTX @ scaleMTX + object.location)
-                pos3D = v            
-                pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
-                bboxBatch3D.append(pos3D)
-                bboxBatch.append(pos2D)            
-            #CleanUP
+                print (len(bboxBatch))            
+            
             #bpy.data.meshes.remove(bbox_mesh, do_unlink=True,do_id_user=True, do_ui_user=True)                
             #FACE COLLECT          
 #            for v in verts:
