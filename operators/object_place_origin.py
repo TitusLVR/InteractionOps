@@ -9,6 +9,7 @@ from math import radians, degrees
 from mathutils import Vector, Matrix, Euler
 from math import sin, cos, pi
 
+
 # get circle vertices on pos 2D by segments
 def GenerateCircleVerts(position, radius, segments):    
     coords = []
@@ -34,7 +35,7 @@ def GenerateCircleTris(segments, startID):
 
 ## draw multiple circle in one batch on screen
 def draw_multicircles_fill_2d_Face(self, context):    
-    positions = (self.getFaceVertPos(context))[0]
+    positions = (self.ObjectBBox(context))[0]
     if positions != None: 
         color = (0.973, 0.723, 0.15, 0.1)
         radius = 5
@@ -58,7 +59,7 @@ def draw_multicircles_fill_2d_Face(self, context):
 
 ## draw multiple circle in one batch on screen
 def draw_multicircles_fill_2d_BBOX(self, context):    
-    positions = (self.getFaceVertPos(context))[2]
+    positions = (self.ObjectBBox(context))[2]
     if positions != None: 
         color = (0.973, 0.723, 0.15, 0.1)
         radius = 5
@@ -81,7 +82,7 @@ def draw_multicircles_fill_2d_BBOX(self, context):
         batch.draw(shader)
 
 def draw_bbox_lines(self,context):
-    coords = (self.getFaceVertPos(context))[3]
+    coords = (self.ObjectBBox(context))[3]
     if len(coords) != 0:    
         if len(coords) == 8:
             indices = (
@@ -105,7 +106,7 @@ def draw_bbox_lines(self,context):
         shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
         batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)    
         shader.bind()
-        shader.uniform_float("color", (0.973, 0.723, 0.15, 1))
+        shader.uniform_float("color", (0.873, 0.623, 0.15, 1))
         batch.draw(shader)
 
 #Calculate distance between raycasts
@@ -127,19 +128,22 @@ def calc_distance(step,old_loc,new_loc):
 #    batch.draw(shader)
 #    # pass  
 
+
 class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     """Place origin operator"""
     bl_idname = "iops.place_origin"
     bl_label = "Place origin"   
-    
+
+
     mouse_pos = [0,0]
-    temp_obj = []
-  
+    result = False
+    result_obj = None   
+       
         
     def getClosestPoint(self,context):
         coord = self.mouse_pos        
         
-    def getFaceVertPos(self,context):
+    def SceneRayCast(self,context):
         # get the context arguments        
         scene = context.scene
         region = context.region
@@ -153,17 +157,35 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
 
         ray_target = ray_origin + view_vector
         
-        result,location,normal,index,object,matrix = scene.ray_cast(view_layer,ray_origin,view_vector,distance=1.70141e+38)
-        #print (index,object)
-        self.tempObj = object
+        result,location,normal,index,object,matrix = scene.ray_cast(view_layer,ray_origin,view_vector,distance=1.70141e+38)        
+        
+        if result:
+            self.result = result
+            self.result_obj = object
+            return result,object
+        else:
+            if self.result_obj != None:
+                pass
+            else:
+                object = None            
+            return result, object
+    
+    def ObjectBBox(self, context):
+        scene = context.scene
+        region = context.region
+        rv3d = context.region_data
+        coord = self.mouse_pos
+        view_layer = context.view_layer
+        
+        res = self.result
+        object = self.result_obj 
         vertsPos = []
         bboxBatch =[]
         bboxBatch3D = []       
         faceBatch = []
         faceBatch3D = []
-        if result :
-            mesh = object.data
-            verts = mesh.polygons[index].vertices            
+        if object != None:                        
+            #verts = mesh.polygons[index].vertices            
             matrix = object.matrix_world 
             matrix_trans = matrix.transposed()
             
@@ -189,9 +211,8 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                     pos3D = v            
                     pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
                     bboxBatch3D.append(pos3D)
-                    bboxBatch.append(pos2D)
-                
-                print (len(bboxBatch))            
+                    bboxBatch.append(pos2D)                
+                #print (len(bboxBatch))            
             
             #bpy.data.meshes.remove(bbox_mesh, do_unlink=True,do_id_user=True, do_ui_user=True)                
             #FACE COLLECT          
@@ -213,12 +234,16 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             return {'PASS_THROUGH'}
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.getFaceVertPos(context)            
-            print ("VERT POS",self.getFaceVertPos(context))
-            print ("MOUSE POS",self.mouse_pos)
+            self.SceneRayCast(context)
+            self.ObjectBBox(context)          
+#            print ("VERT POS",self.getFaceVertPos(context))
+#            print ("MOUSE POS",self.mouse_pos)
             
             
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
+            self.mouse_pos = [0,0]
+            self.result = False
+            self.result_obj = None
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_points, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points,'WINDOW')
@@ -231,6 +256,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             #self.vertPos = self.getFaceVertPos(event)
+            self.result,self.result_obj = self.SceneRayCast(context)
             self._handle_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_Face,args,'WINDOW','POST_PIXEL')
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines,args,'WINDOW','POST_VIEW')
             self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_BBOX,args,'WINDOW','POST_PIXEL')
