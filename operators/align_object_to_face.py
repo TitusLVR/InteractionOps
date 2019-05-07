@@ -67,6 +67,7 @@ class AlignObjectToFace(bpy.types.Operator):
     counter      : IntProperty()
     flip         : BoolProperty()
     edge_co = []
+    
 
     @classmethod
     def poll(self, context):
@@ -104,17 +105,17 @@ class AlignObjectToFace(bpy.types.Operator):
             Sets align edge coordinates"""
         _axis = axis
         obj = bpy.context.active_object
-        mx = obj.matrix_world
+        mx = obj.matrix_world.copy()
         loc = mx.to_translation()  # Store location
         scale = mx.to_scale()      # Store scale
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
+       
 
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
                        face.edges[idx].verts[1].co).normalized()
-        # self.edge_co = [self.edge_co[0][:], self.edge_co[1][:]]
 
         # Build vectors for new matrix
         n = face.normal if flip else (face.normal * -1)  # Z
@@ -129,13 +130,25 @@ class AlignObjectToFace(bpy.types.Operator):
         elif axis == 'X':
             mx_rot = Matrix((n, c, t)).transposed().to_4x4()
 
-        self.edge_co = [face.edges[idx].verts[0].co @ mx_rot + loc,
-                        face.edges[idx].verts[1].co @ mx_rot + loc]
-
         # Apply new matrix
         obj.matrix_world = mx_rot.inverted()
         obj.location = loc
         obj.scale = scale
+
+        gpu_verts = [Vector(),Vector()]
+
+        def scale_vert(scale):
+            gpu_verts[0][0] = face.edges[idx].verts[0].co[0] * scale[0]
+            gpu_verts[0][1] = face.edges[idx].verts[0].co[1] * scale[1]
+            gpu_verts[0][2] = face.edges[idx].verts[0].co[2] * scale[2]
+            gpu_verts[1][0] = face.edges[idx].verts[1].co[0] * scale[0]
+            gpu_verts[1][1] = face.edges[idx].verts[1].co[1] * scale[1]
+            gpu_verts[1][2] = face.edges[idx].verts[1].co[2] * scale[2]
+        
+        scale_vert(scale)
+
+        self.edge_co = [gpu_verts[0] @ mx_rot + obj.location,
+                        gpu_verts[1] @ mx_rot + obj.location]
 
 
     def modal(self, context, event):
