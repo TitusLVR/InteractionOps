@@ -25,6 +25,8 @@ from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.cursor_origin.mesh_edit import IOPS_OT_CursorOrigin_Mesh_Edit
 from .operators.align_object_to_face import AlignObjectToFace
+from .operators.object_place_origin import *
+from .operators.object_place_origin import IOPS_OP_PlaceOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.mesh_convertSelection import (IOPS_OP_ToFaces,
                                               IOPS_OP_ToEdges,
@@ -96,7 +98,8 @@ classes = (IOPS,
            IOPS_OP_ToFaces,
            IOPS_OP_ToEdges,
            IOPS_OP_ToVerts,
-           AlignObjectToFace
+           AlignObjectToFace,
+           IOPS_OP_PlaceOrigin           
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -105,7 +108,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 def register():
     reg_cls()
     register_keymaps()
-    print("IOPS Registered?!")
+    print("IOPS Registered!")
 
 
 def unregister():

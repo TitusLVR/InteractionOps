@@ -12,6 +12,7 @@ from bpy.props import (IntProperty,
 from mathutils import Vector, Matrix
 from ..iops import IOPS
 
+
 # ----------------------------  UI  ---------------------------------------
 
 def draw_line_cursor(self, context):
@@ -38,7 +39,7 @@ def draw_ui(self, context):
     _F1 = "F1 - Look at or away from Cursor"
     _F2 = "F2 - Look at or away from Active"
     _F3 = "F3 - Move or Move + Rotate to Cursor"
-    _F4 = "F4 - Move to Cursor"
+    _F4 = "F4 - Visual origin helper"
 
     # Font
     font = 0
@@ -110,8 +111,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
                 rot_mx = v.to_track_quat("-" + axis[0], axis[1]).to_matrix().to_4x4()
             else:
                 rot_mx = v.to_track_quat(axis[0], axis[1]).to_matrix().to_4x4()
-            o.matrix_world @= rot_mx
-
+            o.matrix_world @= rot_mx    
+        
     
     def modal(self, context, event):
             context.area.tag_redraw()
@@ -122,8 +123,10 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
                 return {'PASS_THROUGH'}
 
             elif event.type == "F4" and event.value == "PRESS":
-                    self.move_to_cursor(self.rotate)
-                    self.report({"INFO"}, event.type)
+                    bpy.ops.iops.visual_origin('INVOKE_DEFAULT')                          
+                    bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
+                    bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+                    return {'FINISHED'}
 
             elif event.type == "F1" and event.value == "PRESS":
                     self.flip = not self.flip
