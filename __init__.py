@@ -4,11 +4,11 @@ bl_info = {
     "version": (1, 5, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Toolbar and View3D",
-    "description": "Interaction operators (iOps) - for workflow speedup",
+    "description": "Interaction operators (iOps) = workflow speedup",
     "warning": "",
-    "wiki_url": "https://blenderartists.org/t/interactionops-iops/1146238",
-    "tracker_url": "",
-    "category": "Mesh"
+    "wiki_url": "https://blenderartists.org/t/interactionops-iops/",
+    "tracker_url": "https://github.com/TitusLVR/InteractionOps",
+    "category": "Tools"
     }
 
 import bpy

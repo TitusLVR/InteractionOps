@@ -13,20 +13,52 @@ from bpy.props import (
         IntProperty,
         PointerProperty,
         StringProperty,
+        FloatVectorProperty,
         )
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
-    
-    def draw(self, context):
-        layout = self.layout      
 
+    text_color : FloatVectorProperty(
+        name = "iOPS text color", 
+        subtype = 'COLOR', 
+        default = [0.0,0.0,0.0]
+        )
+    text_size : IntProperty (
+        name="Text size",
+        description="Modal operators text size",
+        default=12,
+        soft_min=1,
+        soft_max=1000
+        )
+    text_pos_x : IntProperty (
+        name="Text pos X",
+        description="Modal operators Text pos X",
+        default=12,
+        soft_min=1,
+        soft_max=1000
+        )
+    text_pos_y : IntProperty (
+        name="Text pos Y",
+        description="Modal operators Text pos Y",
+        default=12,
+        soft_min=1,
+        soft_max=1000
+        )
+    def draw(self, context):
+        layout = self.layout 
+        col = layout.column()
+        row = col.row(align=True)
+        # we don't want to put anything else on this row other than the 'split' item
+        split = row.split(factor = 0.65, align=False)
+        box_kmp = split.box()
+        box_ui = split.box() 
         # Keymaps
-        box = layout.box()
-        box.label(text='Keymaps:')
+       
+        box_kmp.label(text='Keymaps:')
         try:
-            mainRow = box.row(align=True)
+            mainRow = box_kmp.row(align=True)
             mainRow.alignment = 'LEFT'            
 
             colLabels = mainRow.column(align=True)
@@ -52,5 +84,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
 
         except:
-            layout.label(text='No keymaps found.', icon='ERROR') 
+            layout.label(text='No keymaps found.', icon='ERROR')
+        box_ui.label(text='UI Tweaks:')
+        col = box_ui.column(align=True)
+        col.prop(self, "text_color")
+        col = box_ui.column(align=True)
+        col.prop(self, "text_size")
+        col = box_ui.column(align=True)
+        col.prop(self, "text_pos_x")
+        col.prop(self, "text_pos_y")
+
 
