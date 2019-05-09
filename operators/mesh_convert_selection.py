@@ -1,5 +1,6 @@
 import bpy
 
+
 class IOPS_OP_ToFaces(bpy.types.Operator):
     """ Convert Vertex/Edge selection to face selection """    
     bl_idname = "iops.to_faces"
@@ -10,13 +11,14 @@ class IOPS_OP_ToFaces(bpy.types.Operator):
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
         return (context.mode == 'EDIT_MESH'
-            and (sm == (True, False, False)
+                and (sm == (True, False, False)
                 or sm == (False, True, False)))
 
     def execute(self, context):
         bpy.ops.mesh.select_mode(use_expand=True, type='FACE')
         context.tool_settings.mesh_select_mode = (False, False, True)        
         return {'FINISHED'}
+
 
 class IOPS_OP_ToEdges(bpy.types.Operator):
     """ Convert Vertex/Face selection to edge selection """ 
@@ -38,6 +40,7 @@ class IOPS_OP_ToEdges(bpy.types.Operator):
         bpy.ops.mesh.select_mode(use_expand=exp, type='EDGE')
         context.tool_settings.mesh_select_mode = (False, True, False)        
         return {'FINISHED'}
+
 
 class IOPS_OP_ToVerts(bpy.types.Operator):
     """ Convert Edge/Face selection to vertex selection """
