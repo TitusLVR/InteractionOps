@@ -10,7 +10,7 @@ class IOPS_OT_CursorOrigin_Curve(IOPS):
     def poll (self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                context.active_object.type == "CURVE")
+                context.view_layer.objects.active.type == "CURVE")
     def execute(self, context):
         scene = bpy.context.scene
         objs = bpy.context.selected_objects

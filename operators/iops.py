@@ -34,9 +34,8 @@ class IOPS(bpy.types.Operator):
         #Object <-> Mesh
         scene = bpy.context.scene
         tool_mode = scene.tool_settings.mesh_select_mode
-        if bpy.context.active_object.type == "MESH": 
+        if bpy.context.view_layer.objects.active.type == "MESH": 
             current_mode_3d = self.get_current_mode_3d(tool_mode)
-            print(current_mode_3d)
             
             if (bpy.context.area.type == "VIEW_3D" or 
                (bpy.context.area.type == "IMAGE_EDITOR" and 
@@ -79,19 +78,19 @@ class IOPS(bpy.types.Operator):
                         return{"FINISHED"} 
 
         # Object <-> Curve    
-        if bpy.context.active_object.type == "CURVE":  
+        if bpy.context.view_layer.objects.active.type == "CURVE":  
             current_mode_curve = "EDIT" if bpy.context.mode != "EDIT_CURVE" else "OBJECT" 
             bpy.ops.object.mode_set(mode=current_mode_curve)                             
             return{"FINISHED"}
 
         # Object <-> GPencil  
-        if bpy.context.active_object.type == "GPENCIL":
+        if bpy.context.view_layer.objects.active.type == "GPENCIL":
             current_mode_gpen = "EDIT_GPENCIL" if bpy.context.mode != "EDIT_GPENCIL" else "OBJECT" 
             bpy.ops.object.mode_set(mode=current_mode_gpen)
             return{"FINISHED"} 
 
         #Unsupported Types      
-        if bpy.context.active_object.type not in supported_types:
-            print(bpy.context.active_object.type,"not supported yet!")
+        if bpy.context.view_layer.objects.active.type not in supported_types:
+            print(bpy.context.view_layer.objects.active.type,"not supported yet!")
             return{"FINISHED"} 
         return{"FINISHED"}

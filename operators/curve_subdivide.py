@@ -50,19 +50,19 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-         return (context.active_object.type == "CURVE" and context.active_object.mode == "EDIT")
+         return (context.view_layer.objects.active.type == "CURVE" and context.view_layer.objects.active.mode == "EDIT")
 
     def execute(self, context):
         self.subdivide(self.points_num)
         return {"FINISHED"}
 
     def subdivide(self, points):
-        obj = bpy.context.active_object
+        obj = bpy.context.view_layer.objects.active
         self.points_num = points
         bpy.ops.curve.subdivide(number_cuts=self.points_num)
 
     def get_curve_pts(self):
-        obj = bpy.context.active_object
+        obj = bpy.context.view_layer.objects.active
         pts = []
         sequence = []
 

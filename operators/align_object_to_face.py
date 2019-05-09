@@ -26,15 +26,10 @@ def draw_callback_px(self, context):
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
     _axis_move = "Move Axis: " + str(self.axis_move)
-    _edge = self.edge_co
 
     # Font
     font = 0
     blf.size(font, 20, 72)
-
-    # Align axis text overlay
-    blf.position(font, 60, 150, 0)
-    blf.draw(font, "Edge: " + str(_edge))
 
     # Align axis text overlay
     blf.position(font, 60, 120, 0)
@@ -62,11 +57,9 @@ class AlignObjectToFace(bpy.types.Operator):
     axis_move    : StringProperty()
     axis_rotate  : StringProperty()
     loc          : FloatVectorProperty()
-    loc_start    : FloatVectorProperty()
     edge_idx     : IntProperty()
     counter      : IntProperty()
     flip         : BoolProperty()
-    edge_co = []
     
 
     @classmethod
@@ -90,7 +83,7 @@ class AlignObjectToFace(bpy.types.Operator):
     def get_edge_idx(self, idx):
         """Return edge index from (counter % number of edges) of a face"""
 
-        obj = bpy.context.active_object
+        obj = bpy.context.view_layer.objects.active
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
@@ -104,7 +97,7 @@ class AlignObjectToFace(bpy.types.Operator):
             Uses one of the face edges to further align it to another axis.
             Sets align edge coordinates"""
         _axis = axis
-        obj = bpy.context.active_object
+        obj = bpy.context.view_layer.objects.active
         mx = obj.matrix_world.copy()
         loc = mx.to_translation()  # Store location
         scale = mx.to_scale()      # Store scale
@@ -197,8 +190,8 @@ class AlignObjectToFace(bpy.types.Operator):
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
-            bpy.context.object.location = self.loc_start
-            bpy.context.object.rotation_euler = self.rot_start
+            context.view_layer.objects.active.matrix_world = self.mx_orig
+            context.view_layer.objects.active.location = self.loc_start
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
@@ -209,12 +202,14 @@ class AlignObjectToFace(bpy.types.Operator):
             self.axis_move = 'Z'
             self.axis_rotate = 'Z'
             self.flip = True
-            self.loc_start = bpy.context.object.location
-            self.rot_start = bpy.context.object.rotation_euler
-            self.loc = self.loc_start
             self.edge_idx = 0
             self.counter = 0
             self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
+            self.mx_orig = context.view_layer.objects.active.matrix_world.copy()
+            self.loc_start = context.view_layer.objects.active.location.copy()
+
+            print(self.loc_start)
+            print(self.mx_orig)
 
             # Add drawing handler for text overlay rendering
             args = (self, context)

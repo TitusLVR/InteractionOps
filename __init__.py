@@ -28,7 +28,7 @@ from .operators.align_object_to_face import AlignObjectToFace
 from .operators.object_place_origin import *
 from .operators.object_place_origin import IOPS_OP_PlaceOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
-from .operators.mesh_convertSelection import (IOPS_OP_ToFaces,
+from .operators.mesh_convert_selection import (IOPS_OP_ToFaces,
                                               IOPS_OP_ToEdges,
                                               IOPS_OP_ToVerts)
 from .prefs.addon_preferences import IOPS_AddonPreferences

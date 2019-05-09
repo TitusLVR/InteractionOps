@@ -9,7 +9,7 @@ class IOPS_OT_CursorOrigin_Empty(IOPS):
     @classmethod
     def poll (self, context):
         return (context.area.type == "VIEW_3D" and
-                context.active_object.type == "EMPTY")
+                context.view_layer.objects.active.type == "EMPTY")
 
     def execute(self, context):
         scene = bpy.context.scene

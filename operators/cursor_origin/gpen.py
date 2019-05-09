@@ -10,7 +10,7 @@ class IOPS_OT_CursorOrigin_Gpen(IOPS):
     def poll (self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                context.active_object.type == "GPENCIL")
+                context.view_layer.objects.active.type == "GPENCIL")
 
 
 class IOPS_OT_CursorOrigin_Gpen_Edit(IOPS):
@@ -21,7 +21,7 @@ class IOPS_OT_CursorOrigin_Gpen_Edit(IOPS):
     def poll (self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "EDIT_GPENCIL" and
-                context.active_object.type == "GPENCIL")
+                context.view_layer.objects.active.type == "GPENCIL")
 
     def execute(self, context):
         bpy.ops.gpencil.snap_cursor_to_selected()

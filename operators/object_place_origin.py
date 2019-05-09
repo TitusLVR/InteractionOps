@@ -12,7 +12,7 @@ from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_
 
 
 # get circle vertices on pos 2D by segments
-def GenerateCircleVerts(position, radius, segments):
+def generate_circle_verts(position, radius, segments):
     coords = []
     coords.append(position)
     mul = (1.0 / segments) * (pi * 2)
@@ -23,7 +23,7 @@ def GenerateCircleVerts(position, radius, segments):
 
 
 # get circle triangles by segments
-def GenerateCircleTris(segments, startID):
+def generate_circle_tris(segments, startID):
     triangles = []
     tri = startID
     for i in range(segments-1):
@@ -44,9 +44,9 @@ def draw_circle_fill_2d(self, context):
         radius = 6
         segments = 12
         # create vertices
-        coords = GenerateCircleVerts(position, radius, segments)
+        coords = generate_circle_verts(position, radius, segments)
         # create triangles
-        triangles = GenerateCircleTris(segments, 0)
+        triangles = generate_circle_tris(segments, 0)
         # set shader and draw
         shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
         batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices = triangles)
@@ -56,8 +56,8 @@ def draw_circle_fill_2d(self, context):
 
 
 # draw multiple circle in one batch on screen
-def draw_multicircles_fill_2d_BBOX(self, context):
-    positions = (self.ObjectBBox(context))[0]
+def draw_multicircles_fill_2d_bbox(self, context):
+    positions = (self.object_bbox(context))[0]
     if positions is not None:
         color = (0.873, 0.623, 0.15, 0.1)
         radius = 3
@@ -66,11 +66,11 @@ def draw_multicircles_fill_2d_BBOX(self, context):
         triangles = []
         # create vertices
         for center in positions:
-            actCoords = GenerateCircleVerts(center, radius, segments)
+            actCoords = generate_circle_verts(center, radius, segments)
             coords.extend(actCoords)
         # create triangles
         for tris in range(len(positions)):
-            actTris = GenerateCircleTris(segments, tris*(segments+1))
+            actTris = generate_circle_tris(segments, tris*(segments+1))
             triangles.extend(actTris)
         # set shader and draw
         shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
@@ -81,7 +81,7 @@ def draw_multicircles_fill_2d_BBOX(self, context):
 
 
 def draw_bbox_lines(self, context):
-    coords = (self.ObjectBBox(context))[1]
+    coords = (self.object_bbox(context))[1]
     if len(coords) != 0:
         if len(coords) == 8:
             indices = (
@@ -129,16 +129,18 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     bl_label = "Visual origin"
     bl_options = {"REGISTER", "UNDO"}
 
-    # MousePOS
     mouse_pos = (0, 0)
+
     # RayCastResults
     result = False
     result_obj = None
+
     # BBoxResults
-    posBatch = []
-    posBatch3D = []
+    pos_batch = []
+    pos_batch_3d = []
+
     # DrawCalculations
-    BatchIDX = None
+    batch_idx = None
     target = (0, 0)
 
     @classmethod
@@ -146,9 +148,9 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         return (context.area.type == "VIEW_3D"                                
                 and context.view_layer.objects.selected is not None)
 
-    def PlaceOrigin(self, context):
+    def place_origin(self, context):
         objs = context.view_layer.objects.selected
-        pos = self.posBatch3D[self.BatchIDX]
+        pos = self.pos_batch_3d[self.batch_idx]
         context.scene.cursor.location = pos
         for ob in objs:
             context.view_layer.objects.active = ob
@@ -157,23 +159,23 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     # Calculate distance between raycasts
     def calc_distance(self, context):
         mouse_pos = self.mouse_pos
-        posBatch = self.posBatch
-        if len(posBatch) != 0:
-            actDist = numpy.linalg.norm(posBatch[0]-Vector(mouse_pos))
-            actID = 0
+        pos_batch = self.pos_batch
+        if len(pos_batch) != 0:
+            act_dist = numpy.linalg.norm(pos_batch[0]-Vector(mouse_pos))
+            act_id = 0
             counter = 1
-            itertargets = iter(self.posBatch)
+            itertargets = iter(self.pos_batch)
             next(itertargets)
             for pos in itertargets:
                 dist = numpy.linalg.norm(pos-Vector(mouse_pos))
-                if dist < actDist:
-                    actID = counter
-                    actDist = dist
+                if dist < act_dist:
+                    act_id = counter
+                    act_dist = dist
                 counter += 1
-            self.BatchIDX = actID
-            self.target = posBatch[actID]
+            self.batch_idx = act_id
+            self.target = pos_batch[act_id]
 
-    def SceneRayCast(self, context):
+    def scene_ray_cast(self, context):
         # get the context arguments
         scene = context.scene
         region = context.region
@@ -187,40 +189,40 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
 
         ray_target = ray_origin + view_vector
 
-        result, location, normal, index, object, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+        result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
 
         if result:
             self.result = result
-            self.result_obj = object
-            return result, object
+            self.result_obj = obj
+            return result, obj
         else:
             if self.result_obj is not None:
                 pass
             else:
-                object = None
-            return result, object
+                obj = None
+            return result, obj
 
-    def ObjectBBox(self, context):
+    def object_bbox(self, context):
         scene = context.scene
         region = context.region
         rv3d = context.region_data
         coord = self.mouse_pos
         view_layer = context.view_layer
         res = self.result
-        object = self.result_obj
-        context.view_layer.objects.active = object
-        vertsPos = []
-        bboxBatch =[]
-        bboxBatch3D = []
-        faceBatch = []
-        faceBatch3D = []
-        if object is not None:
+        obj = self.result_obj
+        context.view_layer.objects.active = obj
+        verts_pos = []
+        bbox_batch =[]
+        bbox_batch_3d = []
+        face_batch = []
+        face_batch_3d = []
+        if obj is not None:
             # verts = mesh.polygons[index].vertices
-            matrix = object.matrix_world
+            matrix = obj.matrix_world
             matrix_trans = matrix.transposed()
 
-            bbox = object.bound_box
-            bbox_Verts3D = []
+            bbox = obj.bound_box
+            bbox_verts_3d = []
             if len(bbox) != 0:
                 SubD_Vert_POS = []
                 bbox_Edges = (
@@ -234,36 +236,33 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 # BBox
                 for v in bbox:
                     pos = Vector(v) @  matrix_trans
-                    bbox_Verts3D.append(pos)
+                    bbox_verts_3d.append(pos)
                 # BBox Edge subD
                 for e in bbox_Edges:
                     vert1 = Vector(bbox[(e[0])])
                     vert2 = Vector(bbox[(e[1])])
                     vertmid = (vert1+vert2)/2
                     pos = Vector(vertmid) @  matrix_trans
-                    bbox_Verts3D.append(pos)
+                    bbox_verts_3d.append(pos)
                 for e in bbox_SubD_Edges:
-                    vert1 = Vector(bbox_Verts3D[(e[0])])
-                    vert2 = Vector(bbox_Verts3D[(e[1])])
+                    vert1 = Vector(bbox_verts_3d[(e[0])])
+                    vert2 = Vector(bbox_verts_3d[(e[1])])
                     vertmid = (vert1+vert2)/2
                     pos = Vector(vertmid)
-                    bbox_Verts3D.append(pos)
+                    bbox_verts_3d.append(pos)
 
                 # BBOX COLLECT
-                for v in bbox_Verts3D:
+                for v in bbox_verts_3d:
                     pos3D = v
                     pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default = None)
-                    bboxBatch3D.append(pos3D)
-                    bboxBatch.append(pos2D)
+                    bbox_batch_3d.append(pos3D)
+                    bbox_batch.append(pos2D)
 
-            self.posBatch = bboxBatch
-            self.posBatch3D = bboxBatch3D
-            return [bboxBatch, bboxBatch3D]
+            self.pos_batch = bbox_batch
+            self.pos_batch_3d = bbox_batch_3d
+            return [bbox_batch, bbox_batch_3d]
         else:
-            return [bboxBatch, bboxBatch3D]
-
-    def execute(self, context):
-        self.PlaceOrigin(context)
+            return [bbox_batch, bbox_batch_3d]
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -272,13 +271,13 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             return {'PASS_THROUGH'}
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.SceneRayCast(context)
-            self.ObjectBBox(context)
+            self.scene_ray_cast(context)
+            self.object_bbox(context)
             self.calc_distance(context)
 #            print ("VERT POS",self.getFaceVertPos(context))
 #            print ("MOUSE POS",self.mouse_pos)
         elif event.type in {"LEFTMOUSE", "SPACE"}:
-            self.execute(context)
+            self.place_origin(context)
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
@@ -297,10 +296,10 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         if context.space_data.type == 'VIEW_3D':
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.result, self.result_obj = self.SceneRayCast(context)
+            self.result, self.result_obj = self.scene_ray_cast(context)
             # Add draw handlers
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
-            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_BBOX, args, 'WINDOW', 'POST_PIXEL')
+            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_bbox, args, 'WINDOW', 'POST_PIXEL')
             self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_circle_fill_2d, args, 'WINDOW', 'POST_PIXEL')
 
             # Add modal handler to enter modal mode
