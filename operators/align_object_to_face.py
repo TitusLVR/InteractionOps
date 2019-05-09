@@ -60,11 +60,14 @@ class AlignObjectToFace(bpy.types.Operator):
     edge_idx     : IntProperty()
     counter      : IntProperty()
     flip         : BoolProperty()
-    
+
+    orig_mx = []
 
     @classmethod
     def poll(self, context):
-        return len(context.selected_objects) > 0
+        return (context.area.type == "VIEW_3D" and
+                context.mode == "EDIT_MESH" and
+                context.view_layer.objects.active.type == "MESH")
 
     def align_update(self, event):
         self.align_to_face(self.get_edge_idx(self.counter),
@@ -117,14 +120,14 @@ class AlignObjectToFace(bpy.types.Operator):
 
         # Assemble new matrix
         if axis == 'Z':
-            mx_rot = Matrix((c, t, n)).transposed().to_4x4()
+            mx_new = Matrix((c, t, n)).transposed().to_4x4()
         elif axis == 'Y':
-            mx_rot = Matrix((t, n, c)).transposed().to_4x4()
+            mx_new = Matrix((t, n, c)).transposed().to_4x4()
         elif axis == 'X':
-            mx_rot = Matrix((n, c, t)).transposed().to_4x4()
+            mx_new = Matrix((n, c, t)).transposed().to_4x4()
 
         # Apply new matrix
-        obj.matrix_world = mx_rot.inverted()
+        obj.matrix_world = mx_new.inverted()
         obj.location = loc
         obj.scale = scale
 
@@ -140,8 +143,8 @@ class AlignObjectToFace(bpy.types.Operator):
         
         scale_vert(scale)
 
-        self.edge_co = [gpu_verts[0] @ mx_rot + obj.location,
-                        gpu_verts[1] @ mx_rot + obj.location]
+        self.edge_co = [gpu_verts[0] @ mx_new + obj.location,
+                        gpu_verts[1] @ mx_new + obj.location]
 
 
     def modal(self, context, event):
@@ -190,14 +193,20 @@ class AlignObjectToFace(bpy.types.Operator):
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
-            context.view_layer.objects.active.matrix_world = self.mx_orig
-            context.view_layer.objects.active.location = self.loc_start
+            active = context.view_layer.objects.active
+            active.matrix_world = self.orig_mx
+            # clean up
+            self.orig_mx = []
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
         if context.object and context.area.type == "VIEW_3D":
+            # Store matricies for undo
+            active = context.view_layer.objects.active
+            self.orig_mx = active.matrix_world.copy()
+
             # Initialize axis and assign starting values for object's location
             self.axis_move = 'Z'
             self.axis_rotate = 'Z'
@@ -205,11 +214,6 @@ class AlignObjectToFace(bpy.types.Operator):
             self.edge_idx = 0
             self.counter = 0
             self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
-            self.mx_orig = context.view_layer.objects.active.matrix_world.copy()
-            self.loc_start = context.view_layer.objects.active.location.copy()
-
-            print(self.loc_start)
-            print(self.mx_orig)
 
             # Add drawing handler for text overlay rendering
             args = (self, context)
