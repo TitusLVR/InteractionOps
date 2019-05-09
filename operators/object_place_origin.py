@@ -10,9 +10,9 @@ from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d
 
-
+ 
 # get circle vertices on pos 2D by segments
-def generate_circle_verts(position, radius, segments):
+def generate_circle_verts(position, radius, segments):    
     coords = []
     coords.append(position)
     mul = (1.0 / segments) * (pi * 2)
@@ -40,7 +40,7 @@ def draw_circle_fill_2d(self, context):
     point = self.target
     if point != (0, 0):
         position = point
-        color = (1, 0, 0, 1)
+        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_color
         radius = 6
         segments = 12
         # create vertices
@@ -59,7 +59,7 @@ def draw_circle_fill_2d(self, context):
 def draw_multicircles_fill_2d_bbox(self, context):
     positions = (self.object_bbox(context))[0]
     if positions is not None:
-        color = (0.873, 0.623, 0.15, 0.1)
+        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_points_color
         radius = 3
         segments = 12
         coords = []
@@ -117,11 +117,11 @@ def draw_bbox_lines(self, context):
                     )
         else:
             indices = ()
-
+        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_color
         shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices = indices)
+        batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices = indices)        
         shader.bind()
-        shader.uniform_float("color", (0.573, 0.323, 0.15, 1))
+        shader.uniform_float("color", color)
         batch.draw(shader)
 
 

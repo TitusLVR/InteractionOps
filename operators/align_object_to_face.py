@@ -11,6 +11,7 @@ import bmesh
 import math
 from math import radians, degrees
 from mathutils import Vector, Matrix
+import copy
 
 def draw_edge(self, context):
     coords = self.edge_co
@@ -188,6 +189,8 @@ class AlignObjectToFace(bpy.types.Operator):
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
+            self.mx_orig = []
+            self.loc_start = []
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
