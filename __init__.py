@@ -69,16 +69,17 @@ def register_keymaps():
     kmi.active = True
 
 
-def unregister_keymaps():
-    allKeymaps = bpy.context.window_manager.keyconfigs.addon.keymaps
-    keymap = allKeymaps.get("Window")
-    if keymap:
-        keymapItems = keymap.keymap_items
-        toDelete = tuple(
-                item for item in keymapItems if item.idname.startswith('iops.')
-            )
-        for item in toDelete:
-            keymapItems.remove(item)
+def unregister_keymaps():   
+    keyconfigs = bpy.context.window_manager.keyconfigs   
+    for kc in keyconfigs:
+        keymap = kc.keymaps.get("Window")
+        if keymap:
+            keymapItems = keymap.keymap_items
+            toDelete = tuple(
+                    item for item in keymapItems if item.idname.startswith('iops.')
+                )
+            for item in toDelete:
+                keymapItems.remove(item)
 
 # Classes for reg and unreg
 classes = (IOPS,
