@@ -22,11 +22,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     text_color : FloatVectorProperty(
         name = "Color", 
-        subtype = 'COLOR',
+        subtype = 'COLOR_GAMMA',
         size = 4,
         min = 0,
         max = 1,  
-        default = (0.25,0.25,0.25,0.5),        
+        default = (1,1,1,0.8),        
         )
     text_size : IntProperty (
         name="Size",
@@ -48,10 +48,50 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=12,
         soft_min=1,
         soft_max=1000
-        )    
+        )
+    
+    text_shadow_color : FloatVectorProperty(
+        name = "Shadow", 
+        subtype = 'COLOR_GAMMA',
+        size = 4,
+        min = 0,
+        max = 1,  
+        default = (0.0,0.0,0.0,0.8),        
+        )
+    text_shadow_toggle : BoolProperty(
+        name="ON/OFF",
+        description="ON/Off",
+        default = False
+        )
+    
+    text_shadow_blur : EnumProperty(
+        name='Blur',
+        description='Could be 0,3,5',
+        items =[
+            ('0','None','','',0),
+            ('3','Mid','','',3),
+            ('5','High','','',5)],
+        default = '0',
+        )
+
+    text_shadow_pos_x : IntProperty (
+        name="Shadow pos X",
+        description="Modal operators Text pos X",
+        default=2,
+        soft_min=-50,
+        soft_max=50
+        )
+    text_shadow_pos_y : IntProperty (
+        name="Shadow pos Y",
+        description="Modal operators Text pos Y",
+        default=-2,
+        soft_min=-50,
+        soft_max=50
+        )        
+
     vo_cage_color : FloatVectorProperty(
         name = "Cage color", 
-        subtype = 'COLOR',
+        subtype = 'COLOR_GAMMA',
         size = 4,
         min = 0,
         max = 1, 
@@ -59,7 +99,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         )
     vo_cage_points_color : FloatVectorProperty(
         name = "Cage points color", 
-        subtype = 'COLOR',
+        subtype = 'COLOR_GAMMA',
         size = 4,
         min = 0,
         max = 1,  
@@ -67,7 +107,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         )
     vo_cage_ap_color : FloatVectorProperty(
         name = "Active point color", 
-        subtype = 'COLOR',
+        subtype = 'COLOR_GAMMA',
         size = 4,
         min = 0,
         max = 1,  
@@ -75,20 +115,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         )
     align_edge_color : FloatVectorProperty(
         name = "Edge color", 
-        subtype = 'COLOR',
+        subtype = 'COLOR_GAMMA',
         size = 4,
         min = 0,
         max = 1, 
         default = (0, 1, 0, 1),        
         )    
-    align_point_color : FloatVectorProperty(
-        name = "Point color", 
-        subtype = 'COLOR',
-        size = 4,
-        min = 0,
-        max = 1, 
-        default = (0, 1, 0, 1),        
-        )
+    
 
 
 
@@ -131,27 +164,53 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         except:
             layout.label(text='No keymaps found.', icon='ERROR')
+       
         box_ui.label(text='UI Tweaks:')        
         col = box_ui.column(align=True)
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Text settings:")
-        col.prop(self, "text_color")
-        col = box.column(align=True)
-        col.prop(self, "text_size")
-        col = box.column(align=True)
-        col.prop(self, "text_pos_x")
-        col.prop(self, "text_pos_y")
+        box = box_ui.box()        
+        col = box.column(align=True)        
+        col.label(text="Text settings:")       
+        row = box.row(align=True)
+        split = row.split(factor = 0.5, align=False)
+        col_text = split.column(align=True)
+        col_shadow = split.column(align=True)
+        row = col_text.row(align=True)       
+        row.prop(self, "text_color")
+        row = col_text.row(align=True)                 
+        row.prop(self, "text_size")
+        row = col_text.row(align=True)         
+        row.prop(self, "text_pos_x")
+        row.prop(self, "text_pos_y")
+        # Shadow
+        row = col_shadow.row(align=True)
+        row.prop(self, "text_shadow_color")
+        row.prop(self, "text_shadow_blur") 
+        row = col_shadow.row(align=True)        
+        row.prop(self, "text_shadow_toggle", toggle = True)
+        row = col_shadow.row(align=True)         
+        row.prop(self, "text_shadow_pos_x")
+        row.prop(self, "text_shadow_pos_y")
+         
+
+
+        
+        # Align to edge
         box = box_ui.box()
         col = box.column(align=True)        
         col.label(text="Align to edge:")
-        col.prop(self, "align_edge_color") 
+        row = box.row(align=True)
+        row.alignment = 'LEFT' 
+        row.prop(self, "align_edge_color") 
+        
+        # Visual origin       
         box = box_ui.box()
         col = box.column(align=True)        
         col.label(text="Visual origin:")
-        col.prop(self, "vo_cage_color")
-        col.prop(self, "vo_cage_points_color")
-        col.prop(self, "vo_cage_ap_color")
+        row = col.row(align=True)
+        row.alignment = 'LEFT'
+        row.prop(self, "vo_cage_color")
+        row.prop(self, "vo_cage_points_color")
+        row.prop(self, "vo_cage_ap_color")
 
 
 

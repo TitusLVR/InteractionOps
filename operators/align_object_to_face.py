@@ -18,33 +18,56 @@ def draw_edge(self, context):
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
     batch_edge = batch_for_shader(shader, "LINES", {"pos": coords})
     batch_verts = batch_for_shader(shader, "POINTS", {"pos": coords})
+    color = bpy.context.preferences.addons['InteractionOps'].preferences.align_edge_color
     shader.bind()
-    shader.uniform_float("color", (0, 1, 0, 1))
+    shader.uniform_float("color", color)
     batch_edge.draw(shader)
     batch_verts.draw(shader)
 
-def draw_callback_px(self, context):
+def draw_callback_iops_aotf_px(self, context):
+    # Text Color
+    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    tColor = prefs.text_color
+    tShadow = prefs.text_shadow_toggle           
+    tSColor = prefs.text_shadow_color    
+    tSBlur = prefs.text_shadow_blur
+    tSPosX = prefs.text_shadow_pos_x
+    tSPosY = prefs.text_shadow_pos_y
+
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
     _axis_move = "Move Axis: " + str(self.axis_move)
-
-    # Font
+    
+    # FontID    
     font = 0
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
     blf.size(font, 20, 72)
-
+    if tShadow:
+        blf.enable(font, blf.SHADOW)
+        blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset (font, tSPosX, tSPosY)
+    else:
+        blf.disable(0, blf.SHADOW)
+    
     # Align axis text overlay
     blf.position(font, 60, 120, 0)
     blf.draw(font, "Align axis: " + self.axis_rotate)
+    
 
     # Move axis text overlay
-    blf.position(font, 60, 90, 0)
+    #blf.color = color
+    blf.position(font, 60, 90, 0)   
     blf.draw(font, _align_edge.format(self.get_edge_idx(self.counter)))
+    
 
     # Active axis text overlay
+    #blf.color = color
     blf.position(font, 60, 60, 0)
     blf.draw(font, _axis_move)
+    
 
     # Location text overlay
+    #blf.color = color
     blf.position(font, 60, 30, 0)
     blf.draw(font, _location.format(self.loc[0], self.loc[1], self.loc[2]))
 
@@ -221,7 +244,7 @@ class AlignObjectToFace(bpy.types.Operator):
             # Add drawing handler for text overlay rendering
             args = (self, context)
             self._handle = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_callback_px,
+                            draw_callback_iops_aotf_px,
                             args,
                             'WINDOW',
                             'POST_PIXEL')
