@@ -11,6 +11,7 @@ import bmesh
 import math
 from math import radians, degrees
 from mathutils import Vector, Matrix
+import copy
 
 def draw_edge(self, context):
     coords = self.edge_co
@@ -60,6 +61,8 @@ class AlignObjectToFace(bpy.types.Operator):
     edge_idx     : IntProperty()
     counter      : IntProperty()
     flip         : BoolProperty()
+    mx_orig = []
+    loc_start = []
     
 
     @classmethod
@@ -185,13 +188,18 @@ class AlignObjectToFace(bpy.types.Operator):
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
+            self.mx_orig = []
+            self.loc_start = []
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
+            bpy.ops.object.editmode_toggle()
             context.view_layer.objects.active.matrix_world = self.mx_orig
             context.view_layer.objects.active.location = self.loc_start
+            self.mx_orig = []
+            self.loc_start = []
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
@@ -205,8 +213,8 @@ class AlignObjectToFace(bpy.types.Operator):
             self.edge_idx = 0
             self.counter = 0
             self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
-            self.mx_orig = context.view_layer.objects.active.matrix_world.copy()
-            self.loc_start = context.view_layer.objects.active.location.copy()
+            self.mx_orig = copy.deepcopy(context.view_layer.objects.active.matrix_world)
+            self.loc_start = copy.deepcopy(context.view_layer.objects.active.location)
 
             print(self.loc_start)
             print(self.mx_orig)
