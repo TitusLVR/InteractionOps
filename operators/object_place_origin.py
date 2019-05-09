@@ -91,28 +91,30 @@ def draw_bbox_lines(self, context):
                 )
         elif len(coords) > 8:
             indices = (
-                # Bbox                       
-                (0, 1), (1, 2), (2, 3), (0, 3),  # X-                      
-                (4, 5), (5, 6), (6, 7), (4, 7),   # X+                        
-                (0, 4),  # Y- BTM                        
-                (1, 5),  # Y- UP                        
-                (3, 7),  # Y-BTM                        
-                (2, 6),  # Y+UP
-                # SUBD                        
-                (8, 10), (9, 11),  # X-                        
-                (12, 14), (13, 15),  # X+                        
-                (16, 17), (8, 12),  # Y-                        
-                (10, 14), (18, 19),  # Y+                        
-                (11, 15), (16, 19),  # Z-                        
-                (17, 18), (9, 13),  # Z+
-                # Center
-                (20, 23),  # +X
-                (20, 21),  # -X
-                (20, 27),  # +Y
-                (20, 25),  # -Y
-                (20, 31),  # +Z
-                (20, 29),  # -Z
-                )
+                    # Bbox                       
+                    (0, 1), (1, 2), (2, 3), (0, 3),   # X-                      
+                    (4, 5), (5, 6), (6, 7), (4, 7),   # X+                        
+                    (0, 4),                           # Y- BTM                        
+                    (1, 5),                           # Y- UP                        
+                    (3, 7),                           # Y-BTM                        
+                    (2, 6),                           # Y+UP
+    
+                    # SUBD                        
+                    (8, 10), (9, 11),                 # X-                        
+                    (12, 14), (13, 15),               # X+                        
+                    (16, 17), (8, 12),                # Y-                        
+                    (10, 14), (18, 19),               # Y+                        
+                    (11, 15), (16, 19),               # Z-                        
+                    (17, 18), (9, 13),                # Z+
+                    
+                    # Center
+                    (20, 23),                         # +X
+                    (20, 21),                         # -X
+                    (20, 27),                         # +Y
+                    (20, 25),                         # -Y
+                    (20, 31),                         # +Z
+                    (20, 29),                         # -Z
+                    )
         else:
             indices = ()
 
@@ -161,13 +163,13 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         mouse_pos = self.mouse_pos
         pos_batch = self.pos_batch
         if len(pos_batch) != 0:
-            act_dist = numpy.linalg.norm(pos_batch[0]-Vector(mouse_pos))
+            act_dist = numpy.linalg.norm(pos_batch[0] - Vector(mouse_pos))
             act_id = 0
             counter = 1
             itertargets = iter(self.pos_batch)
             next(itertargets)
             for pos in itertargets:
-                dist = numpy.linalg.norm(pos-Vector(mouse_pos))
+                dist = numpy.linalg.norm(pos - Vector(mouse_pos))
                 if dist < act_dist:
                     act_id = counter
                     act_dist = dist
@@ -217,37 +219,38 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         face_batch = []
         face_batch_3d = []
         if obj is not None:
-            # verts = mesh.polygons[index].vertices
             matrix = obj.matrix_world
             matrix_trans = matrix.transposed()
-
             bbox = obj.bound_box
             bbox_verts_3d = []
             if len(bbox) != 0:
-                SubD_Vert_POS = []
-                bbox_Edges = (
+                subd_vert_pos = []
+                bbox_edges = (
                     (0, 1), (1, 2), (2, 3), (0, 3),
                     (4, 5), (5, 6), (6, 7), (4, 7),
                     (0, 4), (1, 5), (2, 6), (3, 7), (0, 6))
-                bbox_SubD_Edges = (
+                bbox_subd_edges = (
                     (8, 10), (9, 11), (12, 14), (13, 15),
                     (16, 17), (8, 12), (10, 14), (18, 19),
                     (11, 15), (16, 19), (17, 18), (9, 13))
+
                 # BBox
                 for v in bbox:
                     pos = Vector(v) @  matrix_trans
                     bbox_verts_3d.append(pos)
+
                 # BBox Edge subD
-                for e in bbox_Edges:
-                    vert1 = Vector(bbox[(e[0])])
-                    vert2 = Vector(bbox[(e[1])])
-                    vertmid = (vert1+vert2)/2
+                for e in bbox_edges:
+                    v1 = Vector(bbox[e[0]])
+                    v2 = Vector(bbox[e[1]])
+                    vertmid = (v1 + v2) / 2
                     pos = Vector(vertmid) @  matrix_trans
                     bbox_verts_3d.append(pos)
-                for e in bbox_SubD_Edges:
-                    vert1 = Vector(bbox_verts_3d[(e[0])])
-                    vert2 = Vector(bbox_verts_3d[(e[1])])
-                    vertmid = (vert1+vert2)/2
+
+                for e in bbox_subd_edges:
+                    v1 = Vector(bbox_verts_3d[e[0]])
+                    v2 = Vector(bbox_verts_3d[e[1]])
+                    vertmid = (v1 + v2) / 2
                     pos = Vector(vertmid)
                     bbox_verts_3d.append(pos)
 
@@ -264,32 +267,35 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         else:
             return [bbox_batch, bbox_batch_3d]
 
+    def clear_draw_handlers(self):
+        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
+        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
+        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
+
     def modal(self, context, event):
         context.area.tag_redraw()
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # allow navigation
             return {'PASS_THROUGH'}
+
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.scene_ray_cast(context)
             self.object_bbox(context)
             self.calc_distance(context)
-#            print ("VERT POS",self.getFaceVertPos(context))
-#            print ("MOUSE POS",self.mouse_pos)
+            
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             self.place_origin(context)
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
+            self.clear_draw_handlers()
             return {"FINISHED"}
+
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self.mouse_pos = [0, 0]
             self.result = False
             self.result_obj = None
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
+            self.clear_draw_handlers()
             return {'CANCELLED'}
+
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
@@ -297,6 +303,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.result, self.result_obj = self.scene_ray_cast(context)
+
             # Add draw handlers
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
             self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_bbox, args, 'WINDOW', 'POST_PIXEL')
