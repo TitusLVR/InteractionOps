@@ -32,6 +32,14 @@ def draw_ui(self, context):
         elif self.target == context.view_layer.objects.active:
             return "Active object" 
 
+    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    tColor = prefs.text_color
+    tShadow = prefs.text_shadow_toggle           
+    tSColor = prefs.text_shadow_color    
+    tSBlur = prefs.text_shadow_blur
+    tSPosX = prefs.text_shadow_pos_x
+    tSPosY = prefs.text_shadow_pos_y
+
     _target = get_target()
     _axis = self.look_axis[0]
     _rotate = self.rotate
@@ -40,17 +48,27 @@ def draw_ui(self, context):
     _F2 = "F2 - Look at or away from Active"
     _F3 = "F3 - Move or Move + Rotate to Cursor"
     _F4 = "F4 - Visual origin helper"
-
+    tc = bpy.context.preferences.addons['InteractionOps'].preferences.text_color
     # Font
     font = 0
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])    
     blf.size(font, 20, 72)
-    # Rotate
+    if tShadow:
+        blf.enable(font, blf.SHADOW)
+        blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset (font, tSPosX, tSPosY)
+    else:
+        blf.disable(0, blf.SHADOW)
+
+    # Rotate    
     blf.position(font, 60, 210, 0),
     blf.draw(font, "Match cursor's rotation: " + str(_rotate))
     # Axis
+    
     blf.position(font, 60, 180, 0),
     blf.draw(font, "Look axis: " + str(_axis))
     # Target
+    
     blf.position(font, 60, 150, 0),
     blf.draw(font, "Look at " + _target)
     # F1
