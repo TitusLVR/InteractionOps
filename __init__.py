@@ -41,33 +41,42 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
 
-def register_keymaps():
-    keymapItems = (bpy.context
-                      .window_manager
-                      .keyconfigs
-                      .addon
-                      .keymaps
-                      .new("Window")
-                      .keymap_items)
-
-    kmi = keymapItems.new('iops.mode_f1', 'F1', 'PRESS')
-    kmi = keymapItems.new('iops.mode_f2', 'F2', 'PRESS')
-    kmi = keymapItems.new('iops.mode_f3', 'F3', 'PRESS')
-    kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_mesh_edit', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_curve', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_curve_edit', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_empty', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_gpen', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.cursor_origin_gpen_edit', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.align_object_to_face', 'F6', 'PRESS')
-    kmi = keymapItems.new('iops.to_verts', 'F1', 'PRESS', ctrl=False, alt=True, shift=False)
-    kmi = keymapItems.new('iops.to_edges', 'F2', 'PRESS', ctrl=False, alt=True, shift=False)
-    kmi = keymapItems.new('iops.to_faces', 'F3', 'PRESS', ctrl=False, alt=True, shift=False)
-    kmi.active = True
-
+def register_keymaps():    
+    keys = [
+        ('iops.mode_f1', 'F1', 'PRESS',False, False, False),
+        ('iops.mode_f2', 'F2', 'PRESS',False, False, False),
+        ('iops.mode_f3', 'F3', 'PRESS',False, False, False),
+        ('iops.mode_f4', 'F4', 'PRESS',False, False, False),
+        ('iops.curve_subdivide', 'F2', 'PRESS',False, False, False),
+        ('iops.cursor_origin_mesh', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_mesh_edit', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_curve', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_curve_edit', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_empty', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_gpen', 'F4', 'PRESS',False, False, False),
+        ('iops.cursor_origin_gpen_edit', 'F4', 'PRESS',False, False, False),
+        ('iops.align_object_to_face', 'F6', 'PRESS',False, False, False),
+        ('iops.to_verts', 'F1', 'PRESS', False, True, False),
+        ('iops.to_edges', 'F2', 'PRESS', False, True, False),
+        ('iops.to_faces', 'F3', 'PRESS', False, True, False)]
+    
+    keyconfigs = bpy.context.window_manager.keyconfigs
+    keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
+    for k in keys:
+        found = []        
+        for kc in keyconfigs:
+            keymap = kc.keymaps.get("Window")
+            if keymap:
+                kmi = keymap.keymap_items
+                for item in kmi:
+                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
+                        found = True
+                    else:
+                        found = False
+        if found == False:                   
+            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5]) 
+            kmi.active = True                                               
+                      
 
 def unregister_keymaps():
     keyconfigs = bpy.context.window_manager.keyconfigs
@@ -106,13 +115,13 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 
 def register():
-    reg_cls()
+    reg_cls()    
     register_keymaps()
     print("IOPS Registered!")
 
 
 def unregister():
-    unreg_cls()
+    unreg_cls()     
     unregister_keymaps()
     print("IOPS Unregistered!")
 
