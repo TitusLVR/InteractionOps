@@ -24,7 +24,7 @@ def draw_line_cursor(self, context):
     batch.draw(shader)
     # pass
 
-def draw_ui(self, context):
+def draw_ui(self, context, _uidpi, _uifactor):
 
     def get_target():
         if self.target == context.scene.cursor:
@@ -32,27 +32,31 @@ def draw_ui(self, context):
         elif self.target == context.view_layer.objects.active:
             return "Active object" 
 
+    
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
+    tKColor = prefs.text_color_key
+    tCSize = prefs.text_size
+    tCPosX = prefs.text_pos_x
+    tCPosY = prefs.text_pos_y
     tShadow = prefs.text_shadow_toggle           
     tSColor = prefs.text_shadow_color    
     tSBlur = prefs.text_shadow_blur
     tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
-
+    tSPosY = prefs.text_shadow_pos_y  
+    
     _target = get_target()
-    _axis = self.look_axis[0]
-    _rotate = self.rotate
+    iops_text = (
+        ("Look at", str(_target)),
+        ("Look at axis", str(self.look_axis[0])),
+        ("Match cursor's rotation", str(self.rotate)),
+        ("Visual origin helper","F4"),        
+        )
 
-    _F1 = "F1 - Look at or away from Cursor"
-    _F2 = "F2 - Look at or away from Active"
-    _F3 = "F3 - Move or Move + Rotate to Cursor"
-    _F4 = "F4 - Visual origin helper"
-    tc = bpy.context.preferences.addons['InteractionOps'].preferences.text_color
-    # Font
+    # FontID    
     font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])    
-    blf.size(font, 20, 72)
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
@@ -60,29 +64,21 @@ def draw_ui(self, context):
     else:
         blf.disable(0, blf.SHADOW)
 
-    # Rotate    
-    blf.position(font, 60, 210, 0),
-    blf.draw(font, "Match cursor's rotation: " + str(_rotate))
-    # Axis
-    
-    blf.position(font, 60, 180, 0),
-    blf.draw(font, "Look axis: " + str(_axis))
-    # Target
-    
-    blf.position(font, 60, 150, 0),
-    blf.draw(font, "Look at " + _target)
-    # F1
-    blf.position(font, 60, 120, 0),
-    blf.draw(font, _F1)
-    # F2
-    blf.position(font, 60, 90, 0),
-    blf.draw(font, _F2)
-    # F3
-    blf.position(font, 60, 60, 0),
-    blf.draw(font, _F3)
-    # F4
-    blf.position(font, 60, 30, 0),
-    blf.draw(font, _F4)
+    textsize = tCSize    
+    # get leftbottom corner
+    offset = tCPosY
+    columnoffs = (textsize * 14) * _uifactor 
+    for line in reversed(iops_text):         
+        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.position(font, tCPosX * _uifactor, offset, 0)
+        blf.draw(font, line[0])
+
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+        textdim = blf.dimensions(0, line[1])
+        coloffset = columnoffs - textdim[0] + tCPosX     
+        blf.position(0, coloffset, offset, 0)
+        blf.draw(font, line[1])
+        offset += (tCSize + 5) * _uifactor 
 
 # -------------------------------------------------------------------------
 
@@ -207,23 +203,24 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
         self.look_axis = [("Z"), ("Y")]
         self.target = context.scene.cursor
         objs = context.selected_objects
-
+        preferences = context.preferences
         # Store matricies for undo
         for o in objs:
             self.orig_mxs.append(o.matrix_world.copy())
 
         if context.object and context.area.type == "VIEW_3D":
-            # Add drawing handler for text overlay rendering
-            args = (self, context)
+            # Add drawing handler for text overlay rendering         
+            uidpi = int((72 * preferences.system.ui_scale))
+            args = (self, context, uidpi, preferences.system.ui_scale)
             self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
                             draw_ui,
                             args,
                             'WINDOW',
                             'POST_PIXEL')
-
+            args_line = (self, context)
             self._handle_cursor = bpy.types.SpaceView3D.draw_handler_add(
                             draw_line_cursor,
-                            args,
+                            args_line,
                             'WINDOW',
                             'POST_VIEW')
 
