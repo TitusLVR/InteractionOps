@@ -26,28 +26,36 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size = 4,
         min = 0,
         max = 1,  
-        default = (1,1,1,0.8),        
+        default = (0.8,0.8,0.8,1.0),        
+        )
+    text_color_key : FloatVectorProperty(
+        name = "Color key", 
+        subtype = 'COLOR_GAMMA',
+        size = 4,
+        min = 0,
+        max = 1,  
+        default = (1,0.757,0,1.0),        
         )
     text_size : IntProperty (
         name="Size",
         description="Modal operators text size",
-        default=12,
+        default=20,
         soft_min=1,
-        soft_max=1000
+        soft_max=100
         )
     text_pos_x : IntProperty (
         name="Position X",
         description="Modal operators Text pos X",
-        default=12,
+        default=40,
         soft_min=1,
-        soft_max=1000
+        soft_max=10000
         )
     text_pos_y : IntProperty (
         name="Position Y",
         description="Modal operators Text pos Y",
-        default=12,
+        default=40,
         soft_min=1,
-        soft_max=1000
+        soft_max=10000
         )
     
     text_shadow_color : FloatVectorProperty(
@@ -56,7 +64,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size = 4,
         min = 0,
         max = 1,  
-        default = (0.0,0.0,0.0,0.8),        
+        default = (0.0,0.0,0.0,1.0),        
         )
     text_shadow_toggle : BoolProperty(
         name="ON/OFF",
@@ -176,6 +184,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col_shadow = split.column(align=True)
         row = col_text.row(align=True)       
         row.prop(self, "text_color")
+        row.prop(self, "text_color_key")
         row = col_text.row(align=True)                 
         row.prop(self, "text_size")
         row = col_text.row(align=True)         

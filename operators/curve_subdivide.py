@@ -22,22 +22,27 @@ def draw_curve_pts(self, context):
     batch.draw(shader)
     # pass
 
-def draw_ui(self, context):
-    _points = "Number of cuts: {0}"
-    _debug = "Debug: {0}"
-    debug = self.pairs
-    
+def draw_ui(self, context,_uidpi, _uifactor):
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
+    tKColor = prefs.text_color_key
+    tCSize = prefs.text_size
+    tCPosX = prefs.text_pos_x
+    tCPosY = prefs.text_pos_y
     tShadow = prefs.text_shadow_toggle           
     tSColor = prefs.text_shadow_color    
     tSBlur = prefs.text_shadow_blur
     tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
-    # Font
+    tSPosY = prefs.text_shadow_pos_y  
+    
+    iops_text = (
+        ("Number of cuts", str(self.points_num)),
+        )
+
+    # FontID    
     font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])   
-    blf.size(font, 20, 72)
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
@@ -45,9 +50,21 @@ def draw_ui(self, context):
     else:
         blf.disable(0, blf.SHADOW)
 
-    # Curve subdivide points
-    blf.position(font, 60, 30, 0),
-    blf.draw(font, _points.format(self.points_num))
+    textsize = tCSize    
+    # get leftbottom corner
+    offset = tCPosY
+    columnoffs = (textsize * 9) * _uifactor 
+    for line in reversed(iops_text):         
+        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.position(font, tCPosX * _uifactor, offset, 0)
+        blf.draw(font, line[0])               
+
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+        textdim = blf.dimensions(0, line[1])
+        coloffset = columnoffs - textdim[0] + tCPosX     
+        blf.position(0, coloffset, offset, 0)
+        blf.draw(font, line[1])
+        offset += (tCSize + 5) * _uifactor
 
 
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
@@ -139,20 +156,22 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
+        preferences = context.preferences
         if context.object and context.area.type == "VIEW_3D":
             self.points_num = 1
 
             # Add drawing handler for text overlay rendering
-            args = (self, context)
+            uidpi = int((72 * preferences.system.ui_scale))
+            args = (self, context, uidpi, preferences.system.ui_scale)
             self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
                             draw_ui,
                             args,
                             'WINDOW',
                             'POST_PIXEL')
-
+            args_line = (self, context)
             self._handle_curve = bpy.types.SpaceView3D.draw_handler_add(
                             draw_curve_pts,
-                            args,
+                            args_line,
                             'WINDOW',
                             'POST_VIEW')
 

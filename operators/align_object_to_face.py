@@ -26,24 +26,28 @@ def draw_edge(self, context):
     batch_verts.draw(shader)
 
 
-def draw_callback_iops_aotf_px(self, context):
-    # Text Color
+def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):    
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
-    tShadow = prefs.text_shadow_toggle
-    tSColor = prefs.text_shadow_color
+    tKColor = prefs.text_color_key
+    tCSize = prefs.text_size
+    tCPosX = prefs.text_pos_x
+    tCPosY = prefs.text_pos_y
+    tShadow = prefs.text_shadow_toggle           
+    tSColor = prefs.text_shadow_color    
     tSBlur = prefs.text_shadow_blur
     tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
+    tSPosY = prefs.text_shadow_pos_y  
+    
+    iops_text = (
+        ("Face edge index", str(self.get_edge_idx(self.counter))),
+        ("Align to axis", str(self.axis_rotate)),        
+        )
 
-    _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
-    _align_edge = "Edge index: {0}"
-    _axis_move = "Move Axis: " + str(self.axis_move)
-
-    # FontID
+    # FontID    
     font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, 20, 72)
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
@@ -51,24 +55,21 @@ def draw_callback_iops_aotf_px(self, context):
     else:
         blf.disable(0, blf.SHADOW)
 
-    # Align axis text overlay
-    blf.position(font, 60, 120, 0)
-    blf.draw(font, "Align axis: " + self.axis_rotate)
+    textsize = tCSize    
+    # get leftbottom corner
+    offset = tCPosY
+    columnoffs = (textsize * 9) * _uifactor 
+    for line in reversed(iops_text):         
+        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.position(font, tCPosX * _uifactor, offset, 0)
+        blf.draw(font, line[0])               
 
-    # Move axis text overlay
-    #blf.color = color
-    blf.position(font, 60, 90, 0)
-    blf.draw(font, _align_edge.format(self.get_edge_idx(self.counter)))
-
-    # Active axis text overlay
-    #blf.color = color
-    blf.position(font, 60, 60, 0)
-    blf.draw(font, _axis_move)
-
-    # Location text overlay
-    #blf.color = color
-    blf.position(font, 60, 30, 0)
-    blf.draw(font, _location.format(self.loc[0], self.loc[1], self.loc[2]))
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+        textdim = blf.dimensions(0, line[1])
+        coloffset = columnoffs - textdim[0] + tCPosX     
+        blf.position(0, coloffset, offset, 0)
+        blf.draw(font, line[1])
+        offset += (tCSize + 5) * _uifactor   
 
 
 class AlignObjectToFace(bpy.types.Operator):
@@ -227,6 +228,7 @@ class AlignObjectToFace(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
+        preferences = context.preferences
         if context.object and context.area.type == "VIEW_3D":
             # Store matricies for undo
             active = context.view_layer.objects.active
@@ -241,7 +243,8 @@ class AlignObjectToFace(bpy.types.Operator):
             self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
 
             # Add drawing handler for text overlay rendering
-            args = (self, context)
+            uidpi = int((72 * preferences.system.ui_scale))
+            args = (self, context, uidpi, preferences.system.ui_scale)            
             self._handle = bpy.types.SpaceView3D.draw_handler_add(
                             draw_callback_iops_aotf_px,
                             args,
@@ -249,9 +252,10 @@ class AlignObjectToFace(bpy.types.Operator):
                             'POST_PIXEL')
 
             # Add drawing handler for align edge rendering
+            args_line = (self, context)
             self._handle_edge = bpy.types.SpaceView3D.draw_handler_add(
                             draw_edge,
-                            args,
+                            args_line,
                             'WINDOW',
                             'POST_VIEW')
 
