@@ -182,6 +182,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     result = False
     result_obj = None
     vp_objs = []
+    vp_group = []
 
     # BBoxResults
     pos_batch = []
@@ -234,7 +235,27 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             if ob == context.view_layer.objects.active:
                 active_object = ob
 
-        return active_object , selected_objects        
+        return active_object , selected_objects
+
+    def getBBOX_from_selected(self,context):
+        objs = bpy.context.view_layer.objects.selected
+        NewObjs = []
+        for ob in objs:
+            obj = bpy.data.objects.new( "newOBJ", ob.data.copy())
+            obj.matrix_world = ob.matrix_world
+            NewObjs.append(obj)   
+
+        for ob in objs:
+            ob.select_set(False) 
+
+        for ob in NewObjs:
+            bpy.context.scene.collection.objects.link(ob)
+            ob.select_set(True)
+            bpy.context.view_layer.objects.active = ob
+
+        bpy.ops.object.join()
+        ObjClean = bpy.context.view_layer.objects.active    
+        #bpy.data.meshes.remove(ObjClean.data, do_unlink=True, do_id_user=True, do_ui_user=True)        
 
     def scene_ray_cast(self, context):
         # get the context arguments
