@@ -13,6 +13,7 @@ from math import radians, degrees
 from mathutils import Vector, Matrix
 import copy
 
+
 def draw_edge(self, context):
     coords = self.edge_co
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
@@ -49,8 +50,8 @@ def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
     blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset (font, tSPosX, tSPosY)
+        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset(font, tSPosX, tSPosY)
     else:
         blf.disable(0, blf.SHADOW)
 

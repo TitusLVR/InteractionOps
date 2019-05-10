@@ -1,4 +1,5 @@
 import bpy
+import blf
 import gpu
 import bmesh
 import numpy
@@ -124,6 +125,50 @@ def draw_bbox_lines(self, context):
         shader.uniform_float("color", color)
         batch.draw(shader)
 
+def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):    
+    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    tColor = prefs.text_color
+    tKColor = prefs.text_color_key
+    tCSize = prefs.text_size
+    tCPosX = prefs.text_pos_x
+    tCPosY = prefs.text_pos_y
+    tShadow = prefs.text_shadow_toggle           
+    tSColor = prefs.text_shadow_color    
+    tSBlur = prefs.text_shadow_blur
+    tSPosX = prefs.text_shadow_pos_x
+    tSPosY = prefs.text_shadow_pos_y  
+    
+    iops_text = (
+        ("Active object switch", "Shift + LMB Click"),                
+        )
+
+    # FontID    
+    font = 0
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.size(font, tCSize, _uidpi)
+    if tShadow:
+        blf.enable(font, blf.SHADOW)
+        blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset (font, tSPosX, tSPosY)
+    else:
+        blf.disable(0, blf.SHADOW)
+
+    textsize = tCSize    
+    # get leftbottom corner
+    offset = tCPosY
+    columnoffs = (textsize * 18) * _uifactor 
+    for line in reversed(iops_text):         
+        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.position(font, tCPosX * _uifactor, offset, 0)
+        blf.draw(font, line[0])               
+
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+        textdim = blf.dimensions(0, line[1])
+        coloffset = columnoffs - textdim[0] + tCPosX     
+        blf.position(0, coloffset, offset, 0)
+        blf.draw(font, line[1])
+        offset += (tCSize + 5) * _uifactor   
+
 
 class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
@@ -136,6 +181,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     # RayCastResults
     result = False
     result_obj = None
+    vp_objs = []
 
     # BBoxResults
     pos_batch = []
@@ -176,6 +222,19 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 counter += 1
             self.batch_idx = act_id
             self.target = pos_batch[act_id]
+    
+    
+    def getActiveFromSelected(self, context):
+        selected_objects = []
+        active_object = None
+        for ob in context.view_layer.objects.selected:
+            if ob.type == 'MESH':
+                selected_objects.append(ob)
+        for ob in selected_objects:
+            if ob == context.view_layer.objects.active:
+                active_object = ob
+
+        return active_object , selected_objects        
 
     def scene_ray_cast(self, context):
         # get the context arguments
@@ -192,17 +251,13 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         ray_target = ray_origin + view_vector
 
         result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
-
-        if result:
-            self.result = result
+       
+        if result and obj in self.vp_objs:
+            context.view_layer.objects.active = obj
             self.result_obj = obj
-            return result, obj
-        else:
-            if self.result_obj is not None:
-                pass
-            else:
-                obj = None
-            return result, obj
+        return result, obj
+
+
 
     def object_bbox(self, context):
         scene = context.scene
@@ -210,9 +265,10 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         rv3d = context.region_data
         coord = self.mouse_pos
         view_layer = context.view_layer
+
         res = self.result
         obj = self.result_obj
-        context.view_layer.objects.active = obj
+        
         verts_pos = []
         bbox_batch =[]
         bbox_batch_3d = []
@@ -268,6 +324,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             return [bbox_batch, bbox_batch_3d]
 
     def clear_draw_handlers(self):
+        bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, "WINDOW")
         bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
         bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
         bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
@@ -277,11 +334,14 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # allow navigation
             return {'PASS_THROUGH'}
+        
+        if event.shift:
+             if event.type == 'LEFTMOUSE':
+                    self.scene_ray_cast(context)
+                    self.object_bbox(context)
 
         elif event.type == 'MOUSEMOVE':
-            self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.scene_ray_cast(context)
-            self.object_bbox(context)
+            self.mouse_pos = event.mouse_region_x, event.mouse_region_y            
             self.calc_distance(context)
             
         elif event.type in {"LEFTMOUSE", "SPACE"}:
@@ -299,12 +359,17 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        preferences = context.preferences
         if context.space_data.type == 'VIEW_3D':
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.result, self.result_obj = self.scene_ray_cast(context)
-
+            #self.result, self.result_obj = self.scene_ray_cast(context)
+            self.result_obj, self.vp_objs = self.getActiveFromSelected(context)            
+            self.object_bbox(context)
+            uidpi = int((72 * preferences.system.ui_scale))
+            args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
+            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_callback_iops_vp_px, args_text, 'WINDOW', 'POST_PIXEL')
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
             self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_bbox, args, 'WINDOW', 'POST_PIXEL')
             self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_circle_fill_2d, args, 'WINDOW', 'POST_PIXEL')

@@ -199,18 +199,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         row = col_shadow.row(align=True)         
         row.prop(self, "text_shadow_pos_x")
         row.prop(self, "text_shadow_pos_y")
-         
-
-
-        
         # Align to edge
         box = box_ui.box()
         col = box.column(align=True)        
         col.label(text="Align to edge:")
         row = box.row(align=True)
         row.alignment = 'LEFT' 
-        row.prop(self, "align_edge_color") 
-        
+        row.prop(self, "align_edge_color")
         # Visual origin       
         box = box_ui.box()
         col = box.column(align=True)        
