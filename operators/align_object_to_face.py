@@ -13,6 +13,7 @@ from math import radians, degrees
 from mathutils import Vector, Matrix
 import copy
 
+
 def draw_edge(self, context):
     coords = self.edge_co
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
@@ -24,12 +25,13 @@ def draw_edge(self, context):
     batch_edge.draw(shader)
     batch_verts.draw(shader)
 
+
 def draw_callback_iops_aotf_px(self, context):
     # Text Color
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
-    tShadow = prefs.text_shadow_toggle           
-    tSColor = prefs.text_shadow_color    
+    tShadow = prefs.text_shadow_toggle
+    tSColor = prefs.text_shadow_color
     tSBlur = prefs.text_shadow_blur
     tSPosX = prefs.text_shadow_pos_x
     tSPosY = prefs.text_shadow_pos_y
@@ -37,10 +39,10 @@ def draw_callback_iops_aotf_px(self, context):
     _location = "Location: x = {0:.4f}, y = {1:.4f}, z = {2:.4f}"
     _align_edge = "Edge index: {0}"
     _axis_move = "Move Axis: " + str(self.axis_move)
-    
-    # FontID    
+
+    # FontID
     font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
     blf.size(font, 20, 72)
     if tShadow:
         blf.enable(font, blf.SHADOW)
@@ -48,23 +50,20 @@ def draw_callback_iops_aotf_px(self, context):
         blf.shadow_offset (font, tSPosX, tSPosY)
     else:
         blf.disable(0, blf.SHADOW)
-    
+
     # Align axis text overlay
     blf.position(font, 60, 120, 0)
     blf.draw(font, "Align axis: " + self.axis_rotate)
-    
 
     # Move axis text overlay
     #blf.color = color
-    blf.position(font, 60, 90, 0)   
+    blf.position(font, 60, 90, 0)
     blf.draw(font, _align_edge.format(self.get_edge_idx(self.counter)))
-    
 
     # Active axis text overlay
     #blf.color = color
     blf.position(font, 60, 60, 0)
     blf.draw(font, _axis_move)
-    
 
     # Location text overlay
     #blf.color = color
@@ -131,7 +130,7 @@ class AlignObjectToFace(bpy.types.Operator):
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
-       
+
 
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
@@ -164,7 +163,7 @@ class AlignObjectToFace(bpy.types.Operator):
             gpu_verts[1][0] = face.edges[idx].verts[1].co[0] * scale[0]
             gpu_verts[1][1] = face.edges[idx].verts[1].co[1] * scale[1]
             gpu_verts[1][2] = face.edges[idx].verts[1].co[2] * scale[2]
-        
+
         scale_vert(scale)
 
         self.edge_co = [gpu_verts[0] @ mx_new + obj.location,
