@@ -9,7 +9,7 @@ bl_info = {
     "wiki_url": "https://blenderartists.org/t/interactionops-iops/",
     "tracker_url": "https://github.com/TitusLVR/InteractionOps",
     "category": "Tools"
-    }
+    } 
 
 import bpy
 from .operators.iops import IOPS
@@ -17,8 +17,8 @@ from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
                               IOPS_OT_MODE_F4)
-from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve, 
-                                           IOPS_OT_CursorOrigin_Curve_Edit)
+from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve,
+                                            IOPS_OT_CursorOrigin_Curve_Edit)
 from .operators.cursor_origin.empty import IOPS_OT_CursorOrigin_Empty
 from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
                                            IOPS_OT_CursorOrigin_Gpen_Edit)
@@ -29,8 +29,8 @@ from .operators.object_place_origin import *
 from .operators.object_place_origin import IOPS_OP_PlaceOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.mesh_convert_selection import (IOPS_OP_ToFaces,
-                                              IOPS_OP_ToEdges,
-                                              IOPS_OP_ToVerts)
+                                               IOPS_OP_ToEdges,
+                                               IOPS_OP_ToVerts)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 
 
@@ -54,7 +54,7 @@ def register_keymaps():
     kmi = keymapItems.new('iops.mode_f2', 'F2', 'PRESS')
     kmi = keymapItems.new('iops.mode_f3', 'F3', 'PRESS')
     kmi = keymapItems.new('iops.mode_f4', 'F4', 'PRESS')
-    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')    
+    kmi = keymapItems.new('iops.curve_subdivide', 'F2', 'PRESS')
     kmi = keymapItems.new('iops.cursor_origin_mesh', 'F4', 'PRESS')
     kmi = keymapItems.new('iops.cursor_origin_mesh_edit', 'F4', 'PRESS')
     kmi = keymapItems.new('iops.cursor_origin_curve', 'F4', 'PRESS')
@@ -69,15 +69,14 @@ def register_keymaps():
     kmi.active = True
 
 
-def unregister_keymaps():   
-    keyconfigs = bpy.context.window_manager.keyconfigs   
+def unregister_keymaps():
+    keyconfigs = bpy.context.window_manager.keyconfigs
     for kc in keyconfigs:
         keymap = kc.keymaps.get("Window")
         if keymap:
             keymapItems = keymap.keymap_items
             toDelete = tuple(
-                    item for item in keymapItems if item.idname.startswith('iops.')
-                )
+                item for item in keymapItems if item.idname.startswith('iops.'))
             for item in toDelete:
                 keymapItems.remove(item)
 
@@ -100,7 +99,7 @@ classes = (IOPS,
            IOPS_OP_ToEdges,
            IOPS_OP_ToVerts,
            AlignObjectToFace,
-           IOPS_OP_PlaceOrigin           
+           IOPS_OP_PlaceOrigin
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -116,6 +115,7 @@ def unregister():
     unreg_cls()
     unregister_keymaps()
     print("IOPS Unregistered!")
+
 
 if __name__ == "__main__":
     register()

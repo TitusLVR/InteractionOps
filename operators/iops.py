@@ -51,7 +51,7 @@ class IOPS(bpy.types.Operator):
         active_object = bpy.context.view_layer.objects.active
 
         if active_object.type == "MESH":
-            _mode_3d = self.get_mode_3d(tool_mode)
+            _mode_3d = self.get_mode_3d(tool_mesh)
             if (bpy.context.area.type == "VIEW_3D" or
                 (bpy.context.area.type == "IMAGE_EDITOR" and
                  tool.use_uv_select_sync is True)):
@@ -99,12 +99,20 @@ class IOPS(bpy.types.Operator):
         # Object <-> GPencil
         if active_object.type == "GPENCIL":
             _mode_gpen = self.get_mode_gpen(active_object.mode)
+            print(_mode_gpen)
             if (bpy.context.area.type == "VIEW_3D"):
                 if bpy.context.mode == "OBJECT":
-                    bpy.ops.object.mode_set(_mode_gpen)
+                    bpy.ops.object.mode_set(mode=_mode_gpen)
                     _mode_gpen = self._mode_gpen
                     return{"FINISHED"}
                 
+                if (bpy.context.mode == "EDIT_GPENCIL" and self._mode_gpen != _mode_gpen):
+                    bpy.ops.object.mode_set(mode=self._mode_gpen)
+                    _mode_gpen = self._mode_gpen
+                    return{"FINISHED"}
+                else:
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    return{"FINISHED"}
 
             bpy.ops.object.mode_set(mode=_mode_gpen)
             return{"FINISHED"}
