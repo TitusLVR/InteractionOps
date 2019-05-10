@@ -67,7 +67,7 @@ def draw_ui(self, context, _uidpi, _uifactor):
     textsize = tCSize    
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 14) * _uifactor 
+    columnoffs = (textsize * 15) * _uifactor 
     for line in reversed(iops_text):         
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)

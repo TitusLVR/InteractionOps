@@ -46,14 +46,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     text_pos_x : IntProperty (
         name="Position X",
         description="Modal operators Text pos X",
-        default=40,
+        default=60,
         soft_min=1,
         soft_max=10000
         )
     text_pos_y : IntProperty (
         name="Position Y",
         description="Modal operators Text pos Y",
-        default=40,
+        default=60,
         soft_min=1,
         soft_max=10000
         )
