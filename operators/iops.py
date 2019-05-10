@@ -99,11 +99,12 @@ class IOPS(bpy.types.Operator):
         # Object <-> GPencil
         if active_object.type == "GPENCIL":
             _mode_gpen = self.get_mode_gpen(active_object.mode)
-            print(_mode_gpen)
+            
             if (bpy.context.area.type == "VIEW_3D"):
                 if bpy.context.mode == "OBJECT":
                     bpy.ops.object.mode_set(mode=_mode_gpen)
                     _mode_gpen = self._mode_gpen
+                    print(self._mode_gpen)
                     return{"FINISHED"}
                 
                 if (bpy.context.mode == "EDIT_GPENCIL" and self._mode_gpen != _mode_gpen):

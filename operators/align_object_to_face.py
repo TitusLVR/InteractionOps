@@ -58,7 +58,7 @@ def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
     textsize = tCSize    
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 9) * _uifactor 
+    columnoffs = (textsize * 10) * _uifactor 
     for line in reversed(iops_text):         
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)
@@ -131,7 +131,7 @@ class AlignObjectToFace(bpy.types.Operator):
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
-       
+
 
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
@@ -164,7 +164,7 @@ class AlignObjectToFace(bpy.types.Operator):
             gpu_verts[1][0] = face.edges[idx].verts[1].co[0] * scale[0]
             gpu_verts[1][1] = face.edges[idx].verts[1].co[1] * scale[1]
             gpu_verts[1][2] = face.edges[idx].verts[1].co[2] * scale[2]
-        
+
         scale_vert(scale)
 
         self.edge_co = [gpu_verts[0] @ mx_new + obj.location,
