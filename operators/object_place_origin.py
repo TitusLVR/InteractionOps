@@ -4,6 +4,7 @@ import gpu
 import bmesh
 import numpy
 import math
+import copy
 from math import radians, degrees
 from mathutils import Vector, Matrix, Euler
 from math import sin, cos, pi
@@ -139,7 +140,8 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     tSPosY = prefs.text_shadow_pos_y  
     
     iops_text = (
-        ("Active object switch", "Shift + LMB Click"),                
+        ("Active object switch", "Shift + LMB Click"),
+        ("For all objects", "F1"),
         )
 
     # FontID    
@@ -156,7 +158,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     textsize = tCSize    
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 18) * _uifactor 
+    columnoffs = (textsize * 20) * _uifactor 
     for line in reversed(iops_text):         
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)
@@ -182,7 +184,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     result = False
     result_obj = None
     vp_objs = []
-    vp_group = []
+    vp_group = None
 
     # BBoxResults
     pos_batch = []
@@ -237,25 +239,76 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
 
         return active_object , selected_objects
 
+    def orphan_data_purge(self,context):
+        # Clean Up Start 
+        for block in bpy.data.meshes:
+            if block.users == 0:
+                bpy.data.meshes.remove(block)
+        for block in bpy.data.materials:
+            if block.users == 0:
+                bpy.data.materials.remove(block)
+        for block in bpy.data.textures:
+            if block.users == 0:
+                bpy.data.textures.remove(block)
+        for block in bpy.data.images:
+            if block.users == 0:
+                bpy.data.images.remove(block)
+        # Clean Up End 
+
     def getBBOX_from_selected(self,context):
-        objs = bpy.context.view_layer.objects.selected
-        NewObjs = []
-        for ob in objs:
-            obj = bpy.data.objects.new( "newOBJ", ob.data.copy())
-            obj.matrix_world = ob.matrix_world
-            NewObjs.append(obj)   
-
-        for ob in objs:
-            ob.select_set(False) 
-
-        for ob in NewObjs:
-            bpy.context.scene.collection.objects.link(ob)
+        scene = bpy.context.scene
+        sel_objs = []
+        # Collect selected
+        for ob in context.view_layer.objects.selected:
+            if ob.type == 'MESH':
+                sel_objs.append(ob)
+        # Make duplicates
+        dups = []
+        for ob in sel_objs:
+            matrix = ob.matrix_world
+            dup_mesh = ob.data.copy()
+            dup_obj = bpy.data.objects.new("iops_dups",dup_mesh)
+            dup_obj.matrix_world = matrix
+            context.scene.collection.objects.link(dup_obj)
+            dups.append(dup_obj)
+        # Deselect originals
+        for ob in sel_objs:
+            ob.select_set(False)
+        # Select duplicates
+        for ob in dups:
             ob.select_set(True)
-            bpy.context.view_layer.objects.active = ob
+        context.view_layer.objects.active = dups[-1]
 
+        # Join duplicates and Apply transformation
         bpy.ops.object.join()
-        ObjClean = bpy.context.view_layer.objects.active    
-        #bpy.data.meshes.remove(ObjClean.data, do_unlink=True, do_id_user=True, do_ui_user=True)        
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+        # Get Bounding box from result
+        dup = context.view_layer.objects.active      
+        dup_bounds = dup.bound_box
+        bbox_verts = []  
+        for v in dup_bounds:
+            v_co = Vector(v) 
+            bbox_verts.append(v_co) 
+
+        # Removing duplicates 
+        bpy.data.objects.remove(dup, do_unlink = True, do_id_user = True, do_ui_user = True)
+
+        # Create a bounding box mesh from duplicated objects
+        mesh = bpy.data.meshes.new('iops_bbox_mesh')
+        mesh.from_pydata(bbox_verts,[],[])
+        bbox = bpy.data.objects.new("iops_bbox",mesh)
+        context.scene.collection.objects.link(bbox)
+
+        # Restore selection 
+        for ob in sel_objs:
+            ob.select_set(True)    
+        context.view_layer.objects.active = sel_objs[-1]
+
+        # Assign vars
+        self.result = True
+        self.result_obj = bbox
+        self.vp_group = bbox
 
     def scene_ray_cast(self, context):
         # get the context arguments
@@ -276,9 +329,8 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         if result and obj in self.vp_objs:
             context.view_layer.objects.active = obj
             self.result_obj = obj
+            self.vp_group = None
         return result, obj
-
-
 
     def object_bbox(self, context):
         scene = context.scene
@@ -342,7 +394,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self.pos_batch_3d = bbox_batch_3d
             return [bbox_batch, bbox_batch_3d]
         else:
-            return [bbox_batch, bbox_batch_3d]
+            return [bbox_batch, bbox_batch]
 
     def clear_draw_handlers(self):
         bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, "WINDOW")
@@ -358,23 +410,38 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         
         if event.shift:
              if event.type == 'LEFTMOUSE':
-                    self.scene_ray_cast(context)
-                    self.object_bbox(context)
+                self.scene_ray_cast(context)
+                self.object_bbox(context)
+                if self.vp_group != None:
+                    bpy.data.objects.remove(self.vp_group, do_unlink = True, do_id_user = True, do_ui_user = True)
+                    self.vp_group = None
+                    self.orphan_data_purge(context)
+        
+        elif event.type == "F1" and event.value == "PRESS":
+            self.getBBOX_from_selected(context)
+            self.object_bbox(context)
+            self.orphan_data_purge(context)
 
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y            
             self.calc_distance(context)
             
         elif event.type in {"LEFTMOUSE", "SPACE"}:
-            self.place_origin(context)
+            self.place_origin(context)            
+            if self.vp_group != None:
+                    bpy.data.objects.remove(self.vp_group, do_unlink = True, do_id_user = True, do_ui_user = True)
             self.clear_draw_handlers()
+            self.orphan_data_purge(context)
             return {"FINISHED"}
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self.mouse_pos = [0, 0]
             self.result = False
             self.result_obj = None
+            if self.vp_group != None:
+                    bpy.data.objects.remove(self.vp_group, do_unlink = True, do_id_user = True, do_ui_user = True)
             self.clear_draw_handlers()
+            self.orphan_data_purge(context)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
