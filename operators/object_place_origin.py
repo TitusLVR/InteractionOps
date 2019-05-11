@@ -411,7 +411,8 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             return {'PASS_THROUGH'}
         
         if event.shift:
-             if event.type == 'LEFTMOUSE':
+             if event.type == 'LEFTMOUSE' and event.value == "PRESS":
+                self.mouse_pos = event.mouse_region_x, event.mouse_region_y 
                 self.scene_ray_cast(context)
                 self.object_bbox(context)
                 if self.vp_group != None:
