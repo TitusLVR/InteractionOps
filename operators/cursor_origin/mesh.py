@@ -24,6 +24,7 @@ def draw_line_cursor(self, context):
     batch.draw(shader)
     # pass
 
+
 def draw_ui(self, context, _uidpi, _uifactor):
 
     def get_target():
@@ -31,7 +32,6 @@ def draw_ui(self, context, _uidpi, _uifactor):
             return "3D Cursor"
         elif self.target == context.view_layer.objects.active:
             return "Active object" 
-
     
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
@@ -50,8 +50,8 @@ def draw_ui(self, context, _uidpi, _uifactor):
         ("Look at", str(_target)),
         ("Look at axis", str(self.look_axis[0])),
         ("Match cursor's rotation", str(self.rotate)),
-        ("Align to cursor's pos","F3"),
-        ("Visual origin helper","F4"),        
+        ("Align to cursor's pos", "F3"),
+        ("Visual origin helper", "F4"),        
         )
 
     # FontID    
@@ -60,8 +60,8 @@ def draw_ui(self, context, _uidpi, _uifactor):
     blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur),tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset (font, tSPosX, tSPosY)
+        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset(font, tSPosX, tSPosY)
     else:
         blf.disable(0, blf.SHADOW)
 
@@ -81,11 +81,10 @@ def draw_ui(self, context, _uidpi, _uifactor):
         blf.draw(font, line[1])
         offset += (tCSize + 5) * _uifactor 
 
-# -------------------------------------------------------------------------
 
 class IOPS_OT_CursorOrigin_Mesh(IOPS):
     bl_idname = "iops.cursor_origin_mesh"
-    bl_label ="MESH: Object mode - Align to cursor"
+    bl_label = "MESH: Object mode - Align to cursor"
     orig_mxs = []
     rotate = False
     flip = False
@@ -94,11 +93,11 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
     gpu_verts = []
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 context.view_layer.objects.active.type == "MESH"
-                 and len(context.view_layer.objects.selected) != 0)
+                and len(context.view_layer.objects.selected) != 0)
 
     def move_to_cursor(self, rotate):
         scene = bpy.context.scene
@@ -127,8 +126,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
                 rot_mx = v.to_track_quat("-" + axis[0], axis[1]).to_matrix().to_4x4()
             else:
                 rot_mx = v.to_track_quat(axis[0], axis[1]).to_matrix().to_4x4()
-            o.matrix_world @= rot_mx    
-        
+            o.matrix_world @= rot_mx
     
     def modal(self, context, event):
             context.area.tag_redraw()
