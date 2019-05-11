@@ -78,6 +78,7 @@ def register_keymaps():
             kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5])
             kmi.active = True
 
+
 def unregister_keymaps():
     keyconfigs = bpy.context.window_manager.keyconfigs
     for kc in keyconfigs:
@@ -113,10 +114,12 @@ classes = (IOPS,
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
+
 def register():
     reg_cls()
     register_keymaps()
     print("IOPS Registered!")
+
 
 def unregister():
     unreg_cls()
