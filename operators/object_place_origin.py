@@ -141,7 +141,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     
     iops_text = (
         ("Active object switch", "Shift + LMB Click"),
-        ("For all objects", "F1"),
+        ("World space for selected", "F1"),
         )
 
     # FontID    
@@ -196,8 +196,10 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D"                                
-                and context.view_layer.objects.selected is not None)
+        return (context.area.type == "VIEW_3D" and
+                context.mode == "OBJECT" and
+                context.view_layer.objects.active.type == "MESH"                                
+                and len(context.view_layer.objects.selected) != 0)
 
     def place_origin(self, context):
         objs = context.view_layer.objects.selected
