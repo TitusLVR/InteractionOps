@@ -32,16 +32,6 @@ class IOPS(bpy.types.Operator):
             mode = "FACE"
         return mode
 
-    def get_mode_gpen(self, gpen_mode):
-        mode = ""
-        if gpen_mode[0]:
-            mode = "EDIT_GPENCIL"
-        elif gpen_mode[1]:
-            mode = "PAINT_GPENCIL"
-        elif gpen_mode[2]:
-            mode = "SCULPT_GPENCIL"
-        return mode
-
     def execute(self, context):
         # Object <-> Mesh
         scene = bpy.context.scene
@@ -98,16 +88,15 @@ class IOPS(bpy.types.Operator):
 
         # Object <-> GPencil
         if active_object.type == "GPENCIL":
-            _mode_gpen = self.get_mode_gpen(active_object.mode)
+            _mode_gpen = active_object.mode
             
             if (bpy.context.area.type == "VIEW_3D"):
                 if bpy.context.mode == "OBJECT":
-                    bpy.ops.object.mode_set(mode=_mode_gpen)
                     _mode_gpen = self._mode_gpen
-                    print(self._mode_gpen)
+                    bpy.ops.object.mode_set(mode=_mode_gpen)
                     return{"FINISHED"}
                 
-                if (bpy.context.mode == "EDIT_GPENCIL" and self._mode_gpen != _mode_gpen):
+                elif self._mode_gpen != _mode_gpen:
                     bpy.ops.object.mode_set(mode=self._mode_gpen)
                     _mode_gpen = self._mode_gpen
                     return{"FINISHED"}
@@ -115,7 +104,6 @@ class IOPS(bpy.types.Operator):
                     bpy.ops.object.mode_set(mode="OBJECT")
                     return{"FINISHED"}
 
-            bpy.ops.object.mode_set(mode=_mode_gpen)
             return{"FINISHED"}
 
         # Unsupported Types
