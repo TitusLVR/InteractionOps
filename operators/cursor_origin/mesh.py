@@ -50,6 +50,7 @@ def draw_ui(self, context, _uidpi, _uifactor):
         ("Look at", str(_target)),
         ("Look at axis", str(self.look_axis[0])),
         ("Match cursor's rotation", str(self.rotate)),
+        ("Align to cursor's pos","F3"),
         ("Visual origin helper","F4"),        
         )
 
