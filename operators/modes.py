@@ -8,6 +8,10 @@ class IOPS_OT_MODE_F1(IOPS):
     _mode_3d = IOPS.modes_3d[0]
     _mode_uv = IOPS.modes_uv[0]
     _mode_gpen = IOPS.modes_gpen[0]
+    _mode_text = IOPS.modes_text[0]
+    _mode_meta = IOPS.modes_meta[0]
+    _mode_armature = IOPS.modes_armature[0]
+    _mode_lattice = IOPS.modes_lattice[0]
 
 
 class IOPS_OT_MODE_F2(IOPS):
@@ -16,6 +20,7 @@ class IOPS_OT_MODE_F2(IOPS):
     _mode_3d = IOPS.modes_3d[1]
     _mode_uv = IOPS.modes_uv[1]
     _mode_gpen = IOPS.modes_gpen[1]
+    _mode_armature = IOPS.modes_armature[1]
 
 
 class IOPS_OT_MODE_F3(IOPS):

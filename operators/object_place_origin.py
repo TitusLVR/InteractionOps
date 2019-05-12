@@ -415,6 +415,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 self.mouse_pos = event.mouse_region_x, event.mouse_region_y
                 self.scene_ray_cast(context)
                 self.object_bbox(context)
+                self.calc_distance(context)
                 if self.vp_group is not None:
                     bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                     self.vp_group = None
@@ -424,6 +425,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             if self.vp_group is None:
                 self.getBBOX_from_selected(context)
                 self.object_bbox(context)
+                self.calc_distance(context)
                 self.orphan_data_purge(context)
 
         elif event.type == 'MOUSEMOVE':
@@ -458,6 +460,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.result_obj, self.vp_objs = self.getActiveFromSelected(context)
             self.object_bbox(context)
+            self.calc_distance(context)
             uidpi = int((72 * preferences.system.ui_scale))
             args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
