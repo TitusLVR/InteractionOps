@@ -201,7 +201,7 @@ class AlignObjectToFace(bpy.types.Operator):
                 self.align_update(event)
 
         elif event.type == "WHEELDOWNMOUSE":
-                if self.counter > 1:
+                if self.counter > 0:
                     self.counter -= 1
                 self.align_update(event)
 
