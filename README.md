@@ -1,9 +1,7 @@
 <a href="https://imgur.com/bUoowcQ"><img src="https://i.imgur.com/bUoowcQ.png" title="iOps" /></a>
 
 # InteractionOps or iOps
-  It is a set of operators which boost Blender interactivity between user and application by using only five buttons (F1,F2,F3,F4,F5)
-
-Switch between Object mode and Edit mode for main object types, and extra functions for MESH and CURVE object types: 
+  It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons. 
     
 ### MESH:
     
