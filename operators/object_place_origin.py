@@ -139,8 +139,9 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     tSPosY = prefs.text_shadow_pos_y
 
     iops_text = (
-        ("Active object switch", "Shift + LMB Click"),
         ("World space for selected", "F1"),
+        ("Local space for selected", "F2"),
+        ("Pick up active object", "Shift + LMB Click"),
     )
 
     # FontID
@@ -192,6 +193,9 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
     # DrawCalculations
     batch_idx = None
     target = (0, 0)
+
+    # Handlers list
+    vp_handlers = []
 
     @classmethod
     def poll(self, context):
@@ -399,10 +403,17 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             return [bbox_batch, bbox_batch]
 
     def clear_draw_handlers(self):
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, "WINDOW")
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_lines, "WINDOW")
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_points, 'WINDOW')
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle_bbox_act_point, 'WINDOW')
+        for handler in self.vp_handlers:
+            bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+
+    def execute(self, context):
+        self.place_origin(context)
+        if self.vp_group is not None:
+            bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+            self.vp_group = None
+        self.clear_draw_handlers()
+        self.orphan_data_purge(context)
+        return {"FINISHED"}
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -428,16 +439,21 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 self.calc_distance(context)
                 self.orphan_data_purge(context)
 
+        elif event.type == "F2" and event.value == "PRESS":
+            self.result_obj, self.vp_objs = self.getActiveFromSelected(context)
+            self.object_bbox(context)
+            self.calc_distance(context)
+            if self.vp_group is not None:
+                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                self.vp_group = None
+                self.orphan_data_purge(context)
+
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.calc_distance(context)
 
         elif event.type in {"LEFTMOUSE", "SPACE"}:
-            self.place_origin(context)
-            if self.vp_group is not None:
-                    bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
-            self.clear_draw_handlers()
-            self.orphan_data_purge(context)
+            self.execute(context)
             return {"FINISHED"}
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
@@ -468,7 +484,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
             self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_bbox, args, 'WINDOW', 'POST_PIXEL')
             self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_circle_fill_2d, args, 'WINDOW', 'POST_PIXEL')
-
+            self.vp_handlers = [self._handle_iops_text, self._handle_bbox_lines, self._handle_bbox_points, self._handle_bbox_act_point]
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
