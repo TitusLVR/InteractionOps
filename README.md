@@ -41,16 +41,14 @@
 BlenderArtists forum page 
 https://blenderartists.org/t/interactionops-iops/
 
-## Other:
-Also check my page on gumroad: 
-https://gumroad.com/titus
-
 ## Authors:
 Cyrill Vitkovskiy:
 https://www.artstation.com/furash
 
 Titus Lavrov:
 https://www.artstation.com/tituslvr
+Also check my page on gumroad: 
+https://gumroad.com/titus
 
 ## Special thanks:
 For author of qBlocker
