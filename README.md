@@ -37,3 +37,28 @@
 ## iOps keymap and functionality table:
 <a href="https://imgur.com/TIbmIHa"><img src="https://i.imgur.com/TIbmIHa.png" title="iOps Keymap" /></a>
 
+## Ideas and support:
+BlenderArtists forum page 
+https://blenderartists.org/t/interactionops-iops/
+
+## Other:
+Also check my page on gumroad: 
+https://gumroad.com/titus
+
+## Authors:
+Cyrill Vitkovskiy:
+https://www.artstation.com/furash
+
+Titus Lavrov:
+https://www.artstation.com/tituslvr
+
+## Special thanks:
+For author of qBlocker
+https://gumroad.com/sanislovart
+
+jayanamgames youtube channel:
+https://www.youtube.com/user/jayanamgames
+
+Many thanks!
+
+
