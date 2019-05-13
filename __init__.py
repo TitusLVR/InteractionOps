@@ -9,7 +9,7 @@ bl_info = {
     "wiki_url": "https://blenderartists.org/t/interactionops-iops/",
     "tracker_url": "https://github.com/TitusLVR/InteractionOps",
     "category": "Tools"
-    }
+}
 
 import bpy
 from .operators.iops import IOPS
@@ -59,7 +59,7 @@ def register_keymaps():
         ('iops.to_verts',                  'F1', 'PRESS', False, True,  False),
         ('iops.to_edges',                  'F2', 'PRESS', False, True,  False),
         ('iops.to_faces',                  'F3', 'PRESS', False, True,  False)
-        ]
+    ]
 
     keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
