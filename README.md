@@ -6,7 +6,7 @@
 ### MESH:
     
    #### Edit Mode:
-   * Swith between Vertex/Edge/Face 
+   * Switch between Vertex/Edge/Face 
    * Move origin to selection center for Vertex/Edge/Face
    * Align object ot selected face + Axis selection   
    #### Object Mode:   
@@ -15,7 +15,7 @@
    * Look at active for selected objects
    * Visual pivot placing (World space/Object space)
    #### UV:
-   * Swith between Vertex/Edge/Face or if sync diabled UVs - Vertex/Edge/Face/Island 
+   * Switch between Vertex/Edge/Face or if sync diabled UVs - Vertex/Edge/Face/Island 
    
 ### CURVE:
   * Subdivide curve
