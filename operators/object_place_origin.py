@@ -43,7 +43,7 @@ def draw_circle_fill_2d(self, context):
     if point != (0, 0):
         position = point
         color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_color
-        radius = 6
+        radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_size
         segments = 12
         # create vertices
         coords = generate_circle_verts(position, radius, segments)
@@ -62,7 +62,7 @@ def draw_multicircles_fill_2d_bbox(self, context):
     positions = (self.object_bbox(context))[0]
     if positions is not None:
         color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_points_color
-        radius = 3
+        radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_p_size
         segments = 12
         coords = []
         triangles = []
@@ -317,8 +317,8 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self.result = True
             self.result_obj = bbox
             self.vp_group = bbox
-    
-    def active_to_world(self, context):        
+
+    def active_to_world(self, context):
         # Collect selected
         sel_objs = []
         for ob in context.view_layer.objects.selected:
@@ -333,17 +333,16 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         dup_obj = bpy.data.objects.new("iops_dups", dup_mesh)
         dup_obj.matrix_world = matrix
         context.scene.collection.objects.link(dup_obj)
-
-         # Deselect originals
+        # Deselect originals
         for ob in sel_objs:
             ob.select_set(False)
-        # Select duplicates        
+        # Select duplicates
         dup_obj.select_set(True)
         context.view_layer.objects.active = dup_obj
         # Apply transformation
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-        # Get Bounding box from result        
+        # Get Bounding box from result
         dup_bounds = dup_obj.bound_box
         bbox_verts = []
         for v in dup_bounds:
@@ -367,7 +366,6 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self.result = True
             self.result_obj = bbox
             self.vp_group = bbox
-
 
     def scene_ray_cast(self, context):
         # get the context arguments
@@ -482,14 +480,14 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 if self.vp_group is not None:
                     bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                     self.vp_group = None
-                    self.orphan_data_purge(context)        
+                    self.orphan_data_purge(context)
         # Pick up in world space
         elif event.type == 'F3' and event.value == "PRESS":
             if self.vp_group is not None:
                 bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                 self.vp_group = None
-                self.orphan_data_purge(context)            
-            if self.vp_group is None:              
+                self.orphan_data_purge(context)
+            if self.vp_group is None:
                 self.active_to_world(context)
                 self.object_bbox(context)
                 self.calc_distance(context)
@@ -498,7 +496,7 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             if self.vp_group is not None:
                 bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                 self.vp_group = None
-                self.orphan_data_purge(context)  
+                self.orphan_data_purge(context)
             if self.vp_group is None:
                 self.getBBOX_from_selected(context)
                 self.object_bbox(context)
