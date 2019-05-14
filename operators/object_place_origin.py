@@ -139,8 +139,9 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     tSPosY = prefs.text_shadow_pos_y
 
     iops_text = (
-        ("World space for selected", "F1"),
-        ("Local space for selected", "F2"),
+        ("World space group", "F1"),
+        ("Local space for active", "F2"),
+        ("World space for active", "F2"),
         ("Pick up active object", "Shift + LMB Click"),
     )
 
@@ -316,6 +317,57 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             self.result = True
             self.result_obj = bbox
             self.vp_group = bbox
+    
+    def active_to_world(self, context):        
+        # Collect selected
+        sel_objs = []
+        for ob in context.view_layer.objects.selected:
+            if ob.type == 'MESH':
+                sel_objs.append(ob)
+
+        res = self.result
+        obj = context.view_layer.objects.active
+        # Duplicate active obj
+        matrix = obj.matrix_world
+        dup_mesh = obj.data.copy()
+        dup_obj = bpy.data.objects.new("iops_dups", dup_mesh)
+        dup_obj.matrix_world = matrix
+        context.scene.collection.objects.link(dup_obj)
+
+         # Deselect originals
+        for ob in sel_objs:
+            ob.select_set(False)
+        # Select duplicates        
+        dup_obj.select_set(True)
+        context.view_layer.objects.active = dup_obj
+        # Apply transformation
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+        # Get Bounding box from result        
+        dup_bounds = dup_obj.bound_box
+        bbox_verts = []
+        for v in dup_bounds:
+            v_co = Vector(v)
+            bbox_verts.append(v_co)
+        # Removing duplicates
+        bpy.data.objects.remove(dup_obj, do_unlink=True, do_id_user=True, do_ui_user=True)
+
+        # Create a bounding box mesh from duplicated objects
+        mesh = bpy.data.meshes.new('iops_bbox_mesh')
+        mesh.from_pydata(bbox_verts, [], [])
+        bbox = bpy.data.objects.new("iops_bbox", mesh)
+        context.scene.collection.objects.link(bbox)
+        # Restore selection
+        for ob in sel_objs:
+            ob.select_set(True)
+        # Restore active obj
+        context.view_layer.objects.active = obj
+        # Assign vars
+        if self.vp_group is None:
+            self.result = True
+            self.result_obj = bbox
+            self.vp_group = bbox
+
 
     def scene_ray_cast(self, context):
         # get the context arguments
@@ -420,8 +472,8 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # allow navigation
             return {'PASS_THROUGH'}
-
-        if event.shift:
+        # Pick up in Local space
+        elif event.shift:
             if event.type == 'LEFTMOUSE' and event.value == "PRESS":
                 self.mouse_pos = event.mouse_region_x, event.mouse_region_y
                 self.scene_ray_cast(context)
@@ -430,9 +482,23 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 if self.vp_group is not None:
                     bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                     self.vp_group = None
-                    self.orphan_data_purge(context)
+                    self.orphan_data_purge(context)        
+        # Pick up in world space
+        elif event.type == 'F3' and event.value == "PRESS":
+            if self.vp_group is not None:
+                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                self.vp_group = None
+                self.orphan_data_purge(context)            
+            if self.vp_group is None:              
+                self.active_to_world(context)
+                self.object_bbox(context)
+                self.calc_distance(context)
 
         elif event.type == "F1" and event.value == "PRESS":
+            if self.vp_group is not None:
+                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                self.vp_group = None
+                self.orphan_data_purge(context)  
             if self.vp_group is None:
                 self.getBBOX_from_selected(context)
                 self.object_bbox(context)
