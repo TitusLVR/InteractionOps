@@ -8,7 +8,7 @@
    #### Edit Mode:
    * Switch between Vertex/Edge/Face 
    * Move origin to selection center for Vertex/Edge/Face
-   * Align object ot selected face + Axis selection   
+   * Align object to selected face + Axis selection   
    #### Object Mode:   
    * Align object to cursor location (rotation optional)
    * Look at cursor for selected objects
