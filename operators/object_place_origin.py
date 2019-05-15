@@ -141,7 +141,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     iops_text = (
         ("World space group", "F1"),
         ("Local space for active", "F2"),
-        ("World space for active", "F2"),
+        ("World space for active", "F3"),
         ("Pick up active object", "Shift + LMB Click"),
     )
 
@@ -159,7 +159,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     textsize = tCSize
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 20) * _uifactor
+    columnoffs = (textsize * 22) * _uifactor
     for line in reversed(iops_text):
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)
