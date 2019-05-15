@@ -2,7 +2,11 @@
 
 # InteractionOps or iOps
   It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons. 
-    
+
+### Download:
+   * Click on green button 
+   * Or install ready addon zip file: https://github.com/TitusLVR/InteractionOps/releases/tag/master
+
 ### MESH:
     
    #### Edit Mode:
