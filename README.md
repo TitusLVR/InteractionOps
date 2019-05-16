@@ -4,7 +4,7 @@
   It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons. 
 
 ### Download:
-   * Click on green button and get with Git. 
+   * Click on green button and get iOps with Git. 
    * Or download and install zip file from releases branch: [iOps 1.5](https://github.com/TitusLVR/InteractionOps/blob/releases/iOps_1.5.zip?raw=true)
 
 ### MESH:
