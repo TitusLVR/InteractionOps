@@ -12,3 +12,6 @@ config/recent-files.txt
 
 # VSCode
 .vscode/*
+
+#
+/Releases
