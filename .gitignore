@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+Releases/
 __pycache__/
 *.py[cod]
 
@@ -13,5 +14,5 @@ config/recent-files.txt
 # VSCode
 .vscode/*
 
-#
-Releases/
+
+
