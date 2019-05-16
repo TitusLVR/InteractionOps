@@ -38,7 +38,7 @@ def generate_circle_tris(segments, startID):
 
 
 # draw a circle on scene
-def draw_circle_fill_2d(self, context):
+def draw_bbox_active_point(self, context):
     point = self.target
     if point != (0, 0):
         position = point
@@ -58,7 +58,7 @@ def draw_circle_fill_2d(self, context):
 
 
 # draw multiple circle in one batch on screen
-def draw_multicircles_fill_2d_bbox(self, context):
+def draw_bbox_cage_points(self, context):
     positions = (self.object_bbox(context))[0]
     if positions is not None:
         color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_points_color
@@ -125,7 +125,7 @@ def draw_bbox_lines(self, context):
         batch.draw(shader)
 
 
-def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
+def draw_iops_text(self, context, _uidpi, _uifactor):
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
@@ -142,6 +142,8 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
         ("World space group", "F1"),
         ("Local space for active", "F2"),
         ("World space for active", "F3"),
+        ("Origin to World center", "W"),
+        ("Selected to World center", "M"),
         ("Pick up active object", "Shift + LMB Click"),
     )
 
@@ -159,7 +161,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
     textsize = tCSize
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 22) * _uifactor
+    columnoffs = (textsize * 21) * _uifactor
     for line in reversed(iops_text):
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)
@@ -173,7 +175,7 @@ def draw_callback_iops_vp_px(self, context, _uidpi, _uifactor):
         offset += (tCSize + 5) * _uifactor
 
 
-class IOPS_OP_PlaceOrigin(bpy.types.Operator):
+class IOPS_OP_VisualOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
     bl_idname = "iops.visual_origin"
     bl_label = "Visual origin"
@@ -204,11 +206,27 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 context.mode == "OBJECT" and
                 context.view_layer.objects.active.type == "MESH" and
                 len(context.view_layer.objects.selected) != 0)
-
+    
+    # Place origin for selected objects
     def place_origin(self, context):
         objs = context.view_layer.objects.selected
         pos = self.pos_batch_3d[self.batch_idx]
         context.scene.cursor.location = pos
+        for ob in objs:
+            context.view_layer.objects.active = ob
+            bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+    
+    # Place origin for selected objects
+    def move_selected_to_world(self, context):
+        objs = context.view_layer.objects.selected        
+        for ob in objs:
+            ob.location = (0, 0, 0)    
+    
+    # Place origin to world center
+    def origin_to_world(self, context):
+        objs = context.view_layer.objects.selected
+        context.scene.cursor.location = (0, 0, 0)
+        context.scene.cursor.rotation_euler = (0, 0, 0) 
         for ob in objs:
             context.view_layer.objects.active = ob
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
@@ -511,10 +529,28 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
                 bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
                 self.vp_group = None
                 self.orphan_data_purge(context)
+     
+        elif event.type == 'W' and event.value == "PRESS":
+            self.origin_to_world(context)
+            if self.vp_group is not None:
+                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+            self.vp_group = None
+            self.clear_draw_handlers()
+            self.orphan_data_purge(context)            
+            return {"FINISHED"}
+
+        elif event.type == 'M' and event.value == "PRESS":
+            self.move_selected_to_world(context)
+            if self.vp_group is not None:
+                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+            self.vp_group = None
+            self.clear_draw_handlers()
+            self.orphan_data_purge(context)             
+            return {"FINISHED"}
 
         elif event.type == 'MOUSEMOVE':
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.calc_distance(context)
+            self.calc_distance(context)            
 
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             self.execute(context)
@@ -544,10 +580,10 @@ class IOPS_OP_PlaceOrigin(bpy.types.Operator):
             uidpi = int((72 * preferences.system.ui_scale))
             args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
-            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_callback_iops_vp_px, args_text, 'WINDOW', 'POST_PIXEL')
+            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_iops_text, args_text, 'WINDOW', 'POST_PIXEL')
             self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
-            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_multicircles_fill_2d_bbox, args, 'WINDOW', 'POST_PIXEL')
-            self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_circle_fill_2d, args, 'WINDOW', 'POST_PIXEL')
+            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_cage_points, args, 'WINDOW', 'POST_PIXEL')
+            self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_active_point, args, 'WINDOW', 'POST_PIXEL')
             self.vp_handlers = [self._handle_iops_text, self._handle_bbox_lines, self._handle_bbox_points, self._handle_bbox_act_point]
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)

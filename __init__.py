@@ -25,8 +25,8 @@ from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.cursor_origin.mesh_edit import IOPS_OT_CursorOrigin_Mesh_Edit
 from .operators.align_object_to_face import AlignObjectToFace
-from .operators.object_place_origin import *
-from .operators.object_place_origin import IOPS_OP_PlaceOrigin
+from .operators.object_visual_origin import *
+from .operators.object_visual_origin import IOPS_OP_VisualOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.mesh_convert_selection import (IOPS_OP_ToFaces,
                                                IOPS_OP_ToEdges,
@@ -109,7 +109,7 @@ classes = (IOPS,
            IOPS_OP_ToEdges,
            IOPS_OP_ToVerts,
            AlignObjectToFace,
-           IOPS_OP_PlaceOrigin
+           IOPS_OP_VisualOrigin
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
