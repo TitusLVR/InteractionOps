@@ -14,4 +14,4 @@ config/recent-files.txt
 .vscode/*
 
 #
-/Releases
+Releases/
