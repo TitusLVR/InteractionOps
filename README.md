@@ -1,5 +1,5 @@
 
-<a href="https://imgur.com/bUoowcQ"><img src="https://i.imgur.com/bUoowcQ.png" title="iOps" /></a>
+<a href="https://imgur.com/bUoowcQ"><img src="https://i.imgur.com/2xgTe3L.png" title="iOps releases" /></a>
 
 # InteractionOps releases:
 
