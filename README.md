@@ -5,7 +5,7 @@
 
 ### Download:
    * Click on green button 
-   * Or install ready addon zip file:[iOps 1.5](https://github.com/TitusLVR/InteractionOps/blob/master/Releases/iOps_1.5.zip?raw=true)
+   * Or install ready addon zip file: [iOps 1.5](https://github.com/TitusLVR/InteractionOps/blob/master/Releases/iOps_1.5.zip?raw=true)
 
 ### MESH:
     
