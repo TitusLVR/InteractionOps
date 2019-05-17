@@ -17,7 +17,7 @@
    * Align object to cursor location (rotation optional) (keymaps: F4 (F3))
    * Look at cursor for selected objects (keymaps: F4 + F1)
    * Look at active for selected objects (keymaps: F4 + F2)
-   * Visual pivot placing (World space/Object space) (keymaps: F4 + F4)
+   * Visual origin placing (World space/Object space) (keymaps: F4 + F4)
    #### UV:
    * Switch between Vertex/Edge/Face or if sync diabled UVs - Vertex/Edge/Face/Island (keymaps: F1/F2/F3/(F4)) 
    
