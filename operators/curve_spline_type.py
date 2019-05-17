@@ -2,7 +2,7 @@ import bpy
 import blf
 import gpu
 from gpu_extras.batch import batch_for_shader
-from bpy.props import (BoolProperty)
+from bpy.props import (BoolProperty, EnumProperty)
 
 
 
@@ -20,6 +20,7 @@ def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):
     tSPosY = prefs.text_shadow_pos_y  
     
     iops_text = (
+        ("Present type is", str(self.curv_spline_type)),
         ("Handles state", str(self.handles)),
         ("Enable/Disable handles", "H"),
         ("Spline type POLY", "F1"),
@@ -62,16 +63,28 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     handles: BoolProperty(
-        name="Handles",
+        name="Use handles",
         description="Use handles",
         default=False
-    )
-
+    )      
+    
+    spl_type = []
+    curv_spline_type = []
+    
     @classmethod
     def poll(self, context):
         return (len(context.view_layer.objects.selected) != 0 and
                 context.view_layer.objects.active.type == "CURVE" and 
-                context.view_layer.objects.active.mode == "EDIT")   
+                context.view_layer.objects.active.mode == "EDIT")
+
+    def get_curve_active_spline_type(self,context):
+        curve = context.view_layer.objects.active.data
+        active_spline_type = curve.splines.active.type
+        return active_spline_type
+
+    def execute(self, context):        
+        bpy.ops.curve.spline_type_set(type=self.spl_type, use_handles=self.handles)        
+        return {"FINISHED"}
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -81,18 +94,21 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             return {'PASS_THROUGH'}       
 
         elif event.type in {"F1"} and event.value == "PRESS":
-            bpy.ops.curve.spline_type_set(type='POLY', use_handles=self.handles)
+            self.spl_type = "POLY"
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            self.execute(context)
             return {"FINISHED"}
         
         elif event.type in {"F2"} and event.value == "PRESS":
-            bpy.ops.curve.spline_type_set(type='BEZIER', use_handles=self.handles)
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            self.spl_type = "BEZIER" 
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")          
+            self.execute(context)
             return {"FINISHED"}
         
         elif event.type in {"F3"} and event.value == "PRESS":
-            bpy.ops.curve.spline_type_set(type='NURBS', use_handles=self.handles)
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            self.spl_type = "NURBS" 
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")           
+            self.execute(context)
             return {"FINISHED"}
         
         elif event.type in {"H"} and event.value == "PRESS":
@@ -111,6 +127,8 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
         preferences = context.preferences
         if context.object and context.area.type == "VIEW_3D":
             self.handles = False
+            self.spl_type = "POLY"
+            self.curv_spline_type = self.get_curve_active_spline_type(context)
             # Add drawing handler for text overlay rendering
             uidpi = int((72 * preferences.system.ui_scale))
             args = (self, context, uidpi, preferences.system.ui_scale)
