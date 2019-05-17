@@ -175,7 +175,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         offset += (tCSize + 5) * _uifactor
 
 
-class IOPS_OP_VisualOrigin(bpy.types.Operator):
+class IOPS_OT_VisualOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
     bl_idname = "iops.visual_origin"
     bl_label = "Visual origin"

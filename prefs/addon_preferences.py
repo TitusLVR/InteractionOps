@@ -27,7 +27,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(0.8, 0.8, 0.8, 1.0),
-        )
+    )
     text_color_key: FloatVectorProperty(
         name="Color key",
         subtype='COLOR_GAMMA',
@@ -35,7 +35,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(1, 0.757, 0, 1.0),
-        )
+    )
 
     text_size: IntProperty(
         name="Size",
@@ -43,7 +43,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=20,
         soft_min=1,
         soft_max=100
-        )
+    )
 
     text_pos_x: IntProperty(
         name="Position X",
@@ -51,7 +51,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=60,
         soft_min=1,
         soft_max=10000
-        )
+    )
 
     text_pos_y: IntProperty(
         name="Position Y",
@@ -59,7 +59,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=60,
         soft_min=1,
         soft_max=10000
-        )
+    )
 
     text_shadow_color: FloatVectorProperty(
         name="Shadow",
@@ -68,13 +68,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(0.0, 0.0, 0.0, 1.0),
-        )
+    )
 
     text_shadow_toggle: BoolProperty(
         name="ON/OFF",
         description="ON/Off",
         default=False
-        )
+    )
 
     text_shadow_blur: EnumProperty(
         name='Blur',
@@ -84,7 +84,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             ('3', 'Mid', '', '', 3),
             ('5', 'High', '', '', 5)],
         default='0',
-        )
+    )
 
     text_shadow_pos_x: IntProperty(
         name="Shadow pos X",
@@ -92,14 +92,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=2,
         soft_min=-50,
         soft_max=50
-        )
+    )
     text_shadow_pos_y: IntProperty(
         name="Shadow pos Y",
         description="Modal operators Text pos Y",
         default=-2,
         soft_min=-50,
         soft_max=50
-        )
+    )
 
     vo_cage_color: FloatVectorProperty(
         name="Cage color",
@@ -108,7 +108,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(0.573, 0.323, 0.15, 1),
-        )
+    )
 
     vo_cage_points_color: FloatVectorProperty(
         name="Cage points color",
@@ -117,7 +117,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(0.873, 0.623, 0.15, 1),
-        )
+    )
 
     vo_cage_ap_color: FloatVectorProperty(
         name="Active point color",
@@ -126,7 +126,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(1, 0, 0, 1),
-        )
+    )
 
     vo_cage_p_size: IntProperty(
         name="Cage point size",
@@ -134,7 +134,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=3,
         soft_min=2,
         soft_max=20
-        )
+    )
 
     vo_cage_ap_size: IntProperty(
         name="Active point size",
@@ -142,7 +142,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=6,
         soft_min=2,
         soft_max=20
-        )
+    )
 
     align_edge_color: FloatVectorProperty(
         name="Edge color",
@@ -151,7 +151,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=0,
         max=1,
         default=(0, 1, 0, 1),
-        )
+    )
 
     def draw(self, context):
         layout = self.layout

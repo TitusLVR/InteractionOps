@@ -1,24 +1,24 @@
 import bpy
-from ..iops import IOPS
+from ..iops import IOPS_OT_Main
 
 
-class IOPS_OT_CursorOrigin_Gpen(IOPS):
+class IOPS_OT_CursorOrigin_Gpen(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_gpen"
-    bl_label ="GPENCIL: Object mode - Align to cursor"
+    bl_label = "GPENCIL: Object mode - Align to cursor"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 context.view_layer.objects.active.type == "GPENCIL")
 
 
-class IOPS_OT_CursorOrigin_Gpen_Edit(IOPS):
+class IOPS_OT_CursorOrigin_Gpen_Edit(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_gpen_edit"
-    bl_label ="GPENCIL: Edit mode - Origin to selected"
+    bl_label = "GPENCIL: Edit mode - Origin to selected"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "EDIT_GPENCIL" and
                 context.view_layer.objects.active.type == "GPENCIL")

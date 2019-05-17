@@ -12,7 +12,7 @@ bl_info = {
 }
 
 import bpy
-from .operators.iops import IOPS
+from .operators.iops import IOPS_OT_Main
 from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
@@ -24,14 +24,14 @@ from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
                                            IOPS_OT_CursorOrigin_Gpen_Edit)
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.cursor_origin.mesh_edit import IOPS_OT_CursorOrigin_Mesh_Edit
-from .operators.align_object_to_face import AlignObjectToFace
+from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_visual_origin import *
-from .operators.object_visual_origin import IOPS_OP_VisualOrigin
+from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.curve_spline_type import IOPS_OT_CurveSplineType
-from .operators.mesh_convert_selection import (IOPS_OP_ToFaces,
-                                               IOPS_OP_ToEdges,
-                                               IOPS_OP_ToVerts)
+from .operators.mesh_convert_selection import (IOPS_OT_ToFaces,
+                                               IOPS_OT_ToEdges,
+                                               IOPS_OT_ToVerts)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 
 
@@ -93,8 +93,8 @@ def unregister_keymaps():
                 keymapItems.remove(item)
 
 # Classes for reg and unreg
-classes = (IOPS,
-           IOPS_AddonPreferences,
+classes = (IOPS_AddonPreferences,
+           IOPS_OT_Main,           
            IOPS_OT_MODE_F1,
            IOPS_OT_MODE_F2,
            IOPS_OT_MODE_F3,
@@ -108,11 +108,11 @@ classes = (IOPS,
            IOPS_OT_CursorOrigin_Mesh_Edit,
            IOPS_OT_CurveSubdivide,
            IOPS_OT_CurveSplineType,
-           IOPS_OP_ToFaces,
-           IOPS_OP_ToEdges,
-           IOPS_OP_ToVerts,
-           AlignObjectToFace,
-           IOPS_OP_VisualOrigin
+           IOPS_OT_ToFaces,
+           IOPS_OT_ToEdges,
+           IOPS_OT_ToVerts,
+           IOPS_OT_AlignObjectToFace,
+           IOPS_OT_VisualOrigin          
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

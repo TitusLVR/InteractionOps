@@ -10,11 +10,10 @@ from bpy.props import (IntProperty,
                        StringProperty,
                        FloatVectorProperty)
 from mathutils import Vector, Matrix
-from ..iops import IOPS
+from ..iops import IOPS_OT_Main
 
 
 # ----------------------------  UI  ---------------------------------------
-
 def draw_line_cursor(self, context):
     coords = self.gpu_verts
     shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
@@ -51,8 +50,7 @@ def draw_ui(self, context, _uidpi, _uifactor):
         ("Look at axis", str(self.look_axis[0])),
         ("Match cursor's rotation", str(self.rotate)),
         ("Align to cursor's pos", "F3"),
-        ("Visual origin helper", "F4"),        
-        )
+        ("Visual origin helper", "F4"))
 
     # FontID    
     font = 0
@@ -82,7 +80,7 @@ def draw_ui(self, context, _uidpi, _uifactor):
         offset += (tCSize + 5) * _uifactor 
 
 
-class IOPS_OT_CursorOrigin_Mesh(IOPS):
+class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_mesh"
     bl_label = "MESH: Object mode - Align to cursor"
     orig_mxs = []
@@ -212,17 +210,9 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS):
             # Add drawing handler for text overlay rendering         
             uidpi = int((72 * preferences.system.ui_scale))
             args = (self, context, uidpi, preferences.system.ui_scale)
-            self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_ui,
-                            args,
-                            'WINDOW',
-                            'POST_PIXEL')
+            self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(draw_ui, args, 'WINDOW', 'POST_PIXEL')
             args_line = (self, context)
-            self._handle_cursor = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_line_cursor,
-                            args_line,
-                            'WINDOW',
-                            'POST_VIEW')
+            self._handle_cursor = bpy.types.SpaceView3D.draw_handler_add(draw_line_cursor, args_line, 'WINDOW', 'POST_VIEW')
 
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)

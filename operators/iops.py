@@ -1,7 +1,7 @@
 import bpy
 
 
-class IOPS(bpy.types.Operator):
+class IOPS_OT_Main(bpy.types.Operator):
     bl_idname = "iops.main"
     bl_label = "IOPS"
     bl_options = {"REGISTER", "UNDO"}

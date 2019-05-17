@@ -26,27 +26,27 @@ def draw_edge(self, context):
     batch_verts.draw(shader)
 
 
-def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):    
+def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
     tCSize = prefs.text_size
     tCPosX = prefs.text_pos_x
     tCPosY = prefs.text_pos_y
-    tShadow = prefs.text_shadow_toggle           
-    tSColor = prefs.text_shadow_color    
+    tShadow = prefs.text_shadow_toggle
+    tSColor = prefs.text_shadow_color
     tSBlur = prefs.text_shadow_blur
     tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y  
-    
+    tSPosY = prefs.text_shadow_pos_y
+
     iops_text = (
         ("Face edge index", str(self.get_edge_idx(self.counter))),
-        ("Align to axis", str(self.axis_rotate)),        
-        )
+        ("Align to axis", str(self.axis_rotate)),
+    )
 
-    # FontID    
+    # FontID
     font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3]) 
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
     blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
@@ -55,35 +55,35 @@ def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
     else:
         blf.disable(0, blf.SHADOW)
 
-    textsize = tCSize    
+    textsize = tCSize
     # get leftbottom corner
     offset = tCPosY
-    columnoffs = (textsize * 10) * _uifactor 
-    for line in reversed(iops_text):         
+    columnoffs = (textsize * 10) * _uifactor
+    for line in reversed(iops_text):
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, tCPosX * _uifactor, offset, 0)
-        blf.draw(font, line[0])               
+        blf.draw(font, line[0])
 
         blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
         textdim = blf.dimensions(0, line[1])
-        coloffset = columnoffs - textdim[0] + tCPosX     
+        coloffset = columnoffs - textdim[0] + tCPosX
         blf.position(0, coloffset, offset, 0)
         blf.draw(font, line[1])
-        offset += (tCSize + 5) * _uifactor   
+        offset += (tCSize + 5) * _uifactor
 
 
-class AlignObjectToFace(bpy.types.Operator):
+class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
     """ Align object to selected face """
     bl_idname = "iops.align_object_to_face"
     bl_label = "MESH: Align object to face"
     bl_options = {"REGISTER", "UNDO"}
 
-    axis_move    : StringProperty()
-    axis_rotate  : StringProperty()
-    loc          : FloatVectorProperty()
-    edge_idx     : IntProperty()
-    counter      : IntProperty()
-    flip         : BoolProperty()
+    axis_move: StringProperty()
+    axis_rotate: StringProperty()
+    loc: FloatVectorProperty()
+    edge_idx: IntProperty()
+    counter: IntProperty()
+    flip: BoolProperty()
 
     orig_mx = []
 
@@ -95,9 +95,7 @@ class AlignObjectToFace(bpy.types.Operator):
                 context.view_layer.objects.active.type == "MESH")
 
     def align_update(self, event):
-        self.align_to_face(self.get_edge_idx(self.counter),
-                            self.axis_rotate,
-                            self.flip)
+        self.align_to_face(self.get_edge_idx(self.counter), self.axis_rotate, self.flip)
         self.report({"INFO"}, event.type)
 
     def move(self, axis_move, step):
@@ -133,7 +131,6 @@ class AlignObjectToFace(bpy.types.Operator):
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
 
-
         # Vector from and edge
         vector_edge = (face.edges[idx].verts[0].co -
                        face.edges[idx].verts[1].co).normalized()
@@ -156,7 +153,7 @@ class AlignObjectToFace(bpy.types.Operator):
         obj.location = loc
         obj.scale = scale
 
-        gpu_verts = [Vector(),Vector()]
+        gpu_verts = [Vector(), Vector()]
 
         def scale_vert(scale):
             gpu_verts[0][0] = face.edges[idx].verts[0].co[0] * scale[0]
@@ -170,7 +167,6 @@ class AlignObjectToFace(bpy.types.Operator):
 
         self.edge_co = [gpu_verts[0] @ mx_new + obj.location,
                         gpu_verts[1] @ mx_new + obj.location]
-
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -245,20 +241,12 @@ class AlignObjectToFace(bpy.types.Operator):
 
             # Add drawing handler for text overlay rendering
             uidpi = int((72 * preferences.system.ui_scale))
-            args = (self, context, uidpi, preferences.system.ui_scale)            
-            self._handle = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_callback_iops_aotf_px,
-                            args,
-                            'WINDOW',
-                            'POST_PIXEL')
+            args = (self, context, uidpi, preferences.system.ui_scale)
+            self._handle = bpy.types.SpaceView3D.draw_handler_add(draw_callback_iops_aotf_px, args, 'WINDOW', 'POST_PIXEL')
 
             # Add drawing handler for align edge rendering
             args_line = (self, context)
-            self._handle_edge = bpy.types.SpaceView3D.draw_handler_add(
-                            draw_edge,
-                            args_line,
-                            'WINDOW',
-                            'POST_VIEW')
+            self._handle_edge = bpy.types.SpaceView3D.draw_handler_add(draw_edge, args_line, 'WINDOW', 'POST_VIEW')
 
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)

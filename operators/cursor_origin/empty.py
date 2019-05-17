@@ -1,13 +1,13 @@
 import bpy
-from ..iops import IOPS
+from ..iops import IOPS_OT_Main
 
 
-class IOPS_OT_CursorOrigin_Empty(IOPS):
+class IOPS_OT_CursorOrigin_Empty(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_empty"
-    bl_label ="EMPTY: Align to cursor"
+    bl_label = "EMPTY: Align to cursor"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.view_layer.objects.active.type == "EMPTY")
 

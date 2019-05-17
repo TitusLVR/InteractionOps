@@ -1,16 +1,17 @@
 import bpy
-from ..iops import IOPS
+from ..iops import IOPS_OT_Main
 
 
-class IOPS_OT_CursorOrigin_Curve(IOPS):
+class IOPS_OT_CursorOrigin_Curve(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_curve"
-    bl_label ="CURVE: Object mode - Align to cursor"
+    bl_label = "CURVE: Object mode - Align to cursor"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 context.view_layer.objects.active.type == "CURVE")
+    
     def execute(self, context):
         scene = bpy.context.scene
         objs = bpy.context.selected_objects
@@ -21,12 +22,12 @@ class IOPS_OT_CursorOrigin_Curve(IOPS):
             return{"FINISHED"}
 
 
-class IOPS_OT_CursorOrigin_Curve_Edit(IOPS):
+class IOPS_OT_CursorOrigin_Curve_Edit(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_curve_edit"
-    bl_label ="CURVE: Edit mode - Origin to selected"
+    bl_label = "CURVE: Edit mode - Origin to selected"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "EDIT_CURVE")
 

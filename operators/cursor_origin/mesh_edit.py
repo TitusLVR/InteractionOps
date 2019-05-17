@@ -10,15 +10,15 @@ from bpy.props import (IntProperty,
                        StringProperty,
                        FloatVectorProperty)
 from mathutils import Vector, Matrix
-from ..iops import IOPS
+from ..iops import IOPS_OT_Main
 
 
-class IOPS_OT_CursorOrigin_Mesh_Edit(IOPS):
+class IOPS_OT_CursorOrigin_Mesh_Edit(IOPS_OT_Main):
     bl_idname = "iops.cursor_origin_mesh_edit"
-    bl_label ="MESH: Edit mode - Origin to selected"
+    bl_label = "MESH: Edit mode - Origin to selected"
 
     @classmethod
-    def poll (self, context):
+    def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "EDIT_MESH")
 
