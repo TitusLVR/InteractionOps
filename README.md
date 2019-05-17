@@ -39,7 +39,7 @@
 ## Installation:
 - User preferences > Add-ons > Install from file…> select iOps.zip file.
 
-## iOps keymap and functionality table:
+## iOps keymaps and functionality table:
 <a href="https://imgur.com/TIbmIHa"><img src="https://i.imgur.com/IlZKy0J.png" title="iOps Keymap" /></a>
 
 ## Ideas and support:
