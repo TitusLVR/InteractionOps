@@ -28,6 +28,7 @@ from .operators.align_object_to_face import AlignObjectToFace
 from .operators.object_visual_origin import *
 from .operators.object_visual_origin import IOPS_OP_VisualOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
+from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.mesh_convert_selection import (IOPS_OP_ToFaces,
                                                IOPS_OP_ToEdges,
                                                IOPS_OP_ToVerts)
@@ -48,6 +49,7 @@ def register_keymaps():
         ('iops.mode_f3',                   'F3', 'PRESS', False, False, False),
         ('iops.mode_f4',                   'F4', 'PRESS', False, False, False),
         ('iops.curve_subdivide',           'F2', 'PRESS', False, False, False),
+        ('iops.curve_spline_type',         'F3', 'PRESS', False, False, False),
         ('iops.cursor_origin_mesh',        'F4', 'PRESS', False, False, False),
         ('iops.cursor_origin_mesh_edit',   'F4', 'PRESS', False, False, False),
         ('iops.cursor_origin_curve',       'F4', 'PRESS', False, False, False),
@@ -105,6 +107,7 @@ classes = (IOPS,
            IOPS_OT_CursorOrigin_Mesh,
            IOPS_OT_CursorOrigin_Mesh_Edit,
            IOPS_OT_CurveSubdivide,
+           IOPS_OT_CurveSplineType,
            IOPS_OP_ToFaces,
            IOPS_OP_ToEdges,
            IOPS_OP_ToVerts,

@@ -91,6 +91,7 @@ class AlignObjectToFace(bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "EDIT_MESH" and
+                len(context.view_layer.objects.selected) != 0 and
                 context.view_layer.objects.active.type == "MESH")
 
     def align_update(self, event):
