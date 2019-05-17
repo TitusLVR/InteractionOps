@@ -25,7 +25,7 @@
   * Subdivide curve
   * Move origin to selection center
   * Align object to cursor location and rotation
-  * Convert active spline types to: Poly/Bezier/Nurbs
+  * Convert active spline types to: POLY/BEZIER/NURBS
 
 ### GPENCIL:
   * Switch between modes EDIT/DRAW/SCULPT
