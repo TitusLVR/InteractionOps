@@ -28,7 +28,8 @@ class IOPS_OT_Main(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object is not None
+        return (context.object is not None and
+                context.active_object is not None) 
 
     def get_mode_3d(self, tool_mesh):
         mode = ""
