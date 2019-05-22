@@ -53,7 +53,7 @@ class IOPS_OT_Main(bpy.types.Operator):
             _mode_3d = self.get_mode_3d(tool_mesh)
             if (bpy.context.area.type == "VIEW_3D" or
                 (bpy.context.area.type == "IMAGE_EDITOR" and
-                 tool.use_uv_select_sync is True)):
+                 tool.use_uv_select_sync)):
                 # Same modes for active sync in UV
                 # Go to Edit Mode
                 if bpy.context.mode == "OBJECT":

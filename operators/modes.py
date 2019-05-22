@@ -38,4 +38,4 @@ class IOPS_OT_MODE_F4(IOPS_OT_Main):
 
     @classmethod
     def poll(cls, context):
-        return bpy.context.area.type == "IMAGE_EDITOR"
+        return (bpy.context.area.type == "IMAGE_EDITOR" and not bpy.context.tool_settings.use_uv_select_sync)
