@@ -69,9 +69,8 @@ def draw_bbox_cage_points(self, context):
         triangles = []
         # create vertices
         for center in positions:
-            if center is not None:
-                actCoords = generate_circle_verts(center, radius, segments)
-                coords.extend(actCoords)
+            actCoords = generate_circle_verts(center, radius, segments)
+            coords.extend(actCoords)
         # create triangles
         for tris in range(len(positions)):
             actTris = generate_circle_tris(segments, tris * (segments + 1))
@@ -237,19 +236,18 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def calc_distance(self, context):
         mouse_pos = self.mouse_pos
         pos_batch = self.pos_batch
-        if len(pos_batch) != 0 and pos_batch[0] is not None:
+        if len(pos_batch) != 0:
             act_dist = numpy.linalg.norm(pos_batch[0] - Vector(mouse_pos))
             act_id = 0
             counter = 1
             itertargets = iter(self.pos_batch)
             next(itertargets)
-            for pos in itertargets:
-                if pos is not None:
-                    dist = numpy.linalg.norm(pos - Vector(mouse_pos))
-                    if dist < act_dist:
-                        act_id = counter
-                        act_dist = dist
-                    counter += 1
+            for pos in itertargets:                
+                dist = numpy.linalg.norm(pos - Vector(mouse_pos))
+                if dist < act_dist:
+                    act_id = counter
+                    act_dist = dist
+                counter += 1
             self.batch_idx = act_id
             self.target = pos_batch[act_id]
 
@@ -303,10 +301,13 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # Select duplicates
         for ob in dups:
             ob.select_set(True)
-        context.view_layer.objects.active = dups[-1]
-
+        context.view_layer.objects.active = dups[-1]        
+        # Local view check
+        view = bpy.context.space_data
+        if view.local_view:
+            bpy.ops.view3d.localview(frame_selected=False)
         # Join duplicates and Apply transformation
-        if len(dups) != 1:
+        if len(dups) != 1:            
             bpy.ops.object.join()
             bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
         else:
@@ -358,10 +359,14 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         for ob in sel_objs:
             ob.select_set(False)
         # Select duplicates
-        dup_obj.select_set(True)
+        dup_obj.select_set(True)        
         context.view_layer.objects.active = dup_obj
+        # Local view check
+        view = bpy.context.space_data
+        if view.local_view:
+            bpy.ops.view3d.localview(frame_selected=False)
         # Apply transformation
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True, properties=True)
 
         # Get Bounding box from result
         dup_bounds = dup_obj.bound_box
@@ -464,6 +469,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                 for v in bbox_verts_3d:
                     pos3D = v
                     pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
+                    if pos2D is None:
+                        pos2D = Vector((0, 0))                    
                     bbox_batch_3d.append(pos3D)
                     bbox_batch.append(pos2D)
 
@@ -567,7 +574,6 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                     bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
             self.clear_draw_handlers()
             self.orphan_data_purge(context)
-            print("EXIT", self.vp_group)
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
