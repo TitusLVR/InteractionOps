@@ -40,7 +40,8 @@ def generate_circle_tris(segments, startID):
 # draw a circle on scene
 def draw_bbox_active_point(self, context):
     point = self.target
-    if point != (0, 0):
+    # if point != (0, 0):
+    if point is not None:
         position = point
         color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_color
         radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_size
@@ -68,8 +69,9 @@ def draw_bbox_cage_points(self, context):
         triangles = []
         # create vertices
         for center in positions:
-            actCoords = generate_circle_verts(center, radius, segments)
-            coords.extend(actCoords)
+            if center is not None:
+                actCoords = generate_circle_verts(center, radius, segments)
+                coords.extend(actCoords)
         # create triangles
         for tris in range(len(positions)):
             actTris = generate_circle_tris(segments, tris * (segments + 1))
@@ -235,18 +237,19 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def calc_distance(self, context):
         mouse_pos = self.mouse_pos
         pos_batch = self.pos_batch
-        if len(pos_batch) != 0:
+        if len(pos_batch) != 0 and pos_batch[0] is not None:
             act_dist = numpy.linalg.norm(pos_batch[0] - Vector(mouse_pos))
             act_id = 0
             counter = 1
             itertargets = iter(self.pos_batch)
             next(itertargets)
             for pos in itertargets:
-                dist = numpy.linalg.norm(pos - Vector(mouse_pos))
-                if dist < act_dist:
-                    act_id = counter
-                    act_dist = dist
-                counter += 1
+                if pos is not None:
+                    dist = numpy.linalg.norm(pos - Vector(mouse_pos))
+                    if dist < act_dist:
+                        act_id = counter
+                        act_dist = dist
+                    counter += 1
             self.batch_idx = act_id
             self.target = pos_batch[act_id]
 
