@@ -1,4 +1,5 @@
 import bpy
+from iops_state import get_path, IOPS_State
 
 
 class IOPS_OT_Main(bpy.types.Operator):
@@ -42,14 +43,23 @@ class IOPS_OT_Main(bpy.types.Operator):
         return mode
 
     def execute(self, context):
-        # Object <-> Mesh
+
+        area = bpy.context.area.type
+
+        path = (area, type, mode, submode, operator, flag)
+
         scene = bpy.context.scene
         tool = bpy.context.tool_settings
         tool_mesh = scene.tool_settings.mesh_select_mode
 
         active_object = bpy.context.view_layer.objects.active
 
-        if active_object.type == "MESH":
+        function = get_path(IOPS_State.mesh_dict, self.full_path)
+        function()
+
+        return{"FINISHED"}
+
+        """ if active_object.type == "MESH":
             _mode_3d = self.get_mode_3d(tool_mesh)
             if (bpy.context.area.type == "VIEW_3D" or
                 (bpy.context.area.type == "IMAGE_EDITOR" and
@@ -58,7 +68,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                 # Go to Edit Mode
                 if bpy.context.mode == "OBJECT":
                     bpy.ops.object.mode_set(mode="EDIT")
-                    bpy.ops.mesh.select_mode(type=self._mode_3d)
+                    bpy.ops.mesh.select_mode(type="VERT")
                     _mode_3d = self._mode_3d
                     # self.report({"INFO"}, _mode_3d)
                     return{"FINISHED"}
@@ -168,4 +178,4 @@ class IOPS_OT_Main(bpy.types.Operator):
         if active_object.type not in self.supported_types:
             self.report({"INFO"}, "Object type " + str(active_object.type) + " not supported by iOps!")
             return{"FINISHED"}
-        return{"FINISHED"}
+        return{"FINISHED"} """
