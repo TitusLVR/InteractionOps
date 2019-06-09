@@ -159,7 +159,7 @@ class IOPS_State():
     empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F1"] = ()  # Switch to OBJECT
     empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F2"] = ()  # ???
     empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F3"] = ()  # ???
-    empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F4"] = ()  # ???
+    empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F4"] = ()  # ???f
     empty_dict["VIEW_3D"]["FONT"]["EDIT_TEXT"]["F5"] = ()  # ???
 
 
