@@ -4,7 +4,7 @@ bl_info = {
     "version": (1, 5, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Toolbar and View3D",
-    "description": "Hi from CODE",
+    "description": "Handy functions to speed up workflow",
     "warning": "",
     "wiki_url": "https://blenderartists.org/t/interactionops-iops/",
     "tracker_url": "https://github.com/TitusLVR/InteractionOps",

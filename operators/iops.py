@@ -1,5 +1,5 @@
 import bpy
-from iops_state import get_path, IOPS_State
+from .iops_state import get_path, IOPS_State
 
 
 class IOPS_OT_Main(bpy.types.Operator):
@@ -7,30 +7,30 @@ class IOPS_OT_Main(bpy.types.Operator):
     bl_label = "IOPS"
     bl_options = {"REGISTER", "UNDO"}
 
-    modes_3d = {0: "VERT", 1: "EDGE", 2: "FACE"}
-    modes_uv = {0: "VERTEX", 1: "EDGE", 2: "FACE", 3: "ISLAND"}
-    modes_gpen = {0: "EDIT_GPENCIL", 1: "PAINT_GPENCIL", 2: "SCULPT_GPENCIL"}
-    modes_curve = {0: "EDIT_CURVE"}
-    modes_text = {0: "EDIT_TEXT"}
-    modes_meta = {0: "EDIT_META"}
-    modes_lattice = {0: "EDIT_LATTICE"}
-    modes_armature = {0: "EDIT", 1: "POSE"}
-    supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
+    # modes_3d = {0: "VERT", 1: "EDGE", 2: "FACE"}
+    # modes_uv = {0: "VERTEX", 1: "EDGE", 2: "FACE", 3: "ISLAND"}
+    # modes_gpen = {0: "EDIT_GPENCIL", 1: "PAINT_GPENCIL", 2: "SCULPT_GPENCIL"}
+    # modes_curve = {0: "EDIT_CURVE"}
+    # modes_text = {0: "EDIT_TEXT"}
+    # modes_meta = {0: "EDIT_META"}
+    # modes_lattice = {0: "EDIT_LATTICE"}
+    # modes_armature = {0: "EDIT", 1: "POSE"}
+    # supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
 
-    # Current mode
-    _mode_3d = ""
-    _mode_uv = ""
-    _mode_gpen = ""
-    _mode_curve = ""
-    _mode_text = ""
-    _mode_meta = ""
-    _mode_armature = ""
-    _mode_lattice = ""
+    # # Current mode
+    # _mode_3d = ""
+    # _mode_uv = ""
+    # _mode_gpen = ""
+    # _mode_curve = ""
+    # _mode_text = ""
+    # _mode_meta = ""
+    # _mode_armature = ""
+    # _mode_lattice = ""
 
     @classmethod
     def poll(cls, context):
-        return (context.object is not None and
-                context.active_object is not None) 
+        return (bpy.context.object is not None and
+                bpy.context.active_object is not None)
 
     def get_mode_3d(self, tool_mesh):
         mode = ""
@@ -44,18 +44,23 @@ class IOPS_OT_Main(bpy.types.Operator):
 
     def execute(self, context):
 
-        area = bpy.context.area.type
-
-        path = (area, type, mode, submode, operator, flag)
-
-        scene = bpy.context.scene
-        tool = bpy.context.tool_settings
-        tool_mesh = scene.tool_settings.mesh_select_mode
-
         active_object = bpy.context.view_layer.objects.active
+        tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
 
-        function = get_path(IOPS_State.mesh_dict, self.full_path)
-        function()
+        type_area = bpy.context.area.type
+        type_object = active_object.type
+        mode_object = bpy.context.mode
+        mode_mesh = self.get_mode_3d(tool_mesh)
+        mode_uv = bpy.context.tool_settings.uv_select_mode
+        operator = self.operator
+
+        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, operator)
+
+        tool = bpy.context.tool_settings
+
+        function = get_path(IOPS_State.mesh_dict, path)
+        print(function)
+        # function()
 
         return{"FINISHED"}
 
