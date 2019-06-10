@@ -17,16 +17,6 @@ class IOPS_OT_Main(bpy.types.Operator):
     # modes_armature = {0: "EDIT", 1: "POSE"}
     # supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
 
-    # # Current mode
-    # _mode_3d = ""
-    # _mode_uv = ""
-    # _mode_gpen = ""
-    # _mode_curve = ""
-    # _mode_text = ""
-    # _mode_meta = ""
-    # _mode_armature = ""
-    # _mode_lattice = ""
-
     @classmethod
     def poll(cls, context):
         return (bpy.context.object is not None and
@@ -52,10 +42,10 @@ class IOPS_OT_Main(bpy.types.Operator):
         mode_object = bpy.context.mode
         mode_mesh = self.get_mode_3d(tool_mesh)
         mode_uv = bpy.context.tool_settings.uv_select_mode
-        flag_uv = 
+        flag_uv = bpy.context.tool_settings.use_uv_select_sync
         op = self.operator
 
-        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, op)
+        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, flag_uv, op)
 
         tool = bpy.context.tool_settings
 
