@@ -52,9 +52,10 @@ class IOPS_OT_Main(bpy.types.Operator):
         mode_object = bpy.context.mode
         mode_mesh = self.get_mode_3d(tool_mesh)
         mode_uv = bpy.context.tool_settings.uv_select_mode
-        operator = self.operator
+        flag_uv = 
+        op = self.operator
 
-        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, operator)
+        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, op)
 
         tool = bpy.context.tool_settings
 
