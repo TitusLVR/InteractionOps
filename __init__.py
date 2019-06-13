@@ -16,7 +16,8 @@ from .operators.iops import IOPS_OT_Main
 from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
-                              IOPS_OT_MODE_F4)
+                              IOPS_OT_MODE_F4,
+                              IOPS_OT_MODE_F5)
 from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve,
                                             IOPS_OT_CursorOrigin_Curve_Edit)
 from .operators.cursor_origin.empty import IOPS_OT_CursorOrigin_Empty
@@ -48,6 +49,7 @@ def register_keymaps():
         ('iops.mode_f2',                   'F2', 'PRESS', False, False, False),
         ('iops.mode_f3',                   'F3', 'PRESS', False, False, False),
         ('iops.mode_f4',                   'F4', 'PRESS', False, False, False),
+        ('iops.mode_f5',                   'F5', 'PRESS', False, False, False),
         ('iops.curve_subdivide',           'F2', 'PRESS', False, False, False),
         ('iops.curve_spline_type',         'F3', 'PRESS', False, False, False),
         ('iops.cursor_origin_mesh',        'F4', 'PRESS', False, False, False),
@@ -94,11 +96,12 @@ def unregister_keymaps():
 
 # Classes for reg and unreg
 classes = (IOPS_AddonPreferences,
-           IOPS_OT_Main,           
+           IOPS_OT_Main,
            IOPS_OT_MODE_F1,
            IOPS_OT_MODE_F2,
            IOPS_OT_MODE_F3,
            IOPS_OT_MODE_F4,
+           IOPS_OT_MODE_F5,
            IOPS_OT_CursorOrigin_Curve,
            IOPS_OT_CursorOrigin_Curve_Edit,
            IOPS_OT_CursorOrigin_Empty,
@@ -112,7 +115,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_ToEdges,
            IOPS_OT_ToVerts,
            IOPS_OT_AlignObjectToFace,
-           IOPS_OT_VisualOrigin          
+           IOPS_OT_VisualOrigin
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

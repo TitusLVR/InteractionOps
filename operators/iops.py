@@ -1,5 +1,5 @@
 import bpy
-from .iops_state import get_path, IOPS_State
+from ..utils.iops_dict import IOPS_Dict, get_iop
 
 
 class IOPS_OT_Main(bpy.types.Operator):
@@ -45,13 +45,12 @@ class IOPS_OT_Main(bpy.types.Operator):
         flag_uv = bpy.context.tool_settings.use_uv_select_sync
         op = self.operator
 
-        path = (type_area, type_object, mode_object, mode_mesh, mode_uv, flag_uv, op)
+        query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
 
         tool = bpy.context.tool_settings
 
-        function = get_path(IOPS_State.mesh_dict, path)
-        print(function)
-        # function()
+        function = get_iop(IOPS_Dict.iops_dict, query)
+        function()
 
         return{"FINISHED"}
 
