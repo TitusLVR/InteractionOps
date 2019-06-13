@@ -2,6 +2,7 @@ import bpy
 
 
 def get_iop(dictionary, query):
+    print("Query from Blender:", query)
     current = dictionary
     for key in query:
         next_ = current.get(key)
@@ -13,6 +14,10 @@ def get_iop(dictionary, query):
     raise KeyError("Invalid query from Blender!")
 
 
+def no_operator():
+    print("Operator not defined!")
+
+
 def uv_select_mode(mode):
     bpy.context.tool_settings.uv_select_mode = mode
 
@@ -20,6 +25,7 @@ def uv_select_mode(mode):
 def uv_sync_toggle():
     flag = bpy.context.tool_settings.use_uv_select_sync
     bpy.context.tool_settings.use_uv_select_sync = not flag
+    print("UV Sync:", flag)
 
 
 def mesh_select_mode(type):
