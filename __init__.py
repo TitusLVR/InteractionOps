@@ -25,6 +25,7 @@ from .operators.cursor_origin.gpen import (IOPS_OT_CursorOrigin_Gpen,
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.cursor_origin.mesh_edit import IOPS_OT_CursorOrigin_Mesh_Edit
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
+from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
 from .operators.object_visual_origin import *
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
@@ -58,6 +59,7 @@ def register_keymaps():
         ('iops.cursor_origin_gpen',        'F4', 'PRESS', False, False, False),
         ('iops.cursor_origin_gpen_edit',   'F4', 'PRESS', False, False, False),
         ('iops.align_object_to_face',      'F5', 'PRESS', False, False, False),
+        ('iops.align_origin_to_normal',      'F7', 'PRESS', False, False, False),
         ('iops.to_verts',                  'F1', 'PRESS', False, True,  False),
         ('iops.to_edges',                  'F2', 'PRESS', False, True,  False),
         ('iops.to_faces',                  'F3', 'PRESS', False, True,  False)
@@ -112,6 +114,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_ToEdges,
            IOPS_OT_ToVerts,
            IOPS_OT_AlignObjectToFace,
+           IOPS_OT_AlignOriginToNormal,
            IOPS_OT_VisualOrigin          
            )
 
