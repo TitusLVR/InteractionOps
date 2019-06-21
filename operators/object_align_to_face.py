@@ -122,7 +122,7 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
         """ Takes face normal and aligns it to global axis.
             Uses one of the face edges to further align it to another axis.
             Sets align edge coordinates"""
-        _axis = axis
+            
         obj = bpy.context.view_layer.objects.active
         mx = obj.matrix_world.copy()
         loc = mx.to_translation()  # Store location
