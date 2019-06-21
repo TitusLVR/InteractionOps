@@ -59,7 +59,7 @@ def register_keymaps():
         ('iops.cursor_origin_gpen',        'F4', 'PRESS', False, False, False),
         ('iops.cursor_origin_gpen_edit',   'F4', 'PRESS', False, False, False),
         ('iops.align_object_to_face',      'F5', 'PRESS', False, False, False),
-        ('iops.align_origin_to_normal',      'F7', 'PRESS', False, False, False),
+        ('iops.align_origin_to_normal',    'F5', 'PRESS', False, True,  False),
         ('iops.to_verts',                  'F1', 'PRESS', False, True,  False),
         ('iops.to_edges',                  'F2', 'PRESS', False, True,  False),
         ('iops.to_faces',                  'F3', 'PRESS', False, True,  False)
