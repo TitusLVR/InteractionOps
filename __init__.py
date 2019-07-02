@@ -34,6 +34,7 @@ from .operators.mesh_convert_selection import (IOPS_OT_ToFaces,
                                                IOPS_OT_ToEdges,
                                                IOPS_OT_ToVerts)
 from .prefs.addon_preferences import IOPS_AddonPreferences
+from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 
 
 # WarningMessage
@@ -62,7 +63,9 @@ def register_keymaps():
         ('iops.align_origin_to_normal',    'F5', 'PRESS', False, True,  False),
         ('iops.to_verts',                  'F1', 'PRESS', False, True,  False),
         ('iops.to_edges',                  'F2', 'PRESS', False, True,  False),
-        ('iops.to_faces',                  'F3', 'PRESS', False, True,  False)
+        ('iops.to_faces',                  'F3', 'PRESS', False, True,  False),
+        #('bpy.ops.wm.call_menu_pie(name="IOPS_MT_iops_pie_menu")',                  'F1', 'PRESS', True, False,  False), 
+               
     ]
 
     keyconfigs = bpy.context.window_manager.keyconfigs
@@ -115,7 +118,8 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_ToVerts,
            IOPS_OT_AlignObjectToFace,
            IOPS_OT_AlignOriginToNormal,
-           IOPS_OT_VisualOrigin          
+           IOPS_OT_VisualOrigin,
+           IOPS_MT_iops_pie_menu          
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
