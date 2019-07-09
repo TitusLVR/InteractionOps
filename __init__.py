@@ -33,6 +33,7 @@ from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.mesh_convert_selection import (IOPS_OT_ToFaces,
                                                IOPS_OT_ToEdges,
                                                IOPS_OT_ToVerts)
+from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 
@@ -119,6 +120,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_AlignObjectToFace,
            IOPS_OT_AlignOriginToNormal,
            IOPS_OT_VisualOrigin,
+           IOPS_OT_MatchTransformActive,
            IOPS_MT_iops_pie_menu          
            )
 

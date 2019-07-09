@@ -50,7 +50,8 @@ def draw_ui(self, context, _uidpi, _uifactor):
         ("Look at axis", str(self.look_axis[0])),
         ("Match cursor's rotation", str(self.rotate)),
         ("Align to cursor's pos", "F3"),
-        ("Visual origin helper", "F4"))
+        ("Visual origin helper", "F4"),
+        ("Match dimensions", "F5"))
 
     # FontID    
     font = 0
@@ -176,6 +177,13 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
                     self.rotate = not self.rotate
                     self.move_to_cursor(self.rotate)
                     self.report({"INFO"}, event.type)
+            
+            elif event.type == "F5" and event.value == "PRESS":
+                    #bpy.ops.iops.visual_origin('INVOKE_DEFAULT') 
+                    bpy.ops.iops.match_transform_active('INVOKE_DEFAULT')                         
+                    bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
+                    bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+                    return {'FINISHED'}
 
             elif event.type in {"LEFTMOUSE", "SPACE"} and event.value == "PRESS":
                 # self.execute(context)
