@@ -36,6 +36,7 @@ from .operators.mesh_convert_selection import (IOPS_OT_ToFaces,
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
+from .ui.iops_tm_panel import IOPS_PT_iops_tm_panel
 
 
 # WarningMessage
@@ -121,7 +122,8 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_AlignOriginToNormal,
            IOPS_OT_VisualOrigin,
            IOPS_OT_MatchTransformActive,
-           IOPS_MT_iops_pie_menu          
+           IOPS_MT_iops_pie_menu,
+           IOPS_PT_iops_tm_panel          
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -130,12 +132,18 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 def register():
     reg_cls()
     register_keymaps()
+    bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_transform_orientations.draw) 
+    bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_pivot_point.draw) 
+    bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_snapping.draw) 
     print("IOPS Registered!")
 
 
 def unregister():
     unreg_cls()
     unregister_keymaps()
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_transform_orientations.draw)
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_pivot_point.draw)
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_snapping.draw)
     print("IOPS Unregistered!")
 
 
