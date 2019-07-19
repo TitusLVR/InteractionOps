@@ -132,6 +132,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 def register():
     reg_cls()
     register_keymaps()
+    # Collect panels for IOPS_PT_iops_tm_panel
     bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_transform_orientations.draw) 
     bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_pivot_point.draw) 
     bpy.types.IOPS_PT_iops_tm_panel.append(bpy.types.VIEW3D_PT_snapping.draw) 
@@ -139,11 +140,13 @@ def register():
 
 
 def unregister():
+    # Remove panels for IOPS_PT_iops_tm_panel
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_snapping.draw)
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_pivot_point.draw)    
+    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_transform_orientations.draw)
     unreg_cls()
     unregister_keymaps()
-    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_transform_orientations.draw)
-    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_pivot_point.draw)
-    bpy.types.IOPS_PT_iops_tm_panel.remove(bpy.types.VIEW3D_PT_snapping.draw)
+  
     print("IOPS Unregistered!")
 
 
