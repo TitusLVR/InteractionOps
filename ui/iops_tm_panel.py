@@ -7,6 +7,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
     bl_idname = "IOPS_PT_iops_tm_panel" 
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
+    bl_category = 'Item'
     
 
     def draw(self, context):
