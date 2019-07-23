@@ -34,6 +34,12 @@ from .operators.mesh_convert_selection import (IOPS_OT_ToFaces,
                                                IOPS_OT_ToEdges,
                                                IOPS_OT_ToVerts)
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
+from .operators.object_rotate import (IOPS_OT_object_rotate_Z,
+                                               IOPS_OT_object_rotate_MZ,
+                                               IOPS_OT_object_rotate_Y,
+                                               IOPS_OT_object_rotate_MY,
+                                               IOPS_OT_object_rotate_X,
+                                               IOPS_OT_object_rotate_MX)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 from .ui.iops_tm_panel import IOPS_PT_iops_tm_panel
@@ -45,7 +51,7 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
         self.layout.label(text=text)
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-
+# Tool fkn tip (ops , button, state, ctrl, alt, shift)
 def register_keymaps():
     keys = [
         ('iops.mode_f1',                   'F1', 'PRESS', False, False, False),
@@ -66,6 +72,12 @@ def register_keymaps():
         ('iops.to_verts',                  'F1', 'PRESS', False, True,  False),
         ('iops.to_edges',                  'F2', 'PRESS', False, True,  False),
         ('iops.to_faces',                  'F3', 'PRESS', False, True,  False),
+        ('iops.object_rotate_z',  'RIGHT_ARROW', 'PRESS', False, False, False),
+        ('iops.object_rotate_mz', 'RIGHT_ARROW', 'PRESS', False,  False, True),
+        ('iops.object_rotate_y',   'DOWN_ARROW', 'PRESS', False, False, False),
+        ('iops.object_rotate_my',  'DOWN_ARROW', 'PRESS', False,  False, True),
+        ('iops.object_rotate_x',   'LEFT_ARROW', 'PRESS', False, False, False),
+        ('iops.object_rotate_mx',  'LEFT_ARROW', 'PRESS', False,  False, True),
         #('bpy.ops.wm.call_menu_pie(name="IOPS_MT_iops_pie_menu")',                  'F1', 'PRESS', True, False,  False), 
                
     ]
@@ -122,6 +134,12 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_AlignOriginToNormal,
            IOPS_OT_VisualOrigin,
            IOPS_OT_MatchTransformActive,
+           IOPS_OT_object_rotate_Z,
+           IOPS_OT_object_rotate_MZ,
+           IOPS_OT_object_rotate_Y,
+           IOPS_OT_object_rotate_MY,
+           IOPS_OT_object_rotate_X,
+           IOPS_OT_object_rotate_MX,
            IOPS_MT_iops_pie_menu,
            IOPS_PT_iops_tm_panel          
            )
