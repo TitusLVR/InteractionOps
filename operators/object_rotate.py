@@ -20,7 +20,7 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Z')).to_euler()
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Z')).to_euler()
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -50,7 +50,7 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Z')).to_euler()
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Z')).to_euler()
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
@@ -82,7 +82,7 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Y')).to_euler()            
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Y')).to_euler()            
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -113,7 +113,7 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Y')).to_euler()               
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Y')).to_euler()               
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
@@ -144,7 +144,7 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'X')).to_euler()              
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'X')).to_euler()              
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -175,7 +175,7 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'X')).to_euler()                
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'X')).to_euler()                
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
