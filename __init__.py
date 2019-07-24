@@ -39,7 +39,8 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_Z,
                                                IOPS_OT_object_rotate_Y,
                                                IOPS_OT_object_rotate_MY,
                                                IOPS_OT_object_rotate_X,
-                                               IOPS_OT_object_rotate_MX)
+                                               IOPS_OT_object_rotate_MX,
+                                               IOPS_OT_object_normalize)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 from .ui.iops_tm_panel import IOPS_PT_iops_tm_panel
@@ -78,6 +79,7 @@ def register_keymaps():
         ('iops.object_rotate_my',  'DOWN_ARROW', 'PRESS', False,  False, True),
         ('iops.object_rotate_x',   'LEFT_ARROW', 'PRESS', False, False, False),
         ('iops.object_rotate_mx',  'LEFT_ARROW', 'PRESS', False,  False, True),
+        ('iops.object_normalize',   'UP_ARROW', 'PRESS', False,  False, False),
         #('bpy.ops.wm.call_menu_pie(name="IOPS_MT_iops_pie_menu")',                  'F1', 'PRESS', True, False,  False), 
                
     ]
@@ -140,6 +142,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_object_rotate_MY,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
+           IOPS_OT_object_normalize,
            IOPS_MT_iops_pie_menu,
            IOPS_PT_iops_tm_panel          
            )
