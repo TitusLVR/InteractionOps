@@ -21,6 +21,13 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
         if len(selection) == 1:
             for ob in selection:
                 ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Z')).to_euler()
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)
+
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -51,6 +58,12 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
         if len(selection) == 1:
             for ob in selection:            
                 ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Z')).to_euler()
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
@@ -82,7 +95,13 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Y')).to_euler()            
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'Y')).to_euler()
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)            
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -113,7 +132,13 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Y')).to_euler()               
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'Y')).to_euler()                
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)                
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
@@ -141,10 +166,18 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
-        cursor = bpy.context.scene.cursor.location
+        cursor = bpy.context.scene.cursor.location        
+
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'X')).to_euler()              
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/2, 3, 'X')).to_euler()
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)
+                              
         else:            
             bpy.ops.transform.rotate(value=math.radians(-90),
                                      center_override=(cursor),
@@ -175,7 +208,13 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
         cursor = bpy.context.scene.cursor.location
         if len(selection) == 1:
             for ob in selection:            
-                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'X')).to_euler()                
+                ob.rotation_euler = (ob.rotation_euler.to_matrix() @ Matrix.Rotation(math.pi/-2, 3, 'X')).to_euler()
+                x = round(math.degrees(ob.rotation_euler.x),2)
+                y = round(math.degrees(ob.rotation_euler.y),2)
+                z = round(math.degrees(ob.rotation_euler.z),2)
+                ob.rotation_euler.x = math.radians(x)
+                ob.rotation_euler.y = math.radians(y)
+                ob.rotation_euler.z = math.radians(z)                
         else:            
             bpy.ops.transform.rotate(value=math.radians(90),
                                      center_override=(cursor),
