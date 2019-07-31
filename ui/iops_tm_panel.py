@@ -11,4 +11,11 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
     
 
     def draw(self, context):
-        layout = self.layout
+        tool_settings = context.tool_settings
+
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(tool_settings, "use_snap", text="")
+        row.prop(tool_settings, "use_mesh_automerge", text="")
+
+        

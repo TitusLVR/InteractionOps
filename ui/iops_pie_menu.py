@@ -53,11 +53,11 @@ class IOPS_MT_iops_pie_menu(Menu):
         #split_r.operator('mesh.vertex_chamfer', text="Vertex Chamfer")
         #split_r.operator("mesh.bevel", text="Bevel Vertices").vertex_only = True
         split_r.operator('mesh.offset_edges', text="Offset Edges")
-        #split_r.operator('mesh.fillet_plus', text="Fillet Edges")
-        #split_r.operator("mesh.face_inset_fillet", text="Face Inset Fillet")
+        split_r.operator('mesh.fillet_plus', text="Fillet Edges")
+        split_r.operator("mesh.face_inset_fillet", text="Face Inset Fillet")
         #split_r.operator("mesh.extrude_reshape", text="Push/Pull Faces")
-        #split_r.operator("object.mextrude", text="Multi Extrude")
-        #split_r.operator('mesh.split_solidify', text="Split Solidify")
+        split_r.operator("object.mextrude", text="Multi Extrude")
+        split_r.operator('mesh.split_solidify', text="Split Solidify")
         
         other = pie.column()
         gap = other.column()
