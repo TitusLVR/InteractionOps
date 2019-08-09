@@ -1,10 +1,12 @@
 import bpy
 import math
+import bmesh
 from mathutils import Matrix, Vector
 
 from bpy.props import (
         BoolProperty,       
-        IntProperty,        
+        IntProperty,
+        FloatProperty        
         )
 
 class IOPS_OT_object_rotate_Z (bpy.types.Operator):
@@ -268,11 +270,10 @@ class IOPS_OT_object_normalize (bpy.types.Operator):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                (context.view_layer.objects.active.type == "MESH" or context.view_layer.objects.active.type == "EMPTY"))
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
-        cursor = bpy.context.scene.cursor.location
         dg = bpy.context.evaluated_depsgraph_get()        
         for ob in selection:
             if self.location:            
@@ -298,6 +299,45 @@ class IOPS_OT_object_normalize (bpy.types.Operator):
                 ob.dimensions = Vector((dim_x, dim_y, dim_z))                
         dg.update() 
         return {"FINISHED"}           
+
+class IOPS_OT_mesh_to_grid (bpy.types.Operator):
+    """ Gridify vertex position """
+    bl_idname = "iops.mesh_to_grid"
+    bl_label = "IOPS mesh_to_grid"
+    bl_options = {"REGISTER", "UNDO"}
+
+    dg = bpy.context.evaluated_depsgraph_get()   
+
+    base: FloatProperty(
+        name="Base",
+        description="Nearest grid number in scene units (0.01 = 1cm, 10 = 10m)",
+        default=0.01,
+        soft_min=0.01,
+        soft_max=10
+    )        
+
+    @classmethod 
+    def poll(self, context):
+        return context.mode == "EDIT_MESH"
+    
+    def round_to_base(self, coord, base):
+        return base * round(coord/base)
+
+    def execute(self, context):
+        ob = context.view_layer.objects.active
+        bm = bmesh.from_edit_mesh(ob.data)
+
+        for v in bm.verts:            
+            pos_x = self.round_to_base(v.co[0], self.base)
+            pos_y = self.round_to_base(v.co[1], self.base)
+            pos_z = self.round_to_base(v.co[2], self.base)
+
+            v.co = (pos_x, pos_y, pos_z)
+
+        bmesh.update_edit_mesh(bm)
+        dg.update()
+                
+        return {"FINISHED"}           
     
 
 classes = (IOPS_OT_object_rotate_Z,
@@ -307,7 +347,7 @@ classes = (IOPS_OT_object_rotate_Z,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
            IOPS_OT_object_normalize,
-
+           IOPS_OT_mesh_to_grid,
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
