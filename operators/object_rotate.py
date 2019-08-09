@@ -333,7 +333,7 @@ class IOPS_OT_mesh_to_grid (bpy.types.Operator):
 
             v.co = (pos_x, pos_y, pos_z)
 
-        bmesh.update_edit_mesh(bm)
+        bmesh.update_edit_mesh(ob.data)
         dg.update()
                 
         return {"FINISHED"}           
