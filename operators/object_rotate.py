@@ -306,8 +306,6 @@ class IOPS_OT_mesh_to_grid (bpy.types.Operator):
     bl_label = "IOPS mesh_to_grid"
     bl_options = {"REGISTER", "UNDO"}
 
-    dg = bpy.context.evaluated_depsgraph_get()   
-
     base: FloatProperty(
         name="Base",
         description="Nearest grid number in scene units (0.01 = 1cm, 10 = 10m)",
@@ -324,6 +322,7 @@ class IOPS_OT_mesh_to_grid (bpy.types.Operator):
         return base * round(coord/base)
 
     def execute(self, context):
+        dg = bpy.context.evaluated_depsgraph_get()   
         ob = context.view_layer.objects.active
         bm = bmesh.from_edit_mesh(ob.data)
 
