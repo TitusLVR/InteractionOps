@@ -23,8 +23,8 @@ class IOPS_PT_iops_transform_panel(bpy.types.Panel):
     bl_idname = "IOPS_PT_iops_transform_panel" 
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Item'
-    bl_options = {'DEFAULT_CLOSED'} 
+    bl_category = 'Item'    
+    bl_options = {'DEFAULT_CLOSED'}    
 
     @classmethod
     def poll(self, context):
@@ -35,6 +35,7 @@ class IOPS_PT_iops_transform_panel(bpy.types.Panel):
     def draw(self, context):        
         obj = context.view_layer.objects.active
         layout = self.layout
+        layout.ui_units_x = 8.0      
         col = layout.column(align=True)
         col.prop(obj, "location")
         col.prop(obj, "rotation_euler")
