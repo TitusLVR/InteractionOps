@@ -44,8 +44,7 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_Z,
                                                IOPS_OT_mesh_to_grid)
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
-from .ui.iops_tm_panel import (IOPS_PT_iops_tm_panel,
-                               IOPS_PT_iops_transform_panel)
+from .ui.iops_tm_panel import *
 
 
 # WarningMessage
@@ -147,8 +146,23 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_object_rotate_MX,
            IOPS_OT_object_normalize,
            IOPS_MT_iops_pie_menu,
-           IOPS_PT_iops_tm_panel,
-           IOPS_PT_iops_transform_panel, 
+           IOPS_OT_transform_orientation_global,
+           IOPS_OT_transform_orientation_local,
+           IOPS_OT_transform_orientation_normal,
+           IOPS_OT_transform_orientation_gimbal,
+           IOPS_OT_transform_orientation_view,
+           IOPS_OT_transform_orientation_cursor,
+           IOPS_OT_pivot_point_bbox,
+           IOPS_OT_pivot_point_cursor,
+           IOPS_OT_pivot_point_individual_origins,
+           IOPS_OT_pivot_point_median_point,
+           IOPS_OT_pivot_point_active_element,
+           IOPS_OT_snap_target_closest,
+           IOPS_OT_snap_target_center,
+           IOPS_OT_snap_target_median,
+           IOPS_OT_snap_target_active,
+           IOPS_PT_iops_transform_panel,
+           IOPS_PT_iops_tm_panel,            
            IOPS_OT_mesh_to_grid         
            )
 
