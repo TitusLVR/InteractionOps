@@ -185,45 +185,122 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
 
     def draw(self, context):
         tool_settings = context.tool_settings
+        scene = context.scene
+        pivot = scene.tool_settings.transform_pivot_point
+        snap_elements = scene.tool_settings.snap_elements
+        snap_target = scene.tool_settings.snap_target
         layout = self.layout
         layout.ui_units_x = 20.0
-                 
+
         row = layout.row(align=True)
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
         split = layout.split()        
         col = split.column(align=True) 
-        col.label(text="Transformation") 
-                  
-        col.operator("iops.transform_orientation_global", text="Global", icon='ORIENTATION_GLOBAL')
-        col.operator("iops.transform_orientation_local", text="Local", icon='ORIENTATION_LOCAL')
-        col.operator("iops.transform_orientation_normal", text="Normal", icon='ORIENTATION_NORMAL')
-        col.operator("iops.transform_orientation_gimbal", text="Gimbal", icon='ORIENTATION_GIMBAL')
-        col.operator("iops.transform_orientation_view", text="View", icon='ORIENTATION_VIEW')
-        col.operator("iops.transform_orientation_cursor", text="Cursor", icon='ORIENTATION_CURSOR')
+        col.label(text="Transformation:") 
+        # GLOBAL
+        if scene.transform_orientation_slots[0].type == 'GLOBAL':
+            col.operator("iops.transform_orientation_global", text="Global", icon='ORIENTATION_GLOBAL',depress=True)         
+        else: 
+            col.operator("iops.transform_orientation_global", text="Global", icon='ORIENTATION_GLOBAL',depress=False)
+        # LOCAL
+        if scene.transform_orientation_slots[0].type == 'LOCAL':            
+            col.operator("iops.transform_orientation_local", text="Local", icon='ORIENTATION_LOCAL', depress=True)
+        else:
+            col.operator("iops.transform_orientation_local", text="Local", icon='ORIENTATION_LOCAL', depress=False)
+        # NORMAL
+        if scene.transform_orientation_slots[0].type == 'NORMAL': 
+            col.operator("iops.transform_orientation_normal", text="Normal", icon='ORIENTATION_NORMAL', depress=True)
+        else:
+            col.operator("iops.transform_orientation_normal", text="Normal", icon='ORIENTATION_NORMAL', depress=False)
+        # GIMBAL
+        if scene.transform_orientation_slots[0].type == 'GIMBAL':
+            col.operator("iops.transform_orientation_gimbal", text="Gimbal", icon='ORIENTATION_GIMBAL', depress=True)
+        else:
+            col.operator("iops.transform_orientation_gimbal", text="Gimbal", icon='ORIENTATION_GIMBAL', depress=False)
+        # VIEW
+        if scene.transform_orientation_slots[0].type == 'VIEW':        
+            col.operator("iops.transform_orientation_view", text="View", icon='ORIENTATION_VIEW', depress=True)
+        else:
+            col.operator("iops.transform_orientation_view", text="View", icon='ORIENTATION_VIEW', depress=False)
+        # CURSOR
+        if scene.transform_orientation_slots[0].type == 'CURSOR':
+            col.operator("iops.transform_orientation_cursor", text="Cursor", icon='ORIENTATION_CURSOR', depress=True)
+        else:
+            col.operator("iops.transform_orientation_cursor", text="Cursor", icon='ORIENTATION_CURSOR', depress=False)
         
         col = split.column(align=True) 
-        col.label(text="PivotPoint") 
-        col.operator("iops.pivot_point_bbox", text="Bbox center", icon='PIVOT_BOUNDBOX')
-        col.operator("iops.pivot_point_cursor", text="3D Cursor", icon='PIVOT_CURSOR')
-        col.operator("iops.pivot_point_individual_origins", text="Individual origins", icon='PIVOT_INDIVIDUAL')
-        col.operator("iops.pivot_point_median_point", text="Median point", icon='PIVOT_MEDIAN')
-        col.operator("iops.pivot_point_active_element", text="Active element", icon='PIVOT_ACTIVE')       
+        col.label(text="PivotPoint:")
+        # PPoint BBOX        
+        if pivot == 'BOUNDING_BOX_CENTER':
+            col.operator("iops.pivot_point_bbox", text="Bbox center", icon='PIVOT_BOUNDBOX', depress=True)
+        else:
+            col.operator("iops.pivot_point_bbox", text="Bbox center", icon='PIVOT_BOUNDBOX', depress=False)
+        # PPoint CURSOR
+        if pivot == 'CURSOR':            
+            col.operator("iops.pivot_point_cursor", text="3D Cursor", icon='PIVOT_CURSOR', depress=True)
+        else:
+            col.operator("iops.pivot_point_cursor", text="3D Cursor", icon='PIVOT_CURSOR', depress=False)
+        # PPoint IND Origins
+        if pivot == 'INDIVIDUAL_ORIGINS':        
+            col.operator("iops.pivot_point_individual_origins", text="Individual origins", icon='PIVOT_INDIVIDUAL', depress=True)
+        else:
+            col.operator("iops.pivot_point_individual_origins", text="Individual origins", icon='PIVOT_INDIVIDUAL', depress=False)
+        # PPoint MEDIAN_POINT
+        if pivot == 'MEDIAN_POINT':
+            col.operator("iops.pivot_point_median_point", text="Median point", icon='PIVOT_MEDIAN', depress=True)
+        else:
+            col.operator("iops.pivot_point_median_point", text="Median point", icon='PIVOT_MEDIAN', depress=False)
+        # PPoint ACTIVE_ELEMENT
+        if pivot == 'ACTIVE_ELEMENT':
+            col.operator("iops.pivot_point_active_element", text="Active element", icon='PIVOT_ACTIVE', depress=True) 
+        else:
+            col.operator("iops.pivot_point_active_element", text="Active element", icon='PIVOT_ACTIVE', depress=False)     
+        
         col.prop(tool_settings, "use_transform_pivot_point_align", text="")
         
         col = split.column(align=True)        
         col.label(text="Snapping:")
         row = col.row(align=False)        
         row.prop(tool_settings, "snap_elements", text="")
-        col.operator("iops.snap_target_closest", text="Closest")
-        col.operator("iops.snap_target_center", text="Center")
-        col.operator("iops.snap_target_median", text="Median")
-        col.operator("iops.snap_target_active", text="Active")
+        if 'INCREMENT' in snap_elements:
+            row.separator()
+            row.prop(tool_settings, "use_snap_grid_absolute", text="", icon='SNAP_GRID')
+        # Snap target CLOSEST
+        if snap_target == 'CLOSEST':
+            col.operator("iops.snap_target_closest", text="Closest", depress=True)
+        else:
+            col.operator("iops.snap_target_closest", text="Closest", depress=False)
+        # Snap target CENTER
+        if snap_target == 'CENTER':
+            col.operator("iops.snap_target_center", text="Center", depress=True)
+        else:
+            col.operator("iops.snap_target_center", text="Center", depress=False)
+        # Snap target MEDIAN
+        if snap_target == 'MEDIAN':
+            col.operator("iops.snap_target_median", text="Median", depress=True)
+        else:
+            col.operator("iops.snap_target_median", text="Median", depress=False)
+        # Snap target ACTIVE
+        if snap_target == 'ACTIVE':
+            col.operator("iops.snap_target_active", text="Active", depress=True)
+        else:
+            col.operator("iops.snap_target_active", text="Active", depress=False)
+        
         row = col.row(align=False)
+        split = row.split(factor=0.5, align=True)                  
+        row = split.row(align=True)        
+        row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
+        
+        if 'FACE' in snap_elements:
+            row.prop(tool_settings, "use_snap_project", text="", icon='PROP_PROJECTED')
+        if 'VOLUME' in snap_elements:
+            row.prop(tool_settings, "use_snap_peel_object", text="", icon='SNAP_PEEL_OBJECT')
+        split = split.split()
+        row = split.row(align=True)
         row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
         row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
         row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
-
 
 class IOPS_PT_iops_transform_panel(bpy.types.Panel):
     """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
@@ -249,14 +326,4 @@ class IOPS_PT_iops_transform_panel(bpy.types.Panel):
         col.prop(obj, "rotation_euler")
         col.prop(obj, "scale")
         col.prop(obj, "dimensions")
-        
 
-
-        
-
-
-        
-
-
-
-        
