@@ -39,58 +39,38 @@ import bpy
     #     row.prop(tool_settings, "use_snap", text="")
     #     row.prop(tool_settings, "use_mesh_automerge", text="")
 
-class IOPS_OT_transform_orientation_global(bpy.types.Operator):
+
+class IOPS_OT_transform_orientation_create(bpy.types.Operator):
     """Tooltip"""
-    bl_idname = "iops.transform_orientation_global"
-    bl_label = "Transformation orientation: GLOBAL"    
+    bl_idname = "iops.transform_orientation_create"
+    bl_label = "Create custom transformation orientation"    
 
     def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='GLOBAL')
+        bpy.ops.transform.create_orientation(use=True)
         return {'FINISHED'}
 
-class IOPS_OT_transform_orientation_local(bpy.types.Operator):
+class IOPS_OT_transform_orientation_delete(bpy.types.Operator):
     """Tooltip"""
-    bl_idname = "iops.transform_orientation_local"
-    bl_label = "Transformation orientation: LOCAL"    
+    bl_idname = "iops.transform_orientation_delete"
+    bl_label = "Delete custom transformation orientation "    
 
     def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='LOCAL')
+        slot = bpy.context.scene.transform_orientation_slots[0]
+        if slot.custom_orientation: 
+            bpy.ops.transform.delete_orientation()
         return {'FINISHED'}
 
-class IOPS_OT_transform_orientation_normal(bpy.types.Operator):
+class IOPS_OT_transform_orientation_cleanup(bpy.types.Operator):
     """Tooltip"""
-    bl_idname = "iops.transform_orientation_normal"
-    bl_label = "Transformation orientation: NORMAL"    
+    bl_idname = "iops.transform_orientation_cleanup"
+    bl_label = "Transformation orientations cleanup "    
 
-    def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='NORMAL')
-        return {'FINISHED'}
-
-class IOPS_OT_transform_orientation_gimbal(bpy.types.Operator):
-    """Tooltip"""
-    bl_idname = "iops.transform_orientation_gimbal"
-    bl_label = "Transformation orientation: GIMBAL"    
-
-    def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='GIMBAL')
-        return {'FINISHED'}
-
-class IOPS_OT_transform_orientation_view(bpy.types.Operator):
-    """Tooltip"""
-    bl_idname = "iops.transform_orientation_view"
-    bl_label = "Transformation orientation: VIEW"    
-
-    def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='VIEW')
-        return {'FINISHED'}
-
-class IOPS_OT_transform_orientation_cursor(bpy.types.Operator):
-    """Tooltip"""
-    bl_idname = "iops.transform_orientation_cursor"
-    bl_label = "Transformation orientation: CURSOR"    
-
-    def execute(self, context):
-        bpy.ops.transform.select_orientation(orientation='CURSOR')
+    def execute(self, context):        
+        slots = bpy.context.scene.transform_orientation_slots
+        for s in slots:
+            if s.custom_orientation: 
+                bpy.ops.transform.select_orientation(orientation=str(s.custom_orientation.name))
+                bpy.ops.transform.delete_orientation()
         return {'FINISHED'}
 
 class IOPS_OT_pivot_point_bbox(bpy.types.Operator):
@@ -186,6 +166,8 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
     def draw(self, context):
         tool_settings = context.tool_settings
         scene = context.scene
+        orient_slot = scene.transform_orientation_slots[0]
+        orientation = orient_slot.custom_orientation
         pivot = scene.tool_settings.transform_pivot_point
         snap_elements = scene.tool_settings.snap_elements
         snap_target = scene.tool_settings.snap_target
@@ -195,40 +177,18 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
+        row.operator("iops.transform_orientation_create", text="", icon='ADD')
+        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
+        # Column 1
         split = layout.split()        
         col = split.column(align=True) 
-        col.label(text="Transformation:") 
-        # GLOBAL
-        if scene.transform_orientation_slots[0].type == 'GLOBAL':
-            col.operator("iops.transform_orientation_global", text="Global", icon='ORIENTATION_GLOBAL',depress=True)         
-        else: 
-            col.operator("iops.transform_orientation_global", text="Global", icon='ORIENTATION_GLOBAL',depress=False)
-        # LOCAL
-        if scene.transform_orientation_slots[0].type == 'LOCAL':            
-            col.operator("iops.transform_orientation_local", text="Local", icon='ORIENTATION_LOCAL', depress=True)
-        else:
-            col.operator("iops.transform_orientation_local", text="Local", icon='ORIENTATION_LOCAL', depress=False)
-        # NORMAL
-        if scene.transform_orientation_slots[0].type == 'NORMAL': 
-            col.operator("iops.transform_orientation_normal", text="Normal", icon='ORIENTATION_NORMAL', depress=True)
-        else:
-            col.operator("iops.transform_orientation_normal", text="Normal", icon='ORIENTATION_NORMAL', depress=False)
-        # GIMBAL
-        if scene.transform_orientation_slots[0].type == 'GIMBAL':
-            col.operator("iops.transform_orientation_gimbal", text="Gimbal", icon='ORIENTATION_GIMBAL', depress=True)
-        else:
-            col.operator("iops.transform_orientation_gimbal", text="Gimbal", icon='ORIENTATION_GIMBAL', depress=False)
-        # VIEW
-        if scene.transform_orientation_slots[0].type == 'VIEW':        
-            col.operator("iops.transform_orientation_view", text="View", icon='ORIENTATION_VIEW', depress=True)
-        else:
-            col.operator("iops.transform_orientation_view", text="View", icon='ORIENTATION_VIEW', depress=False)
-        # CURSOR
-        if scene.transform_orientation_slots[0].type == 'CURSOR':
-            col.operator("iops.transform_orientation_cursor", text="Cursor", icon='ORIENTATION_CURSOR', depress=True)
-        else:
-            col.operator("iops.transform_orientation_cursor", text="Cursor", icon='ORIENTATION_CURSOR', depress=False)
+        col.label(text="Transformation:")                
+        col.prop(orient_slot, "type", expand=True)
+        if orientation:            
+            col.prop(orientation, "name", text="", icon='OBJECT_ORIGIN')
+            col.operator("iops.transform_orientation_delete", text="", icon='REMOVE')
         
+        # Column 2
         col = split.column(align=True) 
         col.label(text="PivotPoint:")
         # PPoint BBOX        
@@ -259,6 +219,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         
         col.prop(tool_settings, "use_transform_pivot_point_align", text="")
         
+        # Column 3
         col = split.column(align=True)        
         col.label(text="Snapping:")
         row = col.row(align=False)        
