@@ -1,44 +1,29 @@
 import bpy
-#from bpy.types import VIEW3D_PT_transform_orientations, VIEW3D_PT_pivot_point, VIEW3D_PT_snapping
 
+def get_addon(addon, debug=False):
+    import addon_utils
 
+    # look for addon by name and find folder name and path
+    # Note, this will also find addons that aren't registered!
 
-# class IOPS_PT_iops_tm_panel(bpy.types.Panel):
-#     """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
-#     bl_label = "IOPS TPS"
-#     bl_idname = "IOPS_PT_iops_tm_panel" 
-#     bl_space_type = 'VIEW_3D'
-#     bl_region_type = 'UI'
-#     bl_category = 'Item'    
+    for mod in addon_utils.modules():
+        name = mod.bl_info["name"]
+        version = mod.bl_info.get("version", None)
+        foldername = mod.__name__
+        path = mod.__file__
+        enabled = addon_utils.check(foldername)[1]
 
-    
+        if name == addon:
+            if debug:
+                print(name)
+                print("  enabled:", enabled)
+                print("  folder name:", foldername)
+                print("  version:", version)
+                print("  path:", path)
+                print()
 
-#     def draw(self, context):
-#         tool_settings = context.tool_settings
-#         layout = self.layout         
-#         row = layout.row(align=True)
-#         row.prop(tool_settings, "use_snap", text="")
-#         row.prop(tool_settings, "use_mesh_automerge", text="")
-#         row = layout.row(align=True)        
-#         VIEW3D_PT_transform_orientations.draw(self, context)
-#         VIEW3D_PT_pivot_point.draw(self, context)
-#         VIEW3D_PT_snapping.draw(self,context)
-        # row.popover('VIEW3D_PT_transform_orientations', text="Transform", text_ctxt="", translate=True, icon='ORIENTATION_GLOBAL', icon_value=0)
-        # row.popover('VIEW3D_PT_pivot_point', text="PivotPoint", text_ctxt="", translate=True, icon='PIVOT_INDIVIDUAL', icon_value=0)
-        # row.popover('VIEW3D_PT_snapping', text="Snapping", text_ctxt="", translate=True, icon='SNAP_ON', icon_value=0) 
-    
-    # def draw(self, context):
-    #     tool_settings = context.tool_settings
-
-    #     layout = self.layout
-    #     layout.use_property_decorate = True
-    #     layout.use_property_split = False
-    #     layout.grid_flow(row_major=True, columns=3, even_columns=False, even_rows=False, align=False)
-    #     layout.ui_units_x = 8.0        
-    #     row = layout.row(align=True)        
-    #     row.prop(tool_settings, "use_snap", text="")
-    #     row.prop(tool_settings, "use_mesh_automerge", text="")
-
+            return enabled, foldername, version, path
+    return False, None, None, None
 
 class IOPS_OT_transform_orientation_create(bpy.types.Operator):
     """Tooltip"""
@@ -171,6 +156,12 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         pivot = scene.tool_settings.transform_pivot_point
         snap_elements = scene.tool_settings.snap_elements
         snap_target = scene.tool_settings.snap_target
+        
+        uebok, _, _, _ = get_addon("UnrealEngine - Blender OK!")
+        machinetools, _, _, _ = get_addon("MACHIN3tools")
+
+
+
         layout = self.layout
         layout.ui_units_x = 20.0
         row = layout.row(align=True)
@@ -178,8 +169,29 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
         row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')        
-        row.operator('uebok.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
-        row.operator('uebok.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')        
+        if uebok:
+            row.separator()
+            row.operator('uebok.add_object_to_active_object_collection', icon='ADD', text="")
+            row.operator('uebok.remove_object_from_collection', icon='REMOVE', text="")        
+            row.operator('uebok.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
+            row.operator('uebok.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')
+        if machinetools:
+            row.separator()
+            active = context.active_object
+            if active:
+                if active.type == "MESH":
+                    mesh = active.data                    
+                    row.operator("machin3.shade_smooth", text="", icon='ANTIALIASED')
+                    row.operator("machin3.shade_flat", text="", icon='ALIASED')
+                    icon = "CHECKBOX_HLT" if mesh.use_auto_smooth else "CHECKBOX_DEHLT"
+                    row.operator("machin3.toggle_auto_smooth", text="AutoSmooth", icon=icon)
+                    if mesh.use_auto_smooth:
+                        if mesh.has_custom_normals:
+                            row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
+                        else:
+                            row.prop(mesh, "auto_smooth_angle")
+                    
+
         # Column 1
         split = layout.split()        
         col = split.column(align=True) 
