@@ -173,12 +173,13 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         snap_target = scene.tool_settings.snap_target
         layout = self.layout
         layout.ui_units_x = 20.0
-
         row = layout.row(align=True)
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
-        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
+        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')        
+        row.operator('uebok.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
+        row.operator('uebok.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')        
         # Column 1
         split = layout.split()        
         col = split.column(align=True) 
