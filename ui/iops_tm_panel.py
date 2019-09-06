@@ -58,6 +58,29 @@ class IOPS_OT_transform_orientation_cleanup(bpy.types.Operator):
                 bpy.ops.transform.delete_orientation()
         return {'FINISHED'}
 
+class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
+    """Tooltip"""
+    bl_idname = "iops.uvmaps_cleanup"
+    bl_label = "UVmaps cleanup"    
+    
+    @classmethod
+    def poll(self, context):
+        return (context.mode == "OBJECT" and               
+                context.view_layer.objects.active.type == "MESH")
+    
+    def execute(self, context):        
+        objs = []
+        for ob in bpy.context.selected_objects:
+            if ob.type == 'MESH':
+                objs.append(ob) 
+        
+        if objs:
+            for ob in objs:
+                uv_list = ob.data.uv_layers.keys()
+                for uv in uv_list:
+                    ob.data.uv_layers.remove(ob.data.uv_layers[uv]) 
+        return {'FINISHED'}
+
 class IOPS_OT_pivot_point_bbox(bpy.types.Operator):
     """Tooltip"""
     bl_idname = "iops.pivot_point_bbox"
@@ -161,15 +184,16 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         machinetools, _, _, _ = get_addon("MACHIN3tools")
         batchops, _, _, _ = get_addon("Batch Operations™")
 
-
-
         layout = self.layout
         layout.ui_units_x = 20.0
         row = layout.row(align=True)
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
+        row.separator()
         row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
+        row.operator("iops.uvmaps_cleanup", text="", icon='UV_DATA')
+        
         if batchops:
             row.separator()
             row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT')        
@@ -279,6 +303,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
         row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
         row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
+
 
 class IOPS_PT_iops_transform_panel(bpy.types.Panel):
     """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
