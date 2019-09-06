@@ -159,6 +159,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         
         uebok, _, _, _ = get_addon("UnrealEngine - Blender OK!")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
+        batchops, _, _, _ = get_addon("Batch Operations™")
 
 
 
@@ -168,7 +169,10 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
-        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')        
+        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
+        if batchops:
+            row.separator()
+            row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT')        
         if uebok:
             row.separator()
             row.operator('uebok.add_object_to_active_object_collection', icon='ADD', text="")
@@ -181,10 +185,10 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
             if active:
                 if active.type == "MESH":
                     mesh = active.data                    
-                    row.operator("machin3.shade_smooth", text="", icon='ANTIALIASED')
-                    row.operator("machin3.shade_flat", text="", icon='ALIASED')
-                    icon = "CHECKBOX_HLT" if mesh.use_auto_smooth else "CHECKBOX_DEHLT"
-                    row.operator("machin3.toggle_auto_smooth", text="AutoSmooth", icon=icon)
+                    row.operator("machin3.shade_smooth", text="", icon='NODE_MATERIAL')
+                    row.operator("machin3.shade_flat", text="", icon='MATCUBE')
+                    state = True if mesh.use_auto_smooth else False
+                    row.operator("machin3.toggle_auto_smooth", text="", icon='AUTO', depress=state)
                     if mesh.use_auto_smooth:
                         if mesh.has_custom_normals:
                             row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
