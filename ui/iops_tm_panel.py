@@ -85,8 +85,8 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
     bl_label = "IOPS TPS"
     bl_idname = "IOPS_PT_iops_tm_panel"
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Item'
+    bl_region_type = 'WINDOW'
+    #bl_category = 'Item'
 
     def draw(self, context):
         tool_settings = context.tool_settings
@@ -184,9 +184,9 @@ class IOPS_PT_iops_transform_panel(bpy.types.Panel):
     bl_label = "IOPS TM"
     bl_idname = "IOPS_PT_iops_transform_panel"
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Item'
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_region_type = 'WINDOW'
+    #bl_category = 'Item'
+    #bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(self, context):
