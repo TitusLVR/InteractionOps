@@ -46,11 +46,11 @@ def draw_ui(self, context, _uidpi, _uifactor):
     
     _target = get_target()
     iops_text = (
-        ("Look at", str(_target)),
-        ("Look at axis", str(self.look_axis[0])),
-        ("Match cursor's rotation", str(self.rotate)),
-        ("Align to cursor's pos", "F3"),
-        ("Visual origin helper", "F4"),
+        ("Look at " + str(_target), "F1..F2"),
+        ("Look at " + str(self.look_axis[0]) + " axis", "X, Y, Z"),
+        ("Cursor's rotation", str(self.rotate) + " F3"),
+        ("Cursor's position", "F3"),
+        ("Visual origin placer", "F4"),
         ("Match dimensions", "F5"))
 
     # FontID    
