@@ -16,7 +16,8 @@ from .operators.iops import IOPS_OT_Main
 from .operators.modes import (IOPS_OT_MODE_F1,
                               IOPS_OT_MODE_F2,
                               IOPS_OT_MODE_F3,
-                              IOPS_OT_MODE_F4)
+                              IOPS_OT_MODE_F4,
+                              IOPS_OT_ESC)
 from .operators.cursor_origin.curve import (IOPS_OT_CursorOrigin_Curve,
                                             IOPS_OT_CursorOrigin_Curve_Edit)
 from .operators.cursor_origin.empty import IOPS_OT_CursorOrigin_Empty
@@ -60,6 +61,7 @@ def register_keymaps():
         ('iops.mode_f2',                   'F2', 'PRESS', False, False, False),
         ('iops.mode_f3',                   'F3', 'PRESS', False, False, False),
         ('iops.mode_f4',                   'F4', 'PRESS', False, False, False),
+        ('iops.esc',                      'ESC', 'PRESS', False, False, False),
         ('iops.curve_subdivide',           'F2', 'PRESS', False, False, False),
         ('iops.curve_spline_type',         'F3', 'PRESS', False, False, False),
         ('iops.cursor_origin_mesh',        'F4', 'PRESS', False, False, False),
@@ -122,6 +124,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_MODE_F2,
            IOPS_OT_MODE_F3,
            IOPS_OT_MODE_F4,
+           IOPS_OT_ESC,
            IOPS_OT_CursorOrigin_Curve,
            IOPS_OT_CursorOrigin_Curve_Edit,
            IOPS_OT_CursorOrigin_Empty,

@@ -39,3 +39,20 @@ class IOPS_OT_MODE_F4(IOPS_OT_Main):
     @classmethod
     def poll(cls, context):
         return (bpy.context.area.type == "IMAGE_EDITOR" and not bpy.context.tool_settings.use_uv_select_sync)
+
+class IOPS_OT_ESC(IOPS_OT_Main):
+    bl_idname = "iops.esc"
+    bl_label = "iOps ESC"
+
+    @classmethod
+    def poll(cls, context):
+        return (bpy.context.active_object.mode == "EDIT")
+
+    def execute(self, context):
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return {'FINISHED'}
+
+
+
+
+    

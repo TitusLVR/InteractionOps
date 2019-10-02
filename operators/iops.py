@@ -67,11 +67,17 @@ class IOPS_OT_Main(bpy.types.Operator):
                 # If activated same selection mode again switch to Object Mode
                 if (bpy.context.mode == "EDIT_MESH" and self._mode_3d != _mode_3d):
                     bpy.ops.mesh.select_mode(type=self._mode_3d)
-                    _mode_3d = self._mode_3d
+                    _mode_3d = self._mode_3d                    
                     # self.report({"INFO"}, _mode_3d)
                     return{"FINISHED"}
                 else:
-                    bpy.ops.object.mode_set(mode="OBJECT")
+                    if self._mode_3d == "VERT":
+                            bpy.ops.wm.call_menu('INVOKE_DEFAULT',name="VIEW3D_MT_edit_mesh_vertices") 
+                    if self._mode_3d == "EDGE":
+                            bpy.ops.wm.call_menu('INVOKE_DEFAULT', name="VIEW3D_MT_edit_mesh_edges") 
+                    if self._mode_3d == "FACE":
+                            bpy.ops.wm.call_menu('INVOKE_DEFAULT', name="VIEW3D_MT_edit_mesh_faces")
+                    #bpy.ops.object.mode_set(mode="OBJECT")
                     # self.report({"INFO"}, "OBJECT MODE")
                     return{"FINISHED"}
 
