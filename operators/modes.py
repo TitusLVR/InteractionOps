@@ -46,7 +46,8 @@ class IOPS_OT_ESC(IOPS_OT_Main):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.active_object.mode == "EDIT")
+        return (context.active_object.mode == "EDIT" and 
+                (context.area.type == "VIEW_3D" or context.area.type == "IMAGE_EDITOR"))
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode="OBJECT")
