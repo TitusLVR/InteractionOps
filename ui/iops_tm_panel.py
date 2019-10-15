@@ -113,7 +113,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
 
         if batchops:
             row.separator()
-            row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT')
+            row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT').use_pattern = False
 
         if uebok:
             row.separator()
