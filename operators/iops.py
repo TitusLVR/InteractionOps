@@ -60,7 +60,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                     bpy.ops.object.mode_set(mode="EDIT")
                     bpy.ops.mesh.select_mode(type=self._mode_3d)
                     _mode_3d = self._mode_3d
-                    # self.report({"INFO"}, _mode_3d)
+                    self.report({"INFO"}, _mode_3d)
                     return{"FINISHED"}
 
                 # Switch selection modes
@@ -68,7 +68,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                 if (bpy.context.mode == "EDIT_MESH" and self._mode_3d != _mode_3d):
                     bpy.ops.mesh.select_mode(type=self._mode_3d)
                     _mode_3d = self._mode_3d                    
-                    # self.report({"INFO"}, _mode_3d)
+                    self.report({"INFO"}, _mode_3d)
                     return{"FINISHED"}
                 else:
                     if self._mode_3d == "VERT":
@@ -78,7 +78,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                     if self._mode_3d == "FACE":
                             bpy.ops.wm.call_menu('INVOKE_DEFAULT', name="VIEW3D_MT_edit_mesh_faces")
                     #bpy.ops.object.mode_set(mode="OBJECT")
-                    # self.report({"INFO"}, "OBJECT MODE")
+                    self.report({"INFO"}, "OBJECT MODE")
                     return{"FINISHED"}
 
             # UV <-> Mesh
@@ -88,24 +88,24 @@ class IOPS_OT_Main(bpy.types.Operator):
                     bpy.ops.mesh.select_all(action="SELECT")
                     tool.uv_select_mode = self._mode_uv
                     _mode_uv = self._mode_uv
-                    # self.report({"INFO"}, _mode_uv)
+                    self.report({"INFO"}, _mode_uv)
                     return{"FINISHED"}
 
             elif self._mode_uv != _mode_uv:
                     tool.uv_select_mode = self._mode_uv
                     _mode_uv = self._mode_uv
-                    # self.report({"INFO"}, _mode_uv)
+                    self.report({"INFO"}, _mode_uv)
                     return{"FINISHED"}
             else:
                     bpy.ops.object.mode_set(mode="OBJECT")
-                    # self.report({"INFO"}, "OBJECT MODE")
+                    self.report({"INFO"}, "OBJECT MODE")
                     return{"FINISHED"}
 
         # Object <-> Curve
         if active_object.type == "CURVE":
             _mode_curve = "EDIT" if bpy.context.mode != "EDIT_CURVE" else "OBJECT"
             bpy.ops.object.mode_set(mode=_mode_curve)
-            # self.report({"INFO"}, _mode_curve)
+            self.report({"INFO"}, _mode_curve)
             return{"FINISHED"}
 
         # Object <-> GPencil
@@ -115,16 +115,16 @@ class IOPS_OT_Main(bpy.types.Operator):
                 if bpy.context.mode == "OBJECT":
                     _mode_gpen = self._mode_gpen
                     bpy.ops.object.mode_set(mode=_mode_gpen)
-                    # self.report({"INFO"}, _mode_gpen)
+                    self.report({"INFO"}, _mode_gpen)
                     return{"FINISHED"}
                 elif self._mode_gpen != _mode_gpen:
                     bpy.ops.object.mode_set(mode=self._mode_gpen)
                     _mode_gpen = self._mode_gpen
-                    # self.report({"INFO"}, _mode_gpen)
+                    self.report({"INFO"}, _mode_gpen)
                     return{"FINISHED"}
                 else:
                     bpy.ops.object.mode_set(mode="OBJECT")
-                    # self.report({"INFO"}, "OBJECT MODE")
+                    self.report({"INFO"}, "OBJECT MODE")
                     return{"FINISHED"}
             return{"FINISHED"}
 
@@ -132,7 +132,7 @@ class IOPS_OT_Main(bpy.types.Operator):
         if active_object.type == "FONT":
             _mode_text = "EDIT" if bpy.context.mode != "EDIT_TEXT" else "OBJECT"
             bpy.ops.object.mode_set(mode=_mode_text)
-            # self.report({"INFO"}, _mode_text)
+            self.report({"INFO"}, _mode_text)
             return{"FINISHED"}
 
         # Object <-> Meta
@@ -140,7 +140,7 @@ class IOPS_OT_Main(bpy.types.Operator):
             _mode_meta = "EDIT" if bpy.context.mode != "EDIT_META" else "OBJECT"
             # bpy.ops.object.mode_set(mode=_mode_meta)
             bpy.ops.object.editmode_toggle()
-            # self.report({"INFO"}, _mode_meta)
+            self.report({"INFO"}, _mode_meta)
             return{"FINISHED"}
 
         # Object <-> Armature
@@ -150,16 +150,16 @@ class IOPS_OT_Main(bpy.types.Operator):
                 if bpy.context.mode == "OBJECT":
                     _mode_armature = self._mode_armature
                     bpy.ops.object.mode_set(mode=_mode_armature)
-                    # self.report({"INFO"}, _mode_armature)
+                    self.report({"INFO"}, _mode_armature)
                     return{"FINISHED"}
                 elif self._mode_armature != _mode_armature:
                     bpy.ops.object.mode_set(mode=self._mode_armature)
                     _mode_armature = self._mode_armature
-                    # self.report({"INFO"}, _mode_armature)
+                    self.report({"INFO"}, _mode_armature)
                     return{"FINISHED"}
                 else:
                     bpy.ops.object.mode_set(mode="OBJECT")
-                    # self.report({"INFO"}, "OBJECT MODE")
+                    self.report({"INFO"}, "OBJECT MODE")
                     return{"FINISHED"}
             return{"FINISHED"}
 
@@ -167,7 +167,7 @@ class IOPS_OT_Main(bpy.types.Operator):
         if active_object.type == "LATTICE":
             _mode_lattice = "EDIT" if bpy.context.mode != "EDIT_LATTICE" else "OBJECT"
             bpy.ops.object.mode_set(mode=_mode_lattice)
-            # self.report({"INFO"}, _mode_lattice)
+            self.report({"INFO"}, _mode_lattice)
             return{"FINISHED"}
 
         # Unsupported Types

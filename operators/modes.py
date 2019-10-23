@@ -52,6 +52,7 @@ class IOPS_OT_ESC(IOPS_OT_Main):
 
     def execute(self, context):
         bpy.ops.object.mode_set(mode="OBJECT")
+        self.report({"INFO"}, "OBJECT MODE")
         return {'FINISHED'}
 
 
