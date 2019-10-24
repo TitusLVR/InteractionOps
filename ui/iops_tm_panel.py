@@ -55,6 +55,21 @@ class IOPS_OT_transform_orientation_cleanup(bpy.types.Operator):
                 bpy.ops.transform.delete_orientation()
         return {'FINISHED'}
 
+class IOPS_OT_edit_origin(bpy.types.Operator):
+    """Tooltip"""
+    bl_idname = "iops.edit_origin"
+    bl_label = "Edit origin enable"
+
+    @classmethod
+    def poll(self, context):
+        return (context.area.type == "VIEW_3D" and context.active_object)
+
+    def execute(self, context):
+        if context.tool_settings.use_transform_data_origin:
+            bpy.context.active_object.show_in_front = context.tool_settings.use_transform_data_origin = False
+        else:
+            bpy.context.active_object.show_in_front = context.tool_settings.use_transform_data_origin = True        
+        return {'FINISHED'}
 
 class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
     """Tooltip"""
@@ -63,8 +78,9 @@ class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        return (context.mode == "OBJECT" and
-                context.view_layer.objects.active.type == "MESH")
+        return (context.active_object and
+                context.mode == "OBJECT" and                 
+                context.view_layer.objects.active.type == "MESH" )
 
     def execute(self, context):
         objs = []
@@ -89,6 +105,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
     #bl_category = 'Item'
 
     def draw(self, context):
+        ver = bpy.app.version[2]
         tool_settings = context.tool_settings
         scene = context.scene
         orient_slot = scene.transform_orientation_slots[0]
@@ -150,7 +167,15 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         col = split.column(align=True)
         col.label(text="PivotPoint:")
         col.prop(tool_settings, "transform_pivot_point", expand=True)
-        col.prop(tool_settings, "use_transform_pivot_point_align", text="")
+        if ver != 80:
+            row = col.row(align=True)
+            #row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')            
+            o_state = True if tool_settings.use_transform_data_origin else False
+            row.operator("iops.edit_origin", text="", icon='OBJECT_ORIGIN', depress=o_state)
+            row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon='CENTER_ONLY')
+            row.prop(tool_settings, "use_transform_skip_children", text="", icon='TRANSFORM_ORIGINS')
+        else:
+            col.prop(tool_settings, "use_transform_pivot_point_align", text="")
         # Column 3
         col = split.column(align=True)
         col.label(text="Snapping:")

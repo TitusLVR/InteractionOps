@@ -154,7 +154,8 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_transform_orientation_cleanup,
            IOPS_OT_uvmaps_cleanup,
            IOPS_PT_iops_transform_panel,
-           IOPS_PT_iops_tm_panel,            
+           IOPS_PT_iops_tm_panel,
+           IOPS_OT_edit_origin,
            IOPS_OT_mesh_to_grid         
            )
 
