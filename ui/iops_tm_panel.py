@@ -190,7 +190,8 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
 
         row = col.row(align=False)
         split = row.split(factor=0.5, align=True)
-        row = split.row(align=True)
+        row = split.row(align=True)  
+        row.prop(tool_settings, "use_snap_self", text="", icon='SNAP_ON')      
         row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
 
         if 'FACE' in snap_elements:
