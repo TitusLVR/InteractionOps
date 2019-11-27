@@ -119,7 +119,7 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         batchops, _, _, _ = get_addon("Batch Operations™")
 
         layout = self.layout
-        layout.ui_units_x = 20.0
+        layout.ui_units_x = 27.5
         row = layout.row(align=True)
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
