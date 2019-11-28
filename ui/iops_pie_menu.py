@@ -23,6 +23,8 @@ class IOPS_MT_iops_pie_menu(Menu):
     bl_label = "IOPS_MT_iops_pie_menu"
     def draw(self, context):
         forgottentools, _, _, _ = get_addon("Forgotten Tools")
+        optiloops, _, _, _ = get_addon("Optiloops")
+
         layout = self.layout
         pie = layout.menu_pie()
         
@@ -87,6 +89,7 @@ class IOPS_MT_iops_pie_menu(Menu):
 
         col = layout.menu_pie()
         box = col.column(align=True).box().column()
+        box.label(text="B2RUVL")
         col_top = box.column(align=True)
         row = col_top.row(align=True)
         col_left = row.column(align=True)
@@ -121,7 +124,17 @@ class IOPS_MT_iops_pie_menu(Menu):
         pie.separator()
 
         # 9 - TOP - RIGHT
-        pie.separator()
+        if optiloops and context.mode == 'EDIT_MESH':
+            # other = pie.column()
+            # gap = other.column()
+            # gap.separator()
+            # gap.scale_y = 12
+            # other_menu = other.box().column()
+            # other_menu.scale_y=1
+            # other_menu.label(text="Optiloops")
+            pie.operator('mesh.optiloops') 
+        else:
+            pie.separator()
 
         # 1 - BOTTOM - LEFT
         pie.separator()
