@@ -1,5 +1,6 @@
 import bpy
 from bpy.types import Menu
+from .. functions.functions import *
 
 #class Submenu(Menu):
 #    bl_label = 'Some Submenu'    
@@ -21,8 +22,12 @@ class IOPS_MT_iops_pie_menu(Menu):
     #bl_idname = "iops.pie_menu"
     bl_label = "IOPS_MT_iops_pie_menu"
     def draw(self, context):
+        forgottentools, _, _, _ = get_addon("Forgotten Tools")
         layout = self.layout
         pie = layout.menu_pie()
+        
+        # 4 - LEFT
+        # pie.separator()        
         #pie.operator("wm.call_menu_pie", text = "Some Other Pie 0", icon = "RIGHTARROW_THIN").name="Pie_menu"
         menu = other = pie.column()
         gap = other.column()
@@ -40,8 +45,7 @@ class IOPS_MT_iops_pie_menu(Menu):
         split_l.operator("mesh.looptools_gstretch", text="GStrech")
         split_l.operator("mesh.looptools_bridge", text="Loft")
         split_l.operator("mesh.looptools_relax", text="Relax")
-        split_l.operator("mesh.looptools_space", text="Space")
-        
+        split_l.operator("mesh.looptools_space", text="Space")        
         
         split_r = split.column()
         split_r.label(text = "Mesh")
@@ -59,6 +63,9 @@ class IOPS_MT_iops_pie_menu(Menu):
         split_r.operator("object.mextrude", text="Multi Extrude")
         split_r.operator('mesh.split_solidify', text="Split Solidify")
         
+        # 6 - RIGHT
+        # pie.separator()
+
         other = pie.column()
         gap = other.column()
         gap.separator()
@@ -70,7 +77,7 @@ class IOPS_MT_iops_pie_menu(Menu):
         other_menu.operator('bmax.import',icon='IMPORT', text="Get from 3dsmax")
         
         
-        
+        # 2 - BOTTOM
         wm = context.window_manager
         prefs = context.preferences.addons['B2RUVL'].preferences
         uvl = prefs.uvlayout_enable
@@ -93,6 +100,35 @@ class IOPS_MT_iops_pie_menu(Menu):
         col_ruv.enabled = ruv is not False and len(ruv_path) != 0
         col_ruv.operator('b2ruvl.send_to_rizomuv')
         
+        # 8 - TOP
+        if forgottentools and context.mode == 'EDIT_MESH':
+            other = pie.column()
+            gap = other.column()
+            gap.separator()
+            gap.scale_y = 7
+            other_menu = other.box().column()
+            other_menu.scale_y=1
+            other_menu.label(text="ForgottenTools")
+            other_menu.operator('forgotten.mesh_dice_faces')            
+            other_menu.operator('forgotten.mesh_hinge')
+            other_menu.operator('mesh.forgotten_separate_duplicate')
+            other_menu.operator("wm.call_panel", text = "Selection Sets", icon = "SELECT_SET").name='FORGOTTEN_PT_SelectionSetsPanel'
+        else:
+            pie.separator()
+
+        
+        # 7 - TOP - LEFT
+        pie.separator()
+
+        # 9 - TOP - RIGHT
+        pie.separator()
+
+        # 1 - BOTTOM - LEFT
+        pie.separator()
+
+        # 3 - BOTTOM - RIGHT
+        pie.separator()
+
       
         #pie.operator("mesh.primitive_cube_add", text = "2", icon = "BLENDER")
         #pie.operator("mesh.primitive_cube_add", text = "3", icon = "BLENDER")
