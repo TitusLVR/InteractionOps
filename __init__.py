@@ -43,6 +43,7 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_Z,
                                                IOPS_OT_object_rotate_MX,
                                                IOPS_OT_object_normalize,
                                                IOPS_OT_mesh_to_grid)
+from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 from .ui.iops_tm_panel import *
@@ -84,6 +85,7 @@ def register_keymaps():
         ('iops.object_rotate_mx',  'LEFT_ARROW', 'PRESS', False,  False, True),
         ('iops.object_normalize',   'UP_ARROW', 'PRESS', False,  False, False),
         ('iops.mesh_to_grid',   'UP_ARROW', 'PRESS', False,  False, False),
+        ('iops.modal_three_point_rotation',   'R', 'PRESS', True,  True, True),
         #('bpy.ops.wm.call_menu_pie(name="IOPS_MT_iops_pie_menu")',                  'F1', 'PRESS', True, False,  False), 
                
     ]
@@ -156,7 +158,8 @@ classes = (IOPS_AddonPreferences,
            IOPS_PT_iops_transform_panel,
            IOPS_PT_iops_tm_panel,
            IOPS_OT_edit_origin,
-           IOPS_OT_mesh_to_grid         
+           IOPS_OT_mesh_to_grid,
+           IOPS_OT_ThreePointRotation        
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

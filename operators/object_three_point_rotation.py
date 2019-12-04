@@ -3,6 +3,7 @@ import copy
 from mathutils import Matrix
 from bpy.props import IntProperty, FloatProperty
 
+
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     """Three point rotation"""
     bl_idname = "iops.modal_three_point_rotation"
@@ -18,7 +19,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     @classmethod
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
-                context.mode == "EDIT_MESH" and
+                context.mode == "OBJECT" and
                 len(context.view_layer.objects.selected) != 0 and
                 context.view_layer.objects.active.type == "MESH")
 
@@ -100,15 +101,33 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def clean_up_cancel(self, context):
         bpy.data.objects.remove(bpy.data.objects['IOPS_First_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
         bpy.data.objects.data.objects.remove(bpy.data.objects['IOPS_Second_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        self.remove_proxy(context)
     
     def clean_up_confirm(self, context):
+        # Keep transforms on object
         self.select_target(context, 'OBJECT', active=True, deselect=True)
         bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-        #Dummies kill
+        # Dummies kill
         bpy.data.objects.remove(bpy.data.objects['IOPS_First_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
         bpy.data.objects.data.objects.remove(bpy.data.objects['IOPS_Second_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        self.remove_proxy(context)
+
+    def add_proxy(self, context, target):
+        size = ((self.obj.dimensions[0] + self.obj.dimensions[1] + self.obj.dimensions[2]) / 3) * 0.05
+        bpy.ops.object.empty_add(type='CUBE', location=target.location, radius=size)
+        proxy = bpy.context.view_layer.objects.active
+        proxy.name = "IOPS_Proxy"
+        proxy.parent = target
+        proxy.matrix_parent_inverse = target.matrix_world.inverted()
+        
+    
+    def remove_proxy(self, context):
+        if 'IOPS_Proxy' in bpy.data.objects:
+            bpy.data.objects.remove(bpy.data.objects['IOPS_Proxy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+
 
     def modal(self, context, event):
+
         if event.type in {'MIDDLEMOUSE'}:
             # Allow navigation
             return {'PASS_THROUGH'}
@@ -123,26 +142,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             bpy.ops.transform.translate('INVOKE_DEFAULT')
             # self.snap_dummy(context, 'SECOND')
 
-        #Constrain Dummy #1 ->  Dummy #2, Link -> Object
-        elif event.type == 'TWO' and event.value == "PRESS":
-            if "Damped Track" in bpy.data.objects['IOPS_First_Dummy'].constraints:
-                # Remove constraint if exists
-                self.select_target(context, 'FIRST', active=True, deselect=True)
-                bpy.ops.object.constraints_clear()
-            else:
-                # Add Constraint
-                self.select_target(context, 'FIRST', active=True, deselect=True)
-                bpy.ops.object.constraint_add(type='DAMPED_TRACK')
-                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].target = bpy.data.objects['IOPS_Second_Dummy']
-                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].track_axis = 'TRACK_Y'
-
-
         # Link Object -> Dummy #1
         elif event.type == 'ONE' and event.value == "PRESS":
             if self.obj.parent == bpy.data.objects['IOPS_First_Dummy']:
-                # Unset parent if already parented
+                # Clear parent if already parented
                 self.select_target(context, 'OBJECT', active=True, deselect=True)
                 bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                self.remove_proxy(context)
                 self.select_target(context, 'FIRST', active=True, deselect=True)
 
             else:
@@ -150,7 +156,23 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 self.select_target(context, 'OBJECT', active=False, deselect=True)
                 self.select_target(context, 'FIRST', active=True, deselect=False)
                 bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+                self.add_proxy(context, self.FIRST_dummy)
                 self.select_target(context, 'FIRST', active=True, deselect=True)
+
+        #Constrain Dummy #1 ->  Dummy #2, Link -> Object
+        elif event.type == 'TWO' and event.value == "PRESS":
+            if "Damped Track" in bpy.data.objects['IOPS_First_Dummy'].constraints:
+                # Remove constraint if exists
+                self.select_target(context, 'FIRST', active=True, deselect=True)
+                self.FIRST_dummy.empty_display_type = 'ARROWS'
+                bpy.ops.object.constraints_clear()
+            else:
+                # Add Constraint
+                self.select_target(context, 'FIRST', active=True, deselect=True)
+                bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+                self.FIRST_dummy.empty_display_type = 'SINGLE_ARROW'
+                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].target = bpy.data.objects['IOPS_Second_Dummy']
+                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].track_axis = 'TRACK_Z'
                 
         # Reset all (restore object matrix, break link and constraint)
         elif event.type == 'ZERO' and event.value == "PRESS":
@@ -193,16 +215,31 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         bpy.ops.object.select_all(action='DESELECT')
 
         #Create dummies
-        self.FIRST_dummy = bpy.ops.object.empty_add(type='CUBE', location=self.obj.location, radius=self.dummy_size)
+        self.FIRST_dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', location=(self.obj.location[0], 
+                                                                                   self.obj.location[1], 
+                                                                                   self.obj.location[2] - self.obj.dimensions[2]/2), 
+                                                    radius=self.dummy_size*3)
         bpy.context.view_layer.objects.active.name = "IOPS_First_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
 
-        self.SECOND_dummy = bpy.ops.object.empty_add(type='SPHERE', location=self.obj.location, radius=self.dummy_size)
+        self.SECOND_dummy = bpy.ops.object.empty_add(type='SPHERE', 
+                                                     location=(self.obj.location[0],
+                                                               self.obj.location[1],
+                                                               self.obj.location[2] + self.obj.dimensions[2]/2), 
+                                                     radius=self.dummy_size)
+        
         bpy.context.view_layer.objects.active.name = "IOPS_Second_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
+        
+        self.FIRST_dummy = bpy.data.objects['IOPS_First_Dummy']
+        self.SECOND_dummy = bpy.data.objects['IOPS_Second_Dummy']
 
         self.select_target(context, 'FIRST', active=True, deselect=True)
-        bpy.ops.transform.translate('INVOKE_DEFAULT')
+        bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+        bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].target = bpy.data.objects['IOPS_Second_Dummy']
+        bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].track_axis = 'TRACK_Z'
+
+        self.select_target(context, 'FIRST', active=True, deselect=True)
 
         if context.object:
             context.window_manager.modal_handler_add(self)
@@ -210,18 +247,3 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         else:
             self.report({'WARNING'}, "No active object, could not finish")
             return {'CANCELLED'}
-
-
-def register():
-    bpy.utils.register_class(IOPS_OT_ThreePointRotation)
-
-
-def unregister():
-    bpy.utils.unregister_class(IOPS_OT_ThreePointRotation)
-
-
-if __name__ == "__main__":
-    register()
-
-    # test call
-    bpy.ops.iops.modal_three_point_rotation('INVOKE_DEFAULT')
