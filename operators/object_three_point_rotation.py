@@ -127,8 +127,10 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
 
     def modal(self, context, event):
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":            
+            bpy.ops.view3d.select('INVOKE_DEFAULT')       
 
-        if event.type in {'MIDDLEMOUSE'}:
+        elif event.type in {'MIDDLEMOUSE','WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # Allow navigation
             return {'PASS_THROUGH'}
         
