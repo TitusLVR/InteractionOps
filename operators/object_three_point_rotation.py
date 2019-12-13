@@ -11,8 +11,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
     obj = None
     dummy_size = None
-    FIRST_dummy = None
-    SECOND_dummy = None
+    O_Dummy = None
+    Z_Dummy = None
+    Y_Dummy = None
     snaps = {}
     mx = None
 
@@ -62,35 +63,48 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def snap_dummy(self, context, dummy):
         if dummy == 'FIRST':
             bpy.ops.object.select_all(action='DESELECT')
-            bpy.context.view_layer.objects.active = bpy.data.objects['IOPS_First_Dummy']
-            bpy.data.objects['IOPS_First_Dummy'].select_set(True)
+            bpy.context.view_layer.objects.active = bpy.data.objects['O_Dummy']
+            bpy.data.objects['O_Dummy'].select_set(True)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
         if dummy == 'SECOND':
             bpy.ops.object.select_all(action='DESELECT')
-            bpy.context.view_layer.objects.active = bpy.data.objects['IOPS_Second_Dummy']
-            bpy.data.objects['IOPS_Second_Dummy'].select_set(True)
+            bpy.context.view_layer.objects.active = bpy.data.objects['Z_Dummy']
+            bpy.data.objects['Z_Dummy'].select_set(True)
+            bpy.ops.transform.translate('INVOKE_DEFAULT')
+        if dummy == 'THIRD':
+            bpy.ops.object.select_all(action='DESELECT')
+            bpy.context.view_layer.objects.active = bpy.data.objects['Y_Dummy']
+            bpy.data.objects['Y_Dummy'].select_set(True)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
 
     def select_target(self, context, target, active, deselect):
         if target == 'FIRST':
             if deselect:
                 bpy.ops.object.select_all(action='DESELECT')
-            bpy.data.objects['IOPS_First_Dummy'].select_set(True)
+            bpy.data.objects['O_Dummy'].select_set(True)
             if active:
-                bpy.context.view_layer.objects.active = bpy.data.objects['IOPS_First_Dummy']
+                bpy.context.view_layer.objects.active = bpy.data.objects['O_Dummy']
 
         elif target == 'SECOND':
             if deselect:
                 bpy.ops.object.select_all(action='DESELECT')
-            bpy.data.objects['IOPS_Second_Dummy'].select_set(True)
+            bpy.data.objects['Z_Dummy'].select_set(True)
             if active:
-                bpy.context.view_layer.objects.active = bpy.data.objects['IOPS_Second_Dummy']
+                bpy.context.view_layer.objects.active = bpy.data.objects['Z_Dummy']
+
+        elif target == 'THIRD':
+            if deselect:
+                bpy.ops.object.select_all(action='DESELECT')
+            bpy.data.objects['Y_Dummy'].select_set(True)
+            if active:
+                bpy.context.view_layer.objects.active = bpy.data.objects['Y_Dummy']
 
         elif target == 'BOTH':
             if deselect:
                 bpy.ops.object.select_all(action='DESELECT')
-            bpy.data.objects['IOPS_First_Dummy'].select_set(True)
-            bpy.data.objects['IOPS_Second_Dummy'].select_set(True)
+            bpy.data.objects['O_Dummy'].select_set(True)
+            bpy.data.objects['Z_Dummy'].select_set(True)
+            bpy.data.objects['Y_Dummy'].select_set(True)
         
         elif target == 'OBJECT':
             if deselect:
@@ -99,8 +113,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             bpy.context.view_layer.objects.active = bpy.data.objects[self.obj.name]
 
     def clean_up_cancel(self, context):
-        bpy.data.objects.remove(bpy.data.objects['IOPS_First_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
-        bpy.data.objects.data.objects.remove(bpy.data.objects['IOPS_Second_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.remove(bpy.data.objects['O_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.data.objects.remove(bpy.data.objects['Z_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.data.objects.remove(bpy.data.objects['Y_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
         self.remove_proxy(context)
     
     def clean_up_confirm(self, context):
@@ -108,8 +123,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self.select_target(context, 'OBJECT', active=True, deselect=True)
         bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
         # Dummies kill
-        bpy.data.objects.remove(bpy.data.objects['IOPS_First_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
-        bpy.data.objects.data.objects.remove(bpy.data.objects['IOPS_Second_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.remove(bpy.data.objects['O_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.data.objects.remove(bpy.data.objects['Z_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.data.objects.remove(bpy.data.objects['Y_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
         self.remove_proxy(context)
 
     def add_proxy(self, context, target):
@@ -146,7 +162,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
         # Link Object -> Dummy #1
         elif event.type == 'ONE' and event.value == "PRESS":
-            if self.obj.parent == bpy.data.objects['IOPS_First_Dummy']:
+            if self.obj.parent == bpy.data.objects['O_Dummy']:
                 # Clear parent if already parented
                 self.select_target(context, 'OBJECT', active=True, deselect=True)
                 bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
@@ -158,30 +174,47 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 self.select_target(context, 'OBJECT', active=False, deselect=True)
                 self.select_target(context, 'FIRST', active=True, deselect=False)
                 bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-                self.add_proxy(context, self.FIRST_dummy)
+                self.add_proxy(context, self.O_Dummy)
                 self.select_target(context, 'FIRST', active=True, deselect=True)
 
         #Constrain Dummy #1 ->  Dummy #2, Link -> Object
         elif event.type == 'TWO' and event.value == "PRESS":
-            if "Damped Track" in bpy.data.objects['IOPS_First_Dummy'].constraints:
+            if "IOPS_DT_Z_Dummy" in bpy.data.objects['O_Dummy'].constraints:
                 # Remove constraint if exists
                 self.select_target(context, 'FIRST', active=True, deselect=True)
-                self.FIRST_dummy.empty_display_type = 'ARROWS'
+                self.O_Dummy.empty_display_type = 'ARROWS'
                 bpy.ops.object.constraints_clear()
             else:
                 # Add Constraint
                 self.select_target(context, 'FIRST', active=True, deselect=True)
                 bpy.ops.object.constraint_add(type='DAMPED_TRACK')
-                self.FIRST_dummy.empty_display_type = 'SINGLE_ARROW'
-                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].target = bpy.data.objects['IOPS_Second_Dummy']
-                bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].track_axis = 'TRACK_Z'
+                self.O_Dummy.empty_display_type = 'SINGLE_ARROW'
+                bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Z_Dummy"
+                bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].target = bpy.data.objects['Z_Dummy']
+                bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].track_axis = 'TRACK_Z'
+
+        # #Constrain Dummy #1 -> Dummy #3
+        # elif event.type == 'THREE' and event.value == "PRESS":
+        #     if "Damped Track" in bpy.data.objects['O_Dummy'].constraints:
+        #         # Remove constraint if exists
+        #         self.select_target(context, 'FIRST', active=True, deselect=True)
+        #         self.O_Dummy.empty_display_type = 'ARROWS'
+        #         bpy.ops.object.constraints_clear()
+        #     else:
+        #         # Add Constraint
+        #         self.select_target(context, 'FIRST', active=True, deselect=True)
+        #         bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+        #         self.O_Dummy.empty_display_type = 'SINGLE_ARROW'
+        #         bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Y_Dummy"
+        #         bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].target = bpy.data.objects['Y_Dummy']
+        #         bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].track_axis = 'TRACK_Y'
                 
         # Reset all (restore object matrix, break link and constraint)
         elif event.type == 'ZERO' and event.value == "PRESS":
-            if self.obj.parent == bpy.data.objects['IOPS_First_Dummy']:
+            if self.obj.parent == bpy.data.objects['O_Dummy']:
                 self.select_target(context, 'OBJECT', active=True, deselect=True)
                 bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-            if "Damped Track" in bpy.data.objects['IOPS_First_Dummy'].constraints:
+            if "IOPS_DT_Z_Dummy" in bpy.data.objects['O_Dummy'].constraints:
                 self.select_target(context, 'FIRST', active=True, deselect=True)
                 bpy.ops.object.constraints_clear()
             self.obj.matrix_world = self.mx
@@ -217,29 +250,48 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         bpy.ops.object.select_all(action='DESELECT')
 
         #Create dummies
-        self.FIRST_dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', location=(self.obj.location[0], 
+        # FIRST
+        self.O_Dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', location=(self.obj.location[0], 
                                                                                    self.obj.location[1], 
                                                                                    self.obj.location[2] - self.obj.dimensions[2]/2), 
                                                     radius=self.dummy_size*3)
-        bpy.context.view_layer.objects.active.name = "IOPS_First_Dummy"
+        bpy.context.view_layer.objects.active.name = "O_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
-
-        self.SECOND_dummy = bpy.ops.object.empty_add(type='SPHERE', 
+        bpy.context.view_layer.objects.active.show_name = True
+        # SECOND
+        self.Z_Dummy = bpy.ops.object.empty_add(type='SPHERE', 
                                                      location=(self.obj.location[0],
                                                                self.obj.location[1],
                                                                self.obj.location[2] + self.obj.dimensions[2]/2), 
                                                      radius=self.dummy_size)
-        
-        bpy.context.view_layer.objects.active.name = "IOPS_Second_Dummy"
+        bpy.context.view_layer.objects.active.name = "Z_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
-        
-        self.FIRST_dummy = bpy.data.objects['IOPS_First_Dummy']
-        self.SECOND_dummy = bpy.data.objects['IOPS_Second_Dummy']
+        bpy.context.view_layer.objects.active.show_name = True
+        # THIRD
+        self.Y_Dummy = bpy.ops.object.empty_add(type='SPHERE', 
+                                                     location=(self.obj.location[0],
+                                                               self.obj.location[1],
+                                                               self.obj.location[2]), 
+                                                     radius=self.dummy_size)
+        bpy.context.view_layer.objects.active.name = "Y_Dummy"
+        bpy.context.view_layer.objects.active.show_in_front = True
+        bpy.context.view_layer.objects.active.show_name = True
+
+        # NAMING
+        self.O_Dummy  = bpy.data.objects['O_Dummy']
+        self.Z_Dummy = bpy.data.objects['Z_Dummy']
+        self.Z_Dummy = bpy.data.objects['Y_Dummy']
 
         self.select_target(context, 'FIRST', active=True, deselect=True)
         bpy.ops.object.constraint_add(type='DAMPED_TRACK')
-        bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].target = bpy.data.objects['IOPS_Second_Dummy']
-        bpy.data.objects['IOPS_First_Dummy'].constraints['Damped Track'].track_axis = 'TRACK_Z'
+        bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Z_Dummy"
+        bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].target = bpy.data.objects['Z_Dummy']
+        bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].track_axis = 'TRACK_Z'
+
+        bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+        bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Y_Dummy"
+        bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].target = bpy.data.objects['Y_Dummy']
+        bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].track_axis = 'TRACK_Y'
 
         self.select_target(context, 'FIRST', active=True, deselect=True)
 
