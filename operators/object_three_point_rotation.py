@@ -143,8 +143,16 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
 
     def modal(self, context, event):
-        if event.type == "LEFTMOUSE" and event.value == "PRESS":            
-            bpy.ops.view3d.select('INVOKE_DEFAULT')       
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            act_obj = bpy.context.view_layer.objects.active
+            iops_objs = ["O_Dummy", "Y_Dummy", "Z_Dummy"]                       
+            bpy.ops.view3d.select('INVOKE_DEFAULT')            
+            if bpy.context.view_layer.objects.active.name not in iops_objs:
+                bpy.data.objects[bpy.context.view_layer.objects.active.name].select_set(False)
+                bpy.context.view_layer.objects.active = act_obj
+                bpy.data.objects[act_obj.name].select_set(True)               
+
+
 
         elif event.type in {'MIDDLEMOUSE','WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # Allow navigation
@@ -159,6 +167,14 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self.select_target(context, 'SECOND', active=True, deselect=True)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
             # self.snap_dummy(context, 'SECOND')
+
+        elif event.type == 'F3' and event.value == "PRESS":
+            self.select_target(context, 'THIRD', active=True, deselect=True)
+            bpy.ops.transform.translate('INVOKE_DEFAULT')
+            # self.snap_dummy(context, 'SECOND')
+
+        elif event.type == 'A' and event.value == "PRESS":
+            self.select_target(context, 'BOTH', active=True, deselect=True)
 
         # Link Object -> Dummy #1
         elif event.type == 'ONE' and event.value == "PRESS":
@@ -301,3 +317,5 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         else:
             self.report({'WARNING'}, "No active object, could not finish")
             return {'CANCELLED'}
+
+            bpy.context.view_layer.objects.active
