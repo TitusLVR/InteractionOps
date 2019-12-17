@@ -18,9 +18,9 @@ from .. utils.functions import *
 #        layout.operator("mesh.looptools_space", text="Space")
 
 
-class IOPS_MT_iops_pie_menu(Menu):
+class IOPS_MT_Pie_Menu(Menu):
     # bl_idname = "iops.pie_menu"
-    bl_label = "IOPS_MT_iops_pie_menu"
+    bl_label = "IOPS_MT_Pie_Menu"
 
     def draw(self, context):
         forgottentools, _, _, _ = get_addon("Forgotten Tools")
@@ -172,3 +172,12 @@ class IOPS_MT_iops_pie_menu(Menu):
 #    register()
 
 #    bpy.ops.wm.call_menu_pie(name="Pie_menu")
+
+class IOPS_OT_Call_Pie_Menu(bpy.types.Operator):
+    """IOPS Pie"""
+    bl_idname = "iops.call_pie_menu"
+    bl_label = "IOPS Pie Menu"    
+
+    def execute(self, context):        
+        bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Menu")         
+        return {'FINISHED'}

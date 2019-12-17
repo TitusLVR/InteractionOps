@@ -80,10 +80,10 @@ class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class IOPS_PT_iops_tm_panel(bpy.types.Panel):
-    """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
+class IOPS_PT_TPS_Panel(bpy.types.Panel):
+    """Tranformation,PivotPoint,Snapping panel"""
     bl_label = "IOPS TPS"
-    bl_idname = "IOPS_PT_iops_tm_panel"
+    bl_idname = "IOPS_PT_TPS_Panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     # bl_category = 'Item'
@@ -189,10 +189,10 @@ class IOPS_PT_iops_tm_panel(bpy.types.Panel):
         row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
 
 
-class IOPS_PT_iops_transform_panel(bpy.types.Panel):
+class IOPS_PT_TM_Panel(bpy.types.Panel):
     """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
-    bl_label = "IOPS TM"
-    bl_idname = "IOPS_PT_iops_transform_panel"
+    bl_label = "IOPS Transform panel"
+    bl_idname = "IOPS_PT_TM_Panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     # bl_category = 'Item'
@@ -213,3 +213,22 @@ class IOPS_PT_iops_transform_panel(bpy.types.Panel):
         col.prop(obj, "rotation_euler")
         col.prop(obj, "scale")
         col.prop(obj, "dimensions")
+
+class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
+    """Tranformation, PivotPoint, Snapping panel"""
+    bl_idname = "iops.call_tps_panel"
+    bl_label = "IOPS Transformation, PivotPoint, Snaps panel"    
+
+    def execute(self, context):        
+        bpy.ops.wm.call_panel(name="IOPS_PT_TPS_Panel", keep_open=True)         
+        return {'FINISHED'}
+
+class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
+    """Tranformation panel"""
+    bl_idname = "iops.call_tm_panel"
+    bl_label = "IOPS Transform panel"    
+
+    def execute(self, context):        
+        bpy.ops.wm.call_panel(name="IOPS_PT_TM_Panel", keep_open=True)         
+        return {'FINISHED'}
+

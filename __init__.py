@@ -25,14 +25,17 @@ from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import *
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
-from .ui.iops_pie_menu import IOPS_MT_iops_pie_menu
 from .ui.iops_tm_panel import IOPS_OT_edit_origin
 from .ui.iops_tm_panel import IOPS_OT_transform_orientation_create
 from .ui.iops_tm_panel import IOPS_OT_transform_orientation_cleanup
 from .ui.iops_tm_panel import IOPS_OT_transform_orientation_delete
 from .ui.iops_tm_panel import IOPS_OT_uvmaps_cleanup
-from .ui.iops_tm_panel import IOPS_PT_iops_tm_panel
-from .ui.iops_tm_panel import IOPS_PT_iops_transform_panel
+from .ui.iops_tm_panel import IOPS_PT_TPS_Panel
+from .ui.iops_tm_panel import IOPS_PT_TM_Panel
+from .ui.iops_tm_panel import IOPS_OT_Call_TPS_Panel
+from .ui.iops_tm_panel import IOPS_OT_Call_TM_Panel
+from .ui.iops_pie_menu import IOPS_MT_Pie_Menu
+from .ui.iops_pie_menu import IOPS_OT_Call_Pie_Menu
 
 
 bl_info = {
@@ -55,7 +58,7 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
         self.layout.label(text=text)
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-
+# CTRL, ALT, Shift
 def register_keymaps():
     keys = [
         ('iops.f1',                         'F1',           'PRESS', False, False, False),
@@ -76,6 +79,9 @@ def register_keymaps():
         ('iops.object_normalize',           'UP_ARROW',     'PRESS', False, False, False),
         ('iops.mesh_to_grid',               'UP_ARROW',     'PRESS', False, False, False),
         ('iops.modal_three_point_rotation', 'R',            'PRESS', True, True, True),
+        ('iops.call_tps_panel',             'BUTTON4MOUSE', 'PRESS', False, False, True),
+        ('iops.call_tm_panel',              'T',            'PRESS', True, True, True),
+        ('iops.call_pie_menu',              'Q',            'PRESS', True, True, True),
     ]
 
     keyconfigs = bpy.context.window_manager.keyconfigs
@@ -130,19 +136,22 @@ classes = (IOPS_OT_Main,
            IOPS_OT_object_rotate_MY,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
-           IOPS_OT_object_normalize,
-           IOPS_MT_iops_pie_menu,
+           IOPS_OT_object_normalize,           
            IOPS_OT_transform_orientation_create,
            IOPS_OT_transform_orientation_delete,
            IOPS_OT_transform_orientation_cleanup,
-           IOPS_OT_uvmaps_cleanup,
-           IOPS_PT_iops_transform_panel,
-           IOPS_PT_iops_tm_panel,
+           IOPS_OT_uvmaps_cleanup,                     
            IOPS_OT_edit_origin,
            IOPS_OT_mesh_to_grid,
            IOPS_OT_ThreePointRotation,
            IOPS_OT_AlignOriginToNormal,
            IOPS_OT_MatchTransformActive,
+           IOPS_PT_TM_Panel,
+           IOPS_OT_Call_TM_Panel,
+           IOPS_PT_TPS_Panel,
+           IOPS_OT_Call_TPS_Panel,
+           IOPS_MT_Pie_Menu,
+           IOPS_OT_Call_Pie_Menu,           
            IOPS_AddonPreferences
            )
 
