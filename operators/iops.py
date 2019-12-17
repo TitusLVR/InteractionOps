@@ -38,8 +38,8 @@ class IOPS_OT_Main(bpy.types.Operator):
         tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
 
         type_area = bpy.context.area.type
-        type_object = active_object.type
-        mode_object = bpy.context.mode
+        type_object = bpy.context.view_layer.objects.active.type
+        mode_object = bpy.context.view_layer.objects.active.mode
         mode_mesh = self.get_mode_3d(tool_mesh)
         mode_uv = bpy.context.tool_settings.uv_select_mode
         flag_uv = bpy.context.tool_settings.use_uv_select_sync

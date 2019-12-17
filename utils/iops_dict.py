@@ -4,7 +4,7 @@ from .functions import *
 
 class IOPS_Dict():
 
-    operators = {"F1", "F2", "F3", "F4", "F5"}
+    operators = {"F1", "F2", "F3", "F4", "F5", "ESC"}
 
     iops_dict = defaultdict(lambda: "Operator not defined.")
     iops_dict = {
@@ -14,47 +14,51 @@ class IOPS_Dict():
                     "F1": lambda: mesh_select_mode("VERT"),
                     "F2": lambda: mesh_select_mode("EDGE"),
                     "F3": lambda: mesh_select_mode("FACE"),
-                    "F4": lambda: cursor_origin(),
-                    "F5": lambda: visual_origin(),
+                    "F4": lambda: cursor_origin_mesh(),
+                    "F5": lambda: match_dimensions(),
                 },
-                "EDIT_MESH": {
+                "EDIT": {
                     "VERT": {
-                        "F1": lambda: object_mode_switch("OBJECT"),
+                        "F1": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_vertices"),
                         "F2": lambda: mesh_select_mode("EDGE"),
                         "F3": lambda: mesh_select_mode("FACE"),
-                        "F4": lambda: cursor_origin(),
+                        "F4": lambda: cursor_origin_selected(),
                         "F5": lambda: no_operator(),
+                        "ESC": lambda: object_mode_switch("OBJECT"),
                     },
                     "EDGE": {
                         "F1": lambda: mesh_select_mode("VERT"),
-                        "F2": lambda: object_mode_switch("OBJECT"),
+                        "F2": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_edges"),
                         "F3": lambda: mesh_select_mode("FACE"),
-                        "F4": lambda: cursor_origin(),
+                        "F4": lambda: cursor_origin_selected(),
                         "F5": lambda: no_operator(),
+                        "ESC": lambda: object_mode_switch("OBJECT"),
                     },
                     "FACE": {
                         "F1": lambda: mesh_select_mode("VERT"),
                         "F2": lambda: mesh_select_mode("EDGE"),
-                        "F3": lambda: object_mode_switch("OBJECT"),
-                        "F4": lambda: cursor_origin(),
+                        "F3": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_faces"),
+                        "F4": lambda: cursor_origin_selected(),
                         "F5": lambda: align_to_face(),
+                        "ESC": lambda: object_mode_switch("OBJECT"),
                     },
                 },
             },
             "CURVE": {
                 "OBJECT": {
-                    "F1": lambda: object_mode_switch("OBJECT"),
+                    "F1": lambda: object_mode_switch("EDIT"),
                     "F2": lambda: no_operator(),
                     "F3": lambda: no_operator(),
                     "F4": lambda: cursor_origin(),
                     "F5": lambda: no_operator(),
                 },
-                "EDIT_CURVE": {
+                "EDIT": {
                     "F1": lambda: object_mode_switch("OBJECT"),
-                    "F2": lambda: no_operator(),
-                    "F3": lambda: no_operator(),
+                    "F2": lambda: curve_subdivide(),
+                    "F3": lambda: curve_spline_type(),
                     "F4": lambda: cursor_origin(),
                     "F5": lambda: no_operator(),
+                    "ESC": lambda: object_mode_switch("OBJECT"),
                 },
             },
             "SURFACE": {
@@ -96,7 +100,7 @@ class IOPS_Dict():
                 "F1": lambda: no_operator(),
                 "F2": lambda: no_operator(),
                 "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
+                "F4": lambda: empty_to_cursor(),
                 "F5": lambda: no_operator(),
             },
             "GPENCIL": {
@@ -106,6 +110,7 @@ class IOPS_Dict():
                     "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
                     "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
                     "F5": lambda: no_operator(),
+                    "ESC": lambda: object_mode_switch("OBJECT"),
                 },
                 "SCULPT_GPENCIL": {
                     "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
@@ -113,6 +118,7 @@ class IOPS_Dict():
                     "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
                     "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
                     "F5": lambda: no_operator(),
+                    "ESC": lambda: object_mode_switch("OBJECT"),
                 },
                 "PAINT_GPENCIL": {
                     "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
@@ -120,6 +126,7 @@ class IOPS_Dict():
                     "F3": lambda: object_mode_switch("OBJECT"),
                     "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
                     "F5": lambda: no_operator(),
+                    "ESC": lambda: object_mode_switch("OBJECT"),
                 },
                 "WEIGHT_GPENCIL": {
                     "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
@@ -127,6 +134,7 @@ class IOPS_Dict():
                     "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
                     "F4": lambda: object_mode_switch("OBJECT"),
                     "F5": lambda: no_operator(),
+                    "ESC": lambda: object_mode_switch("OBJECT"),
                 },
             },
             "CAMERA": {

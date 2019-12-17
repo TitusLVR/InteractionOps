@@ -14,6 +14,25 @@ def get_iop(dictionary, query):
     raise KeyError("Invalid query from Blender!")
 
 
+def get_addon(addon, debug=False):
+    import addon_utils
+
+    # look for addon by name and find folder name and path
+    # Note, this will also find addons that aren't registered!
+
+    for mod in addon_utils.modules():
+        name = mod.bl_info["name"]
+        version = mod.bl_info.get("version", None)
+        foldername = mod.__name__
+        path = mod.__file__
+        enabled = addon_utils.check(foldername)[1]
+
+        if name == addon:
+            return enabled, foldername, version, path
+
+    return False, None, None, None
+
+
 def no_operator():
     print("Operator not defined!")
 
@@ -38,13 +57,42 @@ def object_mode_switch(mode):
     bpy.ops.object.mode_set(mode=mode)
 
 
-def cursor_origin():
-    print("executed CURSOR ORIGIN")
-
-
-def visual_origin():
-    print("executed VISUAL ORIGIN")
-
-
 def align_to_face():
-    print("executed VISUAL ORIGIN")
+    bpy.ops.iops.align_object_to_face("INVOKE_DEFAULT")
+
+
+def curve_subdivide():
+    bpy.ops.iops.curve_subdivide("INVOKE_DEFAULT")
+
+
+def curve_spline_type():
+    bpy.ops.iops.curve_spline_type("INVOKE_DEFAULT")
+
+
+def cursor_origin_mesh():
+    bpy.ops.iops.cursor_origin_mesh("INVOKE_DEFAULT")
+
+
+def cursor_origin_selected():
+    bpy.ops.view3d.snap_cursor_to_selected()
+    bpy.ops.object.editmode_toggle()
+    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+
+
+def empty_to_cursor():
+    scene = bpy.context.scene
+    objs = bpy.context.selected_objects
+    if len(objs) > 0:
+        for ob in objs:
+            if ob.type == "EMPTY":
+                ob.location = scene.cursor.location
+                ob.rotation_euler = scene.cursor.rotation_euler
+
+
+def match_dimensions():
+    selection = bpy.context.view_layer.objects.selected
+    active = bpy.context.view_layer.objects.active
+
+    if len(selection) > 0:
+        for ob in selection:
+            ob.dimensions = active.dimensions

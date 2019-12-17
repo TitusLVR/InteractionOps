@@ -158,7 +158,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col = layout.column()
         row = col.row(align=True)
         # we don't want to put anything else on this row other than the 'split' item
-        split = row.split(factor=0.65, align=False)
+        split = row.split(factor=0.5, align=False)
         box_kmp = split.box()
         box_ui = split.box()
         # Keymaps
