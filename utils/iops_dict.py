@@ -31,7 +31,7 @@ class IOPS_Dict():
                         "F2": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_edges"),
                         "F3": lambda: mesh_select_mode("FACE"),
                         "F4": lambda: cursor_origin_selected(),
-                        "F5": lambda: no_operator(),
+                        "F5": lambda: z_connect(),
                         "ESC": lambda: object_mode_switch("OBJECT"),
                     },
                     "FACE": {

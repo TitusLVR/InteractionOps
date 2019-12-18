@@ -1,5 +1,5 @@
 import bpy
-
+import bmesh
 
 def get_iop(dictionary, query):
     print("Query from Blender:", query)
@@ -96,3 +96,26 @@ def match_dimensions():
     if len(selection) > 0:
         for ob in selection:
             ob.dimensions = active.dimensions
+
+
+############################## ZALOOPOK ##############################
+def z_connect():
+    mesh = bpy.context.view_layer.objects.active.data
+    bm = bmesh.from_edit_mesh(mesh)
+    sel = set([a for a in bm.edges if a.select])
+    es = set()
+    for e in sel:
+        e.select = False
+        fs = set()
+        for lf in e.link_faces:
+            if len(set(lf.edges[:]).intersection(sel)) > 1:
+                fs.add(lf)
+        if fs:
+            es.add(e)
+    r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)['geom_split']
+    vs = [a for a in r1 if type(a) == bmesh.types.BMVert]
+    r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)['edges']
+    for e in r2:
+        e.select = True
+    bmesh.update_edit_mesh(mesh)
+    

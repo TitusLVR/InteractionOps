@@ -22,20 +22,30 @@ from .operators.object_rotate import (IOPS_OT_mesh_to_grid,
                                       IOPS_OT_object_rotate_Y,
                                       IOPS_OT_object_rotate_Z)
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
-from .operators.object_visual_origin import *
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
-from .ui.iops_tm_panel import IOPS_OT_edit_origin
-from .ui.iops_tm_panel import IOPS_OT_transform_orientation_create
-from .ui.iops_tm_panel import IOPS_OT_transform_orientation_cleanup
-from .ui.iops_tm_panel import IOPS_OT_transform_orientation_delete
-from .ui.iops_tm_panel import IOPS_OT_uvmaps_cleanup
-from .ui.iops_tm_panel import IOPS_PT_TPS_Panel
-from .ui.iops_tm_panel import IOPS_PT_TM_Panel
-from .ui.iops_tm_panel import IOPS_OT_Call_TPS_Panel
-from .ui.iops_tm_panel import IOPS_OT_Call_TM_Panel
-from .ui.iops_pie_menu import IOPS_MT_Pie_Menu
-from .ui.iops_pie_menu import IOPS_OT_Call_Pie_Menu
+from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
+                               IOPS_OT_transform_orientation_create,
+                               IOPS_OT_transform_orientation_cleanup,
+                               IOPS_OT_transform_orientation_delete,
+                               IOPS_OT_uvmaps_cleanup,
+                               IOPS_PT_TPS_Panel,
+                               IOPS_PT_TM_Panel,
+                               IOPS_OT_Call_TPS_Panel,
+                               IOPS_OT_Call_TM_Panel)
+from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
+from .operators.z_ops import (Z_OT_GrowLoop,
+                              Z_OT_ShrinkLoop,
+                              Z_OT_GrowRing,
+                              Z_OT_ShrinkRing,
+                              Z_OT_SelectBoundedLoop,
+                              Z_OT_SelectBoundedRing,
+                              Z_OT_EdgeEq,
+                              Z_OT_EdgeLineUp,
+                              Z_OT_ContextDelete,
+                              Z_OT_PutOn,
+                              Z_OT_Mirror,
+                              Z_OT_EdgeConnect)
 
 
 bl_info = {
@@ -61,27 +71,41 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
 # CTRL, ALT, Shift
 def register_keymaps():
     keys = [
-        ('iops.f1',                         'F1',           'PRESS', False, False, False),
-        ('iops.f2',                         'F2',           'PRESS', False, False, False),
-        ('iops.f3',                         'F3',           'PRESS', False, False, False),
-        ('iops.f4',                         'F4',           'PRESS', False, False, False),
-        ('iops.f5',                         'F5',           'PRESS', False, False, False),
-        ('iops.esc',                        'ESC',          'PRESS', False, False, False),
-        ('iops.to_verts',                   'F1',           'PRESS', False, True, False),
-        ('iops.to_edges',                   'F2',           'PRESS', False, True, False),
-        ('iops.to_faces',                   'F3',           'PRESS', False, True, False),
-        ('iops.object_rotate_z',            'RIGHT_ARROW',  'PRESS', False, False, False),
-        ('iops.object_rotate_mz',           'RIGHT_ARROW',  'PRESS', False, False, True),
-        ('iops.object_rotate_y',            'DOWN_ARROW',   'PRESS', False, False, False),
-        ('iops.object_rotate_my',           'DOWN_ARROW',   'PRESS', False, False, True),
-        ('iops.object_rotate_x',            'LEFT_ARROW',   'PRESS', False, False, False),
-        ('iops.object_rotate_mx',           'LEFT_ARROW',   'PRESS', False, False, True),
-        ('iops.object_normalize',           'UP_ARROW',     'PRESS', False, False, False),
-        ('iops.mesh_to_grid',               'UP_ARROW',     'PRESS', False, False, False),
-        ('iops.modal_three_point_rotation', 'R',            'PRESS', True, True, True),
-        ('iops.call_tps_panel',             'BUTTON4MOUSE', 'PRESS', False, False, True),
-        ('iops.call_tm_panel',              'T',            'PRESS', True, True, True),
-        ('iops.call_pie_menu',              'Q',            'PRESS', True, True, True),
+        ('iops.f1',                         'F1',               'PRESS', False, False, False),
+        ('iops.f2',                         'F2',               'PRESS', False, False, False),
+        ('iops.f3',                         'F3',               'PRESS', False, False, False),
+        ('iops.f4',                         'F4',               'PRESS', False, False, False),
+        ('iops.f5',                         'F5',               'PRESS', False, False, False),
+        ('iops.esc',                        'ESC',              'PRESS', False, False, False),
+        ('iops.to_verts',                   'F1',               'PRESS', False, True, False),
+        ('iops.to_edges',                   'F2',               'PRESS', False, True, False),
+        ('iops.to_faces',                   'F3',               'PRESS', False, True, False),
+        ('iops.object_rotate_z',            'RIGHT_ARROW',      'PRESS', False, False, False),
+        ('iops.object_rotate_mz',           'RIGHT_ARROW',      'PRESS', False, False, True),
+        ('iops.object_rotate_y',            'DOWN_ARROW',       'PRESS', False, False, False),
+        ('iops.object_rotate_my',           'DOWN_ARROW',       'PRESS', False, False, True),
+        ('iops.object_rotate_x',            'LEFT_ARROW',       'PRESS', False, False, False),
+        ('iops.object_rotate_mx',           'LEFT_ARROW',       'PRESS', False, False, True),
+        ('iops.object_normalize',           'UP_ARROW',         'PRESS', False, False, False),
+        ('iops.mesh_to_grid',               'UP_ARROW',         'PRESS', False, False, False),
+        ('iops.modal_three_point_rotation', 'R',                'PRESS', True, True, True),
+        ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True),
+        ('iops.call_tm_panel',              'T',                'PRESS', True, True, True),
+        ('iops.call_pie_menu',              'Q',                'PRESS', True, True, True),
+        # Zaloopok's operators
+        ('iops.z_grow_loop',                'F19',                'PRESS', True, True, True),
+        ('iops.z_shrink_loop',              'F19',                'PRESS', True, True, True),
+        ('iops.z_grow_ring',                'F19',                'PRESS', True, True, True),
+        ('iops.z_shrink_ring',              'F19',                'PRESS', True, True, True),
+        ('iops.z_delete_mode',              'F19',                'PRESS', True, True, True),
+        ('iops.eq_edges',                   'F19',                'PRESS', True, True, True),
+        ('iops.line_up_edges',              'F19',                'PRESS', True, True, True),
+        ('iops.z_connect',                  'F19',                'PRESS', True, True, True),
+        ('iops.z_put_on',                   'F19',                'PRESS', True, True, True),
+        ('iops.z_mirror',                   'F19',                'PRESS', True, True, True),
+        ('iops.z_select_bounded_ring',      'F19',                'PRESS', True, True, True),
+        ('iops.z_select_bounded_loop',      'F19',                'PRESS', True, True, True),
+
     ]
 
     keyconfigs = bpy.context.window_manager.keyconfigs
@@ -136,11 +160,11 @@ classes = (IOPS_OT_Main,
            IOPS_OT_object_rotate_MY,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
-           IOPS_OT_object_normalize,           
+           IOPS_OT_object_normalize,
            IOPS_OT_transform_orientation_create,
            IOPS_OT_transform_orientation_delete,
            IOPS_OT_transform_orientation_cleanup,
-           IOPS_OT_uvmaps_cleanup,                     
+           IOPS_OT_uvmaps_cleanup,
            IOPS_OT_edit_origin,
            IOPS_OT_mesh_to_grid,
            IOPS_OT_ThreePointRotation,
@@ -151,8 +175,20 @@ classes = (IOPS_OT_Main,
            IOPS_PT_TPS_Panel,
            IOPS_OT_Call_TPS_Panel,
            IOPS_MT_Pie_Menu,
-           IOPS_OT_Call_Pie_Menu,           
-           IOPS_AddonPreferences
+           IOPS_OT_Call_Pie_Menu,
+           IOPS_AddonPreferences,
+           Z_OT_GrowLoop,
+           Z_OT_ShrinkLoop,
+           Z_OT_GrowRing,
+           Z_OT_ShrinkRing,
+           Z_OT_SelectBoundedLoop,
+           Z_OT_SelectBoundedRing,
+           Z_OT_EdgeEq,
+           Z_OT_EdgeLineUp,
+           Z_OT_ContextDelete,
+           Z_OT_PutOn,
+           Z_OT_Mirror,
+           Z_OT_EdgeConnect
            )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

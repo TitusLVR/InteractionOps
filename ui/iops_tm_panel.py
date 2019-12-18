@@ -202,7 +202,8 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                context.view_layer.objects.active.type == "MESH" and
+                bpy.context.view_layer.objects.active.mode == 'OBJECT')
 
     def draw(self, context):
         obj = context.view_layer.objects.active
