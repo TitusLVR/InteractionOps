@@ -491,7 +491,7 @@ class Z_OT_GrowLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')git
 
     def execute(self, context):
         return grow_loop(context)
@@ -504,7 +504,7 @@ class Z_OT_ShrinkLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         return shrink_loop(context)
@@ -517,7 +517,7 @@ class Z_OT_GrowRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         return grow_ring(context)
@@ -530,7 +530,7 @@ class Z_OT_ShrinkRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         return shrink_ring(context)
@@ -543,7 +543,7 @@ class Z_OT_SelectBoundedLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         return select_bounded_loop(context)
@@ -556,7 +556,7 @@ class Z_OT_SelectBoundedRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         return select_bounded_ring(context)
@@ -586,7 +586,7 @@ class Z_OT_EdgeEq(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
-        return (context.mode == 'EDIT_MESH'
+        return (context.mode == 'EDIT'
             and (sm == (False, True, False)))
 
     def execute(self, context):
@@ -602,7 +602,7 @@ class Z_OT_EdgeLineUp(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
-        return (context.mode == 'EDIT_MESH'
+        return (context.mode == 'EDIT'
             and (sm == (False, True, False)))
 
     def execute(self, context):
@@ -618,7 +618,7 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
-        return (context.mode == 'EDIT_MESH' and (sm == (False, True, False)))
+        return (context.mode == 'EDIT' and (sm == (False, True, False)))
 
     def execute(self, context):
         mesh = context.active_object.data
@@ -639,7 +639,7 @@ class Z_OT_PutOn(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         mesh = context.active_object.data
@@ -663,7 +663,7 @@ class Z_OT_Mirror(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH')
+        return (context.mode == 'EDIT')
 
     def execute(self, context):
         mesh = context.active_object.data
