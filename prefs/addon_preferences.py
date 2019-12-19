@@ -1,20 +1,18 @@
 import bpy
-from bpy.types import (
-        Operator,
-        Menu,
-        Panel,
-        PropertyGroup,
-        AddonPreferences,
-        )
-from bpy.props import (
-        BoolProperty,
-        EnumProperty,
-        FloatProperty,
-        IntProperty,
-        PointerProperty,
-        StringProperty,
-        FloatVectorProperty,
-        )
+from bpy.types import (Operator,
+                       Menu,
+                       Panel,
+                       PropertyGroup,
+                       AddonPreferences,
+                       )
+from bpy.props import (BoolProperty,
+                       EnumProperty,
+                       FloatProperty,
+                       IntProperty,
+                       PointerProperty,
+                       StringProperty,
+                       FloatVectorProperty,
+                       )
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):

@@ -20,7 +20,7 @@ from .operators.object_rotate import (IOPS_OT_mesh_to_grid,
                                       IOPS_OT_object_rotate_MZ,
                                       IOPS_OT_object_rotate_X,
                                       IOPS_OT_object_rotate_Y,
-                                      IOPS_OT_object_rotate_Z)
+                                      IOPS_OT_Object_Rotate_Z)
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
@@ -71,12 +71,13 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
 # CTRL, ALT, Shift
 def register_keymaps():
     keys = [
+        ('iops.esc',                        'ESC',              'PRESS', False, False, False),
         ('iops.f1',                         'F1',               'PRESS', False, False, False),
         ('iops.f2',                         'F2',               'PRESS', False, False, False),
         ('iops.f3',                         'F3',               'PRESS', False, False, False),
         ('iops.f4',                         'F4',               'PRESS', False, False, False),
         ('iops.f5',                         'F5',               'PRESS', False, False, False),
-        ('iops.esc',                        'ESC',              'PRESS', False, False, False),
+        ('iops.align_origin_to_normal',     'F5',               'PRESS', False, True, False),
         ('iops.to_verts',                   'F1',               'PRESS', False, True, False),
         ('iops.to_edges',                   'F2',               'PRESS', False, True, False),
         ('iops.to_faces',                   'F3',               'PRESS', False, True, False),
@@ -154,7 +155,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_ToVerts,
            IOPS_OT_AlignObjectToFace,
            IOPS_OT_VisualOrigin,
-           IOPS_OT_object_rotate_Z,
+           IOPS_OT_Object_Rotate_Z,
            IOPS_OT_object_rotate_MZ,
            IOPS_OT_object_rotate_Y,
            IOPS_OT_object_rotate_MY,

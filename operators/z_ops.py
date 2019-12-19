@@ -491,7 +491,7 @@ class Z_OT_GrowLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        return (bpy.context.view_layer.objects.active.mode == 'EDIT' and bpy.context.view_layer.objects.active)
 
     def execute(self, context):
         return grow_loop(context)
@@ -504,7 +504,8 @@ class Z_OT_ShrinkLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         return shrink_loop(context)
@@ -517,7 +518,8 @@ class Z_OT_GrowRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         return grow_ring(context)
@@ -530,7 +532,8 @@ class Z_OT_ShrinkRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         return shrink_ring(context)
@@ -543,7 +546,8 @@ class Z_OT_SelectBoundedLoop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+                return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         return select_bounded_loop(context)
@@ -556,7 +560,8 @@ class Z_OT_SelectBoundedRing(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         return select_bounded_ring(context)
@@ -638,7 +643,8 @@ class Z_OT_PutOn(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         mesh = context.active_object.data
@@ -662,7 +668,8 @@ class Z_OT_Mirror(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
+            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
         mesh = context.active_object.data

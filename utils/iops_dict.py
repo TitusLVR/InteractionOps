@@ -49,14 +49,14 @@ class IOPS_Dict():
                     "F1": lambda: object_mode_switch("EDIT"),
                     "F2": lambda: no_operator(),
                     "F3": lambda: no_operator(),
-                    "F4": lambda: cursor_origin(),
+                    "F4": lambda: cursor_origin_selected(),
                     "F5": lambda: no_operator(),
                 },
                 "EDIT": {
                     "F1": lambda: object_mode_switch("OBJECT"),
                     "F2": lambda: curve_subdivide(),
                     "F3": lambda: curve_spline_type(),
-                    "F4": lambda: cursor_origin(),
+                    "F4": lambda: cursor_origin_selected(),
                     "F5": lambda: no_operator(),
                     "ESC": lambda: object_mode_switch("OBJECT"),
                 },
@@ -95,6 +95,7 @@ class IOPS_Dict():
                 "F3": lambda: no_operator(),
                 "F4": lambda: no_operator(),
                 "F5": lambda: no_operator(),
+                "ESC": lambda: object_mode_switch("OBJECT"),
             },
             "EMPTY": {
                 "F1": lambda: no_operator(),
@@ -230,6 +231,7 @@ class IOPS_Dict():
             "F3": lambda: no_operator(),
             "F4": lambda: no_operator(),
             "F5": lambda: no_operator(),
+            "ESC": lambda: no_operator(),
         },
     }
 
