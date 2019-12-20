@@ -21,6 +21,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         ("Toggle 2 point", "2"),
         ("Toggle 3 point", "3"),
         ("Select all dummies", "A"),
+        ("Flip Y and Z", "F"),
         ("Toggle snaps", "S"),
         ("Translate/Rotate", "G/R"),
         ("Select dummy O,Y,Z", "F1, F2, F3")
@@ -319,6 +320,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 bpy.ops.object.constraints_clear()
             self.remove_proxy(context)
             self.obj.matrix_world = self.mx
+
+        elif event.type == 'F' and event.value == "PRESS":
+            z_loc = bpy.data.objects['Z_Dummy'].location.copy() 
+            y_loc = bpy.data.objects['Y_Dummy'].location.copy()
+            bpy.data.objects['Z_Dummy'].location = y_loc
+            bpy.data.objects['Y_Dummy'].location = z_loc
+
 
         elif event.type == 'G' and event.value == "PRESS":
             bpy.ops.transform.translate('INVOKE_DEFAULT')
