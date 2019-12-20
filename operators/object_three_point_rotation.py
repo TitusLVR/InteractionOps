@@ -364,26 +364,24 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         # Create dummies
         # O_Dummy
         self.O_Dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', 
-                                                location=(self.obj.location[0],
-                                                          self.obj.location[1],
-                                                          self.obj.location[2] - self.obj.dimensions[2] / 2),
+                                                location=self.obj.location,
                                                 radius=self.dummy_size * 3)
         bpy.context.view_layer.objects.active.name = "O_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Y_Dummy
+        # Z_Dummy
         self.Z_Dummy = bpy.ops.object.empty_add(type='SPHERE',
                                                 location=(self.obj.location[0],
                                                           self.obj.location[1],
-                                                          self.obj.location[2] + self.obj.dimensions[2]/2),
+                                                          self.obj.location[2] + self.obj.dimensions[2] / 2),
                                                 radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Z_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Z_Dummy
+        # Y_Dummy
         self.Y_Dummy = bpy.ops.object.empty_add(type='SPHERE',
                                                 location=(self.obj.location[0],
-                                                          self.obj.location[1],
+                                                          self.obj.location[1] + self.obj.dimensions[2] / 2,
                                                           self.obj.location[2]),
                                                 radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Y_Dummy"
