@@ -260,10 +260,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         # Hotkeys
         box = box_ui.box()
-        box.label(text="Hotkeys")
-        layout.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
-        layout.operator("iops.load_default_hotkeys", text="Load Default Hotkeys")
-        layout.operator("iops.load_save_hotkeys", text="Save User's Hotkeys")
+        col = box.column(align=True)
+        col.label(text="Hotkeys")
+        col.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
+        col.operator("iops.load_default_hotkeys", text="Load Default Hotkeys")
+        col.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
         
         # Debug
         box = box_ui.box()

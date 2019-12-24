@@ -27,9 +27,6 @@ from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
 
-# Hotkeys
-from .prefs.hotkeys_default import keys_default as keys_default
-from .prefs.hotkeys_user import keys_user as keys_user
 
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
@@ -54,6 +51,11 @@ from .operators.z_ops import (Z_OT_GrowLoop,
                               Z_OT_Mirror,
                               Z_OT_EdgeConnect)
 
+from .utils.functions import (register_keymaps, unregister_keymaps)
+# Hotkeys
+from .prefs.hotkeys_default import keys_default as keys_default
+from .prefs.hotkeys_user import keys_user as keys_user
+
 
 bl_info = {
     "name": "iOps",
@@ -69,43 +71,7 @@ bl_info = {
 }
 
 
-# WarningMessage
-def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
-    def draw(self, context):
-        self.layout.label(text=text)
-    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-def register_keymaps():
-    keys = keys_default
-
-    keyconfigs = bpy.context.window_manager.keyconfigs
-    keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
-    for k in keys:
-        found = False
-        for kc in keyconfigs:
-            keymap = kc.keymaps.get("Window")
-            if keymap:
-                kmi = keymap.keymap_items
-                for item in kmi:
-                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
-                        found = True
-                    else:
-                        found = False
-        if not found:
-            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5])
-            kmi.active = True
-
-
-def unregister_keymaps():
-    keyconfigs = bpy.context.window_manager.keyconfigs
-    for kc in keyconfigs:
-        keymap = kc.keymaps.get("Window")
-        if keymap:
-            keymapItems = keymap.keymap_items
-            toDelete = tuple(
-                item for item in keymapItems if item.idname.startswith('iops.'))
-            for item in toDelete:
-                keymapItems.remove(item)
 
 
 # Classes for reg and unreg
@@ -169,7 +135,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_cls()
-    register_keymaps()
+    register_keymaps(keys_default)
     print("IOPS Registered!")
 
 

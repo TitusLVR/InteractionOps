@@ -1,7 +1,6 @@
 import bpy
 import bmesh
 
-
 def get_iop(dictionary, query):
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
     if debug:
@@ -121,3 +120,43 @@ def z_connect():
     for e in r2:
         e.select = True
     bmesh.update_edit_mesh(mesh)
+
+
+# WarningMessage
+def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
+    def draw(self, context):
+        self.layout.label(text=text)
+    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+
+
+
+############################## Keymaps ##############################
+def register_keymaps(keys): 
+    keyconfigs = bpy.context.window_manager.keyconfigs
+    keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
+    for k in keys:
+        found = False
+        for kc in keyconfigs:
+            keymap = kc.keymaps.get("Window")
+            if keymap:
+                kmi = keymap.keymap_items
+                for item in kmi:
+                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
+                        found = True
+                    else:
+                        found = False
+        if not found:
+            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5])
+            kmi.active = True
+
+
+def unregister_keymaps():
+    keyconfigs = bpy.context.window_manager.keyconfigs
+    for kc in keyconfigs:
+        keymap = kc.keymaps.get("Window")
+        if keymap:
+            keymapItems = keymap.keymap_items
+            toDelete = tuple(
+                item for item in keymapItems if item.idname.startswith('iops.'))
+            for item in toDelete:
+                keymapItems.remove(item)
