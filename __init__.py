@@ -54,7 +54,6 @@ from .operators.z_ops import (Z_OT_GrowLoop,
 from .utils.functions import (register_keymaps, unregister_keymaps)
 # Hotkeys
 from .prefs.hotkeys_default import keys_default as keys_default
-from .prefs.hotkeys_user import keys_user as keys_user
 
 
 bl_info = {
@@ -69,10 +68,6 @@ bl_info = {
     "tracker_url": "https://github.com/TitusLVR/InteractionOps",
     "category": "Tools"
 }
-
-
-
-
 
 # Classes for reg and unreg
 classes = (IOPS_OT_Main,
