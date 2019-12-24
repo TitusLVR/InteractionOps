@@ -21,6 +21,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         ("Toggle 2 point", "2"),
         ("Toggle 3 point", "3"),
         ("Select all dummies", "A"),
+        ("Flip Y and Z", "F"),
         ("Toggle snaps", "S"),
         ("Translate/Rotate", "G/R"),
         ("Select dummy O,Y,Z", "F1, F2, F3")
@@ -320,6 +321,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self.remove_proxy(context)
             self.obj.matrix_world = self.mx
 
+        elif event.type == 'F' and event.value == "PRESS":
+            z_loc = bpy.data.objects['Z_Dummy'].location.copy() 
+            y_loc = bpy.data.objects['Y_Dummy'].location.copy()
+            bpy.data.objects['Z_Dummy'].location = y_loc
+            bpy.data.objects['Y_Dummy'].location = z_loc
+
+
         elif event.type == 'G' and event.value == "PRESS":
             bpy.ops.transform.translate('INVOKE_DEFAULT')
         elif event.type == 'R' and event.value == "PRESS":
@@ -356,26 +364,24 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         # Create dummies
         # O_Dummy
         self.O_Dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', 
-                                                location=(self.obj.location[0],
-                                                          self.obj.location[1],
-                                                          self.obj.location[2] - self.obj.dimensions[2] / 2),
+                                                location=self.obj.location,
                                                 radius=self.dummy_size * 3)
         bpy.context.view_layer.objects.active.name = "O_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Y_Dummy
+        # Z_Dummy
         self.Z_Dummy = bpy.ops.object.empty_add(type='SPHERE',
                                                 location=(self.obj.location[0],
                                                           self.obj.location[1],
-                                                          self.obj.location[2] + self.obj.dimensions[2]/2),
+                                                          self.obj.location[2] + self.obj.dimensions[2] / 2),
                                                 radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Z_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Z_Dummy
+        # Y_Dummy
         self.Y_Dummy = bpy.ops.object.empty_add(type='SPHERE',
                                                 location=(self.obj.location[0],
-                                                          self.obj.location[1],
+                                                          self.obj.location[1] + self.obj.dimensions[2] / 2,
                                                           self.obj.location[2]),
                                                 radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Y_Dummy"
