@@ -1,5 +1,6 @@
-
 import bpy
+import json
+import os
 
 from .operators.hotkeys.load_hotkeys import (IOPS_OT_LoadUserHotkeys, IOPS_OT_LoadDefaultHotkeys)
 from .operators.hotkeys.save_hotkeys import IOPS_OT_SaveUserHotkeys
@@ -130,7 +131,14 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_cls()
-    register_keymaps(keys_default)
+    path = bpy.utils.script_path_user()
+    user_hotkeys_file = os.path.join(path, 'addons', 'InteractionOps', 'prefs', "hotkeys_user.py")
+    if os.path.getsize(user_hotkeys_file) > 0:
+        with open(user_hotkeys_file) as f:
+            keys_user = json.load(f)
+        register_keymaps(keys_user)
+    else:
+        register_keymaps(keys_default)
     print("IOPS Registered!")
 
 
