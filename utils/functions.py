@@ -1,8 +1,11 @@
 import bpy
 import bmesh
 
+
 def get_iop(dictionary, query):
-    print("Query from Blender:", query)
+    debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
+    if debug:
+        print("Query from Blender:", query)
     current = dictionary
     for key in query:
         next_ = current.get(key)
@@ -11,7 +14,7 @@ def get_iop(dictionary, query):
         current = next_
         if not isinstance(current, dict):
             return current
-    raise KeyError("Invalid query from Blender!")
+    return (lambda: print("No entry in the dictionary for area", query[0]))
 
 
 def get_addon(addon, debug=False):
@@ -118,4 +121,3 @@ def z_connect():
     for e in r2:
         e.select = True
     bmesh.update_edit_mesh(mesh)
-    

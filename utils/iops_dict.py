@@ -6,7 +6,6 @@ class IOPS_Dict():
 
     operators = {"F1", "F2", "F3", "F4", "F5", "ESC"}
 
-    iops_dict = defaultdict(lambda: "Operator not defined.")
     iops_dict = {
         "VIEW_3D": {
             "MESH": {
@@ -226,6 +225,15 @@ class IOPS_Dict():
 
         },
         "OUTLINER": {
+            "F1": lambda: no_operator(),
+            "F2": lambda: no_operator(),
+            "F3": lambda: no_operator(),
+            "F4": lambda: no_operator(),
+            "F5": lambda: no_operator(),
+            "ESC": lambda: no_operator(),
+        },
+
+        "PREFERENCES": {
             "F1": lambda: no_operator(),
             "F2": lambda: no_operator(),
             "F3": lambda: no_operator(),

@@ -1,6 +1,8 @@
 
 import bpy
 
+from .operators.hotkeys.load_hotkeys import (IOPS_OT_LoadUserHotkeys, IOPS_OT_LoadDefaultHotkeys)
+from .operators.hotkeys.save_hotkeys import IOPS_OT_SaveUserHotkeys
 from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.curve_spline_type import IOPS_OT_CurveSplineType
@@ -24,6 +26,11 @@ from .operators.object_rotate import (IOPS_OT_mesh_to_grid,
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
+
+# Hotkeys
+from .prefs.hotkeys_default import keys_default as keys_default
+from .prefs.hotkeys_user import keys_user as keys_user
+
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
                                IOPS_OT_transform_orientation_cleanup,
@@ -68,46 +75,8 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
         self.layout.label(text=text)
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-# CTRL, ALT, Shift
 def register_keymaps():
-    keys = [
-        ('iops.esc',                        'ESC',              'PRESS', False, False, False),
-        ('iops.f1',                         'F1',               'PRESS', False, False, False),
-        ('iops.f2',                         'F2',               'PRESS', False, False, False),
-        ('iops.f3',                         'F3',               'PRESS', False, False, False),
-        ('iops.f4',                         'F4',               'PRESS', False, False, False),
-        ('iops.f5',                         'F5',               'PRESS', False, False, False),
-        ('iops.align_origin_to_normal',     'F5',               'PRESS', False, True, False),
-        ('iops.to_verts',                   'F1',               'PRESS', False, True, False),
-        ('iops.to_edges',                   'F2',               'PRESS', False, True, False),
-        ('iops.to_faces',                   'F3',               'PRESS', False, True, False),
-        ('iops.object_rotate_z',            'RIGHT_ARROW',      'PRESS', False, False, False),
-        ('iops.object_rotate_mz',           'RIGHT_ARROW',      'PRESS', False, False, True),
-        ('iops.object_rotate_y',            'DOWN_ARROW',       'PRESS', False, False, False),
-        ('iops.object_rotate_my',           'DOWN_ARROW',       'PRESS', False, False, True),
-        ('iops.object_rotate_x',            'LEFT_ARROW',       'PRESS', False, False, False),
-        ('iops.object_rotate_mx',           'LEFT_ARROW',       'PRESS', False, False, True),
-        ('iops.object_normalize',           'UP_ARROW',         'PRESS', False, False, False),
-        ('iops.mesh_to_grid',               'UP_ARROW',         'PRESS', False, False, False),
-        ('iops.modal_three_point_rotation', 'R',                'PRESS', True, True, True),
-        ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True),
-        ('iops.call_tm_panel',              'T',                'PRESS', True, True, True),
-        ('iops.call_pie_menu',              'Q',                'PRESS', True, True, True),
-        # Zaloopok's operators
-        ('iops.z_grow_loop',                'F19',                'PRESS', True, True, True),
-        ('iops.z_shrink_loop',              'F19',                'PRESS', True, True, True),
-        ('iops.z_grow_ring',                'F19',                'PRESS', True, True, True),
-        ('iops.z_shrink_ring',              'F19',                'PRESS', True, True, True),
-        ('iops.z_delete_mode',              'F19',                'PRESS', True, True, True),
-        ('iops.eq_edges',                   'F19',                'PRESS', True, True, True),
-        ('iops.line_up_edges',              'F19',                'PRESS', True, True, True),
-        ('iops.z_connect',                  'F19',                'PRESS', True, True, True),
-        ('iops.z_put_on',                   'F19',                'PRESS', True, True, True),
-        ('iops.z_mirror',                   'F19',                'PRESS', True, True, True),
-        ('iops.z_select_bounded_ring',      'F19',                'PRESS', True, True, True),
-        ('iops.z_select_bounded_loop',      'F19',                'PRESS', True, True, True),
-
-    ]
+    keys = keys_default
 
     keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
@@ -178,6 +147,9 @@ classes = (IOPS_OT_Main,
            IOPS_MT_Pie_Menu,
            IOPS_OT_Call_Pie_Menu,
            IOPS_AddonPreferences,
+           IOPS_OT_LoadDefaultHotkeys,
+           IOPS_OT_LoadUserHotkeys,
+           IOPS_OT_SaveUserHotkeys,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
