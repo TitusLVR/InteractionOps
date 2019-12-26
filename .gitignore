@@ -1,5 +1,7 @@
-# Byte-compiled / optimized / DLL files
+# User Hotkeys
+hotkeys_user.py
 
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 

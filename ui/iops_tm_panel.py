@@ -227,7 +227,14 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
 class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
     """Tranformation panel"""
     bl_idname = "iops.call_tm_panel"
-    bl_label = "IOPS Transform panel"    
+    bl_label = "IOPS Transform panel"  
+
+    @classmethod
+    def poll(self, context):
+        return (context.area.type == "VIEW_3D" and
+                len(context.view_layer.objects.selected) != 0 and
+                context.view_layer.objects.active.type == "MESH" and
+                bpy.context.view_layer.objects.active.mode == 'OBJECT') 
 
     def execute(self, context):        
         bpy.ops.wm.call_panel(name="IOPS_PT_TM_Panel", keep_open=True)         
