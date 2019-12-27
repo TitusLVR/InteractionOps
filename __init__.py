@@ -138,7 +138,7 @@ def register():
             keys_user = json.load(f)
         register_keymaps(keys_user)
     else:
-        register_keymaps(keys_default)
+        register_keymaps(reversed(keys_default))
     print("IOPS Registered!")
 
 

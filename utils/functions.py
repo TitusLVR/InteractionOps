@@ -1,5 +1,6 @@
 import bpy
 import bmesh
+import addon_utils
 
 def get_iop(dictionary, query):
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
@@ -17,7 +18,6 @@ def get_iop(dictionary, query):
 
 
 def get_addon(addon, debug=False):
-    import addon_utils
 
     # look for addon by name and find folder name and path
     # Note, this will also find addons that aren't registered!
@@ -134,7 +134,7 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
 def register_keymaps(keys): 
     keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
-    for k in keys:
+    for k in reversed(keys):
         found = False
         for kc in keyconfigs:
             keymap = kc.keymaps.get("Window")
