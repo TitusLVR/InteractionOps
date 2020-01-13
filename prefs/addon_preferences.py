@@ -1,5 +1,4 @@
 import bpy
-import os
 from bpy.types import (Operator,
                        Menu,
                        Panel,
@@ -15,7 +14,6 @@ from bpy.props import (BoolProperty,
                        FloatVectorProperty,
                        )
 
-PATH = os.path.dirname(__file__)
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):

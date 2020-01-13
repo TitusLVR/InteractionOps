@@ -248,6 +248,10 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
     bl_idname = "iops.call_tps_panel"
     bl_label = "IOPS Transformation, PivotPoint, Snaps panel"    
 
+    @classmethod
+    def poll(self, context):
+        return context.area.type == "VIEW_3D" 
+
     def execute(self, context):        
         bpy.ops.wm.call_panel(name="IOPS_PT_TPS_Panel", keep_open=True)         
         return {'FINISHED'}
