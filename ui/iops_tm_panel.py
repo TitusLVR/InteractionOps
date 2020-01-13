@@ -12,6 +12,32 @@ class IOPS_OT_transform_orientation_create(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
+    """UVmaps names homonization. Make uvmap names identical"""
+    bl_idname = "iops.homonize_uvmaps_names"
+    bl_label = "UVmaps names homonization"
+
+    @classmethod
+    def poll(self, context):
+        return (context.active_object and
+                context.mode == "OBJECT" and                 
+                context.view_layer.objects.active.type == "MESH" )
+
+    def execute(self, context):
+        objs = []
+        for ob in bpy.context.selected_objects:
+            if ob.type == 'MESH':
+                objs.append(ob)
+        if objs:
+            for ob in objs:
+                uv_list = ob.data.uv_layers
+                if uv_list:
+                    for ch in range(len(uv_list)):
+                        uv_list[ch].name = "ch" + str(ch+1)
+                        print (uv_list[ch].name)
+        return {'FINISHED'}
+
+
 class IOPS_OT_transform_orientation_delete(bpy.types.Operator):
     """Tooltip"""
     bl_idname = "iops.transform_orientation_delete"
@@ -109,8 +135,10 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
         row.separator()
-        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
-        row.operator("iops.uvmaps_cleanup", text="", icon='UV_DATA')
+        #row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')        
+        row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
+        row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
+
 
         if batchops:
             row.separator()
