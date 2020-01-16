@@ -15,6 +15,7 @@ keys_default = [
     ('iops.z_grow_loop',                'F19',                'PRESS', True, True, True),
     # IOPS Operators
     ('iops.call_pie_menu',              'Q',                'PRESS', True, True, True),
+    ('iops.call_pie_edit',              'F19',              'PRESS', True, True, True),
     ('iops.call_tm_panel',              'T',                'PRESS', True, True, True),
     ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True),
     ('iops.modal_three_point_rotation', 'R',                'PRESS', True, True, True),
