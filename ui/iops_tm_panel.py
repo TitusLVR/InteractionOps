@@ -114,10 +114,6 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
     bl_region_type = 'WINDOW'
     # bl_category = 'Item'
 
-    @classmethod
-    def poll(self, context):
-        return (context.area.type == "VIEW_3D" or context.area.type == "IMAGE_EDITOR")
-
     def draw(self, context):
         ver = bpy.app.version[2]
         tool_settings = context.tool_settings
@@ -220,41 +216,42 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
 
         if context.area.type == "IMAGE_EDITOR":
-            sima = context.space_data
-            show_uvedit = sima.show_uvedit
-            show_maskedit = sima.show_maskedit
-            uvedit = sima.uv_editor
-            snap_uv_element = tool_settings.snap_uv_element
-            # Column 1
-            split = layout.split()
-            col = split.column(align=True)
-            col.label(text="UV Selection mode:")
-            if show_uvedit:
-                col.prop(tool_settings, "use_uv_select_sync", text="")
-                if tool_settings.use_uv_select_sync:
-                    col.template_edit_mode_selection()
-                else:
-                    col.prop(tool_settings, "uv_select_mode", expand=True)
-                    col.prop(uvedit, "sticky_select_mode", icon_only=False)
-            # Column 2
-            col = split.column(align=True)
-            col.label(text="PivotPoint:")
-            # col.prop(sima, "pivot_point", icon_only=False)
-            col.prop(sima, "pivot_point", expand=True)
-            # Column 3
-            col = split.column(align=True)
-            col.label(text="Snapping:")
-            if show_uvedit:
-                # Snap.
-                col.prop(tool_settings, "snap_uv_element", expand=True)
-                if 'VERTEX' in snap_uv_element:
-                    col.label(text="Target:")
-                    col.prop(tool_settings, "snap_target", expand=True)
-                col.label(text="Affect:")
-                row = col.row(align=True)
-                row.prop(tool_settings, "use_snap_translate", text="Move", toggle=True)
-                row.prop(tool_settings, "use_snap_rotate", text="Rotate", toggle=True)
-                row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
+            if context.active_object.type == 'MESH' and context.mode == "EDIT_MESH":
+                sima = context.space_data
+                show_uvedit = sima.show_uvedit
+                show_maskedit = sima.show_maskedit
+                uvedit = sima.uv_editor
+                snap_uv_element = tool_settings.snap_uv_element
+                # Column 1
+                split = layout.split()
+                col = split.column(align=True)
+                col.label(text="UV Selection mode:")
+                if show_uvedit:
+                    col.prop(tool_settings, "use_uv_select_sync", text="")
+                    if tool_settings.use_uv_select_sync:
+                        col.template_edit_mode_selection()
+                    else:
+                        col.prop(tool_settings, "uv_select_mode", expand=True)
+                        col.prop(uvedit, "sticky_select_mode", icon_only=False)
+                # Column 2
+                col = split.column(align=True)
+                col.label(text="PivotPoint:")
+                # col.prop(sima, "pivot_point", icon_only=False)
+                col.prop(sima, "pivot_point", expand=True)
+                # Column 3
+                col = split.column(align=True)
+                col.label(text="Snapping:")
+                if show_uvedit:
+                    # Snap.
+                    col.prop(tool_settings, "snap_uv_element", expand=True)
+                    if 'VERTEX' in snap_uv_element:
+                        col.label(text="Target:")
+                        col.prop(tool_settings, "snap_target", expand=True)
+                    col.label(text="Affect:")
+                    row = col.row(align=True)
+                    row.prop(tool_settings, "use_snap_translate", text="Move", toggle=True)
+                    row.prop(tool_settings, "use_snap_rotate", text="Rotate", toggle=True)
+                    row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
 
 
 class IOPS_PT_TM_Panel(bpy.types.Panel):
@@ -290,7 +287,7 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        return context.area.type == "VIEW_3D"
+        return context.area.type == "VIEW_3D" or context.area.type == "IMAGE_EDITOR"
 
     def execute(self, context):
         bpy.ops.wm.call_panel(name="IOPS_PT_TPS_Panel", keep_open=True)
