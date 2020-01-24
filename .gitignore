@@ -1,5 +1,5 @@
 # User Hotkeys
-hotkeys_user.py
+prefs/hotkeys_user.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -135,9 +135,9 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
-        row.separator()
-        row.operator("iops.transform_orientation_cleanup", text="", icon='BRUSH_DATA')
-        row.operator("iops.uvmaps_cleanup", text="", icon='UV_DATA')
+        row.separator()        
+        row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
+        row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
 
         if batchops:
             row.separator()
