@@ -17,14 +17,17 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
         keys_user = []
 
         path = bpy.utils.script_path_user()
-        user_hotkeys_file = os.path.join(path, 'addons', 'InteractionOps', 'prefs', "hotkeys_user.py")
+        user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
+        user_hotkeys_path = os.path.join(path, 'presets', 'keyconfig', "IOPS")
 
-        with open(user_hotkeys_file) as f:
-            keys_user = json.load(f)
-        
-        print(keys_user[0])
-        # keys_user = [tuple (k for k in keys_user)]
-            
+        if os.path.exists(user_hotkeys_file):
+            with open(user_hotkeys_file) as f:
+                keys_user = json.load(f)
+        else:
+            if not os.path.exists(user_hotkeys_path):
+                os.makedirs(user_hotkeys_path)
+            with open(user_hotkeys_file, "w") as f:
+                f.write("[]")
 
      
         register_keymaps(keys_user)

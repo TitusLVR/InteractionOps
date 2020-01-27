@@ -5,9 +5,8 @@ from ... utils.functions import (register_keymaps, unregister_keymaps, get_addon
 
 
 def save_hotkeys():
-    keys = []
     path = bpy.utils.script_path_user()
-    user_hotkeys_file = os.path.join(path, 'addons', 'InteractionOps', 'prefs', "hotkeys_user.py")
+    user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
    
     with open(user_hotkeys_file, 'w') as f:
         data = get_iops_keys()

@@ -137,13 +137,13 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 def register():
     reg_cls()
     path = bpy.utils.script_path_user()
-    user_hotkeys_file = os.path.join(path, 'addons', 'InteractionOps', 'prefs', "hotkeys_user.py")
-    if os.path.getsize(user_hotkeys_file) > 0:
+    user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
+    if os.path.exists(user_hotkeys_file):
         with open(user_hotkeys_file) as f:
             keys_user = json.load(f)
         register_keymaps(keys_user)
     else:
-        register_keymaps(reversed(keys_default))
+        register_keymaps(keys_default)
     print("IOPS Registered!")
 
 
