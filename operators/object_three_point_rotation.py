@@ -1,13 +1,5 @@
-import copy
-
 import blf
 import bpy
-import gpu
-from bpy.props import (BoolProperty, FloatProperty, FloatVectorProperty,
-                       IntProperty, StringProperty)
-from mathutils import Matrix
-
-from gpu_extras.batch import batch_for_shader
 
 
 def draw_iops_text(self, context, _uidpi, _uifactor):
@@ -29,9 +21,11 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         ("Toggle 2 point", "2"),
         ("Toggle 3 point", "3"),
         ("Select all dummies", "A"),
+        ("Flip Y and Z", "F"),
         ("Toggle snaps", "S"),
         ("Translate/Rotate", "G/R"),
-        ("Select dummy O,Y,Z", "F1, F2, F3")
+        ("Select dummy O,Y,Z", "F1, F2, F3"),
+        ("Scale dummies", "=/-")
     )
 
     # FontID
@@ -61,6 +55,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         blf.draw(font, line[1])
         offset += (tCSize + 5) * _uifactor
 
+
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     """Three point rotation"""
     bl_idname = "iops.modal_three_point_rotation"
@@ -74,7 +69,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     snaps = {}
     mx = None
 
-    #UI
+    # UI
     ui_handlers = []
 
     @classmethod
@@ -207,11 +202,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         proxy.parent = target
         proxy.matrix_parent_inverse = target.matrix_world.inverted()
 
-
     def remove_proxy(self, context):
         if 'Proxy_Dummy' in bpy.data.objects:
             bpy.data.objects.remove(bpy.data.objects['Proxy_Dummy'], do_unlink=True, do_id_user=True, do_ui_user=True)
-
 
     def modal(self, context, event):
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
@@ -232,6 +225,16 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self.select_target(context, 'O_Dummy', active=True, deselect=True)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
             # self.snap_dummy(context, 'O_Dummy')
+
+        elif event.type == 'EQUAL' and event.value == 'PRESS':
+            bpy.data.objects['O_Dummy'].scale *= 1.5
+            bpy.data.objects['Z_Dummy'].scale *= 1.5
+            bpy.data.objects['Y_Dummy'].scale *= 1.5
+        
+        elif event.type == 'MINUS' and event.value == 'PRESS':
+            bpy.data.objects['O_Dummy'].scale *= 0.75
+            bpy.data.objects['Z_Dummy'].scale *= 0.75
+            bpy.data.objects['Y_Dummy'].scale *= 0.75
 
         elif event.type == 'F2' and event.value == "PRESS":
             self.select_target(context, 'Y_Dummy', active=True, deselect=True)
@@ -276,7 +279,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 self.select_target(context, 'O_Dummy', active=True, deselect=False)
 
 
-        #Constrain Dummy #1 ->  Dummy #2, Link -> Object
+        # Constrain Dummy #1 ->  Dummy #2, Link -> Object
         elif event.type == 'TWO' and event.value == "PRESS":
             if "IOPS_DT_Z_Dummy" in bpy.data.objects['O_Dummy'].constraints:
                 # Remove constraint if exists
@@ -292,29 +295,29 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].target = bpy.data.objects['Z_Dummy']
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].track_axis = 'TRACK_Z'
 
-        #Constrain Dummy #1 -> Dummy #3
+        # Constrain Dummy #1 -> Dummy #3
         elif event.type == 'THREE' and event.value == "PRESS":
-            if ('IOPS_DT_Y_Dummy' in bpy.data.objects['O_Dummy'].constraints or 
+            if ('IOPS_DT_Y_Dummy' in bpy.data.objects['O_Dummy'].constraints or
                 'IOPS_DT_Z_Dummy' in bpy.data.objects['O_Dummy'].constraints):
                 # Remove constraint if exists
                 self.select_target(context, 'O_Dummy', active=True, deselect=True)
                 bpy.ops.object.constraints_clear()
-                
+
                 self.O_Dummy.empty_display_type = 'ARROWS'
             else:
                 # Add Constraint
                 self.select_target(context, 'O_Dummy', active=True, deselect=True)
                 bpy.ops.object.constraint_add(type='DAMPED_TRACK')
-                #To Y_Dummy
+                # To Y_Dummy
                 bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Y_Dummy"
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].target = bpy.data.objects['Y_Dummy']
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Y_Dummy'].track_axis = 'TRACK_Y'
-                #To Z_Dummy
+                # To Z_Dummy
                 bpy.ops.object.constraint_add(type='DAMPED_TRACK')
                 bpy.data.objects['O_Dummy'].constraints['Damped Track'].name = "IOPS_DT_Z_Dummy"
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].target = bpy.data.objects['Z_Dummy']
                 bpy.data.objects['O_Dummy'].constraints['IOPS_DT_Z_Dummy'].track_axis = 'TRACK_Z'
-                #Display change
+                # Display change
                 self.O_Dummy.empty_display_type = 'SINGLE_ARROW'
 
         # Reset all (restore object matrix, break link and constraint)
@@ -322,19 +325,26 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             if self.obj.parent == bpy.data.objects['O_Dummy']:
                 self.select_target(context, 'OBJECT', active=True, deselect=True)
                 bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-            if ("IOPS_DT_Z_Dummy" in bpy.data.objects['O_Dummy'].constraints or 
+            if ("IOPS_DT_Z_Dummy" in bpy.data.objects['O_Dummy'].constraints or
                 "IOPS_DT_Y_Dummy" in bpy.data.objects['O_Dummy'].constraints):
                 self.select_target(context, 'O_Dummy', active=True, deselect=True)
                 bpy.ops.object.constraints_clear()
             self.remove_proxy(context)
             self.obj.matrix_world = self.mx
 
+        elif event.type == 'F' and event.value == "PRESS":
+            z_loc = bpy.data.objects['Z_Dummy'].location.copy() 
+            y_loc = bpy.data.objects['Y_Dummy'].location.copy()
+            bpy.data.objects['Z_Dummy'].location = y_loc
+            bpy.data.objects['Y_Dummy'].location = z_loc
+
+
         elif event.type == 'G' and event.value == "PRESS":
             bpy.ops.transform.translate('INVOKE_DEFAULT')
         elif event.type == 'R' and event.value == "PRESS":
             bpy.ops.transform.rotate('INVOKE_DEFAULT')
         elif event.type == 'S' and event.value == "PRESS":
-            #Snap toggle
+            # Snap toggle
             bpy.context.scene.tool_settings.use_snap = not bpy.context.scene.tool_settings.use_snap
 
         elif event.type == 'SPACE':
@@ -362,36 +372,35 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
         bpy.ops.object.select_all(action='DESELECT')
 
-        #Create dummies
+        # Create dummies
         # O_Dummy
-        self.O_Dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', location=(self.obj.location[0],
-                                                                                   self.obj.location[1],
-                                                                                   self.obj.location[2] - self.obj.dimensions[2]/2),
-                                                    radius=self.dummy_size*3)
+        self.O_Dummy = bpy.ops.object.empty_add(type='SINGLE_ARROW', 
+                                                location=self.obj.location,
+                                                radius=self.dummy_size * 3)
         bpy.context.view_layer.objects.active.name = "O_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Y_Dummy
+        # Z_Dummy
         self.Z_Dummy = bpy.ops.object.empty_add(type='SPHERE',
-                                                     location=(self.obj.location[0],
-                                                               self.obj.location[1],
-                                                               self.obj.location[2] + self.obj.dimensions[2]/2),
-                                                     radius=self.dummy_size)
+                                                location=(self.obj.location[0],
+                                                          self.obj.location[1],
+                                                          self.obj.location[2] + self.obj.dimensions[2] / 2),
+                                                radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Z_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
-        # Z_Dummy
+        # Y_Dummy
         self.Y_Dummy = bpy.ops.object.empty_add(type='SPHERE',
-                                                     location=(self.obj.location[0],
-                                                               self.obj.location[1],
-                                                               self.obj.location[2]),
-                                                     radius=self.dummy_size)
+                                                location=(self.obj.location[0],
+                                                          self.obj.location[1] + self.obj.dimensions[2] / 2,
+                                                          self.obj.location[2]),
+                                                radius=self.dummy_size)
         bpy.context.view_layer.objects.active.name = "Y_Dummy"
         bpy.context.view_layer.objects.active.show_in_front = True
         bpy.context.view_layer.objects.active.show_name = True
 
         # NAMING
-        self.O_Dummy  = bpy.data.objects['O_Dummy']
+        self.O_Dummy = bpy.data.objects['O_Dummy']
         self.Z_Dummy = bpy.data.objects['Z_Dummy']
         self.Z_Dummy = bpy.data.objects['Y_Dummy']
 
@@ -409,13 +418,12 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self.select_target(context, 'O_Dummy', active=True, deselect=True)
 
         if context.object and context.space_data.type == 'VIEW_3D':
-            args = (self, context)
             uidpi = int((72 * preferences.system.ui_scale))
             args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
             self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_iops_text, args_text, 'WINDOW', 'POST_PIXEL')
             self.ui_handlers = [self._handle_iops_text]
-            #Modal handler
+            # Modal handler
             context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
         else:

@@ -1,7 +1,5 @@
-/__pycache__
-*.py[cod]
-/logs
-*.check
+# User Hotkeys
+prefs/hotkeys_user.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

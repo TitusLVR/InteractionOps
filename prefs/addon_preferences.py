@@ -1,20 +1,19 @@
 import bpy
-from bpy.types import (
-        Operator,
-        Menu,
-        Panel,
-        PropertyGroup,
-        AddonPreferences,
-        )
-from bpy.props import (
-        BoolProperty,
-        EnumProperty,
-        FloatProperty,
-        IntProperty,
-        PointerProperty,
-        StringProperty,
-        FloatVectorProperty,
-        )
+from bpy.types import (Operator,
+                       Menu,
+                       Panel,
+                       PropertyGroup,
+                       AddonPreferences,
+                       )
+from bpy.props import (BoolProperty,
+                       EnumProperty,
+                       FloatProperty,
+                       IntProperty,
+                       PointerProperty,
+                       StringProperty,
+                       FloatVectorProperty,
+                       )
+
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
@@ -72,6 +71,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     text_shadow_toggle: BoolProperty(
         name="ON/OFF",
+        description="ON/Off",
+        default=False
+    )
+
+    IOPS_DEBUG: BoolProperty(
+        name="Query debug",
         description="ON/Off",
         default=False
     )
@@ -158,7 +163,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col = layout.column()
         row = col.row(align=True)
         # we don't want to put anything else on this row other than the 'split' item
-        split = row.split(factor=0.65, align=False)
+        split = row.split(factor=0.5, align=False)
         box_kmp = split.box()
         box_ui = split.box()
         # Keymaps
@@ -210,6 +215,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         row = col_text.row(align=True)
         row.prop(self, "text_pos_x")
         row.prop(self, "text_pos_y")
+        
         # Shadow
         row = col_shadow.row(align=True)
         row.prop(self, "text_shadow_color")
@@ -219,6 +225,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         row = col_shadow.row(align=True)
         row.prop(self, "text_shadow_pos_x")
         row.prop(self, "text_shadow_pos_y")
+
         # Align to edge
         box = box_ui.box()
         col = box.column(align=True)
@@ -226,26 +233,44 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         row = box.row(align=True)
         row.alignment = 'LEFT'
         row.prop(self, "align_edge_color")
+
         # Visual origin
         box = box_ui.box()
         col = box.column(align=True)
         col.label(text="Visual origin:")
-        # row = col.row(align=True)
-        # col.alignment = 'LEFT'
         row = box.row(align=True)
         split = row.split(factor=0.5, align=False)
         col_ap = split.column(align=True)
         col_p = split.column(align=True)
+
         # Active point column
         col = col_p.column(align=True)
         col.label(text="Cage points:")
         col.prop(self, "vo_cage_p_size", text="Size")
         col.prop(self, "vo_cage_points_color", text="")
+
         # Cage points column
         col = col_ap.column(align=True)
         col.label(text="Active point:")
         col.prop(self, "vo_cage_ap_size", text="Size")
         col.prop(self, "vo_cage_ap_color", text="")
+
         # Cage color
         col = box.column(align=True)
         col.prop(self, "vo_cage_color")
+
+        # Hotkeys
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Hotkeys")
+        col.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
+        col.operator("iops.load_default_hotkeys", text="Load Default Hotkeys")
+        col.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+        
+        # Debug
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Debug:")
+        row = box.row(align=True)
+        row.alignment = 'LEFT'
+        row.prop(self, "IOPS_DEBUG")

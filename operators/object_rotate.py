@@ -9,7 +9,7 @@ from bpy.props import (
         FloatProperty        
         )
 
-class IOPS_OT_object_rotate_Z (bpy.types.Operator):
+class IOPS_OT_Object_Rotate_Z (bpy.types.Operator):
     """ Rotate object local Z-axis 90 degrees """
     bl_idname = "iops.object_rotate_z"
     bl_label = "IOPS rotate Z-axis: 90d"
@@ -339,7 +339,7 @@ class IOPS_OT_mesh_to_grid (bpy.types.Operator):
         return {"FINISHED"}           
     
 
-classes = (IOPS_OT_object_rotate_Z,
+classes = (IOPS_OT_Object_Rotate_Z,
            IOPS_OT_object_rotate_MZ,
            IOPS_OT_object_rotate_Y,
            IOPS_OT_object_rotate_MY,

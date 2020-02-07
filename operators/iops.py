@@ -1,4 +1,5 @@
 import bpy
+from ..utils.iops_dict import IOPS_Dict, get_iop
 
 
 class IOPS_OT_Main(bpy.types.Operator):
@@ -6,30 +7,20 @@ class IOPS_OT_Main(bpy.types.Operator):
     bl_label = "IOPS"
     bl_options = {"REGISTER", "UNDO"}
 
-    modes_3d = {0: "VERT", 1: "EDGE", 2: "FACE"}
-    modes_uv = {0: "VERTEX", 1: "EDGE", 2: "FACE", 3: "ISLAND"}
-    modes_gpen = {0: "EDIT_GPENCIL", 1: "PAINT_GPENCIL", 2: "SCULPT_GPENCIL"}
-    modes_curve = {0: "EDIT_CURVE"}
-    modes_text = {0: "EDIT_TEXT"}
-    modes_meta = {0: "EDIT_META"}
-    modes_lattice = {0: "EDIT_LATTICE"}
-    modes_armature = {0: "EDIT", 1: "POSE"}
-    supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
-
-    # Current mode
-    _mode_3d = ""
-    _mode_uv = ""
-    _mode_gpen = ""
-    _mode_curve = ""
-    _mode_text = ""
-    _mode_meta = ""
-    _mode_armature = ""
-    _mode_lattice = ""
+    # modes_3d = {0: "VERT", 1: "EDGE", 2: "FACE"}
+    # modes_uv = {0: "VERTEX", 1: "EDGE", 2: "FACE", 3: "ISLAND"}
+    # modes_gpen = {0: "EDIT_GPENCIL", 1: "PAINT_GPENCIL", 2: "SCULPT_GPENCIL"}
+    # modes_curve = {0: "EDIT_CURVE"}
+    # modes_text = {0: "EDIT_TEXT"}
+    # modes_meta = {0: "EDIT_META"}
+    # modes_lattice = {0: "EDIT_LATTICE"}
+    # modes_armature = {0: "EDIT", 1: "POSE"}
+    # supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
 
     @classmethod
     def poll(cls, context):
-        return (context.object is not None and
-                context.active_object is not None) 
+        return (bpy.context.object is not None and
+                bpy.context.active_object is not None)
 
     def get_mode_3d(self, tool_mesh):
         mode = ""
@@ -42,14 +33,28 @@ class IOPS_OT_Main(bpy.types.Operator):
         return mode
 
     def execute(self, context):
-        # Object <-> Mesh
-        scene = bpy.context.scene
-        tool = bpy.context.tool_settings
-        tool_mesh = scene.tool_settings.mesh_select_mode
 
         active_object = bpy.context.view_layer.objects.active
+        tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
 
-        if active_object.type == "MESH":
+        type_area = bpy.context.area.type
+        type_object = bpy.context.view_layer.objects.active.type
+        mode_object = bpy.context.view_layer.objects.active.mode
+        mode_mesh = self.get_mode_3d(tool_mesh)
+        mode_uv = bpy.context.tool_settings.uv_select_mode
+        flag_uv = bpy.context.tool_settings.use_uv_select_sync
+        op = self.operator
+
+        query = (type_area, type_object, mode_object, flag_uv, mode_mesh, mode_uv, op)
+
+        tool = bpy.context.tool_settings
+
+        function = get_iop(IOPS_Dict.iops_dict, query)
+        function()
+
+        return{"FINISHED"}
+
+        """ if active_object.type == "MESH":
             _mode_3d = self.get_mode_3d(tool_mesh)
             if (bpy.context.area.type == "VIEW_3D" or
                 (bpy.context.area.type == "IMAGE_EDITOR" and
@@ -58,7 +63,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                 # Go to Edit Mode
                 if bpy.context.mode == "OBJECT":
                     bpy.ops.object.mode_set(mode="EDIT")
-                    bpy.ops.mesh.select_mode(type=self._mode_3d)
+                    bpy.ops.mesh.select_mode(type="VERT")
                     _mode_3d = self._mode_3d
                     self.report({"INFO"}, _mode_3d)
                     return{"FINISHED"}
@@ -174,4 +179,4 @@ class IOPS_OT_Main(bpy.types.Operator):
         if active_object.type not in self.supported_types:
             self.report({"INFO"}, "Object type " + str(active_object.type) + " not supported by iOps!")
             return{"FINISHED"}
-        return{"FINISHED"}
+        return{"FINISHED"} """
