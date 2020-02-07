@@ -24,7 +24,8 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         ("Flip Y and Z", "F"),
         ("Toggle snaps", "S"),
         ("Translate/Rotate", "G/R"),
-        ("Select dummy O,Y,Z", "F1, F2, F3")
+        ("Select dummy O,Y,Z", "F1, F2, F3"),
+        ("Scale dummies", "=/-")
     )
 
     # FontID
@@ -224,6 +225,16 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self.select_target(context, 'O_Dummy', active=True, deselect=True)
             bpy.ops.transform.translate('INVOKE_DEFAULT')
             # self.snap_dummy(context, 'O_Dummy')
+
+        elif event.type == 'EQUAL' and event.value == 'PRESS':
+            bpy.data.objects['O_Dummy'].scale *= 1.5
+            bpy.data.objects['Z_Dummy'].scale *= 1.5
+            bpy.data.objects['Y_Dummy'].scale *= 1.5
+        
+        elif event.type == 'MINUS' and event.value == 'PRESS':
+            bpy.data.objects['O_Dummy'].scale *= 0.75
+            bpy.data.objects['Z_Dummy'].scale *= 0.75
+            bpy.data.objects['Y_Dummy'].scale *= 0.75
 
         elif event.type == 'F2' and event.value == "PRESS":
             self.select_target(context, 'Y_Dummy', active=True, deselect=True)
