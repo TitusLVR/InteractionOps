@@ -62,7 +62,7 @@ from .prefs.hotkeys_default import keys_default as keys_default
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
-    "version": (1, 5, 0),
+    "version": (2, 0, 0),
     "blender": (2, 81, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "Handy functions to speed up workflow",
