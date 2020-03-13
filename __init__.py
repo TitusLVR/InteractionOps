@@ -54,7 +54,8 @@ from .operators.z_ops import (Z_OT_GrowLoop,
                               Z_OT_Mirror,
                               Z_OT_EdgeConnect)
 
-from .operators.executor import (IOPS_OT_EXECUTOR)  
+from .operators.executor import (IOPS_OT_EXECUTOR) 
+from .operators.array_rig import (IOPS_OT_ARRIG)  
 
 from .utils.functions import (register_keymaps, unregister_keymaps)
 # Hotkeys
@@ -116,6 +117,7 @@ classes = (IOPS_OT_Main,
            IOPS_MT_Pie_Edit,
            IOPS_OT_Call_Pie_Edit,
            IOPS_OT_EXECUTOR,
+           IOPS_OT_ARRIG,
            IOPS_AddonPreferences,
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
