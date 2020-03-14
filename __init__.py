@@ -8,6 +8,7 @@ from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
+from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
@@ -98,6 +99,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
            IOPS_OT_object_normalize,
+           IOPS_OT_ToGridFromActive,
            IOPS_OT_transform_orientation_create,
            IOPS_OT_transform_orientation_delete,
            IOPS_OT_transform_orientation_cleanup,
