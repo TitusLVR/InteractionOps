@@ -351,6 +351,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self.restore_snaps(context)
             self.clean_up_confirm(context)
             self.clear_draw_handlers()
+            self.report({"INFO"}, "3 Point Align finished")
             return {'FINISHED'}
 
         elif event.type in {'ESC'}:

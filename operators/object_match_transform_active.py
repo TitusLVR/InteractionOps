@@ -2,9 +2,9 @@ import bpy
 
 
 class IOPS_OT_MatchTransformActive(bpy.types.Operator):
-    """ Match transformation of selected object to active one """
+    """ Match dimensions of selected object to active"""
     bl_idname = "iops.match_transform_active"
-    bl_label = "Match transform"
+    bl_label = "Match dimensions"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -20,5 +20,7 @@ class IOPS_OT_MatchTransformActive(bpy.types.Operator):
         
         for ob in selection:
             ob.dimensions = active.dimensions
+        
+        self.report({"INFO"}, "Dimensions matched")
         
         return {"FINISHED"}

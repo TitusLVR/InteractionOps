@@ -38,5 +38,5 @@ keys_default = [
     ('iops.f1',                         'F1',               'PRESS', False, False, False),
     ('iops.esc',                        'ESC',              'PRESS', False, False, False),
     ('iops.executor',                   'E',                'PRESS', True, True, True),
-    ('iops.iops.to_grid_from_active',   'F19',                'PRESS', True, True, True),
+    ('iops.iops.to_grid_from_active',   'F19',              'PRESS', True, True, True)
 ]

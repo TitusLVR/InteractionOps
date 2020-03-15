@@ -47,6 +47,7 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
         active.matrix_world = mx_orig   
         bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
 
+        self.report({"INFO"}, "Aligned to grid from active")
 
         return {'FINISHED'}
 

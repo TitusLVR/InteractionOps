@@ -17,14 +17,14 @@ from .operators.modes import (IOPS_OT_ESC, IOPS_OT_F1, IOPS_OT_F2, IOPS_OT_F3,
                               IOPS_OT_F4, IOPS_OT_F5)
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
-from .operators.object_rotate import (IOPS_OT_mesh_to_grid,
-                                      IOPS_OT_object_normalize,
-                                      IOPS_OT_object_rotate_MX,
+from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
+from .operators.object_normalize import IOPS_OT_object_normalize
+from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
                                       IOPS_OT_object_rotate_MY,
                                       IOPS_OT_object_rotate_MZ,
                                       IOPS_OT_object_rotate_X,
                                       IOPS_OT_object_rotate_Y,
-                                      IOPS_OT_Object_Rotate_Z)
+                                      IOPS_OT_object_rotate_Z)
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
@@ -66,7 +66,7 @@ from .prefs.hotkeys_default import keys_default as keys_default
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (2, 81, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "Handy functions to speed up workflow",
@@ -92,7 +92,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_ToVerts,
            IOPS_OT_AlignObjectToFace,
            IOPS_OT_VisualOrigin,
-           IOPS_OT_Object_Rotate_Z,
+           IOPS_OT_object_rotate_Z,
            IOPS_OT_object_rotate_MZ,
            IOPS_OT_object_rotate_Y,
            IOPS_OT_object_rotate_MY,
