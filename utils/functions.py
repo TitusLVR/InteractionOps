@@ -14,7 +14,7 @@ def get_iop(dictionary, query):
         current = next_
         if not isinstance(current, dict):
             return current
-    return (lambda: print("No entry in the dictionary for area", query[0]))
+    return (lambda: print("No entry in the dictionary for ", query[0], query[1], query[2]))
 
 
 def get_addon(addon, debug=False):
