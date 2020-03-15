@@ -3,7 +3,7 @@ import os
 import json
 from ... utils.functions import (register_keymaps, unregister_keymaps)
 from ... prefs.hotkeys_default import keys_default as keys_default
-# from ... prefs.hotkeys_user import keys_user as keys_user
+
 
 class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
     bl_idname = "iops.load_user_hotkeys"
@@ -37,7 +37,7 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
 
 class IOPS_OT_LoadDefaultHotkeys(bpy.types.Operator):
     bl_idname = "iops.load_default_hotkeys"
-    bl_label = "Load User's Hotkeys"
+    bl_label = "Load Default Hotkeys"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):

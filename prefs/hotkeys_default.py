@@ -16,6 +16,7 @@ keys_default = [
     # IOPS Operators
     ('iops.call_pie_menu',              'Q',                'PRESS', True, True, True),
     ('iops.call_pie_edit',              'F19',              'PRESS', True, True, True),
+    ('iops.to_grid_from_active',        'F19',              'PRESS', True, True, True),
     ('iops.call_tm_panel',              'T',                'PRESS', True, True, True),
     ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True),
     ('iops.modal_three_point_rotation', 'R',                'PRESS', True, True, True),
@@ -38,5 +39,4 @@ keys_default = [
     ('iops.f1',                         'F1',               'PRESS', False, False, False),
     ('iops.esc',                        'ESC',              'PRESS', False, False, False),
     ('iops.executor',                   'E',                'PRESS', True, True, True),
-    ('iops.iops.to_grid_from_active',   'F19',              'PRESS', True, True, True)
 ]
