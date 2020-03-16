@@ -242,6 +242,15 @@ class IOPS_Dict():
             "F5": lambda: no_operator(),
             "ESC": lambda: no_operator(),
         },
+
+        "FILE_BROWSER": {
+            "F1": lambda: no_operator(),
+            "F2": lambda: bpy.ops.file.rename(),
+            "F3": lambda: no_operator(),
+            "F4": lambda: no_operator(),
+            "F5": lambda: bpy.ops.file.refresh(),
+            "ESC": lambda: bpy.ops.file.cancel(),
+        },
     }
 
 # areas = {"EMPTY",
