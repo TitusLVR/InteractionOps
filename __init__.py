@@ -55,7 +55,8 @@ from .operators.z_ops import (Z_OT_GrowLoop,
                               Z_OT_Mirror,
                               Z_OT_EdgeConnect)
 
-from .operators.executor import (IOPS_OT_EXECUTOR) 
+from .operators.executor import IOPS_OT_EXECUTOR
+from .operators.run_text import IOPS_OT_RunText
 from .operators.array_rig import (IOPS_OT_ARRIG)  
 
 from .utils.functions import (register_keymaps, unregister_keymaps)
@@ -123,7 +124,8 @@ classes = (IOPS_OT_Main,
            IOPS_AddonPreferences,
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
-           IOPS_OT_SaveUserHotkeys,           
+           IOPS_OT_SaveUserHotkeys, 
+           IOPS_OT_RunText,          
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,

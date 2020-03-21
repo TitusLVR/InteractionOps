@@ -22,9 +22,9 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
         objects = C.selected_objects
         mx_orig = active.matrix_world.copy()
 
-        # Reset rotation of all
+        # Reset transforms of all
         bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-        active.matrix_world @= active.matrix_world.inverted()  
+        active.matrix_world @= active.matrix_world.inverted()
         bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')                
 
         # Sizes
@@ -32,8 +32,19 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
         size_y = active.dimensions[1]
         size_z = active.dimensions[2]
 
-        o_xz = np.array([origin[0], origin[2]])
-
+        o_xz = np.array([origin[0], origin[2]], dtype=np.float32)
+        # Move objects to grid
+        # for o in objects:
+        #     p = np.array([o.location[0], o.location[2]], dtype=np.float32)
+        #     p_prime = np.around((p - o_xz) / (size_x, size_z)) * (size_x, size_z) + o_xz
+        #     if np.allclose(p, p_prime):
+        #         print(f'Skipping p={p}, pp={p_prime}, p-pp={p-p_prime}')
+        #         continue
+        #     location = Vector((p_prime[0], origin[1], p_prime[1]))
+        #     o.rotation_euler = (0, 0, 0)
+        #     o.scale = (1, 1, 1)
+        #     o.location = location
+        # print("-" * 60)
         # Move objects to grid      
         for o in objects: 
             print("Location difference before:", o.location - active.location)
@@ -46,9 +57,9 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
             o.location = location
             print("Location difference after:", o.location - active.location)
 
-            # print("----")
-            # print('p', p)
-            # print('p_prime', p_prime)
+            print("----")
+            print('p', p)
+            print('p_prime', p_prime)
 
         # Restore matrix for all and clear parent    
         bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
