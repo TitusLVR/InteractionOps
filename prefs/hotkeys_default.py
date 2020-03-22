@@ -39,5 +39,6 @@ keys_default = [
     ('iops.f1',                         'F1',               'PRESS', False, False, False),
     ('iops.esc',                        'ESC',              'PRESS', False, False, False),
     ('iops.executor',                   'E',                'PRESS', True, True, True),
-    ('iops.run_text',                   'E',                'PRESS', True, True, True)
+    ('iops.run_text',                   'E',                'PRESS', True, True, True),
+    ('iops.drag_snap',                  'S',                'PRESS', True, True, True),
 ]

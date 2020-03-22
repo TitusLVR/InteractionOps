@@ -10,6 +10,7 @@ from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
+from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
                                                IOPS_OT_ToVerts)
@@ -18,6 +19,7 @@ from .operators.modes import (IOPS_OT_ESC, IOPS_OT_F1, IOPS_OT_F2, IOPS_OT_F3,
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
+from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
                                       IOPS_OT_object_rotate_MY,
@@ -125,7 +127,9 @@ classes = (IOPS_OT_Main,
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
            IOPS_OT_SaveUserHotkeys, 
-           IOPS_OT_RunText,          
+           IOPS_OT_RunText,     
+           IOPS_OT_MayaIsolate,   
+           IOPS_OT_DragSnap,  
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
