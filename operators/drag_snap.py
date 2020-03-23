@@ -102,6 +102,8 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         return {"FINISHED"}
 
     def snap(self):
+        if not self.target[0]:
+            return Vector((0,0,0))
         return self.target[0] - self.source[0]
 
     def update_distances(self, context, event):
