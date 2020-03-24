@@ -489,7 +489,10 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         if self.vp_group is not None:
             bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
             self.vp_group = None
-        self.clear_draw_handlers()
+        try:
+            self.clear_draw_handlers()
+        except ValueError:
+            pass    
         self.orphan_data_purge(context)
         return {"FINISHED"}
 

@@ -98,7 +98,10 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
     def execute(self, context):   
         bpy.ops.transform.translate(value=self.snap())
-        self.clear_draw_handlers()
+        try:
+            self.clear_draw_handlers()
+        except ValueError:
+            pass    
         return {"FINISHED"}
 
     def snap(self):
