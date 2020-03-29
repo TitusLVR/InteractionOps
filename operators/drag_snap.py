@@ -97,7 +97,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
 
     def execute(self, context):   
-        bpy.ops.transform.translate(value=self.snap())
+        bpy.ops.transform.translate(value=self.snap(), orient_type='GLOBAL')
         try:
             self.clear_draw_handlers()
         except ValueError:
