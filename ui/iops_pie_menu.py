@@ -121,19 +121,12 @@ class IOPS_MT_Pie_Menu(Menu):
 
         # 7 - TOP - LEFT
         pie.separator()
-
-        # 9 - TOP - RIGHT
-        if optiloops and context.mode == 'EDIT_MESH':
-            # other = pie.column()
-            # gap = other.column()
-            # gap.separator()
-            # gap.scale_y = 12
-            # other_menu = other.box().column()
-            # other_menu.scale_y=1
-            # other_menu.label(text="Optiloops")
+        # 9 - TOP - RIGHT        
+        if optiloops and context.mode == 'EDIT_MESH':            
             pie.operator('mesh.optiloops')
         else:
-            pie.separator()
+            pie.operator('iops.arrig', text="ARRAY CAPS")
+            #pie.separator()
 
         # 1 - BOTTOM - LEFT
         pie.separator()

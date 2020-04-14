@@ -141,14 +141,14 @@ class IOPS_OT_ARRIG(bpy.types.Operator):
             bpy.data.objects[start_obj.name].select_set(True)
             bpy.context.view_layer.objects.active = start_obj
             cursor.location = mid_obj_loc
-            cursor.location[2] -= mid_obj_dim[2]
+            cursor.location[2] += mid_obj_dim[2]
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
             # Set Z end
             bpy.ops.object.select_all(action='DESELECT')
             bpy.data.objects[end_obj.name].select_set(True)
             bpy.context.view_layer.objects.active = end_obj
             cursor.location = mid_obj_loc
-            cursor.location[2] += mid_obj_dim[2]
+            cursor.location[2] -= mid_obj_dim[2]
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
             
             bpy.ops.object.select_all(action='DESELECT')

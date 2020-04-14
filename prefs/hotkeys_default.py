@@ -41,4 +41,6 @@ keys_default = [
     ('iops.executor',                   'E',                'PRESS', True, True, True),
     ('iops.run_text',                   'E',                'PRESS', True, True, True),
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True),
+    ('iops.prop_scroll_up',             'WHEELUPMOUSE',     'PRESS', True, True, False),
+    ('iops.prop_scroll_down',           'WHEELDOWNMOUSE',   'PRESS', True, True, False),
 ]
