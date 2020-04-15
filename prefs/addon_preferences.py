@@ -192,6 +192,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     subRow.prop(item, 'shift')
                     subRow.prop(item, 'ctrl')
                     subRow.prop(item, 'alt')
+                    subRow.prop(item, 'oskey')
                     if item.is_user_modified:
                         subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
 

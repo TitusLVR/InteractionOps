@@ -73,7 +73,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     ui_handlers = []
 
     @classmethod
-    def poll(self, context):
+    def poll(cls, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 len(context.view_layer.objects.selected) != 0 and

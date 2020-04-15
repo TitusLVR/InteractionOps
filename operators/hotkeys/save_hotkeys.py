@@ -26,7 +26,7 @@ def get_iops_keys():
         toSave = tuple(
             item for item in keymapItems if item.idname.startswith('iops.'))
         for item in toSave:
-            entry = (item.idname, item.type, item.value, item.ctrl, item.alt, item.shift)
+            entry = (item.idname, item.type, item.value, item.ctrl, item.alt, item.shift, item.oskey)
             keys.append(entry)
     for k in keys:
         print(k)

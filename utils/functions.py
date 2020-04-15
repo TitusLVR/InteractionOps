@@ -146,7 +146,7 @@ def register_keymaps(keys):
                     else:
                         found = False
         if not found:
-            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5])
+            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
             kmi.active = True
 
 

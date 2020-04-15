@@ -20,7 +20,7 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
-    def poll(self, context):
+    def poll(cls, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 len(context.view_layer.objects.selected) != 0 and
