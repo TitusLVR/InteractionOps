@@ -30,6 +30,7 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
+from .prefs.addon_properties import IOPS_AddonProperties
 
 
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
@@ -126,6 +127,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_EXECUTOR,
            IOPS_OT_ARRIG,
            IOPS_AddonPreferences,
+           IOPS_AddonProperties,
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
            IOPS_OT_SaveUserHotkeys, 
@@ -153,6 +155,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_cls()
+    bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(type=IOPS_AddonProperties)
     path = bpy.utils.script_path_user()
     user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
     if os.path.exists(user_hotkeys_file):
@@ -166,6 +169,7 @@ def register():
 
 def unregister():
     unreg_cls()
+    del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
     print("IOPS Unregistered!")
 

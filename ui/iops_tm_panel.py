@@ -115,6 +115,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
     # bl_category = 'Item'
 
     def draw(self, context):
+        wm = context.window_manager
         ver = bpy.app.version[2]
         tool_settings = context.tool_settings
         scene = context.scene
@@ -122,7 +123,9 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         orientation = orient_slot.custom_orientation
         pivot = scene.tool_settings.transform_pivot_point
         snap_elements = scene.tool_settings.snap_elements
-        snap_target = scene.tool_settings.snap_target
+        snap_target = scene.tool_settings.snap_target        
+
+        props = wm.IOPS_AddonProperties 
 
         uebok, _, _, _ = get_addon("UnrealEngine - Blender OK!")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
@@ -165,55 +168,129 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                             row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
                         else:
                             row.prop(mesh, "auto_smooth_angle", text="")
+            
+        row.separator()
+        row.prop(props, "iops_panel_mesh_info", text="", icon='MESH_DATA')
+        
 
         if context.area.type == "VIEW_3D":
-            # Column 1
-            split = layout.split()
-            col = split.column(align=True)
-            col.label(text="Transformation:")
-            col.prop(orient_slot, "type", expand=True)
-            if orientation:
-                col.prop(orientation, "name", text="", icon='OBJECT_ORIGIN')
-                col.operator("iops.transform_orientation_delete", text="", icon='REMOVE')
-            # Column 2
-            col = split.column(align=True)
-            col.label(text="PivotPoint:")
-            col.prop(tool_settings, "transform_pivot_point", expand=True)
-            if ver != 80:
-                row = col.row(align=True)
-                #row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
-                o_state = True if tool_settings.use_transform_data_origin else False
-                row.operator("iops.edit_origin", text="", icon='OBJECT_ORIGIN', depress=o_state)
-                row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon='CENTER_ONLY')
-                row.prop(tool_settings, "use_transform_skip_children", text="", icon='TRANSFORM_ORIGINS')
-            else:
-                col.prop(tool_settings, "use_transform_pivot_point_align", text="")
-            # Column 3
-            col = split.column(align=True)
-            col.label(text="Snapping:")
-            row = col.row(align=False)
-            # Snap elements
-            row.prop(tool_settings, "snap_elements", text="")
-            if 'INCREMENT' in snap_elements:
-                row.separator()
-                row.prop(tool_settings, "use_snap_grid_absolute", text="", icon='SNAP_GRID')
-            # Snap targets
-            col.prop(tool_settings, "snap_target", expand=True)
+            if props.iops_panel_mesh_info == False:
+                # Column 1
+                split = layout.split()
+                col = split.column(align=True)
+                col.label(text="Transformation:")
+                col.prop(orient_slot, "type", expand=True)
+                if orientation:
+                    col.prop(orientation, "name", text="", icon='OBJECT_ORIGIN')
+                    col.operator("iops.transform_orientation_delete", text="", icon='REMOVE')
+                # Column 2
+                col = split.column(align=True)
+                col.label(text="PivotPoint:")
+                col.prop(tool_settings, "transform_pivot_point", expand=True)
+                if ver != 80:
+                    row = col.row(align=True)
+                    #row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
+                    o_state = True if tool_settings.use_transform_data_origin else False
+                    row.operator("iops.edit_origin", text="", icon='OBJECT_ORIGIN', depress=o_state)
+                    row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon='CENTER_ONLY')
+                    row.prop(tool_settings, "use_transform_skip_children", text="", icon='TRANSFORM_ORIGINS')
+                else:
+                    col.prop(tool_settings, "use_transform_pivot_point_align", text="")
+                # Column 3
+                col = split.column(align=True)
+                col.label(text="Snapping:")
+                row = col.row(align=False)
+                # Snap elements
+                row.prop(tool_settings, "snap_elements", text="")
+                if 'INCREMENT' in snap_elements:
+                    row.separator()
+                    row.prop(tool_settings, "use_snap_grid_absolute", text="", icon='SNAP_GRID')
+                # Snap targets
+                col.prop(tool_settings, "snap_target", expand=True)
 
-            row = col.row(align=False)
-            split = row.split(factor=0.5, align=True)
-            row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_self", text="", icon='SNAP_ON')
-            row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
-            if 'FACE' in snap_elements:
-                row.prop(tool_settings, "use_snap_project", text="", icon='PROP_PROJECTED')
-            if 'VOLUME' in snap_elements:
-                row.prop(tool_settings, "use_snap_peel_object", text="", icon='SNAP_PEEL_OBJECT')
-            split = split.split()
-            row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
-            row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
-            row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
+                row = col.row(align=False)
+                split = row.split(factor=0.5, align=True)
+                row = split.row(align=True)
+                row.prop(tool_settings, "use_snap_self", text="", icon='SNAP_ON')
+                row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
+                if 'FACE' in snap_elements:
+                    row.prop(tool_settings, "use_snap_project", text="", icon='PROP_PROJECTED')
+                if 'VOLUME' in snap_elements:
+                    row.prop(tool_settings, "use_snap_peel_object", text="", icon='SNAP_PEEL_OBJECT')
+                split = split.split()
+                row = split.row(align=True)
+                row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
+                row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
+                row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
+            else:
+                if context.active_object.type == 'MESH':
+                    ob = context.object
+                    me = ob.data
+
+                    # split = layout.split()
+                    row_main = layout.row(align=True)                    
+                    col = row_main.column(align=True)                                       
+                    # UV Panel
+                    col.label(text="UVMaps:")
+                    row = col.row(align=True)
+                    row.template_list("MESH_UL_uvmaps", "uvmaps", me, "uv_layers", me.uv_layers, "active_index", rows=5)
+                    col = row.column(align=True)
+                    col.operator("mesh.uv_texture_add", icon='ADD', text="")
+                    col.operator("mesh.uv_texture_remove", icon='REMOVE', text="")
+                    # SEPARATORS------------------------------------
+                    row_main.separator()
+                    row_main.separator()
+                    # ----------------------------------------------
+                    # VertexColor
+                    col = row_main.column(align=True) 
+                    col.label(text="VertexColor:")
+                    row = col.row(align=True)
+                    row.template_list("MESH_UL_vcols", "vcols", me, "vertex_colors", me.vertex_colors, "active_index", rows=5)
+                    col = row.column(align=True)
+                    col.operator("mesh.vertex_color_add", icon='ADD', text="")
+                    col.operator("mesh.vertex_color_remove", icon='REMOVE', text="")
+                    # SEPARATORS------------------------------------
+                    row_main.separator()
+                    row_main.separator()
+                    # ----------------------------------------------
+                    # VertexGroups
+                    group = ob.vertex_groups.active
+                    
+                    col_vg = row_main.column(align=True) 
+                    col_vg.label(text="VertexGroups:")
+                    row = col_vg.row(align=True)
+                    row.template_list("MESH_UL_vgroups", "", ob, "vertex_groups", ob.vertex_groups, "active_index", rows=5)
+                    col = row.column(align=True)                   
+                    col.operator("object.vertex_group_add", icon='ADD', text="")
+                    props = col.operator("object.vertex_group_remove", icon='REMOVE', text="")
+                    props.all_unlocked = props.all = False
+                    col.menu("MESH_MT_vertex_group_context_menu", icon='DOWNARROW_HLT', text="")
+
+                    if group:
+                         col.separator()
+                         col.operator("object.vertex_group_move", icon='TRIA_UP', text="").direction = 'UP'
+                         col.operator("object.vertex_group_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
+
+                    if (
+                            ob.vertex_groups and
+                            (ob.mode == 'EDIT' or
+                            (ob.mode == 'WEIGHT_PAINT' and ob.type == 'MESH' and ob.data.use_paint_mask_vertex))
+                        ):
+
+                        col = col_vg.row(align=True)
+
+                        sub = col.row(align=True)
+                        sub.scale_x = 0.45
+                        # sub.ui_units_x = 2.0
+                        sub.operator("object.vertex_group_assign", text="Assign")
+                        sub.operator("object.vertex_group_remove_from", text="Remove")
+                        sub.separator()
+                        sub.operator("object.vertex_group_select", text="Select")
+                        sub.operator("object.vertex_group_deselect", text="Deselect")
+
+                        col = col_vg.row(align=True)
+                        col.prop(context.tool_settings, "vertex_group_weight", text="Weight")
+
 
         if context.area.type == "IMAGE_EDITOR":
             if context.active_object.type == 'MESH' and context.mode == "EDIT_MESH":
