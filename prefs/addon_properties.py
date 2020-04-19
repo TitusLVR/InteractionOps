@@ -8,6 +8,7 @@ from bpy.types import (Operator,
 from bpy.props import (BoolProperty,
                        EnumProperty,
                        FloatProperty,
+                       FloatVectorProperty,
                        IntProperty,
                        PointerProperty,
                        CollectionProperty,
@@ -19,5 +20,14 @@ class IOPS_AddonProperties (PropertyGroup):
         name="Show mesh info",
         description="Show mesh info panel",
         default=False
+        )
+    iops_vertex_color: FloatVectorProperty(
+        name="VertexColor",
+        description="Color picker",
+        default=(1.0, 1.0, 1.0, 1.0),
+        min=0.0,
+        max=1.0,
+        subtype='COLOR',
+        size=4,
         )
     

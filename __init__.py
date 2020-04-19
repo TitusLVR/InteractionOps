@@ -32,6 +32,8 @@ from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
+from .operators.assign_vertex_color import (IOPS_OT_VerteColorAssign,
+                                            IOPS_OT_VerteColorAssignSplit)
 
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
@@ -42,7 +44,8 @@ from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_PT_TPS_Panel,
                                IOPS_PT_TM_Panel,
                                IOPS_OT_Call_TPS_Panel,
-                               IOPS_OT_Call_TM_Panel)
+                               IOPS_OT_Call_TM_Panel,
+                               IOPS_PT_VCol_Panel)
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .ui.iops_pie_edit import IOPS_MT_Pie_Edit, IOPS_OT_Call_Pie_Edit
 from .operators.z_ops import (Z_OT_GrowLoop,
@@ -135,7 +138,10 @@ classes = (IOPS_OT_Main,
            IOPS_OT_MayaIsolate,   
            IOPS_OT_DragSnap,
            IOPS_OT_PropScroll_UP,
-           IOPS_OT_PropScroll_DOWN,  
+           IOPS_OT_PropScroll_DOWN,
+           IOPS_OT_VerteColorAssign,
+           IOPS_OT_VerteColorAssignSplit,
+           IOPS_PT_VCol_Panel,  
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,

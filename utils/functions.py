@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import addon_utils
 
+
 def get_iop(dictionary, query):
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
     if debug:

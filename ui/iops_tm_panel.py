@@ -226,6 +226,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 if context.active_object.type == 'MESH':
                     ob = context.object
                     me = ob.data
+                    brush = context.tool_settings.vertex_paint.brush
 
                     # split = layout.split()
                     row_main = layout.row(align=True)                    
@@ -249,6 +250,12 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     col = row.column(align=True)
                     col.operator("mesh.vertex_color_add", icon='ADD', text="")
                     col.operator("mesh.vertex_color_remove", icon='REMOVE', text="")
+                    col.scale_x = 0.1                    
+                    col.prop(props,"iops_vertex_color", text="") 
+                    # col.prop(brush, 'color', text="")
+                    # col.prop(brush, 'secondary_color', text="")                   
+                    col.scale_x = 1.0
+                    col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="")
                     # SEPARATORS------------------------------------
                     row_main.separator()
                     row_main.separator()
@@ -386,3 +393,42 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
         bpy.ops.wm.call_panel(name="IOPS_PT_TM_Panel", keep_open=True)
         return {'FINISHED'}
 
+
+class IOPS_PT_VCol_Panel(bpy.types.Panel):
+    """VCOL"""
+    bl_label = "IOPS Vcol panel"
+    bl_idname = "IOPS_PT_VCol_Panel"
+    bl_space_type = 'VIEW_3D'
+    # bl_context = "mesh_edit"
+    bl_region_type = 'UI'
+    bl_category = 'Edit'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.area.type == "VIEW_3D" and
+                context.object.type == "MESH"
+                )
+
+    def draw(self, context):
+        # wm = context.window_manager
+        # props = wm.IOPS_AddonProperties        
+        # tool_settings = context.tool_settings
+        settings = context.tool_settings.image_paint        
+        brush = context.tool_settings.image_paint.brush
+        
+        layout = self.layout
+        col = layout.column(align=True)
+        
+        col.prop(brush, 'color', text="")
+        #col.prop(brush, 'secondary_color', text="")
+        if context.mode == 'OBJECT':
+            layout.template_ID(settings, "palette", new="palette.new")
+            if settings.palette:
+                layout.template_palette(settings, "palette", color=True)
+        #col.prop(props,"iops_vertex_color", text="")
+        row = col.row(align=True)
+        # we don't want to put anything else on this row other than the 'split' item 
+        row.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set")                      
+        row.operator("iops.assign_split_vertex_color", icon='MOD_EDGESPLIT', text="Split/Set")
+        
