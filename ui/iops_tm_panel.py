@@ -412,10 +412,8 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
         brush = context.tool_settings.image_paint.brush
         
         layout = self.layout
-        col = layout.column(align=True)
-        
-        col.prop(brush, 'color', text="")
-        col.prop(brush, 'secondary_color', text="")
+        col = layout.column(align=True)        
+        col.prop(brush, 'color', text="")        
         if context.mode == 'OBJECT':
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
