@@ -32,8 +32,8 @@ from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
-from .operators.assign_vertex_color import (IOPS_OT_VerteColorAssign,
-                                            IOPS_OT_VerteColorAssignSplit)
+from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign)
+                                            
 
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
@@ -139,8 +139,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_DragSnap,
            IOPS_OT_PropScroll_UP,
            IOPS_OT_PropScroll_DOWN,
-           IOPS_OT_VerteColorAssign,
-           IOPS_OT_VerteColorAssignSplit,
+           IOPS_OT_VertexColorAssign,
            IOPS_PT_VCol_Panel,  
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,

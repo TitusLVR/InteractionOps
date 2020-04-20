@@ -250,12 +250,6 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     col = row.column(align=True)
                     col.operator("mesh.vertex_color_add", icon='ADD', text="")
                     col.operator("mesh.vertex_color_remove", icon='REMOVE', text="")
-                    col.scale_x = 0.1                    
-                    col.prop(props,"iops_vertex_color", text="") 
-                    # col.prop(brush, 'color', text="")
-                    # col.prop(brush, 'secondary_color', text="")                   
-                    col.scale_x = 1.0
-                    col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="")
                     # SEPARATORS------------------------------------
                     row_main.separator()
                     row_main.separator()
@@ -396,7 +390,7 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
 
 class IOPS_PT_VCol_Panel(bpy.types.Panel):
     """VCOL"""
-    bl_label = "IOPS Vcol panel"
+    bl_label = "IOPS Vertex Color"
     bl_idname = "IOPS_PT_VCol_Panel"
     bl_space_type = 'VIEW_3D'
     # bl_context = "mesh_edit"
@@ -421,14 +415,11 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
         col = layout.column(align=True)
         
         col.prop(brush, 'color', text="")
-        #col.prop(brush, 'secondary_color', text="")
+        col.prop(brush, 'secondary_color', text="")
         if context.mode == 'OBJECT':
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
                 layout.template_palette(settings, "palette", color=True)
-        #col.prop(props,"iops_vertex_color", text="")
-        row = col.row(align=True)
-        # we don't want to put anything else on this row other than the 'split' item 
-        row.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set")                      
-        row.operator("iops.assign_split_vertex_color", icon='MOD_EDGESPLIT', text="Split/Set")
+        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set")                      
+        
         
