@@ -5,12 +5,13 @@ from mathutils import Matrix, Vector
 
 
 def round_rotation(obj):
-        x = round(math.degrees(obj.rotation_euler.x),2) 
-        y = round(math.degrees(obj.rotation_euler.y),2) 
-        z = round(math.degrees(obj.rotation_euler.z),2)
-        obj.rotation_euler.x = math.radians(x)
-        obj.rotation_euler.y = math.radians(y)
-        obj.rotation_euler.z = math.radians(z)
+        # x = round(math.degrees(obj.rotation_euler.x),2) 
+        # y = round(math.degrees(obj.rotation_euler.y),2) 
+        # z = round(math.degrees(obj.rotation_euler.z),2)
+        # obj.rotation_euler.x = math.radians(x)
+        # obj.rotation_euler.y = math.radians(y)
+        # obj.rotation_euler.z = math.radians(z) 
+        pass # WAS A BAD IDEA
 
 
 class IOPS_OT_object_rotate_Z (bpy.types.Operator):
