@@ -95,6 +95,10 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
     def clear_draw_handlers(self):
         for handler in self.sd_handlers:
             bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+    
+    def get_vector_length(self, vector):
+        length = np.linalg.norm(vector)
+        return length
 
     def execute(self, context):   
         bpy.ops.transform.translate(value=self.snap(), orient_type='GLOBAL')
@@ -147,12 +151,23 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
         elif event.type in {"LEFTMOUSE"} and event.value == "PRESS":
             if self.source[0]:
-                self.target = self.nearest
-                self.execute(context)
+                if event.ctrl:
+                    DISTANCE = self.get_vector_length(self.snap())
+                    bpy.context.window_manager.clipboard = str(DISTANCE)
+                    self.report({'INFO'}, "DISTANCE COPIED TO BUFFER: " + str(DISTANCE))
+                    try:
+                        self.clear_draw_handlers()
+                    except ValueError:
+                        pass    
+                    return {"FINISHED"}    
+                else:
+                    self.target = self.nearest
+                    self.execute(context)
                 return {"FINISHED"}
             self.source = self.nearest
             self.lmb = True
         
+
         elif event.type in {"LEFTMOUSE"} and event.value == "RELEASE":
             if not self.source[0]:
                 self.report({'WARNING'}, "WRONG SOURCE OR TARGET")
@@ -161,11 +176,10 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             elif not self.target[0]:
                 self.source = self.nearest
                 self.report({'INFO'}, "Click target now...")
-            else:
+            else:    
                 self.execute(context)
                 return {"FINISHED"}
         
-        # print(f'event={event.value}, type={event.type}, s={self.source}, t={self.target}')
         if event.type == 'LEFTMOUSE':
             self.lmb = event.value == "PRESS"
             if self.lmb:
