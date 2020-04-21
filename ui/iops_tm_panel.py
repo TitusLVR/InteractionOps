@@ -398,12 +398,6 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
     bl_category = 'Edit'
     bl_options = {'DEFAULT_CLOSED'}
 
-    @classmethod
-    def poll(cls, context):
-        return (context.area.type == "VIEW_3D" and
-                context.object.type == "MESH"
-                )
-
     def draw(self, context):
         # wm = context.window_manager
         # props = wm.IOPS_AddonProperties        
