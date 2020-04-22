@@ -153,6 +153,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             if self.source[0]:
                 if event.ctrl:
                     DISTANCE = self.get_vector_length(self.snap())
+                    # DISTANCE = np.round(DISTANCE, 5) # ACCEPT THE FATE, DON'T DO THIS
                     bpy.context.window_manager.clipboard = str(DISTANCE)
                     self.report({'INFO'}, "DISTANCE COPIED TO BUFFER: " + str(DISTANCE))
                     try:
