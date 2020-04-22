@@ -137,15 +137,15 @@ def register_keymaps(keys):
     keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
     for k in reversed(keys):
+        if str(k[0]).startswith('iops.split_area'):
+            continue
         found = False
         for kc in keyconfigs:
             keymap = kc.keymaps.get("Window")
             if keymap:
                 kmi = keymap.keymap_items
                 for item in kmi:
-                    if item.idname.startswith('iops.split_area'):
-                        continue
-                    elif item.idname.startswith('iops.') and item.idname == str(k[0]):
+                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
                         found = True
                     else:
                         found = False
@@ -161,7 +161,7 @@ def register_keymaps(keys):
             if keymap:
                 kmi = keymap.keymap_items
                 for item in kmi:
-                    if item.idname.startswith('iops.split_area') and item.idname == str(k[0]):
+                    if item.idname.startswith('iops.split_area'):
                         found = True
                     else:
                         found = False
