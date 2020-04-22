@@ -19,9 +19,29 @@ def ContextOverride():
                         return context_override
     raise Exception("ERROR: VIEW_3D not found!")
 
+def collapse_right(join_x, join_y):
+    bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+    bpy.ops.screen.area_join(cursor=(join_x, join_y))
+    context_override = ContextOverride()   
+    bpy.ops.screen.screen_full_area(context_override)
+    bpy.ops.screen.back_to_previous()
+
+def collapse_left(join_x, join_y):
+    bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+    bpy.ops.screen.area_join(cursor=(join_x, join_y))
+    context_override = ContextOverride()   
+    bpy.ops.screen.screen_full_area(context_override)
+    bpy.ops.screen.back_to_previous()
+
+
 class IOPS_OT_SplitAreaUV(bpy.types.Operator):
     bl_idname = "iops.split_area_uv"
     bl_label = "IOPS Split Area UV"
+
+    @classmethod 
+    def poll(self, context):
+        return context.area.type in ["VIEW_3D","IMAGE_EDITOR"]
+
     def execute(self,context):
         current_area = context.area
         side_area = None
@@ -38,11 +58,11 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
                 break
 
         if side_area.type == 'IMAGE_EDITOR':
-            bpy.ops.screen.area_swap(cursor=(join_x, join_y))
-            bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            context_override = ContextOverride()   
-            bpy.ops.screen.screen_full_area(context_override)
-            bpy.ops.screen.back_to_previous()
+            collapse_right(join_x, join_y)
+            return {"FINISHED"}
+        
+        if current_area.type == 'IMAGE_EDITOR':
+            collapse_left(current_area.x, join_y)
             return {"FINISHED"}
         
         else:
