@@ -11,6 +11,7 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
+from .operators.split_area_uv import IOPS_OT_SplitAreaUV
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
                                                IOPS_OT_ToVerts)
@@ -141,6 +142,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_PropScroll_DOWN,
            IOPS_OT_VertexColorAssign,
            IOPS_PT_VCol_Panel,  
+           IOPS_OT_SplitAreaUV,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,

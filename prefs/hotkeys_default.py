@@ -43,4 +43,6 @@ keys_default = [
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True, False),
     ('iops.prop_scroll_up',             'WHEELUPMOUSE',     'PRESS', True, False, False, True),
     ('iops.prop_scroll_down',           'WHEELDOWNMOUSE',   'PRESS', True, False, False, True),
+    ('iops.split_area_uv',              'S',                'PRESS', True, True, True, False),
+
 ]

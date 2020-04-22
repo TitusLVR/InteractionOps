@@ -132,6 +132,7 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
 
 
 ############################## Keymaps ##############################
+
 def register_keymaps(keys): 
     keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items)
@@ -142,7 +143,25 @@ def register_keymaps(keys):
             if keymap:
                 kmi = keymap.keymap_items
                 for item in kmi:
-                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
+                    if item.idname.startswith('iops.split_area'):
+                        continue
+                    elif item.idname.startswith('iops.') and item.idname == str(k[0]):
+                        found = True
+                    else:
+                        found = False
+        if not found:
+            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+            kmi.active = True
+    
+    keymapItems = (bpy.context.window_manager.keyconfigs.addon.keymaps.new("Screen Editing").keymap_items)
+    for k in reversed(keys):
+        found = False
+        for kc in keyconfigs:
+            keymap = kc.keymaps.get("Screen Editing")
+            if keymap:
+                kmi = keymap.keymap_items
+                for item in kmi:
+                    if item.idname.startswith('iops.split_area') and item.idname == str(k[0]):
                         found = True
                     else:
                         found = False
@@ -155,6 +174,14 @@ def unregister_keymaps():
     keyconfigs = bpy.context.window_manager.keyconfigs
     for kc in keyconfigs:
         keymap = kc.keymaps.get("Window")
+        if keymap:
+            keymapItems = keymap.keymap_items
+            toDelete = tuple(
+                item for item in keymapItems if item.idname.startswith('iops.'))
+            for item in toDelete:
+                keymapItems.remove(item)
+
+        keymap = kc.keymaps.get("Screen Editing")
         if keymap:
             keymapItems = keymap.keymap_items
             toDelete = tuple(
