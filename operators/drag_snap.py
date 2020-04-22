@@ -188,6 +188,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self.clear_draw_handlers()
+            self.report({'INFO'}, "Drag snap - cancelled")
             return {'CANCELLED'}
 
         # return {'PASS_THROUGH'}
