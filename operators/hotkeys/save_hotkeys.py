@@ -20,14 +20,14 @@ def save_hotkeys():
 def get_iops_keys():
     keys = []
     keyconfig = bpy.context.window_manager.keyconfigs['blender user']
-    keymap = keyconfig.keymaps.get("Window")
-    if keymap:
-        keymapItems = keymap.keymap_items
-        toSave = tuple(
-            item for item in keymapItems if item.idname.startswith('iops.'))
-        for item in toSave:
-            entry = (item.idname, item.type, item.value, item.ctrl, item.alt, item.shift, item.oskey)
-            keys.append(entry)
+    for keymap in keyconfig.keymaps:
+        if keymap:
+            keymapItems = keymap.keymap_items
+            toSave = tuple(
+                item for item in keymapItems if item.idname.startswith('iops.'))
+            for item in toSave:
+                entry = (item.idname, item.type, item.value, item.ctrl, item.alt, item.shift, item.oskey)
+                keys.append(entry)
     for k in keys:
         print(k)
     return keys
