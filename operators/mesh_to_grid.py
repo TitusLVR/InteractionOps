@@ -18,8 +18,8 @@ class IOPS_OT_mesh_to_grid (bpy.types.Operator):
     )        
 
     @classmethod 
-    def poll(self, context):
-        return context.mode == "EDIT_MESH"
+    def poll(cls, context):
+        return (context.mode == "EDIT_MESH" and context.area.type == "VIEW_3D")
     
     def round_to_base(self, coord, base):
         return base * round(coord/base)

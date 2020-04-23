@@ -5,6 +5,11 @@ class IOPS_MT_Pie_Edit(Menu):
     # bl_idname = "iops.pie_menu"
     bl_label = "IOPS_MT_Pie_Edit"
 
+    @classmethod
+    def poll(self, context):
+        return (context.area.type == "VIEW_3D" and context.active_object)
+
+
     def draw(self, context):
         layout = self.layout
         pie = layout.menu_pie()
@@ -29,6 +34,11 @@ class IOPS_OT_Call_Pie_Edit(bpy.types.Operator):
     """IOPS Pie"""
     bl_idname = "iops.call_pie_edit"
     bl_label = "IOPS Pie Edit"    
+
+    @classmethod
+    def poll(self, context):
+        return (context.area.type == "VIEW_3D" and context.active_object)
+
 
     def execute(self, context):        
         bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Edit")         

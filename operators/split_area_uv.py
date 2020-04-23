@@ -67,6 +67,7 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
         
         else:
             context.area.type = "IMAGE_EDITOR"
+            context.area.ui_type = 'UV'
             new_area = None
             bpy.ops.screen.area_split(direction="VERTICAL")
             for area in context.screen.areas:
