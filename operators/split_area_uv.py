@@ -57,7 +57,7 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
                 side_area = area
                 break
 
-        if side_area.type == 'IMAGE_EDITOR':
+        if side_area and side_area.type == 'IMAGE_EDITOR':
             collapse_right(join_x, join_y)
             return {"FINISHED"}
         
@@ -69,7 +69,7 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
             context.area.type = "IMAGE_EDITOR"
             context.area.ui_type = 'UV'
             new_area = None
-            bpy.ops.screen.area_split(direction="VERTICAL")
+            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.5)
             for area in context.screen.areas:
                 if area not in areas:
                     new_area = area
