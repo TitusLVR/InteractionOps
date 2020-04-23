@@ -19,7 +19,7 @@ def save_hotkeys():
 
 def get_iops_keys():
     keys = []
-    keyconfig = bpy.context.window_manager.keyconfigs['blender user']
+    keyconfig = bpy.context.window_manager.keyconfigs['blender addon']
     for keymap in keyconfig.keymaps:
         if keymap:
             keymapItems = keymap.keymap_items
