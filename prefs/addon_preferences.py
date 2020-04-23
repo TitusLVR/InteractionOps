@@ -1,4 +1,5 @@
 import bpy
+from mathutils import Vector
 from bpy.types import (Operator,
                        Menu,
                        Panel,
@@ -25,7 +26,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(0.8, 0.8, 0.8, 1.0),
+        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
     )
     text_color_key: FloatVectorProperty(
         name="Color key",
@@ -33,7 +34,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(1, 0.757, 0, 1.0),
+        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
     )
 
     text_size: IntProperty(
@@ -112,7 +113,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(0.573, 0.323, 0.15, 1),
+        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25)) - Vector((0.2,0.2,0.2,0)),
     )
 
     vo_cage_points_color: FloatVectorProperty(
@@ -121,7 +122,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(0.873, 0.623, 0.15, 1),
+        default=(*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7),
     )
 
     vo_cage_ap_color: FloatVectorProperty(
@@ -130,13 +131,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(1, 0, 0, 1),
+        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)) - Vector((0.2,0.2,0.2,0)),
     )
 
     vo_cage_p_size: IntProperty(
         name="Cage point size",
         description="Visual origin cage point size",
-        default=3,
+        default=2,
         soft_min=2,
         soft_max=20
     )
@@ -144,7 +145,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     vo_cage_ap_size: IntProperty(
         name="Active point size",
         description="Visual origin active point size",
-        default=6,
+        default=4,
         soft_min=2,
         soft_max=20
     )
@@ -155,7 +156,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=(0, 1, 0, 1),
+        default=((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)),
     )
 
     def draw(self, context):
@@ -178,43 +179,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             colKeys = mainRow.column(align=True)
             colKeys.alignment = 'EXPAND'
-
-            # keymap = context.window_manager.keyconfigs.user.keymaps["Window"]
-            # colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
-
-            # for item in reversed(keymap.keymap_items):
-            #     if item.idname.startswith('iops.'):
-            #         op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-            #         colLabels.label(text=op.name)
-            #         subRow = colKeys.row()
-            #         subRow.alignment = 'LEFT'
-            #         subRow.prop(item, 'type', text='', full_event=True)
-            #         subRow.prop(item, 'shift')
-            #         subRow.prop(item, 'ctrl')
-            #         subRow.prop(item, 'alt')
-            #         subRow.prop(item, 'oskey')
-            #         if item.is_user_modified:
-            #             subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
-
-                        
-            # keymap = context.window_manager.keyconfigs.user.keymaps["Screen Editing"]
-            # colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
-
-            # for item in reversed(keymap.keymap_items):
-            #     if item.idname.startswith('iops.split_area'):
-            #         op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-            #         colLabels.label(text=op.name)
-            #         subRow = colKeys.row()
-            #         subRow.alignment = 'LEFT'
-            #         subRow.prop(item, 'type', text='', full_event=True)
-            #         subRow.prop(item, 'shift')
-            #         subRow.prop(item, 'ctrl')
-            #         subRow.prop(item, 'alt')
-            #         subRow.prop(item, 'oskey')
-            #         if item.is_user_modified:
-            #             subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
-
-                        
+        
             keymap = context.window_manager.keyconfigs.addon.keymaps["Window"]
             colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
 
