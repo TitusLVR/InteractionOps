@@ -44,11 +44,17 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
 
     def execute(self,context):
         current_area = context.area
+        current_screen =  bpy.context.screen
         side_area = None
         join_x = current_area.x + current_area.width + 1
         join_y = int(current_area.y + current_area.height/2)
         current_type = context.area.type # VIEW_3D
         areas = list(context.screen.areas)
+
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in current_screen.name: 
+            bpy.ops.screen.back_to_previous()
+            return {"FINISHED"}
 
         for area in context.screen.areas:
             if area == current_area:
