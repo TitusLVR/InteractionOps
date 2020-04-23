@@ -113,7 +113,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         size=4,
         min=0,
         max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25)) - Vector((0.2,0.2,0.2,0)),
+        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25)) - Vector((0.3,0.3,0.3,0)),
     )
 
     vo_cage_points_color: FloatVectorProperty(
