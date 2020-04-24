@@ -19,6 +19,7 @@ keys_default = [
     ('iops.to_grid_from_active',        'F19',              'PRESS', True, True, True, False),
     ('iops.call_tm_panel',              'T',                'PRESS', True, True, True, False),
     ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True, False),
+    ('iops.call_data_panel',            'BUTTON4MOUSE',     'PRESS', True, False, True, False),
     ('iops.modal_three_point_rotation', 'R',                'PRESS', True, True, True, False),
     ('iops.mesh_to_grid',               'UP_ARROW',         'PRESS', False, False, False, False),
     ('iops.object_normalize',           'UP_ARROW',         'PRESS', False, False, False, False),
