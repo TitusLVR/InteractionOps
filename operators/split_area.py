@@ -111,16 +111,16 @@ class IOPS_OT_SplitAreaUV(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = "IMAGE_EDITOR"
-            context.area.ui_type = 'UV'
+            context.area.type = current_area.type
             new_area = None
-            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.5)
+            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.51)
             for area in context.screen.areas:
                 if area not in areas:
                     new_area = area
                     break
             if new_area:
-                new_area.type = current_type # VIEW_3D
+                new_area.type = 'IMAGE_EDITOR'
+                new_area.ui_type = 'UV'
                 return {"FINISHED"}
         
         return {"CANCELLED"}
@@ -141,7 +141,6 @@ class IOPS_OT_SplitAreaOutliner(bpy.types.Operator):
         side_area = None
         join_x = current_area.x
         join_y = int(current_area.y + current_area.height/2)
-        current_type = context.area.type # VIEW_3D
         areas = list(context.screen.areas)
 
         # Check if toggle fullscreen was activated
@@ -167,7 +166,7 @@ class IOPS_OT_SplitAreaOutliner(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = current_type
+            context.area.type = current_area.type
             new_area = None
             bpy.ops.screen.area_split(direction="VERTICAL", factor=0.15)
 
@@ -223,7 +222,7 @@ class IOPS_OT_SplitAreaProperties(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = "VIEW_3D"
+            context.area.type = current_area.type
             new_area = None
             bpy.ops.screen.area_split(direction="VERTICAL", factor=0.8)
             for area in context.screen.areas:
@@ -278,7 +277,7 @@ class IOPS_OT_SplitAreaText(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = "VIEW_3D"
+            context.area.type = current_area.type
             new_area = None
             bpy.ops.screen.area_split(direction="VERTICAL", factor=0.8)
             for area in context.screen.areas:
@@ -336,7 +335,7 @@ class IOPS_OT_SplitAreaConsole(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = "VIEW_3D"
+            context.area.type = current_area.type
             new_area = None
             bpy.ops.screen.area_split(direction="HORIZONTAL", factor=0.8)
             for area in context.screen.areas:
