@@ -48,7 +48,12 @@ from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_PT_TM_Panel,
                                IOPS_OT_Call_TPS_Panel,
                                IOPS_OT_Call_TM_Panel,
-                               IOPS_PT_VCol_Panel)
+                               IOPS_PT_VCol_Panel,
+                               IOPS_OT_select_mod_curve)
+
+from .ui.iops_data_panel import (IOPS_PT_DATA_Panel, 
+                                 IOPS_OT_Call_Data_Panel)
+
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .ui.iops_pie_edit import IOPS_MT_Pie_Edit, IOPS_OT_Call_Pie_Edit
 from .operators.z_ops import (Z_OT_GrowLoop,
@@ -130,6 +135,9 @@ classes = (IOPS_OT_Main,
            IOPS_OT_Call_Pie_Menu,
            IOPS_MT_Pie_Edit,
            IOPS_OT_Call_Pie_Edit,
+           IOPS_PT_DATA_Panel, 
+           IOPS_OT_Call_Data_Panel,
+           IOPS_OT_select_mod_curve,
            IOPS_OT_EXECUTOR,
            IOPS_OT_ARRIG,
            IOPS_AddonPreferences,
