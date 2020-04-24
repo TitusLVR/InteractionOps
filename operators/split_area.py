@@ -22,7 +22,6 @@ def ContextOverride():
 def join_area_right(join_x, join_y):
     bpy.ops.screen.area_swap(cursor=(join_x, join_y))
     bpy.ops.screen.area_join(cursor=(join_x, join_y))
-    # bpy.context.area.type = "VIEW_3D"
     # Refresh UI
     context_override = ContextOverride()   
     bpy.ops.screen.screen_full_area(context_override)
@@ -34,13 +33,6 @@ def join_area_left(join_x, join_y):
     context_override = ContextOverride()   
     bpy.ops.screen.screen_full_area(context_override)
     bpy.ops.screen.back_to_previous()
-
-# def collapse_left(join_x, join_y):
-#     bpy.ops.screen.area_swap(cursor=(join_x, join_y))
-#     bpy.ops.screen.area_join(cursor=(join_x, join_y))
-#     context_override = ContextOverride()   
-#     bpy.ops.screen.screen_full_area(context_override)
-#     bpy.ops.screen.back_to_previous()
 
 
 class IOPS_OT_SplitAreaUV(bpy.types.Operator):
@@ -145,6 +137,59 @@ class IOPS_OT_SplitAreaOutliner(bpy.types.Operator):
                     break
             if new_area:
                 new_area.type = "OUTLINER" # VIEW_3D
+                return {"FINISHED"}
+        
+        return {"CANCELLED"}
+
+class IOPS_OT_SplitAreaProperties(bpy.types.Operator):
+    bl_idname = "iops.split_area_properties"
+    bl_label = "IOPS Split Area Properties"
+
+   
+    @classmethod 
+    def poll(self, context):
+        return context.area.type in ["VIEW_3D","PROPERTIES"]
+
+    def execute(self,context):
+        current_area = context.area
+        current_screen =  bpy.context.screen
+        side_area = None
+        join_x = current_area.x + current_area.width + 1
+        join_y = int(current_area.y + current_area.height/2)
+        current_type = context.area.type # VIEW_3D
+        areas = list(context.screen.areas)
+
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in current_screen.name: 
+            # bpy.ops.screen.back_to_previous()
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
+            return {"FINISHED"}
+
+        for area in context.screen.areas:
+            if area == current_area:
+                continue
+            elif area.x == join_x and area.y == current_area.y:
+                side_area = area
+                break
+
+        if side_area and side_area.type == 'PROPERTIES':
+            join_area_right(join_x, join_y)
+            return {"FINISHED"}
+        
+        if current_area.type == 'PROPERTIES':
+            join_area_right(current_area.x, join_y)
+            return {"FINISHED"}
+        
+        else:
+            context.area.type = "PROPERTIES"
+            new_area = None
+            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.2)
+            for area in context.screen.areas:
+                if area not in areas:
+                    new_area = area
+                    break
+            if new_area:
+                new_area.type = current_type # VIEW_3D
                 return {"FINISHED"}
         
         return {"CANCELLED"}

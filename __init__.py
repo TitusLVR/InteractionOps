@@ -13,6 +13,7 @@ from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.split_area import IOPS_OT_SplitAreaUV
 from .operators.split_area import IOPS_OT_SplitAreaOutliner
+from .operators.split_area import IOPS_OT_SplitAreaProperties
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
                                                IOPS_OT_ToVerts)
@@ -145,6 +146,7 @@ classes = (IOPS_OT_Main,
            IOPS_PT_VCol_Panel,  
            IOPS_OT_SplitAreaUV,
            IOPS_OT_SplitAreaOutliner,
+           IOPS_OT_SplitAreaProperties,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
