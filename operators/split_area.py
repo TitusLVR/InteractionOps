@@ -1,4 +1,5 @@
 import bpy
+import copy
 
 def ContextOverride():
     for window in bpy.context.window_manager.windows:      
@@ -181,16 +182,126 @@ class IOPS_OT_SplitAreaProperties(bpy.types.Operator):
             return {"FINISHED"}
         
         else:
-            context.area.type = "PROPERTIES"
+            context.area.type = "VIEW_3D"
             new_area = None
-            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.2)
+            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.8)
             for area in context.screen.areas:
                 if area not in areas:
                     new_area = area
                     break
             if new_area:
-                new_area.type = current_type # VIEW_3D
+                new_area.type = 'PROPERTIES' 
                 return {"FINISHED"}
         
         return {"CANCELLED"}
 
+
+class IOPS_OT_SplitAreaText(bpy.types.Operator):
+    bl_idname = "iops.split_area_text"
+    bl_label = "IOPS Split Area Text"
+
+   
+    @classmethod 
+    def poll(self, context):
+        return context.area.type in ["VIEW_3D","TEXT_EDITOR"]
+
+    def execute(self,context):
+        current_area = context.area
+        current_screen =  bpy.context.screen
+        side_area = None
+        join_x = current_area.x + current_area.width + 1
+        join_y = int(current_area.y + current_area.height/2)
+        current_type = context.area.type # VIEW_3D
+        areas = list(context.screen.areas)
+
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in current_screen.name: 
+            # bpy.ops.screen.back_to_previous()
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
+            return {"FINISHED"}
+
+        for area in context.screen.areas:
+            if area == current_area:
+                continue
+            elif area.x == join_x and area.y == current_area.y:
+                side_area = area
+                break
+
+        if side_area and side_area.type == 'TEXT_EDITOR':
+            join_area_right(join_x, join_y)
+            return {"FINISHED"}
+        
+        if current_area.type == 'TEXT_EDITOR':
+            join_area_right(current_area.x, join_y)
+            return {"FINISHED"}
+        
+        else:
+            context.area.type = "VIEW_3D"
+            new_area = None
+            bpy.ops.screen.area_split(direction="VERTICAL", factor=0.8)
+            for area in context.screen.areas:
+                if area not in areas:
+                    new_area = area
+                    break
+            if new_area:
+                new_area.type = 'TEXT_EDITOR' 
+                return {"FINISHED"}
+        
+        return {"CANCELLED"}
+
+
+class IOPS_OT_SplitAreaConsole(bpy.types.Operator):
+    bl_idname = "iops.split_area_console"
+    bl_label = "IOPS Split Area Console"
+
+   
+    @classmethod 
+    def poll(self, context):
+        return context.area.type in ["VIEW_3D","CONSOLE"]
+
+    def execute(self,context):
+        current_area = context.area
+        current_screen =  bpy.context.screen
+        current_area_top = current_area.height + current_area.y + 1
+        side_area = None
+        join_x = int(current_area.x + current_area.width / 2)
+        join_y = current_area_top
+        areas = list(context.screen.areas)
+
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in current_screen.name: 
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
+
+            return {"FINISHED"}
+
+        for area in context.screen.areas:
+            if area == current_area:
+                continue
+            elif area.x == current_area.x and area.y == current_area_top:
+                side_area = area
+                break
+
+        if side_area and side_area.type == 'CONSOLE':
+            join_area_right(join_x, join_y)
+
+            return {"FINISHED"}
+        
+        if current_area.type == 'CONSOLE':
+            join_area_right(join_x, current_area.y)
+
+            return {"FINISHED"}
+        
+        else:
+            context.area.type = "VIEW_3D"
+            new_area = None
+            bpy.ops.screen.area_split(direction="HORIZONTAL", factor=0.8)
+            for area in context.screen.areas:
+                if area not in areas:
+                    new_area = area
+                    break
+
+            if new_area:
+                new_area.type = 'CONSOLE' 
+                return {"FINISHED"}
+
+        return {"CANCELLED"}
