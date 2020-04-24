@@ -16,6 +16,7 @@ keys_default = [
     # IOPS Operators
     ('iops.call_pie_menu',              'Q',                'PRESS', True, True, True, False),
     ('iops.call_pie_edit',              'F19',              'PRESS', True, True, True, False),
+    ('iops.call_pie_split',             'S',                'PRESS', True, True, True, False),
     ('iops.to_grid_from_active',        'F19',              'PRESS', True, True, True, False),
     ('iops.call_tm_panel',              'T',                'PRESS', True, True, True, False),
     ('iops.call_tps_panel',             'BUTTON4MOUSE',     'PRESS', False, False, True, False),
