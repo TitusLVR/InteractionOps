@@ -1,4 +1,6 @@
 import bpy
+from bpy.props import StringProperty, FloatProperty
+from .. prefs.split_area_list import split_area_list
 import copy
 
 def ContextOverride(area):
@@ -404,6 +406,115 @@ class IOPS_OT_SplitAreaTimeline(bpy.types.Operator):
 
         # Check if toggle fullscreen was activated
         if "nonnormal" in current_screen.name: 
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
+
+            return {"FINISHED"}
+
+        for area in context.screen.areas:
+            if area == current_area:
+                continue
+            elif area.x == current_area.x and area.height + area.y + 1 == current_area.y:
+                side_area = area
+                break
+
+        if side_area and side_area.type == 'DOPESHEET_EDITOR':
+            event = join_area_bottom(join_x, join_y, side_area)
+            self.report({"INFO"}, event)
+
+            return {"FINISHED"}
+        
+        if current_area.type == 'DOPESHEET_EDITOR':
+            join_x = int(current_area.width/2 + current_area.x)
+            join_y = current_area.height + current_area.y + 1
+            override = get_neighbour_top(current_area)
+            event = join_area_bottom(join_x, join_y, override)
+            self.report({"INFO"}, event)
+
+            return {"FINISHED"}
+        
+        else:
+            context.area.type = current_area.type
+            new_area = None
+            bpy.ops.screen.area_split(direction="HORIZONTAL", factor=0.2)
+            for area in context.screen.areas:
+                if area not in areas:
+                    new_area = area
+                    break
+
+            if new_area:
+                new_area.type = 'DOPESHEET_EDITOR' 
+                new_area.ui_type = 'TIMELINE'
+                return {"FINISHED"}
+
+        return {"CANCELLED"}    
+
+# ########################################################################################
+#                                     REFACTORING
+# ########################################################################################
+
+
+class IOPS_OT_SplitScreenArea(bpy.types.Operator):
+    bl_idname = "iops.split_screen_area"
+    bl_label = "IOPS Split Screen Area"
+
+# StringProperty(name="", description="", default="", maxlen=0, options={'ANIMATABLE'}, tags={}, subtype='NONE', update=None, get=None, set=None)
+
+    area : StringProperty(
+        name="Area",
+        description="Which area to create",
+        default=""
+    )
+
+    direction : StringProperty(
+        name="Direction",
+        description="Where to create new area",
+        default=""
+    )
+
+    factor: FloatProperty(
+        name="Factor",
+        description="Area split factor",
+        default=0.01,
+        soft_min=0.01,
+        soft_max=1,
+        step=0.01
+    )        
+
+    
+
+    def get_join_xy(self, context, area, direction):
+        if area == context.area:
+            if direction == "TOP":
+                x = int(area.width/2 + area.x)
+                y = area.y - 1
+
+            elif direction == "RIGHT":
+                pass
+            elif direction == "BOTTOM":
+                pass
+            elif direction == "LEFT":
+                pass
+        else:
+            if direction == "TOP":
+                pass
+            elif direction == "RIGHT":
+                pass
+            elif direction == "BOTTOM":
+                pass
+            elif direction == "LEFT":
+                pass
+
+        return (x, y)
+
+
+    def execute(self, context):
+        current_area = context.area
+        side_area = None
+        join_x, join_y = self.get_join_xy(context, area, direction)
+        areas = list(context.screen.areas)
+
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in context.screen.name: 
             bpy.ops.screen.screen_full_area(use_hide_panels=True)
 
             return {"FINISHED"}

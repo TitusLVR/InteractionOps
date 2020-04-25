@@ -11,6 +11,7 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
+from .operators.split_screen_area import IOPS_OT_SplitScreenArea
 from .operators.split_area import (IOPS_OT_SplitAreaUV,
                                    IOPS_OT_SplitAreaOutliner,
                                    IOPS_OT_SplitAreaProperties,
@@ -168,6 +169,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_SplitAreaText,
            IOPS_OT_SplitAreaConsole,
            IOPS_OT_SplitAreaTimeline,
+           IOPS_OT_SplitScreenArea,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
