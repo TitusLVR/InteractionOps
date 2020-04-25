@@ -11,16 +11,20 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
-from .operators.split_area import IOPS_OT_SplitAreaUV
-from .operators.split_area import IOPS_OT_SplitAreaOutliner
-from .operators.split_area import IOPS_OT_SplitAreaProperties
-from .operators.split_area import IOPS_OT_SplitAreaText
-from .operators.split_area import IOPS_OT_SplitAreaConsole
+from .operators.split_area import (IOPS_OT_SplitAreaUV,
+                                   IOPS_OT_SplitAreaOutliner,
+                                   IOPS_OT_SplitAreaProperties,
+                                   IOPS_OT_SplitAreaText,
+                                   IOPS_OT_SplitAreaConsole,
+                                   IOPS_OT_SplitAreaTimeline)
+
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
                                                IOPS_OT_ToVerts)
+
 from .operators.modes import (IOPS_OT_ESC, IOPS_OT_F1, IOPS_OT_F2, IOPS_OT_F3,
                               IOPS_OT_F4, IOPS_OT_F5)
+
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
@@ -39,7 +43,6 @@ from .prefs.addon_properties import IOPS_AddonProperties
 
 from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign)
                                             
-
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
                                IOPS_OT_transform_orientation_cleanup,
@@ -164,6 +167,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_SplitAreaProperties,
            IOPS_OT_SplitAreaText,
            IOPS_OT_SplitAreaConsole,
+           IOPS_OT_SplitAreaTimeline,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
