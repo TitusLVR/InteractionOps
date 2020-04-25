@@ -26,7 +26,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             "Empty": {
                     "type": "EMPTY",
                     "ui": "EMPTY",
-                    "icon": "",
+                    "icon": 'NONE',
                     "num":0
             },
             "3D Viewport": {
@@ -300,7 +300,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)),
     )
     # 1 - BOTTOM - LEFT
-    split_area_pie_1_type: EnumProperty(
+    split_area_pie_1_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -320,7 +320,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 2 - BOTTOM
-    split_area_pie_2_type: EnumProperty(
+    split_area_pie_2_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -340,7 +340,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 3 - BOTTOM - RIGHT
-    split_area_pie_3_type: EnumProperty(
+    split_area_pie_3_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -360,7 +360,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 4 - LEFT
-    split_area_pie_4_type: EnumProperty(
+    split_area_pie_4_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -380,7 +380,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 6 - RIGHT
-    split_area_pie_6_type: EnumProperty(
+    split_area_pie_6_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -400,7 +400,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 7 - TOP - LEFT
-    split_area_pie_7_type: EnumProperty(
+    split_area_pie_7_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -420,7 +420,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 8 - TOP
-    split_area_pie_8_type: EnumProperty(
+    split_area_pie_8_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -440,7 +440,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1.0
     )
     # 9 - TOP - RIGHT
-    split_area_pie_9_type: EnumProperty(
+    split_area_pie_9_ui: EnumProperty(
         name='',
         description='Area Types',
         items=split_areas_list,
@@ -600,21 +600,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         # TOP LEFT
         box_1 = row.box()
         col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_7_type")
+        col.prop(self, "split_area_pie_7_ui")
         col.prop(self, "split_area_pie_7_pos")
         col.prop(self, "split_area_pie_7_factor")
         row.separator()
         # TOP
         box_2 = row.box()
         col = box_2.column(align=True)
-        col.prop(self, "split_area_pie_8_type")
+        col.prop(self, "split_area_pie_8_ui")
         col.prop(self, "split_area_pie_8_pos")
         col.prop(self, "split_area_pie_8_factor")
         row.separator()
         # TOP RIGHT
         box_3 = row.box()
         col = box_3.column(align=True)
-        col.prop(self, "split_area_pie_9_type")
+        col.prop(self, "split_area_pie_9_ui")
         col.prop(self, "split_area_pie_9_pos")
         col.prop(self, "split_area_pie_9_factor")
         
@@ -623,7 +623,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         # LEFT
         box_1 = row.box()
         col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_4_type")
+        col.prop(self, "split_area_pie_4_ui")
         col.prop(self, "split_area_pie_4_pos")
         col.prop(self, "split_area_pie_4_factor")
         row.separator()
@@ -637,7 +637,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         # RIGHT
         box_3 = row.box()
         col = box_3.column(align=True)
-        col.prop(self, "split_area_pie_6_type")
+        col.prop(self, "split_area_pie_6_ui")
         col.prop(self, "split_area_pie_6_pos")
         col.prop(self, "split_area_pie_6_factor")
 
@@ -647,21 +647,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         # BOTTOM LEFT
         box_1 = row.box()
         col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_1_type")
+        col.prop(self, "split_area_pie_1_ui")
         col.prop(self, "split_area_pie_1_pos")
         col.prop(self, "split_area_pie_1_factor")
         row.separator()
         # BOTTOM
         box_2 = row.box()
         col = box_2.column(align=True)
-        col.prop(self, "split_area_pie_2_type")
+        col.prop(self, "split_area_pie_2_ui")
         col.prop(self, "split_area_pie_2_pos")
         col.prop(self, "split_area_pie_2_factor")
         row.separator()
         # BOTTOM RIGHT
         box_3 = row.box()
         col = box_3.column(align=True)        
-        col.prop(self, "split_area_pie_3_type")
+        col.prop(self, "split_area_pie_3_ui")
         col.prop(self, "split_area_pie_3_pos")
         col.prop(self, "split_area_pie_3_factor")
         
