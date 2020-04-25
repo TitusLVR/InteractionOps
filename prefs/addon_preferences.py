@@ -316,8 +316,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.2, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 2 - BOTTOM
     split_area_pie_2_ui: EnumProperty(
@@ -336,8 +338,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 3 - BOTTOM - RIGHT
     split_area_pie_3_ui: EnumProperty(
@@ -356,8 +360,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 4 - LEFT
     split_area_pie_4_ui: EnumProperty(
@@ -376,8 +382,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 6 - RIGHT
     split_area_pie_6_ui: EnumProperty(
@@ -396,8 +404,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 7 - TOP - LEFT
     split_area_pie_7_ui: EnumProperty(
@@ -416,8 +426,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 8 - TOP
     split_area_pie_8_ui: EnumProperty(
@@ -436,8 +448,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
     # 9 - TOP - RIGHT
     split_area_pie_9_ui: EnumProperty(
@@ -456,8 +470,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="", 
         description="Split factor", 
         default=0.5, 
-        min=0.0,
-        max=1.0
+        min=0.05,
+        max=1.0,
+        step=0.01,
+        precision=2
     )
 
 
