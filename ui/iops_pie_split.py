@@ -21,8 +21,8 @@ class IOPS_MT_Pie_Split(Menu):
         pie.operator("iops.split_area_uv", text = "UV Editor", icon = "UV") 
         
         # 2 - BOTTOM
-        # pie.operator("iops.split_area_timeline", text = "Timeline", icon = "TIME")
-        pie.separator()
+        pie.operator("iops.split_area_timeline", text = "Timeline", icon = "TIME")
+        # pie.separator()
         
         # 8 - TOP
         pie.operator("iops.split_area_console", text = "Console", icon = "CONSOLE")        
