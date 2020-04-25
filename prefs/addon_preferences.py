@@ -19,6 +19,146 @@ from bpy.props import (BoolProperty,
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
+    
+    # list itens (identifier, name, description, icon, number,)
+    #Area.type, Area.ui_type, Icon, PrefText
+    split_areas_dict = {
+            "Empty": {
+                    "type": "EMPTY",
+                    "ui": "EMPTY",
+                    "icon": "",
+                    "num":0
+            },
+            "3D Viewport": {
+                    "type": "VIEW_3D",
+                    "ui": "VIEW_3D",
+                    "icon": "VIEW3D",
+                    "num":1
+            },
+            "Image Editor": {
+                    "type": "IMAGE_EDITOR",
+                    "ui": "IMAGE_EDITOR",
+                    "icon": "IMAGE",
+                    "num":2
+            },
+            "UV Editor": {
+                    "type": "IMAGE_EDITOR",
+                    "ui": "UV",
+                    "icon": "UV",
+                    "num":3
+            },
+            "Shader Editor": {
+                    "type": "NODE_EDITOR",
+                    "ui": "ShaderNodeTree",
+                    "icon": "NODE_MATERIAL",
+                    "num":4
+            },
+            "Compositor": {
+                    "type": "NODE_EDITOR",
+                    "ui": "CompositorNodeTree",
+                    "icon": "NODE_COMPOSITING",
+                    "num":5
+            },
+            "Texture Node Editor": {
+                    "type": "NODE_EDITOR",
+                    "ui": "TextureNodeTree",
+                    "icon": "NODE_TEXTURE",
+                    "num":6
+            },
+            "Video Sequencer": {
+                    "type": "SEQUENCE_EDITOR",
+                    "ui": "SEQUENCE_EDITOR",
+                    "icon": "SEQUENCE",
+                    "num":7
+            },
+            "Movie Clip Editor": {
+                    "type": "CLIP_EDITOR",
+                    "ui": "CLIP_EDITOR",
+                    "icon": "TRACKER",
+                    "num":8
+            },
+            "Dope Sheet": {
+                    "type": "DOPESHEET_EDITOR",
+                    "ui": "DOPESHEET",
+                    "icon": "ACTION",
+                    "num":9
+            },
+            "Timeline": {
+                    "type": "DOPESHEET_EDITOR",
+                    "ui": "TIMELINE",
+                    "icon": "TIME",
+                    "num":10
+            },
+            "Graph Editor": {
+                    "type": "GRAPH_EDITOR",
+                    "ui": "FCURVES",
+                    "icon": "GRAPH",
+                    "num":11
+            },
+            "Drivers": {
+                    "type": "GRAPH_EDITOR",
+                    "ui": "DRIVERS",
+                    "icon": "DRIVER",
+                    "num":12
+            },
+            "Nonlinear Animation": {
+                    "type": "NLA_EDITOR",
+                    "ui": "NLA_EDITOR",
+                    "icon": "NLA",
+                    "num":13
+            },
+            "Text Editor": {
+                    "type": "TEXT_EDITOR",
+                    "ui": "TEXT_EDITOR",
+                    "icon": "TEXT",
+                    "num":14
+            },
+            "Python Console": {
+                    "type": "CONSOLE",
+                    "ui": "CONSOLE",
+                    "icon": "CONSOLE",
+                    "num":15
+            },
+            "Info": {
+                    "type": "INFO",
+                    "ui": "INFO",
+                    "icon": "INFO",
+                    "num":16
+            },
+            "Outliner": {
+                    "type": "OUTLINER",
+                    "ui": "OUTLINER",
+                    "icon": "OUTLINER",
+                    "num":17
+            },
+            "Properties": {
+                    "type": "PROPERTIES",
+                    "ui": "PROPERTIES",
+                    "icon": "PROPERTIES",
+                    "num":18
+            },
+            "File Browser": {
+                    "type": "FILE_BROWSER",
+                    "ui": "FILE_BROWSER",
+                    "icon": "FILEBROWSER",
+                    "num":19
+            },
+            "Preferences": {
+                    "type": "PREFERENCES",
+                    "ui": "PREFERENCES",
+                    "icon": "PREFERENCES",
+                    "num":20
+            }
+    }
+    
+    split_areas_list = [(v["ui"], k, "", v["icon"], v["num"]) for  k, v in split_areas_dict.items()]
+    
+    split_areas_position_list = [('LEFT',   'LEFT',   '',  '',   0),
+                                 ('RIGHT',  'RIGHT',  '',  '',   1),
+                                 ('TOP',    'TOP',    '',  '',   2),
+                                 ('BOTTOM', 'BOTTOM', '',  '',   3)]
+                            
+
 
     text_color: FloatVectorProperty(
         name="Color",
@@ -28,6 +168,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1,
         default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
     )
+
     text_color_key: FloatVectorProperty(
         name="Color key",
         subtype='COLOR_GAMMA',
@@ -158,6 +299,167 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1,
         default=((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)),
     )
+    # 1 - BOTTOM - LEFT
+    split_area_pie_1_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='ShaderNodeTree'
+    )
+    split_area_pie_1_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='BOTTOM'
+    )
+    split_area_pie_1_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.2, 
+        min=0.0,
+        max=1.0
+    )
+    # 2 - BOTTOM
+    split_area_pie_2_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='TIMELINE'
+    )
+    split_area_pie_2_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='BOTTOM'
+    )
+    split_area_pie_2_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 3 - BOTTOM - RIGHT
+    split_area_pie_3_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='PROPERTIES'
+    )
+    split_area_pie_3_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='RIGHT'
+    )
+    split_area_pie_3_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 4 - LEFT
+    split_area_pie_4_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='OUTLINER'
+    )
+    split_area_pie_4_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='LEFT'
+    )
+    split_area_pie_4_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 6 - RIGHT
+    split_area_pie_6_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='UV'
+    )
+    split_area_pie_6_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='RIGHT'
+    )
+    split_area_pie_6_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 7 - TOP - LEFT
+    split_area_pie_7_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='FILE_BROWSER'
+    )
+    split_area_pie_7_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='RIGHT'
+    )
+    split_area_pie_7_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 8 - TOP
+    split_area_pie_8_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='CONSOLE'
+    )
+    split_area_pie_8_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='TOP'
+    )
+    split_area_pie_8_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+    # 9 - TOP - RIGHT
+    split_area_pie_9_type: EnumProperty(
+        name='',
+        description='Area Types',
+        items=split_areas_list,
+        default='TEXT_EDITOR'
+    )
+    split_area_pie_9_pos: EnumProperty(
+        name='',
+        description='Area screen position',
+        items=split_areas_position_list,
+        default='RIGHT'
+    )
+    split_area_pie_9_factor: FloatProperty(
+        name="", 
+        description="Split factor", 
+        default=0.5, 
+        min=0.0,
+        max=1.0
+    )
+
 
     def draw(self, context):
         layout = self.layout
@@ -288,6 +590,81 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
         col.operator("iops.load_default_hotkeys", text="Load Default Hotkeys")
         col.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+
+        # Split Pie preferences
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="IOPS Split Pie Setup:")
+        row = col.row(align=True)
+        
+        # TOP LEFT
+        box_1 = row.box()
+        col = box_1.column(align=True)
+        col.prop(self, "split_area_pie_7_type")
+        col.prop(self, "split_area_pie_7_pos")
+        col.prop(self, "split_area_pie_7_factor")
+        row.separator()
+        # TOP
+        box_2 = row.box()
+        col = box_2.column(align=True)
+        col.prop(self, "split_area_pie_8_type")
+        col.prop(self, "split_area_pie_8_pos")
+        col.prop(self, "split_area_pie_8_factor")
+        row.separator()
+        # TOP RIGHT
+        box_3 = row.box()
+        col = box_3.column(align=True)
+        col.prop(self, "split_area_pie_9_type")
+        col.prop(self, "split_area_pie_9_pos")
+        col.prop(self, "split_area_pie_9_factor")
+        
+        col = box.column(align=True)
+        row = col.row(align=True)
+        # LEFT
+        box_1 = row.box()
+        col = box_1.column(align=True)
+        col.prop(self, "split_area_pie_4_type")
+        col.prop(self, "split_area_pie_4_pos")
+        col.prop(self, "split_area_pie_4_factor")
+        row.separator()
+        # CENTER
+        box_2 = row.box()
+        col = box_2.column(align=True)
+        col.label(text=" ")
+        col.label(text=" ")
+        col.label(text=" ")        
+        row.separator()
+        # RIGHT
+        box_3 = row.box()
+        col = box_3.column(align=True)
+        col.prop(self, "split_area_pie_6_type")
+        col.prop(self, "split_area_pie_6_pos")
+        col.prop(self, "split_area_pie_6_factor")
+
+        col = box.column(align=True)
+        row = col.row(align=True)
+
+        # BOTTOM LEFT
+        box_1 = row.box()
+        col = box_1.column(align=True)
+        col.prop(self, "split_area_pie_1_type")
+        col.prop(self, "split_area_pie_1_pos")
+        col.prop(self, "split_area_pie_1_factor")
+        row.separator()
+        # BOTTOM
+        box_2 = row.box()
+        col = box_2.column(align=True)
+        col.prop(self, "split_area_pie_2_type")
+        col.prop(self, "split_area_pie_2_pos")
+        col.prop(self, "split_area_pie_2_factor")
+        row.separator()
+        # BOTTOM RIGHT
+        box_3 = row.box()
+        col = box_3.column(align=True)        
+        col.prop(self, "split_area_pie_3_type")
+        col.prop(self, "split_area_pie_3_pos")
+        col.prop(self, "split_area_pie_3_factor")
+        
         
         # Debug
         box = box_ui.box()
