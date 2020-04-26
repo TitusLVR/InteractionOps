@@ -1,6 +1,14 @@
 import bpy
 import blf
 
+from bpy.props import (BoolProperty,
+                       EnumProperty,
+                       FloatProperty,
+                       IntProperty,
+                       PointerProperty,
+                       StringProperty,
+                       FloatVectorProperty,
+                       )
 
 def draw_iops_array_text(self, context, _uidpi, _uifactor):
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
@@ -55,9 +63,9 @@ def draw_iops_array_text(self, context, _uidpi, _uifactor):
 
 
 
-class IOPS_OT_ARRIG(bpy.types.Operator):
+class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
     """ Auto setup for array modifier """
-    bl_idname = "iops.arrig"
+    bl_idname = "iops.easy_mod_array_caps"
     bl_label = "OBJECT: Array mod and caps setup"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -264,3 +272,104 @@ class IOPS_OT_ARRIG(bpy.types.Operator):
             else:
                 self.report({'WARNING'}, "Tree objects needed, start, middle and end")
                 return {'CANCELLED'}
+
+
+class IOPS_OT_Easy_Mod_Array_Curve(bpy.types.Operator):
+    """ Auto setup for array modifier """
+    bl_idname = "iops.easy_mod_array_curve"
+    bl_label = "OBJECT: Array mod and caps setup"
+    bl_options = {"REGISTER", "UNDO"}
+    
+    
+    add_curve_mod: BoolProperty(
+        name="Add Curve modifier",
+        description="Add Curve modifier after Array modifier.",
+        default=False
+        )    
+
+    use_curve_radius: BoolProperty(
+        name="Use Curve Radius",
+        description="Causes the deformed object to be scaled by the set curve radius.",
+        default=True
+        )
+    use_curve_stretch: BoolProperty(
+        name="Use Curve Length",
+        description="The Stretch curve option allows you to let the mesh object stretch, or squeeze, over the entire curve.",
+        default=True
+        )
+    use_curve_bounds_clamp: BoolProperty(
+        name="Use Curve Bounds",
+        description="When this option is enabled, the object and mesh offset along the deformation axis is ignored.",
+        default=True
+        )
+    curve_modifier_axis: EnumProperty(
+        name='Deformation Axis',
+        description='Deformation along selected axis',
+        items=[
+            ('POS_X',  'X',  '', '', 0),
+            ('POS_Y',  'Y',  '', '', 1),
+            ('POS_Z',  'Z',  '', '', 2),
+            ('NEG_X',  '-X', '', '', 3),
+            ('NEG_Y',  '-Y', '', '', 4),
+            ('NEG_Z',  '-Z', '', '', 5)],
+        default='POS_X',
+        )
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object and
+                context.active_object.type == "MESH" and
+                context.mode == "OBJECT" and
+                context.area.type == "VIEW_3D")
+
+    def execute(self, context):
+        if len(context.view_layer.objects.selected) == 1:
+            for mod in reversed(bpy.context.active_object.modifiers):
+                if mod.type == "ARRAY" and mod.fit_type == "FIT_CURVE":
+                        if mod.curve:
+                            bpy.ops.object.select_all(action='DESELECT')
+                            mod.curve.select_set(True)                            
+                            context.view_layer.objects.active = mod.curve
+                            self.report({'INFO'}, "Array Modifier - Curve Selected")
+                            return {'FINISHED'}
+
+        if len(context.view_layer.objects.selected) == 2:
+            obj = None
+            curve = None
+            
+            for ob in context.view_layer.objects.selected:
+                if ob.type =="MESH":
+                    obj = ob                   
+                if ob.type =="CURVE":
+                    curve = ob
+        
+        if obj and curve:            
+            if obj.modifiers:
+                for mod in reversed(obj.modifiers):
+                    if mod.type == "ARRAY" and mod.fit_type == "FIT_CURVE":
+                        if mod.curve is None:
+                            mod.curve = curve
+                            self.report({'INFO'}, "Array Modifier - Curve picked.")
+                            return {'FINISHED'}
+            else:
+                mod = obj.modifiers.new("iOps Array", type='ARRAY')
+                mod.fit_type = "FIT_CURVE"
+                mod.curve = curve
+                if self.add_curve_mod:
+                    curve.data.use_radius = self.use_curve_radius
+                    curve.data.use_stretch = self.use_curve_stretch 
+                    curve.data.use_deform_bounds = self.use_curve_bounds_clamp
+                    mod_curve = obj.modifiers.new("iOps Curve", type='CURVE')
+                    mod_curve.object = curve
+                    mod_curve.deform_axis = self.curve_modifier_axis                   
+                    self.report({'INFO'}, "Curve Modifier added and curve object picked.")
+                self.report({'INFO'}, "Array Modifier added and wired.")
+                return {'FINISHED'}
+
+        return {'FINISHED'}
+               
+
+
+
+
+

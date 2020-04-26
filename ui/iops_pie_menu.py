@@ -21,8 +21,9 @@ class IOPS_MT_Pie_Menu(Menu):
         box = col.column(align=True).box().column()
         box.label(text="IOPS")
         col = box.column(align=True)
-        col.operator('iops.arrig', text="Array Modifier Easy Caps")
-        col.operator('iops.select_modifier_curve', text="Select Modifier's Curve")
+        col.operator('iops.easy_mod_array_caps', text="Easy Modifier - Array Caps")
+        col.operator('iops.easy_mod_array_curve', text="Easy Modifier - Array Curve")
+        col.operator('iops.easy_mod_curve', text="Easy Modifier - Curve")
 
         # 6 - RIGHT
         # pie.separator()
