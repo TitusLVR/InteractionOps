@@ -22,103 +22,20 @@ def ContextOverride(area):
     raise Exception("ERROR: Override failed!")
 
 
-def get_neighbour_right(current_area):
-    if current_area:
-        for area in bpy.context.screen.areas:
-            if area == current_area:
-                continue
-            elif (area.x == current_area.width + current_area.x + 1 and 
-                area.y == current_area.y):
-                return area
-    else:
-        return None
-
-def get_neighbour_left(current_area):
-    for area in bpy.context.screen.areas:
-        if area == current_area:
-            continue
-        elif (area.x + area.width + 1 == current_area.x and 
-              area.y == current_area.y):
-            return area
-
-def get_neighbour_top(current_area):
-    for area in bpy.context.screen.areas:
-        if area == current_area:
-            continue
-        elif (area.x == current_area.x and 
-              area.y  == current_area.height + current_area.y + 1):
-            return area
-
-def get_neighbour_bottom(current_area):
-    for area in bpy.context.screen.areas:
-        if area == current_area:
-            continue
-        elif (area.x == current_area.x and 
-              area.y + area.height + 1 == current_area.y):
-            return area
-    
-
-def join_area_right(join_x, join_y, area):
-    if bpy.context.area.height == area.height:
-        bpy.ops.screen.area_swap(cursor=(join_x, join_y))
-        bpy.ops.screen.area_join(cursor=(join_x, join_y))
-        # Refresh UI
-        context_override = ContextOverride(area.type)   
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
-        return "Joined areas"
-    else:
-        return "Cannot join area"
-
-def join_area_left(join_x, join_y, area):
-    if bpy.context.area.height == area.height:
-        bpy.ops.screen.area_join(cursor=(join_x, join_y))
-        # Refresh UI
-        context_override = ContextOverride(area.type)   
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
-        return "Joined areas"
-    else:
-        return "Cannot join area."
-
-
-def join_area_top(join_x, join_y, area):
-    if bpy.context.area.width == area.width:
-        bpy.ops.screen.area_swap(cursor=(join_x, join_y))
-        bpy.ops.screen.area_join(cursor=(join_x, join_y))
-        # Refresh UI
-        context_override = ContextOverride(area.type)   
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
-        return "Joined areas"
-    else:
-        return "Cannot join area"
-
-def join_area_bottom(join_x, join_y, area):
-    if bpy.context.area.width == area.width:
-        bpy.ops.screen.area_join(cursor=(join_x, join_y))
-        # Refresh UI
-        context_override = ContextOverride(area.type)   
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
-        return "Joined areas"
-    else:
-        return "Cannot join area"
-
-
-# ########################################################################################
-#                                     REFACTORING
-# ########################################################################################
-
-
 class IOPS_OT_SplitScreenArea(bpy.types.Operator):
     bl_idname = "iops.split_screen_area"
     bl_label = "IOPS Split Screen Area"
 
-
-    area : StringProperty(
-        name="Area",
+    area_type : StringProperty(
+        name="Area Type",
         description="Which area to create",
+        default=""
+        )
+
+
+    ui : StringProperty(
+        name="Area UI Type",
+        description="Which UI to enable",
         default=""
     )
 
@@ -138,79 +55,172 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         precision=2
     )        
 
-    
+    def refresh_ui(self, area):
+        context_override = ContextOverride(area.type)   
+        bpy.ops.screen.screen_full_area(context_override)
+        bpy.ops.screen.back_to_previous()
 
-    def get_join_xy(self, context, area, direction):
-        if area == context.area:
-            if direction == "TOP":
-                x = int(area.width/2 + area.x)
-                y = area.y - 1
 
-            elif direction == "RIGHT":
-                pass
-            elif direction == "BOTTOM":
-                pass
-            elif direction == "LEFT":
-                pass
+    def get_join_xy(self, context, ui, pos):
+        x, y = 0, 0
+        if ui == context.area.ui_type:
+            if pos == "TOP":
+                print('Found TOP Area')
+                x = int(context.area.width/2 + context.area.x)
+                y = context.area.y - 1
+
+            elif pos == "RIGHT":
+                print('Found RIGHT Area')
+                x = context.area.x - 1
+                y = int(context.area.height/2 + context.area.y)
+
+            elif pos == "BOTTOM":
+                print('Found BOTTOM Area')
+                x = int(context.area.width/2 + context.area.x)
+                y = context.area.height + context.area.y + 1
+                
+            elif pos == "LEFT":
+                print('Found LEFT Area')
+                x = context.area.width + context.area.x + 1
+                y = int(context.area.y + context.area.height/2)
+
         else:
-            if direction == "TOP":
-                pass
-            elif direction == "RIGHT":
-                pass
-            elif direction == "BOTTOM":
-                pass
-            elif direction == "LEFT":
-                pass
+            if pos == "TOP":
+                x = int(context.area.x + context.area.width / 2)
+                y = context.area.height + context.area.y + 1
+
+            elif pos == "RIGHT":
+                x = context.area.x + context.area.width + 1
+                y = int(context.area.y + context.area.height/2)
+
+            elif pos == "BOTTOM":
+                x = int(context.area.x + context.area.width / 2)
+                y = context.area.y
+
+            elif pos == "LEFT":
+                x = context.area.x
+                y = int(context.area.y + context.area.height/2)
 
         return (x, y)
 
 
+    def get_side_area(self, context, area, pos):
+
+        side_area = None
+
+        if pos == "TOP" and \
+            area.x == context.area.x and \
+            area.width == context.area.width and \
+            area.y == context.area.height + context.area.y + 1:
+                side_area = area
+            
+        elif pos == "RIGHT" and \
+            area.x == context.area.x + context.area.width + 1 and \
+            area.height == context.area.height and \
+            area.y == context.area.y:
+                side_area = area
+
+        elif pos == "BOTTOM" and \
+            area.width == context.area.width and \
+            area.x == context.area.x and \
+            area.height + area.y + 1 == context.area.y:
+                side_area = area
+
+        elif pos == "LEFT" and \
+            area.width + area.x + 1 == context.area.x and \
+            area.y == context.area.y and \
+            area.height == context.area.height:
+                side_area = area
+
+        return side_area
+
+
+    def join_areas(self, context, current_area, side_area, pos):
+        join_x, join_y = self.get_join_xy(context, side_area.ui_type, pos)
+
+        if pos == "TOP":
+            bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+            bpy.ops.screen.area_join(cursor=(join_x, join_y))
+            self.refresh_ui(side_area)
+
+            
+        elif pos == "RIGHT":
+            bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+            bpy.ops.screen.area_join(cursor=(join_x, join_y))
+            context_override = ContextOverride(side_area.type)   
+            bpy.ops.screen.screen_full_area(context_override)
+            bpy.ops.screen.back_to_previous()
+
+        elif pos == "BOTTOM":
+            bpy.ops.screen.area_join(cursor=(join_x, join_y))
+            context_override = ContextOverride(side_area.type)   
+            bpy.ops.screen.screen_full_area(context_override)
+            bpy.ops.screen.back_to_previous()
+
+        elif pos == "LEFT":
+            bpy.ops.screen.area_join(cursor=(join_x, join_y))
+            context_override = ContextOverride(side_area.type)   
+            bpy.ops.screen.screen_full_area(context_override)
+            bpy.ops.screen.back_to_previous()
+
+        return side_area
+
+
     def execute(self, context):
-        # current_area = context.area
+        areas = list(context.screen.areas)
+        current_area = context.area
+        side_area = None
         # side_area = None
         # join_x, join_y = self.get_join_xy(context, area, direction)
-        # areas = list(context.screen.areas)
 
-        # # Check if toggle fullscreen was activated
-        # if "nonnormal" in context.screen.name: 
-        #     bpy.ops.screen.screen_full_area(use_hide_panels=True)
+        # Check if toggle fullscreen was activated
+        if "nonnormal" in context.screen.name: 
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
 
-        #     return {"FINISHED"}
+            return {"FINISHED"}
 
-        # for area in context.screen.areas:
-        #     if area == current_area:
-        #         continue
-        #     elif area.x == current_area.x and area.height + area.y + 1 == current_area.y:
-        #         side_area = area
-        #         break
 
-        # if side_area and side_area.type == 'DOPESHEET_EDITOR':
-        #     event = join_area_bottom(join_x, join_y, side_area)
-        #     self.report({"INFO"}, event)
-
-        #     return {"FINISHED"}
+        for area in context.screen.areas:
+            if area == current_area:
+                continue
+            else:
+                side_area = self.get_side_area(context, area, self.pos)
+                if side_area and side_area.ui_type == self.ui:
+                    self.join_areas(context, current_area, side_area, self.pos)
+                    self.report({'INFO'}, "Joined Areas")
+                    return {'FINISHED'}
+                else:
+                    continue
         
-        # if current_area.type == 'DOPESHEET_EDITOR':
-        #     join_x = int(current_area.width/2 + current_area.x)
-        #     join_y = current_area.height + current_area.y + 1
-        #     override = get_neighbour_top(current_area)
-        #     event = join_area_bottom(join_x, join_y, override)
-        #     self.report({"INFO"}, event)
+        if current_area.ui_type == self.ui:
+            self.join_areas(context, current_area, current_area, self.pos)
+            self.report({'INFO'}, "Joined Areas")
 
-        #     return {"FINISHED"}
-        
-        # else:
-        #     context.area.type = current_area.type
-        #     new_area = None
-        #     bpy.ops.screen.area_split(direction="HORIZONTAL", factor=0.2)
-        #     for area in context.screen.areas:
-        #         if area not in areas:
-        #             new_area = area
-        #             break
+        else:
+            # context.area.type = current_area.type
+            new_area = None
+            swap = True if self.factor > 0.49 else False
 
-        #     if new_area:
-        #         new_area.type = 'DOPESHEET_EDITOR' 
-        #         new_area.ui_type = 'TIMELINE'
-        #         return {"FINISHED"}
-        self.report({'INFO'},f'Area: {self.area}, Pos: {self.pos}, Factor: {self.factor}')
+            direction = "VERTICAL" if self.pos in {'LEFT', 'RIGHT'} else "HORIZONTAL"
+            # factor = (1 - self.factor) if self.pos in {'RIGHT', 'TOP'} else self.factor
+            bpy.ops.screen.area_split(direction=direction, factor=self.factor)
+
+            for area in context.screen.areas:
+                if area not in areas:
+                    new_area = area
+                    break
+            
+            if new_area:
+                new_area.type = self.area_type
+                new_area.ui_type = self.ui
+
+                if swap:
+                    context_override = ContextOverride(new_area.type)   
+                    bpy.ops.screen.screen_full_area(context_override)
+                    bpy.ops.screen.back_to_previous()
+                    if direction == 'VERTICAL':
+                        bpy.ops.screen.area_swap(cursor=(new_area.x, int(new_area.height / 2)))
+                        
+                return {"FINISHED"}
+
         return {"FINISHED"}
