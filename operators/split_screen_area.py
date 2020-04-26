@@ -164,6 +164,9 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         areas = list(context.screen.areas)
         current_area = context.area
         side_area = None
+        # Fix stupid Blender's behaviour
+        if self.factor == 0.5:
+            self.factor = 0.499
         # side_area = None
         # join_x, join_y = self.get_join_xy(context, area, direction)
 
