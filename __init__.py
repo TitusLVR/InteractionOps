@@ -37,13 +37,14 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
                                       IOPS_OT_object_rotate_X,
                                       IOPS_OT_object_rotate_Y,
                                       IOPS_OT_object_rotate_Z)
+
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
 from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign)
-                                            
+
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
                                IOPS_OT_transform_orientation_cleanup,
@@ -54,8 +55,7 @@ from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_PT_TM_Panel,
                                IOPS_OT_Call_TPS_Panel,
                                IOPS_OT_Call_TM_Panel,
-                               IOPS_PT_VCol_Panel,
-                               IOPS_OT_select_mod_curve)
+                               IOPS_PT_VCol_Panel)
 
 from .ui.iops_data_panel import (IOPS_PT_DATA_Panel, 
                                  IOPS_OT_Call_Data_Panel)
@@ -86,9 +86,12 @@ from .operators.z_ops import (Z_OT_GrowLoop,
                               Z_OT_Mirror,
                               Z_OT_EdgeConnect)
 
+from .operators.easy_mod_curve import IOPS_OT_Easy_Mod_Curve
+from .operators.easy_mod_array import (IOPS_OT_Easy_Mod_Array_Caps,
+                                       IOPS_OT_Easy_Mod_Array_Curve)
+
 from .operators.executor import IOPS_OT_EXECUTOR
 from .operators.run_text import IOPS_OT_RunText
-from .operators.array_rig import (IOPS_OT_ARRIG)
 from .operators.ui_prop_switch import (IOPS_OT_PropScroll_UP,
                                        IOPS_OT_PropScroll_DOWN)  
 
@@ -164,9 +167,10 @@ classes = (IOPS_OT_Main,
            IOPS_OT_Call_Pie_Split,
            IOPS_PT_DATA_Panel, 
            IOPS_OT_Call_Data_Panel,
-           IOPS_OT_select_mod_curve,
+           IOPS_OT_Easy_Mod_Curve,
            IOPS_OT_EXECUTOR,
-           IOPS_OT_ARRIG,
+           IOPS_OT_Easy_Mod_Array_Caps,
+           IOPS_OT_Easy_Mod_Array_Curve,
            IOPS_AddonPreferences,
            IOPS_AddonProperties,
            IOPS_OT_LoadDefaultHotkeys,

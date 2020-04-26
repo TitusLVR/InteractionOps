@@ -105,114 +105,6 @@ class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
                     ob.data.uv_layers.remove(ob.data.uv_layers[uv])
         return {'FINISHED'}
 
-class IOPS_OT_select_mod_curve(bpy.types.Operator):
-    """Select picked curve in curve modifier"""
-    bl_idname = "iops.select_modifier_curve"
-    bl_label = "Select picked curve of CURVE modifier"
-
-    @classmethod
-    def poll(cls, context):
-        return (context.object.type == "MESH" and
-                context.mode == "OBJECT" and
-                context.area.type == "VIEW_3D")
-
-    def execute(self, context):
-        if len(context.view_layer.objects.selected) == 1:
-            for mod in bpy.context.active_object.modifiers:
-                if mod.type == "CURVE":
-                    bpy.ops.object.select_all(action='DESELECT')
-                    mod.object.select_set(True)
-                    context.view_layer.objects.active = mod.object 
-                    self.report({'INFO'}, "Curve Modifer - Object selected.")               
-                    return {'FINISHED'}
-        
-        if len(context.view_layer.objects.selected) == 2:
-            obj = None
-            curve = None
-
-            for ob in context.view_layer.objects.selected:
-                if ob.type =="MESH":
-                    obj = ob                   
-                if ob.type =="CURVE":
-                    curve = ob
-            
-            if obj and curve:
-                cur = context.scene.cursor
-                curve.data.use_radius = True
-                curve.data.use_deform_bounds = True
-
-                if obj.location != curve.location:
-                    bpy.ops.object.select_all(action='DESELECT')
-                    curve.select_set(True)
-                    context.view_layer.objects.active = curve 
-                    
-                    if curve.data.splines.active.type == "POLY":                                               
-                        cur.location = curve.data.splines.active.points[0].co.xyz @ curve.matrix_world.transposed()
-                        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')                    
-                    
-                    if curve.data.splines.active.type == "BEZIER":
-                        cur.location = curve.data.splines.active.bezier_points[0].co @ curve.matrix_world.transposed()
-                        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
-                    
-                    bpy.ops.object.select_all(action='DESELECT')
-                    obj.location = curve.location
-                
-                if obj.modifiers:
-                    if obj.modifiers[-1].type == "CURVE":
-                        mod = obj.modifiers[-1]
-                        mod.object = curve
-                        
-                        bpy.ops.object.select_all(action='DESELECT')
-                        context.view_layer.objects.active = obj
-                        self.report({'INFO'}, "Curve object picked.")
-                    else:                                                                     
-                        mod = obj.modifiers.new("iOps Curve", type='CURVE')
-                        mod.object = curve
-                        self.report({'INFO'}, "Curve Modifier added and curve object picked.")
-                return {'FINISHED'}
-            else:
-                self.report({'WARNING'}, "Mesh or Curve missing!!!")
-                return {'FINISHED'}
-        return {'FINISHED'}
-                
-                   
-                    
-
-
-
-                        
-                        
-                        
-
-
-
-                    
-                    
-                        
-                    
-
-
-
-
-
-
-
-               
-
-
-
-
-
-
-
-              
-        for mod in bpy.context.active_object.modifiers:
-            if mod.type == "CURVE":
-                bpy.ops.object.select_all(action='DESELECT')
-                mod.object.select_set(True)
-                context.view_layer.objects.active = mod.object                
-        return {'FINISHED'}
-
 
 class IOPS_PT_TPS_Panel(bpy.types.Panel):
     """Tranformation,PivotPoint,Snapping panel"""
@@ -275,8 +167,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         if mesh.has_custom_normals:
                             row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
                         else:
-                            row.prop(mesh, "auto_smooth_angle", text="")            
-        
+                            row.prop(mesh, "auto_smooth_angle", text="")   
 
         if context.area.type == "VIEW_3D":            
             # Column 1
