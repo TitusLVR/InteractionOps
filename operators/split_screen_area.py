@@ -147,21 +147,15 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         elif pos == "RIGHT":
             bpy.ops.screen.area_swap(cursor=(join_x, join_y))
             bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            context_override = ContextOverride(side_area.type)   
-            bpy.ops.screen.screen_full_area(context_override)
-            bpy.ops.screen.back_to_previous()
+            self.refresh_ui(side_area)
 
         elif pos == "BOTTOM":
             bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            context_override = ContextOverride(side_area.type)   
-            bpy.ops.screen.screen_full_area(context_override)
-            bpy.ops.screen.back_to_previous()
+            self.refresh_ui(side_area)
 
         elif pos == "LEFT":
             bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            context_override = ContextOverride(side_area.type)   
-            bpy.ops.screen.screen_full_area(context_override)
-            bpy.ops.screen.back_to_previous()
+            self.refresh_ui(side_area)
 
         return side_area
 
@@ -197,13 +191,12 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
             self.report({'INFO'}, "Joined Areas")
 
         else:
-            # context.area.type = current_area.type
             new_area = None
-            swap = True if self.factor > 0.49 else False
+            swap = True if self.factor >= 0.5 else False
 
             direction = "VERTICAL" if self.pos in {'LEFT', 'RIGHT'} else "HORIZONTAL"
-            # factor = (1 - self.factor) if self.pos in {'RIGHT', 'TOP'} else self.factor
-            bpy.ops.screen.area_split(direction=direction, factor=self.factor)
+            factor = (1 - self.factor) if self.pos in {'RIGHT', 'TOP'} else self.factor
+            bpy.ops.screen.area_split(direction=direction, factor=factor)
 
             for area in context.screen.areas:
                 if area not in areas:
@@ -215,11 +208,17 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 new_area.ui_type = self.ui
 
                 if swap:
-                    context_override = ContextOverride(new_area.type)   
-                    bpy.ops.screen.screen_full_area(context_override)
-                    bpy.ops.screen.back_to_previous()
+                    self.refresh_ui(new_area)
                     if direction == 'VERTICAL':
-                        bpy.ops.screen.area_swap(cursor=(new_area.x, int(new_area.height / 2)))
+                        if self.pos == 'LEFT':
+                            bpy.ops.screen.area_swap(cursor=(new_area.x, int(new_area.height / 2)))
+                        if self.pos == 'RIGHT':
+                            bpy.ops.screen.area_swap(cursor=(context.area.x, int(new_area.height / 2)))
+                    if direction == 'HORIZONTAL':
+                        if self.pos == 'TOP':
+                            bpy.ops.screen.area_swap(cursor=(int(new_area.width / 2), context.area.y))
+                        if self.pos == 'BOTTOM':
+                            bpy.ops.screen.area_swap(cursor=(int(new_area.height / 2), new_area.y))
                         
                 return {"FINISHED"}
 
