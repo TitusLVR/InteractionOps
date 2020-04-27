@@ -284,7 +284,7 @@ class IOPS_OT_Easy_Mod_Array_Curve(bpy.types.Operator):
     add_curve_mod: BoolProperty(
         name="Add Curve modifier",
         description="Add Curve modifier after Array modifier.",
-        default=False
+        default=True
         )    
 
     use_curve_radius: BoolProperty(
@@ -343,28 +343,50 @@ class IOPS_OT_Easy_Mod_Array_Curve(bpy.types.Operator):
                 if ob.type =="CURVE":
                     curve = ob
         
-        if obj and curve:            
+        if obj and curve:
+            cur = context.scene.cursor
+            curve.data.use_radius = self.use_curve_radius
+            curve.data.use_stretch = self.use_curve_stretch 
+            curve.data.use_deform_bounds = self.use_curve_bounds_clamp
+
+            if obj.location != curve.location:
+                bpy.ops.object.select_all(action='DESELECT')
+                curve.select_set(True)
+                context.view_layer.objects.active = curve  
+                
+                if curve.data.splines.active.type == "POLY":                                               
+                    cur.location = curve.data.splines.active.points[0].co.xyz @ curve.matrix_world.transposed()
+                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')                    
+                
+                if curve.data.splines.active.type == "BEZIER":
+                    cur.location = curve.data.splines.active.bezier_points[0].co @ curve.matrix_world.transposed()
+                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+
+                if curve.data.splines.active.type == "NURBS":
+                    cur.location = curve.data.splines.active.points[0].co.xyz @ curve.matrix_world.transposed()
+                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+                
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.location = curve.location           
+            
+
+            
             if obj.modifiers:
                 for mod in reversed(obj.modifiers):
                     if mod.type == "ARRAY" and mod.fit_type == "FIT_CURVE":
-                        if mod.curve is None:
-                            mod.curve = curve
-                            self.report({'INFO'}, "Array Modifier - Curve picked.")
-                            return {'FINISHED'}
+                        mod.curve = curve
+                        self.report({'INFO'}, "Array Modifier - Curve picked.")
+                        
             else:
                 mod = obj.modifiers.new("iOps Array", type='ARRAY')
                 mod.fit_type = "FIT_CURVE"
                 mod.curve = curve
-                if self.add_curve_mod:
-                    curve.data.use_radius = self.use_curve_radius
-                    curve.data.use_stretch = self.use_curve_stretch 
-                    curve.data.use_deform_bounds = self.use_curve_bounds_clamp
+                if self.add_curve_mod:                    
                     mod_curve = obj.modifiers.new("iOps Curve", type='CURVE')
                     mod_curve.object = curve
                     mod_curve.deform_axis = self.curve_modifier_axis                   
                     self.report({'INFO'}, "Curve Modifier added and curve object picked.")
                 self.report({'INFO'}, "Array Modifier added and wired.")
-                return {'FINISHED'}
 
         return {'FINISHED'}
                

@@ -32,7 +32,7 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_2_ui, 
                                        pos=prefs.split_area_pie_2_pos, 
                                        factor=prefs.split_area_pie_2_factor)         
@@ -45,7 +45,7 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_3_ui, 
                                        pos=prefs.split_area_pie_3_pos, 
                                        factor=prefs.split_area_pie_3_factor)         
@@ -58,7 +58,7 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_4_ui, 
                                        pos=prefs.split_area_pie_4_pos, 
                                        factor=prefs.split_area_pie_4_factor)         
@@ -71,7 +71,7 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_6_ui, 
                                        pos=prefs.split_area_pie_6_pos, 
                                        factor=prefs.split_area_pie_6_factor)         
@@ -84,7 +84,7 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_7_ui, 
                                        pos=prefs.split_area_pie_7_pos, 
                                        factor=prefs.split_area_pie_7_factor)         
@@ -97,7 +97,7 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_8_ui, 
                                        pos=prefs.split_area_pie_8_pos, 
                                        factor=prefs.split_area_pie_8_factor)         
@@ -110,7 +110,7 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
 
     def execute(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
-        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
+        bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_9_ui, 
                                        pos=prefs.split_area_pie_9_pos, 
                                        factor=prefs.split_area_pie_9_factor)         
