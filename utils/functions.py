@@ -100,6 +100,8 @@ def match_dimensions():
         for ob in selection:
             ob.dimensions = active.dimensions
 
+def set_display_mode(mode):
+    bpy.context.area.spaces.active.display_mode = mode
 
 ############################## ZALOOPOK ##############################
 def z_connect():

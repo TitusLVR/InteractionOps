@@ -1,5 +1,6 @@
 from collections import defaultdict
 from .functions import *
+import bpy
 
 
 class IOPS_Dict():
@@ -226,10 +227,10 @@ class IOPS_Dict():
 
         },
         "OUTLINER": {
-            "F1": lambda: no_operator(),
+            "F1": lambda: set_display_mode('VIEW_LAYER'),
             "F2": lambda: no_operator(),
-            "F3": lambda: no_operator(),
-            "F4": lambda: no_operator(),
+            "F3": lambda: set_display_mode('LIBRARIES'),
+            "F4": lambda: set_display_mode('ORPHAN_DATA'),
             "F5": lambda: no_operator(),
             "ESC": lambda: no_operator(),
         },
