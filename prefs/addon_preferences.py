@@ -15,10 +15,32 @@ from bpy.props import (BoolProperty,
                        FloatVectorProperty,
                        )
 
+# def update_iops_tab_panel(self, context):
+    # message = "iOps: Updating Panel locations has failed"
+    # try:
+    #     for panel in panels:
+    #         if "bl_rna" in panel.__dict__:
+    #             bpy.utils.unregister_class(panel)
+
+    #     for panel in panels:
+    #         panel.bl_category = context.preferences.addons["InteractionOps"].preferences.iops_tab_category
+    #         bpy.utils.register_class(panel)
+
+    # except Exception as e:
+    #     print("\n[{}]\n{}\n\nError:\n{}".format("InteractionOps", message, e))
+        # pass
+
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
+    
+    # iops_tab_category: StringProperty(
+    #         name="Tab Category",
+    #         description="Choose a name for the category of the panel",
+    #         default="Edit",
+    #         update=update_iops_tab_panel
+    #         )
     
     # list itens (identifier, name, description, icon, number,)
     #Area.type, Area.ui_type, Icon, PrefText
@@ -157,7 +179,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                  ('RIGHT',  'RIGHT',  '',  '',   1),
                                  ('TOP',    'TOP',    '',  '',   2),
                                  ('BOTTOM', 'BOTTOM', '',  '',   3)]
-                            
 
 
     text_color: FloatVectorProperty(
@@ -480,7 +501,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     def draw(self, context):
         layout = self.layout
         col = layout.column()
-        row = col.row(align=True)
+        
+        # Panel placement
+        # box = layout.box()
+        # col = box.column(align=True)
+        # col.label(text='iOPS Tab Category:')
+        # col.prop(self, "iops_tab_category", text="")
+        
+        row = col.row(align=True) 
         # we don't want to put anything else on this row other than the 'split' item
         split = row.split(factor=0.5, align=False)
         box_kmp = split.box()
