@@ -1,6 +1,7 @@
 import bpy
 import bmesh
-
+import json
+from mathutils import Vector
 from bpy.props import (FloatProperty)
 
 class IOPS_OT_QuickSnap(bpy.types.Operator):
@@ -41,7 +42,7 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
 
             #GET SCENE OBJECTS
-            mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != []]
+            mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
             bm = bmesh.new()
             for ob in mesh_objects:
                 if ob == edit_obj:
@@ -63,13 +64,28 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
                         # print("Closest dist:",c_dist)
                         bm.verts.ensure_lookup_table()
                         bm.faces.ensure_lookup_table()
+                        v_dists = {}
                         for v in ob.data.polygons[face_index].vertices:                                
                             v_co = ob.matrix_world @ ob.data.vertices[v].co 
             #                target_points.append(v_co)                          
-                            v_dist = (v_co - v1).length - self.quick_snap_diff
-                            # print("Vertex dist:",v_dist) 
-                            if v_dist <= c_dist:
-                                target_points.append([ind,v_co])                           
+                            # v_dist = (v_co - v1).length - self.quick_snap_diff
+                            # print("Vertex dist:",v_dist)                             
+                            # if v_dist <= c_dist:
+                            #     target_points.append([ind,v_co])
+                            v_dist = (v_co - v1).length 
+                            v_dists[v] = {}
+                            v_dists[v]["co"] = (*v_co,)
+                            v_dists[v]["len"] = v_dist
+                            print (json.dumps(v_dists, indent=4))
+                        
+                        
+                        lens = [v_dists[idx]["len"] for idx in v_dists]
+                        for k in v_dists.values():    
+                            if k["len"] == min(lens):
+                                min_co = k["co"]
+                        
+                        target_points.append([ind, Vector(min_co)])
+                                                   
                 bm.clear()
                 
 
@@ -80,6 +96,8 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
             for p in target_points:
                 bm.verts[p[0]].co = edit_obj.matrix_world.inverted() @ p[1]
             bmesh.update_edit_mesh(me)
+
+
             #bpy.ops.object.editmode_toggle()
             #for p in target_points: 
             #    print ("------", p)   
