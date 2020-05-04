@@ -5,13 +5,13 @@ import copy
 def ContextOverride(area):
     for window in bpy.context.window_manager.windows:      
         screen = window.screen
-        for area in screen.areas:
-            if area.type == area.type:            
-                for region in area.regions:
+        for screen_area in screen.areas:
+            if screen_area.ui_type == area.ui_type:            
+                for region in screen_area.regions:
                     if region.type == 'WINDOW':               
                         context_override = {'window': window, 
                                             'screen': screen, 
-                                            'area': area, 
+                                            'area': screen_area, 
                                             'region': region, 
                                             'scene': bpy.context.scene, 
                                             'edit_object': bpy.context.edit_object, 
@@ -56,7 +56,7 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
     )        
 
     def refresh_ui(self, area):
-        context_override = ContextOverride(area.type)   
+        context_override = ContextOverride(area)
         bpy.ops.screen.screen_full_area(context_override)
         bpy.ops.screen.back_to_previous()
 
@@ -65,22 +65,18 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         x, y = 0, 0
         if ui == context.area.ui_type:
             if pos == "TOP":
-                print('Found TOP Area')
                 x = int(context.area.width/2 + context.area.x)
                 y = context.area.y - 1
 
             elif pos == "RIGHT":
-                print('Found RIGHT Area')
                 x = context.area.x - 1
                 y = int(context.area.height/2 + context.area.y)
 
             elif pos == "BOTTOM":
-                print('Found BOTTOM Area')
                 x = int(context.area.width/2 + context.area.x)
                 y = context.area.height + context.area.y + 1
                 
             elif pos == "LEFT":
-                print('Found LEFT Area')
                 x = context.area.width + context.area.x + 1
                 y = int(context.area.y + context.area.height/2)
 
@@ -108,54 +104,52 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
 
         side_area = None
 
-        if pos == "TOP" and \
-            area.x == context.area.x and \
-            area.width == context.area.width and \
-            area.y == context.area.height + context.area.y + 1:
-                side_area = area
-            
-        elif pos == "RIGHT" and \
-            area.x == context.area.x + context.area.width + 1 and \
-            area.height == context.area.height and \
-            area.y == context.area.y:
-                side_area = area
+        for screen_area in context.screen.areas:
+            if pos == "TOP" and \
+                screen_area.x == area.x and \
+                screen_area.width == area.width and \
+                screen_area.y == area.height + area.y + 1:
+                    side_area = screen_area
+                    break
+                
+            elif pos == "RIGHT" and \
+                screen_area.x == area.x + area.width + 1 and \
+                screen_area.height == area.height and \
+                screen_area.y == area.y:
+                    side_area = screen_area
+                    break
 
-        elif pos == "BOTTOM" and \
-            area.width == context.area.width and \
-            area.x == context.area.x and \
-            area.height + area.y + 1 == context.area.y:
-                side_area = area
+            elif pos == "BOTTOM" and \
+                screen_area.width == area.width and \
+                screen_area.x == area.x and \
+                screen_area.height + screen_area.y + 1 == area.y:
+                    side_area = screen_area
+                    break
 
-        elif pos == "LEFT" and \
-            area.width + area.x + 1 == context.area.x and \
-            area.y == context.area.y and \
-            area.height == context.area.height:
-                side_area = area
+            elif pos == "LEFT" and \
+                screen_area.width + screen_area.x + 1 == area.x and \
+                screen_area.y == area.y and \
+                screen_area.height == area.height:
+                    side_area = screen_area
+                    break
 
         return side_area
 
 
-    def join_areas(self, context, current_area, side_area, pos):
+    def join_areas(self, context, current_area, side_area, pos, swap):
         join_x, join_y = self.get_join_xy(context, side_area.ui_type, pos)
-
-        if pos == "TOP":
+        context_override = ContextOverride(side_area)
+        bpy.ops.iops.space_data_save(context_override)
+        refresh_area = side_area if current_area.ui_type == self.ui else current_area
+        
+        if swap:
             bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+            refresh_area = side_area if current_area.ui_type == self.ui else current_area
             bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            self.refresh_ui(side_area)
-
-            
-        elif pos == "RIGHT":
-            bpy.ops.screen.area_swap(cursor=(join_x, join_y))
+            self.refresh_ui(refresh_area)
+        else:
             bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            self.refresh_ui(side_area)
-
-        elif pos == "BOTTOM":
-            bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            self.refresh_ui(side_area)
-
-        elif pos == "LEFT":
-            bpy.ops.screen.area_join(cursor=(join_x, join_y))
-            self.refresh_ui(side_area)
+            self.refresh_ui(refresh_area)
 
         return side_area
 
@@ -164,16 +158,15 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         areas = list(context.screen.areas)
         current_area = context.area
         side_area = None
+
         # Fix stupid Blender's behaviour
         if self.factor == 0.5:
             self.factor = 0.499
-        # side_area = None
-        # join_x, join_y = self.get_join_xy(context, area, direction)
+
 
         # Check if toggle fullscreen was activated
         if "nonnormal" in context.screen.name: 
             bpy.ops.screen.screen_full_area(use_hide_panels=True)
-
             return {"FINISHED"}
 
 
@@ -181,17 +174,35 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
             if area == current_area:
                 continue
             else:
-                side_area = self.get_side_area(context, area, self.pos)
+                side_area = self.get_side_area(context, current_area, self.pos)
                 if side_area and side_area.ui_type == self.ui:
-                    self.join_areas(context, current_area, side_area, self.pos)
+                    swap = True if self.pos in {'TOP', 'RIGHT'} else False
+                    self.join_areas(context, current_area, side_area, self.pos, swap)
                     self.report({'INFO'}, "Joined Areas")
+  
                     return {'FINISHED'}
                 else:
                     continue
         
         if current_area.ui_type == self.ui:
-            self.join_areas(context, current_area, current_area, self.pos)
-            self.report({'INFO'}, "Joined Areas")
+            if self.pos == 'LEFT':
+                mirror_pos = 'RIGHT'
+            elif self.pos == 'RIGHT':
+                mirror_pos = 'LEFT'
+            elif self.pos == 'TOP':
+                mirror_pos = 'BOTTOM'
+            elif self.pos == 'BOTTOM':
+                mirror_pos = 'TOP'
+                
+            swap = False if mirror_pos in {'TOP', 'RIGHT'} else True
+            side_area = self.get_side_area(context, current_area, mirror_pos)
+            if side_area:
+                self.join_areas(context, current_area, side_area, mirror_pos, swap)
+                self.report({'INFO'}, "Joined Areas")
+                return {'FINISHED'}
+            else:
+                self.report({'INFO'}, "No side area to join")
+                return {'FINISHED'}
 
         else:
             new_area = None
@@ -222,7 +233,9 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                             bpy.ops.screen.area_swap(cursor=(int(new_area.width / 2), context.area.y))
                         if self.pos == 'BOTTOM':
                             bpy.ops.screen.area_swap(cursor=(int(new_area.height / 2), new_area.y))
-                        
+
+                context_override = ContextOverride(new_area)
+                bpy.ops.iops.space_data_load(context_override)
                 return {"FINISHED"}
 
         return {"FINISHED"}

@@ -45,10 +45,5 @@ keys_default = [
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True, False),
     ('iops.prop_scroll_up',             'WHEELUPMOUSE',     'PRESS', True, False, False, True),
     ('iops.prop_scroll_down',           'WHEELDOWNMOUSE',   'PRESS', True, False, False, True),
-    ('iops.split_area_uv',              'Q',                'PRESS', True, True, True, False),
-    ('iops.split_area_outliner',        'W',                'PRESS', True, True, True, False),
-    ('iops.split_area_properties',      'R',                'PRESS', True, True, True, False),
-    ('iops.split_area_text',            'E',                'PRESS', True, True, True, False),
-    ('iops.split_area_console',         'ACCENT_GRAVE',     'PRESS', True, True, True, False),
 
 ]
