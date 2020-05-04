@@ -12,12 +12,6 @@ from .operators.grid_from_active import IOPS_OT_ToGridFromActive
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.split_screen_area import IOPS_OT_SplitScreenArea
-from .operators.split_area import (IOPS_OT_SplitAreaUV,
-                                   IOPS_OT_SplitAreaOutliner,
-                                   IOPS_OT_SplitAreaProperties,
-                                   IOPS_OT_SplitAreaText,
-                                   IOPS_OT_SplitAreaConsole,
-                                   IOPS_OT_SplitAreaTimeline)
 
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
@@ -40,6 +34,9 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
+
+from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveSpaceData
+
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
@@ -183,13 +180,9 @@ classes = (IOPS_OT_Main,
            IOPS_OT_PropScroll_DOWN,
            IOPS_OT_VertexColorAssign,
            IOPS_PT_VCol_Panel,  
-           IOPS_OT_SplitAreaUV,
-           IOPS_OT_SplitAreaOutliner,
-           IOPS_OT_SplitAreaProperties,
-           IOPS_OT_SplitAreaText,
-           IOPS_OT_SplitAreaConsole,
-           IOPS_OT_SplitAreaTimeline,
            IOPS_OT_SplitScreenArea,
+           IOPS_OT_SaveSpaceData,
+           IOPS_OT_LoadSpaceData,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
