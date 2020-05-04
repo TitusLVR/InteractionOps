@@ -40,6 +40,8 @@ from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
+from .operators.quick_snap import IOPS_OT_QuickSnap
+
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
@@ -88,7 +90,8 @@ from .operators.z_ops import (Z_OT_GrowLoop,
 
 from .operators.easy_mod_curve import IOPS_OT_Easy_Mod_Curve
 from .operators.easy_mod_array import (IOPS_OT_Easy_Mod_Array_Caps,
-                                       IOPS_OT_Easy_Mod_Array_Curve)
+                                       IOPS_OT_Easy_Mod_Array_Curve,)
+from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 
 from .operators.executor import IOPS_OT_EXECUTOR
 from .operators.run_text import IOPS_OT_RunText
@@ -171,6 +174,8 @@ classes = (IOPS_OT_Main,
            IOPS_OT_EXECUTOR,
            IOPS_OT_Easy_Mod_Array_Caps,
            IOPS_OT_Easy_Mod_Array_Curve,
+           IOPS_OT_Easy_Mod_Shwarp,
+           IOPS_OT_QuickSnap,
            IOPS_AddonPreferences,
            IOPS_AddonProperties,
            IOPS_OT_LoadDefaultHotkeys,
