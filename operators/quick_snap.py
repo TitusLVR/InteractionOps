@@ -2,7 +2,7 @@ import bpy
 import bmesh
 import json
 from mathutils import Vector
-from bpy.props import (FloatProperty)
+from bpy.props import (BoolProperty)
 
 class IOPS_OT_QuickSnap(bpy.types.Operator):
     """ Quick Snap point to point """
@@ -10,6 +10,12 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
     bl_label = "IOPS Quick Snap"
     bl_options = {"REGISTER", "UNDO"}
 
+
+    quick_snap_surface: BoolProperty(
+        name="Surface snap",
+        description="ON/Off",
+        default=False
+    )
     # @classmethod 
     # def poll(cls, context):
     #     return (and context.area.type == "VIEW_3D")
@@ -32,7 +38,7 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
 
             #GET SCENE OBJECTS
-            mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+            mesh_objects = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get() and o.modifiers[:] == []]
             bm = bmesh.new()
             for ob in mesh_objects:
                 if ob == edit_obj:
@@ -43,28 +49,42 @@ class IOPS_OT_QuickSnap(bpy.types.Operator):
                 bm.verts.ensure_lookup_table()
                 for ind in selected_verts_index:                   
                     vert = bm.verts[ind]
-                    v1 = edit_obj.matrix_world @ vert.co # global face median  
-                            
-                    local_pos = ob_mw_i @ v1  # face cent in sphere local space
+                    vert_co = edit_obj.matrix_world @ vert.co 
+                    local_pos = ob_mw_i @ vert_co  
                     (hit, loc, norm, face_index) = ob.closest_point_on_mesh(local_pos)
                     if hit:
                         bm.verts.ensure_lookup_table()
                         bm.faces.ensure_lookup_table()
                         v_dists = {}
-                        for v in ob.data.polygons[face_index].vertices:                                
-                            v_co = ob.matrix_world @ ob.data.vertices[v].co                 
-                            v_dist = (v_co - v1).length 
-                            v_dists[v] = {}
-                            v_dists[v]["co"] = (*v_co,)
-                            v_dists[v]["len"] = v_dist
-                        
-                        lens = [v_dists[idx]["len"] for idx in v_dists]
-                        for k in v_dists.values():    
-                            if k["len"] == min(lens):
-                                min_co = k["co"]
-                        
-                        target_points.append([ind, Vector(min_co)])
-                                                   
+                        if self.quick_snap_surface:                           
+                            target_co = ob.matrix_world @ loc
+                            v_dist = (target_co - vert_co).length
+                            min_co = target_co
+                            min_len = v_dist
+                        else:
+                            for v in ob.data.polygons[face_index].vertices:                                
+                                target_co = ob.matrix_world @ ob.data.vertices[v].co                 
+                                v_dist = (target_co - vert_co).length 
+                                v_dists[v] = {}
+                                v_dists[v]["co"] = (*target_co,)
+                                v_dists[v]["len"] = v_dist
+                            
+                            lens = [v_dists[idx]["len"] for idx in v_dists]
+                            for k in v_dists.values():    
+                                if k["len"] == min(lens):
+                                    min_co = Vector((k["co"]))
+                                    min_len = k["len"]
+                                
+                        if target_points:
+                            if len(target_points) != len(selected_verts_index):
+                                target_points.append([ind, min_co, min_len])
+                            else:
+                                for p in target_points:
+                                    if p[0] == ind and p[2] >= min_len:                                                                            
+                                        p[1] = min_co
+                                        p[2] = min_len
+                        else:   
+                            target_points.append([ind, min_co, min_len])
                 bm.clear()
 
             bm = bmesh.from_edit_mesh(me)
