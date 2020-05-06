@@ -5,7 +5,7 @@
 
 ### Download:
    * Click on green button and get iOps with Git. 
-   * Or download and install zip file from releases branch: [iOps 1.5](https://github.com/TitusLVR/InteractionOps/blob/releases/iOps_1.5.zip?raw=true)
+   * Or download and install zip file from releases branch: [iOps 2.1](https://github.com/TitusLVR/InteractionOps/blob/releases/iOps_2.1.0.zip)
 
 ### MESH:
     
