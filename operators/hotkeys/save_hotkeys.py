@@ -9,7 +9,7 @@ def save_hotkeys():
     folder = os.path.join(path, 'presets', 'keyconfig', "IOPS")
     user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
     if not os.path.exists(folder):
-        os.mkdir(folder)
+        os.makedirs(folder)
     with open(user_hotkeys_file, 'w') as f:
         data = get_iops_keys()
         f.write(

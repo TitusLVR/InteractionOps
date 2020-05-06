@@ -103,7 +103,7 @@ bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
     "version": (2, 1, 0),
-    "blender": (2, 81, 0),
+    "blender": (2, 83, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "Handy functions to speed up workflow",
     "warning": "",
