@@ -33,8 +33,7 @@ from bpy.props import (BoolProperty,
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = "InteractionOps"
-    
+    bl_idname = "InteractionOps"    
     # iops_tab_category: StringProperty(
     #         name="Tab Category",
     #         description="Choose a name for the category of the panel",
@@ -44,6 +43,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     
     # list itens (identifier, name, description, icon, number,)
     #Area.type, Area.ui_type, Icon, PrefText
+
     split_areas_dict = {
             "Empty": {
                     "type": "EMPTY",
@@ -497,6 +497,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=2
     )
 
+    executor_column_count: IntProperty(
+        name="Scripts per column",
+        description="Scripts per column ",
+        default=20,
+        min=5,
+        max=1000
+    )
+    executor_scripts_folder: StringProperty(
+        name="Export Folder",
+        subtype='DIR_PATH',
+        default=bpy.utils.script_path_user(),
+    )
+
 
     def draw(self, context):
         layout = self.layout
@@ -709,6 +722,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col.prop(self, "split_area_pie_3_pos")
         col.prop(self, "split_area_pie_3_factor")
         
+        # Executor
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Script Executor:")
+        col = box.column(align=True)
+        col.prop(self, "executor_scripts_folder")
+        col.prop(self, "executor_column_count")
         
         # Debug
         box = box_ui.box()

@@ -24,17 +24,26 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
     bl_label = "Executor list"
 
     def draw(self, context):
-        scripts_folder = bpy.utils.script_path_user() # TODO: Add user scripts folder 
+        prefs = context.preferences.addons['InteractionOps'].preferences
+        executor_scripts_folder = prefs.executor_scripts_folder
+        executor_column_count = prefs.executor_column_count
+        
+        scripts_folder = executor_scripts_folder # TODO: Add user scripts folder 
+        # scripts_folder = os.path.join(scripts_folder, "custom")
         _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
         files = [os.path.join(scripts_folder, f) for f in _files]
         scripts = [script for script in files if script[-2:] == "py"]
 
-        layout = self.layout
-        col = layout.column(align=True)
-
+        layout = self.layout        
+        row = layout.row(align=True)              
+        col = row.column()
+        col.separator()
         if scripts:
-            col.separator()
-            for script in scripts:
+            count = len(scripts)
+            for count, script in enumerate(scripts, 0): # Start counting from 1
+                if count % executor_column_count == 0:                                        
+                    row = row.row(align=True)
+                    col = row.column()
                 name = os.path.split(script)
                 col.operator("iops.executor", text=name[1], icon='FILE_SCRIPT').script = script 
 
