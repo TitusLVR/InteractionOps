@@ -89,7 +89,9 @@ from .operators.easy_mod_array import (IOPS_OT_Easy_Mod_Array_Caps,
                                        IOPS_OT_Easy_Mod_Array_Curve,)
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 
-from .operators.executor import IOPS_OT_EXECUTOR
+from .operators.executor import (IOPS_OT_Executor, 
+                                 IOPS_MT_ExecuteList,
+                                 IOPS_OT_Call_MT_Executor)
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (IOPS_OT_PropScroll_UP,
                                        IOPS_OT_PropScroll_DOWN)  
@@ -167,7 +169,9 @@ classes = (IOPS_OT_Main,
            IOPS_PT_DATA_Panel, 
            IOPS_OT_Call_Data_Panel,
            IOPS_OT_Easy_Mod_Curve,
-           IOPS_OT_EXECUTOR,
+           IOPS_OT_Executor, 
+           IOPS_MT_ExecuteList,
+           IOPS_OT_Call_MT_Executor,
            IOPS_OT_Easy_Mod_Array_Caps,
            IOPS_OT_Easy_Mod_Array_Curve,
            IOPS_OT_Easy_Mod_Shwarp,

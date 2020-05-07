@@ -1,0 +1,9 @@
+import bpy 
+
+#"""SELECT MESH OBJECTS WITHOUT POLYGONS"""
+
+bpy.ops.object.select_all(action='DESELECT')
+for ob in bpy.context.view_layer.objects:
+    if ob.type == "MESH" and ob.data.polygons[:] == []:
+        ob.select_set(True)
+    

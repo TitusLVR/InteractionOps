@@ -40,7 +40,7 @@ keys_default = [
     ('iops.f2',                         'F2',               'PRESS', False, False, False, False),
     ('iops.f1',                         'F1',               'PRESS', False, False, False, False),
     ('iops.esc',                        'ESC',              'PRESS', False, False, False, False),
-    ('iops.executor',                   'F19',              'PRESS', True, True, True, False),
+    ('iops.call_mt_executor',           'X',                'PRESS', True, True, True, False),
     ('iops.run_text',                   'F19',              'PRESS', True, True, True, False),
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True, False),
     ('iops.prop_scroll_up',             'WHEELUPMOUSE',     'PRESS', True, False, False, True),

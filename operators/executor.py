@@ -1,33 +1,49 @@
 import bpy
-import copy
+import os
+from os import listdir
+from os.path import isfile, join
+from bpy.props import (StringProperty)
 
-class IOPS_OT_EXECUTOR(bpy.types.Operator):
+class IOPS_OT_Executor(bpy.types.Operator):
     """ Execute info operators from buffer """
     bl_idname = "iops.executor"
     bl_label = "IOPS Executor"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
+
+    script: StringProperty(
+        name="Script path",
+        default="",
+        )
+    def execute(self, context):
+        filename = self.script
+        exec(compile(open(filename).read(), filename, 'exec'))        
+        return {"FINISHED"}
+
+class IOPS_MT_ExecuteList(bpy.types.Menu):
+    bl_idname = "IOPS_MT_ExecuteList"
+    bl_label = "Executor list"
+
+    def draw(self, context):
+        scripts_folder = bpy.utils.script_path_user() # TODO: Add user scripts folder 
+        _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
+        files = [os.path.join(scripts_folder, f) for f in _files]
+        scripts = [script for script in files if script[-2:] == "py"]
+
+        layout = self.layout
+        col = layout.column(align=True)
+
+        if scripts:
+            col.separator()
+            for script in scripts:
+                name = os.path.split(script)
+                col.operator("iops.executor", text=name[1], icon='FILE_SCRIPT').script = script 
+
+
+class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
+    """Active object data(mesh) information"""
+    bl_idname = "iops.call_mt_executor"
+    bl_label = "IOPS Call Executor"
 
     def execute(self, context):
-        selection = context.view_layer.objects.selected        
-        buf = ""
-        buf = copy.deepcopy(bpy.context.window_manager.clipboard.splitlines())
-        if len(selection) != 0: 
-            for window in bpy.context.window_manager.windows:
-                screen = window.screen
-                for area in screen.areas:
-                    if area.type == 'VIEW_3D':
-                        override = {'window': window, 'screen': screen, 'area': area}
-            for ob in selection:
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                for line in buf:
-                    cmd = line.split('()')
-                    cmd = str(cmd[0]) + "(override)"                     
-                    try:
-                        exec(cmd)
-                        print(cmd)                                   
-                    except:
-                        continue
-
-        return {"FINISHED"}
+        bpy.ops.wm.call_menu(name="IOPS_MT_ExecuteList")
+        return {'FINISHED'}
