@@ -10,7 +10,7 @@ from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d
 
 
-SNAP_DIST_SQ = 20**2 #Pixels Squared Tolerance
+SNAP_DIST_SQ = 30**2 #Pixels Squared Tolerance
 
 
 # get circle vertices on pos 2D by segments
@@ -42,7 +42,7 @@ def draw_point(point):
         return
     color = bpy.context.preferences.themes[0].view_3d.editmesh_active
 
-    radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_size / 2
+    radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_size / 1.5
     segments = 12
     # create vertices
     coords = generate_circle_verts(point, radius, segments)
@@ -113,19 +113,24 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             return Vector((0,0,0))
         return self.target[0] - self.source[0]
 
+
     def update_distances(self, context, event):
+        scene = context.scene
+        region = context.region
         mouse_pos = Vector((event.mouse_region_x, event.mouse_region_y))
         rv3d = context.region_data
+        view_layer = context.view_layer
+        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse_pos)
+        ray_origin =  view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_pos)
+
+        hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
 
         self.nearest = None, None
         min_dist = float('inf')
 
-        for o in context.visible_objects:
-            if o.type != 'MESH':
-                continue
-
-            for v in o.data.vertices:
-                v_co3d = o.matrix_world @ v.co
+        if hit and hit_obj.type == 'MESH':
+            for v in hit_obj.data.vertices:
+                v_co3d = hit_obj.matrix_world @ v.co
                 v_co2d = location_3d_to_region_2d(context.region, rv3d, v_co3d)
 
                 if v_co2d is not None:
@@ -135,6 +140,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
                     if d_squared < min_dist:
                         min_dist = d_squared
                         self.nearest = v_co3d, v_co2d
+
         return self.nearest
 
     def modal(self, context, event):
