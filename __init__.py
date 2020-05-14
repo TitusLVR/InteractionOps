@@ -5,6 +5,7 @@ import os
 from .operators.hotkeys.load_hotkeys import (IOPS_OT_LoadUserHotkeys, IOPS_OT_LoadDefaultHotkeys)
 from .operators.hotkeys.save_hotkeys import IOPS_OT_SaveUserHotkeys
 from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
+from .operators.materials_from_textures import IOPS_OT_MaterialsFromTextures
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
@@ -191,6 +192,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_SplitScreenArea,
            IOPS_OT_SaveSpaceData,
            IOPS_OT_LoadSpaceData,
+           IOPS_OT_MaterialsFromTextures,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
