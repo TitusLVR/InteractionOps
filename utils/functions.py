@@ -3,6 +3,71 @@ import bmesh
 import addon_utils
 
 
+import bpy
+import bmesh
+
+
+def ContextOverride(area):
+    for window in bpy.context.window_manager.windows:      
+        screen = window.screen
+        for screen_area in screen.areas:
+            if screen_area.ui_type == area.ui_type:            
+                for region in screen_area.regions:
+                    if region.type == 'WINDOW':               
+                        context_override = {'window': window, 
+                                            'screen': screen, 
+                                            'area': screen_area, 
+                                            'region': region, 
+                                            'scene': bpy.context.scene, 
+                                            'edit_object': bpy.context.edit_object, 
+                                            'active_object': bpy.context.active_object, 
+                                            'selected_objects': bpy.context.selected_objects
+                                            } 
+                        return context_override
+    raise Exception("ERROR: Override failed!")
+
+def view_selected_uv():
+    selected_verts = []
+    selected_faces = set()
+
+    view_3d = [area for area in bpy.context.screen.areas if area.type == 'VIEW_3D']
+    view_3d = view_3d[0]
+    if bpy.context.tool_settings.use_uv_select_sync == False:
+        mesh = bpy.context.active_object.data
+        bm = bmesh.from_edit_mesh(mesh)
+
+        uvl = bm.loops.layers.uv[mesh.uv_layers.active_index]
+
+        for face in bm.faces:
+            if not face.select:
+                continue
+            for loop in face.loops:
+                if not loop[uvl].select:
+                    continue
+                selected_verts.append(loop.vert)
+                selected_faces.add(face)
+
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bpy.ops.uv.select_all(action='DESELECT')
+
+        for v in selected_verts:
+            v.select = True
+        for f in selected_faces:
+            f.select = True
+    
+        bm.select_flush(True)
+        bmesh.update_edit_mesh(mesh)
+
+        context_override = ContextOverride(view_3d)
+        bpy.ops.view3d.view_selected(context_override)
+        bpy.ops.mesh.select_all(action='SELECT')
+        
+    else:
+        context_override = ContextOverride(view_3d)
+        bpy.ops.view3d.view_selected(context_override)
+
+
+
 def get_iop(dictionary, query):
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
     if debug:
