@@ -172,7 +172,7 @@ class IOPS_Dict():
             # Sync flag on
             True: {
                 "VERT": {
-                    "F1": lambda: object_mode_switch("OBJECT"),
+                    "F1": lambda: no_operator(),
                     "F2": lambda: mesh_select_mode("EDGE"),
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
@@ -180,7 +180,7 @@ class IOPS_Dict():
                 },
                 "EDGE": {
                     "F1": lambda: mesh_select_mode("VERT"),
-                    "F2": lambda: object_mode_switch("OBJECT"),
+                    "F2": lambda: no_operator(),
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
@@ -188,7 +188,7 @@ class IOPS_Dict():
                 "FACE": {
                     "F1": lambda: mesh_select_mode("VERT"),
                     "F2": lambda: mesh_select_mode("EDGE"),
-                    "F3": lambda: object_mode_switch("OBJECT"),
+                    "F3": lambda: no_operator(),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
                 },
