@@ -45,7 +45,9 @@ class IOPS_OT_Main(bpy.types.Operator):
         flag_uv = bpy.context.tool_settings.use_uv_select_sync
         op = self.operator
 
-        query = (type_area, type_object, mode_object, flag_uv, mode_mesh, mode_uv, op)
+
+
+        query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
 
         tool = bpy.context.tool_settings
 

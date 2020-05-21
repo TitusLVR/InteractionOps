@@ -177,6 +177,7 @@ class IOPS_Dict():
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
                 "EDGE": {
                     "F1": lambda: mesh_select_mode("VERT"),
@@ -184,6 +185,7 @@ class IOPS_Dict():
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
                 "FACE": {
                     "F1": lambda: mesh_select_mode("VERT"),
@@ -191,6 +193,15 @@ class IOPS_Dict():
                     "F3": lambda: no_operator(),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                },
+                "ISLAND": {
+                    "F1": lambda: mesh_select_mode("VERT"),
+                    "F2": lambda: mesh_select_mode("EDGE"),
+                    "F3": lambda: mesh_select_mode("FACE"),
+                    "F4": lambda: no_operator(),
+                    "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
             },
             # Sync flag off
@@ -201,6 +212,7 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
                 "EDGE": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -208,6 +220,7 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
                 "FACE": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -215,6 +228,7 @@ class IOPS_Dict():
                     "F3": lambda: view_selected_uv(),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
                 "ISLAND": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -222,6 +236,7 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: view_selected_uv(),
                     "F5": lambda: uv_sync_toggle(),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
                 },
             },
 

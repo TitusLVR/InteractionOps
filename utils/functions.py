@@ -3,10 +3,6 @@ import bmesh
 import addon_utils
 
 
-import bpy
-import bmesh
-
-
 def ContextOverride(area):
     for window in bpy.context.window_manager.windows:      
         screen = window.screen
@@ -69,6 +65,7 @@ def view_selected_uv():
 
 
 def get_iop(dictionary, query):
+    uv_flag = bpy.context.tool_settings.use_uv_select_sync
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
     if debug:
         print("Query from Blender:", query)
@@ -80,7 +77,7 @@ def get_iop(dictionary, query):
         current = next_
         if not isinstance(current, dict):
             return current
-    return (lambda: print("No entry in the dictionary for ", query[0], query[1], query[2]))
+    return (lambda: print("No entry in the dictionary for ", [q for q in query]))
 
 
 def get_addon(addon, debug=False):
