@@ -41,14 +41,17 @@ class IOPS_OT_Main(bpy.types.Operator):
         type_object = bpy.context.view_layer.objects.active.type
         mode_object = bpy.context.view_layer.objects.active.mode
         mode_mesh = self.get_mode_3d(tool_mesh)
-        mode_uv = bpy.context.tool_settings.uv_select_mode
+        mode_uv = bpy.context.tool_settings.uv_select_mode        
         flag_uv = bpy.context.tool_settings.use_uv_select_sync
+        if flag_uv:
+            mode_uv = mode_mesh
+
         op = self.operator
 
 
 
         query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
-
+        
         tool = bpy.context.tool_settings
 
         function = get_iop(IOPS_Dict.iops_dict, query)
