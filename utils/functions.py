@@ -1,7 +1,7 @@
 import bpy
 import bmesh
 import addon_utils
-from statistics import median 
+from statistics import median, StatisticsError
 from mathutils import Vector
 
 
@@ -31,51 +31,53 @@ def view_selected_uv():
 
     view_3d = [area for area in bpy.context.screen.areas if area.type == 'VIEW_3D']
     view_3d = view_3d[0]
-    if bpy.context.tool_settings.use_uv_select_sync == False:
-        mesh = bpy.context.active_object.data
-        bm = bmesh.from_edit_mesh(mesh)
-
-        uvl = bm.loops.layers.uv[mesh.uv_layers.active_index]
-
-        for face in bm.faces:
-            if not face.select:
-                continue
-            for loop in face.loops:
-                if not loop[uvl].select:
-                    continue
-                selected_verts.append(loop.vert)
-                selected_faces.add(face)
-
-        bpy.ops.mesh.hide(unselected=True)
-
-        bpy.ops.mesh.select_all(action='DESELECT')
-        bpy.ops.uv.select_all(action='DESELECT')
-
-        for v in selected_verts:
-            v.select = True
-        for f in selected_faces:
-            f.select = True
     
-        bm.select_flush(True)
-        bmesh.update_edit_mesh(mesh)
+    if bpy.context.tool_settings.use_uv_select_sync == False:
+        try:
+            mesh = bpy.context.active_object.data
+            bm = bmesh.from_edit_mesh(mesh)
 
-        context_override = ContextOverride(view_3d)
-        bpy.ops.view3d.view_selected(context_override)
+            uvl = bm.loops.layers.uv[mesh.uv_layers.active_index]
 
-        med_x = median(x.co[0] for x in selected_verts)
-        med_y = median(x.co[1] for x in selected_verts)
-        med_z = median(x.co[2] for x in selected_verts)
-         
-        bpy.context.scene.cursor.location = active.matrix_world @ Vector((med_x, med_y, med_z))
+            for face in bm.faces:
+                if not face.select:
+                    continue
+                for loop in face.loops:
+                    if not loop[uvl].select:
+                        continue
+                    selected_verts.append(loop.vert)
+                    selected_faces.add(face)
 
-        bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.mesh.reveal(select=False)
+            med_x = median([x.co[0] for x in selected_verts])
+            med_y = median([y.co[1] for y in selected_verts])
+            med_z = median([z.co[2] for z in selected_verts])
 
+            # Put cursor to selected verts median
+            bpy.context.scene.cursor.location = active.matrix_world @ Vector((med_x, med_y, med_z))
 
+            bpy.ops.mesh.hide(unselected=True)
+            bpy.ops.mesh.select_all(action='DESELECT')
+            bpy.ops.uv.select_all(action='DESELECT')
+
+            for v in selected_verts:
+                v.select = True
+            for f in selected_faces:
+                f.select = True
+        
+            bm.select_flush(True)
+            bmesh.update_edit_mesh(mesh)
+
+            context_override = ContextOverride(view_3d)
+            bpy.ops.view3d.view_selected(context_override)
+
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.reveal(select=False)
+
+        except StatisticsError:
+            print("Empty selection!")
     else:
         context_override = ContextOverride(view_3d)
         bpy.ops.view3d.view_selected(context_override)
-
 
 
 def get_iop(dictionary, query):
