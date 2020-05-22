@@ -1,6 +1,8 @@
 import bpy
 import bmesh
 import addon_utils
+from statistics import median 
+from mathutils import Vector
 
 
 def ContextOverride(area):
@@ -23,6 +25,7 @@ def ContextOverride(area):
     raise Exception("ERROR: Override failed!")
 
 def view_selected_uv():
+    active = bpy.context.view_layer.objects.active
     selected_verts = []
     selected_faces = set()
 
@@ -43,6 +46,8 @@ def view_selected_uv():
                 selected_verts.append(loop.vert)
                 selected_faces.add(face)
 
+        bpy.ops.mesh.hide(unselected=True)
+
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.uv.select_all(action='DESELECT')
 
@@ -56,8 +61,17 @@ def view_selected_uv():
 
         context_override = ContextOverride(view_3d)
         bpy.ops.view3d.view_selected(context_override)
+
+        med_x = median(x.co[0] for x in selected_verts)
+        med_y = median(x.co[1] for x in selected_verts)
+        med_z = median(x.co[2] for x in selected_verts)
+         
+        bpy.context.scene.cursor.location = active.matrix_world @ Vector((med_x, med_y, med_z))
+
         bpy.ops.mesh.select_all(action='SELECT')
-        
+        bpy.ops.mesh.reveal(select=False)
+
+
     else:
         context_override = ContextOverride(view_3d)
         bpy.ops.view3d.view_selected(context_override)
@@ -65,7 +79,6 @@ def view_selected_uv():
 
 
 def get_iop(dictionary, query):
-    uv_flag = bpy.context.tool_settings.use_uv_select_sync
     debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
     if debug:
         print("Query from Blender:", query)
