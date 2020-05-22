@@ -2,8 +2,13 @@ import bpy
 import json
 import os
 
-from .operators.hotkeys.load_hotkeys import (IOPS_OT_LoadUserHotkeys, IOPS_OT_LoadDefaultHotkeys)
+from .operators.hotkeys.load_hotkeys import (IOPS_OT_LoadUserHotkeys, 
+                                             IOPS_OT_LoadDefaultHotkeys)
 from .operators.hotkeys.save_hotkeys import IOPS_OT_SaveUserHotkeys
+
+from .operators.preferences.io_addon_preferences import (IOPS_OT_SaveAddonPreferences, 
+                                                         IOPS_OT_LoadAddonPreferences)
+
 from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
 from .operators.materials_from_textures import IOPS_OT_MaterialsFromTextures
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
@@ -181,7 +186,9 @@ classes = (IOPS_OT_Main,
            IOPS_AddonProperties,
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
-           IOPS_OT_SaveUserHotkeys, 
+           IOPS_OT_SaveUserHotkeys,
+           IOPS_OT_SaveAddonPreferences, 
+           IOPS_OT_LoadAddonPreferences,
            IOPS_OT_RunText,     
            IOPS_OT_MayaIsolate,   
            IOPS_OT_DragSnap,

@@ -638,15 +638,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         # Cage color
         col = box.column(align=True)
-        col.prop(self, "vo_cage_color")
-
-        # Hotkeys
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Hotkeys")
-        col.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
-        col.operator("iops.load_default_hotkeys", text="Load Default Hotkeys")
-        col.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+        col.prop(self, "vo_cage_color")       
 
         # Split Pie preferences
         box = box_ui.box()
@@ -729,6 +721,27 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col = box.column(align=True)
         col.prop(self, "executor_scripts_folder")
         col.prop(self, "executor_column_count")
+
+        # Hotkeys
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Hotkeys")
+        row = col.row(align=True)
+        row.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+        row.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
+        row.separator()
+        row.separator()
+        row.separator()
+        row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
+        
+        
+        # Preferences
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Addon preferences")
+        row = col.row(align=True)
+        row.operator("iops.save_addon_preferences", text="Save preferences")
+        row.operator("iops.load_addon_preferences", text="Load preferences")
         
         # Debug
         box = box_ui.box()
