@@ -6,8 +6,8 @@ from ... utils.functions import (register_keymaps, unregister_keymaps, get_addon
 
 def save_hotkeys():
     path = bpy.utils.script_path_user()
-    folder = os.path.join(path, 'presets', 'keyconfig', "IOPS")
-    user_hotkeys_file = os.path.join(path, 'presets', 'keyconfig', "IOPS", "iops_hotkeys_user.py")
+    folder = os.path.join(path, 'presets', "IOPS")
+    user_hotkeys_file = os.path.join(path, 'presets', "IOPS", "iops_hotkeys_user.py")
     if not os.path.exists(folder):
         os.makedirs(folder)
     with open(user_hotkeys_file, 'w') as f:
