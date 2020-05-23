@@ -71,7 +71,7 @@ def view_selected_uv():
             bpy.ops.view3d.view_selected(context_override)
 
             bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.mesh.reveal(select=False)
+            # bpy.ops.mesh.reveal(select=False)
 
         except StatisticsError:
             print("Empty selection!")
