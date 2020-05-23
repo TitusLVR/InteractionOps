@@ -19,10 +19,8 @@ def save_iops_preferences(iops_prefs_list):
             value = eval(key)
             if p == "executor_scripts_folder":
                 value = os.path.abspath(bpy.context.preferences.addons['InteractionOps'].preferences.executor_scripts_folder)
-                if "\\" in value:
-                    value = '/'.join(value.split('\\'))
             if type(value) is str:
-                value = "'" + value + "'"  
+                value = 'r' + '"' + value + '"'  
             if "bpy_prop_array" in str(type(value)):
                 value = value[:]    
             item = key + " = " + str(value)
