@@ -221,13 +221,21 @@ def register():
     reg_cls()
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(type=IOPS_AddonProperties)
     path = bpy.utils.script_path_user()
-    user_hotkeys_file = os.path.join(path, 'presets', "IOPS", "iops_hotkeys_user.py")
+    user_hotkeys_file = os.path.join(path, 'presets', "IOPS", "iops_hotkeys_user.py") 
     if os.path.exists(user_hotkeys_file):
         with open(user_hotkeys_file) as f:
             keys_user = json.load(f)
         register_keymaps(keys_user)
     else:
         register_keymaps(keys_default)
+    
+    iops_preferences_file = os.path.join(path, 'presets', "IOPS", "iops_preferences_user.py")
+    if os.path.exists(iops_preferences_file):
+        with open(iops_preferences_file, 'r') as f:
+            content = f.readlines()
+            if content:
+                for line in content:
+                    exec(line) 
     print("IOPS Registered!")
 
 
