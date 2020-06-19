@@ -91,7 +91,7 @@ class IOPS_Dict():
                 "F5": lambda: no_operator(),
             },
             "LATTICE": {
-                "F1": lambda: no_operator(),
+                "F1": lambda: object_mode_switch("EDIT"),
                 "F2": lambda: no_operator(),
                 "F3": lambda: no_operator(),
                 "F4": lambda: no_operator(),
