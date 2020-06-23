@@ -31,7 +31,7 @@ class IOPS_MT_Pie_Menu(Menu):
         # 6 - RIGHT
         # pie.separator()
 
-        other = pie.column()
+        other = pie.row()
         gap = other.column()
         gap.separator()
         gap.scale_y = 7
@@ -40,6 +40,10 @@ class IOPS_MT_Pie_Menu(Menu):
         other_menu.label(text="BMax")
         other_menu.operator('bmax.export', icon='EXPORT', text="Send to 3dsmax")
         other_menu.operator('bmax.import', icon='IMPORT', text="Get from 3dsmax")
+        other_menu = other.box().column()
+        other_menu.label(text="BMoI")
+        other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
+        other_menu.operator('bmoi3d.import', icon='IMPORT', text="Get from MoI3D")
 
         # 2 - BOTTOM
         wm = context.window_manager
