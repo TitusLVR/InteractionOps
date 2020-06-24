@@ -163,11 +163,18 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     row.operator("machin3.shade_flat", text="", icon='MATCUBE')
                     state = True if mesh.use_auto_smooth else False
                     row.operator("machin3.toggle_auto_smooth", text="", icon='AUTO', depress=state)
+                   
                     if mesh.use_auto_smooth:
                         if mesh.has_custom_normals:
                             row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
                         else:
-                            row.prop(mesh, "auto_smooth_angle", text="")   
+                            row.prop(mesh, "auto_smooth_angle", text="") 
+                    row.scale_x = 0.25        
+                    row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
+                    row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
+                    row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
+                    row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
+                    row.scale_x = 1  
 
         if context.area.type == "VIEW_3D":            
             # Column 1

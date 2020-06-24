@@ -25,10 +25,18 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         name='Mode',
         description='Mod',
         items=[
-            ('NEAREST_VERTEX', 'NEAREST_VERTEX',  '', '', 0),
+            ('NEAREST_SURFACEPOINT', 'NEAREST_SURFACEPOINT',  '', '', 0),
+            ('PROJECT', 'PROJECT',  '', '', 1),
+            ('NEAREST_VERTEX', 'NEAREST_VERTEX',  '', '', 2),
+            ('TARGET_PROJECT', 'TARGET_PROJECT',  '', '', 3),
             ],
         default='NEAREST_VERTEX',
     )
+    shwarp_use_vg: BoolProperty(
+        name="Use vertex groups",
+        description="Takes last one",
+        default=False
+    ) 
     
 
     @classmethod
@@ -38,50 +46,37 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                 len(context.view_layer.objects.selected) >= 2)
 
     def execute(self, context):
-        obj = context.active_object
-        targets = []
+        target = context.active_object
+        objs = []
 
         for ob in context.view_layer.objects.selected:
-            if ob.name != obj.name and ob.type == "MESH":
-                targets.append(ob) 
+            if ob.name != target.name and ob.type == "MESH":
+                objs.append(ob) 
         
-        if obj and targets:
-            bpy.ops.object.select_all(action='DESELECT')
-            dupes = [] 
-            for ob in targets:
-                newObj = ob.copy()
-                newObj.data = ob.data.copy()
-                newObj.animation_data_clear()
-                newObj.name = ob.name + "__SHWARPS"
-                newObj.use_fake_user = True
-                bpy.context.scene.collection.objects.link(newObj)
-                dupes.append(newObj)
-            
-            bpy.ops.object.select_all(action='DESELECT')
-            
-            for dupe in dupes:
-                dupe.select_set(True)
-                bpy.context.view_layer.objects.active = dupe
-            bpy.ops.object.join()
-
-            target_obj = bpy.context.view_layer.objects.active
-
-            if obj.modifiers:
-                if obj.modifiers[-1].type == "SHRINKWRAP":
+        
+        if objs and target:
+            print(objs)
+            for ob in objs:
+                if ob.modifiers:
+                    if ob.modifiers[-1].type == "SHRINKWRAP":
+                        mod = ob.modifiers[-1]
+                        mod.show_in_editmode = True
+                        mod.show_on_cage = True
+                        mod.target = target 
+                        mod.offset = self.shwarp_offset                        
+                        mod.wrap_method = self.shwarp_method
+                        if self.shwarp_use_vg:
+                            mod.vertex_group = ob.vertex_groups[0].name
+                else:
+                    mod = ob.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
                     mod.show_in_editmode = True
                     mod.show_on_cage = True
-                    mod = obj.modifiers[-1]
-                    mod.target = target_obj
-                    mod.warp_method = 'NEAREST_VERTEX'
-                    mod.vertex_group = obj.vertex_groups[0]
-            else:
-                mod = obj.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
-                mod.show_in_editmode = True
-                mod.show_on_cage = True
-                mod.vertex_group = obj.vertex_groups[0].name
-                mod.target = target_obj
-                mod.wrap_method = 'NEAREST_VERTEX'
-            bpy.context.scene.collection.objects.unlink(target_obj)
+                    mod.target = target
+                    mod.offset = self.shwarp_offset                    
+                    mod.wrap_method = self.shwarp_method
+                    if self.shwarp_use_vg:
+                            mod.vertex_group = ob.vertex_groups[0].name
             
         return {'FINISHED'}
         
+
