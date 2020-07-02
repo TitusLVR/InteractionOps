@@ -27,6 +27,8 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator('iops.easy_mod_curve', text="Easy Modifier - Curve")
         col.operator('iops.easy_mod_shwarp', text="Easy Modifier - SHWARP")
         col.operator('iops.quick_snap', text="Quick Snap")
+        col.operator('iops.drop_it', text="Drop It!")
+
 
         # 6 - RIGHT
         # pie.separator()

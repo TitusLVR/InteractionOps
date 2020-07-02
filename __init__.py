@@ -48,6 +48,7 @@ from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
 from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign)
+from .operators.object_drop_it import (IOPS_OT_Drop_It)
 
 from .ui.iops_tm_panel import (IOPS_OT_edit_origin,
                                IOPS_OT_transform_orientation_create,
@@ -200,6 +201,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_SaveSpaceData,
            IOPS_OT_LoadSpaceData,
            IOPS_OT_MaterialsFromTextures,
+           IOPS_OT_Drop_It,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
