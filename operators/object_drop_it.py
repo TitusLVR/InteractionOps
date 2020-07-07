@@ -122,6 +122,7 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                     obj = bpy.context.scene.objects[ob]
                     obj_origin = obj.location
                     scale = obj.scale.copy()
+                    
                     obj.hide_set(True)
                     view_layer = bpy.context.view_layer
                     result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
@@ -134,10 +135,11 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                             mx_rot = normal.to_track_quat(track_axis, up_axis).to_matrix().to_4x4() 
                             obj.matrix_world = mx_pos @ mx_rot
                         else:
-                            obj.matrix_world = Matrix.Translation((location))
+                            mx_rot = obj.rotation_euler.to_matrix().to_4x4()
+                            obj.matrix_world = Matrix.Translation((location)) @ mx_rot                            
                                         
                         vec = Matrix.Translation((self.drop_it_offset_x, self.drop_it_offset_y, self.drop_it_offset_z))
-                        obj.matrix_world @= vec    
+                        obj.matrix_world @= vec                           
                         obj.scale = scale                    
                         
                     else:
@@ -145,7 +147,8 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                         self.report ({'ERROR'}, "DropIt! - Raycast failed!" + ob)
                         return {'FINISHED'}
                         
-
+                for ob in selected_objs:
+                    bpy.context.scene.objects[ob].select_set(True)
                 self.report ({'INFO'}, "DropIt! - DONE!")
             else:
                 self.report ({'ERROR'}, "Track and Up axis must be different!!!")
