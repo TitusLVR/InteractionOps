@@ -1,5 +1,5 @@
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from bpy.props import (BoolProperty,
                        EnumProperty,
                        FloatProperty,
@@ -90,37 +90,110 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
             ],
         default='Y',
     )
+    
+    drop_it_alg: EnumProperty(
+        name='Method',
+        description='Methods: TrackTo and Project',
+        items=[
+            ('A', 'TrackTo',  '', '', 0),
+            ('B', 'Project',  '', '', 1),            
+            ],
+        default='B',
+        )
+
+
+
+
 
     @classmethod
     def poll(cls, context):
         return (context.area.type == "VIEW_3D")
 
-    def execute(self, context):
+    def execute(self, context):                
         selected_objs = [o.name for o in bpy.context.view_layer.objects.selected]
-        track_axis = self.drop_it_track        
-        up_axis = self.drop_it_up
-        direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))
-      
-        for ob in selected_objs:
-            obj = bpy.context.scene.objects[ob]
-            obj_origin = obj.location
-            obj.hide_set(True)
-            view_layer = bpy.context.view_layer
-            result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
-            if result:                
-                obj.hide_set(False)
-                obj.location = (location[0] + self.drop_it_offset_x, location[1] + self.drop_it_offset_y, location[2] + self.drop_it_offset_z) 
-                if  self.drop_it_align_to_surf:          
-                    obj.rotation_euler = normal.to_track_quat(track_axis, up_axis).to_euler()
+        
+        if self.drop_it_alg == 'A':
+            track_axis = self.drop_it_track        
+            up_axis = self.drop_it_up
+            if track_axis != up_axis:
+                direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))       
+            
+                for ob in selected_objs:
+                    obj = bpy.context.scene.objects[ob]
+                    obj_origin = obj.location
+                    scale = obj.scale.copy()
+                    obj.hide_set(True)
+                    view_layer = bpy.context.view_layer
+                    result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
+                    
+                    if result:                
+                        obj.hide_set(False)
+                                                            
+                        if self.drop_it_align_to_surf:                                  
+                            mx_pos = Matrix.Translation((location))
+                            mx_rot = normal.to_track_quat(track_axis, up_axis).to_matrix().to_4x4() 
+                            obj.matrix_world = mx_pos @ mx_rot
+                        else:
+                            obj.matrix_world = Matrix.Translation((location))
+                                        
+                        vec = Matrix.Translation((self.drop_it_offset_x, self.drop_it_offset_y, self.drop_it_offset_z))
+                        obj.matrix_world @= vec    
+                        obj.scale = scale                    
+                        
+                    else:
+                        obj.hide_set(False)
+                        self.report ({'ERROR'}, "DropIt! - Raycast failed!" + ob)
+                        return {'FINISHED'}
+                        
+
                 self.report ({'INFO'}, "DropIt! - DONE!")
             else:
-                obj.hide_set(False)
-                self.report ({'ERROR'}, "DropIt! - Raycast failed!" + ob)
+                self.report ({'ERROR'}, "Track and Up axis must be different!!!")
+                return {'FINISHED'}
+            
+        else:   
+            for ob in selected_objs:
+                obj = bpy.context.scene.objects[ob]
+                scale = obj.scale.copy()
+                obj_origin = obj.location
+                view_layer = bpy.context.view_layer
+                direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))
+                # Construct helper
+                loc2_offset = obj.dimensions[0]/100
+                obj.hide_set(True)
+
+                result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
+                result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+                
+                if result and result2:                    
+                    obj.hide_set(False)
+                    # Vectors
+                    n = normal.normalized()
+                    t = (location2 - location).normalized()
+                    c = n.cross(t).normalized()
+
+                    mx_new = Matrix((t, c, n)).transposed().to_4x4()                   
+                    mx_new.translation = location
+                    # mx_new @= vec
+                    obj.matrix_world = mx_new
+                    vec = Matrix.Translation((self.drop_it_offset_x, self.drop_it_offset_y, self.drop_it_offset_z))
+                    obj.matrix_world @= vec
+                    obj.scale = scale
+                else:
+                    obj.hide_set(False)
+                    self.report ({'ERROR'}, "DropIt! - Raycast failed!" + ob)
+                    return {'FINISHED'}
+        
+            for ob in selected_objs:
+                bpy.context.scene.objects[ob].select_set(True)
+            self.report ({'INFO'}, "DropIt! - DONE!")
         return {'FINISHED'}
 
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
+        col.label(text="Direction:")
+        col.prop(self, "drop_it_alg")
         col.label(text="Direction:")
         col.prop(self, "drop_it_direction_x")
         col.prop(self, "drop_it_direction_y")
@@ -130,11 +203,16 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
         col.prop(self, "drop_it_offset_x")
         col.prop(self, "drop_it_offset_y")
         col.prop(self, "drop_it_offset_z") 
-        col.separator() 
-        col.label(text="Align:")
-        col.prop(self, "drop_it_align_to_surf")
-        if self.drop_it_align_to_surf:
-            row = col.row()
-            row.prop(self, "drop_it_track")
-            row.prop(self, "drop_it_up")
+        col.separator()
+        if self.drop_it_alg == 'A':            
+            col.label(text="Align:")
+            col.prop(self, "drop_it_align_to_surf")
+            if self.drop_it_align_to_surf:
+                row = col.row()
+                row.prop(self, "drop_it_track")
+                row.prop(self, "drop_it_up")
+        else:
+            col.label(text="Align:Disabled")
+        
+
 
