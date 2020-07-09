@@ -28,7 +28,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator('iops.easy_mod_shwarp', text="Easy Modifier - SHWARP")
         col.operator('iops.quick_snap', text="Quick Snap")
         col.operator('iops.drop_it', text="Drop It!")
-
+        col.operator('iops.kitbash_grid', text="KitBash Grid")
 
         # 6 - RIGHT
         # pie.separator()
