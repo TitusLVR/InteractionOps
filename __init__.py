@@ -97,6 +97,15 @@ from .operators.easy_mod_array import (IOPS_OT_Easy_Mod_Array_Caps,
                                        IOPS_OT_Easy_Mod_Array_Curve,)
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 
+from .operators.object_uvmaps_cleaner import (IOPS_OT_Clean_UVMap_0,
+                                              IOPS_OT_Clean_UVMap_1,
+                                              IOPS_OT_Clean_UVMap_2,
+                                              IOPS_OT_Clean_UVMap_3,
+                                              IOPS_OT_Clean_UVMap_4,
+                                              IOPS_OT_Clean_UVMap_5,
+                                              IOPS_OT_Clean_UVMap_6,
+                                              IOPS_OT_Clean_UVMap_7)
+
 from .operators.executor import (IOPS_OT_Executor, 
                                  IOPS_MT_ExecuteList,
                                  IOPS_OT_Call_MT_Executor)
@@ -204,6 +213,14 @@ classes = (IOPS_OT_Main,
            IOPS_OT_MaterialsFromTextures,
            IOPS_OT_Drop_It,
            IOPS_OT_KitBash_Grid,
+           IOPS_OT_Clean_UVMap_0,
+           IOPS_OT_Clean_UVMap_1,
+           IOPS_OT_Clean_UVMap_2,
+           IOPS_OT_Clean_UVMap_3,
+           IOPS_OT_Clean_UVMap_4,
+           IOPS_OT_Clean_UVMap_5,
+           IOPS_OT_Clean_UVMap_6,
+           IOPS_OT_Clean_UVMap_7,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,

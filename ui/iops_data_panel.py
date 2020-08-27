@@ -19,7 +19,16 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         row = layout.row(align=True)
              
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
-        row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
+        # row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
+        row.separator()
+        row.operator("iops.clean_uvmap_0", text="All")
+        row.operator("iops.clean_uvmap_1", text="2+")
+        row.operator("iops.clean_uvmap_2", text="3+")
+        row.operator("iops.clean_uvmap_3", text="4+")
+        row.operator("iops.clean_uvmap_4", text="5+")
+        row.operator("iops.clean_uvmap_5", text="6+")
+        row.operator("iops.clean_uvmap_6", text="7+")
+        row.operator("iops.clean_uvmap_7", text="8")
             
         row.separator()
 
