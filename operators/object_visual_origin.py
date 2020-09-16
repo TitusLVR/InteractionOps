@@ -404,10 +404,12 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # get the ray from the viewport and mouse
         view_vector = region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = region_2d_to_origin_3d(region, rv3d, coord)
-
         ray_target = ray_origin + view_vector
 
-        result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+        if bpy.app.version[1] > 90:
+            result, location, normal, index, obj, matrix = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
+        else:
+            result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
 
         if result and obj in self.vp_objs:
             context.view_layer.objects.active = obj

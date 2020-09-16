@@ -125,8 +125,12 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                     
                     obj.hide_set(True)
                     view_layer = bpy.context.view_layer
-                    result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
                     
+                    if bpy.app.version[1] > 90:
+                        result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin, direction, distance=1.70141e+38)
+                    else:
+                        result, location, normal, __, __, __ = bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
+
                     if result:                
                         obj.hide_set(False)
                                                             
@@ -165,9 +169,13 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                 loc2_offset = obj.dimensions[0]/100
                 obj.hide_set(True)
 
-                result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
-                result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
-                
+                if bpy.app.version[1] > 90:
+                    result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin, direction, distance=1.70141e+38)
+                    result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+                else:
+                    result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
+                    result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+
                 if result and result2:                    
                     obj.hide_set(False)
                     # Vectors
