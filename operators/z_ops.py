@@ -211,6 +211,7 @@ def grow_loop(context):
     mesh = context.active_object.data
     bm = bmesh.from_edit_mesh(mesh)
     selected_edges = [e for e in bm.edges if e.select]
+
     loop_exts = []
     for se in selected_edges:
         loop_exts.extend(unselected_loop_extensions(se))
@@ -264,7 +265,7 @@ def shrink_loop(context):
             if not le or not le.select:
                 loop_ends.append(se)
     loop_ends_unique = list(set(loop_ends))
-    if len(loop_ends_unique):
+    if len(loop_ends_unique) > 1:
         for e in loop_ends_unique:
             e.select = False
     mesh.update()

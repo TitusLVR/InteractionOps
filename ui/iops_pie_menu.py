@@ -40,8 +40,8 @@ class IOPS_MT_Pie_Menu(Menu):
         other_menu = other.box().column()
         other_menu.scale_y = 1
         other_menu.label(text="BMax")
-        other_menu.operator('bmax.export', icon='EXPORT', text="Send to 3dsmax")
-        other_menu.operator('bmax.import', icon='IMPORT', text="Get from 3dsmax")
+        other_menu.operator('bmax.export', icon='EXPORT', text="Send to Maya/3dsmax")
+        other_menu.operator('bmax.import', icon='IMPORT', text="Get from Maya/3dsmax")
         other_menu = other.box().column()
         other_menu.label(text="BMoI")
         other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
