@@ -137,6 +137,12 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
+        row.prop(tool_settings, "use_mesh_automerge_and_split", text="", icon='MOD_BOOLEAN')
+        row.separator()
+        row.prop(tool_settings, "use_transform_correct_face_attributes",  text="", icon='UV')
+        row.prop(tool_settings, "use_transform_correct_keep_connected", text="", icon='STICKY_UVS_LOC')
+        row.prop(tool_settings, "use_edge_path_live_unwrap", text="", icon='UV_SYNC_SELECT')
+        row.separator() 
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
         row.separator()        
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
