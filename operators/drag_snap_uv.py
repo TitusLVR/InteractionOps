@@ -28,8 +28,9 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
     tSPosY = prefs.text_shadow_pos_y
 
     iops_text = (
-        ("Move 2D Cursor to Highlighted", "1"),
-        ("Move selected to 2D Cursor (nearest)", "4"),
+        ("Move selected to 2D Cursor (highlighted)", "1"),
+        ("Move selected to 2D Cursor (nearest)", "2"),
+        ("Move 2D Cursor to Highlighted", "4"),
         ("Move only by X", "X"),
         ("Move only by Y", "Y"),
 
@@ -260,8 +261,16 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             # allow navigation
             return {'PASS_THROUGH'}
 
-        elif event.type == 'FOUR' and event.value == "PRESS":
+        elif event.type == 'TWO' and event.value == "PRESS":
             self.move_closest_to_cursor(context, self.kd_selected)
+            self.clear_draw_handlers()
+            return {"FINISHED"} 
+
+        elif event.type == 'FOUR' and event.value == "PRESS":
+            for area in bpy.context.screen.areas:
+                if area.type == 'IMAGE_EDITOR':  
+                    cursor = area.spaces.active.cursor_location
+            cursor.x, cursor.y = self.nearest.x, self.nearest.y 
             self.clear_draw_handlers()
             return {"FINISHED"} 
 
@@ -269,9 +278,12 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             for area in bpy.context.screen.areas:
                 if area.type == 'IMAGE_EDITOR':  
                     cursor = area.spaces.active.cursor_location
-            cursor.x, cursor.y = self.nearest.x, self.nearest.y 
-            self.clear_draw_handlers()
+            self.source = self.nearest
+            self.target = Vector((*cursor,0))
+            self.execute(context)
             return {"FINISHED"} 
+
+        
   
         elif event.type == 'MOUSEMOVE':
             self.update_distances(context, event, self.kd)
@@ -292,7 +304,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                     return {"FINISHED"}    
                 else:
                     self.target = self.nearest
-                    self.execute(context, x=True, y=True)
+                    self.execute(context)
                 return {"FINISHED"}
             self.source = self.nearest
             self.lmb = True
