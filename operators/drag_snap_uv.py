@@ -75,12 +75,6 @@ def draw_snap_line(self, context):
     shader.uniform_float("color", color)
     batch.draw(shader)
 
-    print("Nearest", self.nearest)
-    print("Source", self.source)
-    print("Preview", self.preview)
-    print("Target", self.target)
-   
-
 
 def draw_snap_points(self, context):
     draw_point(self.source, context)
@@ -131,14 +125,6 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                 if loop[uv_layer].select:
                     selected_faces.add(face)
 
-        # if self.source == None:
-        #     for face in selected_faces:
-        #         for loop in face.loops:
-        #             loop_uv = loop[uv_layer]
-        #             uvs.append(loop_uv.uv)
-
-        # else:
-        # all_faces -= selected_faces
         for face in all_faces:
             for loop in face.loops:
                 loop_uv = loop[uv_layer]
@@ -185,12 +171,34 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
         return self.nearest
 
+    def move_closest_to_cursor(self, context, kd):
+        for area in bpy.context.screen.areas:
+            if area.type == 'IMAGE_EDITOR':  
+                cursor = area.spaces.active.cursor_location
+        self.nearest = None
+
+        ## Search
+        nearest, _ , _ = kd.find((cursor.x, cursor.y, 0))
+        
+        dx = cursor.x - nearest.x
+        dy = cursor.y - nearest.y
+
+        bpy.ops.transform.translate(value=(dx, dy, 0), orient_type='GLOBAL')
+        bmesh.update_edit_mesh(bpy.context.active_object.data)
+        
+
+
     def modal(self, context, event):
         context.area.tag_redraw()
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # allow navigation
             return {'PASS_THROUGH'}
 
+        elif event.type == 'FOUR' and event.value == "PRESS":
+            self.move_closest_to_cursor(context, self.kd)
+            self.clear_draw_handlers()
+            return {"FINISHED"} 
+  
         elif event.type == 'MOUSEMOVE':
             self.update_distances(context, event, self.kd)
             self.preview = self.nearest
