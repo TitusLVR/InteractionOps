@@ -111,7 +111,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         length = np.linalg.norm(vector)
         return length
 
-    def build_tree(self, context):
+    def build_tree(self, context, type):
         bm = bmesh.from_edit_mesh(bpy.context.active_object.data)
         uv_layer = bm.loops.layers.uv.verify()
 
@@ -125,10 +125,20 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                 if loop[uv_layer].select:
                     selected_faces.add(face)
 
-        for face in all_faces:
-            for loop in face.loops:
-                loop_uv = loop[uv_layer]
-                uvs.append(loop_uv.uv)
+        if type == "all":
+            for face in all_faces:
+                for loop in face.loops:
+                    loop_uv = loop[uv_layer]
+                    uvs.append(loop_uv.uv)
+
+        elif type == "selected":
+            for face in selected_faces:
+                for loop in face.loops:
+                    loop_uv = loop[uv_layer]
+                    uvs.append(loop_uv.uv)
+
+        print("All:", len(all_faces))
+        print("Selected:", len(selected_faces))
 
         ## Make an array of uv coordinates in 3D
         coordinates = [(uv.x, uv.y, 0) for uv in uvs]
@@ -175,8 +185,6 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         for area in bpy.context.screen.areas:
             if area.type == 'IMAGE_EDITOR':  
                 cursor = area.spaces.active.cursor_location
-        self.nearest = None
-
         ## Search
         nearest, _ , _ = kd.find((cursor.x, cursor.y, 0))
         
@@ -184,7 +192,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         dy = cursor.y - nearest.y
 
         bpy.ops.transform.translate(value=(dx, dy, 0), orient_type='GLOBAL')
-        bmesh.update_edit_mesh(bpy.context.active_object.data)
+        # bmesh.update_edit_mesh(bpy.context.active_object.data)
         
 
 
@@ -195,7 +203,15 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         elif event.type == 'FOUR' and event.value == "PRESS":
-            self.move_closest_to_cursor(context, self.kd)
+            self.move_closest_to_cursor(context, self.kd_selected)
+            self.clear_draw_handlers()
+            return {"FINISHED"} 
+
+        elif event.type == 'ONE' and event.value == "PRESS":
+            for area in bpy.context.screen.areas:
+                if area.type == 'IMAGE_EDITOR':  
+                    cursor = area.spaces.active.cursor_location
+            cursor.x, cursor.y = self.nearest.x, self.nearest.y 
             self.clear_draw_handlers()
             return {"FINISHED"} 
   
@@ -252,7 +268,8 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
     def invoke(self, context, event):
         self.report({'INFO'}, "Snap Drag started: Pick source")
 
-        self.kd = self.build_tree(context)
+        self.kd = self.build_tree(context, type="all")
+        self.kd_selected = self.build_tree(context, type="selected")
 
         if context.space_data.type == 'IMAGE_EDITOR':
             args = (self, context)
