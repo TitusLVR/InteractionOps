@@ -182,6 +182,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                 for loop in face.loops:
                     loop_uv = loop[uv_layer]
                     uvs.append(loop_uv.uv)
+                    uvs.append(cursor)
 
         elif type == "selected":
             for face in selected_faces:
@@ -189,10 +190,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                     loop_uv = loop[uv_layer]
                     uvs.append(loop_uv.uv)
         
-        uvs.append(cursor)
 
-        print("All:", len(all_faces))
-        print("Selected:", len(selected_faces))
 
         ## Make an array of uv coordinates in 3D
         coordinates = [(uv.x, uv.y, 0) for uv in uvs]
@@ -245,6 +243,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
         return self.nearest
 
+
     def move_closest_to_cursor(self, context, kd):
         for area in bpy.context.screen.areas:
             if area.type == 'IMAGE_EDITOR':  
@@ -256,9 +255,8 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         dy = cursor.y - nearest.y
 
         bpy.ops.transform.translate(value=(dx, dy, 0), orient_type='GLOBAL')
-        # bmesh.update_edit_mesh(bpy.context.active_object.data)
+        bmesh.update_edit_mesh(bpy.context.active_object.data)
         
-
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -287,7 +285,6 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             self.target = Vector((*cursor,0))
             self.execute(context)
             return {"FINISHED"} 
-
         
   
         elif event.type == 'MOUSEMOVE':
@@ -351,6 +348,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
         # return {'PASS_THROUGH'}
         return {'RUNNING_MODAL'}
+
 
     def invoke(self, context, event):
         self.report({'INFO'}, "Snap Drag started: Pick source")
