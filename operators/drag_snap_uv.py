@@ -155,7 +155,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
     def execute(self, context):   
 
-        bpy.ops.transform.translate(value=self.snap(), orient_type='GLOBAL')
+        bpy.ops.transform.translate(value=self.snap(self.x, self.y), orient_type='GLOBAL')
 
         try:
             self.clear_draw_handlers()
@@ -163,10 +163,20 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             pass    
         return {"FINISHED"}
 
-    def snap(self):
+    def snap(self, x, y):
         if not self.target:
             return Vector((0,0,0))
-        return self.target - self.source
+        
+        dir = self.target - self.source
+
+        if x == True and y ==True:  
+            return dir
+
+        elif x == False:
+            return (0, dir[1], 0)
+
+        elif y == False:
+            return (dir[0], 0, 0)
 
 
     def update_distances(self, context, event, kd):
@@ -234,10 +244,22 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                     return {"FINISHED"}    
                 else:
                     self.target = self.nearest
-                    self.execute(context)
+                    self.execute(context, x=True, y=True)
                 return {"FINISHED"}
             self.source = self.nearest
             self.lmb = True
+
+        elif event.type == 'X' and event.value == "PRESS":
+            if self.source and self.target:
+                self.y = False
+                self.execute(context)
+            return {"FINISHED"}
+        
+        elif event.type == 'Y' and event.value == "PRESS":
+            if self.source and self.target:
+                self.x = False
+                self.execute(context)
+            return {"FINISHED"}
         
 
         elif event.type in {"LEFTMOUSE"} and event.value == "RELEASE":
@@ -270,6 +292,9 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
         self.kd = self.build_tree(context, type="all")
         self.kd_selected = self.build_tree(context, type="selected")
+
+        self.x = True
+        self.y = True
 
         if context.space_data.type == 'IMAGE_EDITOR':
             args = (self, context)
