@@ -14,6 +14,54 @@ from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_
 SNAP_DIST_SQ = 30**2 #Pixels Squared Tolerance
 
 
+def draw_iops_text(self, context, _uidpi, _uifactor):
+    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    tColor = prefs.text_color
+    tKColor = prefs.text_color_key
+    tCSize = prefs.text_size
+    tCPosX = prefs.text_pos_x
+    tCPosY = prefs.text_pos_y
+    tShadow = prefs.text_shadow_toggle
+    tSColor = prefs.text_shadow_color
+    tSBlur = prefs.text_shadow_blur
+    tSPosX = prefs.text_shadow_pos_x
+    tSPosY = prefs.text_shadow_pos_y
+
+    iops_text = (
+        ("Move 2D Cursor to Highlighted", "1"),
+        ("Move selected to 2D Cursor (nearest)", "4"),
+        ("Move only by X", "X"),
+        ("Move only by Y", "Y"),
+
+    )
+
+    # FontID
+    font = 0
+    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+    blf.size(font, tCSize, _uidpi)
+    if tShadow:
+        blf.enable(font, blf.SHADOW)
+        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+        blf.shadow_offset(font, tSPosX, tSPosY)
+    else:
+        blf.disable(0, blf.SHADOW)
+
+    textsize = tCSize
+    # get leftbottom corner
+    offset = tCPosY
+    columnoffs = (textsize * 21) * _uifactor
+    for line in reversed(iops_text):
+        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.position(font, tCPosX * _uifactor, offset, 0)
+        blf.draw(font, line[0])
+
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+        textdim = blf.dimensions(0, line[1])
+        coloffset = columnoffs - textdim[0] + tCPosX
+        blf.position(0, coloffset, offset, 0)
+        blf.draw(font, line[1])
+        offset += (tCSize + 5) * _uifactor
+
 
 # get circle vertices on pos 2D by segments
 def generate_circle_verts(position, radius, segments):
@@ -301,11 +349,15 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             self.active = context.view_layer.objects.active
             self.update_distances(context, event, self.kd)
             self.lmb = False
+
+            uidpi = int((72 * context.preferences.system.ui_scale))
+            args_text = (self, context, uidpi, context.preferences.system.ui_scale)
             
             # Add draw handlers
             self.handle_snap_line = bpy.types.SpaceImageEditor.draw_handler_add(draw_snap_line, args, 'WINDOW', 'POST_PIXEL')
             self.handle_snap_points = bpy.types.SpaceImageEditor.draw_handler_add(draw_snap_points, args, 'WINDOW', 'POST_PIXEL')
-            self.sd_handlers = [self.handle_snap_line, self.handle_snap_points]
+            self.handle_iops_text = bpy.types.SpaceImageEditor.draw_handler_add(draw_iops_text, args_text, 'WINDOW', 'POST_PIXEL')
+            self.sd_handlers = [self.handle_snap_line, self.handle_snap_points, self.handle_iops_text]
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
