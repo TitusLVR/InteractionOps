@@ -11,7 +11,7 @@ from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d
 
 
-SNAP_DIST_SQ = 30**2 #Pixels Squared Tolerance
+# SNAP_DIST_SQ = 30**2 #Pixels Squared Tolerance
 
 
 def draw_iops_text(self, context, _uidpi, _uifactor):
@@ -161,6 +161,9 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         return length
 
     def build_tree(self, context, type):
+        for area in bpy.context.screen.areas:
+            if area.type == 'IMAGE_EDITOR':  
+                cursor = area.spaces.active.cursor_location
         bm = bmesh.from_edit_mesh(bpy.context.active_object.data)
         uv_layer = bm.loops.layers.uv.verify()
 
@@ -185,6 +188,8 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
                 for loop in face.loops:
                     loop_uv = loop[uv_layer]
                     uvs.append(loop_uv.uv)
+        
+        uvs.append(cursor)
 
         print("All:", len(all_faces))
         print("Selected:", len(selected_faces))
