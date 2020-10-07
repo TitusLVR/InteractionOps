@@ -24,8 +24,7 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
     def poll(cls, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
@@ -55,8 +54,7 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
@@ -87,8 +85,7 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
@@ -117,8 +114,7 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
@@ -147,8 +143,7 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected
@@ -177,8 +172,7 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
+                len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
         selection = context.view_layer.objects.selected

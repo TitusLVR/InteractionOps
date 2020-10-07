@@ -30,6 +30,7 @@ from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
 from .operators.drag_snap import IOPS_OT_DragSnap
+from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
                                       IOPS_OT_object_rotate_MY,
@@ -203,6 +204,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_RunText,     
            IOPS_OT_MayaIsolate,   
            IOPS_OT_DragSnap,
+           IOPS_OT_DragSnapUV,
            IOPS_OT_PropScroll_UP,
            IOPS_OT_PropScroll_DOWN,
            IOPS_OT_VertexColorAssign,
