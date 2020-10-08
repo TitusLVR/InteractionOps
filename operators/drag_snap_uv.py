@@ -251,11 +251,14 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         ## Search
         nearest, _ , _ = kd.find((cursor.x, cursor.y, 0))
         
-        dx = cursor.x - nearest.x
-        dy = cursor.y - nearest.y
+        if nearest:
+            dx = cursor.x - nearest.x
+            dy = cursor.y - nearest.y
 
-        bpy.ops.transform.translate(value=(dx, dy, 0), orient_type='GLOBAL')
-        bmesh.update_edit_mesh(bpy.context.active_object.data)
+            bpy.ops.transform.translate(value=(dx, dy, 0), orient_type='GLOBAL')
+            # bmesh.update_edit_mesh(bpy.context.active_object.data)
+        else:
+            self.report({'WARNING'}, "UVs are not selected?")
         
 
     def modal(self, context, event):
