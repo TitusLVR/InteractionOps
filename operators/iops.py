@@ -17,10 +17,10 @@ class IOPS_OT_Main(bpy.types.Operator):
     # modes_armature = {0: "EDIT", 1: "POSE"}
     # supported_types = {"MESH", "CURVE", "GPENCIL", "EMPTY", "TEXT", "META", "ARMATURE", "LATTICE"}
 
-    @classmethod
-    def poll(cls, context):
-        return (bpy.context.object is not None and
-                bpy.context.active_object is not None)
+    # @classmethod
+    # def poll(cls, context):
+        # return (bpy.context.object is not None and
+                # bpy.context.active_object is not None)
 
     def get_mode_3d(self, tool_mesh):
         mode = ""
@@ -33,29 +33,26 @@ class IOPS_OT_Main(bpy.types.Operator):
         return mode
 
     def execute(self, context):
-
-        active_object = bpy.context.view_layer.objects.active
-        tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
-
-        type_area = bpy.context.area.type
-        type_object = bpy.context.view_layer.objects.active.type
-        mode_object = bpy.context.view_layer.objects.active.mode
-        mode_mesh = self.get_mode_3d(tool_mesh)
-        mode_uv = bpy.context.tool_settings.uv_select_mode        
-        flag_uv = bpy.context.tool_settings.use_uv_select_sync
-        if flag_uv:
-            mode_uv = mode_mesh
-
         op = self.operator
+        type_area = bpy.context.area.type
 
+        if bpy.context.view_layer.objects.active:
+            # active_object = bpy.context.view_layer.objects.active
+            tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
+            type_object = bpy.context.view_layer.objects.active.type
+            mode_object = bpy.context.view_layer.objects.active.mode
+            mode_mesh = self.get_mode_3d(tool_mesh)
+            mode_uv = bpy.context.tool_settings.uv_select_mode
+            flag_uv = bpy.context.tool_settings.use_uv_select_sync
+            if flag_uv:
+                mode_uv = mode_mesh
 
+            query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
+            # tool = bpy.context.tool_settings
 
-        query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
-        
-        tool = bpy.context.tool_settings
+        else:
+            query = (type_area, None, None, None, None, None, op)
 
         function = get_iop(IOPS_Dict.iops_dict, query)
         function()
-
         return{"FINISHED"}
-        

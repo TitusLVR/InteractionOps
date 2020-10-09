@@ -243,7 +243,7 @@ class IOPS_Dict():
         },
 
         "PREFERENCES": {
-            "F1": lambda: no_operator(),
+            "F1": lambda: bpy.ops.preferences.addon_show(module="InteractionOps"),
             "F2": lambda: no_operator(),
             "F3": lambda: no_operator(),
             "F4": lambda: no_operator(),
