@@ -299,7 +299,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         elif event.type in {"LEFTMOUSE"} and event.value == "PRESS":
             if self.source:
                 if event.ctrl:
-                    DISTANCE = self.get_vector_length(self.snap())
+                    DISTANCE = self.get_vector_length(self.snap(self.x, self.y))
                     bpy.context.window_manager.clipboard = str(DISTANCE)
                     self.report({'INFO'}, "DISTANCE COPIED TO BUFFER: " + str(DISTANCE))
                     try:
@@ -318,12 +318,24 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             if self.source and self.target:
                 self.y = False
                 self.execute(context)
+            else:
+                try:
+                    self.report({'WARNING'}, "Nothing to move")
+                    self.clear_draw_handlers()
+                except ValueError:
+                    pass    
             return {"FINISHED"}
         
         elif event.type == 'Y' and event.value == "PRESS":
             if self.source and self.target:
                 self.x = False
                 self.execute(context)
+            else:
+                try:
+                    self.report({'WARNING'}, "Nothing to move")
+                    self.clear_draw_handlers()
+                except ValueError:
+                    pass            
             return {"FINISHED"}
         
 
