@@ -510,6 +510,18 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=bpy.utils.script_path_user(),
     )
 
+    texture_to_material_prefixes: StringProperty(
+        name="Prefixes",
+        description="Type prefixes what you want to clean",
+        default="env_"
+        )
+    texture_to_material_suffixes: StringProperty(
+        name="Suffixes",
+        description="Type suffixes what you want to clean",
+        default="_df,_dfa,_mk,_emk,_nm"
+        )
+
+
 
     def draw(self, context):
         layout = self.layout
@@ -721,6 +733,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col = box.column(align=True)
         col.prop(self, "executor_scripts_folder")
         col.prop(self, "executor_column_count")
+
+        # Textures to materials 
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Textures to Materials:")
+        col = box.column(align=True)
+        col.prop(self, "texture_to_material_prefixes")
+        col.prop(self, "texture_to_material_suffixes")
+
 
         # Hotkeys
         box = box_ui.box()

@@ -41,5 +41,7 @@ iops_prefs_list = ["IOPS_DEBUG",
                    "vo_cage_ap_size", 
                    "vo_cage_color", 
                    "vo_cage_p_size", 
-                   "vo_cage_points_color"]
+                   "vo_cage_points_color",
+                   "texture_to_material_prefixes",
+                   "texture_to_material_suffixes"]
               
