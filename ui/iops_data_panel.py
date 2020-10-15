@@ -45,8 +45,10 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             row = col.row(align=True)
             row.template_list("MESH_UL_uvmaps", "uvmaps", me, "uv_layers", me.uv_layers, "active_index", rows=5)
             col = row.column(align=True)
-            col.operator("mesh.uv_texture_add", icon='ADD', text="")
-            col.operator("mesh.uv_texture_remove", icon='REMOVE', text="")
+            # col.operator("mesh.uv_texture_add", icon='ADD', text="")
+            # col.operator("mesh.uv_texture_remove", icon='REMOVE', text="")            
+            col.operator("iops.add_uvmap", icon='ADD', text="")
+            col.operator("iops.remove_uvmap_by_active_name", icon='REMOVE', text="")
             # SEPARATORS------------------------------------
             row_main.separator()
             row_main.separator()

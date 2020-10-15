@@ -106,6 +106,9 @@ from .operators.object_uvmaps_cleaner import (IOPS_OT_Clean_UVMap_0,
                                               IOPS_OT_Clean_UVMap_5,
                                               IOPS_OT_Clean_UVMap_6,
                                               IOPS_OT_Clean_UVMap_7)
+                                              
+from .operators.object_uvmaps_add_remove import (IOPS_OT_Add_UVMap,
+                                                 IOPS_OT_Remove_UVMap_by_Active_Name)
 
 from .operators.executor import (IOPS_OT_Executor, 
                                  IOPS_MT_ExecuteList,
@@ -223,6 +226,8 @@ classes = (IOPS_OT_Main,
            IOPS_OT_Clean_UVMap_5,
            IOPS_OT_Clean_UVMap_6,
            IOPS_OT_Clean_UVMap_7,
+           IOPS_OT_Add_UVMap,
+           IOPS_OT_Remove_UVMap_by_Active_Name,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
