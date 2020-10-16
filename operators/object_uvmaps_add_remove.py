@@ -2,7 +2,7 @@ import bpy
 
 def uvmap_add(obj):
     obj_uvmaps = obj.data.uv_layers    
-    ch_num_text = "Ch" + str(len(obj_uvmaps)+1)    
+    ch_num_text = "ch" + str(len(obj_uvmaps)+1)    
     obj_uvmaps.new(name=ch_num_text, do_init=True)
 
 def uvmap_clean_by_name(obj, name):
