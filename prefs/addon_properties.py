@@ -30,4 +30,11 @@ class IOPS_AddonProperties (PropertyGroup):
         subtype='COLOR',
         size=4,
         )
+    iops_rotation_angle: FloatProperty(
+        name="Angle",
+        description="Degrees",
+        default=90,
+        min = 0.0
+        )
+  
     

@@ -18,14 +18,8 @@ def round_rotation(obj):
 class IOPS_OT_object_rotate_Z (bpy.types.Operator):
     """ Rotate object local Z-axis 90 degrees """
     bl_idname = "iops.object_rotate_z"
-    bl_label = "IOPS rotate Z-axis: 90d"
-    bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=90
-        )
+    bl_label = "IOPS rotate Z-axis - Positive"
+    bl_options = {"REGISTER", "UNDO"}    
 
     @classmethod
     def poll(cls, context):
@@ -34,11 +28,12 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location
         bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='Z',
                                     orient_type='CURSOR',
@@ -48,21 +43,21 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
                                 )
         # for obj in selection:
         #     round_rotation(obj)
-
         self.report({"INFO"}, "IOPS Rotate +Z")
         return {"FINISHED"}
+    
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
+
 
 class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
     """ Rotate object local Z-axis -90 degrees """
     bl_idname = "iops.object_rotate_mz"
-    bl_label = "IOPS rotate Z-axis: -90d"
+    bl_label = "IOPS rotate Z-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=-90
-        )
 
     @classmethod
     def poll(self, context):
@@ -71,11 +66,12 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location
         bpy.context.scene.cursor.location = context.view_layer.objects.active.location 
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='Z',
                                     orient_type='CURSOR',
@@ -85,22 +81,21 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
                                 )
         # for obj in selection:
         #    round_rotation(obj)
-        
         self.report({"INFO"}, "IOPS Rotate -Z")                                    
         return {"FINISHED"}
+    
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
     
     
 class IOPS_OT_object_rotate_Y (bpy.types.Operator):
     """ Rotate object local Y-axis 90 degrees """
     bl_idname = "iops.object_rotate_y"
-    bl_label = "IOPS rotate Y-axis: 90d"
+    bl_label = "IOPS rotate Y-axis - Positive"
     bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=90
-        )
 
     @classmethod
     def poll(self, context):
@@ -109,11 +104,12 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location
         bpy.context.scene.cursor.location = context.view_layer.objects.active.location
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler           
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='Y',
                                     orient_type='CURSOR',
@@ -125,18 +121,18 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
         #     round_rotation(obj)
         self.report({"INFO"}, "IOPS Rotate +Y")
         return {"FINISHED"}
+    
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
 
 class IOPS_OT_object_rotate_MY (bpy.types.Operator):
     """ Rotate object local Y-axis -90 degrees """
     bl_idname = "iops.object_rotate_my"
-    bl_label = "IOPS rotate Y-axis: -90d"
+    bl_label = "IOPS rotate Y-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=-90
-        )
 
     @classmethod
     def poll(self, context):
@@ -145,11 +141,12 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location
         bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='Y',
                                     orient_type='CURSOR',
@@ -162,17 +159,17 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
         self.report({"INFO"}, "IOPS Rotate -Y")
         return {"FINISHED"}
     
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
+    
 class IOPS_OT_object_rotate_X (bpy.types.Operator):
     """ Rotate object local X-axis 90 degrees """
     bl_idname = "iops.object_rotate_x"
-    bl_label = "IOPS rotate X-axis: 90d"
+    bl_label = "IOPS rotate X-axis - Positive"
     bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=90
-        )
 
     @classmethod
     def poll(self, context):
@@ -181,11 +178,12 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location   
         bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler               
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='X',
                                     orient_type='CURSOR',
@@ -197,18 +195,18 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
         #     round_rotation(obj)
         self.report({"INFO"}, "IOPS Rotate +X")
         return {"FINISHED"}
+    
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
 
 class IOPS_OT_object_rotate_MX (bpy.types.Operator):
     """ Rotate object local X-axis -90 degrees """
     bl_idname = "iops.object_rotate_mx"
-    bl_label = "IOPS rotate X-axis: -90d"
+    bl_label = "IOPS rotate X-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
-
-    angle: FloatProperty(
-        name="Rotation Angle",
-        description="Degrees",
-        default=-90
-        )
 
     @classmethod
     def poll(self, context):
@@ -217,11 +215,12 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
                 len(context.view_layer.objects.selected) != 0)
     
     def execute(self, context):
+        rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
         selection = context.view_layer.objects.selected
         cursor = bpy.context.scene.cursor.location
         bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
         bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-        bpy.ops.transform.rotate(value=math.radians(self.angle),
+        bpy.ops.transform.rotate(value=math.radians(rotation),
                                     center_override=(cursor),
                                     orient_axis='X',
                                     orient_type='CURSOR',
@@ -233,3 +232,9 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
         #     round_rotation(obj)            
         self.report({"INFO"}, "IOPS Rotate -X")
         return {"FINISHED"}
+    
+    def draw(self, context):
+        props = context.window_manager.IOPS_AddonProperties
+        layout = self.layout        
+        row = layout.row(align=True)
+        row.prop(props,"iops_rotation_angle")
