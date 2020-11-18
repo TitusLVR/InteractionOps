@@ -33,7 +33,7 @@ class IOPS_OT_Clean_UVMap_0(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 0)
@@ -55,7 +55,7 @@ class IOPS_OT_Clean_UVMap_1(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 1)
@@ -77,7 +77,7 @@ class IOPS_OT_Clean_UVMap_2(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 2)
@@ -99,7 +99,7 @@ class IOPS_OT_Clean_UVMap_3(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 3)
@@ -121,7 +121,7 @@ class IOPS_OT_Clean_UVMap_4(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 4)
@@ -143,7 +143,7 @@ class IOPS_OT_Clean_UVMap_5(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 5)
@@ -165,7 +165,7 @@ class IOPS_OT_Clean_UVMap_6(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 6)
@@ -187,7 +187,7 @@ class IOPS_OT_Clean_UVMap_7(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 7)

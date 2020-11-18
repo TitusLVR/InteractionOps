@@ -24,7 +24,7 @@ class IOPS_OT_Add_UVMap(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs:
             for ob in selected_objs:
                 uvmap_add(ob)
@@ -41,7 +41,7 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene        
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs and context.active_object in selected_objs:
             uvmap_name = context.active_object.data.uv_layers.active.name           
             for ob in selected_objs:
@@ -59,7 +59,7 @@ class IOPS_OT_Active_UVMap_by_Active(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene        
-        selected_objs = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
+        selected_objs = [o for o in context.view_layer.objects.selected if o.type == 'MESH' and o.data.polygons[:] != [] and o.visible_get()]
         if selected_objs and context.active_object in selected_objs:
             uvmap_name = context.active_object.data.uv_layers.active.name
             uvmap_index = context.active_object.data.uv_layers.active_index        
