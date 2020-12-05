@@ -8,16 +8,19 @@ Welcome to InteractionOps's documentation!
 .. figure:: img/index/iops_banner.png
     :align: center 
 
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons.
 
 
 
-Indices and tables
-==================
+Table of Contents:
+=================================
+   
+.. toctree::     
+   installation
+   ui
+   operators
+   preferences
+   
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+
+
