@@ -5,6 +5,9 @@
 
 Welcome to InteractionOps's documentation!
 ==========================================
+.. figure:: img/index/iops_banner.png
+    :align: center 
+
 
 .. toctree::
    :maxdepth: 2
