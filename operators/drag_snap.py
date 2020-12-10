@@ -106,12 +106,17 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         length = np.linalg.norm(vector)
         return length
 
-    def execute(self, context):   
-        bpy.ops.transform.translate(value=self.snap(), orient_type='GLOBAL')
+    def execute(self, context):  
+        # Double Click to quick snap 3d cursor
+        if self.target[0]  == self.source[0] :
+            context.scene.cursor.location = self.target[0] 
+        else:
+            bpy.ops.transform.translate(value=self.snap(), orient_type='GLOBAL')
+
         try:
             self.clear_draw_handlers()
         except ValueError:
-            pass    
+                pass    
         return {"FINISHED"}
 
     def snap(self):
