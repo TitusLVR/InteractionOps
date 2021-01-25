@@ -43,6 +43,11 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
             ('NEG_Z',  '-Z', '', '', 5)],
         default='POS_X',
     )
+    find_array_and_set_curve_fit: BoolProperty(
+        name="Array - Fit Curve",
+        description="Find Array modifier in the active object modifier list and set Array Fit type to - Fit Curve and pick selected spline there",
+        default=False
+        )
     
 
     @classmethod
@@ -94,6 +99,12 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                     obj.location = curve.location
                 
                 if obj.modifiers:
+                    if self.find_array_and_set_curve_fit:
+                        for mod in obj.modifiers:
+                            if mod.type == "ARRAY":
+                                mod.fit_type = "FIT_CURVE"
+                                mod.curve = curve
+
                     if obj.modifiers[-1].type == "CURVE":
                         mod = obj.modifiers[-1]
                         mod.object = curve
@@ -109,6 +120,7 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                         mod.deform_axis = self.curve_modifier_axis
                         self.report({'INFO'}, "Curve Modifier added and curve object picked.")
                         return {'FINISHED'}
+                    
 
                 else:
                     mod = obj.modifiers.new("iOps Curve", type='CURVE')
