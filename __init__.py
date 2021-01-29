@@ -138,7 +138,9 @@ bl_info = {
 }
 
 # Classes for reg and unreg
-classes = (IOPS_OT_Main,
+classes = (IOPS_AddonPreferences,
+           IOPS_AddonProperties,
+           IOPS_OT_Main,
            IOPS_OT_F1,
            IOPS_OT_F2,
            IOPS_OT_F3,
@@ -199,9 +201,7 @@ classes = (IOPS_OT_Main,
            IOPS_OT_Easy_Mod_Array_Caps,
            IOPS_OT_Easy_Mod_Array_Curve,
            IOPS_OT_Easy_Mod_Shwarp,
-           IOPS_OT_QuickSnap,
-           IOPS_AddonPreferences,
-           IOPS_AddonProperties,
+           IOPS_OT_QuickSnap,           
            IOPS_OT_LoadDefaultHotkeys,
            IOPS_OT_LoadUserHotkeys,
            IOPS_OT_SaveUserHotkeys,

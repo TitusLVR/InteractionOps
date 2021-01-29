@@ -161,7 +161,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             },
             "File Browser": {
                     "type": "FILE_BROWSER",
-                    "ui": "FILE_BROWSER",
+                    "ui": "FILES",
                     "icon": "FILEBROWSER",
                     "num":19
             },
@@ -170,6 +170,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "ui": "PREFERENCES",
                     "icon": "PREFERENCES",
                     "num":20
+            },
+             "Asset Browser": {
+                    "type": "FILE_BROWSER",
+                    "ui": "ASSETS",
+                    "icon": "ASSET_MANAGER",
+                    "num":21
             }
     }
     
@@ -435,7 +441,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name='',
         description='Area Types',
         items=split_areas_list,
-        default='FILE_BROWSER'
+        default='FILES'
     )
     split_area_pie_7_pos: EnumProperty(
         name='',
