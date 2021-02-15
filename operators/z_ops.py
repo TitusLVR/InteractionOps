@@ -6,10 +6,318 @@ import mathutils as mu
 from bpy.props import FloatProperty
 
 
+### UV tools
+
 def get_any(someset):
     for i in someset:
         return i
 
+def reset_uvs(context, coords):
+    bm = bmesh.from_edit_mesh(context.active_object.data)
+    uv = bm.loops.layers.uv.verify()
+    for l in coords:
+        l[uv].uv = coords[l]
+    context.active_object.data.update()
+
+def initial_uvs(frags, bm):
+    uv = bm.loops.layers.uv.verify()
+    coords = {}
+    for frag in frags:
+        for l in frag:
+            coords[l] = l[uv].uv.copy()
+    return coords
+
+def same_uv(l, uv):
+    return set([a for a in l.vert.link_loops if a[uv].uv == l[uv].uv])
+
+def uv_gather_sync(bm):
+    hes = set()
+    if bpy.context.scene.tool_settings.mesh_select_mode[2]:
+        for f in bm.faces:
+            if f.select:
+                for l in f.loops:
+                    hes.add(l)
+    else:
+        for e in bm.edges:
+            if e.select:
+                for l in e.link_loops:
+                    if l.edge == e:
+                        hes.add(l)
+    return hes
+
+def uv_gather_nonsync(bm):
+    uv = bm.loops.layers.uv.verify()
+    hes = set()
+    for f in bm.faces:
+        for l in f.loops:
+            if l[uv].select and l.link_loop_next[uv].select:
+                hes.add(l)
+    return hes
+
+def cache_uvs(ls, uv):
+    lookup = {}
+    for l in ls:
+        lookup[l] = same_uv(l, uv)
+    return lookup
+
+def extract_frag(ls, lookup, n_lookup):
+    done = set()
+    todo = set()
+    todo.add(get_any(ls))
+    while todo:
+        a = todo.pop()
+        done.add(a)
+        ls.discard(a)
+        for b in lookup[a]:
+            pb = b.link_loop_prev
+            if pb in ls:
+                todo.add(pb)
+                ls.discard(pb)
+            if b in lookup:
+                done.add(b)
+                ls.discard(b)
+                nb = b.link_loop_next
+                for d in n_lookup[nb]:
+                    if d in lookup and not (d in done):
+                        todo.add(d)
+                        ls.discard(d)
+                    pd = d.link_loop_prev
+                    if pd in lookup and not (pd in done):
+                        todo.add(pd)
+                        ls.discard(pd)
+    return done
+            
+def partial_frags(bm, uv):
+    if bpy.context.scene.tool_settings.use_uv_select_sync:
+        hes = uv_gather_sync(bm)
+    else:
+        hes = uv_gather_nonsync(bm)
+    lookup = cache_uvs(hes, uv)
+    n_lookup = cache_uvs([o.link_loop_next for o in hes], uv)
+    frags = []
+    done = set()
+    while hes:
+        frag = extract_frag(hes, lookup, n_lookup)
+        vs = set()
+        for a in frag:
+            vs |= set(a.edge.verts)
+            if len(vs) > 1:
+                frags.append(frag)
+                break
+    return frags
+
+def detect_uv_frags(bm):
+    uv = bm.loops.layers.uv.verify()
+    frags = partial_frags(bm, uv)
+    for frag in frags:
+        more = set()
+        for a in frag:
+            more |= same_uv(a, uv)
+            more |= same_uv(a.link_loop_next, uv)
+        frag |= more
+    return frags
+
+def erase_dupes(m1, m2, frag, uv):
+    dupes = set()
+    test = (m1.vert,m1[uv].uv[:],m2.vert,m2[uv].uv[:])
+    for c in frag:
+        d   = c.link_loop_next
+        cv  = c.vert
+        dv  = d.vert
+        cco = c[uv].uv[:]
+        dco = d[uv].uv[:]
+        if test == (cv,cco,dv,dco) or test == (dv,dco,cv,cco):
+            dupes.add(c)
+    frag -= dupes
+
+def extend_chain(item, frag, uv, right_way):
+    l1, l2, fwd = item
+    test1 = (l1.vert,l1[uv].uv[:])
+    test2 = (l2.vert,l2[uv].uv[:])
+    match = None
+    for a in frag:
+        b = a.link_loop_next
+        conn_a = (a.vert,a[uv].uv[:])
+        conn_b = (b.vert,b[uv].uv[:])
+        if right_way:
+            if fwd:
+                if test2 == conn_a:
+                    match = (a,b,True)
+                    break
+                elif test2 == conn_b:
+                    match = (a,b,False)
+                    break
+            else:
+                if test1 == conn_a:
+                    match = (a,b,True)
+                    break
+                elif test1 == conn_b:
+                    match = (a,b,False)
+                    break
+        else:
+            if fwd:
+                if test1 == conn_b:
+                    match = (a,b,True)
+                    break
+                elif test1 == conn_a:
+                    match = (a,b,False)
+                    break
+            else:
+                if test2 == conn_b:
+                    match = (a,b,True)
+                    break
+                elif test2 == conn_a:
+                    match = (a,b,False)
+                    break
+    if not match:
+        return
+    erase_dupes(match[0], match[1], frag, uv)
+    return match
+
+def start_chain(frag, uv):
+    l1 = frag.pop()
+    l2 = l1.link_loop_next
+    erase_dupes(l1, l2, frag, uv)
+    return[(l1,l2,True)]
+
+def prep_chain(chain, uv):
+    order = [list(same_uv(lnk[not lnk[2]], uv)) for lnk in chain]
+    ch_e = chain[-1]
+    which_uv = int(ch_e[2])
+    order.append(list(same_uv(ch_e[which_uv], uv)))
+    is_closed = False
+    if order[0] == order[-1]:
+        is_closed = True
+    return is_closed, order
+
+def order_links(frag, uv):
+    chain = start_chain(frag, uv)
+    start_found = end_found = False
+    while frag and not end_found:
+        lst = extend_chain(chain[-1], frag, uv, True)
+        if lst:
+            chain.append(lst)
+        else:
+            end_found = True
+    while frag and not start_found:
+        fst = extend_chain(chain[0], frag, uv, False)
+        if fst:
+            chain.insert(0, fst)
+        else:
+            start_found = True
+    return prep_chain(chain, uv)
+
+def has_fork(frag, uv):
+    for a in frag:
+        same = same_uv(a, uv)
+        conn = set()
+        for b in same & frag:
+            conn.add(b.link_loop_next)
+        for c in same:
+            prv = c.link_loop_prev
+            if prv in frag:
+                conn.add(prv)
+        uvs = set([(c.vert,c[uv].uv[:]) for c in conn])
+        if len(uvs) > 2:
+            return True
+    return False
+
+def frag_to_chain(frag, uv):
+    if has_fork(frag, uv):
+        return None, None
+    return order_links(frag, uv)
+
+def frags_to_chains(frags, uv):
+    result = []
+    for a in frags:
+        is_closed, ch = frag_to_chain(a, uv)
+        if ch:
+            result.append((is_closed,ch))
+    return result
+
+def arrange_uv_chain(ch, uv, equalize):
+    is_closed, order = ch
+    if is_closed:
+        circ_uv_chain(order, uv, equalize)
+    else:
+        distrib_uv_chain(order, uv, equalize)
+
+def arrange_uv_chains(bm, equalize):
+    uv = bm.loops.layers.uv.active
+    chains = frags_to_chains(partial_frags(bm, uv), uv)
+    for ch in chains:
+        arrange_uv_chain(ch, uv, equalize)
+
+def circ_uv_chain(order, uv, equalize):
+    coords = [b[0][uv].uv for b in order]
+    n = len(coords)
+    c = mu.Vector((
+        sum([v[0] for v in coords]) / n,
+        sum([v[1] for v in coords]) / n))
+    r = sum([(v-c).magnitude for v in coords]) / n
+    s = (order[0][0][uv].uv - c).normalized()
+    if equalize:
+        avg = math.radians(360) / (n - 1)
+        if s.angle_signed(coords[1] - c) >= 0:
+            avg *= -1
+        angles = [avg*i for i in range(len(coords))]
+    else:
+        angles = []
+        for co in coords:
+            angles.append(-s.angle_signed(co - c))
+    for a, ls in zip(angles, order):
+        co = ((mu.Matrix.Rotation(a, 2)) @ s) * r + c
+        for l in ls:
+            l[uv].uv = co
+
+def distrib_uv_chain(order, uv, equalize):
+    n = len(order)
+    s = order[0][0][uv].uv.copy()
+    d = order[-1][0][uv].uv - s
+    avg = d.copy() / (n - 1)
+    if equalize:
+        vecs = [avg] * (n - 1)
+    else:
+        dist = d.magnitude
+        if not dist:
+            vecs = [mu.Vector((0.0,0.0))] * (n - 1)
+        else:
+            vecs = []
+            for i in range(n - 1):
+                vecs.append(order[i+1][0][uv].uv - order[i][0][uv].uv)
+            total = sum([a.magnitude for a in vecs])
+            for i in range(len(vecs)):
+                vecs[i] = d * (vecs[i].magnitude / total)
+    for ls, vec in zip(order, vecs):
+        for a in ls:
+            a[uv].uv = s
+        s += vec
+
+def xform_uv_frags(mtx, geom, bm):
+    uv = bm.loops.layers.uv.verify()
+    for center, frag in geom:
+        for l in frag:
+            l[uv].uv = center + mtx @ (l[uv].uv - center)
+    return bm
+
+def prep_frags(frags, bm):
+    result = []
+    uv = bm.loops.layers.uv.verify()
+    for frag in frags:
+        uvs = [l[uv].uv[:] for l in frag]
+        min_u = min([a[0] for a in uvs])
+        max_u = max([a[0] for a in uvs])
+        min_v = min([a[1] for a in uvs])
+        max_v = max([a[1] for a in uvs])
+        center = mu.Vector(((min_u + max_u) * 0.5, (min_v + max_v) * 0.5))
+        result.append((center,frag))
+    return result
+
+def scale_uv_frags(factor_x, factor_y, frags, bm):
+    mtx = mu.Matrix.Scale(factor_x, 2) @ mu.Matrix.Scale(factor_y, 2)
+    return xform_uv_frags(mtx, frags, bm)
+
+### Mesh editing tools
 
 def mirror(bm):
     copy_lookup = {}
@@ -26,8 +334,8 @@ def mirror(bm):
         sm = mu.Matrix.Scale(-1.0, 4, f.normal)
         cp = copy_lookup[f]
         bmesh.ops.transform(bm,
-                            matrix=tm @ sm @ tm.inverted(),
-                            verts=[v for v in cp['geom'] if type(v) == bmesh.types.BMVert])
+            matrix=tm @ sm @ tm.inverted(),
+            verts=[v for v in cp['geom'] if type(v) == bmesh.types.BMVert])
         weld_map = {}
         for v in f.verts:
             vc = cp['vert_map'][v]
@@ -36,21 +344,20 @@ def mirror(bm):
         bm.faces.remove(f)
         bmesh.ops.weld_verts(bm, targetmap=weld_map)
 
-
 def put_on(to, at, bm, turn):
     to_xyz = to.calc_center_median_weighted()
     at_xyz = at.calc_center_median_weighted()
     turn_mtx = mu.Matrix.Rotation(math.radians(turn), 4, 'Z')
     src_mtx = at.normal.to_track_quat('Z', 'Y').to_matrix().to_4x4()
     trg_mtx = to.normal.to_track_quat('-Z', 'Y').to_matrix().to_4x4()
-    mtx = mu.Matrix.Translation(to_xyz) @ \
+    mtx =  mu.Matrix.Translation(to_xyz) @ \
         trg_mtx @ turn_mtx @ \
         src_mtx.inverted() @ \
         mu.Matrix.Translation(-at_xyz)
     piece = extend_region(at, bm)
-    bmesh.ops.transform(bm, matrix=mtx, space=mu.Matrix.Identity(4), verts=piece)
+    bmesh.ops.transform(bm,
+        matrix=mtx, space=mu.Matrix.Identity(4), verts=piece)
     return bm
-
 
 def extend_region(f, bm):
     inside = set()
@@ -65,7 +372,6 @@ def extend_region(f, bm):
     for e in inside:
         vs.update(set(e.verts[:]))
     return list(vs)
-
 
 def connect(bm):
     sel = set([a for a in bm.edges if a.select])
@@ -85,7 +391,6 @@ def connect(bm):
         e.select = True
     return bm
 
-
 def loop_extension(edge, vert):
     candidates = vert.link_edges[:]
     if len(vert.link_loops) == 4 and vert.is_manifold:
@@ -96,20 +401,19 @@ def loop_extension(edge, vert):
     else:
         return
 
-
 def loop_end(edge):
     v1, v2 = edge.verts[:]
     return not loop_extension(edge, v1) \
         or not loop_extension(edge, v2)
 
-
 def ring_extension(edge, face):
     if len(face.verts) == 4:
         target_verts = [v for v in face.verts if v not in edge.verts]
-        return [e for e in face.edges if target_verts[0] in e.verts and target_verts[1] in e.verts][0]
+        return [e for e in face.edges if
+            target_verts[0] in e.verts and
+            target_verts[1] in e.verts][0]
     else:
         return
-
 
 def ring_end(edge):
     faces = edge.link_faces[:]
@@ -118,16 +422,15 @@ def ring_end(edge):
     dead_ends = map(lambda x: len(x.verts) != 4, faces)
     return border or non_manifold or any(dead_ends)
 
-
 def unselected_loop_extensions(edge):
     v1, v2 = edge.verts
     ext1, ext2 = loop_extension(edge, v1), loop_extension(edge, v2)
     return [e for e in [ext1, ext2] if e and not e.select]
 
-
 def unselected_ring_extensions(edge):
-    return [e for e in [ring_extension(edge, f) for f in edge.link_faces] if e and not e.select]
-
+    return [e for e in 
+        [ring_extension(edge, f) for f in edge.link_faces]
+        if e and not e.select]
 
 def entire_loop(edge):
     e = edge
@@ -138,28 +441,21 @@ def entire_loop(edge):
         ext = loop_extension(e, v)
         if ext:
             if going_forward:
-                if ext == edge:
-                    # infinite
+                if ext == edge: # infinite
                     return [edge] + loop + [edge]
-                else:
-                    # continue forward
+                else: # continue forward
                     loop.append(ext)
-            else:
-                # continue backward
+            else: # continue backward
                 loop.insert(0, ext)
             v = ext.other_vert(v)
             e = ext
-        else:
-            # finite and we've reached an end
-            if going_forward:
-                # the first end
+        else: # finite and we've reached an end
+            if going_forward: # the first end
                 going_forward = False
                 e = edge
                 v = edge.verts[1]
-            else:
-                # the other end
+            else: # the other end
                 return loop
-
 
 def partial_ring(edge, face):
     part_ring = []
@@ -178,7 +474,6 @@ def partial_ring(edge, face):
             e = ext
     return part_ring
 
-
 def entire_ring(edge):
     fs = edge.link_faces
     ring = [edge]
@@ -190,14 +485,12 @@ def entire_ring(edge):
             ring.extend(dirs[0])
     return ring
 
-
 def complete_associated_loops(edges):
     loops = []
     for e in edges:
         if not any([e in l for l in loops]):
             loops.append(entire_loop(e))
     return loops
-
 
 def complete_associated_rings(edges):
     rings = []
@@ -206,12 +499,10 @@ def complete_associated_rings(edges):
             rings.append(entire_ring(e))
     return rings
 
-
 def grow_loop(context):
     mesh = context.active_object.data
     bm = bmesh.from_edit_mesh(mesh)
     selected_edges = [e for e in bm.edges if e.select]
-
     loop_exts = []
     for se in selected_edges:
         loop_exts.extend(unselected_loop_extensions(se))
@@ -219,7 +510,6 @@ def grow_loop(context):
         le.select = True
     mesh.update()
     return {'FINISHED'}
-
 
 def grow_ring(context):
     mesh = context.active_object.data
@@ -233,7 +523,6 @@ def grow_ring(context):
     mesh.update()
     return {'FINISHED'}
 
-
 def group_selected(edges):
     chains = [[]]
     for e in edges:
@@ -243,7 +532,6 @@ def group_selected(edges):
             chains.append([])
     return [c for c in chains if c]
 
-
 def group_unselected(edges):
     gaps = [[]]
     for e in edges:
@@ -252,7 +540,6 @@ def group_unselected(edges):
         else:
             gaps.append([])
     return [g for g in gaps if g != []]
-
 
 def shrink_loop(context):
     mesh = context.active_object.data
@@ -265,12 +552,11 @@ def shrink_loop(context):
             if not le or not le.select:
                 loop_ends.append(se)
     loop_ends_unique = list(set(loop_ends))
-    if len(loop_ends_unique) > 1:
+    if len(loop_ends_unique):
         for e in loop_ends_unique:
             e.select = False
     mesh.update()
     return {'FINISHED'}
-
 
 def shrink_ring(context):
     mesh = context.active_object.data
@@ -287,7 +573,6 @@ def shrink_ring(context):
     mesh.update()
     return {'FINISHED'}
 
-
 def select_bounded_loop(context):
     mesh = context.active_object.data
     bm = bmesh.from_edit_mesh(mesh)
@@ -295,17 +580,17 @@ def select_bounded_loop(context):
     for l in complete_associated_loops(selected_edges):
         gaps = group_unselected(l)
         new_sel = []
-        if l[0] == l[-1]:
-            # loop is infinite
-            sg = sorted(gaps, key=lambda x: len(x), reverse=True)
-            if len(sg) > 1 and len(sg[0]) > len(sg[1]):
-                # single longest gap
+        if l[0] == l[-1]: # loop is infinite
+            sg = sorted(gaps,
+                key = lambda x: len(x),
+                reverse = True)
+            if len(sg) > 1 and len(sg[0]) > len(sg[1]): # single longest gap
                 final_gaps = sg[1:]
             else:
                 final_gaps = sg
-        else:
-            # loop is finite
-            tails = [g for g in gaps if any(map(lambda x: loop_end(x), g))]
+        else: # loop is finite
+            tails = [g for g in gaps
+                if any(map(lambda x: loop_end(x), g))]
             nontails = [g for g in gaps if g not in tails]
             if nontails:
                 final_gaps = nontails
@@ -317,7 +602,6 @@ def select_bounded_loop(context):
             e.select = True
     mesh.update()
     return {'FINISHED'}
-
 
 def select_bounded_ring(context):
     mesh = context.active_object.data
@@ -326,17 +610,17 @@ def select_bounded_ring(context):
     for r in complete_associated_rings(selected_edges):
         gaps = group_unselected(r)
         new_sel = []
-        if r[0] == r[-1]:
-            # ring is infinite
-            sg = sorted(gaps, key=lambda x: len(x), reverse=True)
-            if len(sg) > 1 and len(sg[0]) > len(sg[1]):
-                # single longest gap
+        if r[0] == r[-1]: # ring is infinite
+            sg = sorted(gaps,
+                key = lambda x: len(x),
+                reverse = True)
+            if len(sg) > 1 and len(sg[0]) > len(sg[1]): # single longest gap
                 final_gaps = sg[1:]
             else:
                 final_gaps = sg
-        else:
-            # ring is finite
-            tails = [g for g in gaps if any(map(lambda x: ring_end(x), g))]
+        else: # ring is finite
+            tails = [g for g in gaps
+                if any(map(lambda x: ring_end(x), g))]
             nontails = [g for g in gaps if g not in tails]
             if nontails:
                 final_gaps = nontails
@@ -348,7 +632,6 @@ def select_bounded_ring(context):
             e.select = True
     mesh.update()
     return {'FINISHED'}
-
 
 def extract_mesh_frag(es):
     frag = set()
@@ -358,10 +641,9 @@ def extract_mesh_frag(es):
         e = todo.pop()
         frag.add(e)
         v1, v2 = e.verts
-        more = [a for a in v1.link_edges[:] + v2.link_edges[:] if a.select]
+        more = [a for a in v1.link_edges[:]+v2.link_edges[:] if a.select]
         todo |= (set(more) - frag)
     return frag
-
 
 def mesh_frags(bm):
     todo = set([e for e in bm.edges if e.select])
@@ -371,7 +653,6 @@ def mesh_frags(bm):
         frags.append(frag)
         todo -= frag
     return frags
-
 
 def vert_chain(frag):
     fst = get_any(frag)
@@ -402,7 +683,6 @@ def vert_chain(frag):
             e_chain.append(nxt_e)
             v_chain.append(nxt_e.other_vert(end_v))
 
-
 def vert_chains(frags):
     chains = []
     for frag in frags:
@@ -410,7 +690,6 @@ def vert_chains(frags):
         if chain:
             chains.append((is_closed, chain))
     return chains
-
 
 def arrange_edges(context, equalize):
     mesh = context.active_object.data
@@ -424,7 +703,6 @@ def arrange_edges(context, equalize):
     context.active_object.data.update()
     return {'FINISHED'}
 
-
 def circularize(ovs, equalize):
     n = len(ovs)
     center = mu.Vector((
@@ -435,7 +713,7 @@ def circularize(ovs, equalize):
     avg_d = (max(dists) + min(dists)) * 0.5
     crosses = []
     for v in ovs:
-        pv = ovs[ovs.index(v) - 1]
+        pv = ovs[ovs.index(v)-1]
         crosses.append((pv.co - center).cross(v.co - center))
     nrm = mu.Vector((
         sum([a[0] for a in crosses]) / n,
@@ -451,7 +729,7 @@ def circularize(ovs, equalize):
         if not avg_d:
             quats = [mu.Quaternion((1.0, 0.0, 0.0, 0.0))] * n
         else:
-            vecs = [ovs[i + 1].co - ovs[i].co for i in range(n - 1)]
+            vecs = [ovs[i+1].co - ovs[i].co for i in range(n - 1)]
             total = sum([vec.magnitude for vec in vecs])
             quats = []
             for vec in vecs:
@@ -460,7 +738,6 @@ def circularize(ovs, equalize):
     for v, quat in zip(ovs, quats):
         v.co = center + offset
         offset.rotate(quat)
-
 
 def string_along(ovs, equalize):
     n = len(ovs)
@@ -472,11 +749,11 @@ def string_along(ovs, equalize):
     else:
         dist = d.magnitude
         if not dist:
-            vecs = [mu.Vector((0.0, 0.0, 0.0))] * (n - 1)
+            vecs = [mu.Vector((0.0,0.0,0.0))] * (n - 1)
         else:
             vecs = []
             for i in range(n - 1):
-                vecs.append(ovs[i + 1].co - ovs[i].co)
+                vecs.append(ovs[i+1].co - ovs[i].co)
             total = sum([a.magnitude for a in vecs])
             for i in range(len(vecs)):
                 vecs[i] = d * (vecs[i].magnitude / total)

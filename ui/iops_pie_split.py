@@ -11,27 +11,40 @@ def get_area_type(ui, dict):
         if v["ui"] == ui:
             return v["type"]
             
+ 
+
+
+
 
 class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_1"
     bl_label = "IOPS Split Area Pie 1"
-
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    bl_description = """ ALT to Switch Area"""
+   
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_1_ui, 
                                        pos=prefs.split_area_pie_1_pos, 
-                                       factor=prefs.split_area_pie_1_factor)         
+                                       factor=prefs.split_area_pie_1_factor)
         return {'FINISHED'}
+
 
 class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_2"
     bl_label = "IOPS Split Area Pie 2"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_2_ui, 
                                        pos=prefs.split_area_pie_2_pos, 
@@ -42,9 +55,13 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_3"
     bl_label = "IOPS Split Area Pie 3"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_3_ui, 
                                        pos=prefs.split_area_pie_3_pos, 
@@ -55,9 +72,13 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_4"
     bl_label = "IOPS Split Area Pie 4"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_4_ui, 
                                        pos=prefs.split_area_pie_4_pos, 
@@ -68,9 +89,13 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_6"
     bl_label = "IOPS Split Area Pie 6"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_6_ui, 
                                        pos=prefs.split_area_pie_6_pos, 
@@ -81,9 +106,13 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_7"
     bl_label = "IOPS Split Area Pie 7"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_7_ui, 
                                        pos=prefs.split_area_pie_7_pos, 
@@ -94,9 +123,13 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_8"
     bl_label = "IOPS Split Area Pie 8"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_8_ui, 
                                        pos=prefs.split_area_pie_8_pos, 
@@ -107,9 +140,13 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.split_area_pie_9"
     bl_label = "IOPS Split Area Pie 9"
+    bl_description = """ ALT to Switch Area"""
 
-    def execute(self, context):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+    def invoke(self, context, event):
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        if event.alt:
+            bpy.context.area.type = get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict)           
+            return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_9_ui, 
                                        pos=prefs.split_area_pie_9_pos, 
