@@ -130,10 +130,10 @@ bl_info = {
     "version": (2, 1, 0),
     "blender": (2, 83, 0),
     "location": "View3D > Toolbar and View3D",
-    "description": "Handy functions to speed up workflow",
+    "description": "iOPS - Boost your Blender Interactivity :p",
     "warning": "",
-    "wiki_url": "https://blenderartists.org/t/interactionops-iops/",
-    "tracker_url": "https://github.com/TitusLVR/InteractionOps",
+    "wiki_url": "https://interactionops-docs.readthedocs.io/en/latest/index.html",
+    "tracker_url": "https://github.com/TitusLVR/InteractionOps/issues",
     "category": "Tools"
 }
 
