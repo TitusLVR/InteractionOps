@@ -33,11 +33,21 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
     bl_description = """ ALT to Switch Area"""
    
     def invoke(self, context, event):
-        prefs = context.preferences.addons['InteractionOps'].preferences
+        prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
+
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_1_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_1_ui, 
                                        pos=prefs.split_area_pie_1_pos, 
@@ -53,9 +63,18 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_2_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_2_ui, 
@@ -71,9 +90,18 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_3_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_3_ui, 
@@ -88,10 +116,19 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
     bl_description = """ ALT to Switch Area"""
 
     def invoke(self, context, event):
-        prefs = context.preferences.addons['InteractionOps'].preferences        
+        prefs = context.preferences.addons['InteractionOps'].preferences
+
+        new_state = get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_4_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_4_ui, 
@@ -107,9 +144,18 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_6_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_6_ui, 
@@ -125,9 +171,18 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_7_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_7_ui, 
@@ -143,9 +198,18 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
 
     def invoke(self, context, event):        
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_8_ui, 
@@ -161,9 +225,18 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons['InteractionOps'].preferences        
+        
+        new_state = get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict) 
+        prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
+        current_state = bpy.context.area.type
+        
         ev = get_event_type(event)
         if ["Alt", "Click"] == ev:
-            bpy.context.area.type = get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict)           
+            if new_state == current_state:
+                bpy.context.area.type = prev_state
+            else:
+                context.window_manager.IOPS_AddonProperties.iops_split_previous = current_state
+                bpy.context.area.type = new_state 
             return {'FINISHED'}
         bpy.ops.iops.split_screen_area(area_type=get_area_type(prefs.split_area_pie_9_ui, prefs.split_areas_dict), 
                                        ui=prefs.split_area_pie_9_ui, 
@@ -177,6 +250,7 @@ class IOPS_MT_Pie_Split(Menu):
 
     def draw(self, context):
         prefs = context.preferences.addons['InteractionOps'].preferences
+
         split_areas_dict = prefs.split_areas_dict
 
         pie_1_text, pie_1_icon = get_text_icon(prefs.split_area_pie_1_ui, split_areas_dict)
@@ -237,12 +311,13 @@ class IOPS_MT_Pie_Split(Menu):
         else:
             pie.separator()
 
-
 class IOPS_OT_Call_Pie_Split(bpy.types.Operator):
     """IOPS Pie Split"""
     bl_idname = "iops.call_pie_split"
     bl_label = "IOPS Pie Split"
 
     def execute(self, context):        
-        bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Split")         
+        bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Split")
+        self.report({'INFO'}, ("Stored Area is: " + str(bpy.context.window_manager.IOPS_AddonProperties.iops_split_previous)) )
+              
         return {'FINISHED'}

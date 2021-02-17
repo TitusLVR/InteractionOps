@@ -36,5 +36,8 @@ class IOPS_AddonProperties (PropertyGroup):
         default=90,
         min = 0.0
         )
-  
+    iops_split_previous: StringProperty(
+        name="iops_split_previous",        
+        default="VIEW_3D",
+    )
     
