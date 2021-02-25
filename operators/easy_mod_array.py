@@ -71,16 +71,23 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        cap_objs = self.cap_objs
-        start_obj = self.cap_objs[0]
-        end_obj = self.cap_objs[1]
         cursor = self.cursor
         mid_obj = self.mid_obj
         mid_obj_loc = self.mid_obj_loc
         mid_obj_dim = self.mid_obj_dim
         curve = self.curve
-        start_obj.name = mid_obj.name + "_START_CAP"
-        end_obj.name = mid_obj.name + "_END_CAP"
+        
+        cap_objs = self.cap_objs
+        
+        if len(cap_objs) == 1:
+            end_obj = self.cap_objs[0]
+            end_obj.name = mid_obj.name + "_END_CAP"
+        else:
+            start_obj = self.cap_objs[0]
+            end_obj = self.cap_objs[1]
+            start_obj.name = mid_obj.name + "_START_CAP"
+            end_obj.name = mid_obj.name + "_END_CAP"        
+        
         # bpy.ops.object.select_all(action='DESELECT')
         # bpy.data.objects[start_obj.name].select_set(True)
         # bpy.context.view_layer.objects.active = start_obj
@@ -91,15 +98,21 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
         # Pick up in Local space
 
         elif event.type in {'F'} and event.value == "PRESS":
-            cap_objs[0], cap_objs[1] = cap_objs[1], cap_objs[0]
-            start_obj = cap_objs[0]
-            end_obj = cap_objs[1]
-            start_obj.name = mid_obj.name + "_START_CAP"
-            end_obj.name = mid_obj.name + "_END_CAP"
-            
-            bpy.ops.object.select_all(action='DESELECT')
-            bpy.data.objects[start_obj.name].select_set(True)
-            bpy.context.view_layer.objects.active = start_obj
+            if len(cap_objs) != 1:
+                cap_objs[0], cap_objs[1] = cap_objs[1], cap_objs[0]
+                start_obj = cap_objs[0]
+                end_obj = cap_objs[1]
+                start_obj.name = mid_obj.name + "_START_CAP"
+                end_obj.name = mid_obj.name + "_END_CAP"
+                
+                bpy.ops.object.select_all(action='DESELECT')
+                bpy.data.objects[start_obj.name].select_set(True)
+                bpy.context.view_layer.objects.active = start_obj
+                
+                arr_mod = mid_obj.modifiers.get("CappedArray")
+                if arr_mod:
+                    arr_mod.start_cap = start_obj
+                    arr_mod.end_cap = end_obj
 
         elif event.type in {'X'} and event.value == "PRESS":
             
@@ -173,8 +186,11 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                 mid_obj.modifiers.remove(arr_mod)
             else:
                 arr_mod = mid_obj.modifiers.new("CappedArray", type='ARRAY')
-                arr_mod.start_cap = start_obj
-                arr_mod.end_cap = end_obj
+                if len(cap_objs) == 1:
+                    arr_mod.end_cap = end_obj
+                else:
+                    arr_mod.start_cap = start_obj
+                    arr_mod.end_cap = end_obj
         
         elif event.type in {'NUMPAD_MINUS'} and event.value == "PRESS":
             bpy.ops.object.select_all(action='DESELECT')            
@@ -207,11 +223,18 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                 bpy.context.view_layer.objects.active = mid_obj
 
                 curve_mod = mid_obj.modifiers.get("CappedArrayCurve")
+                arr_mod = mid_obj.modifiers.get("CappedArray")
                 if curve_mod:
                     mid_obj.modifiers.remove(curve_mod)
                 else:
                     curve_mod = mid_obj.modifiers.new("CappedArrayCurve", type='CURVE')
                     curve_mod.object = curve
+                
+                if arr_mod and curve_mod:
+                    arr_mod.fit_type = "FIT_CURVE"
+                    arr_mod.curve = curve
+
+               
 
         elif event.type in {'LEFTMOUSE', 'SPACE', 'ENTER'}:
             bpy.ops.object.select_all(action='DESELECT')

@@ -11,16 +11,17 @@ def get_area_type(ui, dict):
         if v["ui"] == ui:
             return v["type"]
 
-def get_event_type(event):
-    events = []
-    if event.ctrl:
-        events.append("Ctrl")
-    if event.shift:
-        events.append("Shift")
-    if event.alt:
-        events.append("Alt")
-    events.append("Click")
-    return events
+
+# def get_event_type(event):
+#     events = []
+#     if event.ctrl:
+#         events.append("Ctrl")
+#     if event.shift:
+#         events.append("Shift")
+#     if event.alt:
+#         events.append("Alt")
+#     events.append("Click")
+#     return events
  
 
 
@@ -39,8 +40,9 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
 
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -68,8 +70,9 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -95,8 +98,9 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -122,8 +126,9 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -149,8 +154,9 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -176,8 +182,9 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -203,8 +210,9 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
@@ -230,8 +238,9 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
         current_state = bpy.context.area.type
         
-        ev = get_event_type(event)
-        if ["Alt", "Click"] == ev:
+        # ev = get_event_type(event)
+        # if ["Alt", "Click"] == ev:
+        if event.alt:
             if new_state == current_state:
                 bpy.context.area.type = prev_state
             else:
