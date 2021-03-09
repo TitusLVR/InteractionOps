@@ -43,7 +43,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     
     # list itens (identifier, name, description, icon, number,)
     #Area.type, Area.ui_type, Icon, PrefText
-
+    
     split_areas_dict = {
             "Empty": {
                     "type": "EMPTY",
@@ -161,7 +161,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             },
             "File Browser": {
                     "type": "FILE_BROWSER",
-                    "ui": "FILES",
+                    "ui": "FILE_BROWSER",
                     "icon": "FILEBROWSER",
                     "num":19
             },
@@ -171,13 +171,18 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "icon": "PREFERENCES",
                     "num":20
             },
-             "Asset Browser": {
-                    "type": "FILE_BROWSER",
-                    "ui": "ASSETS",
-                    "icon": "ASSET_MANAGER",
-                    "num":21
-            }
+             
     }
+    file_browser_name = 'FILE_BROWSER'
+    if bpy.app.version[1] >= 92:
+        file_browser_name = "FILES"
+        split_areas_dict['File Browser']['ui'] = "FILES"
+        split_areas_dict['Asset Browser'] = {
+                                             "type": "FILE_BROWSER",
+                                             "ui": "ASSETS",
+                                             "icon": "ASSET_MANAGER",
+                                             "num":21
+                                            }
     
     split_areas_list = [(v["ui"], k, "", v["icon"], v["num"]) for  k, v in split_areas_dict.items()]
     
@@ -441,7 +446,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name='',
         description='Area Types',
         items=split_areas_list,
-        default='FILES'
+        default= file_browser_name
     )
     split_area_pie_7_pos: EnumProperty(
         name='',

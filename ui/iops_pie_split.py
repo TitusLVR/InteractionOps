@@ -204,7 +204,7 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
     bl_description = """ ALT to Switch Area"""
 
     def invoke(self, context, event):        
-        prefs = context.preferences.addons['InteractionOps'].preferences        
+        prefs = context.preferences.addons['InteractionOps'].preferences 
         
         new_state = get_area_type(prefs.split_area_pie_8_ui, prefs.split_areas_dict) 
         prev_state = context.window_manager.IOPS_AddonProperties.iops_split_previous
