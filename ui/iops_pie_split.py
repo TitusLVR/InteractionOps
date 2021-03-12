@@ -306,73 +306,57 @@ class IOPS_MT_Pie_Split(Menu):
         pie = layout.menu_pie()
         # 4 - LEFT
         if pie_4_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_previouse_state_pie_4", text="", icon='ARROW_LEFTRIGHT')
-            row.operator("iops.split_area_pie_4", text=pie_4_text, icon=pie_4_icon)
+            pie.operator("iops.split_area_pie_4", text=pie_4_text, icon=pie_4_icon)
+
         else:
             pie.separator()       
         
         # 6 - RIGHT
         if pie_6_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_pie_6", text=pie_6_text, icon=pie_6_icon) 
-            row.operator("iops.split_area_previouse_state_pie_6", text="", icon='ARROW_LEFTRIGHT')
+            pie.operator("iops.split_area_pie_6", text=pie_6_text, icon=pie_6_icon) 
+
         else:
             pie.separator()  
         
         # 2 - BOTTOM
         if pie_2_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_pie_2", text=pie_2_text, icon=pie_2_icon) 
-            row.operator("iops.split_area_previouse_state_pie_2", text="", icon='ARROW_LEFTRIGHT')
+            pie.operator("iops.split_area_pie_2", text=pie_2_text, icon=pie_2_icon) 
+
         else:
             pie.separator()  
         
         # 8 - TOP
         if pie_8_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_pie_8", text=pie_8_text, icon=pie_8_icon) 
-            row.operator("iops.split_area_previouse_state_pie_8", text="", icon='ARROW_LEFTRIGHT') 
+            pie.operator("iops.split_area_pie_8", text=pie_8_text, icon=pie_8_icon) 
+
         else:
             pie.separator()  
 
         # 7 - TOP - LEFT
         if pie_7_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_previouse_state_pie_7", text="", icon='ARROW_LEFTRIGHT')
-            row.operator("iops.split_area_pie_7", text=pie_7_text, icon=pie_7_icon) 
+            pie.operator("iops.split_area_pie_7", text=pie_7_text, icon=pie_7_icon) 
+     
         else:
             pie.separator()  
         
         # 9 - TOP - RIGHT
         if pie_9_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_pie_9", text=pie_9_text, icon=pie_9_icon) 
-            row.operator("iops.split_area_previouse_state_pie_9", text="", icon='ARROW_LEFTRIGHT') 
+            pie.operator("iops.split_area_pie_9", text=pie_9_text, icon=pie_9_icon) 
+
         else:
             pie.separator()  
 
         # 1 - BOTTOM - LEFT 
         if pie_1_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_previouse_state_pie_1", text="", icon='ARROW_LEFTRIGHT')
-            row.operator("iops.split_area_pie_1", text=pie_1_text, icon=pie_1_icon)             
+            pie.operator("iops.split_area_pie_1", text=pie_1_text, icon=pie_1_icon)             
+
         else:
             pie.separator()  
         
         # 3 - BOTTOM - RIGHT
         if pie_3_text != "Empty":
-            row = pie.row(align=True)            
-            row.scale_y = 1.3
-            row.operator("iops.split_area_pie_3", text=pie_3_text, icon=pie_3_icon) 
-            row.operator("iops.split_area_previouse_state_pie_3", text="", icon='ARROW_LEFTRIGHT')
+            pie.operator("iops.split_area_pie_3", text=pie_3_text, icon=pie_3_icon) 
+
         else:
             pie.separator()
 
