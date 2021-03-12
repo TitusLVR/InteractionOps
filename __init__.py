@@ -10,6 +10,7 @@ from .operators.preferences.io_addon_preferences import (IOPS_OT_SaveAddonPrefer
                                                          IOPS_OT_LoadAddonPreferences)
 
 from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
+from .operators.mouseover_fill_select import IOPS_MouseoverFillSelect
 from .operators.materials_from_textures import IOPS_OT_MaterialsFromTextures
 from .operators.cursor_origin.mesh import IOPS_OT_CursorOrigin_Mesh
 from .operators.curve_spline_type import IOPS_OT_CurveSplineType
@@ -248,6 +249,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_Add_UVMap,
            IOPS_OT_Remove_UVMap_by_Active_Name,
            IOPS_OT_Active_UVMap_by_Active,
+           IOPS_MouseoverFillSelect,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
