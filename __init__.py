@@ -126,7 +126,13 @@ from .operators.executor import (IOPS_OT_Executor,
                                  IOPS_OT_Call_MT_Executor)
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (IOPS_OT_PropScroll_UP,
-                                       IOPS_OT_PropScroll_DOWN)  
+                                       IOPS_OT_PropScroll_DOWN,
+                                       IOPS_OT_Axis_Scroll_UP,
+                                       IOPS_OT_Axis_Scroll_DOWN,
+                                       IOPS_OT_PPoint_Scroll_UP,
+                                       IOPS_OT_PPoint_Scroll_DOWN,
+                                       IOPS_OT_Snap_Scroll_UP,
+                                       IOPS_OT_Snap_Scroll_DOWN)  
 
 from .utils.functions import (register_keymaps, unregister_keymaps)
 # Hotkeys
@@ -230,6 +236,12 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_DragSnapUV,
            IOPS_OT_PropScroll_UP,
            IOPS_OT_PropScroll_DOWN,
+           IOPS_OT_Axis_Scroll_UP,
+           IOPS_OT_Axis_Scroll_DOWN,
+           IOPS_OT_PPoint_Scroll_UP,
+           IOPS_OT_PPoint_Scroll_DOWN,
+           IOPS_OT_Snap_Scroll_UP,
+           IOPS_OT_Snap_Scroll_DOWN,
            IOPS_OT_VertexColorAssign,
            IOPS_PT_VCol_Panel,  
            IOPS_OT_SplitScreenArea,

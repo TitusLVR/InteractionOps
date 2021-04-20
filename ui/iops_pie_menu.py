@@ -81,8 +81,12 @@ class IOPS_MT_Pie_Menu(Menu):
             other_menu = other.box().column()
             other_menu.scale_y=1
             other_menu.label(text="ForgottenTools")
+            other_menu.operator('forgotten.mesh_connect_spread')
+            other_menu.operator('forgotten.mesh_grid_fill_all')
+            
             other_menu.operator('forgotten.mesh_dice_faces')
             other_menu.operator('forgotten.mesh_hinge')
+            
             other_menu.operator('mesh.forgotten_separate_duplicate')
             other_menu.operator("wm.call_panel", text = "Selection Sets", icon = "SELECT_SET").name='FORGOTTEN_PT_SelectionSetsPanel'
         else:
