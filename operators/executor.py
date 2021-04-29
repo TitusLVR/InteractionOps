@@ -5,7 +5,7 @@ from os.path import isfile, join
 from bpy.props import (StringProperty)
 
 class IOPS_OT_Executor(bpy.types.Operator):
-    """ Execute info operators from buffer """
+    """ Execute python scripts from folder """
     bl_idname = "iops.executor"
     bl_label = "IOPS Executor"
     bl_options = {"REGISTER"}

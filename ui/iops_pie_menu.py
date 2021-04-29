@@ -5,7 +5,7 @@ from .. utils.functions import *
 
 class IOPS_MT_Pie_Menu(Menu):
     # bl_idname = "iops.pie_menu"
-    bl_label = "IOPS_MT_Pie_Menu"
+    bl_label = "IOPS Pie"
 
     def draw(self, context):
         forgottentools, _, _, _ = get_addon("Forgotten Tools")
