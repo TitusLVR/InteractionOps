@@ -142,7 +142,7 @@ from .prefs.hotkeys_default import keys_default as keys_default
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
-    "version": (2, 1, 0),
+    "version": (2, 1, 2),
     "blender": (2, 83, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "iOPS - Boost your Blender Interactivity :p",
