@@ -531,6 +531,24 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Type suffixes what you want to clean",
         default="_df,_dfa,_mk,_emk,_nm"
         )
+    
+    switch_list_axis: StringProperty(
+        name="Axis Switch List",
+        description="Axis Switch List, types should be with capital letters and separated by comma",
+        default="GLOBAL, LOCAL, NORMAL, GIMBAL, VIEW, CURSOR"
+        )
+    
+    switch_list_ppoint: StringProperty(
+        name="PivotPoint Switch List",
+        description="PivotPoint Switch List, types should be with capital letters and separated by comma",
+        default="BOUNDING_BOX_CENTER, CURSOR, INDIVIDUAL_ORIGINS, MEDIAN_POINT, ACTIVE_ELEMENT"
+        )
+    
+    switch_list_snap: StringProperty(
+        name="Snap With.. Switch List",
+        description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
+        default="CLOSEST, CENTER, MEDIAN, ACTIVE"
+        )
 
 
 
@@ -752,6 +770,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         col = box.column(align=True)
         col.prop(self, "texture_to_material_prefixes")
         col.prop(self, "texture_to_material_suffixes")
+        
+        # Switch lists  
+        box = box_ui.box()
+        col = box.column(align=True)
+        col.label(text="Switch lists:")
+        col = box.column(align=True)
+        col.prop(self, "switch_list_axis")
+        col.prop(self, "switch_list_ppoint")
+        col.prop(self, "switch_list_snap")
 
 
         # Hotkeys

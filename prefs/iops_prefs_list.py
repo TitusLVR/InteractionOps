@@ -43,5 +43,8 @@ iops_prefs_list = ["IOPS_DEBUG",
                    "vo_cage_p_size", 
                    "vo_cage_points_color",
                    "texture_to_material_prefixes",
-                   "texture_to_material_suffixes"]
+                   "texture_to_material_suffixes",
+                   "switch_list_axis",
+                   "switch_list_ppoint",
+                   "switch_list_snap"]
               

@@ -1,9 +1,18 @@
 import bpy
 
+
+
 iops_spc = ['TOOL', 'RENDER', 'OUTPUT', 'VIEW_LAYER', 'SCENE', 'WORLD', 'OBJECT', 'MODIFIER', 'PARTICLES', 'PHYSICS', 'CONSTRAINT', 'DATA', 'MATERIAL', 'TEXTURE']
-iops_axis_types = ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'VIEW', 'CURSOR']
-iops_ppoint_types =['BOUNDING_BOX_CENTER','CURSOR','INDIVIDUAL_ORIGINS','MEDIAN_POINT','ACTIVE_ELEMENT'] 
-iops_snap_types = ['CLOSEST','CENTER','MEDIAN','ACTIVE']
+# iops_axis_types = ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'VIEW', 'CURSOR']
+# iops_ppoint_types =['BOUNDING_BOX_CENTER','CURSOR','INDIVIDUAL_ORIGINS','MEDIAN_POINT','ACTIVE_ELEMENT'] 
+# iops_snap_types = ['CLOSEST','CENTER','MEDIAN','ACTIVE']# 
+
+
+def convert_string_to_list(string):
+    string = string.replace(" ", "")
+    string = string.upper()
+    ls = list(string.split(","))
+    return ls
 
 def set_space_context(idx):
     areas = [a.type for a in bpy.context.screen.areas]
@@ -12,16 +21,23 @@ def set_space_context(idx):
         bpy.context.screen.areas[area_index].spaces.active.context = iops_spc[idx]
 
 def set_axis_type(idx):
+    iops_axis_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_axis)
     bpy.context.scene.transform_orientation_slots[0].type = iops_axis_types[idx]
 
 def set_ppoint_type(idx):
+    iops_ppoint_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_ppoint)
     bpy.context.scene.tool_settings.transform_pivot_point = iops_ppoint_types[idx]  
 
 def set_snap_type(idx):
+    iops_snap_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_snap)
     bpy.context.scene.tool_settings.snap_target = iops_snap_types[idx] 
 
 
-def try_next(dict,idx):    
+def try_next(dict,idx):
+    iops_axis_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_axis)
+    iops_ppoint_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_ppoint)
+    iops_snap_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_snap)
+   
     if idx <= len(dict):
         idx += 1 
         try:
@@ -66,7 +82,10 @@ def try_next(dict,idx):
         if dict == iops_snap_types:
             set_snap_type(idx)
 
-def try_prev(dict, idx):    
+def try_prev(dict, idx):
+    iops_axis_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_axis)
+    iops_ppoint_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_ppoint)
+    iops_snap_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_snap)    
     if idx > 0 and idx <= len(dict):
         idx -= 1
         try:
@@ -153,6 +172,7 @@ class IOPS_OT_Axis_Scroll_UP(bpy.types.Operator):
     bl_label = "Cyclic switching axis types UP"
 
     def execute(self, context):
+        iops_axis_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_axis)
         idx = iops_axis_types.index(context.scene.transform_orientation_slots[0].type)
         try:
             try_prev(iops_axis_types, idx)
@@ -166,7 +186,8 @@ class IOPS_OT_Axis_Scroll_DOWN(bpy.types.Operator):
     bl_idname = "iops.axis_scroll_down"
     bl_label = "Cyclic switching axis types DOWN"
 
-    def execute(self, context):             
+    def execute(self, context):
+        iops_axis_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_axis)             
         idx = iops_axis_types.index(context.scene.transform_orientation_slots[0].type) 
         try:
             try_next(iops_axis_types, idx)
@@ -182,6 +203,7 @@ class IOPS_OT_PPoint_Scroll_UP(bpy.types.Operator):
     bl_label = "Cyclic switching pivot point types UP"
 
     def execute(self, context):
+        iops_ppoint_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_ppoint)
         idx = iops_ppoint_types.index(context.scene.tool_settings.transform_pivot_point)
         try:
             try_prev(iops_ppoint_types, idx)
@@ -196,7 +218,8 @@ class IOPS_OT_PPoint_Scroll_DOWN(bpy.types.Operator):
     bl_idname = "iops.ppoint_scroll_down"
     bl_label = "Cyclic switching pivot point types DOWN"
 
-    def execute(self, context):             
+    def execute(self, context):
+        iops_ppoint_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_ppoint)             
         idx = iops_ppoint_types.index(context.scene.tool_settings.transform_pivot_point) 
         try:
             try_next(iops_ppoint_types, idx)
@@ -211,6 +234,7 @@ class IOPS_OT_Snap_Scroll_UP(bpy.types.Operator):
     bl_label = "Cyclic switching snap with types UP"
 
     def execute(self, context):
+        iops_snap_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_snap) 
         idx = iops_snap_types.index(context.scene.tool_settings.snap_target)
         try:
             try_prev(iops_snap_types, idx)
@@ -224,7 +248,8 @@ class IOPS_OT_Snap_Scroll_DOWN(bpy.types.Operator):
     bl_idname = "iops.snap_scroll_down"
     bl_label = "Cyclic switching snap with types DOWN"
 
-    def execute(self, context):             
+    def execute(self, context):
+        iops_snap_types = convert_string_to_list(bpy.context.preferences.addons['InteractionOps'].preferences.switch_list_snap)             
         idx = iops_snap_types.index(context.scene.tool_settings.snap_target) 
         try:
             try_next(iops_snap_types, idx)
