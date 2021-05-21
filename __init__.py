@@ -107,6 +107,7 @@ from .operators.easy_mod_curve import IOPS_OT_Easy_Mod_Curve
 from .operators.easy_mod_array import (IOPS_OT_Easy_Mod_Array_Caps,
                                        IOPS_OT_Easy_Mod_Array_Curve,)
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
+from .operators.object_name_from_active import (IOPS_OT_Object_Name_From_Active)
 
 from .operators.object_uvmaps_cleaner import (IOPS_OT_Clean_UVMap_0,
                                               IOPS_OT_Clean_UVMap_1,
@@ -265,6 +266,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_Add_UVMap,
            IOPS_OT_Remove_UVMap_by_Active_Name,
            IOPS_OT_Active_UVMap_by_Active,
+           IOPS_OT_Object_Name_From_Active,
            IOPS_MouseoverFillSelect,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,

@@ -147,6 +147,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         row.separator()        
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
         row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
+        row.operator("iops.object_name_from_active", text="", icon='OUTLINER_DATA_FONT')
 
         if batchops:
             row.separator()
