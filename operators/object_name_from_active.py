@@ -1,4 +1,5 @@
 import bpy
+import copy
 import re
 from bpy.props import (
         IntProperty,
@@ -11,30 +12,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     bl_idname = "iops.object_name_from_active"
     bl_label = "IOPS Object Name From Active"
     bl_options = {"REGISTER", "UNDO"}
+
+    active_name:StringProperty(
+        name="Name",
+        default="",
+        )
     
     pattern: StringProperty(
         name="Pattern",
-        description='''Naming Syntaxis: 
-    [P] - Prefix 
+        description='''Naming Syntaxis:
     [N] - Name
-    [S] - Suffix
     [C] - Counter
-    [V] - Variouse''',
+    ''',
         default="[N]_[C]",
-        )
-    
-    prefix: StringProperty(
-        name="Prefix",
-        default="",
-        )
-
-    suffix: StringProperty(
-        name="Suffix",
-        default="",
-        )
-    extra: StringProperty(
-        name="Extra",
-        default="",
         )
     
     counter_digits: IntProperty(
@@ -45,9 +35,14 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         max=10
         )
 
+    def invoke(self, context, event):       
+        self.active_name = context.view_layer.objects.active.name
+        return self.execute(context)
+
     def execute(self, context): 
         if self.pattern:
-            name = bpy.context.view_layer.objects.active.name            
+            if  self.active_name != context.view_layer.objects.active.name:
+                context.view_layer.objects.active.name = self.active_name
             digit = "{0:0>" + str(self.counter_digits) + "}"
             active = bpy.context.view_layer.objects.active            
             counter = 0
@@ -55,31 +50,25 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 if o is not active:
                     pattern = re.split(r"(\[\w+\])", self.pattern)
                     # i - index, p - pattern
-                    for i, p in enumerate(pattern):
-                        if p == "[P]":
-                            pattern[i] = self.prefix
+                    for i, p in enumerate(pattern):                       
                         if p == "[N]":
-                            pattern[i] = name
-                        if p == "[S]":
-                            pattern[i] = self.suffix
-                        if p == "[E]":
-                           pattern[i] = self.extra 
+                            pattern[i] = self.active_name
                         if p == "[C]":
                            pattern[i] = digit.format(counter)
                     o.name = "".join(pattern)
-                    counter +=1   
+                    counter +=1
         else:
-            self.report ({'ERROR'}, "Please fill the pattern field")
+            self.report ({'ERROR'}, "Please fill the pattern field")       
         return {'FINISHED'}
     
     
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True) 
+        col.prop(self, "active_name")
+        col.separator()
         col.prop(self, "pattern")
-        col.prop(self, "prefix")
-        col.prop(self, "suffix")
-        col.prop(self, "extra")
+        col.separator()
         col.prop(self, "counter_digits")
         
         
