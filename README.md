@@ -1,13 +1,31 @@
 
 <a href="https://imgur.com/bUoowcQ"><img src="https://i.imgur.com/2xgTe3L.png" title="iOps releases" /></a>
 
-# InteractionOps releases:
+# InteractionOps or iOps
+  It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons. 
 
-## Installation:
-- User preferences > Add-ons > Install from file…> select iOps***.zip file.
+## Documentation:
+https://interactionops-docs.readthedocs.io/en/latest/index.html
+   
+## Ideas and support:
+BlenderArtists forum page 
+https://blenderartists.org/t/interactionops-iops/
 
-## iOps keymap and functionality table:
-<a href="https://imgur.com/TIbmIHa"><img src="https://i.imgur.com/TIbmIHa.png" title="iOps Keymap" /></a>
+## Authors:
+Cyrill Vitkovskiy:
+https://www.artstation.com/furash
+
+Titus Lavrov:
+https://www.artstation.com/tituslvr
+Also check my page on gumroad: 
+https://gumroad.com/titus
+
+## Special thanks:
+For author of qBlocker
+https://gumroad.com/sanislovart
+
+jayanamgames youtube channel:
+https://www.youtube.com/user/jayanamgames
 
 Many thanks!
 
