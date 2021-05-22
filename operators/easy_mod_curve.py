@@ -52,12 +52,11 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.object.type == "MESH" and
-                context.mode == "OBJECT" and
+        return (context.mode == "OBJECT" and
                 context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        if len(context.view_layer.objects.selected) == 1:
+        if len(context.view_layer.objects.selected) == 1 and context.active_object.type == "MESH":
             for mod in bpy.context.active_object.modifiers:
                 if mod.type == "CURVE":
                     bpy.ops.object.select_all(action='DESELECT')
@@ -111,6 +110,8 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                         self.curve_modifier_axis = mod.deform_axis
                         mod.deform_axis = self.curve_modifier_axis                        
                         bpy.ops.object.select_all(action='DESELECT')
+                        curve.select_set(True)
+                        obj.select_set(True)                        
                         context.view_layer.objects.active = obj
                         self.report({'INFO'}, "Curve object picked.")
                         return {'FINISHED'}
@@ -118,6 +119,9 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                         mod = obj.modifiers.new("iOps Curve", type='CURVE')
                         mod.object = curve
                         mod.deform_axis = self.curve_modifier_axis
+                        curve.select_set(True)
+                        obj.select_set(True)
+                        context.view_layer.objects.active = obj
                         self.report({'INFO'}, "Curve Modifier added and curve object picked.")
                         return {'FINISHED'}
                     
@@ -125,7 +129,10 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                 else:
                     mod = obj.modifiers.new("iOps Curve", type='CURVE')
                     mod.object = curve
-                    mod.deform_axis = self.curve_modifier_axis                   
+                    mod.deform_axis = self.curve_modifier_axis
+                    curve.select_set(True)
+                    obj.select_set(True)
+                    context.view_layer.objects.active = obj                   
                     self.report({'INFO'}, "Curve Modifier added and curve object picked.")
                     return {'FINISHED'}
                 return {'FINISHED'}
