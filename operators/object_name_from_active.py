@@ -23,6 +23,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         description='''Naming Syntaxis:
     [N] - Name
     [C] - Counter
+    [T] - Object Type
     ''',
         default="[N]_[C]",
         )
@@ -55,6 +56,8 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                             pattern[i] = self.active_name
                         if p == "[C]":
                            pattern[i] = digit.format(counter)
+                        if p == "[T]":
+                           pattern[i] = o.type.lower()
                     o.name = "".join(pattern)
                     counter +=1
         else:

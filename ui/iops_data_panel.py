@@ -32,7 +32,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             
         row.separator()
 
-        if context.area.type == "VIEW_3D" and context.active_object.type == 'MESH':
+        if context.area.type == "VIEW_3D" or context.area.ui_type == "UV" and context.active_object.type == 'MESH':
             ob = context.object
             me = ob.data
             brush = context.tool_settings.vertex_paint.brush
@@ -112,7 +112,7 @@ class IOPS_OT_Call_Data_Panel(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.area.type == "VIEW_3D" and context.object.type == "MESH"
+        return context.area.type == "VIEW_3D" or context.area.ui_type == "UV" and context.object.type == "MESH" 
 
     def execute(self, context):
         bpy.ops.wm.call_panel(name="IOPS_PT_DATA_Panel", keep_open=True)
