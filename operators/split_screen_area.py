@@ -13,10 +13,10 @@ def ContextOverride(area):
                                             'screen': screen, 
                                             'area': screen_area, 
                                             'region': region, 
-                                            'scene': bpy.context.scene, 
-                                            'edit_object': bpy.context.edit_object, 
-                                            'active_object': bpy.context.active_object, 
-                                            'selected_objects': bpy.context.selected_objects
+                                            # 'scene': bpy.context.scene, 
+                                            # 'edit_object': bpy.context.edit_object, 
+                                            # 'active_object': bpy.context.active_object, 
+                                            # 'selected_objects': bpy.context.selected_objects
                                             } 
                         return context_override
     raise Exception("ERROR: Override failed!")

@@ -14,6 +14,24 @@ def round_rotation(obj):
         # obj.rotation_euler.z = math.radians(z) 
         pass # WAS A BAD IDEA
 
+def iops_rotate(angle, object, axis, axis_x, axis_y, axis_z):
+    cursor = bpy.context.scene.cursor
+    cursor.location = object.location
+    cursor.rotation_euler = object.rotation_euler    
+    bpy.ops.transform.rotate(value=math.radians(angle),
+                                        center_override=(cursor.location),
+                                        orient_axis=axis,
+                                        orient_type='CURSOR',
+                                        constraint_axis=(axis_x,axis_y,axis_z),
+                                        use_accurate=True,                                     
+                                        orient_matrix_type='CURSOR'                                     
+                            )
+def iops_per_obj(name):
+    ob = bpy.data.objects[name]
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = ob
+    ob.select_set(True)
+    return ob
 
 class IOPS_OT_object_rotate_Z (bpy.types.Operator):
     """ Rotate object local Z-axis 90 degrees """
@@ -46,36 +64,14 @@ class IOPS_OT_object_rotate_Z (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Z',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,False,True),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)
+                iops_rotate(rotation, ob, "Z", False, False, True)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Z',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,False,True),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "Z", False, False, True)
         self.report({"INFO"}, "IOPS Rotate +Z")
         return {"FINISHED"}
     
@@ -119,36 +115,14 @@ class IOPS_OT_object_rotate_MZ (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Z',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,False,True),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)
+                iops_rotate(rotation, ob, "Z", False, False, True)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Z',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,False,True),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "Z", False, False, True)
         self.report({"INFO"}, "IOPS Rotate -Z")                                    
         return {"FINISHED"}
     
@@ -192,36 +166,14 @@ class IOPS_OT_object_rotate_Y (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Y',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,True,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)              
+                iops_rotate(rotation, ob, "Y", False, True, False)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Y',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,True,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "Y", False, True, False)
         self.report({"INFO"}, "IOPS Rotate +Y")
         return {"FINISHED"}
     
@@ -264,36 +216,14 @@ class IOPS_OT_object_rotate_MY (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Y',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,True,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)
+                iops_rotate(rotation, ob, "Y", False, True, False)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='Y',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(False,True,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "Y", False, True, False)
         self.report({"INFO"}, "IOPS Rotate -Y")
         return {"FINISHED"}
     
@@ -336,36 +266,14 @@ class IOPS_OT_object_rotate_X (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='X',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(True,False,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)
+                iops_rotate(rotation, ob, "X", True, False, False)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='X',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(True,False,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "X", True, False, False)
         self.report({"INFO"}, "IOPS Rotate +X")
         return {"FINISHED"}
     
@@ -408,36 +316,14 @@ class IOPS_OT_object_rotate_MX (bpy.types.Operator):
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]            
             for name in selection:
-                ob = bpy.data.objects[name]
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = ob
-                ob.select_set(True)
-                cursor = ob.location 
-                bpy.context.scene.cursor.location =  ob.location
-                bpy.context.scene.cursor.rotation_euler = ob.rotation_euler 
-                bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='X',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(True,False,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                        )
+                ob = iops_per_obj(name)
+                iops_rotate(rotation, ob, "X", True, False, False)
             for name in selection:
                 bpy.data.objects[name].select_set(True)
              
         else:
-            cursor = bpy.context.scene.cursor.location                        
-            bpy.context.scene.cursor.location =  context.view_layer.objects.active.location
-            bpy.context.scene.cursor.rotation_euler = context.view_layer.objects.active.rotation_euler 
-            bpy.ops.transform.rotate(value=math.radians(rotation),
-                                        center_override=(cursor),
-                                        orient_axis='X',
-                                        orient_type='CURSOR',
-                                        constraint_axis=(True,False,False),
-                                        use_accurate=True,                                     
-                                        orient_matrix_type='CURSOR'                                     
-                                    )           
+            obj = bpy.context.view_layer.objects.active
+            iops_rotate(rotation, obj, "X", True, False, False)
         self.report({"INFO"}, "IOPS Rotate -X")
         return {"FINISHED"}
     
