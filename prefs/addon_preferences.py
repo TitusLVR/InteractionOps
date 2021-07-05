@@ -14,6 +14,7 @@ from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatVectorProperty,
                        )
+import rna_keymap_ui
 
 # def update_iops_tab_panel(self, context):
     # message = "iOps: Updating Panel locations has failed"
@@ -33,7 +34,7 @@ from bpy.props import (BoolProperty,
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = "InteractionOps"    
+    bl_idname = "InteractionOps"
     # iops_tab_category: StringProperty(
     #         name="Tab Category",
     #         description="Choose a name for the category of the panel",
@@ -43,6 +44,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     
     # list itens (identifier, name, description, icon, number,)
     #Area.type, Area.ui_type, Icon, PrefText
+    tabs: bpy.props.EnumProperty(
+        name="Preferences", 
+        items=[('PREFS','Preferences',''),
+               ('KM','Keymaps','')],
+        default="PREFS"
+        )
     
     split_areas_dict = {
             "Empty": {
@@ -554,258 +561,256 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column()
-        
-        # Panel placement
-        # box = layout.box()
-        # col = box.column(align=True)
-        # col.label(text='iOPS Tab Category:')
-        # col.prop(self, "iops_tab_category", text="")
-        
-        row = col.row(align=True) 
-        # we don't want to put anything else on this row other than the 'split' item
-        split = row.split(factor=0.5, align=False)
-        box_kmp = split.box()
-        box_ui = split.box()
-        # Keymaps
+        tabs_row = layout.row()
+        tabs_row.prop(self, "tabs", expand=True)
+        column_main = layout.column()
+        if self.tabs == "KM":
+            col = column_main.column(align=False)        
+            # Keymaps            
+            try:
+                mainRow = col.row(align=True)
+                mainRow.alignment = 'LEFT'
 
-        box_kmp.label(text='Keymaps:')
-        try:
-            mainRow = box_kmp.row(align=True)
-            mainRow.alignment = 'LEFT'
+                colLabels = mainRow.column(align=True)
+                colLabels.alignment = 'RIGHT'
 
-            colLabels = mainRow.column(align=True)
-            colLabels.alignment = 'RIGHT'
+                colKeys = mainRow.column(align=True)
+                colKeys.alignment = 'EXPAND'
+            
+                keymap = context.window_manager.keyconfigs.user.keymaps["Window"]
+                colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
 
-            colKeys = mainRow.column(align=True)
-            colKeys.alignment = 'EXPAND'
-        
-            keymap = context.window_manager.keyconfigs.addon.keymaps["Window"]
-            colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
+                for item in (keymap.keymap_items):
+                    if item.idname.startswith('iops.'):
+                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
+                        colLabels.label(text=op.name)
+                        subRow = colKeys.row()
+                        subRow.alignment = 'LEFT'
+                        subRow.prop(item, 'active')
+                        subRow.prop(item, 'type', text='', full_event=True)
+                        subRow.prop(item, 'shift')
+                        subRow.prop(item, 'ctrl')
+                        subRow.prop(item, 'alt')
+                        subRow.prop(item, 'oskey')
+                        if item.is_user_modified:
+                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
 
-            for item in reversed(keymap.keymap_items):
-                if item.idname.startswith('iops.'):
-                    op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                    colLabels.label(text=op.name)
-                    subRow = colKeys.row()
-                    subRow.alignment = 'LEFT'
-                    subRow.prop(item, 'type', text='', full_event=True)
-                    subRow.prop(item, 'shift')
-                    subRow.prop(item, 'ctrl')
-                    subRow.prop(item, 'alt')
-                    subRow.prop(item, 'oskey')
-                    if item.is_user_modified:
-                        subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+                keymap = context.window_manager.keyconfigs.user.keymaps["Screen Editing"]
+                colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
 
-                        
-            keymap = context.window_manager.keyconfigs.addon.keymaps["Screen Editing"]
-            colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
+                for item in (keymap.keymap_items):
+                    if item.idname.startswith('iops.split_area'):
+                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
+                        colLabels.label(text=op.name)
+                        subRow = colKeys.row()
+                        subRow.alignment = 'LEFT'
+                        subRow.prop(item, 'active')
+                        subRow.prop(item, 'type', text='', full_event=True)
+                        subRow.prop(item, 'shift')
+                        subRow.prop(item, 'ctrl')
+                        subRow.prop(item, 'alt')
+                        subRow.prop(item, 'oskey')
+                        if item.is_user_modified:
+                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+            except:
+                layout.label(text='No keymaps found.', icon='ERROR')
+        if self.tabs == "PREFS":
+            col = column_main.column(align=False)            
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Text settings:")
+            row = box.row(align=True)
+            split = row.split(factor=0.5, align=False)
+            col_text = split.column(align=True)
+            col_shadow = split.column(align=True)
+            row = col_text.row(align=True)
+            row.prop(self, "text_color")
+            row.prop(self, "text_color_key")
+            row = col_text.row(align=True)
+            row.prop(self, "text_size")
+            row = col_text.row(align=True)
+            row.prop(self, "text_pos_x")
+            row.prop(self, "text_pos_y")
+            
+            # Shadow            
+            row = col_shadow.row(align=False)
+            row.prop(self, "text_shadow_color")
+            row.prop(self, "text_shadow_blur")
+            row = col_shadow.row(align=True)
+            row.prop(self, "text_shadow_toggle", toggle=True)
+            row = col_shadow.row(align=True)
+            row.prop(self, "text_shadow_pos_x")
+            row.prop(self, "text_shadow_pos_y")
+            col.separator()
+            # Align to edge
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Align to edge:")
+            row = box.row(align=True)
+            row.alignment = 'LEFT'
+            row.prop(self, "align_edge_color")
+            col.separator()
+            # Visual origin
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Visual origin:")
+            row = box.row(align=True)
+            split = row.split(factor=0.5, align=False)
+            col_ap = split.column(align=True)
+            col_p = split.column(align=True)
+            col.separator()
+            # Active point column
+            col = col_p.column(align=True)
+            col.label(text="Cage points:")
+            col.prop(self, "vo_cage_p_size", text="Size")
+            col.prop(self, "vo_cage_points_color", text="")
 
-            for item in reversed(keymap.keymap_items):
-                if item.idname.startswith('iops.split_area'):
-                    op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                    colLabels.label(text=op.name)
-                    subRow = colKeys.row()
-                    subRow.alignment = 'LEFT'
-                    subRow.prop(item, 'type', text='', full_event=True)
-                    subRow.prop(item, 'shift')
-                    subRow.prop(item, 'ctrl')
-                    subRow.prop(item, 'alt')
-                    subRow.prop(item, 'oskey')
-                    if item.is_user_modified:
-                        subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+            # Cage points column
+            col = col_ap.column(align=True)
+            col.label(text="Active point:")
+            col.prop(self, "vo_cage_ap_size", text="Size")
+            col.prop(self, "vo_cage_ap_color", text="")
 
-                        
+            # Cage color
+            
+            col = box.column(align=True)
+            col.prop(self, "vo_cage_color")       
+            col.separator()
+            # Split Pie preferences
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="IOPS Split Pie Setup:")
+            row = col.row(align=True)
+            
+            # TOP LEFT
+            box_1 = row.box()
+            col = box_1.column(align=True)
+            col.prop(self, "split_area_pie_7_ui")
+            col.prop(self, "split_area_pie_7_pos")
+            col.prop(self, "split_area_pie_7_factor")
+            row.separator()
+            # TOP
+            box_2 = row.box()
+            col = box_2.column(align=True)
+            col.prop(self, "split_area_pie_8_ui")
+            col.prop(self, "split_area_pie_8_pos")
+            col.prop(self, "split_area_pie_8_factor")
+            row.separator()
+            # TOP RIGHT
+            box_3 = row.box()
+            col = box_3.column(align=True)
+            col.prop(self, "split_area_pie_9_ui")
+            col.prop(self, "split_area_pie_9_pos")
+            col.prop(self, "split_area_pie_9_factor")
+            
+            col = box.column(align=True)
+            row = col.row(align=True)
+            # LEFT
+            box_1 = row.box()
+            col = box_1.column(align=True)
+            col.prop(self, "split_area_pie_4_ui")
+            col.prop(self, "split_area_pie_4_pos")
+            col.prop(self, "split_area_pie_4_factor")
+            row.separator()
+            # CENTER
+            box_2 = row.box()
+            col = box_2.column(align=True)
+            col.label(text=" ")
+            col.label(text=" ")
+            col.label(text=" ")        
+            row.separator()
+            # RIGHT
+            box_3 = row.box()
+            col = box_3.column(align=True)
+            col.prop(self, "split_area_pie_6_ui")
+            col.prop(self, "split_area_pie_6_pos")
+            col.prop(self, "split_area_pie_6_factor")
 
-        except:
-            layout.label(text='No keymaps found.', icon='ERROR')
+            col = box.column(align=True)
+            row = col.row(align=True)
 
-        box_ui.label(text='UI Tweaks:')
-        col = box_ui.column(align=True)
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Text settings:")
-        row = box.row(align=True)
-        split = row.split(factor=0.5, align=False)
-        col_text = split.column(align=True)
-        col_shadow = split.column(align=True)
-        row = col_text.row(align=True)
-        row.prop(self, "text_color")
-        row.prop(self, "text_color_key")
-        row = col_text.row(align=True)
-        row.prop(self, "text_size")
-        row = col_text.row(align=True)
-        row.prop(self, "text_pos_x")
-        row.prop(self, "text_pos_y")
-        
-        # Shadow
-        row = col_shadow.row(align=True)
-        row.prop(self, "text_shadow_color")
-        row.prop(self, "text_shadow_blur")
-        row = col_shadow.row(align=True)
-        row.prop(self, "text_shadow_toggle", toggle=True)
-        row = col_shadow.row(align=True)
-        row.prop(self, "text_shadow_pos_x")
-        row.prop(self, "text_shadow_pos_y")
-
-        # Align to edge
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Align to edge:")
-        row = box.row(align=True)
-        row.alignment = 'LEFT'
-        row.prop(self, "align_edge_color")
-
-        # Visual origin
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Visual origin:")
-        row = box.row(align=True)
-        split = row.split(factor=0.5, align=False)
-        col_ap = split.column(align=True)
-        col_p = split.column(align=True)
-
-        # Active point column
-        col = col_p.column(align=True)
-        col.label(text="Cage points:")
-        col.prop(self, "vo_cage_p_size", text="Size")
-        col.prop(self, "vo_cage_points_color", text="")
-
-        # Cage points column
-        col = col_ap.column(align=True)
-        col.label(text="Active point:")
-        col.prop(self, "vo_cage_ap_size", text="Size")
-        col.prop(self, "vo_cage_ap_color", text="")
-
-        # Cage color
-        col = box.column(align=True)
-        col.prop(self, "vo_cage_color")       
-
-        # Split Pie preferences
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="IOPS Split Pie Setup:")
-        row = col.row(align=True)
-        
-        # TOP LEFT
-        box_1 = row.box()
-        col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_7_ui")
-        col.prop(self, "split_area_pie_7_pos")
-        col.prop(self, "split_area_pie_7_factor")
-        row.separator()
-        # TOP
-        box_2 = row.box()
-        col = box_2.column(align=True)
-        col.prop(self, "split_area_pie_8_ui")
-        col.prop(self, "split_area_pie_8_pos")
-        col.prop(self, "split_area_pie_8_factor")
-        row.separator()
-        # TOP RIGHT
-        box_3 = row.box()
-        col = box_3.column(align=True)
-        col.prop(self, "split_area_pie_9_ui")
-        col.prop(self, "split_area_pie_9_pos")
-        col.prop(self, "split_area_pie_9_factor")
-        
-        col = box.column(align=True)
-        row = col.row(align=True)
-        # LEFT
-        box_1 = row.box()
-        col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_4_ui")
-        col.prop(self, "split_area_pie_4_pos")
-        col.prop(self, "split_area_pie_4_factor")
-        row.separator()
-        # CENTER
-        box_2 = row.box()
-        col = box_2.column(align=True)
-        col.label(text=" ")
-        col.label(text=" ")
-        col.label(text=" ")        
-        row.separator()
-        # RIGHT
-        box_3 = row.box()
-        col = box_3.column(align=True)
-        col.prop(self, "split_area_pie_6_ui")
-        col.prop(self, "split_area_pie_6_pos")
-        col.prop(self, "split_area_pie_6_factor")
-
-        col = box.column(align=True)
-        row = col.row(align=True)
-
-        # BOTTOM LEFT
-        box_1 = row.box()
-        col = box_1.column(align=True)
-        col.prop(self, "split_area_pie_1_ui")
-        col.prop(self, "split_area_pie_1_pos")
-        col.prop(self, "split_area_pie_1_factor")
-        row.separator()
-        # BOTTOM
-        box_2 = row.box()
-        col = box_2.column(align=True)
-        col.prop(self, "split_area_pie_2_ui")
-        col.prop(self, "split_area_pie_2_pos")
-        col.prop(self, "split_area_pie_2_factor")
-        row.separator()
-        # BOTTOM RIGHT
-        box_3 = row.box()
-        col = box_3.column(align=True)        
-        col.prop(self, "split_area_pie_3_ui")
-        col.prop(self, "split_area_pie_3_pos")
-        col.prop(self, "split_area_pie_3_factor")
-        
-        # Executor
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Script Executor:")
-        col = box.column(align=True)
-        col.prop(self, "executor_scripts_folder")
-        col.prop(self, "executor_column_count")
-
-        # Textures to materials 
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Textures to Materials:")
-        col = box.column(align=True)
-        col.prop(self, "texture_to_material_prefixes")
-        col.prop(self, "texture_to_material_suffixes")
-        
-        # Switch lists  
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Switch lists:")
-        col = box.column(align=True)
-        col.prop(self, "switch_list_axis")
-        col.prop(self, "switch_list_ppoint")
-        col.prop(self, "switch_list_snap")
+            # BOTTOM LEFT
+            box_1 = row.box()
+            col = box_1.column(align=True)
+            col.prop(self, "split_area_pie_1_ui")
+            col.prop(self, "split_area_pie_1_pos")
+            col.prop(self, "split_area_pie_1_factor")
+            row.separator()
+            # BOTTOM
+            box_2 = row.box()
+            col = box_2.column(align=True)
+            col.prop(self, "split_area_pie_2_ui")
+            col.prop(self, "split_area_pie_2_pos")
+            col.prop(self, "split_area_pie_2_factor")
+            row.separator()
+            # BOTTOM RIGHT
+            box_3 = row.box()
+            col = box_3.column(align=True)        
+            col.prop(self, "split_area_pie_3_ui")
+            col.prop(self, "split_area_pie_3_pos")
+            col.prop(self, "split_area_pie_3_factor")
+            
+            # Executor
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Script Executor:")
+            col = box.column(align=True)
+            col.prop(self, "executor_scripts_folder")
+            col.prop(self, "executor_column_count")
+            col.separator()
+            # Textures to materials 
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Textures to Materials:")
+            col = box.column(align=True)
+            col.prop(self, "texture_to_material_prefixes")
+            col.prop(self, "texture_to_material_suffixes")
+            col.separator()
+            # Switch lists  
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Switch lists:")
+            col = box.column(align=True)
+            col.prop(self, "switch_list_axis")
+            col.prop(self, "switch_list_ppoint")
+            col.prop(self, "switch_list_snap")
+            col.separator()
 
 
-        # Hotkeys
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Hotkeys")
-        row = col.row(align=True)
-        row.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
-        row.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
-        row.separator()
-        row.separator()
-        row.separator()
-        row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
-        
-        
-        # Preferences
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Addon preferences")
-        row = col.row(align=True)
-        row.operator("iops.save_addon_preferences", text="Save preferences")
-        row.operator("iops.load_addon_preferences", text="Load preferences")
-        
-        # Debug
-        box = box_ui.box()
-        col = box.column(align=True)
-        col.label(text="Debug:")
-        row = box.row(align=True)
-        row.alignment = 'LEFT'
-        row.prop(self, "IOPS_DEBUG")
+            # Hotkeys
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Hotkeys")
+            row = col.row(align=True)
+            row.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+            row.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
+            row.separator()
+            row.separator()
+            row.separator()
+            row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
+            col.separator()
+            
+            # Preferences
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Addon preferences")
+            row = col.row(align=True)
+            row.operator("iops.save_addon_preferences", text="Save preferences")
+            row.operator("iops.load_addon_preferences", text="Load preferences")
+            col.separator()
+            # Debug
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Debug:")
+            row = box.row(align=True)
+            row.alignment = 'LEFT'
+            row.prop(self, "IOPS_DEBUG")
