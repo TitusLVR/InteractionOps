@@ -69,11 +69,12 @@ class IOPS_Dict():
                 "F5": lambda: no_operator(),
             },
             "META": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
+                "F1": lambda: object_mode_switch("EDIT"),
+                "F2": lambda: object_mode_switch("EDIT"),
+                "F3": lambda: object_mode_switch("EDIT"),
+                "F4": lambda: object_mode_switch("EDIT"),
+                "F5": lambda: object_mode_switch("EDIT"),
+                "ESC": lambda: object_mode_switch("OBJECT"),
             },
             "FONT": {
                 "OBJECT":{
