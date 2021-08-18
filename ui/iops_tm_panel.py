@@ -159,6 +159,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.operator('uebok.remove_object_from_collection', icon='REMOVE', text="")
             row.operator('uebok.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
             row.operator('uebok.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')
+            row.operator('uebok.cleanup_empty_collections', text="", icon='PANEL_CLOSE')
 
         if machinetools and context.preferences.addons['MACHIN3tools'].preferences.activate_shading_pie == True:
             row.separator()
