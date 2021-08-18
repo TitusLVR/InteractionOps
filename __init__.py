@@ -33,6 +33,7 @@ from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
 from .operators.object_normalize import IOPS_OT_object_normalize
+from .operators.object_replace import IOPS_OT_Object_Replace
 from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
                                       IOPS_OT_object_rotate_MY,
                                       IOPS_OT_object_rotate_MZ,
@@ -181,6 +182,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_object_rotate_X,
            IOPS_OT_object_rotate_MX,
            IOPS_OT_object_normalize,
+           IOPS_OT_Object_Replace,
            IOPS_OT_ToGridFromActive,
            IOPS_OT_transform_orientation_create,
            IOPS_OT_transform_orientation_delete,

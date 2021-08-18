@@ -21,6 +21,7 @@ class IOPS_MT_Pie_Menu(Menu):
         box = col.column(align=True).box().column()
         box.label(text="IOPS")
         col = box.column(align=True)
+        col.operator('iops.object_replace', text="Object Replace")
         col.operator('iops.align_between_two', text='Align Between Two')
         col.operator('iops.materials_from_textures', text='Materials from Textures')
         col.operator('iops.easy_mod_array_caps', text="Easy Modifier - Array Caps")
@@ -30,6 +31,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator('iops.quick_snap', text="Quick Snap")
         col.operator('iops.drop_it', text="Drop It!")
         col.operator('iops.kitbash_grid', text="Grid")
+        
 
         # 6 - RIGHT
         # pie.separator()

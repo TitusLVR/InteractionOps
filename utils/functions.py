@@ -208,47 +208,22 @@ def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
         self.layout.label(text=text)
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-
+def get_active_and_selected():
+    active = bpy.context.view_layer.objects.active
+    objects = []
+    for ob in bpy.context.view_layer.objects.selected:
+        if ob is not active:
+            objects.append(ob)
+    return active, objects
 
 ############################## Keymaps ##############################
 
 def register_keymaps(keys): 
-    keyconfigs = bpy.context.window_manager.keyconfigs
-
+    # keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items
-    for k in reversed(keys):
-        if str(k[0]).startswith('iops.split_area'):
-            continue
-        found = False
-        for kc in keyconfigs:
-            keymap = kc.keymaps.get("Window")
-            if keymap:
-                kmi = keymap.keymap_items
-                for item in kmi:
-                    if item.idname.startswith('iops.') and item.idname == str(k[0]):
-                        found = True
-                    else:
-                        found = False
-        if not found:
-            kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
-            kmi.active = True
-    
-    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Screen Editing").keymap_items
-    for k in reversed(keys):
-        if str(k[0]).startswith('iops.split_area'):
-            found = False
-            for kc in keyconfigs:
-                keymap = kc.keymaps.get("Screen Editing")
-                if keymap:
-                    kmi = keymap.keymap_items
-                    for item in kmi:
-                        if item.idname == str(k[0]):
-                            found = True
-                        else:
-                            found = False  
-            if not found:
-                kmi = keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
-                kmi.active = True
+    for k in keys:
+       keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+
 
 def unregister_keymaps():
     keyconfigs = bpy.context.window_manager.keyconfigs

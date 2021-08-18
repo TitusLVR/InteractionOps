@@ -3,7 +3,8 @@ import copy
 import re
 from bpy.props import (
         IntProperty,
-        StringProperty
+        StringProperty,
+        BoolProperty,
         )
 
 
@@ -35,6 +36,12 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         min=2,
         max=10
         )
+    
+    counter_shift: BoolProperty(
+        name="+1",
+        description="+1 shift for counter, useful when we need to rename active object too",
+        default=False
+    )
 
     def invoke(self, context, event):       
         self.active_name = context.view_layer.objects.active.name
@@ -45,8 +52,10 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
             if  self.active_name != context.view_layer.objects.active.name:
                 context.view_layer.objects.active.name = self.active_name
             digit = "{0:0>" + str(self.counter_digits) + "}"
-            active = bpy.context.view_layer.objects.active            
+            active = bpy.context.view_layer.objects.active                                    
             counter = 0
+            if self.counter_shift:
+                counter = 1
             for o in bpy.context.selected_objects:
                 if o is not active:
                     pattern = re.split(r"(\[\w+\])", self.pattern)
@@ -72,7 +81,9 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         col.separator()
         col.prop(self, "pattern")
         col.separator()
-        col.prop(self, "counter_digits")
+        row = col.row(align=True)
+        row.prop(self, "counter_digits")
+        row.prop(self, "counter_shift")
         
         
         
