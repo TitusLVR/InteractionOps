@@ -10,6 +10,9 @@ from bpy.props import (BoolProperty,
                        FloatVectorProperty,
                        )
 
+from ..utils.functions import get_active_and_selected
+
+
 class IOPS_OT_Align_between_two(bpy.types.Operator):
     """Align active object between two selected objects"""
     bl_idname = "iops.align_between_two"
@@ -27,7 +30,7 @@ class IOPS_OT_Align_between_two(bpy.types.Operator):
             ('-Y', '-Y',  '', '', 4),
             ('-Z', '-Z',  '', '', 5),
             ],
-        default='Z',
+        default='Y',
     )
     up_axis: EnumProperty(
         name='Up',
@@ -37,55 +40,90 @@ class IOPS_OT_Align_between_two(bpy.types.Operator):
             ('Y', 'Y',  '', '', 1),
             ('Z', 'Z',  '', '', 2),
             ],
-        default='Y',
+        default='Z',
     )
-
-    use_cursor: BoolProperty(
-        name="Cursor as second object",
-        description="Align active objcet between object and cursor",
+    align: BoolProperty(
+        name="Align",
+        description="Align Duplicates Between Selected Objects",
         default=False
+        )
+
+    count: IntProperty(
+        name="Count",
+        description="Number of Duplicates",
+        default=1,
+        soft_min=0,
+        soft_max=100000000
     )
 
-    def rotate_between_two(self):
-        if len(bpy.context.selected_objects) != 3: 
-            return
-        else:
-            objTarget = bpy.context.view_layer.objects.active
-            posA, posB = [ob.location for ob in bpy.context.selected_objects if ob != objTarget]
-            midPoint = (posA + posB)/2
-            objTarget.location = midPoint
-            axis = posA - posB
-            rotation_mode = objTarget.rotation_mode
-            objTarget.rotation_mode = 'QUATERNION'
-            objTarget.rotation_quaternion = axis.to_track_quat(self.track_axis, self.up_axis)
-            objTarget.rotation_mode = rotation_mode
+    select_duplicated:BoolProperty(
+        name="Select Duplicated",
+        description="Enabled = Select Duplicated Objects, Disabled = Keep Selection",
+        default=True
+        )
 
-    def rotate_between_two_cursor(self):
-        if len(bpy.context.selected_objects) != 2: 
-            return
-        else:
-            objTarget = bpy.context.view_layer.objects.active
-            posA = None
-            for ob in bpy.context.selected_objects:
-                if ob != objTarget:
-                    posA = ob.location
-            posB = bpy.context.scene.cursor.location
-            midPoint = (posA + posB)/2
-            objTarget.location = midPoint
+    def align_between(self):
+        if len(bpy.context.selected_objects) == 3:
+            active, objects = get_active_and_selected()
+            sequence = []
+            posA, posB = [ob.location for ob in objects]
             axis = posA - posB
-            rotation_mode = objTarget.rotation_mode
-            objTarget.rotation_mode = 'QUATERNION'
-            objTarget.rotation_quaternion = axis.to_track_quat(self.track_axis, self.up_axis)
-            objTarget.rotation_mode = rotation_mode
+            
+            for idx in range(len(objects) - 1):
+                A = objects[idx].location 
+                B = objects[idx + 1].location 
+
+                for ip in range(self.count):
+                    p = 1 / (self.count + 1) * (ip + 1)
+                    point = ((1 - p)  * A + p * B)
+                    sequence.append(point)
+
+            collection = bpy.data.collections.new("Objects Between")
+            bpy.context.scene.collection.children.link(collection)
+            new_objects = []
+            for p in sequence:
+                new_ob = active.copy()
+                new_ob.data = active.data.copy()
+                # position
+                new_ob.location = p 
+                # rotation
+                if self.align:                    
+                    new_ob.rotation_mode = 'QUATERNION'
+                    new_ob.rotation_quaternion = axis.to_track_quat(self.track_axis, self.up_axis)
+                    new_ob.rotation_mode = 'XYZ'
+                
+                collection.objects.link(new_ob)
+                new_ob.select_set(False)
+                new_objects.append(new_ob)
+            
+            if self.select_duplicated:
+                active.select_set(False)
+                for ob in objects:
+                    ob.select_set(False)
+                for ob in new_objects:
+                    ob.select_set(True)
+                bpy.context.view_layer.objects.active = new_objects[-1] 
+        else:
+            return
     
     def execute(self, context):
         if self.track_axis != self.up_axis:
-            if self.use_cursor:
-                self.rotate_between_two_cursor()
-            else:
-                self.rotate_between_two()
-            
+            self.align_between()
             self.report({"INFO"}, "Aligned!")
         else:
             self.report({"WARNING"}, "SAME AXIS")
         return {"FINISHED"}
+
+
+    def draw(self, context):
+            layout = self.layout
+            col = layout.column(align=True) 
+            # col.prop(self, "use_active_collection")
+            col.prop(self, "track_axis")
+            col.prop(self, "up_axis")
+            col.separator()
+            col.prop(self, "align")
+            col.prop(self, "count")
+            col.separator()
+            col.prop(self, "select_duplicated")
+

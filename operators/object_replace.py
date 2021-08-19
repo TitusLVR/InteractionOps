@@ -34,6 +34,19 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
         description="Enabled = Select Replaced Objects, Disabled = Keep Selection",
         default=True
         )
+    
+    keep_rotation:BoolProperty(
+        name="Keep Rotation",
+        description="Enabled = Use Active Object Rotation, Disabled = Use Selected Object Rotation",
+        default=False
+        )
+
+    keep_scale:BoolProperty(
+        name="Keep Scale",
+        description="Enabled = Use Active Object Scale, Disabled = Use Selected Object Scale",
+        default=False
+        )
+
 
     def execute(self, context):
         active, objects = get_active_and_selected()
@@ -44,9 +57,19 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
             for ob in objects:
                 new_ob = active.copy()
                 new_ob.data = active.data.copy()
+                # position
                 new_ob.location = ob.location
-                new_ob.scale = ob.scale
-                new_ob.rotation_euler = ob.rotation_euler
+                # scale
+                if self.keep_scale:
+                    new_ob.scale = active.scale
+                else:
+                    new_ob.scale = ob.scale
+                # rotation
+                if self.keep_rotation:
+                    new_ob.rotation_euler = active.rotation_euler
+                else:
+                    new_ob.rotation_euler = ob.rotation_euler
+
                 collection.objects.link(new_ob)
                 new_ob.select_set(False)
                 new_objects.append(new_ob)
@@ -74,5 +97,8 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
         # col.prop(self, "use_active_collection")
         col.prop(self, "replace")
         col.prop(self, "select_replaced")
+        col.separator()
+        col.prop(self, "keep_rotation")
+        col.prop(self, "keep_scale")
         
 
