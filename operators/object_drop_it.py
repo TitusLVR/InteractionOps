@@ -100,6 +100,11 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
             ],
         default='B',
         )
+    use_local_z: BoolProperty(
+        name="Use Local Z",
+        description="Object local Z axis as direction",
+        default=True
+    )
 
 
 
@@ -116,10 +121,15 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
             track_axis = self.drop_it_track        
             up_axis = self.drop_it_up
             if track_axis != up_axis:
-                direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))       
-            
                 for ob in selected_objs:
                     obj = bpy.context.scene.objects[ob]
+                    
+                    if self.use_local_z:
+                        z_axis = Vector((0, 0, -1))
+                        direction = (obj.matrix_world.to_3x3() @ z_axis).normalized()                   
+                    else:
+                        direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))
+
                     obj_origin = obj.location
                     scale = obj.scale.copy()
                     
@@ -164,7 +174,12 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                 scale = obj.scale.copy()
                 obj_origin = obj.location
                 view_layer = bpy.context.view_layer
-                direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))
+                if self.use_local_z:
+                    z_axis = Vector((0, 0, -1))
+                    direction = (obj.matrix_world.to_3x3() @ z_axis).normalized()                  
+                else:
+                    direction = Vector((self.drop_it_direction_x, self.drop_it_direction_y, self.drop_it_direction_z))
+                
                 # Construct helper
                 loc2_offset = obj.dimensions[0]/100
                 obj.hide_set(True)
@@ -205,10 +220,14 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
         col = layout.column(align=True)
         col.label(text="Direction:")
         col.prop(self, "drop_it_alg")
+        col.prop(self, "use_local_z")
         col.label(text="Direction:")
-        col.prop(self, "drop_it_direction_x")
-        col.prop(self, "drop_it_direction_y")
-        col.prop(self, "drop_it_direction_z") 
+        if self.use_local_z:
+            col.label(text="Object Z-Axis")
+        else:    
+            col.prop(self, "drop_it_direction_x")
+            col.prop(self, "drop_it_direction_y")
+            col.prop(self, "drop_it_direction_z") 
         col.separator()       
         col.label(text="Offset:")
         col.prop(self, "drop_it_offset_x")
