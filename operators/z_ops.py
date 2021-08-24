@@ -852,6 +852,9 @@ class Z_OT_ContextDelete(bpy.types.Operator):
 
     def execute(self, context):
         modes = []
+        if context.view_layer.objects.active.type == 'CURVE':
+            bpy.ops.curve.dissolve_verts()
+            return {'FINISHED'}
         for a, b in zip(['VERT', 'EDGE', 'FACE'], context.tool_settings.mesh_select_mode[:]):
             if b:
                 modes.append(a)
