@@ -18,7 +18,11 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
-from .operators.split_screen_area import IOPS_OT_SplitScreenArea
+
+if bpy.app.version[0] < 3:
+    from .operators.split_screen_area import IOPS_OT_SplitScreenArea
+else:
+    from .operators.split_screen_area_new import IOPS_OT_SplitScreenArea
 
 from .operators.mesh_convert_selection import (IOPS_OT_ToEdges,
                                                IOPS_OT_ToFaces,
