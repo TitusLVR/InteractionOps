@@ -400,16 +400,18 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         rv3d = context.region_data
         coord = self.mouse_pos
         view_layer = context.view_layer
-
+        depsgraph = context.evaluated_depsgraph_get()
         # get the ray from the viewport and mouse
         view_vector = region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = region_2d_to_origin_3d(region, rv3d, coord)
         ray_target = ray_origin + view_vector
 
-        if bpy.app.version[1] > 90:
+        if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
             result, location, normal, index, obj, matrix = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
-        else:
+        elif bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
             result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+        elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
+            result, location, normal, index, obj, matrix = scene.ray_cast(depsgraph, ray_origin, view_vector, distance=1.70141e+38)
 
         if result and obj in self.vp_objs:
             context.view_layer.objects.active = obj

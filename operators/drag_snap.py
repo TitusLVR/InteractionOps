@@ -133,11 +133,14 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         view_layer = context.view_layer
         view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse_pos)
         ray_origin =  view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_pos)
+        depsgraph = context.evaluated_depsgraph_get()
 
-        if bpy.app.version[1] > 90:
+        if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
             hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
-        else:
+        elif bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
             hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+        elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
+            hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(depsgraph, ray_origin, view_vector, distance=1.70141e+38)
 
         self.nearest = None, None
         min_dist = float('inf')

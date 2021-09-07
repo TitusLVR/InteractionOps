@@ -10,7 +10,9 @@ class IOPS_MT_Pie_Menu(Menu):
     def draw(self, context):
         forgottentools, _, _, _ = get_addon("Forgotten Tools")
         optiloops, _, _, _ = get_addon("Optiloops")
-
+        bmax_connector, _, _, _ = get_addon("BMAX Connector")
+        bmoi_connector, _, _, _ = get_addon("BMOI Connector")
+        
         layout = self.layout
         pie = layout.menu_pie()
 
@@ -35,20 +37,27 @@ class IOPS_MT_Pie_Menu(Menu):
 
         # 6 - RIGHT
         # pie.separator()
-
+        
         other = pie.row()
         gap = other.column()
         gap.separator()
         gap.scale_y = 7
         other_menu = other.box().column()
         other_menu.scale_y = 1
-        other_menu.label(text="BMax")
-        other_menu.operator('bmax.export', icon='EXPORT', text="Send to Maya/3dsmax")
-        other_menu.operator('bmax.import', icon='IMPORT', text="Get from Maya/3dsmax")
-        other_menu = other.box().column()
-        other_menu.label(text="BMoI")
-        other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
-        other_menu.operator('bmoi3d.import', icon='IMPORT', text="Get from MoI3D")
+        if bmax_connector:
+            bmax_prefs = bpy.context.preferences.addons['BMAX_Connector'].preferences
+            other_menu.label(text="BMax")
+            if bmax_prefs.file_format == 'FBX':            
+                other_menu.operator('bmax.export', icon='EXPORT', text="Send to Maya/3dsmax")
+                other_menu.operator('bmax.import', icon='IMPORT', text="Get from Maya/3dsmax")
+            if bmax_prefs.file_format == 'USD':            
+                other_menu.operator('bmax.export_usd', icon='EXPORT', text="Send to Maya/3dsmax")
+                other_menu.operator('bmax.import_usd', icon='IMPORT', text="Get from Maya/3dsmax")
+            other_menu = other.box().column()        
+        if bmoi_connector:
+            other_menu.label(text="BMoI")
+            other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
+            other_menu.operator('bmoi3d.import', icon='IMPORT', text="Get from MoI3D")
 
         # 2 - BOTTOM
         wm = context.window_manager
@@ -73,6 +82,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col_ruv = col_top.column(align=True)
         col_ruv.enabled = ruv is not False and len(ruv_path) != 0
         col_ruv.operator('b2ruvl.send_to_rizomuv')
+        col_ruv.operator('b2ruvl.retake_rizomuv')
 
         # 8 - TOP
         if forgottentools and context.mode == 'EDIT_MESH':
