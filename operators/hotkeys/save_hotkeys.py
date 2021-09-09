@@ -20,11 +20,14 @@ def save_hotkeys():
 def get_iops_keys():
     keys = []
     
-    if bpy.app.version[1] <= 92:
+    if bpy.app.version[0] == 2 and bpy.app.version[1] <= 92:
         keyconfig = bpy.context.window_manager.keyconfigs['blender addon']
-    else:
+    elif bpy.app.version[0] == 2 and bpy.app.version[1] >= 92:
         keyconfig = bpy.context.window_manager.keyconfigs['Blender addon']
-    
+    elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
+        keyconfig = bpy.context.window_manager.keyconfigs['Blender addon']
+
+
     for keymap in keyconfig.keymaps:
         if keymap:
             keymapItems = keymap.keymap_items

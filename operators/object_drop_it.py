@@ -174,6 +174,7 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                 scale = obj.scale.copy()
                 obj_origin = obj.location
                 view_layer = bpy.context.view_layer
+                
                 if self.use_local_z:
                     z_axis = Vector((0, 0, -1))
                     direction = (obj.matrix_world.to_3x3() @ z_axis).normalized()                  
@@ -184,12 +185,18 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                 loc2_offset = obj.dimensions[0]/100
                 obj.hide_set(True)
 
-                if bpy.app.version[1] > 90:
+                if bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
                     result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin, direction, distance=1.70141e+38)
                     result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
-                else:
+                elif bpy.app.version[0] == 2 and bpy.app.version[1] >= 91:
                     result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
                     result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+                elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
+                    depsgraph = context.evaluated_depsgraph_get()
+                    result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(depsgraph, obj_origin, direction, distance=1.70141e+38)
+                    result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(depsgraph, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+
+                
 
                 if result and result2:                    
                     obj.hide_set(False)
