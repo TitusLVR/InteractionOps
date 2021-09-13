@@ -103,6 +103,25 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
 
                 col = col_vg.row(align=True)
                 col.prop(context.tool_settings, "vertex_group_weight", text="Weight")
+            
+            row = layout.row(align=True)
+            col = row.column(align=True)
+            col.label(text="Materials:")
+            row = col.row(align=True)
+            is_sortable = len(ob.material_slots) > 1
+            rows = 3
+            if is_sortable:
+                rows = 5
+            row.template_list("MATERIAL_UL_matslots", "", ob, "material_slots", ob, "active_material_index", rows=rows)
+            col = row.column(align=True)
+            col.operator("object.material_slot_add", icon='ADD', text="")
+            col.operator("object.material_slot_remove", icon='REMOVE', text="")
+            col.separator()
+            col.menu("MATERIAL_MT_context_menu", icon='DOWNARROW_HLT', text="")
+            if is_sortable:
+                col.separator()
+                col.operator("object.material_slot_move", icon='TRIA_UP', text="").direction = 'UP'
+                col.operator("object.material_slot_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
 
 
 class IOPS_OT_Call_Data_Panel(bpy.types.Operator):
