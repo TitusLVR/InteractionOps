@@ -11,6 +11,7 @@ from math import sin, cos, pi
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d
+from bpy.props import BoolProperty
 
 
 # get circle vertices on pos 2D by segments
@@ -183,7 +184,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     mouse_pos = (0, 0)
-
+    cursor = []
     # RayCastResults
     result = False
     result_obj = None
@@ -200,6 +201,14 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     # Handlers list
     vp_handlers = []
+    
+    
+    hold_cursor: BoolProperty(
+        name="Hold cursor",
+        description="Hold cursor location and rotation",
+        default=True
+    )
+
 
     @classmethod
     def poll(self, context):
@@ -571,6 +580,9 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             self.execute(context)
+            if self.hold_cursor:
+                context.scene.cursor.location = self.cursor[0]
+                context.scene.cursor.rotation_euler = self.cursor[1]
             return {"FINISHED"}
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
@@ -588,6 +600,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def invoke(self, context, event):
         preferences = context.preferences
         if context.space_data.type == 'VIEW_3D':
+            # store_cursor loc and rot
+            self.cursor = [context.scene.cursor.location.copy(),context.scene.cursor.rotation_euler.copy()]
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.result_obj, self.vp_objs = self.getActiveFromSelected(context)

@@ -35,7 +35,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         if context.area.type == "VIEW_3D" or context.area.ui_type == "UV" and context.active_object.type == 'MESH':
             ob = context.object
             me = ob.data
-            brush = context.tool_settings.vertex_paint.brush
+            # brush = context.tool_settings.vertex_paint.brush
 
             # split = layout.split()
             row_main = layout.row(align=True)                    
@@ -104,6 +104,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
                 col = col_vg.row(align=True)
                 col.prop(context.tool_settings, "vertex_group_weight", text="Weight")
             
+            # MATS
             row = layout.row(align=True)
             col = row.column(align=True)
             col.label(text="Materials:")
@@ -122,7 +123,18 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
                 col.separator()
                 col.operator("object.material_slot_move", icon='TRIA_UP', text="").direction = 'UP'
                 col.operator("object.material_slot_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
+            
+            row = layout.row(align=True)
+            col = row.column(align=True)
+            row = col.row(align=True)
+            
+            row.template_ID(ob, "active_material", new="material.new")
 
+            if ob.mode == 'EDIT':
+                row = layout.row(align=True)
+                row.operator("object.material_slot_assign", text="Assign")
+                row.operator("object.material_slot_select", text="Select")
+                row.operator("object.material_slot_deselect", text="Deselect")
 
 class IOPS_OT_Call_Data_Panel(bpy.types.Operator):
     """Active object data(mesh) information"""
