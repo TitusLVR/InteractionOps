@@ -30,7 +30,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
             ('NEAREST_VERTEX', 'NEAREST_VERTEX',  '', '', 2),
             ('TARGET_PROJECT', 'TARGET_PROJECT',  '', '', 3),
             ],
-        default='NEAREST_VERTEX',
+        default='NEAREST_SURFACEPOINT',
     )
     shwarp_use_vg: BoolProperty(
         name="Use vertex groups",
