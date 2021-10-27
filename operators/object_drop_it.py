@@ -189,8 +189,9 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
                     result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin, direction, distance=1.70141e+38)
                     result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer.depsgraph, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
                 elif bpy.app.version[0] == 2 and bpy.app.version[1] >= 91:
-                    result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin, direction, distance=1.70141e+38)
-                    result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(view_layer, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
+                    depsgraph = context.evaluated_depsgraph_get()
+                    result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(depsgraph, obj_origin, direction, distance=1.70141e+38)
+                    result2, location2, normal2,_ ,_ ,_= bpy.context.scene.ray_cast(depsgraph, obj_origin + Vector((loc2_offset, 0, 0)) @ obj.matrix_world.inverted(), direction, distance=1.70141e+38)
                 elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
                     depsgraph = context.evaluated_depsgraph_get()
                     result, location, normal,_ ,_ ,_= bpy.context.scene.ray_cast(depsgraph, obj_origin, direction, distance=1.70141e+38)
