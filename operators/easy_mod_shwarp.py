@@ -36,7 +36,18 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         name="Use vertex groups",
         description="Takes last one",
         default=False
-    ) 
+    )
+
+    stack_location: EnumProperty(
+        name='Mod location in stack',
+        description='Where to put SWARP modifier?',
+        items=[
+            ('First', 'First',  '', '', 0),
+            ('Last', 'Last',  '', '', 1),
+            ('Default', 'Default',  '', '', 2)
+            ],
+        default='Default',
+    )
     
 
     @classmethod
@@ -47,6 +58,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
 
     def execute(self, context):
         target = context.active_object
+        ctx = bpy.context.copy()
         objs = []
 
         for ob in context.view_layer.objects.selected:
@@ -55,18 +67,23 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         
         
         if objs and target:
-            print(objs)
+            #print(objs)
             for ob in objs:
-                if ob.modifiers:
-                    if ob.modifiers[-1].type == "SHRINKWRAP":
-                        mod = ob.modifiers[-1]
-                        mod.show_in_editmode = True
-                        mod.show_on_cage = True
-                        mod.target = target 
-                        mod.offset = self.shwarp_offset                        
-                        mod.wrap_method = self.shwarp_method
-                        if self.shwarp_use_vg:
-                            mod.vertex_group = ob.vertex_groups[0].name
+
+                ctx['object'] = ob
+                ctx['active_object'] = ob
+                ctx['selected_objects'] = [ob]
+                ctx['selected_editable_objects'] = [ob]
+
+                if 'iOps Shwarp' in ob.modifiers.keys():
+                    mod = ob.modifiers['iOps Shwarp']
+                    mod.show_in_editmode = True
+                    mod.show_on_cage = True
+                    mod.target = target 
+                    mod.offset = self.shwarp_offset                        
+                    mod.wrap_method = self.shwarp_method
+                    if self.shwarp_use_vg:
+                        mod.vertex_group = ob.vertex_groups[0].name
                 else:
                     mod = ob.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
                     mod.show_in_editmode = True
@@ -76,6 +93,38 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                     mod.wrap_method = self.shwarp_method
                     if self.shwarp_use_vg:
                             mod.vertex_group = ob.vertex_groups[0].name
+                    
+                    count = len(ob.modifiers)
+
+                    if self.stack_location == 'First':
+                        while count > 0:
+                            bpy.ops.object.modifier_move_up(ctx, modifier="iOps Shwarp")
+                            count -= 1
+                    elif self.stack_location == 'Last':    
+                        while count > 0:
+                            bpy.ops.object.modifier_move_down(ctx, modifier="iOps Shwarp")
+                            count -= 1
+                    else: continue
+
+                # if ob.modifiers:
+                #     if ob.modifiers[-1].type == "SHRINKWRAP":
+                #         mod = ob.modifiers[-1]
+                #         mod.show_in_editmode = True
+                #         mod.show_on_cage = True
+                #         mod.target = target 
+                #         mod.offset = self.shwarp_offset                        
+                #         mod.wrap_method = self.shwarp_method
+                #         if self.shwarp_use_vg:
+                #             mod.vertex_group = ob.vertex_groups[0].name
+                # else:
+                #     mod = ob.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
+                #     mod.show_in_editmode = True
+                #     mod.show_on_cage = True
+                #     mod.target = target
+                #     mod.offset = self.shwarp_offset                    
+                #     mod.wrap_method = self.shwarp_method
+                #     if self.shwarp_use_vg:
+                #             mod.vertex_group = ob.vertex_groups[0].name
             
         return {'FINISHED'}
         
