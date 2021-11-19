@@ -30,11 +30,17 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
             ('NEAREST_VERTEX', 'NEAREST_VERTEX',  '', '', 2),
             ('TARGET_PROJECT', 'TARGET_PROJECT',  '', '', 3),
             ],
-        default='NEAREST_SURFACEPOINT',
+        default='PROJECT',
     )
     shwarp_use_vg: BoolProperty(
         name="Use vertex groups",
         description="Takes last one",
+        default=True
+    )
+
+    transfer_normals: BoolProperty(
+        name="Transfer Normals",
+        description="Add mod to transfer normals from target object",
         default=False
     )
 
@@ -44,9 +50,10 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         items=[
             ('First', 'First',  '', '', 0),
             ('Last', 'Last',  '', '', 1),
-            ('Default', 'Default',  '', '', 2)
+            ('Before Active', 'Before Active',  '', '', 2),
+            ('After Active', 'After Active',  '', '', 3),
             ],
-        default='Default',
+        default='Last',
     )
     
 
@@ -69,21 +76,27 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         if objs and target:
             #print(objs)
             for ob in objs:
+                if ob.modifiers:
+                    mod_list = ob.modifiers.keys()
+                    active_idx = mod_list.index(ob.modifiers.active.name)
+                    print('Active mod:', ob.modifiers.active.name)
 
+                # Context copy   
                 ctx['object'] = ob
                 ctx['active_object'] = ob
                 ctx['selected_objects'] = [ob]
                 ctx['selected_editable_objects'] = [ob]
 
                 if 'iOps Shwarp' in ob.modifiers.keys():
-                    mod = ob.modifiers['iOps Shwarp']
-                    mod.show_in_editmode = True
-                    mod.show_on_cage = True
-                    mod.target = target 
-                    mod.offset = self.shwarp_offset                        
-                    mod.wrap_method = self.shwarp_method
-                    if self.shwarp_use_vg:
-                        mod.vertex_group = ob.vertex_groups[0].name
+                    continue
+                    # mod = ob.modifiers['iOps Shwarp']
+                    # mod.show_in_editmode = True
+                    # mod.show_on_cage = True
+                    # mod.target = target 
+                    # mod.offset = self.shwarp_offset                        
+                    # mod.wrap_method = self.shwarp_method
+                    # if self.shwarp_use_vg:
+                    #     mod.vertex_group = ob.vertex_groups[0].name
                 else:
                     mod = ob.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
                     mod.show_in_editmode = True
@@ -93,38 +106,48 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                     mod.wrap_method = self.shwarp_method
                     if self.shwarp_use_vg:
                             mod.vertex_group = ob.vertex_groups[0].name
+                   
+                # Logic to move modifier around
+                    if self.stack_location in {'First', 'Last'}:
+                        count = len(ob.modifiers) - 1
+                    elif self.stack_location == 'Before Active': 
+                        count = len(ob.modifiers) - 1 - active_idx 
+                    elif self.stack_location == 'After Active':
+                        count = len(ob.modifiers) - 2 - active_idx
                     
-                    count = len(ob.modifiers)
+                    print('Starting moves:', count)
 
-                    if self.stack_location == 'First':
-                        while count > 0:
-                            bpy.ops.object.modifier_move_up(ctx, modifier="iOps Shwarp")
-                            count -= 1
-                    elif self.stack_location == 'Last':    
-                        while count > 0:
-                            bpy.ops.object.modifier_move_down(ctx, modifier="iOps Shwarp")
-                            count -= 1
-                    else: continue
+                    while count > 0:
+                        if self.stack_location in {'First', 'Before Active', 'After Active'}:
+                                bpy.ops.object.modifier_move_up(ctx, modifier="iOps Shwarp")
+                        else: 
+                            break
+                        count -= 1
+                        print('Active mod:', ob.modifiers.active.name, count)
 
-                # if ob.modifiers:
-                #     if ob.modifiers[-1].type == "SHRINKWRAP":
-                #         mod = ob.modifiers[-1]
-                #         mod.show_in_editmode = True
-                #         mod.show_on_cage = True
-                #         mod.target = target 
-                #         mod.offset = self.shwarp_offset                        
-                #         mod.wrap_method = self.shwarp_method
-                #         if self.shwarp_use_vg:
-                #             mod.vertex_group = ob.vertex_groups[0].name
-                # else:
-                #     mod = ob.modifiers.new("iOps Shwarp", type='SHRINKWRAP')
-                #     mod.show_in_editmode = True
-                #     mod.show_on_cage = True
-                #     mod.target = target
-                #     mod.offset = self.shwarp_offset                    
-                #     mod.wrap_method = self.shwarp_method
-                #     if self.shwarp_use_vg:
-                #             mod.vertex_group = ob.vertex_groups[0].name
+                # Best settings for default Z projection, will use first group for snapping
+                if self.shwarp_method == "PROJECT":
+                    mod.use_project_z = True
+                    mod.use_negative_direction = True
+                    mod.use_positive_direction = True
+                    if self.shwarp_use_vg:
+                        mod.vertex_group = ob.vertex_groups[0].name
+                    else:
+                        mod.vertex_group = ''
+                
+                if self.transfer_normals == True:
+                    if 'iOps Transfer Normals' not in ob.modifiers.keys():
+                        mod = ob.modifiers.new("iOps Transfer Normals", type='DATA_TRANSFER')
+                        mod.object = target
+                        mod.use_loop_data = True
+                        mod.data_types_loops = {'CUSTOM_NORMAL'}
+                        mod.loop_mapping = 'POLYINTERP_NEAREST'
+                        mod.vertex_group = ob.vertex_groups[0].name
+                    else:
+                        continue
+
+
+
             
         return {'FINISHED'}
         
