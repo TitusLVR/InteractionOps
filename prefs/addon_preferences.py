@@ -532,7 +532,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=1000
     )
     executor_scripts_folder: StringProperty(
-        name="Export Folder",
+        name="Scripts Folder",
         subtype='DIR_PATH',
         default=bpy.utils.script_path_user(),
     )
