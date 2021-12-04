@@ -16,9 +16,11 @@ def round_rotation(obj):
         pass # WAS A BAD IDEA
 
 def iops_rotate(reset, angle, object, axis, axis_x, axis_y, axis_z):
-    reset_cursor = reset 
+    reset_cursor = reset    
     if reset_cursor:
+        rotation_mode = str(bpy.context.scene.cursor.rotation_mode)
         bpy.context.scene.cursor.location = Vector((0, 0, 0))
+        bpy.context.scene.cursor.rotation_mode = "XYZ"
         bpy.context.scene.cursor.rotation_euler = Euler((0.0, 0.0, 0.0), 'XYZ')
     cursor = bpy.context.scene.cursor
     cursor.location = object.location
@@ -31,6 +33,9 @@ def iops_rotate(reset, angle, object, axis, axis_x, axis_y, axis_z):
                                         use_accurate=True,                                     
                                         orient_matrix_type='CURSOR'                                     
                             )
+    if reset_cursor:
+        bpy.context.scene.cursor.rotation_mode = rotation_mode
+
 def iops_per_obj(name):
     ob = bpy.data.objects[name]
     bpy.ops.object.select_all(action='DESELECT')
