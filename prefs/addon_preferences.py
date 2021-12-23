@@ -184,6 +184,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "icon": "NODETREE",
                     "num":21
             },
+            "Spreadsheet": {
+                    "type": "SPREADSHEET",
+                    "ui": "SPREADSHEET",
+                    "icon": "SPREADSHEET",
+                    "num":22
+            }
 
              
     }
