@@ -178,6 +178,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "icon": "PREFERENCES",
                     "num":20
             },
+            "Geometry Nodes": {
+                    "type": "NODE_EDITOR",
+                    "ui": "GeometryNodeTree",
+                    "icon": "NODETREE",
+                    "num":21
+            },
+
              
     }
     file_browser_name = 'FILE_BROWSER'
