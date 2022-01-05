@@ -53,6 +53,10 @@ class IOPS_MT_Pie_Menu(Menu):
             if bmax_prefs.file_format == 'USD':            
                 other_menu.operator('bmax.export_usd', icon='EXPORT', text="Send to Maya/3dsmax")
                 other_menu.operator('bmax.import_usd', icon='IMPORT', text="Get from Maya/3dsmax")
+            row = other_menu.row(align=True)
+            row.prop(bmax_prefs,"export_reset_location", icon='EVENT_L', text="  ")
+            row.prop(bmax_prefs,"export_reset_rotation", icon='EVENT_R', text="  ")
+            row.prop(bmax_prefs,"export_reset_scale", icon='EVENT_S', text="  ")
             other_menu = other.box().column()        
         if bmoi_connector:
             other_menu.label(text="BMoI")
