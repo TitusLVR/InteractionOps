@@ -89,6 +89,12 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                            pattern[i] = o.type.lower()
                     o.name = "".join(pattern)
                     counter +=1
+        for o in bpy.context.selected_objects:
+            if '.' in o.name:
+                dot_pos = o.name.find('.')
+                name_len = len(o.name)
+                o.name = o.name[:dot_pos]
+
         else:
             self.report ({'ERROR'}, "Please fill the pattern field")       
         return {'FINISHED'}
