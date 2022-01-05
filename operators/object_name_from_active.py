@@ -40,7 +40,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     counter_shift: BoolProperty(
         name="+1",
         description="+1 shift for counter, useful when we need to rename active object too",
-        default=False
+        default=True
     )
 
     rename_active: BoolProperty(
