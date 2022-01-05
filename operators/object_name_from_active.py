@@ -92,7 +92,6 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         for o in bpy.context.selected_objects:
             if '.' in o.name:
                 dot_pos = o.name.find('.')
-                name_len = len(o.name)
                 o.name = o.name[:dot_pos]
 
         else:
