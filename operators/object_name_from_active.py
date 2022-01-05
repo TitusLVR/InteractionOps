@@ -43,11 +43,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         default=False
     )
 
+    rename_active: BoolProperty(
+        name="Rename Active",
+        description="Rename active also",
+        default=True
+    )
+
     def invoke(self, context, event):       
         self.active_name = context.view_layer.objects.active.name
         return self.execute(context)
 
     def execute(self, context): 
+        base_name = context.view_layer.objects.active.name
+        
         if self.pattern:
             if  self.active_name != context.view_layer.objects.active.name:
                 context.view_layer.objects.active.name = self.active_name
@@ -57,7 +65,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
             if self.counter_shift:
                 counter = 1
             for o in bpy.context.selected_objects:
-                if o is not active:
+                if o is not active and self.rename_active is False:
+                    pattern = re.split(r"(\[\w+\])", self.pattern)
+                    # i - index, p - pattern
+                    for i, p in enumerate(pattern):                       
+                        if p == "[N]":
+                            pattern[i] = self.active_name
+                        if p == "[C]":
+                           pattern[i] = digit.format(counter)
+                        if p == "[T]":
+                           pattern[i] = o.type.lower()
+                    o.name = "".join(pattern)
+                    counter +=1
+                else:
                     pattern = re.split(r"(\[\w+\])", self.pattern)
                     # i - index, p - pattern
                     for i, p in enumerate(pattern):                       
@@ -84,6 +104,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         row = col.row(align=True)
         row.prop(self, "counter_digits")
         row.prop(self, "counter_shift")
+        row.prop(self, "rename_active")
         
         
         
