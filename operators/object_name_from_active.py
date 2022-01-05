@@ -53,47 +53,41 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         self.active_name = context.view_layer.objects.active.name
         return self.execute(context)
 
-    def execute(self, context): 
-        base_name = context.view_layer.objects.active.name
-        
+    def execute(self, context):
         if self.pattern:
             if  self.active_name != context.view_layer.objects.active.name:
                 context.view_layer.objects.active.name = self.active_name
             digit = "{0:0>" + str(self.counter_digits) + "}"
-            active = bpy.context.view_layer.objects.active                                    
+            # Combine objects
+            active = bpy.context.view_layer.objects.active
+            Objects = [active.name]
+            to_rename = []
+            for ob in bpy.context.selected_objects:
+                if ob is not active:
+                    Objects.append(ob.name)
+            # Check active
+            if self.rename_active:
+                to_rename = Objects 
+            else:
+                to_rename = Objects[1:]
+            # counter
             counter = 0
             if self.counter_shift:
                 counter = 1
-            for o in bpy.context.selected_objects:
-                if o is not active and self.rename_active is False:
-                    pattern = re.split(r"(\[\w+\])", self.pattern)
-                    # i - index, p - pattern
-                    for i, p in enumerate(pattern):                       
-                        if p == "[N]":
-                            pattern[i] = self.active_name
-                        if p == "[C]":
-                           pattern[i] = digit.format(counter)
-                        if p == "[T]":
-                           pattern[i] = o.type.lower()
-                    o.name = "".join(pattern)
-                    counter +=1
-                else:
-                    pattern = re.split(r"(\[\w+\])", self.pattern)
-                    # i - index, p - pattern
-                    for i, p in enumerate(pattern):                       
-                        if p == "[N]":
-                            pattern[i] = self.active_name
-                        if p == "[C]":
-                           pattern[i] = digit.format(counter)
-                        if p == "[T]":
-                           pattern[i] = o.type.lower()
-                    o.name = "".join(pattern)
-                    counter +=1
-        for o in bpy.context.selected_objects:
-            if '.' in o.name:
-                dot_pos = o.name.find('.')
-                o.name = o.name[:dot_pos]
 
+            for name in to_rename:
+                o = bpy.data.objects[name]
+                pattern = re.split(r"(\[\w+\])", self.pattern)
+                # i - index, p - pattern
+                for i, p in enumerate(pattern):                       
+                    if p == "[N]":
+                        pattern[i] = self.active_name
+                    if p == "[C]":
+                        pattern[i] = digit.format(counter)
+                    if p == "[T]":
+                        pattern[i] = o.type.lower()
+                o.name = "".join(pattern)
+                counter +=1
         else:
             self.report ({'ERROR'}, "Please fill the pattern field")       
         return {'FINISHED'}
