@@ -201,7 +201,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                              "type": "FILE_BROWSER",
                                              "ui": "ASSETS",
                                              "icon": "ASSET_MANAGER",
-                                             "num":21
+                                             "num":19
                                             }
     if bpy.app.version[0] == 3:
         file_browser_name = "FILES"
@@ -210,7 +210,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                              "type": "FILE_BROWSER",
                                              "ui": "ASSETS",
                                              "icon": "ASSET_MANAGER",
-                                             "num":21
+                                             "num":19
                                             }
 
     split_areas_list = [(v["ui"], k, "", v["icon"], v["num"]) for  k, v in split_areas_dict.items()]
