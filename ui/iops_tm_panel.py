@@ -127,7 +127,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
         props = wm.IOPS_AddonProperties 
 
-        uebok, _, _, _ = get_addon("UnrealEngine - Blender OK!")
+        ueops, _, _, _ = get_addon("Unreal OPS")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
         batchops, _, _, _ = get_addon("Batch Operations™")
 
@@ -153,13 +153,13 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.separator()
             row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT').use_pattern = False
 
-        if uebok:
+        if ueops:
             row.separator()
-            row.operator('uebok.add_object_to_active_object_collection', icon='ADD', text="")
-            row.operator('uebok.remove_object_from_collection', icon='REMOVE', text="")
-            row.operator('uebok.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
-            row.operator('uebok.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')
-            row.operator('uebok.cleanup_empty_collections', text="", icon='PANEL_CLOSE')
+            row.operator('ueops.add_object_to_active_object_collection', icon='ADD', text="")
+            row.operator('ueops.remove_object_from_collection', icon='REMOVE', text="")
+            row.operator('ueops.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
+            row.operator('ueops.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')
+            row.operator('ueops.cleanup_empty_collections', text="", icon='PANEL_CLOSE')
 
         if machinetools and context.preferences.addons['MACHIN3tools'].preferences.activate_shading_pie == True:
             row.separator()
