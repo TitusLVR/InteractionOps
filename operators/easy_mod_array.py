@@ -62,7 +62,6 @@ def draw_iops_array_text(self, context, _uidpi, _uifactor):
         offset += (tCSize + 5) * _uifactor
 
 
-
 class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
     """ Auto setup for array modifier """
     bl_idname = "iops.easy_mod_array_caps"
@@ -76,9 +75,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
         mid_obj_loc = self.mid_obj_loc
         mid_obj_dim = self.mid_obj_dim
         curve = self.curve
-        
         cap_objs = self.cap_objs
-        
         if len(cap_objs) == 1:
             end_obj = self.cap_objs[0]
             end_obj.name = mid_obj.name + "_END_CAP"
@@ -86,7 +83,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
             start_obj = self.cap_objs[0]
             end_obj = self.cap_objs[1]
             start_obj.name = mid_obj.name + "_START_CAP"
-            end_obj.name = mid_obj.name + "_END_CAP"        
+            end_obj.name = mid_obj.name + "_END_CAP"
         
         # bpy.ops.object.select_all(action='DESELECT')
         # bpy.data.objects[start_obj.name].select_set(True)
