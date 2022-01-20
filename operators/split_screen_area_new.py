@@ -165,16 +165,15 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         for area in context.screen.areas:
             if area == current_area:
                 continue
+            elif area.type == self.area_type and area.ui_type == self.ui:
+                context_override = ContextOverride(area)
+                bpy.ops.iops.space_data_save(context_override)
+                bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+                
+                self.report({'INFO'}, "Joined Areas")
+                return {'FINISHED'}
             else:
-                side_area = self.get_side_area(context, current_area, self.pos)
-                if side_area and side_area.ui_type == self.ui:
-                    swap = True if self.pos in {'TOP', 'RIGHT'} else False
-                    self.join_areas(context, current_area, side_area, self.pos, swap)
-                    self.report({'INFO'}, "Joined Areas")
-  
-                    return {'FINISHED'}
-                else:
-                    continue
+                continue
         
         if current_area.ui_type == self.ui:
             if self.pos == 'LEFT':

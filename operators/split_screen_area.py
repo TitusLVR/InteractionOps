@@ -274,7 +274,8 @@ class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
             bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
 
         else:
-            bpy.context.area.type, bpy.context.area.ui_type = self.area_type, self.ui
+            bpy.context.area.type = self.area_type 
+            bpy.context.area.ui_type = self.ui
             context_override = ContextOverride(context.area)
             bpy.ops.iops.space_data_load(context_override)
             
