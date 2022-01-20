@@ -239,3 +239,44 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 return {"FINISHED"}
 
         return {"FINISHED"}
+
+class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
+    bl_idname = "iops.switch_screen_area"
+    bl_label = "IOPS Switch Screen Area"
+
+    area_type : StringProperty(
+        name="Area Type",
+        description="Which area to create",
+        default=""
+        )
+
+
+    ui : StringProperty(
+        name="Area UI Type",
+        description="Which UI to enable",
+        default=""
+    )
+
+
+    def refresh_ui(self, area):
+        context_override = ContextOverride(area)
+        bpy.ops.screen.screen_full_area(context_override)
+        bpy.ops.screen.back_to_previous()
+
+    def execute(self, context):
+
+        if "nonnormal" in context.screen.name: 
+            bpy.ops.screen.screen_full_area(use_hide_panels=True)
+            return {"FINISHED"}
+
+        if (context.area.type == self.area_type) and (context.area.ui_type == self.ui):
+            context_override = ContextOverride(context.area)
+            bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+
+        else:
+            bpy.context.area.type, bpy.context.area.ui_type = self.area_type, self.ui
+            context_override = ContextOverride(context.area)
+            bpy.ops.iops.space_data_load(context_override)
+            
+        return {"FINISHED"}
+

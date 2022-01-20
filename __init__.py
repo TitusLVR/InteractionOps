@@ -18,6 +18,7 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive 
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
+from .operators.split_screen_area import IOPS_OT_SwitchScreenArea
 
 if bpy.app.version[0] < 3:
     from .operators.split_screen_area import IOPS_OT_SplitScreenArea
@@ -256,6 +257,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_VertexColorAssign,
            IOPS_PT_VCol_Panel,  
            IOPS_OT_SplitScreenArea,
+           IOPS_OT_SwitchScreenArea,
            IOPS_OT_SaveSpaceData,
            IOPS_OT_LoadSpaceData,
            IOPS_OT_MaterialsFromTextures,
