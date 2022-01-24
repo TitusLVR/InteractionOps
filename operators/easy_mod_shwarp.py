@@ -35,7 +35,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
     shwarp_use_vg: BoolProperty(
         name="Use vertex groups",
         description="Takes last one",
-        default=True
+        default=False
     )
 
     transfer_normals: BoolProperty(
@@ -75,6 +75,10 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
         if objs and target:
             #print(objs)
             for ob in objs:
+                if self.shwarp_use_vg and ob.vertex_groups[:] == []:
+                    self.shwarp_use_vg = False
+                    self.transfer_normals = False
+
                 if ob.modifiers:
                     mod_list = ob.modifiers.keys()
                     active_idx = mod_list.index(ob.modifiers.active.name)
@@ -105,10 +109,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                     mod.wrap_method = self.shwarp_method
                     if self.shwarp_use_vg and ob.vertex_groups:
                             mod.vertex_group = ob.vertex_groups[0].name
-                    else:                        
-                        self.report({'INFO'}, ob.name + " No VertexGroups")
-                        ob.modifiers.remove(mod)
-                        return {"CANCELLED"}
+                    
                    
                 # Logic to move modifier around
                     if self.stack_location in {'First', 'Last'}:
@@ -135,10 +136,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                     mod.use_positive_direction = True
                     if self.shwarp_use_vg and ob.vertex_groups:
                         mod.vertex_group = ob.vertex_groups[0].name
-                    else:
-                        self.report({'INFO'}, ob.name + " No VertexGroups")
-                        ob.modifiers.remove(mod)
-                        return {"CANCELLED"}
+                    
                 
                 if self.transfer_normals == True:
                     if 'iOps Transfer Normals' not in ob.modifiers.keys():
@@ -149,10 +147,6 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                         mod.loop_mapping = 'POLYINTERP_NEAREST'
                         if self.shwarp_use_vg and ob.vertex_groups:
                             mod.vertex_group = ob.vertex_groups[0].name
-                        else:
-                            self.report({'INFO'}, ob.name + " No VertexGroups")
-                            ob.modifiers.remove(mod)
-                            return {"CANCELLED"}
                     else:
                         continue
 
