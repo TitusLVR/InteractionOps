@@ -49,6 +49,13 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         default=True
     )
 
+    rename_mesh_data: BoolProperty(
+        name="Rename Mesh Data",
+        description="Rename Mesh Data",
+        default=True
+    )
+
+
     def invoke(self, context, event):       
         self.active_name = context.view_layer.objects.active.name
         return self.execute(context)
@@ -87,6 +94,10 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                     if p == "[T]":
                         pattern[i] = o.type.lower()
                 o.name = "".join(pattern)
+                # Rename object mesh data
+                if self.rename_mesh_data:
+                    if o.type == 'MESH':
+                        o.data.name = "MD_" + o.name
                 counter +=1
         else:
             self.report ({'ERROR'}, "Please fill the pattern field")       
@@ -99,11 +110,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         col.prop(self, "active_name")
         col.separator()
         col.prop(self, "pattern")
-        col.separator()
+        col.separator()        
         row = col.row(align=True)
-        row.prop(self, "counter_digits")
+        row.label(text="Counter Digits:")
+        row.alignment = "LEFT"
+        row.prop(self, "counter_digits", text="       ")
+        row.separator(factor=1.0)        
         row.prop(self, "counter_shift")
-        row.prop(self, "rename_active")
+        col = layout.column(align=True)
+        col.label(text="Rename:")
+        row = col.row(align=True)                 
+        row.prop(self, "rename_active", text="Active Object")
+        row.separator()
+        row.prop(self, "rename_mesh_data", text="Object's MeshData")
         
         
         
