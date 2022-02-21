@@ -12,6 +12,7 @@ class IOPS_MT_Pie_Menu(Menu):
         optiloops, _, _, _ = get_addon("Optiloops")
         bmax_connector, _, _, _ = get_addon("BMAX Connector")
         bmoi_connector, _, _, _ = get_addon("BMOI Connector")
+        brush = context.tool_settings.image_paint.brush
         
         layout = self.layout
         pie = layout.menu_pie()
@@ -22,7 +23,11 @@ class IOPS_MT_Pie_Menu(Menu):
         col = layout.menu_pie()
         box = col.column(align=True).box().column()
         box.label(text="IOPS")
+        col.scale_x = 0.9        
         col = box.column(align=True)
+        col.prop(brush, 'color', text="",)        
+        col.operator("iops.assign_vertex_color", text="Set Vertex Color")
+        col.separator()
         col.operator('iops.object_replace', text="Object Replace")
         col.operator('iops.align_between_two', text='Align Between Two')
         col.operator('iops.materials_from_textures', text='Materials from Textures')
