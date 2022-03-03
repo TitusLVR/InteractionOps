@@ -41,6 +41,13 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         else:
             self.report({'WARNING'}, "Not a MESH")
         return {'FINISHED'}
+    
+    def draw(self, context):
+        tools = context.tool_settings.image_paint.brush
+        layout = self.layout
+        col = layout.column(align=True)        
+        col.prop(tools, "color")
+        
         
 
 
