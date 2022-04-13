@@ -587,8 +587,28 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         tabs_row.prop(self, "tabs", expand=True)
         column_main = layout.column()
         if self.tabs == "KM":
-            col = column_main.column(align=False)        
-            # Keymaps            
+
+            # Hotkeys
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Hotkeys:")
+            row = col.row(align=True)
+            row.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
+            row.separator()
+            row.separator()
+            row.separator()
+            row.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
+            row.separator()
+            row.separator()
+            row.separator()
+            row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
+            col.separator()
+            col.separator()
+            col.separator()
+
+            # Keymaps  
+            col = column_main.column(align=False)    
             try:
                 mainRow = col.row(align=True)
                 mainRow.alignment = 'LEFT'
@@ -636,6 +656,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
             except:
                 layout.label(text='No keymaps found.', icon='ERROR')
+
+
         if self.tabs == "PREFS":
             col = column_main.column(align=False)            
             box = col.box()
@@ -804,20 +826,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "switch_list_snap")
             col.separator()
 
-
-            # Hotkeys
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Hotkeys")
-            row = col.row(align=True)
-            row.operator("iops.save_user_hotkeys", text="Save User's Hotkeys")
-            row.operator("iops.load_user_hotkeys", text="Load User's Hotkeys")
-            row.separator()
-            row.separator()
-            row.separator()
-            row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
-            col.separator()
             
             # Preferences
             col = column_main.column(align=False)
