@@ -351,6 +351,9 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
                 layout.template_palette(settings, "palette", color=True)
-        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set")                      
+        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set Color")  
+        col.separator()
+        col.operator("iops.assign_vertex_color_alpha", icon='GROUP_VCOL', text="Set Alpha")
+
         
         

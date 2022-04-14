@@ -55,7 +55,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 
-from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign)
+from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign,IOPS_OT_VertexColorAlphaAssign)
 from .operators.object_drop_it import IOPS_OT_Drop_It
 from .operators.object_kitbash_grid import IOPS_OT_KitBash_Grid
 from .operators.align_between_two import IOPS_OT_Align_between_two
@@ -239,6 +239,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_ActiveObject_Scroll_UP,
            IOPS_OT_ActiveObject_Scroll_DOWN,
            IOPS_OT_VertexColorAssign,
+           IOPS_OT_VertexColorAlphaAssign,
            IOPS_PT_VCol_Panel,  
            IOPS_OT_SplitScreenArea,
            IOPS_OT_SwitchScreenArea,

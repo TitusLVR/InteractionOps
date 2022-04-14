@@ -215,7 +215,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
                 context.view_layer.objects.active.type == "MESH" and
-                len(context.view_layer.objects.selected) != 0)
+                context.view_layer.objects.selected[:] != [])
     
     # Place origin for selected objects
     def place_origin(self, context):
