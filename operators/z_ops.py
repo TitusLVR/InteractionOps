@@ -3,7 +3,12 @@ import math
 import bmesh
 import bpy
 import mathutils as mu
-from bpy.props import FloatProperty
+from bpy.props import (BoolProperty,
+                       EnumProperty,
+                       FloatProperty,
+                       IntProperty,
+                       StringProperty
+                       )
 
 
 ### UV tools
@@ -374,7 +379,7 @@ def extend_region(f, bm):
     return list(vs)
 
 def connect(bm):
-    sel = set([a for a in bm.edges if a.select])
+    sel = set([a for a in bm.edges if a.select])     
     es = set()
     for e in sel:
         e.select = False
@@ -898,19 +903,102 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
     '''Connect the selected edges.'''
     bl_idname = "iops.z_connect"
     bl_label = 'Connect'
-    bl_options = {'PRESET'}
+    # bl_options = {'PRESET'}
+    bl_options = {'REGISTER', 'UNDO'}
+
+# bpy.ops.mesh.subdivide(number_cuts=2, smoothness=0.01, ngon=False, quadcorner='INNERVERT', fractal=0.01, fractal_along_normal=0.01, seed=1)
+
+    use_subdivide_op: BoolProperty(
+        name="Subdivide",
+        description="Use standard subdivide operator.",
+        default=False
+        )
+    number_cuts: IntProperty(
+        name="Number of Cuts",
+        description="Number of Cuts",
+        default=1,
+        min=0,
+        max=10000
+        )
+    smoothness:FloatProperty(
+        name="Smoothness", 
+        description="smoothness", 
+        default=0.0, 
+        soft_min=0.0,
+        soft_max=1.0,
+        )
+    ngon: BoolProperty(
+        name="Create N-Gon",
+        description="When disabled - Newly created faces are limited to 3 and 4 sides.",
+        default=True
+        )    
+    quadcorner: EnumProperty(
+        name='Quad Corner Type',
+        description='How to subdivide quad corners',
+        items=[
+            ('INNERVERT', 'INNERVERT', '', '', 0),
+            ('PATH', 'PATH', '', '', 1),
+            ('STRAIGHT_CUT', 'STRAIGHT_CUT', '', '', 2),
+            ('FAN', 'FAN', '', '', 3),
+            ],
+        default='FAN',
+        )
+    fractal:FloatProperty(
+        name="Smoothness", 
+        description="smoothness", 
+        default=0.0, 
+        min=0.0,
+        max=1.0,
+        )
+    fractal_along_normal:FloatProperty(
+        name="Smoothness", 
+        description="smoothness", 
+        default=0.0, 
+        min=0.0,
+        max=1.0,
+        )
+    seed:IntProperty(
+        name="Random Seed",
+        description="Random Seed",
+        default=0,
+        min=0,
+        max=255
+        )
+    
+
 
     @classmethod
     def poll(cls, context):
-        sm = context.tool_settings.mesh_select_mode[:]
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT' and (sm == (False, True, False)))
+        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
 
     def execute(self, context):
-        mesh = context.active_object.data
-        bm = bmesh.from_edit_mesh(mesh)
-        connect(bm)
-        bmesh.update_edit_mesh(mesh)
+        if self.use_subdivide_op:
+            bpy.ops.mesh.subdivide(number_cuts=self.number_cuts, smoothness=self.smoothness, ngon=self.ngon, quadcorner=self.quadcorner, fractal=self.fractal, fractal_along_normal=self.fractal_along_normal, seed=self.seed)
+        else:            
+            sm = context.tool_settings.mesh_select_mode[:]
+            if sm == (False, True, False):
+                mesh = context.active_object.data
+                bm = bmesh.from_edit_mesh(mesh)
+                connect(bm)
+                bmesh.update_edit_mesh(mesh)
+            else:
+                self.report({"INFO"}, "No Selected Edges")
         return {'FINISHED'}
+    
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.label(text="Z-OPS Connect:")
+        col.prop(self, "use_subdivide_op")
+        if self.use_subdivide_op:
+            col.prop(self, "number_cuts")
+            col.prop(self, "smoothness")
+            col.prop(self, "ngon")
+            col.prop(self, "quadcorner")
+            col.prop(self, "fractal")
+            col.prop(self, "fractal_along_normal")
+            col.prop(self, "seed")
+
 
 
 class Z_OT_PutOn(bpy.types.Operator):

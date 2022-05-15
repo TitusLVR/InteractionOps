@@ -285,7 +285,7 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH" and
+                context.view_layer.objects.active.type in ["MESH","CURVE"] and
                 bpy.context.view_layer.objects.active.mode == 'OBJECT')
 
     def draw(self, context):
@@ -320,7 +320,7 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH" and
+                context.view_layer.objects.active.type in ["MESH","CURVE"] and
                 bpy.context.view_layer.objects.active.mode == 'OBJECT')
 
     def execute(self, context):
