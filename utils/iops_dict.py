@@ -86,7 +86,7 @@ class IOPS_Dict():
             },
             "ARMATURE": {
                 "F1": lambda: object_mode_switch("EDIT"),
-                "F2": lambda: no_operator(),
+                "F2": lambda: object_mode_switch("POSE"),
                 "F3": lambda: no_operator(),
                 "F4": lambda: no_operator(),
                 "F5": lambda: no_operator(),
