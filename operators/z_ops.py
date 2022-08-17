@@ -860,6 +860,9 @@ class Z_OT_ContextDelete(bpy.types.Operator):
         if context.view_layer.objects.active.type == 'CURVE':
             bpy.ops.curve.dissolve_verts()
             return {'FINISHED'}
+        if context.view_layer.objects.active.type == 'ARMATURE':
+            bpy.ops.armature.delete()
+            return {'FINISHED'}
         for a, b in zip(['VERT', 'EDGE', 'FACE'], context.tool_settings.mesh_select_mode[:]):
             if b:
                 modes.append(a)
