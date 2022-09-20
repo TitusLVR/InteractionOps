@@ -224,8 +224,12 @@ def get_active_and_selected():
 def register_keymaps(keys): 
     # keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items
+    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Mesh").keymap_items
     for k in keys:
-       keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+        if ".z_" in k[0]:   # Make z_ops in mesh keymaps
+            keymapItemsMesh.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+        else:
+            keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
 
 
 def unregister_keymaps():
