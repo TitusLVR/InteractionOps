@@ -54,14 +54,23 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             row_main.separator()
             row_main.separator()
             # ----------------------------------------------
-            # VertexColor
-            col = row_main.column(align=True) 
-            col.label(text="VertexColor:")
-            row = col.row(align=True)
-            row.template_list("MESH_UL_vcols", "vcols", me, "vertex_colors", me.vertex_colors, "active_index", rows=5)
-            col = row.column(align=True)
-            col.operator("mesh.vertex_color_add", icon='ADD', text="")
-            col.operator("mesh.vertex_color_remove", icon='REMOVE', text="")
+            # VertexColor            
+            if bpy.app.version == (3,2,0):
+                col = row_main.column(align=True)
+                col.label(text="Color Attributes:")
+                row = col.row(align=True)
+                row.template_list("MESH_UL_color_attributes", "color_attributes", me, "color_attributes", me.color_attributes, "active_color_index", rows=5,)
+                col = row.column(align=True)
+                col.operator("geometry.color_attribute_add", icon='ADD', text="")
+                col.operator("geometry.color_attribute_remove", icon='REMOVE', text="")
+            else:
+                col = row_main.column(align=True)
+                col.label(text="VertexColor:")
+                row = col.row(align=True)
+                row.template_list("MESH_UL_vcols", "vcols", me, "vertex_colors", me.vertex_colors, "active_index", rows=5)
+                col = row.column(align=True)
+                col.operator("mesh.vertex_color_add", icon='ADD', text="")
+                col.operator("mesh.vertex_color_remove", icon='REMOVE', text="")
             # SEPARATORS------------------------------------
             row_main.separator()
             row_main.separator()
