@@ -12,7 +12,8 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         wm = context.window_manager        
         tool_settings = context.tool_settings
         scene = context.scene  
-        props = wm.IOPS_AddonProperties 
+        props = wm.IOPS_AddonProperties
+        app_version = int("".join(bpy.app.version_string.split('.')))
 
         layout = self.layout
         layout.ui_units_x = 27.5
@@ -55,7 +56,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             row_main.separator()
             # ----------------------------------------------
             # VertexColor            
-            if bpy.app.version == (3,2,0):
+            if app_version >= 320:
                 col = row_main.column(align=True)
                 col.label(text="Color Attributes:")
                 row = col.row(align=True)
@@ -63,6 +64,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
                 col = row.column(align=True)
                 col.operator("geometry.color_attribute_add", icon='ADD', text="")
                 col.operator("geometry.color_attribute_remove", icon='REMOVE', text="")
+                col.menu("MESH_MT_color_attribute_context_menu", icon='DOWNARROW_HLT', text="")
             else:
                 col = row_main.column(align=True)
                 col.label(text="VertexColor:")

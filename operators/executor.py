@@ -27,7 +27,7 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
         prefs = context.preferences.addons['InteractionOps'].preferences
         executor_scripts_folder = prefs.executor_scripts_folder
         executor_column_count = prefs.executor_column_count
-        
+        Letter = ""
         scripts_folder = executor_scripts_folder # TODO: Add user scripts folder 
         # scripts_folder = os.path.join(scripts_folder, "custom")
         _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
@@ -37,7 +37,7 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
         layout = self.layout        
         row = layout.row(align=True)              
         col = row.column()
-        col.separator()
+        col.separator()        
         if scripts:
             count = len(scripts)
             for count, script in enumerate(scripts, 0): # Start counting from 1
@@ -45,6 +45,10 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
                     row = row.row(align=True)
                     col = row.column()
                 name = os.path.split(script)
+                listName = name[1].upper()
+                if str(listName[0]) != Letter:
+                    col.label(text=str(listName[0]))
+                    Letter = str(listName[0])
                 col.operator("iops.executor", text=name[1], icon='FILE_SCRIPT').script = script 
 
 
