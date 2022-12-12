@@ -335,6 +335,7 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     # bl_context = "mesh_edit"
     bl_region_type = 'UI'
+    bl_category = 'iOps'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
