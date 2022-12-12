@@ -34,25 +34,27 @@ class IOPS_OT_Main(bpy.types.Operator):
 
     def execute(self, context):
         op = self.operator
-        type_area = bpy.context.area.type
+        if bpy.context.area:
+            type_area = bpy.context.area.type
+            if bpy.context.view_layer.objects.active:
+                # active_object = bpy.context.view_layer.objects.active
+                tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
+                type_object = bpy.context.view_layer.objects.active.type
+                mode_object = bpy.context.view_layer.objects.active.mode
+                mode_mesh = self.get_mode_3d(tool_mesh)
+                mode_uv = bpy.context.tool_settings.uv_select_mode
+                flag_uv = bpy.context.tool_settings.use_uv_select_sync
+                if flag_uv:
+                    mode_uv = mode_mesh
 
-        if bpy.context.view_layer.objects.active:
-            # active_object = bpy.context.view_layer.objects.active
-            tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
-            type_object = bpy.context.view_layer.objects.active.type
-            mode_object = bpy.context.view_layer.objects.active.mode
-            mode_mesh = self.get_mode_3d(tool_mesh)
-            mode_uv = bpy.context.tool_settings.uv_select_mode
-            flag_uv = bpy.context.tool_settings.use_uv_select_sync
-            if flag_uv:
-                mode_uv = mode_mesh
+                query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
+                # tool = bpy.context.tool_settings
 
-            query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
-            # tool = bpy.context.tool_settings
+            else:
+                query = (type_area, None, None, None, None, None, op)      
 
+            function = get_iop(IOPS_Dict.iops_dict, query)
+            function()
         else:
-            query = (type_area, None, None, None, None, None, op)
-
-        function = get_iop(IOPS_Dict.iops_dict, query)
-        function()
+            self.report({"INFO"}, "Focus your mouse pointer on corresponding window.")
         return{"FINISHED"}
