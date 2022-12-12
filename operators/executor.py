@@ -4,6 +4,21 @@ from os import listdir
 from os.path import isfile, join
 from bpy.props import (StringProperty)
 
+def get_prefix(name):
+    if "_" in name:
+        split = name.split("_")
+        prefix = split[0]
+        if prefix == prefix.upper():
+            split.pop(0)
+            new_name = "_".join(split)
+            return prefix, new_name
+        else:
+            return prefix[0].upper(), name
+    else:
+        return name[0].upper(), name
+
+
+
 class IOPS_OT_Executor(bpy.types.Operator):
     """ Execute python scripts from folder """
     bl_idname = "iops.executor"
@@ -44,12 +59,14 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
                 if count % executor_column_count == 0:                                        
                     row = row.row(align=True)
                     col = row.column()
-                name = os.path.split(script)
-                listName = name[1].upper()
-                if str(listName[0]) != Letter:
-                    col.label(text=str(listName[0]))
-                    Letter = str(listName[0])
-                col.operator("iops.executor", text=name[1], icon='FILE_SCRIPT').script = script 
+                full_name = os.path.split(script)
+                name = full_name[1]
+                # listName = name[1].upper()
+                listName, new_name = get_prefix(name)                
+                if str(listName) != Letter:
+                    col.label(text=str(listName))
+                    Letter = str(listName)
+                col.operator("iops.executor", text=str(new_name), icon='FILE_SCRIPT').script = script 
 
 
 class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
