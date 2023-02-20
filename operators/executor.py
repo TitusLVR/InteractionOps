@@ -61,12 +61,12 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
                     col = row.column()
                 full_name = os.path.split(script)
                 name = full_name[1]
-                # listName = name[1].upper()
-                listName, new_name = get_prefix(name)                
+                listName = name[0].upper()
+                # listName, new_name = get_prefix(name)                
                 if str(listName) != Letter:
                     col.label(text=str(listName))
                     Letter = str(listName)
-                col.operator("iops.executor", text=str(new_name), icon='FILE_SCRIPT').script = script 
+                col.operator("iops.executor", text=str(name), icon='FILE_SCRIPT').script = script 
 
 
 class IOPS_OT_Call_MT_Executor(bpy.types.Operator):

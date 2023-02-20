@@ -167,8 +167,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             if active:
                 if active.type == "MESH":
                     mesh = active.data
-                    row.operator("machin3.shade_smooth", text="", icon='NODE_MATERIAL')
-                    row.operator("machin3.shade_flat", text="", icon='MATCUBE')
+                    row.operator("machin3.shade", text="", icon='NODE_MATERIAL').mode = "SMOOTH"
+                    row.operator("machin3.shade", text="", icon='MATCUBE').mode = "FLAT"
                     state = True if mesh.use_auto_smooth else False
                     row.operator("machin3.toggle_auto_smooth", text="", icon='AUTO', depress=state)
                    
@@ -236,9 +236,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         if context.area.type == "IMAGE_EDITOR":
             if context.active_object.type == 'MESH' and context.mode == "EDIT_MESH":
                 sima = context.space_data
-                show_uvedit = sima.show_uvedit
-                show_maskedit = sima.show_maskedit
-                uvedit = sima.uv_editor
+                show_uvedit = sima.show_uvedit                
                 snap_uv_element = tool_settings.snap_uv_element
                 # Column 1
                 split = layout.split()
@@ -249,8 +247,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     if tool_settings.use_uv_select_sync:
                         col.template_edit_mode_selection()
                     else:
-                        col.prop(tool_settings, "uv_select_mode", expand=True)
-                        col.prop(uvedit, "sticky_select_mode", icon_only=False)
+                        col.prop(tool_settings, "uv_select_mode", expand=True)                        
+                        col.prop(tool_settings, "uv_sticky_select_mode", icon_only=True)
                 # Column 2
                 col = split.column(align=True)
                 col.label(text="PivotPoint:")
@@ -335,6 +333,7 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     # bl_context = "mesh_edit"
     bl_region_type = 'UI'
+    bl_category = 'iOps'
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):

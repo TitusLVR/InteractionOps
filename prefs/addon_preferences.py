@@ -16,25 +16,33 @@ from bpy.props import (BoolProperty,
                        )
 from ..ui.iops_tm_panel import (IOPS_PT_VCol_Panel)
 
-def update_iops_tab_panel(self, context):
-    try:
-        bpy.utils.unregister_class(IOPS_PT_VCol_Panel)
-    except:
-        pass
-    
-    IOPS_PT_VCol_Panel.bl_category = bpy.context.preferences.addons["InteractionOps"].preferences.iops_tab_category
-    bpy.utils.register_class(IOPS_PT_VCol_Panel)
+# Panels to update
+panels = (IOPS_PT_VCol_Panel,)
 
+def update_category(self, context):
+    message = "Panel Update Failed"
+    try:
+        for panel in panels:
+            if "bl_rna" in panel.__dict__:
+                bpy.utils.unregister_class(panel)
+
+        for panel in panels:
+            panel.bl_category = context.preferences.addons["InteractionOps"].preferences.category
+            bpy.utils.register_class(panel)
+
+    except Exception as e:
+        print("\n[{}]\n{}\n\nError:\n{}".format("InteractionOps", message, e))
+        pass
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
     
-    iops_tab_category: StringProperty(
-            name="Tab Category",
+    category: StringProperty(
+            name="Tab Name",
             description="Choose a name for the category of the panel",
             default="iOps",
-            update=update_iops_tab_panel
+            update=update_category
             )
     
     # list itens (identifier, name, description, icon, number,)
@@ -658,7 +666,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box = col.box()
             col = box.column(align=True)            
             col.label(text="Category:")
-            col.prop(self, "iops_tab_category")
+            col.prop(self, "category")
             col = column_main.column(align=False)            
             box = col.box()
             col = box.column(align=True)            

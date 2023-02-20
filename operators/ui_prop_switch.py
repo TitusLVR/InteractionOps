@@ -293,7 +293,7 @@ class IOPS_OT_ActiveObject_Scroll_DOWN(bpy.types.Operator):
     def execute(self, context):
         selected_objects = bpy.context.view_layer.objects.selected
         active = bpy.context.active_object
-
+            
         for index, elem in enumerate(selected_objects):
             if elem == active:
                 if index > 0 and index <= len(selected_objects): 
