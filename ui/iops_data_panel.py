@@ -20,6 +20,8 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         row = layout.row(align=True)
              
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
+        if context.area.ui_type == "UV":
+            row.prop(context.space_data, "show_repeat", text="Repeat Image")        
         # row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
         row.separator()
         row.operator("iops.clean_uvmap_0", text="All")
