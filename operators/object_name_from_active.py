@@ -6,7 +6,11 @@ from bpy.props import (
         StringProperty,
         BoolProperty,
         )
+from mathutils import Vector
 
+def distance_vec(point1: Vector, point2: Vector):
+    """Calculate distance between two points."""
+    return (point2 - point1).length
 
 class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     """ Rename Object as Active ObjectName"""
@@ -18,7 +22,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         name="Name",
         default="",
         )
-    
+
     pattern: StringProperty(
         name="Pattern",
         description='''Naming Syntaxis:
@@ -28,7 +32,13 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     ''',
         default="[N]_[C]",
         )
-    
+
+    use_distance: BoolProperty(
+        name="By Distance",
+        description="Rename Selected Objects Based on Distance to Active Object",
+        default=True
+    )
+
     counter_digits: IntProperty(
         name="Counter Digits",
         description="Number Of Digits For Counter",
@@ -36,7 +46,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         min=2,
         max=10
         )
-    
+
     counter_shift: BoolProperty(
         name="+1",
         description="+1 shift for counter, useful when we need to rename active object too",
@@ -56,7 +66,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     )
 
 
-    def invoke(self, context, event):       
+    def invoke(self, context, event):
         self.active_name = context.view_layer.objects.active.name
         return self.execute(context)
 
@@ -67,16 +77,15 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
             digit = "{0:0>" + str(self.counter_digits) + "}"
             # Combine objects
             active = bpy.context.view_layer.objects.active
-            Objects = [active.name]
+            Objects = bpy.context.selected_objects
             to_rename = []
-            for ob in bpy.context.selected_objects:
-                if ob is not active:
-                    Objects.append(ob.name)
+            if self.use_distance:
+                Objects.sort(key=lambda obj: (obj.location - active.location).length)
             # Check active
             if self.rename_active:
-                to_rename = Objects 
+                to_rename = [ob.name for ob in Objects]
             else:
-                to_rename = Objects[1:]
+                to_rename = [ob.name for ob in Objects if ob is not active]
             # counter
             counter = 0
             if self.counter_shift:
@@ -86,7 +95,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 o = bpy.data.objects[name]
                 pattern = re.split(r"(\[\w+\])", self.pattern)
                 # i - index, p - pattern
-                for i, p in enumerate(pattern):                       
+                for i, p in enumerate(pattern):
                     if p == "[N]":
                         pattern[i] = self.active_name
                     if p == "[C]":
@@ -100,31 +109,29 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                         o.data.name = "MD_" + o.name
                 counter +=1
         else:
-            self.report ({'ERROR'}, "Please fill the pattern field")       
+            self.report ({'ERROR'}, "Please fill the pattern field")
         return {'FINISHED'}
-    
-    
+
+
     def draw(self, context):
         layout = self.layout
-        col = layout.column(align=True) 
+        col = layout.column(align=True)
         col.prop(self, "active_name")
         col.separator()
         col.prop(self, "pattern")
-        col.separator()        
+        col.separator()
         row = col.row(align=True)
         row.label(text="Counter Digits:")
         row.alignment = "LEFT"
         row.prop(self, "counter_digits", text="       ")
-        row.separator(factor=1.0)        
+        row.separator(factor=1.0)
         row.prop(self, "counter_shift")
         col = layout.column(align=True)
         col.label(text="Rename:")
-        row = col.row(align=True)                 
+        row = col.row(align=True)
         row.prop(self, "rename_active", text="Active Object")
+        row.prop(self, "use_distance", text="By Distance")
         row.separator()
         row.prop(self, "rename_mesh_data", text="Object's MeshData")
-        
-        
-        
-    
-        
+
+

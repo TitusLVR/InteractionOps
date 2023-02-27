@@ -23,8 +23,8 @@ def iops_rotate(reset, angle, object, axis, axis_x, axis_y, axis_z):
         bpy.context.scene.cursor.rotation_mode = "XYZ"
         bpy.context.scene.cursor.rotation_euler = Euler((0.0, 0.0, 0.0), 'XYZ')
     cursor = bpy.context.scene.cursor
-    cursor.location = object.location
-    cursor.rotation_euler = object.rotation_euler    
+    cursor.location = object.matrix_world.to_translation()
+    cursor.rotation_euler = object.matrix_world.to_euler('XYZ')    
     bpy.ops.transform.rotate(value=math.radians(angle),
                                         center_override=(cursor.location),
                                         orient_axis=axis,

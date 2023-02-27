@@ -13,13 +13,15 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         tool_settings = context.tool_settings
         scene = context.scene  
         props = wm.IOPS_AddonProperties
-        app_version = int("".join(bpy.app.version_string.split('.')))
+        app_version = int(''.join([str(v) for v in bpy.app.version]))
 
         layout = self.layout
         layout.ui_units_x = 27.5
         row = layout.row(align=True)
              
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
+        if context.area.ui_type == "UV":
+            row.prop(context.space_data, "show_repeat", text="", icon='MESH_GRID', toggle=True) 
         # row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
         row.separator()
         row.operator("iops.clean_uvmap_0", text="All")
