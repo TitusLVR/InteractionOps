@@ -614,31 +614,53 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = column_main.column(align=False)    
             try:
                 mainRow = col.row(align=True)
-                mainRow.alignment = 'LEFT'
+                # mainRow.alignment = 'LEFT'
 
                 colLabels = mainRow.column(align=True)
-                colLabels.alignment = 'RIGHT'
+                # colLabels.alignment = 'LEFT'
 
                 colKeys = mainRow.column(align=True)
-                colKeys.alignment = 'EXPAND'
+                # colKeys.alignment = 'EXPAND'
             
-                keymap = context.window_manager.keyconfigs.user.keymaps["Window"]
-                colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
+                keymap_win = context.window_manager.keyconfigs.user.keymaps["Window"]
+                keymap_mesh = context.window_manager.keyconfigs.user.keymaps["Mesh"]
+                colKeys.context_pointer_set("keymap", keymap_win)  # For the 'wm.keyitem_restore' operator.
 
-                for item in (keymap.keymap_items):
+                for item in (keymap_win.keymap_items):
                     if item.idname.startswith('iops.'):
-                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                        colLabels.label(text=op.name)
-                        subRow = colKeys.row()
-                        subRow.alignment = 'LEFT'
-                        subRow.prop(item, 'active')
-                        subRow.prop(item, 'type', text='', full_event=True)
-                        subRow.prop(item, 'shift')
-                        subRow.prop(item, 'ctrl')
-                        subRow.prop(item, 'alt')
-                        subRow.prop(item, 'oskey')
+                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")                        
+                        subCmdRow=colLabels.row()
+                        subCmdRow.prop(item, 'active',text="")
+                        subCmdRow.label(text=op.name)
+                        subCmdRow.alignment = 'EXPAND'
+                        subRow = colKeys.row()                                                
+                        subRow.prop(item, 'type', text='', full_event=True)                        
+                        subRow.alignment = 'EXPAND'
+                        # subRow.prop(item, 'shift')
+                        # subRow.prop(item, 'ctrl')
+                        # subRow.prop(item, 'alt')
+                        # subRow.prop(item, 'oskey')
                         if item.is_user_modified:
                             subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+                
+                colKeys.context_pointer_set("keymap", keymap_mesh)
+                for item in (keymap_mesh.keymap_items):
+                    if item.idname.startswith('iops.'):
+                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
+                        subCmdRow=colLabels.row()
+                        subCmdRow.prop(item, 'active',text="")
+                        subCmdRow.label(text=op.name)
+                        subCmdRow.alignment = 'EXPAND'
+                        subRow = colKeys.row()                                             
+                        subRow.prop(item, 'type', text='', full_event=True)                        
+                        subRow.alignment = 'EXPAND'
+                        # subRow.prop(item, 'shift')
+                        # subRow.prop(item, 'ctrl')
+                        # subRow.prop(item, 'alt')
+                        # subRow.prop(item, 'oskey')
+                        if item.is_user_modified:
+                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+                
 
                 keymap = context.window_manager.keyconfigs.user.keymaps["Screen Editing"]
                 colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
@@ -647,8 +669,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     if item.idname.startswith('iops.split_area'):
                         op = eval("bpy.ops." + item.idname + ".get_rna_type()")
                         colLabels.label(text=op.name)
+                        colLabels.alignment = 'LEFT'
                         subRow = colKeys.row()
-                        subRow.alignment = 'LEFT'
+                        subRow.alignment = 'LEFT'                        
                         subRow.prop(item, 'active')
                         subRow.prop(item, 'type', text='', full_event=True)
                         subRow.prop(item, 'shift')
