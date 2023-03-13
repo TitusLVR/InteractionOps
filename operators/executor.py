@@ -66,7 +66,7 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
                 if str(listName) != Letter:
                     col.label(text=str(listName))
                     Letter = str(listName)
-                col.operator("iops.executor", text=str(name), icon='FILE_SCRIPT').script = script 
+                col.operator("iops.executor", text=name, icon='FILE_SCRIPT').script = script 
 
 
 class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
