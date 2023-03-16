@@ -18,6 +18,11 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     bl_label = "IOPS Object Name From Active"
     bl_options = {"REGISTER", "UNDO"}
 
+    stored_name:StringProperty(
+        name="",
+        default="",
+        )
+
     active_name:StringProperty(
         name="Name",
         default="",
@@ -65,15 +70,50 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         default=True
     )
 
+    trim_prefix: IntProperty(
+        name="Prefix",
+        description="Number Of Digits for Prefix trim",
+        default=0,
+        min=0,
+        max=100
+        )
+
+    trim_suffix: IntProperty(
+        name="Suffix",
+        description="Number Of Digits for Suffix trim",
+        default=0,
+        min=0,
+        max=100
+        )
+    use_trim: BoolProperty(
+        name="Trim",
+        description="Trim Name Prefix/Suffix",
+        default=False
+    )
+
 
     def invoke(self, context, event):
         self.active_name = context.view_layer.objects.active.name
+        self.stored_name = self.active_name
         return self.execute(context)
 
     def execute(self, context):
         if self.pattern:
             if  self.active_name != context.view_layer.objects.active.name:
                 context.view_layer.objects.active.name = self.active_name
+            # Trim string
+            if self.use_trim:
+                name = self.active_name
+                if self.trim_prefix != 0 and self.trim_prefix < len(name):
+                    for t in range(self.trim_prefix):
+                        self.active_name = name[1:]
+                if self.trim_suffix != 0 and self.trim_suffix < len(name):
+                    for t in range(self.trim_suffix):
+                        self.active_name = name[:-1]
+            else:
+                self.trim_suffix = self.trim_prefix = 0
+                self.active_name = self.stored_name
+
             digit = "{0:0>" + str(self.counter_digits) + "}"
             # Combine objects
             active = bpy.context.view_layer.objects.active
@@ -117,6 +157,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         layout = self.layout
         col = layout.column(align=True)
         col.prop(self, "active_name")
+        col.separator()
+        col = layout.column(align=True)
+        # Trim
+        row = col.row(align=True)
+        sub = row.row(align=True)
+        sub.enabled = self.use_trim
+        sub.prop(self, "trim_prefix")        
+        row.prop(self, "use_trim", toggle=True)
+        sub = row.row(align=True)
+        sub.enabled = self.use_trim
+        sub.prop(self, "trim_suffix")
+        # Pattern
+        col = layout.column(align=True)
         col.separator()
         col.prop(self, "pattern")
         col.separator()
