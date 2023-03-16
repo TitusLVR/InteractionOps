@@ -103,13 +103,12 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 context.view_layer.objects.active.name = self.active_name
             # Trim string
             if self.use_trim:
-                name = self.active_name
-                if self.trim_prefix != 0 and self.trim_prefix < len(name):
-                    for t in range(self.trim_prefix):
-                        self.active_name = name[1:]
-                if self.trim_suffix != 0 and self.trim_suffix < len(name):
-                    for t in range(self.trim_suffix):
-                        self.active_name = name[:-1]
+                name = self.stored_name
+                if self.trim_suffix == 0:
+                    self.active_name = name[(self.trim_prefix):]
+                else:
+                    self.active_name = name[(self.trim_prefix):-(self.trim_suffix)]
+                name = self.stored_name
             else:
                 self.trim_suffix = self.trim_prefix = 0
                 self.active_name = self.stored_name
