@@ -21,10 +21,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         return context.object.type == 'MESH'
 
     def execute(self, context):
-        print(self.vertex_color)
         sel = [obj for obj in context.selected_objects]
-
-
         if len(sel) == 1 and context.mode == 'EDIT_MESH':
             tool_mesh = context.scene.tool_settings.mesh_select_mode
             vertex = tool_mesh[0]
