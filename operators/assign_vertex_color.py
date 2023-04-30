@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import (FloatProperty)
+from bpy.props import (FloatProperty, FloatVectorProperty)
 
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in editr mode to selected vertecies"""
@@ -7,11 +7,21 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     bl_label = "Assign Vertex color in editr mode to selected vertecies"
     bl_options = {'REGISTER', 'UNDO'}
 
+    vertex_color : bpy.props.FloatVectorProperty(
+        name="Vertex Color",
+        subtype='COLOR',
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        min=0.0,
+        max=1.0
+    )
+
     @classmethod
     def poll(cls, context):        
         return context.object.type == 'MESH'
 
     def execute(self, context):
+        print(self.vertex_color)
         sel = [obj for obj in context.selected_objects]
 
 
@@ -19,7 +29,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
             tool_mesh = context.scene.tool_settings.mesh_select_mode
             vertex = tool_mesh[0]
             face = tool_mesh[2]
-            context.tool_settings.vertex_paint.brush.color = context.tool_settings.image_paint.brush.color
+            context.tool_settings.vertex_paint.brush.color = self.vertex_color
             bpy.ops.object.mode_set(mode = 'VERTEX_PAINT')
             if vertex:            
                 context.object.data.use_paint_mask_vertex = True
@@ -43,9 +53,9 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
                     vcol_data = me.vertex_colors.active.data
                     if vcol_data:
                         for p in me.polygons:
-                            color = context.tool_settings.image_paint.brush.color                                
+                            color = self.vertex_color                                
                             for loop_index in p.loop_indices:
-                                vcol_data[loop_index].color = (color[0],color[1],color[2], 1.0)                
+                                vcol_data[loop_index].color = color                
                         me.update()        
             else:
                 self.report({'WARNING'}, obj.name + " is not a MESH.")
@@ -54,10 +64,9 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         return {'FINISHED'}
     
     def draw(self, context):
-        tools = context.tool_settings.image_paint.brush
         layout = self.layout
         col = layout.column(align=True)        
-        col.prop(tools, "color")
+        col.prop(self, "vertex_color", text="Vertex Color")
 
 
 class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
