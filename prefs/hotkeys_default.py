@@ -1,5 +1,12 @@
 # CTRL, ALT, Shift
 keys_default = [
+    # IOPS F Keys
+    ('iops.f5',                         'F5',               'PRESS', False, False, False, False),
+    ('iops.f4',                         'F4',               'PRESS', False, False, False, False),
+    ('iops.f3',                         'F3',               'PRESS', False, False, False, False),
+    ('iops.f2',                         'F2',               'PRESS', False, False, False, False),
+    ('iops.f1',                         'F1',               'PRESS', False, False, False, False),
+    ('iops.esc',                        'ESC',              'PRESS', False, False, False, False),
     # Zaloopok's operators
     ('iops.z_select_bounded_loop',      'F19',                'PRESS', True, True, True, False),
     ('iops.z_select_bounded_ring',      'F19',                'PRESS', True, True, True, False),
@@ -34,12 +41,6 @@ keys_default = [
     ('iops.to_edges',                   'F2',               'PRESS', False, True, False, False),
     ('iops.to_verts',                   'F1',               'PRESS', False, True, False, False),
     ('iops.align_origin_to_normal',     'F5',               'PRESS', False, True, False, False),
-    ('iops.f5',                         'F5',               'PRESS', False, False, False, False),
-    ('iops.f4',                         'F4',               'PRESS', False, False, False, False),
-    ('iops.f3',                         'F3',               'PRESS', False, False, False, False),
-    ('iops.f2',                         'F2',               'PRESS', False, False, False, False),
-    ('iops.f1',                         'F1',               'PRESS', False, False, False, False),
-    ('iops.esc',                        'ESC',              'PRESS', False, False, False, False),
     ('iops.call_mt_executor',           'X',                'PRESS', True, True, True, False),
     ('iops.run_text',                   'F19',              'PRESS', True, True, True, False),
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True, False),

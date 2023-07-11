@@ -35,6 +35,7 @@ from .operators.modes import (IOPS_OT_ESC, IOPS_OT_F1, IOPS_OT_F2, IOPS_OT_F3,
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
+from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
 from .operators.object_normalize import IOPS_OT_object_normalize
@@ -261,6 +262,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_Active_UVMap_by_Active,
            IOPS_OT_Object_Name_From_Active,
            IOPS_MouseoverFillSelect,
+           IOPS_MESH_OT_CopyEdgesLength,
            Z_OT_GrowLoop,
            Z_OT_ShrinkLoop,
            Z_OT_GrowRing,
@@ -280,6 +282,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
 def register():
     reg_cls()
+
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(type=IOPS_AddonProperties)
     path = bpy.utils.script_path_user()
     user_hotkeys_file = os.path.join(path, 'presets', "IOPS", "iops_hotkeys_user.py") 
@@ -297,14 +300,19 @@ def register():
             if content:
                 for line in content:
                     exec(line) 
+    bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
     print("IOPS Registered!")
 
 
 def unregister():
     unreg_cls()
     del bpy.types.WindowManager.IOPS_AddonProperties
+    bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
     unregister_keymaps()
     print("IOPS Unregistered!")
+
+def add_copy_edge_length_item(self, context):
+    self.layout.operator(IOPS_MESH_OT_CopyEdgesLength.bl_idname)
 
 
 if __name__ == "__main__":

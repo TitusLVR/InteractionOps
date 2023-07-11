@@ -225,9 +225,14 @@ def register_keymaps(keys):
     # keyconfigs = bpy.context.window_manager.keyconfigs
     keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items
     keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Mesh").keymap_items
+    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Object Mode").keymap_items
     for k in keys:
         if ".z_" in k[0]:   # Make z_ops in mesh keymaps
             keymapItemsMesh.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+        elif "iops.mesh" in k[0]:   # Make iops.mesh in mesh keymaps
+            keymapItemsMesh.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+        elif "iops.object" in k[0]:   # Make iops.object in mesh keymaps
+            keymapItemsObject.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
         else:
             keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
 
