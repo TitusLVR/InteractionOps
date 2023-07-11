@@ -124,6 +124,7 @@ from .operators.object_uvmaps_add_remove import (IOPS_OT_Add_UVMap,
 from .operators.executor import (IOPS_OT_Executor, 
                                  IOPS_MT_ExecuteList,
                                  IOPS_OT_Call_MT_Executor)
+from .operators.render_asset_thumgnail import IOPS_OT_RenderCollectionAssetThumbnail
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (IOPS_OT_PropScroll_UP,
                                        IOPS_OT_PropScroll_DOWN,
@@ -225,6 +226,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_SaveUserHotkeys,
            IOPS_OT_SaveAddonPreferences, 
            IOPS_OT_LoadAddonPreferences,
+           IOPS_OT_RenderCollectionAssetThumbnail,
            IOPS_OT_RunText,     
            IOPS_OT_MayaIsolate,   
            IOPS_OT_DragSnap,
