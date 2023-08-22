@@ -45,6 +45,7 @@ keys_default = [
     ('iops.run_text',                   'F19',              'PRESS', True, True, True, False),
     ('iops.drag_snap',                  'S',                'PRESS', True, True, True, False),
     ('iops.drag_snap_uv',               'S',                'PRESS', True, True, True, False),
+    ('iops.drag_snap_cursor',           'F19',              'PRESS', True, True, True, False),
     ('iops.prop_scroll_up',             'WHEELUPMOUSE',     'PRESS', True, True, True, True),
     ('iops.prop_scroll_down',           'WHEELDOWNMOUSE',   'PRESS', True, True, True, True),
     ('iops.axis_scroll_up',             'WHEELUPMOUSE',     'PRESS', False, False, True, True),

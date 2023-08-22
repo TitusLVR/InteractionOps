@@ -41,3 +41,18 @@ class IOPS_AddonProperties (PropertyGroup):
         default="VIEW_3D",
     )
     
+class IOPS_SceneProperties(PropertyGroup):
+    dragsnap_point_a: FloatVectorProperty(
+        name="DragSnap Point A",
+        description="DragSnap Point A",
+        default=(0.0, 0.0, 0.0),
+        size=3,
+        subtype='COORDINATES'
+    )
+    dragsnap_point_b: FloatVectorProperty(
+        name="DragSnap Point B",
+        description="DragSnap Point B",
+        default=(0.0, 0.0, 0.0),
+        size=3,
+        subtype='COORDINATES'
+    )

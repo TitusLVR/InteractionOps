@@ -38,6 +38,7 @@ from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
 from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
+from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_replace import IOPS_OT_Object_Replace
 from .operators.object_rotate import (IOPS_OT_object_rotate_MX,
@@ -55,6 +56,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
+from .prefs.addon_properties import IOPS_SceneProperties
 
 from .operators.assign_vertex_color import (IOPS_OT_VertexColorAssign,IOPS_OT_VertexColorAlphaAssign)
 from .operators.object_drop_it import IOPS_OT_Drop_It
@@ -158,6 +160,7 @@ bl_info = {
 # Classes for reg and unreg
 classes = (IOPS_AddonPreferences,
            IOPS_AddonProperties,
+           IOPS_SceneProperties,
            IOPS_OT_Main,
            IOPS_OT_F1,
            IOPS_OT_F2,
@@ -231,6 +234,7 @@ classes = (IOPS_AddonPreferences,
            IOPS_OT_MayaIsolate,   
            IOPS_OT_DragSnap,
            IOPS_OT_DragSnapUV,
+           IOPS_OT_DragSnapCursor,
            IOPS_OT_PropScroll_UP,
            IOPS_OT_PropScroll_DOWN,
            IOPS_OT_Axis_Scroll_UP,
@@ -302,12 +306,14 @@ def register():
             if content:
                 for line in content:
                     exec(line) 
+    bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
     print("IOPS Registered!")
 
 
 def unregister():
     unreg_cls()
+    del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
     bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
     unregister_keymaps()
