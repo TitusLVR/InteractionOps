@@ -56,7 +56,8 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
             new_objects = []
             for ob in objects:
                 new_ob = active.copy()
-                new_ob.data = active.data.copy()
+                if active.type == 'MESH':
+                    new_ob.data = active.data.copy()
                 # position
                 new_ob.location = ob.location
                 # scale
