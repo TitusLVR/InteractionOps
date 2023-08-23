@@ -73,12 +73,12 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         #prevent spamming
-        new_type = event.type
-        new_value = event.value
-        if new_type != self.old_type and new_value != self.old_value:
-            print(event.type, event.value)
-            self.old_type = new_type
-            self.old_value = new_value
+        # new_type = event.type
+        # new_value = event.value
+        # if new_type != self.old_type and new_value != self.old_value:
+        #     print(event.type, event.value)
+        #     self.old_type = new_type
+        #     self.old_value = new_value
 
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.value == 'PRESS':
             return {'PASS_THROUGH'}
@@ -108,7 +108,7 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
                 # print("Count:", 3)
                 bpy.context.scene.IOPS.dragsnap_point_b = bpy.context.scene.cursor.location
                 vector = bpy.context.scene.IOPS.dragsnap_point_b - bpy.context.scene.IOPS.dragsnap_point_a
-                bpy.ops.transform.translate(value=vector)
+                bpy.ops.transform.translate(value=vector, orient_type='GLOBAL')
                 try:
                     self.clear_draw_handlers()
                 except ValueError:
