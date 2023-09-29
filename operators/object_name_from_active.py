@@ -18,13 +18,13 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     bl_label = "IOPS Object Name From Active"
     bl_options = {"REGISTER", "UNDO"}
 
-    stored_name:StringProperty(
-        name="",
+    new_name:StringProperty(
+        name="New Name",
         default="",
         )
 
     active_name:StringProperty(
-        name="Name",
+        name="Active Name",
         default="",
         )
 
@@ -34,8 +34,9 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
     [N] - Name
     [C] - Counter
     [T] - Object Type
+    [COL] - Collection Name
     ''',
-        default="[N]_[C]",
+        default="[N].[C]",
         )
 
     use_distance: BoolProperty(
@@ -94,7 +95,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
 
     def invoke(self, context, event):
         self.active_name = context.view_layer.objects.active.name
-        self.stored_name = self.active_name
+        self.new_name = self.active_name
         return self.execute(context)
 
     def execute(self, context):
@@ -103,20 +104,23 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 context.view_layer.objects.active.name = self.active_name
             # Trim string
             if self.use_trim:
-                name = self.stored_name
+                name = self.active_name
                 if self.trim_suffix == 0:
-                    self.active_name = name[(self.trim_prefix):]
+                    self.new_name = name[(self.trim_prefix):]
                 else:
-                    self.active_name = name[(self.trim_prefix):-(self.trim_suffix)]
-                name = self.stored_name
-            else:
+                    self.new_name = name[(self.trim_prefix):-(self.trim_suffix)]
+            else:                
                 self.trim_suffix = self.trim_prefix = 0
-                self.active_name = self.stored_name
+                
 
             digit = "{0:0>" + str(self.counter_digits) + "}"
             # Combine objects
             active = bpy.context.view_layer.objects.active
             Objects = bpy.context.selected_objects
+            if active:
+                active_collection = active.users_collection[0]
+            else:
+                active_collection = ""
             to_rename = []
             if self.use_distance:
                 Objects.sort(key=lambda obj: (obj.location - active.location).length)
@@ -136,16 +140,18 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 # i - index, p - pattern
                 for i, p in enumerate(pattern):
                     if p == "[N]":
-                        pattern[i] = self.active_name
+                        pattern[i] = self.new_name
                     if p == "[C]":
                         pattern[i] = digit.format(counter)
                     if p == "[T]":
                         pattern[i] = o.type.lower()
+                    if p == "[COL]":
+                        pattern[i] = active_collection.name
                 o.name = "".join(pattern)
                 # Rename object mesh data
                 if self.rename_mesh_data:
                     if o.type == 'MESH':
-                        o.data.name = "MD_" + o.name
+                        o.data.name = o.name
                 counter +=1
         else:
             self.report ({'ERROR'}, "Please fill the pattern field")
@@ -153,9 +159,13 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
 
 
     def draw(self, context):
-        layout = self.layout
+        layout = self.layout        
+        col_active_name = layout.column(align=True)
+        col_active_name.enabled = False
+        col_active_name.prop(self, "active_name", text="Old Name")
+        
         col = layout.column(align=True)
-        col.prop(self, "active_name")
+        col.prop(self, "new_name", text="New Name")
         col.separator()
         col = layout.column(align=True)
         # Trim
