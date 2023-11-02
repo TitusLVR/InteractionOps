@@ -46,15 +46,36 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
         description="Enabled = Use Active Object Scale, Disabled = Use Selected Object Scale",
         default=False
         )
+    
+    keep_active_object_collection:BoolProperty(
+        name="Keep Active Object Collection",
+        description="Enabled = Use Active Object Collection, Disabled = Object Replace Collection",
+        default=True
+        )
+    
+    keep_object_collection:BoolProperty(
+        name="Keep Object Collection",
+        description="Enabled = Use Selected Object Collection, Disabled = Object Replace Collection. Keep in mind that this option will override the Keep Active Object Collection option.",
+        default=True
+        )
+    
+    
 
 
     def execute(self, context):
         active, objects = get_active_and_selected()
         if active and objects:
-            collection = bpy.data.collections.new("Object Replace")
-            bpy.context.scene.collection.children.link(collection)
+            
+            if self.keep_active_object_collection:
+                collection = active.users_collection[0]
+            else:
+                collection = bpy.data.collections.new("Object Replace")
+                bpy.context.scene.collection.children.link(collection)
+            
             new_objects = []
             for ob in objects:
+                if self.keep_object_collection:
+                    collection = ob.users_collection[0]
                 new_ob = active.copy()
                 if active.type == 'MESH':
                     new_ob.data = active.data.copy()
@@ -95,11 +116,14 @@ class IOPS_OT_Object_Replace (bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True) 
+        col.prop(self, "keep_active_object_collection")
+        col.prop(self, "keep_object_collection")
         # col.prop(self, "use_active_collection")
         col.prop(self, "replace")
         col.prop(self, "select_replaced")
         col.separator()
         col.prop(self, "keep_rotation")
         col.prop(self, "keep_scale")
+        
         
 
