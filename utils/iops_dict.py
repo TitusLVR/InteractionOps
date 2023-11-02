@@ -152,7 +152,7 @@ class IOPS_Dict():
                 "F1": lambda: no_operator(),
                 "F2": lambda: no_operator(),
                 "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
+                "F4": lambda: cursor_origin_mesh(),
                 "F5": lambda: no_operator(),
             },
             "SPEAKER": {

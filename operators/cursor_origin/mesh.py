@@ -94,7 +94,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
     def poll(self, context):
         return (context.area.type == "VIEW_3D" and
                 context.mode == "OBJECT" and
-                context.view_layer.objects.active.type == "MESH" and
+                context.view_layer.objects.active.type in {"MESH","LIGHT"} and
                 context.view_layer.objects.selected[:] != [])
 
     def move_to_cursor(self, rotate):

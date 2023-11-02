@@ -150,7 +150,7 @@ def curve_spline_type():
 
 
 def cursor_origin_mesh():
-    if bpy.context.view_layer.objects.selected[:] != [] and bpy.context.view_layer.objects.active.type == "MESH":
+    if bpy.context.view_layer.objects.selected[:] != [] and bpy.context.view_layer.objects.active.type in {"MESH", "LIGHT"}:
         bpy.ops.iops.cursor_origin_mesh("INVOKE_DEFAULT")
     else:
         print("VisualOrigin: Selection is empty!")
