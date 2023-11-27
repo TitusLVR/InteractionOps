@@ -122,10 +122,11 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         orient_slot = scene.transform_orientation_slots[0]
         orientation = orient_slot.custom_orientation
         pivot = scene.tool_settings.transform_pivot_point
-        snap_elements = scene.tool_settings.snap_elements
-        snap_target = scene.tool_settings.snap_target        
+        # snap_elements = scene.tool_settings.snap_elements
+        snap_elements = scene.tool_settings.snap_elements_base
+        snap_target = scene.tool_settings.snap_target
 
-        props = wm.IOPS_AddonProperties 
+        props = wm.IOPS_AddonProperties
 
         ueops, _, _, _ = get_addon("Unreal OPS")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
@@ -142,9 +143,9 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         row.prop(tool_settings, "use_transform_correct_face_attributes",  text="", icon='UV')
         row.prop(tool_settings, "use_transform_correct_keep_connected", text="", icon='STICKY_UVS_LOC')
         row.prop(tool_settings, "use_edge_path_live_unwrap", text="", icon='UV_SYNC_SELECT')
-        row.separator() 
+        row.separator()
         row.operator("iops.transform_orientation_create", text="", icon='ADD')
-        row.separator()        
+        row.separator()
         row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
         row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
         row.operator("iops.object_name_from_active", text="", icon='OUTLINER_DATA_FONT')
@@ -171,20 +172,20 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     row.operator("machin3.shade", text="", icon='MATCUBE').mode = "FLAT"
                     state = True if mesh.use_auto_smooth else False
                     row.operator("machin3.toggle_auto_smooth", text="", icon='AUTO', depress=state)
-                   
+
                     if mesh.use_auto_smooth:
                         if mesh.has_custom_normals:
                             row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
                         else:
-                            row.prop(mesh, "auto_smooth_angle", text="") 
-                    row.scale_x = 0.25        
+                            row.prop(mesh, "auto_smooth_angle", text="")
+                    row.scale_x = 0.25
                     row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
                     row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
                     row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
                     row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
-                    row.scale_x = 1  
+                    row.scale_x = 1
 
-        if context.area.type == "VIEW_3D":            
+        if context.area.type == "VIEW_3D":
             # Column 1
             split = layout.split()
             col = split.column(align=True)
@@ -223,8 +224,6 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row = split.row(align=True)
             row.prop(tool_settings, "use_snap_self", text="", icon='SNAP_ON')
             row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
-            if 'FACE' in snap_elements:
-                row.prop(tool_settings, "use_snap_project", text="", icon='PROP_PROJECTED')
             if 'VOLUME' in snap_elements:
                 row.prop(tool_settings, "use_snap_peel_object", text="", icon='SNAP_PEEL_OBJECT')
             split = split.split()
@@ -232,11 +231,10 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
             row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
             row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
-
         if context.area.type == "IMAGE_EDITOR":
             if context.active_object.type == 'MESH' and context.mode == "EDIT_MESH":
                 sima = context.space_data
-                show_uvedit = sima.show_uvedit                
+                show_uvedit = sima.show_uvedit
                 snap_uv_element = tool_settings.snap_uv_element
                 # Column 1
                 split = layout.split()
@@ -247,7 +245,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     if tool_settings.use_uv_select_sync:
                         col.template_edit_mode_selection()
                     else:
-                        col.prop(tool_settings, "uv_select_mode", expand=True)                        
+                        col.prop(tool_settings, "uv_select_mode", expand=True)
                         col.prop(tool_settings, "uv_sticky_select_mode", icon_only=True)
                 # Column 2
                 col = split.column(align=True)
@@ -338,21 +336,20 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
 
     def draw(self, context):
         # wm = context.window_manager
-        # props = wm.IOPS_AddonProperties        
+        # props = wm.IOPS_AddonProperties
         # tool_settings = context.tool_settings
-        settings = context.tool_settings.image_paint        
+        settings = context.tool_settings.image_paint
         brush = context.tool_settings.image_paint.brush
-        
+
         layout = self.layout
-        col = layout.column(align=True)        
-        col.prop(brush, 'color', text="")        
+        col = layout.column(align=True)
+        col.prop(brush, 'color', text="")
         if context.mode == 'OBJECT':
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
                 layout.template_palette(settings, "palette", color=True)
-        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set Color")  
+        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set Color")
         col.separator()
         col.operator("iops.assign_vertex_color_alpha", icon='GROUP_VCOL', text="Set Alpha")
 
-        
-        
+

@@ -132,8 +132,9 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
 
     def join_areas(self, context, current_area, side_area, pos, swap):
         context_override = ContextOverride(side_area)
-        bpy.ops.iops.space_data_save(context_override)
-        bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+        with context.temp_override(**context_override):
+            bpy.ops.iops.space_data_save()
+            bpy.ops.screen.area_close()
 
         return side_area
 
@@ -157,8 +158,9 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
 
         if current_area.type == self.area_type:
             context_override = ContextOverride(current_area)
-            bpy.ops.iops.space_data_save(context_override)
-            bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+            with context.temp_override(**context_override):
+                bpy.ops.iops.space_data_save()
+                bpy.ops.screen.area_close()
             return {'FINISHED'}
 
 
@@ -167,8 +169,9 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 continue
             elif area.type == self.area_type and area.ui_type == self.ui:
                 context_override = ContextOverride(area)
-                bpy.ops.iops.space_data_save(context_override)
-                bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+                with context.temp_override(**context_override):
+                    bpy.ops.iops.space_data_save()
+                    bpy.ops.screen.area_close()
                 
                 self.report({'INFO'}, "Joined Areas")
                 return {'FINISHED'}
@@ -212,7 +215,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 new_area.type = self.area_type
                 new_area.ui_type = self.ui
                 context_override = ContextOverride(new_area)
-                bpy.ops.iops.space_data_load(context_override)
+                with context.temp_override(**context_override):
+                    bpy.ops.iops.space_data_load()
                 return {"FINISHED"}
 
         return {"FINISHED"}

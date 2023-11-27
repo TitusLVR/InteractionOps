@@ -55,10 +55,11 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
         precision=2
     )        
 
-    def refresh_ui(self, area):
+    def refresh_ui(self, area):        
         context_override = ContextOverride(area)
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
+        with bpy.context.temp_override(**context_override):
+            bpy.ops.screen.screen_full_area()
+            bpy.ops.screen.back_to_previous()
 
 
     def get_join_xy(self, context, ui, pos):
@@ -139,7 +140,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
     def join_areas(self, context, current_area, side_area, pos, swap):
         join_x, join_y = self.get_join_xy(context, side_area.ui_type, pos)
         context_override = ContextOverride(side_area)
-        bpy.ops.iops.space_data_save(context_override)
+        with context.temp_override(**context_override):
+            bpy.ops.iops.space_data_save()
         refresh_area = side_area if current_area.ui_type == self.ui else current_area
         
         if swap:
@@ -235,7 +237,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                             bpy.ops.screen.area_swap(cursor=(int(new_area.height / 2), new_area.y))
 
                 context_override = ContextOverride(new_area)
-                bpy.ops.iops.space_data_load(context_override)
+                with context.temp_override(**context_override):
+                    bpy.ops.iops.space_data_load()
                 return {"FINISHED"}
 
         return {"FINISHED"}
@@ -258,10 +261,11 @@ class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
     )
 
 
-    def refresh_ui(self, area):
+    def refresh_ui(self, area):       
         context_override = ContextOverride(area)
-        bpy.ops.screen.screen_full_area(context_override)
-        bpy.ops.screen.back_to_previous()
+        with bpy.context.temp_override(**context_override):
+            bpy.ops.screen.screen_full_area()
+            bpy.ops.screen.back_to_previous()
 
     def execute(self, context):
 
@@ -271,13 +275,15 @@ class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
 
         if (context.area.type == self.area_type) and (context.area.ui_type == self.ui):
             context_override = ContextOverride(context.area)
-            bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
+            with context.temp_override(**context_override):
+                bpy.ops.screen.area_close()
 
         else:
             bpy.context.area.type = self.area_type 
             bpy.context.area.ui_type = self.ui
             context_override = ContextOverride(context.area)
-            bpy.ops.iops.space_data_load(context_override)
+            with context.temp_override(**context_override):
+                bpy.ops.iops.space_data_load()
             
         return {"FINISHED"}
 

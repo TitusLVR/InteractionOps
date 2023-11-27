@@ -206,7 +206,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                              "icon": "ASSET_MANAGER",
                                              "num":23
                                             }
-    if bpy.app.version[0] == 3:
+    if bpy.app.version[0] >= 3:
         file_browser_name = "FILES"
         split_areas_dict['File Browser']['ui'] = "FILES"
         split_areas_dict['Asset Browser'] = {

@@ -16,7 +16,7 @@ import copy
 
 def draw_edge(self, context):
     coords = self.edge_co
-    shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     batch_edge = batch_for_shader(shader, "LINES", {"pos": coords})
     batch_verts = batch_for_shader(shader, "POINTS", {"pos": coords})
     color = bpy.context.preferences.addons['InteractionOps'].preferences.align_edge_color
@@ -47,7 +47,7 @@ def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize, _uidpi)
+    blf.size(font, tCSize)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])

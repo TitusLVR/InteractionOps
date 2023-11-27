@@ -49,7 +49,7 @@ def draw_point(point):
     # create triangles
     triangles = generate_circle_tris(segments, 0)
     # set shader and draw
-    shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
     shader.bind()
     shader.uniform_float("color", color)
@@ -62,7 +62,7 @@ def draw_snap_line(self, context):
         return
     
     color = (*bpy.context.preferences.themes[0].view_3d.empty, 0.5)
-    shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
+    shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "LINES", {"pos": (self.source[0], self.preview[0])})
     shader.bind()
     shader.uniform_float("color", color)
@@ -135,12 +135,12 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         ray_origin =  view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_pos)
         depsgraph = context.evaluated_depsgraph_get()
 
-        if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
-            hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
-        elif bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
-            hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
-        elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
-            hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(depsgraph, ray_origin, view_vector, distance=1.70141e+38)
+        # if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
+        #     hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
+        # elif bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
+        #     hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+        # elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
+        hit, _ , _ , _ , hit_obj, _ = scene.ray_cast(depsgraph, ray_origin, view_vector, distance=1.70141e+38)
 
         self.nearest = None, None
         min_dist = float('inf')
