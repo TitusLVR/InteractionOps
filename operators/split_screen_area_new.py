@@ -132,9 +132,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
 
     def join_areas(self, context, current_area, side_area, pos, swap):
         context_override = ContextOverride(side_area)
-        with context.temp_override(**context_override):
-            bpy.ops.iops.space_data_save()
-            bpy.ops.screen.area_close()
+        bpy.ops.iops.space_data_save(context_override)
+        bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
 
         return side_area
 
@@ -158,9 +157,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
 
         if current_area.type == self.area_type:
             context_override = ContextOverride(current_area)
-            with context.temp_override(**context_override):
-                bpy.ops.iops.space_data_save()
-                bpy.ops.screen.area_close()
+            bpy.ops.iops.space_data_save(context_override)
+            bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
             return {'FINISHED'}
 
 
@@ -169,9 +167,8 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 continue
             elif area.type == self.area_type and area.ui_type == self.ui:
                 context_override = ContextOverride(area)
-                with context.temp_override(**context_override):
-                    bpy.ops.iops.space_data_save()
-                    bpy.ops.screen.area_close()
+                bpy.ops.iops.space_data_save(context_override)
+                bpy.ops.screen.area_close(context_override, 'INVOKE_DEFAULT')
                 
                 self.report({'INFO'}, "Joined Areas")
                 return {'FINISHED'}
@@ -215,8 +212,7 @@ class IOPS_OT_SplitScreenArea(bpy.types.Operator):
                 new_area.type = self.area_type
                 new_area.ui_type = self.ui
                 context_override = ContextOverride(new_area)
-                with context.temp_override(**context_override):
-                    bpy.ops.iops.space_data_load()
+                bpy.ops.iops.space_data_load(context_override)
                 return {"FINISHED"}
 
         return {"FINISHED"}

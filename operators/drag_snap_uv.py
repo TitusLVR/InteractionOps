@@ -39,7 +39,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
@@ -102,7 +102,7 @@ def draw_point(point, context):
     # create triangles
     triangles = generate_circle_tris(segments, 0)
     # set shader and draw
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
     batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
     shader.bind()
     shader.uniform_float("color", color)
@@ -118,7 +118,7 @@ def draw_snap_line(self, context):
     end = context.region.view2d.view_to_region(self.preview[0], self.preview[1])
 
     color = (*bpy.context.preferences.themes[0].view_3d.empty, 0.5)
-    shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
+    shader = gpu.shader.from_builtin("2D_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "LINE_STRIP", {"pos": (start, end)})
     shader.bind()
     shader.uniform_float("color", color)

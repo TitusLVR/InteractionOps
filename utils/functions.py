@@ -68,8 +68,7 @@ def view_selected_uv():
             bmesh.update_edit_mesh(mesh)
 
             context_override = ContextOverride(view_3d)
-            with bpy.context.temp_override(**context_override):
-                bpy.ops.view3d.view_selected()
+            bpy.ops.view3d.view_selected(context_override)
 
             bpy.ops.mesh.select_all(action='SELECT')
             bpy.ops.mesh.reveal(select=False)
@@ -78,8 +77,7 @@ def view_selected_uv():
             print("Empty selection!")
     else:
         context_override = ContextOverride(view_3d)
-        with bpy.context.temp_override(**context_override):
-            bpy.ops.view3d.view_selected()
+        bpy.ops.view3d.view_selected(context_override)
 
 
 def get_iop(dictionary, query):

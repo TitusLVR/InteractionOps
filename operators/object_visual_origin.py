@@ -52,7 +52,7 @@ def draw_bbox_active_point(self, context):
         # create triangles
         triangles = generate_circle_tris(segments, 0)
         # set shader and draw
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
         batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
         shader.bind()
         shader.uniform_float("color", color)
@@ -77,7 +77,7 @@ def draw_bbox_cage_points(self, context):
             actTris = generate_circle_tris(segments, tris * (segments + 1))
             triangles.extend(actTris)
         # set shader and draw
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        shader = gpu.shader.from_builtin('2D_UNIFORM_COLOR')
         batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
         shader.bind()
         shader.uniform_float("color", color)
@@ -120,7 +120,7 @@ def draw_bbox_lines(self, context):
         else:
             indices = ()
         color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_color
-        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')        
+        shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
         batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)
         shader.bind()
         shader.uniform_float("color", color)
@@ -152,7 +152,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])

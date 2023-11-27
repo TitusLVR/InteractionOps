@@ -15,7 +15,7 @@ from mathutils import Vector, Matrix, Euler
 
 def draw_curve_pts(self, context):
     coords = self.get_curve_pts() # <- sequence
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    shader = gpu.shader.from_builtin("3D_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "POINTS", {"pos": coords})
     shader.bind()
     shader.uniform_float("color", (1, 0, 0, 1))
@@ -40,7 +40,7 @@ def draw_ui(self, context,_uidpi, _uifactor):
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])

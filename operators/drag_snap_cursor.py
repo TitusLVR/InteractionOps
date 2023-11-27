@@ -22,7 +22,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
+    blf.size(font, tCSize, _uidpi)
     if tShadow:
         blf.enable(font, blf.SHADOW)
         blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
