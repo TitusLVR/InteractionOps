@@ -59,7 +59,8 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.object.type == "MESH" and
+        return (context.object and
+                context.object.type == "MESH" and
                 context.area.type == "VIEW_3D" and
                 len(context.view_layer.objects.selected) >= 2)
 
