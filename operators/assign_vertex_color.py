@@ -18,7 +18,8 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):        
-        return context.object.type == 'MESH'
+        return (context.object and 
+                context.object.type == 'MESH')
 
     def execute(self, context):
         sel = [obj for obj in context.selected_objects]
@@ -82,7 +83,9 @@ class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.object.type == 'MESH' and context.object.mode == "EDIT"
+        return (context.object and
+                context.object.type == 'MESH' and 
+                context.object.mode == "EDIT")
 
     def execute(self, context):
         if context.object.mode == "EDIT":
