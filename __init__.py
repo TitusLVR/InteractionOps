@@ -19,6 +19,7 @@ from .operators.grid_from_active import IOPS_OT_ToGridFromActive
 from .operators.iops import IOPS_OT_Main
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.split_screen_area import IOPS_OT_SwitchScreenArea
+from .operators.outliner_collection_ops import (IOPS_OT_Collections_Include, IOPS_OT_Collections_Exclude)
 
 if bpy.app.version[0] < 3:
     from .operators.split_screen_area import IOPS_OT_SplitScreenArea
@@ -161,6 +162,8 @@ bl_info = {
 classes = (IOPS_AddonPreferences,
            IOPS_AddonProperties,
            IOPS_SceneProperties,
+           IOPS_OT_Collections_Include,
+           IOPS_OT_Collections_Exclude,
            IOPS_OT_Main,
            IOPS_OT_F1,
            IOPS_OT_F2,
@@ -308,6 +311,8 @@ def register():
                     exec(line) 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
+    bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
+
     print("IOPS Registered!")
 
 
@@ -316,12 +321,17 @@ def unregister():
     del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
     bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
+    bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
     unregister_keymaps()
     print("IOPS Unregistered!")
 
 def add_copy_edge_length_item(self, context):
     self.layout.operator(IOPS_MESH_OT_CopyEdgesLength.bl_idname)
-
+    
+def outliner_collection_ops(self, context):
+    self.layout.separator()
+    self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
+    self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
 
 if __name__ == "__main__":
     register()

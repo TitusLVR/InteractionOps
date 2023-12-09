@@ -124,6 +124,8 @@ def draw_bbox_lines(self, context):
         batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)
         shader.bind()
         shader.uniform_float("color", color)
+        shader.uniform_float("lineWidth", 0.25)
+        shader.uniform_float("viewportSize", gpu.state.scissor_get()[2:])
         batch.draw(shader)
 
 
