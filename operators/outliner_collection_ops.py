@@ -36,6 +36,7 @@ class IOPS_OT_Collections_Include(bpy.types.Operator):
                     selected_cols_children.append(child)
 
         master_col = bpy.context.view_layer.layer_collection
+        selected_cols_children.append(active_col)
         # Get layer collection from selected_cols names
         for col in selected_cols_children:
             exclude_layer_col_by_name(master_col, col.name, False)
@@ -61,6 +62,7 @@ class IOPS_OT_Collections_Exclude(bpy.types.Operator):
                     selected_cols_children.append(child)
 
         master_col = bpy.context.view_layer.layer_collection
+        selected_cols_children.append(active_col)
         # Get layer collection from selected_cols names
         for col in selected_cols_children:
             exclude_layer_col_by_name(master_col, col.name, True)
