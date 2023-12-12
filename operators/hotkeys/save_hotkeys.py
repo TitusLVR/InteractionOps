@@ -26,6 +26,8 @@ def get_iops_keys():
         keyconfig = bpy.context.window_manager.keyconfigs['Blender addon']
     elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
         keyconfig = bpy.context.window_manager.keyconfigs['Blender addon']
+    elif bpy.app.version[0] == 4 and bpy.app.version[1] >= 0:
+        keyconfig = bpy.context.window_manager.keyconfigs['Blender addon']
 
 
     for keymap in keyconfig.keymaps:
