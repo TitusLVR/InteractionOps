@@ -12,8 +12,8 @@ class IOPS_MT_Pie_Menu(Menu):
         optiloops, _, _, _ = get_addon("Optiloops")
         bmax_connector, _, _, _ = get_addon("BMAX Connector")
         bmoi_connector, _, _, _ = get_addon("BMOI Connector")
-        brush = context.tool_settings.image_paint.brush
-        
+        # brush = context.tool_settings.image_paint.brush
+
         layout = self.layout
         pie = layout.menu_pie()
 
@@ -23,12 +23,12 @@ class IOPS_MT_Pie_Menu(Menu):
         col = layout.menu_pie()
         box = col.column(align=True).box().column()
         box.label(text="IOPS")
-        col.scale_x = 0.9        
+        col.scale_x = 0.9
         col = box.column(align=True)
-        col.prop(brush, 'color', text="",)        
+        col.prop(context.scene.IOPS, 'iops_vertex_color', text="",)
         col.operator("iops.assign_vertex_color", text="Set Vertex Color")
         col.operator("iops.assign_vertex_color_alpha", text="Set Vertex Alpha")
-        col.separator()        
+        col.separator()
         col.operator('iops.materials_from_textures', text='Materials from Textures')
         col.separator()
         col.operator('iops.object_replace', text="Object Replace")
@@ -47,7 +47,7 @@ class IOPS_MT_Pie_Menu(Menu):
 
         # 6 - RIGHT
         # pie.separator()
-        
+
         other = pie.row()
         gap = other.column()
         gap.separator()
@@ -57,17 +57,17 @@ class IOPS_MT_Pie_Menu(Menu):
         if bmax_connector:
             bmax_prefs = bpy.context.preferences.addons['BMAX_Connector'].preferences
             other_menu.label(text="BMax")
-            if bmax_prefs.file_format == 'FBX':            
+            if bmax_prefs.file_format == 'FBX':
                 other_menu.operator('bmax.export', icon='EXPORT', text="Send to Maya/3dsmax")
                 other_menu.operator('bmax.import', icon='IMPORT', text="Get from Maya/3dsmax")
-            if bmax_prefs.file_format == 'USD':            
+            if bmax_prefs.file_format == 'USD':
                 other_menu.operator('bmax.export_usd', icon='EXPORT', text="Send to Maya/3dsmax")
                 other_menu.operator('bmax.import_usd', icon='IMPORT', text="Get from Maya/3dsmax")
             row = other_menu.row(align=True)
             row.prop(bmax_prefs,"export_reset_location", icon='EVENT_L', text="  ")
             row.prop(bmax_prefs,"export_reset_rotation", icon='EVENT_R', text="  ")
             row.prop(bmax_prefs,"export_reset_scale", icon='EVENT_S', text="  ")
-            other_menu = other.box().column()        
+            other_menu = other.box().column()
         if bmoi_connector:
             other_menu.label(text="BMoI")
             other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
@@ -109,10 +109,10 @@ class IOPS_MT_Pie_Menu(Menu):
             other_menu.label(text="ForgottenTools")
             other_menu.operator('forgotten.mesh_connect_spread')
             other_menu.operator('forgotten.mesh_grid_fill_all')
-            
+
             other_menu.operator('forgotten.mesh_dice_faces')
             other_menu.operator('forgotten.mesh_hinge')
-            
+
             other_menu.operator('mesh.forgotten_separate_duplicate')
             other_menu.operator("wm.call_panel", text = "Selection Sets", icon = "SELECT_SET").name='FORGOTTEN_PT_SelectionSetsPanel'
         else:
@@ -120,8 +120,8 @@ class IOPS_MT_Pie_Menu(Menu):
 
         # 7 - TOP - LEFT
         pie.separator()
-        # 9 - TOP - RIGHT        
-        if optiloops and context.mode == 'EDIT_MESH':            
+        # 9 - TOP - RIGHT
+        if optiloops and context.mode == 'EDIT_MESH':
             pie.operator('mesh.optiloops')
             #pie.separator()
 
@@ -135,8 +135,8 @@ class IOPS_MT_Pie_Menu(Menu):
 class IOPS_OT_Call_Pie_Menu(bpy.types.Operator):
     """IOPS Pie"""
     bl_idname = "iops.call_pie_menu"
-    bl_label = "IOPS Pie Menu"    
+    bl_label = "IOPS Pie Menu"
 
-    def execute(self, context):        
-        bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Menu")         
+    def execute(self, context):
+        bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Menu")
         return {'FINISHED'}

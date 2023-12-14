@@ -21,15 +21,7 @@ class IOPS_AddonProperties (PropertyGroup):
         description="Show mesh info panel",
         default=False
         )
-    iops_vertex_color: FloatVectorProperty(
-        name="VertexColor",
-        description="Color picker",
-        default=(1.0, 1.0, 1.0, 1.0),
-        min=0.0,
-        max=1.0,
-        subtype='COLOR',
-        size=4,
-        )
+
     iops_rotation_angle: FloatProperty(
         name="Angle",
         description="Degrees",
@@ -49,10 +41,21 @@ class IOPS_SceneProperties(PropertyGroup):
         size=3,
         subtype='COORDINATES'
     )
+    
     dragsnap_point_b: FloatVectorProperty(
         name="DragSnap Point B",
         description="DragSnap Point B",
         default=(0.0, 0.0, 0.0),
         size=3,
         subtype='COORDINATES'
+    )
+
+    iops_vertex_color: FloatVectorProperty(
+    name="VertexColor",
+    description="Color picker",
+    default=(1.0, 1.0, 1.0, 1.0),
+    min=0.0,
+    max=1.0,
+    subtype='COLOR',
+    size=4,
     )

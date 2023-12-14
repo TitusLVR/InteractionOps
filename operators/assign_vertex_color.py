@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 from bpy.props import (FloatProperty, FloatVectorProperty)
 
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
@@ -7,65 +8,75 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     bl_label = "Assign Vertex color in editr mode to selected vertecies"
     bl_options = {'REGISTER', 'UNDO'}
 
-    vertex_color : bpy.props.FloatVectorProperty(
-        name="Vertex Color",
-        subtype='COLOR',
-        size=3,
-        default=(0.0, 0.0, 0.0),
-        min=0.0,
-        max=1.0
+
+    col_attr_name : bpy.props.StringProperty(
+        name="Color Attribute Name",
+        default="Color"
     )
 
     @classmethod
-    def poll(cls, context):        
-        return (context.object and 
+    def poll(cls, context):
+        return (context.object and
                 context.object.type == 'MESH')
 
     def execute(self, context):
+
+        color = context.scene.IOPS.iops_vertex_color
         sel = [obj for obj in context.selected_objects]
-        if len(sel) == 1 and context.mode == 'EDIT_MESH':
-            tool_mesh = context.scene.tool_settings.mesh_select_mode
-            vertex = tool_mesh[0]
-            face = tool_mesh[2]
-            context.tool_settings.vertex_paint.brush.color = self.vertex_color
-            bpy.ops.object.mode_set(mode = 'VERTEX_PAINT')
-            if vertex:            
-                context.object.data.use_paint_mask_vertex = True
-                bpy.ops.paint.vertex_color_set()
-                bpy.ops.object.mode_set(mode = 'EDIT')
-                return {'FINISHED'}
-            if face:
-                context.object.data.use_paint_mask = True
-                bpy.ops.paint.vertex_color_set()
-                bpy.ops.object.mode_set(mode = 'EDIT')
-                return {'FINISHED'}
-        if context.mode == 'OBJECT':
-            bpy.ops.object.select_all(action='DESELECT')
+        #Create color attribute if not exists
+        for obj in sel:
+            if not self.col_attr_name in obj.data.color_attributes:
+                obj.data.color_attributes.new(self.col_attr_name, 'FLOAT_COLOR', 'POINT')
+            #Set color attribute as active
+            color_attr = obj.data.color_attributes[self.col_attr_name]
+            obj.data.color_attributes.active_color = color_attr
+
+        if sel and context.mode == 'EDIT_MESH':
+            # IF EDIT MODE
             for obj in sel:
-                obj.select_set(True)
-                context.view_layer.objects.active = obj
-                if obj.type == "MESH":
-                    me = obj.data
-                    if me.vertex_colors[:] == []:
-                        me.vertex_colors.new()
-                    vcol_data = me.vertex_colors.active.data
-                    if vcol_data:
-                        for p in me.polygons:
-                            color = self.vertex_color                                
-                            for loop_index in p.loop_indices:
-                                vcol_data[loop_index].color = color                
-                        me.update()        
-            else:
-                self.report({'WARNING'}, obj.name + " is not a MESH.")
-            obj.select_set(False)
+                bm = bmesh.new()
+                bm = bmesh.from_edit_mesh(obj.data)
+                col_layer = bm.verts.layers.float_color[self.col_attr_name]
+                verts = [v for v in bm.verts if v.select]
+                for v in verts:
+                    v[col_layer] = color
+
+                bmesh.update_edit_mesh(context.object.data)
+                bm.free()
+
+        elif context.mode == 'OBJECT':
+            self.report({'WARNING'}, "OBJECT MODE. Will be implemented soon. Crashing for now.")
+            pass
+            # IF OBJECT MODE
+            # # BOTH ARE CRASHING ON POST OPERATOR COLOR CHANGE
+            # for obj in sel:
+            #     # NON-Bmesh way
+            #     for poly in obj.data.polygons:
+            #         for i in poly.loop_indices:
+            #             obj.data.color_attributes[self.col_attr_name].data[i].color = color
+
+            #     # Bmesh way
+            #     bm = bmesh.new()
+            #     bm.from_mesh(obj.data)
+            #     verts = [v for v in bm.verts]
+            #     col_layer = bm.verts.layers.float_color[self.col_attr_name]
+            #     for v in verts:
+            #         v[col_layer] = color
+
+            #     bm.to_mesh(obj.data)
+            #     bm.free()
+        else:
+            self.report({'WARNING'}, obj.name + " is not a MESH.")
+
 
         return {'FINISHED'}
-    
+
+
     def draw(self, context):
         layout = self.layout
-        col = layout.column(align=True)        
-        col.prop(self, "vertex_color", text="Vertex Color")
-
+        col = layout.column(align=True)
+        col.prop(context.scene.IOPS, 'iops_vertex_color', text="",)
+        col.prop(self, "col_attr_name", text="Color Attribute Name")
 
 class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
     """Assign Vertex Color Alpha to selected vertecies"""
@@ -84,19 +95,19 @@ class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (context.object and
-                context.object.type == 'MESH' and 
+                context.object.type == 'MESH' and
                 context.object.mode == "EDIT")
 
     def execute(self, context):
         if context.object.mode == "EDIT":
             bpy.ops.object.editmode_toggle()
-            
+
             mesh = bpy.context.active_object.data
             if mesh.vertex_colors[:] == []:
                 mesh.vertex_colors.new()
             vertices = mesh.vertices
             vcol = mesh.vertex_colors.active
-            
+
             for loop_index, loop in enumerate(mesh.loops):
                 # If vertex selected
                 if vertices[loop.vertex_index].select:
@@ -105,13 +116,13 @@ class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
             mesh.update()
             bpy.ops.object.editmode_toggle()
         return {'FINISHED'}
-    
+
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.prop(self, 'vertex_color_alpha', slider=True, text="Alpha value")
-        
-        
-        
+
+
+
 
 
