@@ -83,6 +83,10 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.value == 'PRESS':
             return {'PASS_THROUGH'}
         elif event.type in {'ESC', 'RIGHMOUSE'} and event.value == 'PRESS':
+            try:
+                self.clear_draw_handlers()
+            except ValueError:
+                pass  
             return {'CANCELLED'}
 
         elif event.type == 'Q' and event.value == 'PRESS':
