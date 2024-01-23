@@ -32,6 +32,11 @@ class IOPS_AddonProperties (PropertyGroup):
         name="iops_split_previous",        
         default="VIEW_3D",
     )
+    iops_exec_filter: StringProperty(
+        name="Filter",        
+        default="",
+    )
+
     
 class IOPS_SceneProperties(PropertyGroup):
     dragsnap_point_a: FloatVectorProperty(

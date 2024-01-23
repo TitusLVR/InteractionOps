@@ -7,7 +7,7 @@ from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatVectorProperty,
                        )
-                    
+
 
 class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     """Perfect for KitBashing. Set selected objects to grid."""
@@ -15,7 +15,7 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     bl_label = "Grid!"
     bl_options = {'REGISTER', 'UNDO'}
 
-    
+
     kitBash_grid_distance: FloatProperty(
         name="Distance",
         description="Distance between objects",
@@ -32,55 +32,71 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         max=100
         )
 
-    kitBash_use_cursor: BoolProperty( 
+    kitBash_use_cursor: BoolProperty(
         name="Use Cursor",
         description="Use Cursor as starting point",
         default=True
         )
+    kitBash_use_volume: BoolProperty(
+        name="Use Volume",
+        description="Use volume as starting point, from smallest to largest",
+        default=True
+        )
+    kitBash_use_diameter: BoolProperty(
+        name="Use diameter",
+        description="Use diameter as starting point, from smallest to largest",
+        default=False
+        )
 
-    kitBash_apply_location: BoolProperty( 
+    kitBash_apply_location: BoolProperty(
         name="Apply Location",
         description="Apply Location",
         default=False
         )
-    kitBash_apply_rotation: BoolProperty( 
+    kitBash_apply_rotation: BoolProperty(
         name="Apply Rotation",
         description="Apply Rotation",
         default=False
         )
-    kitBash_apply_scale: BoolProperty( 
+    kitBash_apply_scale: BoolProperty(
         name="Apply Scale",
         description="Apply Scale",
         default=False
         )
-    
-    kitBash_clear_location: BoolProperty( 
+
+    kitBash_clear_location: BoolProperty(
         name="Clear Location",
         description="Clear Location",
         default=False
         )
-    kitBash_clear_rotation: BoolProperty( 
+    kitBash_clear_rotation: BoolProperty(
         name="Clear Rotation",
         description="Clear Rotation",
         default=False
         )
-    kitBash_clear_scale: BoolProperty( 
+    kitBash_clear_scale: BoolProperty(
         name="Clear Scale",
         description="Clear Scale",
         default=False
         )
 
-
+    def get_volume(self, obj):
+        return obj.dimensions.x * obj.dimensions.y * obj.dimensions.z
+    
+    def get_diameter(self, obj):
+        return max(obj.dimensions.x, obj.dimensions.y, obj.dimensions.z)
 
     @classmethod
     def poll(cls, context):
         return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
+        objects = bpy.context.selected_objects
+        
         # Apply
         if self.kitBash_apply_location or self.kitBash_apply_rotation or self.kitBash_apply_scale:
             bpy.ops.object.transform_apply(location=self.kitBash_apply_location, rotation=self.kitBash_apply_rotation, scale=self.kitBash_apply_scale)
-        
+
         # Reset
         if self.kitBash_clear_location:
             bpy.ops.object.location_clear(clear_delta=False)
@@ -90,26 +106,33 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             bpy.ops.object.scale_clear(clear_delta=False)
 
         # use cursor
-        if self.kitBash_use_cursor:             
+        if self.kitBash_use_cursor:
             for o in bpy.context.selected_objects:
                 o.location = bpy.context.scene.cursor.location
         else:
             for o in bpy.context.selected_objects:
                 o.location = (0,0,0)
-        
+
         # do shit
         x = 0
-        y = 0        
+        y = 0
         dist = self.kitBash_grid_distance
-        count = self.kitBash_grid_count       
+        count = self.kitBash_grid_count
 
-        for o in bpy.context.selected_objects:
+        #sort objs by dimensions from smallest to largest
+        if self.kitBash_use_volume:
+        # Sort objects based on their volume (dimensions)
+            objects = sorted(objects, key=self.get_volume)
+        if self.kitBash_use_diameter:
+            objects = sorted(objects, key=self.get_diameter)
+
+        for o in objects:
             dx = dist * x
-            dy = dist * y        
-            if x < count - 1:                
+            dy = dist * y
+            if x < count - 1:
                 o.location[0] += dx
                 o.location[1] += dy
-                x += 1 
+                x += 1
                 print ("X:", x)
             elif y <= count:
                 x = 0
@@ -119,22 +142,20 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                 print ("Y:", y)
             elif y > count:
                 x = 0
-                y += 1                
+                y += 1
                 o.location[0] += dx
                 o.location[1] += dy
                 print ("Y>:", y)
-
-            
 
         self.report ({'INFO'}, "Grid! - DONE!")
         return {'FINISHED'}
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column(align=True)        
+        col = layout.column(align=True)
         col.label(text="Transform:")
-        
-        split = layout.split()        
+
+        split = layout.split()
         col = split.column()
         col.prop(self, "kitBash_apply_location")
         col.prop(self, "kitBash_apply_rotation")
@@ -144,12 +165,14 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         col = split.column(align=True)
         col.prop(self, "kitBash_clear_location")
         col.prop(self, "kitBash_clear_rotation")
-        col.prop(self, "kitBash_clear_scale")        
-        
+        col.prop(self, "kitBash_clear_scale")
+
         col = layout.column(align=True)
         col.label(text="Grid:")
         col.prop(self, "kitBash_use_cursor")
+        col.prop(self, "kitBash_use_volume")
+        col.prop(self, "kitBash_use_diameter")
         col.prop(self, "kitBash_grid_count")
         col.prop(self, "kitBash_grid_distance")
-        
+
 

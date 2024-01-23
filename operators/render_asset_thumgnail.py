@@ -54,8 +54,10 @@ class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
         thumbpath = os.path.join(get_path(), 'resources', 'thumb.png')
         self.render_viewport(context, thumbpath)
 
-        if os.path.exists(thumbpath):            
-            bpy.ops.ed.lib_id_load_custom_preview({'id': active_collection}, filepath=thumbpath)
+        if os.path.exists(thumbpath):
+            with context.temp_override(id=active_collection):            
+                bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
             os.unlink(thumbpath)
-
         return {'FINISHED'}
+
+
