@@ -2,11 +2,13 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 import blf
-from bpy.props import (IntProperty,
-                       FloatProperty,
-                       BoolProperty,
-                       StringProperty,
-                       FloatVectorProperty)
+from bpy.props import (
+    IntProperty,
+    FloatProperty,
+    BoolProperty,
+    StringProperty,
+    FloatVectorProperty,
+)
 import bmesh
 import math
 from math import radians, degrees
@@ -14,7 +16,7 @@ from mathutils import Vector, Matrix, Euler
 
 
 def draw_curve_pts(self, context):
-    coords = self.get_curve_pts() # <- sequence
+    coords = self.get_curve_pts()  # <- sequence
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     batch = batch_for_shader(shader, "POINTS", {"pos": coords})
     shader.bind()
@@ -22,8 +24,9 @@ def draw_curve_pts(self, context):
     batch.draw(shader)
     # pass
 
-def draw_ui(self, context,_uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+
+def draw_ui(self, context, _uidpi, _uifactor):
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
     tCSize = prefs.text_size
@@ -35,8 +38,7 @@ def draw_ui(self, context,_uidpi, _uifactor):
     tSPosX = prefs.text_shadow_pos_x
     tSPosY = prefs.text_shadow_pos_y
 
-    iops_text = (
-        ("Number of cuts", str(self.points_num)),)
+    iops_text = (("Number of cuts", str(self.points_num)),)
     # FontID
     font = 0
     blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
@@ -66,22 +68,22 @@ def draw_ui(self, context,_uidpi, _uifactor):
 
 
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
-    """ Subdivide Curve """
+    """Subdivide Curve"""
+
     bl_idname = "iops.curve_subdivide"
     bl_label = "CURVE: Subdivide"
     bl_options = {"REGISTER", "UNDO"}
 
     pairs = []
 
-    points_num: IntProperty(
-        name="Number of cuts",
-        description="",
-        default=1
-    )
+    points_num: IntProperty(name="Number of cuts", description="", default=1)
 
     @classmethod
     def poll(self, context):
-        return(context.view_layer.objects.active.type == "CURVE" and context.view_layer.objects.active.mode == "EDIT")
+        return (
+            context.view_layer.objects.active.type == "CURVE"
+            and context.view_layer.objects.active.mode == "EDIT"
+        )
 
     def execute(self, context):
         self.subdivide(self.points_num)
@@ -107,38 +109,40 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         # P = (0.5)**3 * A + 3(0.5)**3 * Ha + 3(0.5) ** 3 * Hb + 0.5**3 * B
 
         for idx in range(len(pts) - 1):
-            A   = pts[idx].co @ obj.matrix_world + obj.location
+            A = pts[idx].co @ obj.matrix_world + obj.location
             Ahl = pts[idx].handle_left @ obj.matrix_world + obj.location
             Ahr = pts[idx].handle_right @ obj.matrix_world + obj.location  # Ha
 
-            B   = pts[idx + 1].co @ obj.matrix_world + obj.location
+            B = pts[idx + 1].co @ obj.matrix_world + obj.location
             Bhl = pts[idx + 1].handle_left @ obj.matrix_world + obj.location  # Hb
             Bhr = pts[idx + 1].handle_right @ obj.matrix_world + obj.location
 
             for ip in range(self.points_num):
                 p = 1 / (self.points_num + 1) * (ip + 1)
-                point = ((1 - p) ** 3 * A
-                        + 3 * (1 - p) ** 2 * p * Ahr
-                        + 3 * (1 - p) * p ** 2 * Bhl
-                        + p ** 3 * B)
+                point = (
+                    (1 - p) ** 3 * A
+                    + 3 * (1 - p) ** 2 * p * Ahr
+                    + 3 * (1 - p) * p**2 * Bhl
+                    + p**3 * B
+                )
                 sequence.append(point)
         return sequence
 
     def modal(self, context, event):
         context.area.tag_redraw()
 
-        if event.type in {'MIDDLEMOUSE'}:
+        if event.type in {"MIDDLEMOUSE"}:
             # Allow navigation
-            return {'PASS_THROUGH'}
+            return {"PASS_THROUGH"}
 
         elif event.type == "WHEELDOWNMOUSE":
-                if self.points_num > 1:
-                    self.points_num -= 1
-                self.report({"INFO"}, event.type)
+            if self.points_num > 1:
+                self.points_num -= 1
+            self.report({"INFO"}, event.type)
 
         elif event.type == "WHEELUPMOUSE":
-                self.points_num += 1
-                self.report({"INFO"}, event.type)
+            self.points_num += 1
+            self.report({"INFO"}, event.type)
 
         elif event.type in {"LEFTMOUSE", "SPACE"} and event.value == "PRESS":
             self.execute(context)
@@ -161,9 +165,13 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
             # Add drawing handler for text overlay rendering
             uidpi = int((72 * preferences.system.ui_scale))
             args = (self, context, uidpi, preferences.system.ui_scale)
-            self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(draw_ui, args, 'WINDOW', 'POST_PIXEL')
+            self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
+                draw_ui, args, "WINDOW", "POST_PIXEL"
+            )
             args_line = (self, context)
-            self._handle_curve = bpy.types.SpaceView3D.draw_handler_add(draw_curve_pts, args_line, 'WINDOW', 'POST_VIEW')
+            self._handle_curve = bpy.types.SpaceView3D.draw_handler_add(
+                draw_curve_pts, args_line, "WINDOW", "POST_VIEW"
+            )
             self.pairs = self.get_curve_pts()
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)

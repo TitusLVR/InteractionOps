@@ -1,8 +1,9 @@
 import bpy
 import blf
 
+
 def draw_iops_text(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
     tCSize = prefs.text_size
@@ -47,12 +48,14 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         offset += (tCSize + 5) * _uifactor
 
 
-
 class IOPS_OT_DragSnapCursor(bpy.types.Operator):
-    """ Quick drag & snap using 3D Cursor """
+    """Quick drag & snap using 3D Cursor"""
+
     bl_idname = "iops.drag_snap_cursor"
     bl_label = "IOPS Drag Snap Cursor"
-    bl_description = "Hold Q and LMB Click to quickly snap point to point using 3D Cursor"
+    bl_description = (
+        "Hold Q and LMB Click to quickly snap point to point using 3D Cursor"
+    )
     bl_options = {"REGISTER", "UNDO"}
 
     step = 1
@@ -66,13 +69,15 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.area.type == "VIEW_3D" and
-                context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0)
+        return (
+            context.area.type == "VIEW_3D"
+            and context.mode == "OBJECT"
+            and len(context.view_layer.objects.selected) != 0
+        )
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        #prevent spamming
+        # prevent spamming
         # new_type = event.type
         # new_value = event.value
         # if new_type != self.old_type and new_value != self.old_value:
@@ -80,59 +85,72 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
         #     self.old_type = new_type
         #     self.old_value = new_value
 
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.value == 'PRESS':
-            return {'PASS_THROUGH'}
-        elif event.type in {'ESC', 'RIGHMOUSE'} and event.value == 'PRESS':
+        if (
+            event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
+            and event.value == "PRESS"
+        ):
+            return {"PASS_THROUGH"}
+        elif event.type in {"ESC", "RIGHMOUSE"} and event.value == "PRESS":
             try:
                 self.clear_draw_handlers()
             except ValueError:
-                pass  
-            return {'CANCELLED'}
+                pass
+            return {"CANCELLED"}
 
-        elif event.type == 'Q' and event.value == 'PRESS':
+        elif event.type == "Q" and event.value == "PRESS":
             print("Count:", self.count)
-            bpy.ops.transform.translate('INVOKE_DEFAULT',
-            cursor_transform=True,
-            use_snap_self=True,
-            snap_target='CLOSEST',
-            use_snap_nonedit = True,
-            snap_elements={'VERTEX'},
-            snap=True,
-            release_confirm=True
+            bpy.ops.transform.translate(
+                "INVOKE_DEFAULT",
+                cursor_transform=True,
+                use_snap_self=True,
+                snap_target="CLOSEST",
+                use_snap_nonedit=True,
+                snap_elements={"VERTEX"},
+                snap=True,
+                release_confirm=True,
             )
             self.count += 1
             if self.count == 1:
                 # print("Count:", 1)
-                self.report({'INFO'}, "Step 2: Q to place cursor at point B")
+                self.report({"INFO"}, "Step 2: Q to place cursor at point B")
             elif self.count == 2:
-                bpy.context.scene.IOPS.dragsnap_point_a = bpy.context.scene.cursor.location
+                bpy.context.scene.IOPS.dragsnap_point_a = (
+                    bpy.context.scene.cursor.location
+                )
                 # print("Count:", 2)
-                self.report({'INFO'}, "Step 3: press Q")
+                self.report({"INFO"}, "Step 3: press Q")
             elif self.count == 3:
                 # print("Count:", 3)
-                bpy.context.scene.IOPS.dragsnap_point_b = bpy.context.scene.cursor.location
-                vector = bpy.context.scene.IOPS.dragsnap_point_b - bpy.context.scene.IOPS.dragsnap_point_a
-                bpy.ops.transform.translate(value=vector, orient_type='GLOBAL')
+                bpy.context.scene.IOPS.dragsnap_point_b = (
+                    bpy.context.scene.cursor.location
+                )
+                vector = (
+                    bpy.context.scene.IOPS.dragsnap_point_b
+                    - bpy.context.scene.IOPS.dragsnap_point_a
+                )
+                bpy.ops.transform.translate(value=vector, orient_type="GLOBAL")
                 try:
                     self.clear_draw_handlers()
                 except ValueError:
-                    pass    
-                return {'FINISHED'}
+                    pass
+                return {"FINISHED"}
 
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
         preferences = context.preferences
-        if context.space_data.type == 'VIEW_3D':
+        if context.space_data.type == "VIEW_3D":
             uidpi = int((72 * preferences.system.ui_scale))
             args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
-            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_iops_text, args_text, 'WINDOW', 'POST_PIXEL')        
-            self.report({'INFO'}, "Step 1: Q to place cursor at point A")
+            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+                draw_iops_text, args_text, "WINDOW", "POST_PIXEL"
+            )
+            self.report({"INFO"}, "Step 1: Q to place cursor at point A")
             self.vp_handlers = [self._handle_iops_text]
             # Add modal handler to enter modal mode
-            context.window_manager.modal_handler_add(self)            
-            return {'RUNNING_MODAL'}
+            context.window_manager.modal_handler_add(self)
+            return {"RUNNING_MODAL"}
         else:
-            self.report({'WARNING'}, "Active space must be a View3d")
-            return {'CANCELLED'}
+            self.report({"WARNING"}, "Active space must be a View3d")
+            return {"CANCELLED"}

@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import Menu
-from .. utils.functions import *
+from ..utils.functions import *
 
 
 class IOPS_MT_Pie_Menu(Menu):
@@ -25,25 +25,30 @@ class IOPS_MT_Pie_Menu(Menu):
         box.label(text="IOPS")
         col.scale_x = 0.9
         col = box.column(align=True)
-        col.prop(context.scene.IOPS, 'iops_vertex_color', text="",)
+        col.prop(
+            context.scene.IOPS,
+            "iops_vertex_color",
+            text="",
+        )
         col.operator("iops.assign_vertex_color", text="Set Vertex Color")
         col.operator("iops.assign_vertex_color_alpha", text="Set Vertex Alpha")
         col.separator()
-        col.operator('iops.materials_from_textures', text='Materials from Textures')
+        col.operator("iops.materials_from_textures", text="Materials from Textures")
         col.separator()
-        col.operator('iops.object_replace', text="Object Replace")
-        col.operator('iops.align_between_two', text='Align Between Two')
-        col.operator('iops.quick_snap', text="Quick Snap")
-        col.operator('iops.drop_it', text="Drop It!")
-        col.operator('iops.kitbash_grid', text="Grid")
+        col.operator("iops.object_replace", text="Object Replace")
+        col.operator("iops.align_between_two", text="Align Between Two")
+        col.operator("iops.quick_snap", text="Quick Snap")
+        col.operator("iops.drop_it", text="Drop It!")
+        col.operator("iops.kitbash_grid", text="Grid")
         col.separator()
-        col.operator('iops.easy_mod_array_caps', text="Easy Modifier - Array Caps")
-        col.operator('iops.easy_mod_array_curve', text="Easy Modifier - Array Curve")
-        col.operator('iops.easy_mod_curve', text="Easy Modifier - Curve")
-        col.operator('iops.easy_mod_shwarp', text="Easy Modifier - SHWARP")
+        col.operator("iops.easy_mod_array_caps", text="Easy Modifier - Array Caps")
+        col.operator("iops.easy_mod_array_curve", text="Easy Modifier - Array Curve")
+        col.operator("iops.easy_mod_curve", text="Easy Modifier - Curve")
+        col.operator("iops.easy_mod_shwarp", text="Easy Modifier - SHWARP")
         col.separator()
-        col.operator('iops.render_collection_asset_thumbnail', text="Render Asset Thumbnail")
-
+        col.operator(
+            "iops.render_collection_asset_thumbnail", text="Render Asset Thumbnail"
+        )
 
         # 6 - RIGHT
         # pie.separator()
@@ -55,27 +60,35 @@ class IOPS_MT_Pie_Menu(Menu):
         other_menu = other.box().column()
         other_menu.scale_y = 1
         if bmax_connector:
-            bmax_prefs = bpy.context.preferences.addons['BMAX_Connector'].preferences
+            bmax_prefs = bpy.context.preferences.addons["BMAX_Connector"].preferences
             other_menu.label(text="BMax")
-            if bmax_prefs.file_format == 'FBX':
-                other_menu.operator('bmax.export', icon='EXPORT', text="Send to Maya/3dsmax")
-                other_menu.operator('bmax.import', icon='IMPORT', text="Get from Maya/3dsmax")
-            if bmax_prefs.file_format == 'USD':
-                other_menu.operator('bmax.export_usd', icon='EXPORT', text="Send to Maya/3dsmax")
-                other_menu.operator('bmax.import_usd', icon='IMPORT', text="Get from Maya/3dsmax")
+            if bmax_prefs.file_format == "FBX":
+                other_menu.operator(
+                    "bmax.export", icon="EXPORT", text="Send to Maya/3dsmax"
+                )
+                other_menu.operator(
+                    "bmax.import", icon="IMPORT", text="Get from Maya/3dsmax"
+                )
+            if bmax_prefs.file_format == "USD":
+                other_menu.operator(
+                    "bmax.export_usd", icon="EXPORT", text="Send to Maya/3dsmax"
+                )
+                other_menu.operator(
+                    "bmax.import_usd", icon="IMPORT", text="Get from Maya/3dsmax"
+                )
             row = other_menu.row(align=True)
-            row.prop(bmax_prefs,"export_reset_location", icon='EVENT_L', text="  ")
-            row.prop(bmax_prefs,"export_reset_rotation", icon='EVENT_R', text="  ")
-            row.prop(bmax_prefs,"export_reset_scale", icon='EVENT_S', text="  ")
+            row.prop(bmax_prefs, "export_reset_location", icon="EVENT_L", text="  ")
+            row.prop(bmax_prefs, "export_reset_rotation", icon="EVENT_R", text="  ")
+            row.prop(bmax_prefs, "export_reset_scale", icon="EVENT_S", text="  ")
             other_menu = other.box().column()
         if bmoi_connector:
             other_menu.label(text="BMoI")
-            other_menu.operator('bmoi3d.export', icon='EXPORT', text="Send to MoI3D")
-            other_menu.operator('bmoi3d.import', icon='IMPORT', text="Get from MoI3D")
+            other_menu.operator("bmoi3d.export", icon="EXPORT", text="Send to MoI3D")
+            other_menu.operator("bmoi3d.import", icon="IMPORT", text="Get from MoI3D")
 
         # 2 - BOTTOM
         wm = context.window_manager
-        prefs = context.preferences.addons['B2RUVL'].preferences
+        prefs = context.preferences.addons["B2RUVL"].preferences
         uvl = prefs.uvlayout_enable
         ruv = prefs.rizomuv_enable
         uvl_path = prefs.uvlayout_app_path
@@ -92,38 +105,40 @@ class IOPS_MT_Pie_Menu(Menu):
         col_right.prop(wm.B2RUVL_PanelProperties, "uvMap")
         col_uvl = col_top.column(align=True)
         col_uvl.enabled = uvl is not False and len(uvl_path) != 0
-        col_uvl.operator('b2ruvl.send_to_uvlayout')
+        col_uvl.operator("b2ruvl.send_to_uvlayout")
         col_ruv = col_top.column(align=True)
         col_ruv.enabled = ruv is not False and len(ruv_path) != 0
-        col_ruv.operator('b2ruvl.send_to_rizomuv')
-        col_ruv.operator('b2ruvl.retake_rizomuv')
+        col_ruv.operator("b2ruvl.send_to_rizomuv")
+        col_ruv.operator("b2ruvl.retake_rizomuv")
 
         # 8 - TOP
-        if forgottentools and context.mode == 'EDIT_MESH':
+        if forgottentools and context.mode == "EDIT_MESH":
             other = pie.column()
             gap = other.column()
             gap.separator()
             gap.scale_y = 7
             other_menu = other.box().column()
-            other_menu.scale_y=1
+            other_menu.scale_y = 1
             other_menu.label(text="ForgottenTools")
-            other_menu.operator('forgotten.mesh_connect_spread')
-            other_menu.operator('forgotten.mesh_grid_fill_all')
+            other_menu.operator("forgotten.mesh_connect_spread")
+            other_menu.operator("forgotten.mesh_grid_fill_all")
 
-            other_menu.operator('forgotten.mesh_dice_faces')
-            other_menu.operator('forgotten.mesh_hinge')
+            other_menu.operator("forgotten.mesh_dice_faces")
+            other_menu.operator("forgotten.mesh_hinge")
 
-            other_menu.operator('mesh.forgotten_separate_duplicate')
-            other_menu.operator("wm.call_panel", text = "Selection Sets", icon = "SELECT_SET").name='FORGOTTEN_PT_SelectionSetsPanel'
+            other_menu.operator("mesh.forgotten_separate_duplicate")
+            other_menu.operator(
+                "wm.call_panel", text="Selection Sets", icon="SELECT_SET"
+            ).name = "FORGOTTEN_PT_SelectionSetsPanel"
         else:
             pie.separator()
 
         # 7 - TOP - LEFT
         pie.separator()
         # 9 - TOP - RIGHT
-        if optiloops and context.mode == 'EDIT_MESH':
-            pie.operator('mesh.optiloops')
-            #pie.separator()
+        if optiloops and context.mode == "EDIT_MESH":
+            pie.operator("mesh.optiloops")
+            # pie.separator()
 
         # 1 - BOTTOM - LEFT
         pie.separator()
@@ -134,9 +149,10 @@ class IOPS_MT_Pie_Menu(Menu):
 
 class IOPS_OT_Call_Pie_Menu(bpy.types.Operator):
     """IOPS Pie"""
+
     bl_idname = "iops.call_pie_menu"
     bl_label = "IOPS Pie Menu"
 
     def execute(self, context):
         bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Menu")
-        return {'FINISHED'}
+        return {"FINISHED"}

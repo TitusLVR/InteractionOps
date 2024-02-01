@@ -3,7 +3,7 @@ from .functions import *
 import bpy
 
 
-class IOPS_Dict():
+class IOPS_Dict:
 
     operators = {"F1", "F2", "F3", "F4", "F5", "ESC"}
 
@@ -19,7 +19,9 @@ class IOPS_Dict():
                 },
                 "EDIT": {
                     "VERT": {
-                        "F1": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_vertices"),
+                        "F1": lambda: bpy.ops.wm.call_menu(
+                            name="VIEW3D_MT_edit_mesh_vertices"
+                        ),
                         "F2": lambda: mesh_select_mode("EDGE"),
                         "F3": lambda: mesh_select_mode("FACE"),
                         "F4": lambda: cursor_origin_selected(),
@@ -28,7 +30,9 @@ class IOPS_Dict():
                     },
                     "EDGE": {
                         "F1": lambda: mesh_select_mode("VERT"),
-                        "F2": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_edges"),
+                        "F2": lambda: bpy.ops.wm.call_menu(
+                            name="VIEW3D_MT_edit_mesh_edges"
+                        ),
                         "F3": lambda: mesh_select_mode("FACE"),
                         "F4": lambda: cursor_origin_selected(),
                         "F5": lambda: z_connect(),
@@ -37,7 +41,9 @@ class IOPS_Dict():
                     "FACE": {
                         "F1": lambda: mesh_select_mode("VERT"),
                         "F2": lambda: mesh_select_mode("EDGE"),
-                        "F3": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_faces"),
+                        "F3": lambda: bpy.ops.wm.call_menu(
+                            name="VIEW3D_MT_edit_mesh_faces"
+                        ),
                         "F4": lambda: cursor_origin_selected(),
                         "F5": lambda: align_to_face(),
                         "ESC": lambda: object_mode_switch("OBJECT"),
@@ -49,7 +55,9 @@ class IOPS_Dict():
                     "F1": lambda: object_mode_switch("EDIT"),
                     "F2": lambda: no_operator(),
                     "F3": lambda: no_operator(),
-                    "F4": lambda: bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='MEDIAN'),
+                    "F4": lambda: bpy.ops.object.origin_set(
+                        type="ORIGIN_GEOMETRY", center="MEDIAN"
+                    ),
                     "F5": lambda: no_operator(),
                 },
                 "EDIT": {
@@ -77,17 +85,15 @@ class IOPS_Dict():
                 "ESC": lambda: object_mode_switch("OBJECT"),
             },
             "FONT": {
-                "OBJECT":{
+                "OBJECT": {
                     "F1": lambda: object_mode_switch("EDIT"),
-                    },
-                "EDIT":{
-                    "ESC": lambda: object_mode_switch("OBJECT")
-                    }
+                },
+                "EDIT": {"ESC": lambda: object_mode_switch("OBJECT")},
             },
             "ARMATURE": {
                 "F1": lambda: object_mode_switch("EDIT"),
                 "F2": lambda: object_mode_switch("POSE"),
-                "F3": lambda: bpy.ops.object.parent_set(type='BONE'),
+                "F3": lambda: bpy.ops.object.parent_set(type="BONE"),
                 "F4": lambda: no_operator(),
                 "F5": lambda: no_operator(),
                 "ESC": lambda: object_mode_switch("OBJECT"),
@@ -179,7 +185,7 @@ class IOPS_Dict():
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
                 "EDGE": {
                     "F1": lambda: mesh_select_mode("VERT"),
@@ -187,7 +193,7 @@ class IOPS_Dict():
                     "F3": lambda: mesh_select_mode("FACE"),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
                 "FACE": {
                     "F1": lambda: mesh_select_mode("VERT"),
@@ -195,8 +201,8 @@ class IOPS_Dict():
                     "F3": lambda: no_operator(),
                     "F4": lambda: no_operator(),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
-                },                
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                },
             },
             # Sync flag off
             False: {
@@ -206,7 +212,7 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
                 "EDGE": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -214,7 +220,7 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
                 "FACE": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -222,7 +228,7 @@ class IOPS_Dict():
                     "F3": lambda: view_selected_uv(),
                     "F4": lambda: uv_select_mode("ISLAND"),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
                 "ISLAND": {
                     "F1": lambda: uv_select_mode("VERTEX"),
@@ -230,20 +236,18 @@ class IOPS_Dict():
                     "F3": lambda: uv_select_mode("FACE"),
                     "F4": lambda: view_selected_uv(),
                     "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target='SELECTED'),
+                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
                 },
             },
-
         },
         "OUTLINER": {
-            "F1": lambda: set_display_mode('VIEW_LAYER'),
+            "F1": lambda: set_display_mode("VIEW_LAYER"),
             "F2": lambda: no_operator(),
-            "F3": lambda: set_display_mode('LIBRARIES'),
-            "F4": lambda: set_display_mode('ORPHAN_DATA'),
+            "F3": lambda: set_display_mode("LIBRARIES"),
+            "F4": lambda: set_display_mode("ORPHAN_DATA"),
             "F5": lambda: no_operator(),
             "ESC": lambda: no_operator(),
         },
-
         "PREFERENCES": {
             "F1": lambda: bpy.ops.preferences.addon_show(module="InteractionOps"),
             "F2": lambda: no_operator(),
@@ -252,7 +256,6 @@ class IOPS_Dict():
             "F5": lambda: no_operator(),
             "ESC": lambda: no_operator(),
         },
-
         "FILE_BROWSER": {
             "F1": lambda: no_operator(),
             "F2": lambda: bpy.ops.file.rename(),
@@ -262,6 +265,7 @@ class IOPS_Dict():
             "ESC": lambda: bpy.ops.file.cancel(),
         },
     }
+
 
 # areas = {"EMPTY",
 #         "VIEW_3D",

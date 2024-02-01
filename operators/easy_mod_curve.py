@@ -1,72 +1,77 @@
 import bpy
-from bpy.props import (BoolProperty,
-                       EnumProperty,
-                       FloatProperty,
-                       IntProperty,
-                       PointerProperty,
-                       StringProperty,
-                       FloatVectorProperty,
-                       )
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    IntProperty,
+    PointerProperty,
+    StringProperty,
+    FloatVectorProperty,
+)
 
 
 class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
     """Select picked curve in curve modifier"""
+
     bl_idname = "iops.easy_mod_curve"
     bl_label = "Easy Modifier - Curve"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     use_curve_radius: BoolProperty(
         name="Use Curve Radius",
         description="Causes the deformed object to be scaled by the set curve radius.",
-        default=True
-        )
+        default=True,
+    )
     use_curve_stretch: BoolProperty(
         name="Use Curve Length",
         description="The Stretch curve option allows you to let the mesh object stretch, or squeeze, over the entire curve.",
-        default=True
-        )
+        default=True,
+    )
     use_curve_bounds_clamp: BoolProperty(
         name="Use Curve Bounds",
         description="When this option is enabled, the object and mesh offset along the deformation axis is ignored.",
-        default=True
-        )
+        default=True,
+    )
 
     curve_modifier_axis: EnumProperty(
-        name='Deformation Axis',
-        description='Deformation along selected axis',
+        name="Deformation Axis",
+        description="Deformation along selected axis",
         items=[
-            ('POS_X',  'X',  '', '', 0),
-            ('POS_Y',  'Y',  '', '', 1),
-            ('POS_Z',  'Z',  '', '', 2),
-            ('NEG_X',  '-X', '', '', 3),
-            ('NEG_Y',  '-Y', '', '', 4),
-            ('NEG_Z',  '-Z', '', '', 5)],
-        default='POS_X',
+            ("POS_X", "X", "", "", 0),
+            ("POS_Y", "Y", "", "", 1),
+            ("POS_Z", "Z", "", "", 2),
+            ("NEG_X", "-X", "", "", 3),
+            ("NEG_Y", "-Y", "", "", 4),
+            ("NEG_Z", "-Z", "", "", 5),
+        ],
+        default="POS_X",
     )
     find_array_and_set_curve_fit: BoolProperty(
         name="Array - Fit Curve",
         description="Find Array modifier in the active object modifier list and set Array Fit type to - Fit Curve and pick selected spline there",
-        default=False
-        )
+        default=False,
+    )
     Replace_Curve_Modifier: BoolProperty(
         name="Find and Replace Curve Modifier",
         description="Find and replace iOps curve modifier",
-        default=True
+        default=True,
     )
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == "OBJECT" and
-                context.area.type == "VIEW_3D")
+        return context.mode == "OBJECT" and context.area.type == "VIEW_3D"
 
     def execute(self, context):
-        if len(context.view_layer.objects.selected) == 1 and context.active_object.type == "MESH":
+        if (
+            len(context.view_layer.objects.selected) == 1
+            and context.active_object.type == "MESH"
+        ):
             for mod in bpy.context.active_object.modifiers:
                 if mod.type == "CURVE":
-                    bpy.ops.object.select_all(action='DESELECT')
+                    bpy.ops.object.select_all(action="DESELECT")
                     mod.object.select_set(True)
                     context.view_layer.objects.active = mod.object
-                    self.report({'INFO'}, "Curve Modifer - Object selected.")
+                    self.report({"INFO"}, "Curve Modifer - Object selected.")
 
         if len(context.view_layer.objects.selected) == 2:
             obj = None
@@ -85,19 +90,25 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                 curve.data.use_deform_bounds = self.use_curve_bounds_clamp
 
                 if obj.location != curve.location:
-                    bpy.ops.object.select_all(action='DESELECT')
+                    bpy.ops.object.select_all(action="DESELECT")
                     curve.select_set(True)
                     context.view_layer.objects.active = curve
 
                     if curve.data.splines.active.type == "POLY":
-                        cur.location = curve.data.splines.active.points[0].co.xyz @ curve.matrix_world.transposed()
-                        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+                        cur.location = (
+                            curve.data.splines.active.points[0].co.xyz
+                            @ curve.matrix_world.transposed()
+                        )
+                        bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
 
                     if curve.data.splines.active.type == "BEZIER":
-                        cur.location = curve.data.splines.active.bezier_points[0].co @ curve.matrix_world.transposed()
-                        bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
+                        cur.location = (
+                            curve.data.splines.active.bezier_points[0].co
+                            @ curve.matrix_world.transposed()
+                        )
+                        bpy.ops.object.origin_set(type="ORIGIN_CURSOR", center="MEDIAN")
 
-                    bpy.ops.object.select_all(action='DESELECT')
+                    bpy.ops.object.select_all(action="DESELECT")
                     obj.location = curve.location
 
                 if obj.modifiers:
@@ -109,30 +120,36 @@ class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
                                 curve.select_set(True)
                                 obj.select_set(True)
                                 context.view_layer.objects.active = obj
-                                self.report({'INFO'}, "Curve Modifier Replaced")
+                                self.report({"INFO"}, "Curve Modifier Replaced")
                     else:
-                        mod = obj.modifiers.new("iOps Curve", type='CURVE')
+                        mod = obj.modifiers.new("iOps Curve", type="CURVE")
                         mod.object = curve
                         mod.deform_axis = self.curve_modifier_axis
                         curve.select_set(True)
                         obj.select_set(True)
                         context.view_layer.objects.active = obj
-                        self.report({'INFO'}, "New Curve Modifier added and curve object picked")
+                        self.report(
+                            {"INFO"}, "New Curve Modifier added and curve object picked"
+                        )
 
                     if self.find_array_and_set_curve_fit:
                         for mod in obj.modifiers:
                             if mod.type == "ARRAY":
                                 mod.fit_type = "FIT_CURVE"
                                 mod.curve = curve
-                                self.report({'INFO'}, "Array modifier found and curve setted")
+                                self.report(
+                                    {"INFO"}, "Array modifier found and curve setted"
+                                )
                 else:
-                    mod = obj.modifiers.new("iOps Curve", type='CURVE')
+                    mod = obj.modifiers.new("iOps Curve", type="CURVE")
                     mod.object = curve
                     mod.deform_axis = self.curve_modifier_axis
                     curve.select_set(True)
                     obj.select_set(True)
                     context.view_layer.objects.active = obj
-                    self.report({'INFO'}, "New Curve Modifier added and curve object picked")
+                    self.report(
+                        {"INFO"}, "New Curve Modifier added and curve object picked"
+                    )
             else:
-                self.report({'WARNING'}, "Mesh or Curve missing!!!")
-        return {'FINISHED'}
+                self.report({"WARNING"}, "Mesh or Curve missing!!!")
+        return {"FINISHED"}

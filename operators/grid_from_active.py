@@ -5,15 +5,18 @@ from mathutils import Vector, Matrix
 
 class IOPS_OT_ToGridFromActive(bpy.types.Operator):
     """Locations to grid from active"""
+
     bl_idname = "iops.to_grid_from_active"
     bl_label = "To Grid From Active"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and
-                context.mode == "OBJECT" and
-                len(context.view_layer.objects.selected) != 0)
+        return (
+            context.area.type == "VIEW_3D"
+            and context.mode == "OBJECT"
+            and len(context.view_layer.objects.selected) != 0
+        )
 
     def execute(self, context):
         C = bpy.context
@@ -23,9 +26,9 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
         mx_orig = active.matrix_world.copy()
 
         # Reset transforms of all
-        bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+        bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
         active.matrix_world @= active.matrix_world.inverted()
-        bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+        bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
 
         # Sizes
         size_x = active.dimensions[0]
@@ -42,7 +45,11 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
             p = np.array([o.location[0], o.location[1], o.location[2]])
 
             # Calculations for X, Y, and Z axes
-            p_prime = np.around((p - o_xyz) / (size_x, size_y, size_z)) * (size_x, size_y, size_z) + o_xyz
+            p_prime = (
+                np.around((p - o_xyz) / (size_x, size_y, size_z))
+                * (size_x, size_y, size_z)
+                + o_xyz
+            )
 
             # Checking for close match
             if np.allclose(p, p_prime, rtol=1e-21, atol=1e-24):
@@ -54,15 +61,14 @@ class IOPS_OT_ToGridFromActive(bpy.types.Operator):
             o.location = location
 
             print("----")
-            print('p', p)
-            print('p_prime', p_prime)
+            print("p", p)
+            print("p_prime", p_prime)
 
         # Restore matrix for all and clear parent
-        bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+        bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
         active.matrix_world = mx_orig
-        bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+        bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
 
         self.report({"INFO"}, "Aligned to grid from active")
 
-        return {'FINISHED'}
-
+        return {"FINISHED"}

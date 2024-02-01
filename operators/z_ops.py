@@ -3,19 +3,22 @@ import math
 import bmesh
 import bpy
 import mathutils as mu
-from bpy.props import (BoolProperty,
-                       EnumProperty,
-                       FloatProperty,
-                       IntProperty,
-                       StringProperty
-                       )
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    IntProperty,
+    StringProperty,
+)
 
 
 ### UV tools
 
+
 def get_any(someset):
     for i in someset:
         return i
+
 
 def reset_uvs(context, coords):
     bm = bmesh.from_edit_mesh(context.active_object.data)
@@ -23,6 +26,7 @@ def reset_uvs(context, coords):
     for l in coords:
         l[uv].uv = coords[l]
     context.active_object.data.update()
+
 
 def initial_uvs(frags, bm):
     uv = bm.loops.layers.uv.verify()
@@ -32,8 +36,10 @@ def initial_uvs(frags, bm):
             coords[l] = l[uv].uv.copy()
     return coords
 
+
 def same_uv(l, uv):
     return set([a for a in l.vert.link_loops if a[uv].uv == l[uv].uv])
+
 
 def uv_gather_sync(bm):
     hes = set()
@@ -50,6 +56,7 @@ def uv_gather_sync(bm):
                         hes.add(l)
     return hes
 
+
 def uv_gather_nonsync(bm):
     uv = bm.loops.layers.uv.verify()
     hes = set()
@@ -59,11 +66,13 @@ def uv_gather_nonsync(bm):
                 hes.add(l)
     return hes
 
+
 def cache_uvs(ls, uv):
     lookup = {}
     for l in ls:
         lookup[l] = same_uv(l, uv)
     return lookup
+
 
 def extract_frag(ls, lookup, n_lookup):
     done = set()
@@ -91,7 +100,8 @@ def extract_frag(ls, lookup, n_lookup):
                         todo.add(pd)
                         ls.discard(pd)
     return done
-            
+
+
 def partial_frags(bm, uv):
     if bpy.context.scene.tool_settings.use_uv_select_sync:
         hes = uv_gather_sync(bm)
@@ -111,6 +121,7 @@ def partial_frags(bm, uv):
                 break
     return frags
 
+
 def detect_uv_frags(bm):
     uv = bm.loops.layers.uv.verify()
     frags = partial_frags(bm, uv)
@@ -122,68 +133,72 @@ def detect_uv_frags(bm):
         frag |= more
     return frags
 
+
 def erase_dupes(m1, m2, frag, uv):
     dupes = set()
-    test = (m1.vert,m1[uv].uv[:],m2.vert,m2[uv].uv[:])
+    test = (m1.vert, m1[uv].uv[:], m2.vert, m2[uv].uv[:])
     for c in frag:
-        d   = c.link_loop_next
-        cv  = c.vert
-        dv  = d.vert
+        d = c.link_loop_next
+        cv = c.vert
+        dv = d.vert
         cco = c[uv].uv[:]
         dco = d[uv].uv[:]
-        if test == (cv,cco,dv,dco) or test == (dv,dco,cv,cco):
+        if test == (cv, cco, dv, dco) or test == (dv, dco, cv, cco):
             dupes.add(c)
     frag -= dupes
 
+
 def extend_chain(item, frag, uv, right_way):
     l1, l2, fwd = item
-    test1 = (l1.vert,l1[uv].uv[:])
-    test2 = (l2.vert,l2[uv].uv[:])
+    test1 = (l1.vert, l1[uv].uv[:])
+    test2 = (l2.vert, l2[uv].uv[:])
     match = None
     for a in frag:
         b = a.link_loop_next
-        conn_a = (a.vert,a[uv].uv[:])
-        conn_b = (b.vert,b[uv].uv[:])
+        conn_a = (a.vert, a[uv].uv[:])
+        conn_b = (b.vert, b[uv].uv[:])
         if right_way:
             if fwd:
                 if test2 == conn_a:
-                    match = (a,b,True)
+                    match = (a, b, True)
                     break
                 elif test2 == conn_b:
-                    match = (a,b,False)
+                    match = (a, b, False)
                     break
             else:
                 if test1 == conn_a:
-                    match = (a,b,True)
+                    match = (a, b, True)
                     break
                 elif test1 == conn_b:
-                    match = (a,b,False)
+                    match = (a, b, False)
                     break
         else:
             if fwd:
                 if test1 == conn_b:
-                    match = (a,b,True)
+                    match = (a, b, True)
                     break
                 elif test1 == conn_a:
-                    match = (a,b,False)
+                    match = (a, b, False)
                     break
             else:
                 if test2 == conn_b:
-                    match = (a,b,True)
+                    match = (a, b, True)
                     break
                 elif test2 == conn_a:
-                    match = (a,b,False)
+                    match = (a, b, False)
                     break
     if not match:
         return
     erase_dupes(match[0], match[1], frag, uv)
     return match
 
+
 def start_chain(frag, uv):
     l1 = frag.pop()
     l2 = l1.link_loop_next
     erase_dupes(l1, l2, frag, uv)
-    return[(l1,l2,True)]
+    return [(l1, l2, True)]
+
 
 def prep_chain(chain, uv):
     order = [list(same_uv(lnk[not lnk[2]], uv)) for lnk in chain]
@@ -194,6 +209,7 @@ def prep_chain(chain, uv):
     if order[0] == order[-1]:
         is_closed = True
     return is_closed, order
+
 
 def order_links(frag, uv):
     chain = start_chain(frag, uv)
@@ -212,6 +228,7 @@ def order_links(frag, uv):
             start_found = True
     return prep_chain(chain, uv)
 
+
 def has_fork(frag, uv):
     for a in frag:
         same = same_uv(a, uv)
@@ -222,23 +239,26 @@ def has_fork(frag, uv):
             prv = c.link_loop_prev
             if prv in frag:
                 conn.add(prv)
-        uvs = set([(c.vert,c[uv].uv[:]) for c in conn])
+        uvs = set([(c.vert, c[uv].uv[:]) for c in conn])
         if len(uvs) > 2:
             return True
     return False
+
 
 def frag_to_chain(frag, uv):
     if has_fork(frag, uv):
         return None, None
     return order_links(frag, uv)
 
+
 def frags_to_chains(frags, uv):
     result = []
     for a in frags:
         is_closed, ch = frag_to_chain(a, uv)
         if ch:
-            result.append((is_closed,ch))
+            result.append((is_closed, ch))
     return result
+
 
 def arrange_uv_chain(ch, uv, equalize):
     is_closed, order = ch
@@ -247,25 +267,25 @@ def arrange_uv_chain(ch, uv, equalize):
     else:
         distrib_uv_chain(order, uv, equalize)
 
+
 def arrange_uv_chains(bm, equalize):
     uv = bm.loops.layers.uv.active
     chains = frags_to_chains(partial_frags(bm, uv), uv)
     for ch in chains:
         arrange_uv_chain(ch, uv, equalize)
 
+
 def circ_uv_chain(order, uv, equalize):
     coords = [b[0][uv].uv for b in order]
     n = len(coords)
-    c = mu.Vector((
-        sum([v[0] for v in coords]) / n,
-        sum([v[1] for v in coords]) / n))
-    r = sum([(v-c).magnitude for v in coords]) / n
+    c = mu.Vector((sum([v[0] for v in coords]) / n, sum([v[1] for v in coords]) / n))
+    r = sum([(v - c).magnitude for v in coords]) / n
     s = (order[0][0][uv].uv - c).normalized()
     if equalize:
         avg = math.radians(360) / (n - 1)
         if s.angle_signed(coords[1] - c) >= 0:
             avg *= -1
-        angles = [avg*i for i in range(len(coords))]
+        angles = [avg * i for i in range(len(coords))]
     else:
         angles = []
         for co in coords:
@@ -274,6 +294,7 @@ def circ_uv_chain(order, uv, equalize):
         co = ((mu.Matrix.Rotation(a, 2)) @ s) * r + c
         for l in ls:
             l[uv].uv = co
+
 
 def distrib_uv_chain(order, uv, equalize):
     n = len(order)
@@ -285,11 +306,11 @@ def distrib_uv_chain(order, uv, equalize):
     else:
         dist = d.magnitude
         if not dist:
-            vecs = [mu.Vector((0.0,0.0))] * (n - 1)
+            vecs = [mu.Vector((0.0, 0.0))] * (n - 1)
         else:
             vecs = []
             for i in range(n - 1):
-                vecs.append(order[i+1][0][uv].uv - order[i][0][uv].uv)
+                vecs.append(order[i + 1][0][uv].uv - order[i][0][uv].uv)
             total = sum([a.magnitude for a in vecs])
             for i in range(len(vecs)):
                 vecs[i] = d * (vecs[i].magnitude / total)
@@ -298,12 +319,14 @@ def distrib_uv_chain(order, uv, equalize):
             a[uv].uv = s
         s += vec
 
+
 def xform_uv_frags(mtx, geom, bm):
     uv = bm.loops.layers.uv.verify()
     for center, frag in geom:
         for l in frag:
             l[uv].uv = center + mtx @ (l[uv].uv - center)
     return bm
+
 
 def prep_frags(frags, bm):
     result = []
@@ -315,14 +338,17 @@ def prep_frags(frags, bm):
         min_v = min([a[1] for a in uvs])
         max_v = max([a[1] for a in uvs])
         center = mu.Vector(((min_u + max_u) * 0.5, (min_v + max_v) * 0.5))
-        result.append((center,frag))
+        result.append((center, frag))
     return result
+
 
 def scale_uv_frags(factor_x, factor_y, frags, bm):
     mtx = mu.Matrix.Scale(factor_x, 2) @ mu.Matrix.Scale(factor_y, 2)
     return xform_uv_frags(mtx, frags, bm)
 
+
 ### Mesh editing tools
+
 
 def mirror(bm):
     copy_lookup = {}
@@ -330,7 +356,7 @@ def mirror(bm):
     for f in orig_faces:
         if f.select:
             bmcp = bmesh.ops.duplicate(bm, geom=orig_faces)
-            for fcp in bmcp['geom']:
+            for fcp in bmcp["geom"]:
                 if type(fcp) == bmesh.types.BMFace:
                     fcp.normal_flip()
             copy_lookup[f] = bmcp
@@ -338,31 +364,37 @@ def mirror(bm):
         tm = mu.Matrix.Translation(f.calc_center_median())
         sm = mu.Matrix.Scale(-1.0, 4, f.normal)
         cp = copy_lookup[f]
-        bmesh.ops.transform(bm,
+        bmesh.ops.transform(
+            bm,
             matrix=tm @ sm @ tm.inverted(),
-            verts=[v for v in cp['geom'] if type(v) == bmesh.types.BMVert])
+            verts=[v for v in cp["geom"] if type(v) == bmesh.types.BMVert],
+        )
         weld_map = {}
         for v in f.verts:
-            vc = cp['vert_map'][v]
+            vc = cp["vert_map"][v]
             weld_map[vc] = v
-        bm.faces.remove(cp['face_map'][f])
+        bm.faces.remove(cp["face_map"][f])
         bm.faces.remove(f)
         bmesh.ops.weld_verts(bm, targetmap=weld_map)
+
 
 def put_on(to, at, bm, turn):
     to_xyz = to.calc_center_median_weighted()
     at_xyz = at.calc_center_median_weighted()
-    turn_mtx = mu.Matrix.Rotation(math.radians(turn), 4, 'Z')
-    src_mtx = at.normal.to_track_quat('Z', 'Y').to_matrix().to_4x4()
-    trg_mtx = to.normal.to_track_quat('-Z', 'Y').to_matrix().to_4x4()
-    mtx =  mu.Matrix.Translation(to_xyz) @ \
-        trg_mtx @ turn_mtx @ \
-        src_mtx.inverted() @ \
-        mu.Matrix.Translation(-at_xyz)
+    turn_mtx = mu.Matrix.Rotation(math.radians(turn), 4, "Z")
+    src_mtx = at.normal.to_track_quat("Z", "Y").to_matrix().to_4x4()
+    trg_mtx = to.normal.to_track_quat("-Z", "Y").to_matrix().to_4x4()
+    mtx = (
+        mu.Matrix.Translation(to_xyz)
+        @ trg_mtx
+        @ turn_mtx
+        @ src_mtx.inverted()
+        @ mu.Matrix.Translation(-at_xyz)
+    )
     piece = extend_region(at, bm)
-    bmesh.ops.transform(bm,
-        matrix=mtx, space=mu.Matrix.Identity(4), verts=piece)
+    bmesh.ops.transform(bm, matrix=mtx, space=mu.Matrix.Identity(4), verts=piece)
     return bm
+
 
 def extend_region(f, bm):
     inside = set()
@@ -378,8 +410,9 @@ def extend_region(f, bm):
         vs.update(set(e.verts[:]))
     return list(vs)
 
+
 def connect(bm):
-    sel = set([a for a in bm.edges if a.select])     
+    sel = set([a for a in bm.edges if a.select])
     es = set()
     for e in sel:
         e.select = False
@@ -389,12 +422,13 @@ def connect(bm):
                 fs.add(lf)
         if fs:
             es.add(e)
-    r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)['geom_split']
+    r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)["geom_split"]
     vs = [a for a in r1 if type(a) == bmesh.types.BMVert]
-    r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)['edges']
+    r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)["edges"]
     for e in r2:
         e.select = True
     return bm
+
 
 def loop_extension(edge, vert):
     candidates = vert.link_edges[:]
@@ -406,19 +440,23 @@ def loop_extension(edge, vert):
     else:
         return
 
+
 def loop_end(edge):
     v1, v2 = edge.verts[:]
-    return not loop_extension(edge, v1) \
-        or not loop_extension(edge, v2)
+    return not loop_extension(edge, v1) or not loop_extension(edge, v2)
+
 
 def ring_extension(edge, face):
     if len(face.verts) == 4:
         target_verts = [v for v in face.verts if v not in edge.verts]
-        return [e for e in face.edges if
-            target_verts[0] in e.verts and
-            target_verts[1] in e.verts][0]
+        return [
+            e
+            for e in face.edges
+            if target_verts[0] in e.verts and target_verts[1] in e.verts
+        ][0]
     else:
         return
+
 
 def ring_end(edge):
     faces = edge.link_faces[:]
@@ -427,15 +465,20 @@ def ring_end(edge):
     dead_ends = map(lambda x: len(x.verts) != 4, faces)
     return border or non_manifold or any(dead_ends)
 
+
 def unselected_loop_extensions(edge):
     v1, v2 = edge.verts
     ext1, ext2 = loop_extension(edge, v1), loop_extension(edge, v2)
     return [e for e in [ext1, ext2] if e and not e.select]
 
+
 def unselected_ring_extensions(edge):
-    return [e for e in 
-        [ring_extension(edge, f) for f in edge.link_faces]
-        if e and not e.select]
+    return [
+        e
+        for e in [ring_extension(edge, f) for f in edge.link_faces]
+        if e and not e.select
+    ]
+
 
 def entire_loop(edge):
     e = edge
@@ -446,21 +489,22 @@ def entire_loop(edge):
         ext = loop_extension(e, v)
         if ext:
             if going_forward:
-                if ext == edge: # infinite
+                if ext == edge:  # infinite
                     return [edge] + loop + [edge]
-                else: # continue forward
+                else:  # continue forward
                     loop.append(ext)
-            else: # continue backward
+            else:  # continue backward
                 loop.insert(0, ext)
             v = ext.other_vert(v)
             e = ext
-        else: # finite and we've reached an end
-            if going_forward: # the first end
+        else:  # finite and we've reached an end
+            if going_forward:  # the first end
                 going_forward = False
                 e = edge
                 v = edge.verts[1]
-            else: # the other end
+            else:  # the other end
                 return loop
+
 
 def partial_ring(edge, face):
     part_ring = []
@@ -479,6 +523,7 @@ def partial_ring(edge, face):
             e = ext
     return part_ring
 
+
 def entire_ring(edge):
     fs = edge.link_faces
     ring = [edge]
@@ -490,6 +535,7 @@ def entire_ring(edge):
             ring.extend(dirs[0])
     return ring
 
+
 def complete_associated_loops(edges):
     loops = []
     for e in edges:
@@ -497,12 +543,14 @@ def complete_associated_loops(edges):
             loops.append(entire_loop(e))
     return loops
 
+
 def complete_associated_rings(edges):
     rings = []
     for e in edges:
         if not any([e in r for r in rings]):
             rings.append(entire_ring(e))
     return rings
+
 
 def grow_loop(context):
     mesh = context.active_object.data
@@ -514,7 +562,8 @@ def grow_loop(context):
     for le in loop_exts:
         le.select = True
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def grow_ring(context):
     mesh = context.active_object.data
@@ -526,7 +575,8 @@ def grow_ring(context):
     for re in ring_exts:
         re.select = True
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def group_selected(edges):
     chains = [[]]
@@ -537,6 +587,7 @@ def group_selected(edges):
             chains.append([])
     return [c for c in chains if c]
 
+
 def group_unselected(edges):
     gaps = [[]]
     for e in edges:
@@ -545,6 +596,7 @@ def group_unselected(edges):
         else:
             gaps.append([])
     return [g for g in gaps if g != []]
+
 
 def shrink_loop(context):
     mesh = context.active_object.data
@@ -561,7 +613,8 @@ def shrink_loop(context):
         for e in loop_ends_unique:
             e.select = False
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def shrink_ring(context):
     mesh = context.active_object.data
@@ -576,7 +629,8 @@ def shrink_ring(context):
     for e in list((set(ring_ends))):
         e.select = False
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def select_bounded_loop(context):
     mesh = context.active_object.data
@@ -585,17 +639,14 @@ def select_bounded_loop(context):
     for l in complete_associated_loops(selected_edges):
         gaps = group_unselected(l)
         new_sel = []
-        if l[0] == l[-1]: # loop is infinite
-            sg = sorted(gaps,
-                key = lambda x: len(x),
-                reverse = True)
-            if len(sg) > 1 and len(sg[0]) > len(sg[1]): # single longest gap
+        if l[0] == l[-1]:  # loop is infinite
+            sg = sorted(gaps, key=lambda x: len(x), reverse=True)
+            if len(sg) > 1 and len(sg[0]) > len(sg[1]):  # single longest gap
                 final_gaps = sg[1:]
             else:
                 final_gaps = sg
-        else: # loop is finite
-            tails = [g for g in gaps
-                if any(map(lambda x: loop_end(x), g))]
+        else:  # loop is finite
+            tails = [g for g in gaps if any(map(lambda x: loop_end(x), g))]
             nontails = [g for g in gaps if g not in tails]
             if nontails:
                 final_gaps = nontails
@@ -606,7 +657,8 @@ def select_bounded_loop(context):
         for e in new_sel:
             e.select = True
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def select_bounded_ring(context):
     mesh = context.active_object.data
@@ -615,17 +667,14 @@ def select_bounded_ring(context):
     for r in complete_associated_rings(selected_edges):
         gaps = group_unselected(r)
         new_sel = []
-        if r[0] == r[-1]: # ring is infinite
-            sg = sorted(gaps,
-                key = lambda x: len(x),
-                reverse = True)
-            if len(sg) > 1 and len(sg[0]) > len(sg[1]): # single longest gap
+        if r[0] == r[-1]:  # ring is infinite
+            sg = sorted(gaps, key=lambda x: len(x), reverse=True)
+            if len(sg) > 1 and len(sg[0]) > len(sg[1]):  # single longest gap
                 final_gaps = sg[1:]
             else:
                 final_gaps = sg
-        else: # ring is finite
-            tails = [g for g in gaps
-                if any(map(lambda x: ring_end(x), g))]
+        else:  # ring is finite
+            tails = [g for g in gaps if any(map(lambda x: ring_end(x), g))]
             nontails = [g for g in gaps if g not in tails]
             if nontails:
                 final_gaps = nontails
@@ -636,7 +685,8 @@ def select_bounded_ring(context):
         for e in new_sel:
             e.select = True
     mesh.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def extract_mesh_frag(es):
     frag = set()
@@ -646,9 +696,10 @@ def extract_mesh_frag(es):
         e = todo.pop()
         frag.add(e)
         v1, v2 = e.verts
-        more = [a for a in v1.link_edges[:]+v2.link_edges[:] if a.select]
-        todo |= (set(more) - frag)
+        more = [a for a in v1.link_edges[:] + v2.link_edges[:] if a.select]
+        todo |= set(more) - frag
     return frag
+
 
 def mesh_frags(bm):
     todo = set([e for e in bm.edges if e.select])
@@ -658,6 +709,7 @@ def mesh_frags(bm):
         frags.append(frag)
         todo -= frag
     return frags
+
 
 def vert_chain(frag):
     fst = get_any(frag)
@@ -688,6 +740,7 @@ def vert_chain(frag):
             e_chain.append(nxt_e)
             v_chain.append(nxt_e.other_vert(end_v))
 
+
 def vert_chains(frags):
     chains = []
     for frag in frags:
@@ -695,6 +748,7 @@ def vert_chains(frags):
         if chain:
             chains.append((is_closed, chain))
     return chains
+
 
 def arrange_edges(context, equalize):
     mesh = context.active_object.data
@@ -706,24 +760,31 @@ def arrange_edges(context, equalize):
         else:
             string_along(chain, equalize)
     context.active_object.data.update()
-    return {'FINISHED'}
+    return {"FINISHED"}
+
 
 def circularize(ovs, equalize):
     n = len(ovs)
-    center = mu.Vector((
-        sum([v.co[0] for v in ovs]) / n,
-        sum([v.co[1] for v in ovs]) / n,
-        sum([v.co[2] for v in ovs]) / n))
+    center = mu.Vector(
+        (
+            sum([v.co[0] for v in ovs]) / n,
+            sum([v.co[1] for v in ovs]) / n,
+            sum([v.co[2] for v in ovs]) / n,
+        )
+    )
     dists = [(v.co - center).magnitude for v in ovs]
     avg_d = (max(dists) + min(dists)) * 0.5
     crosses = []
     for v in ovs:
-        pv = ovs[ovs.index(v)-1]
+        pv = ovs[ovs.index(v) - 1]
         crosses.append((pv.co - center).cross(v.co - center))
-    nrm = mu.Vector((
-        sum([a[0] for a in crosses]) / n,
-        sum([a[1] for a in crosses]) / n,
-        sum([a[2] for a in crosses]) / n)).normalized()
+    nrm = mu.Vector(
+        (
+            sum([a[0] for a in crosses]) / n,
+            sum([a[1] for a in crosses]) / n,
+            sum([a[2] for a in crosses]) / n,
+        )
+    ).normalized()
     nrm2 = nrm.cross(ovs[0].co - center)
     offset = -nrm.cross(nrm2)
     offset.magnitude = avg_d
@@ -734,7 +795,7 @@ def circularize(ovs, equalize):
         if not avg_d:
             quats = [mu.Quaternion((1.0, 0.0, 0.0, 0.0))] * n
         else:
-            vecs = [ovs[i+1].co - ovs[i].co for i in range(n - 1)]
+            vecs = [ovs[i + 1].co - ovs[i].co for i in range(n - 1)]
             total = sum([vec.magnitude for vec in vecs])
             quats = []
             for vec in vecs:
@@ -743,6 +804,7 @@ def circularize(ovs, equalize):
     for v, quat in zip(ovs, quats):
         v.co = center + offset
         offset.rotate(quat)
+
 
 def string_along(ovs, equalize):
     n = len(ovs)
@@ -754,11 +816,11 @@ def string_along(ovs, equalize):
     else:
         dist = d.magnitude
         if not dist:
-            vecs = [mu.Vector((0.0,0.0,0.0))] * (n - 1)
+            vecs = [mu.Vector((0.0, 0.0, 0.0))] * (n - 1)
         else:
             vecs = []
             for i in range(n - 1):
-                vecs.append(ovs[i+1].co - ovs[i].co)
+                vecs.append(ovs[i + 1].co - ovs[i].co)
             total = sum([a.magnitude for a in vecs])
             for i in range(len(vecs)):
                 vecs[i] = d * (vecs[i].magnitude / total)
@@ -770,11 +832,14 @@ def string_along(ovs, equalize):
 class Z_OT_GrowLoop(bpy.types.Operator):
     bl_idname = "iops.z_grow_loop"
     bl_label = "Grow Loop"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT' and bpy.context.view_layer.objects.active)
+        return (
+            bpy.context.view_layer.objects.active.mode == "EDIT"
+            and bpy.context.view_layer.objects.active
+        )
 
     def execute(self, context):
         return grow_loop(context)
@@ -783,12 +848,12 @@ class Z_OT_GrowLoop(bpy.types.Operator):
 class Z_OT_ShrinkLoop(bpy.types.Operator):
     bl_idname = "iops.z_shrink_loop"
     bl_label = "Shrink Loop"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         return shrink_loop(context)
@@ -797,12 +862,12 @@ class Z_OT_ShrinkLoop(bpy.types.Operator):
 class Z_OT_GrowRing(bpy.types.Operator):
     bl_idname = "iops.z_grow_ring"
     bl_label = "Grow Ring"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         return grow_ring(context)
@@ -811,12 +876,12 @@ class Z_OT_GrowRing(bpy.types.Operator):
 class Z_OT_ShrinkRing(bpy.types.Operator):
     bl_idname = "iops.z_shrink_ring"
     bl_label = "Shrink Ring"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         return shrink_ring(context)
@@ -825,12 +890,12 @@ class Z_OT_ShrinkRing(bpy.types.Operator):
 class Z_OT_SelectBoundedLoop(bpy.types.Operator):
     bl_idname = "iops.z_select_bounded_loop"
     bl_label = "Select Bounded Loop"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-                return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         return select_bounded_loop(context)
@@ -839,12 +904,12 @@ class Z_OT_SelectBoundedLoop(bpy.types.Operator):
 class Z_OT_SelectBoundedRing(bpy.types.Operator):
     bl_idname = "iops.z_select_bounded_ring"
     bl_label = "Select Bounded Ring"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         return select_bounded_ring(context)
@@ -853,131 +918,135 @@ class Z_OT_SelectBoundedRing(bpy.types.Operator):
 class Z_OT_ContextDelete(bpy.types.Operator):
     bl_idname = "iops.z_delete_mode"
     bl_label = "Delete Selection"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         modes = []
-        if context.view_layer.objects.active.type == 'CURVE':
+        if context.view_layer.objects.active.type == "CURVE":
             bpy.ops.curve.dissolve_verts()
-            return {'FINISHED'}
-        if context.view_layer.objects.active.type == 'ARMATURE':
+            return {"FINISHED"}
+        if context.view_layer.objects.active.type == "ARMATURE":
             bpy.ops.armature.delete()
-            return {'FINISHED'}
-        for a, b in zip(['VERT', 'EDGE', 'FACE'], context.tool_settings.mesh_select_mode[:]):
+            return {"FINISHED"}
+        for a, b in zip(
+            ["VERT", "EDGE", "FACE"], context.tool_settings.mesh_select_mode[:]
+        ):
             if b:
                 modes.append(a)
         for m in reversed(modes):
             bpy.ops.mesh.delete(type=m)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class Z_OT_EdgeEq(bpy.types.Operator):
-    '''Equalize the selected contiguous edges.'''
+    """Equalize the selected contiguous edges."""
+
     bl_idname = "iops.eq_edges"
-    bl_label = 'Equalize'
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = "Equalize"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT'
-            and (sm == (False, True, False)))
+        return bpy.context.view_layer.objects.active.mode == "EDIT" and (
+            sm == (False, True, False)
+        )
 
     def execute(self, context):
         return arrange_edges(context, equalize=True)
 
 
 class Z_OT_EdgeLineUp(bpy.types.Operator):
-    '''Line up the selected contiguous edges.'''
+    """Line up the selected contiguous edges."""
+
     bl_idname = "iops.line_up_edges"
-    bl_label = 'Line Up'
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_label = "Line Up"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
         sm = context.tool_settings.mesh_select_mode[:]
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT' and (sm == (False, True, False)))
+        return bpy.context.view_layer.objects.active.mode == "EDIT" and (
+            sm == (False, True, False)
+        )
 
     def execute(self, context):
         return arrange_edges(context, equalize=False)
 
 
 class Z_OT_EdgeConnect(bpy.types.Operator):
-    '''Connect the selected edges.'''
-    bl_idname = "iops.z_connect"
-    bl_label = 'Connect'
-    # bl_options = {'PRESET'}
-    bl_options = {'REGISTER', 'UNDO'}
+    """Connect the selected edges."""
 
-# bpy.ops.mesh.subdivide(number_cuts=2, smoothness=0.01, ngon=False, quadcorner='INNERVERT', fractal=0.01, fractal_along_normal=0.01, seed=1)
+    bl_idname = "iops.z_connect"
+    bl_label = "Connect"
+    # bl_options = {'PRESET'}
+    bl_options = {"REGISTER", "UNDO"}
+
+    # bpy.ops.mesh.subdivide(number_cuts=2, smoothness=0.01, ngon=False, quadcorner='INNERVERT', fractal=0.01, fractal_along_normal=0.01, seed=1)
 
     use_subdivide_op: BoolProperty(
-        name="Subdivide",
-        description="Use standard subdivide operator.",
-        default=False
-        )
+        name="Subdivide", description="Use standard subdivide operator.", default=False
+    )
     number_cuts: IntProperty(
-        name="Number of Cuts",
-        description="Number of Cuts",
-        default=1,
-        min=0,
-        max=10000
-        )
-    smoothness:FloatProperty(
-        name="Smoothness", 
-        description="smoothness", 
-        default=0.0, 
+        name="Number of Cuts", description="Number of Cuts", default=1, min=0, max=10000
+    )
+    smoothness: FloatProperty(
+        name="Smoothness",
+        description="smoothness",
+        default=0.0,
         soft_min=0.0,
         soft_max=1.0,
-        )
+    )
     ngon: BoolProperty(
         name="Create N-Gon",
         description="When disabled - Newly created faces are limited to 3 and 4 sides.",
-        default=True
-        )    
+        default=True,
+    )
     quadcorner: EnumProperty(
-        name='Quad Corner Type',
-        description='How to subdivide quad corners',
+        name="Quad Corner Type",
+        description="How to subdivide quad corners",
         items=[
-            ('INNERVERT', 'INNERVERT', '', '', 0),
-            ('PATH', 'PATH', '', '', 1),
-            ('STRAIGHT_CUT', 'STRAIGHT_CUT', '', '', 2),
-            ('FAN', 'FAN', '', '', 3),
-            ],
-        default='FAN',
-        )
-    fractal:FloatProperty(
-        name="Smoothness", 
-        description="smoothness", 
-        default=0.0, 
+            ("INNERVERT", "INNERVERT", "", "", 0),
+            ("PATH", "PATH", "", "", 1),
+            ("STRAIGHT_CUT", "STRAIGHT_CUT", "", "", 2),
+            ("FAN", "FAN", "", "", 3),
+        ],
+        default="FAN",
+    )
+    fractal: FloatProperty(
+        name="Smoothness",
+        description="smoothness",
+        default=0.0,
         min=0.0,
         max=1.0,
-        )
-    fractal_along_normal:FloatProperty(
-        name="Smoothness", 
-        description="smoothness", 
-        default=0.0, 
+    )
+    fractal_along_normal: FloatProperty(
+        name="Smoothness",
+        description="smoothness",
+        default=0.0,
         min=0.0,
         max=1.0,
-        )
-    seed:IntProperty(
-        name="Random Seed",
-        description="Random Seed",
-        default=0,
-        min=0,
-        max=255
-        )
-    
-
+    )
+    seed: IntProperty(
+        name="Random Seed", description="Random Seed", default=0, min=0, max=255
+    )
 
     @classmethod
     def poll(cls, context):
-        return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         if self.use_subdivide_op:
-            bpy.ops.mesh.subdivide(number_cuts=self.number_cuts, smoothness=self.smoothness, ngon=self.ngon, quadcorner=self.quadcorner, fractal=self.fractal, fractal_along_normal=self.fractal_along_normal, seed=self.seed)
-        else:            
+            bpy.ops.mesh.subdivide(
+                number_cuts=self.number_cuts,
+                smoothness=self.smoothness,
+                ngon=self.ngon,
+                quadcorner=self.quadcorner,
+                fractal=self.fractal,
+                fractal_along_normal=self.fractal_along_normal,
+                seed=self.seed,
+            )
+        else:
             sm = context.tool_settings.mesh_select_mode[:]
             if sm == (False, True, False):
                 mesh = context.active_object.data
@@ -986,8 +1055,8 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
                 bmesh.update_edit_mesh(mesh)
             else:
                 self.report({"INFO"}, "No Selected Edges")
-        return {'FINISHED'}
-    
+        return {"FINISHED"}
+
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
@@ -1003,49 +1072,51 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
             col.prop(self, "seed")
 
 
-
 class Z_OT_PutOn(bpy.types.Operator):
     bl_idname = "iops.z_put_on"
     bl_label = "Put On"
-    bl_options = {'REGISTER', 'UNDO'}
-    turn : FloatProperty(name="Turn angle",
-                         description="Turn by this angle after placing",
-                         min=-180.0, max=180.0,
-                         default=0.0)
+    bl_options = {"REGISTER", "UNDO"}
+    turn: FloatProperty(
+        name="Turn angle",
+        description="Turn by this angle after placing",
+        min=-180.0,
+        max=180.0,
+        default=0.0,
+    )
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         mesh = context.active_object.data
         bm = bmesh.from_edit_mesh(mesh)
         sel_fs = [f for f in bm.faces if f.select]
         where_to = bm.faces.active
-        result = {'CANCELLED'}
+        result = {"CANCELLED"}
         if len(sel_fs) == 2 and where_to in sel_fs:
             f1, f2 = sel_fs
             where_at = f1 if f2 == where_to else f2
             bm = put_on(where_to, where_at, bm, self.turn)
             bmesh.update_edit_mesh(mesh)
-            result = {'FINISHED'}
+            result = {"FINISHED"}
         return result
 
 
 class Z_OT_Mirror(bpy.types.Operator):
     bl_idname = "iops.z_mirror"
     bl_label = "Mirror"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        if hasattr(bpy.context.view_layer.objects.active, 'mode'):
-            return (bpy.context.view_layer.objects.active.mode == 'EDIT')
+        if hasattr(bpy.context.view_layer.objects.active, "mode"):
+            return bpy.context.view_layer.objects.active.mode == "EDIT"
 
     def execute(self, context):
         mesh = context.active_object.data
         bm = bmesh.from_edit_mesh(mesh)
         mirror(bm)
         bmesh.update_edit_mesh(mesh)
-        return {'FINISHED'}
+        return {"FINISHED"}

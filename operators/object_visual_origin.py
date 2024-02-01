@@ -10,7 +10,11 @@ from mathutils import Vector, Matrix, Euler
 from math import sin, cos, pi
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
-from bpy_extras.view3d_utils import region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d
+from bpy_extras.view3d_utils import (
+    region_2d_to_vector_3d,
+    region_2d_to_origin_3d,
+    location_3d_to_region_2d,
+)
 from bpy.props import BoolProperty
 
 
@@ -20,7 +24,10 @@ def generate_circle_verts(position, radius, segments):
     coords.append(position)
     mul = (1.0 / segments) * (pi * 2)
     for i in range(segments):
-        coord = (sin(i * mul) * radius + position[0], cos(i * mul) * radius + position[1])
+        coord = (
+            sin(i * mul) * radius + position[0],
+            cos(i * mul) * radius + position[1],
+        )
         coords.append(coord)
     return coords
 
@@ -44,16 +51,20 @@ def draw_bbox_active_point(self, context):
     # if point != (0, 0):
     if point is not None:
         position = point
-        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_color
-        radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_ap_size
+        color = bpy.context.preferences.addons[
+            "InteractionOps"
+        ].preferences.vo_cage_ap_color
+        radius = bpy.context.preferences.addons[
+            "InteractionOps"
+        ].preferences.vo_cage_ap_size
         segments = 12
         # create vertices
         coords = generate_circle_verts(position, radius, segments)
         # create triangles
         triangles = generate_circle_tris(segments, 0)
         # set shader and draw
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
+        shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+        batch = batch_for_shader(shader, "TRIS", {"pos": coords}, indices=triangles)
         shader.bind()
         shader.uniform_float("color", color)
         batch.draw(shader)
@@ -63,8 +74,12 @@ def draw_bbox_active_point(self, context):
 def draw_bbox_cage_points(self, context):
     positions = (self.object_bbox(context))[0]
     if positions is not None:
-        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_points_color
-        radius = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_p_size
+        color = bpy.context.preferences.addons[
+            "InteractionOps"
+        ].preferences.vo_cage_points_color
+        radius = bpy.context.preferences.addons[
+            "InteractionOps"
+        ].preferences.vo_cage_p_size
         segments = 12
         coords = []
         triangles = []
@@ -77,8 +92,8 @@ def draw_bbox_cage_points(self, context):
             actTris = generate_circle_tris(segments, tris * (segments + 1))
             triangles.extend(actTris)
         # set shader and draw
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=triangles)
+        shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+        batch = batch_for_shader(shader, "TRIS", {"pos": coords}, indices=triangles)
         shader.bind()
         shader.uniform_float("color", color)
         batch.draw(shader)
@@ -89,39 +104,62 @@ def draw_bbox_lines(self, context):
     if len(coords) != 0:
         if len(coords) == 8:
             indices = (
-                (0, 1), (1, 2), (2, 3), (3, 0),
-                (4, 5), (5, 6), (6, 7), (7, 4),
-                (0, 4), (1, 5), (2, 6), (3, 7)
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
             )
         elif len(coords) > 8:
             indices = (
                 # Bbox
-                (0, 1), (1, 2), (2, 3), (0, 3),   # X-
-                (4, 5), (5, 6), (6, 7), (4, 7),   # X+
-                (0, 4),                           # Y- BTM
-                (1, 5),                           # Y- UP
-                (3, 7),                           # Y-BTM
-                (2, 6),                           # Y+UP
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (0, 3),  # X-
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (4, 7),  # X+
+                (0, 4),  # Y- BTM
+                (1, 5),  # Y- UP
+                (3, 7),  # Y-BTM
+                (2, 6),  # Y+UP
                 # SUBD
-                (8, 10), (9, 11),                 # X-
-                (12, 14), (13, 15),               # X+
-                (16, 17), (8, 12),                # Y-
-                (10, 14), (18, 19),               # Y+
-                (11, 15), (16, 19),               # Z-
-                (17, 18), (9, 13),                # Z+
+                (8, 10),
+                (9, 11),  # X-
+                (12, 14),
+                (13, 15),  # X+
+                (16, 17),
+                (8, 12),  # Y-
+                (10, 14),
+                (18, 19),  # Y+
+                (11, 15),
+                (16, 19),  # Z-
+                (17, 18),
+                (9, 13),  # Z+
                 # Center
-                (20, 23),                         # +X
-                (20, 21),                         # -X
-                (20, 27),                         # +Y
-                (20, 25),                         # -Y
-                (20, 31),                         # +Z
-                (20, 29),                         # -Z
+                (20, 23),  # +X
+                (20, 21),  # -X
+                (20, 27),  # +Y
+                (20, 25),  # -Y
+                (20, 31),  # +Z
+                (20, 29),  # -Z
             )
         else:
             indices = ()
-        color = bpy.context.preferences.addons['InteractionOps'].preferences.vo_cage_color
-        shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')        
-        batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)
+        color = bpy.context.preferences.addons[
+            "InteractionOps"
+        ].preferences.vo_cage_color
+        shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
+        batch = batch_for_shader(shader, "LINES", {"pos": coords}, indices=indices)
         shader.bind()
         shader.uniform_float("color", color)
         shader.uniform_float("lineWidth", 0.25)
@@ -130,7 +168,7 @@ def draw_bbox_lines(self, context):
 
 
 def draw_iops_text(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
     tCSize = prefs.text_size
@@ -181,6 +219,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
 
 class IOPS_OT_VisualOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
+
     bl_idname = "iops.visual_origin"
     bl_label = "Visual origin"
     bl_options = {"REGISTER", "UNDO"}
@@ -203,22 +242,22 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     # Handlers list
     vp_handlers = []
-    
-    
+
     hold_cursor: BoolProperty(
         name="Hold cursor",
         description="Hold cursor location and rotation",
-        default=True
+        default=True,
     )
-
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and
-                context.mode == "OBJECT" and
-                context.view_layer.objects.active.type == "MESH" and
-                context.view_layer.objects.selected[:] != [])
-    
+        return (
+            context.area.type == "VIEW_3D"
+            and context.mode == "OBJECT"
+            and context.view_layer.objects.active.type == "MESH"
+            and context.view_layer.objects.selected[:] != []
+        )
+
     # Place origin for selected objects
     def place_origin(self, context):
         objs = context.view_layer.objects.selected
@@ -227,18 +266,18 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         for ob in objs:
             context.view_layer.objects.active = ob
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
-    
+
     # Place origin for selected objects
     def move_selected_to_world(self, context):
-        objs = context.view_layer.objects.selected        
+        objs = context.view_layer.objects.selected
         for ob in objs:
-            ob.location = (0, 0, 0)    
-    
+            ob.location = (0, 0, 0)
+
     # Place origin to world center
     def origin_to_world(self, context):
         objs = context.view_layer.objects.selected
         context.scene.cursor.location = (0, 0, 0)
-        context.scene.cursor.rotation_euler = (0, 0, 0) 
+        context.scene.cursor.rotation_euler = (0, 0, 0)
         for ob in objs:
             context.view_layer.objects.active = ob
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
@@ -253,7 +292,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             counter = 1
             itertargets = iter(self.pos_batch)
             next(itertargets)
-            for pos in itertargets:                
+            for pos in itertargets:
                 dist = numpy.linalg.norm(pos - Vector(mouse_pos))
                 if dist < act_dist:
                     act_id = counter
@@ -266,7 +305,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         selected_objects = []
         active_object = None
         for ob in context.view_layer.objects.selected:
-            if ob.type == 'MESH':
+            if ob.type == "MESH":
                 selected_objects.append(ob)
         for ob in selected_objects:
             if ob == context.view_layer.objects.active:
@@ -295,7 +334,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         sel_objs = []
         # Collect selected
         for ob in context.view_layer.objects.selected:
-            if ob.type == 'MESH':
+            if ob.type == "MESH":
                 sel_objs.append(ob)
         # Make duplicates
         dups = []
@@ -312,13 +351,13 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # Select duplicates
         for ob in dups:
             ob.select_set(True)
-        context.view_layer.objects.active = dups[-1]        
+        context.view_layer.objects.active = dups[-1]
         # Local view check
         view = bpy.context.space_data
         if view.local_view:
             bpy.ops.view3d.localview(frame_selected=False)
         # Join duplicates and Apply transformation
-        if len(dups) != 1:            
+        if len(dups) != 1:
             bpy.ops.object.join()
             bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
         else:
@@ -335,7 +374,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         bpy.data.objects.remove(dup, do_unlink=True, do_id_user=True, do_ui_user=True)
 
         # Create a bounding box mesh from duplicated objects
-        mesh = bpy.data.meshes.new('iops_bbox_mesh')
+        mesh = bpy.data.meshes.new("iops_bbox_mesh")
         mesh.from_pydata(bbox_verts, [], [])
         bbox = bpy.data.objects.new("iops_bbox", mesh)
         context.scene.collection.objects.link(bbox)
@@ -355,7 +394,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # Collect selected
         sel_objs = []
         for ob in context.view_layer.objects.selected:
-            if ob.type == 'MESH':
+            if ob.type == "MESH":
                 sel_objs.append(ob)
 
         res = self.result
@@ -370,14 +409,16 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         for ob in sel_objs:
             ob.select_set(False)
         # Select duplicates
-        dup_obj.select_set(True)        
+        dup_obj.select_set(True)
         context.view_layer.objects.active = dup_obj
         # Local view check
         view = bpy.context.space_data
         if view.local_view:
             bpy.ops.view3d.localview(frame_selected=False)
         # Apply transformation
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True, properties=True)
+        bpy.ops.object.transform_apply(
+            location=True, rotation=True, scale=True, properties=True
+        )
 
         # Get Bounding box from result
         dup_bounds = dup_obj.bound_box
@@ -386,10 +427,12 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             v_co = Vector(v)
             bbox_verts.append(v_co)
         # Removing duplicates
-        bpy.data.objects.remove(dup_obj, do_unlink=True, do_id_user=True, do_ui_user=True)
+        bpy.data.objects.remove(
+            dup_obj, do_unlink=True, do_id_user=True, do_ui_user=True
+        )
 
         # Create a bounding box mesh from duplicated objects
-        mesh = bpy.data.meshes.new('iops_bbox_mesh')
+        mesh = bpy.data.meshes.new("iops_bbox_mesh")
         mesh.from_pydata(bbox_verts, [], [])
         bbox = bpy.data.objects.new("iops_bbox", mesh)
         context.scene.collection.objects.link(bbox)
@@ -418,11 +461,17 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         ray_target = ray_origin + view_vector
 
         if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
-            result, location, normal, index, obj, matrix = scene.ray_cast(view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e+38)
+            result, location, normal, index, obj, matrix = scene.ray_cast(
+                view_layer.depsgraph, ray_origin, view_vector, distance=1.70141e38
+            )
         elif bpy.app.version[0] == 2 and bpy.app.version[1] <= 90:
-            result, location, normal, index, obj, matrix = scene.ray_cast(view_layer, ray_origin, view_vector, distance=1.70141e+38)
+            result, location, normal, index, obj, matrix = scene.ray_cast(
+                view_layer, ray_origin, view_vector, distance=1.70141e38
+            )
         elif bpy.app.version[0] == 3 and bpy.app.version[1] >= 0:
-            result, location, normal, index, obj, matrix = scene.ray_cast(depsgraph, ray_origin, view_vector, distance=1.70141e+38)
+            result, location, normal, index, obj, matrix = scene.ray_cast(
+                depsgraph, ray_origin, view_vector, distance=1.70141e38
+            )
 
         if result and obj in self.vp_objs:
             context.view_layer.objects.active = obj
@@ -452,17 +501,38 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             if len(bbox) != 0:
                 subd_vert_pos = []
                 bbox_edges = (
-                    (0, 1), (1, 2), (2, 3), (0, 3),
-                    (4, 5), (5, 6), (6, 7), (4, 7),
-                    (0, 4), (1, 5), (2, 6), (3, 7), (0, 6))
+                    (0, 1),
+                    (1, 2),
+                    (2, 3),
+                    (0, 3),
+                    (4, 5),
+                    (5, 6),
+                    (6, 7),
+                    (4, 7),
+                    (0, 4),
+                    (1, 5),
+                    (2, 6),
+                    (3, 7),
+                    (0, 6),
+                )
                 bbox_subd_edges = (
-                    (8, 10), (9, 11), (12, 14), (13, 15),
-                    (16, 17), (8, 12), (10, 14), (18, 19),
-                    (11, 15), (16, 19), (17, 18), (9, 13))
+                    (8, 10),
+                    (9, 11),
+                    (12, 14),
+                    (13, 15),
+                    (16, 17),
+                    (8, 12),
+                    (10, 14),
+                    (18, 19),
+                    (11, 15),
+                    (16, 19),
+                    (17, 18),
+                    (9, 13),
+                )
 
                 # BBox
                 for v in bbox:
-                    pos = Vector(v) @  matrix_trans
+                    pos = Vector(v) @ matrix_trans
                     bbox_verts_3d.append(pos)
 
                 # BBox Edge subD
@@ -470,7 +540,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                     v1 = Vector(bbox[e[0]])
                     v2 = Vector(bbox[e[1]])
                     vertmid = (v1 + v2) / 2
-                    pos = Vector(vertmid) @  matrix_trans
+                    pos = Vector(vertmid) @ matrix_trans
                     bbox_verts_3d.append(pos)
 
                 for e in bbox_subd_edges:
@@ -485,7 +555,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                     pos3D = v
                     pos2D = location_3d_to_region_2d(region, rv3d, pos3D, default=None)
                     if pos2D is None:
-                        pos2D = Vector((0, 0))                    
+                        pos2D = Vector((0, 0))
                     bbox_batch_3d.append(pos3D)
                     bbox_batch.append(pos2D)
 
@@ -502,35 +572,41 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def execute(self, context):
         self.place_origin(context)
         if self.vp_group is not None:
-            bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+            bpy.data.objects.remove(
+                self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+            )
             self.vp_group = None
         try:
             self.clear_draw_handlers()
         except ValueError:
-            pass    
+            pass
         self.orphan_data_purge(context)
         return {"FINISHED"}
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+        if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             # allow navigation
-            return {'PASS_THROUGH'}
+            return {"PASS_THROUGH"}
         # Pick up in Local space
         elif event.shift:
-            if event.type == 'LEFTMOUSE' and event.value == "PRESS":
+            if event.type == "LEFTMOUSE" and event.value == "PRESS":
                 self.mouse_pos = event.mouse_region_x, event.mouse_region_y
                 self.scene_ray_cast(context)
                 self.object_bbox(context)
                 self.calc_distance(context)
                 if self.vp_group is not None:
-                    bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                    bpy.data.objects.remove(
+                        self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                    )
                     self.vp_group = None
                     self.orphan_data_purge(context)
         # Pick up in world space
-        elif event.type == 'F3' and event.value == "PRESS":
+        elif event.type == "F3" and event.value == "PRESS":
             if self.vp_group is not None:
-                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
                 self.vp_group = None
                 self.orphan_data_purge(context)
             if self.vp_group is None:
@@ -540,7 +616,9 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
         elif event.type == "F1" and event.value == "PRESS":
             if self.vp_group is not None:
-                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
                 self.vp_group = None
                 self.orphan_data_purge(context)
             if self.vp_group is None:
@@ -554,31 +632,37 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             self.object_bbox(context)
             self.calc_distance(context)
             if self.vp_group is not None:
-                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
                 self.vp_group = None
                 self.orphan_data_purge(context)
-     
-        elif event.type == 'W' and event.value == "PRESS":
+
+        elif event.type == "W" and event.value == "PRESS":
             self.origin_to_world(context)
             if self.vp_group is not None:
-                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
             self.vp_group = None
             self.clear_draw_handlers()
-            self.orphan_data_purge(context)            
+            self.orphan_data_purge(context)
             return {"FINISHED"}
 
-        elif event.type == 'M' and event.value == "PRESS":
+        elif event.type == "M" and event.value == "PRESS":
             self.move_selected_to_world(context)
             if self.vp_group is not None:
-                bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
             self.vp_group = None
             self.clear_draw_handlers()
-            self.orphan_data_purge(context)             
+            self.orphan_data_purge(context)
             return {"FINISHED"}
 
-        elif event.type == 'MOUSEMOVE':
+        elif event.type == "MOUSEMOVE":
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
-            self.calc_distance(context)            
+            self.calc_distance(context)
 
         elif event.type in {"LEFTMOUSE", "SPACE"}:
             self.execute(context)
@@ -587,23 +671,28 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                 context.scene.cursor.rotation_euler = self.cursor[1]
             return {"FINISHED"}
 
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+        elif event.type in {"RIGHTMOUSE", "ESC"}:
             self.mouse_pos = [0, 0]
             self.result = False
             self.result_obj = None
             if self.vp_group:
-                    bpy.data.objects.remove(self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True)
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
             self.clear_draw_handlers()
             self.orphan_data_purge(context)
-            return {'CANCELLED'}
+            return {"CANCELLED"}
 
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
         preferences = context.preferences
-        if context.space_data.type == 'VIEW_3D':
+        if context.space_data.type == "VIEW_3D":
             # store_cursor loc and rot
-            self.cursor = [context.scene.cursor.location.copy(),context.scene.cursor.rotation_euler.copy()]
+            self.cursor = [
+                context.scene.cursor.location.copy(),
+                context.scene.cursor.rotation_euler.copy(),
+            ]
             args = (self, context)
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
             self.result_obj, self.vp_objs = self.getActiveFromSelected(context)
@@ -612,14 +701,27 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             uidpi = int((72 * preferences.system.ui_scale))
             args_text = (self, context, uidpi, preferences.system.ui_scale)
             # Add draw handlers
-            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(draw_iops_text, args_text, 'WINDOW', 'POST_PIXEL')
-            self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_lines, args, 'WINDOW', 'POST_VIEW')
-            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_cage_points, args, 'WINDOW', 'POST_PIXEL')
-            self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(draw_bbox_active_point, args, 'WINDOW', 'POST_PIXEL')
-            self.vp_handlers = [self._handle_iops_text, self._handle_bbox_lines, self._handle_bbox_points, self._handle_bbox_act_point]
+            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+                draw_iops_text, args_text, "WINDOW", "POST_PIXEL"
+            )
+            self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(
+                draw_bbox_lines, args, "WINDOW", "POST_VIEW"
+            )
+            self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(
+                draw_bbox_cage_points, args, "WINDOW", "POST_PIXEL"
+            )
+            self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(
+                draw_bbox_active_point, args, "WINDOW", "POST_PIXEL"
+            )
+            self.vp_handlers = [
+                self._handle_iops_text,
+                self._handle_bbox_lines,
+                self._handle_bbox_points,
+                self._handle_bbox_act_point,
+            ]
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
-            return {'RUNNING_MODAL'}
+            return {"RUNNING_MODAL"}
         else:
-            self.report({'WARNING'}, "Active space must be a View3d")
-            return {'CANCELLED'}
+            self.report({"WARNING"}, "Active space must be a View3d")
+            return {"CANCELLED"}

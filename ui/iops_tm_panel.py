@@ -1,45 +1,50 @@
 import bpy
-from .. utils.functions import get_addon
+from ..utils.functions import get_addon
 
 
 class IOPS_OT_transform_orientation_create(bpy.types.Operator):
     """Tooltip"""
+
     bl_idname = "iops.transform_orientation_create"
     bl_label = "Create custom transformation orientation"
 
     def execute(self, context):
         bpy.ops.transform.create_orientation(use=True)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
     """UVmaps names homonization. Make uvmap names identical"""
+
     bl_idname = "iops.homonize_uvmaps_names"
     bl_label = "UVmaps names homonization"
 
     @classmethod
     def poll(self, context):
-        return (context.active_object and
-                context.mode == "OBJECT" and
-                context.view_layer.objects.active.type == "MESH" )
+        return (
+            context.active_object
+            and context.mode == "OBJECT"
+            and context.view_layer.objects.active.type == "MESH"
+        )
 
     def execute(self, context):
         objs = []
         for ob in bpy.context.selected_objects:
-            if ob.type == 'MESH':
+            if ob.type == "MESH":
                 objs.append(ob)
         if objs:
             for ob in objs:
                 uv_list = ob.data.uv_layers
                 if uv_list:
                     for ch in range(len(uv_list)):
-                        uv_list[ch].name = "ch" + str(ch+1)
-                        print (uv_list[ch].name)
-        return {'FINISHED'}
+                        uv_list[ch].name = "ch" + str(ch + 1)
+                        print(uv_list[ch].name)
+        return {"FINISHED"}
 
 
 class IOPS_OT_transform_orientation_delete(bpy.types.Operator):
     """Tooltip"""
+
     bl_idname = "iops.transform_orientation_delete"
     bl_label = "Delete custom transformation orientation "
 
@@ -47,11 +52,12 @@ class IOPS_OT_transform_orientation_delete(bpy.types.Operator):
         slot = bpy.context.scene.transform_orientation_slots[0]
         if slot.custom_orientation:
             bpy.ops.transform.delete_orientation()
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class IOPS_OT_transform_orientation_cleanup(bpy.types.Operator):
     """Tooltip"""
+
     bl_idname = "iops.transform_orientation_cleanup"
     bl_label = "Transformation orientations cleanup "
 
@@ -59,43 +65,53 @@ class IOPS_OT_transform_orientation_cleanup(bpy.types.Operator):
         slots = bpy.context.scene.transform_orientation_slots
         for s in slots:
             if s.custom_orientation:
-                bpy.ops.transform.select_orientation(orientation=str(s.custom_orientation.name))
+                bpy.ops.transform.select_orientation(
+                    orientation=str(s.custom_orientation.name)
+                )
                 bpy.ops.transform.delete_orientation()
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class IOPS_OT_edit_origin(bpy.types.Operator):
     """Tooltip"""
+
     bl_idname = "iops.edit_origin"
     bl_label = "Edit origin enable"
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and context.active_object)
+        return context.area.type == "VIEW_3D" and context.active_object
 
     def execute(self, context):
         if context.tool_settings.use_transform_data_origin:
-            bpy.context.active_object.show_in_front = context.tool_settings.use_transform_data_origin = False
+            bpy.context.active_object.show_in_front = (
+                context.tool_settings.use_transform_data_origin
+            ) = False
         else:
-            bpy.context.active_object.show_in_front = context.tool_settings.use_transform_data_origin = True
-        return {'FINISHED'}
+            bpy.context.active_object.show_in_front = (
+                context.tool_settings.use_transform_data_origin
+            ) = True
+        return {"FINISHED"}
 
 
 class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
     """Tooltip"""
+
     bl_idname = "iops.uvmaps_cleanup"
     bl_label = "UVmaps cleanup"
 
     @classmethod
     def poll(self, context):
-        return (context.active_object and
-                context.mode == "OBJECT" and
-                context.view_layer.objects.active.type == "MESH" )
+        return (
+            context.active_object
+            and context.mode == "OBJECT"
+            and context.view_layer.objects.active.type == "MESH"
+        )
 
     def execute(self, context):
         objs = []
         for ob in bpy.context.selected_objects:
-            if ob.type == 'MESH':
+            if ob.type == "MESH":
                 objs.append(ob)
 
         if objs:
@@ -103,15 +119,16 @@ class IOPS_OT_uvmaps_cleanup(bpy.types.Operator):
                 uv_list = ob.data.uv_layers.keys()
                 for uv in uv_list:
                     ob.data.uv_layers.remove(ob.data.uv_layers[uv])
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class IOPS_PT_TPS_Panel(bpy.types.Panel):
     """Tranformation,PivotPoint,Snapping panel"""
+
     bl_label = "IOPS TPS"
     bl_idname = "IOPS_PT_TPS_Panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'WINDOW'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "WINDOW"
     # bl_category = 'Item'
 
     def draw(self, context):
@@ -138,44 +155,81 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
         row.prop(tool_settings, "use_snap", text="")
         row.prop(tool_settings, "use_mesh_automerge", text="")
-        row.prop(tool_settings, "use_mesh_automerge_and_split", text="", icon='MOD_BOOLEAN')
+        row.prop(
+            tool_settings, "use_mesh_automerge_and_split", text="", icon="MOD_BOOLEAN"
+        )
         row.separator()
-        row.prop(tool_settings, "use_transform_correct_face_attributes",  text="", icon='UV')
-        row.prop(tool_settings, "use_transform_correct_keep_connected", text="", icon='STICKY_UVS_LOC')
-        row.prop(tool_settings, "use_edge_path_live_unwrap", text="", icon='UV_SYNC_SELECT')
+        row.prop(
+            tool_settings, "use_transform_correct_face_attributes", text="", icon="UV"
+        )
+        row.prop(
+            tool_settings,
+            "use_transform_correct_keep_connected",
+            text="",
+            icon="STICKY_UVS_LOC",
+        )
+        row.prop(
+            tool_settings, "use_edge_path_live_unwrap", text="", icon="UV_SYNC_SELECT"
+        )
         row.separator()
-        row.operator("iops.transform_orientation_create", text="", icon='ADD')
+        row.operator("iops.transform_orientation_create", text="", icon="ADD")
         row.separator()
-        row.operator("iops.homonize_uvmaps_names", text="", icon='UV_DATA')
-        row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
-        row.operator("iops.object_name_from_active", text="", icon='OUTLINER_DATA_FONT')
+        row.operator("iops.homonize_uvmaps_names", text="", icon="UV_DATA")
+        row.operator("iops.uvmaps_cleanup", text="", icon="BRUSH_DATA")
+        row.operator("iops.object_name_from_active", text="", icon="OUTLINER_DATA_FONT")
 
         if batchops:
             row.separator()
-            row.operator("batch_ops_objects.rename", text="", icon='OUTLINER_DATA_FONT').use_pattern = False
+            row.operator(
+                "batch_ops_objects.rename", text="", icon="OUTLINER_DATA_FONT"
+            ).use_pattern = False
 
         if ueops:
             row.separator()
-            row.operator('ueops.add_object_to_active_object_collection', icon='ADD', text="")
-            row.operator('ueops.remove_object_from_collection', icon='REMOVE', text="")
-            row.operator('ueops.outliner_make_collection_active_by_active_object', text="", icon='LAYER_ACTIVE')
-            row.operator('ueops.select_collection_objects', text="", icon='RESTRICT_SELECT_OFF')
-            row.operator('ueops.cleanup_empty_collections', text="", icon='PANEL_CLOSE')
+            row.operator(
+                "ueops.add_object_to_active_object_collection", icon="ADD", text=""
+            )
+            row.operator("ueops.remove_object_from_collection", icon="REMOVE", text="")
+            row.operator(
+                "ueops.outliner_make_collection_active_by_active_object",
+                text="",
+                icon="LAYER_ACTIVE",
+            )
+            row.operator(
+                "ueops.select_collection_objects", text="", icon="RESTRICT_SELECT_OFF"
+            )
+            row.operator("ueops.cleanup_empty_collections", text="", icon="PANEL_CLOSE")
 
-        if machinetools and context.preferences.addons['MACHIN3tools'].preferences.activate_shading_pie == True:
+        if (
+            machinetools
+            and context.preferences.addons[
+                "MACHIN3tools"
+            ].preferences.activate_shading_pie
+            == True
+        ):
             row.separator()
             active = context.active_object
             if active:
                 if active.type == "MESH":
                     mesh = active.data
-                    row.operator("machin3.shade", text="", icon='NODE_MATERIAL').mode = "SMOOTH"
-                    row.operator("machin3.shade", text="", icon='MATCUBE').mode = "FLAT"
+                    row.operator(
+                        "machin3.shade", text="", icon="NODE_MATERIAL"
+                    ).mode = "SMOOTH"
+                    row.operator("machin3.shade", text="", icon="MATCUBE").mode = "FLAT"
                     state = True if mesh.use_auto_smooth else False
-                    row.operator("machin3.toggle_auto_smooth", text="", icon='AUTO', depress=state)
+                    row.operator(
+                        "machin3.toggle_auto_smooth",
+                        text="",
+                        icon="AUTO",
+                        depress=state,
+                    )
 
                     if mesh.use_auto_smooth:
                         if mesh.has_custom_normals:
-                            row.operator("mesh.customdata_custom_splitnormals_clear", text="Clear Custom Normals")
+                            row.operator(
+                                "mesh.customdata_custom_splitnormals_clear",
+                                text="Clear Custom Normals",
+                            )
                         else:
                             row.prop(mesh, "auto_smooth_angle", text="")
                     row.scale_x = 0.25
@@ -192,19 +246,33 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             col.label(text="Transformation:")
             col.prop(orient_slot, "type", expand=True)
             if orientation:
-                col.prop(orientation, "name", text="", icon='OBJECT_ORIGIN')
-                col.operator("iops.transform_orientation_delete", text="", icon='REMOVE')
+                col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
+                col.operator(
+                    "iops.transform_orientation_delete", text="", icon="REMOVE"
+                )
             # Column 2
             col = split.column(align=True)
             col.label(text="PivotPoint:")
             col.prop(tool_settings, "transform_pivot_point", expand=True)
             if ver != 80:
                 row = col.row(align=True)
-                #row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
+                # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                 o_state = True if tool_settings.use_transform_data_origin else False
-                row.operator("iops.edit_origin", text="", icon='OBJECT_ORIGIN', depress=o_state)
-                row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon='CENTER_ONLY')
-                row.prop(tool_settings, "use_transform_skip_children", text="", icon='TRANSFORM_ORIGINS')
+                row.operator(
+                    "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
+                )
+                row.prop(
+                    tool_settings,
+                    "use_transform_pivot_point_align",
+                    text="",
+                    icon="CENTER_ONLY",
+                )
+                row.prop(
+                    tool_settings,
+                    "use_transform_skip_children",
+                    text="",
+                    icon="TRANSFORM_ORIGINS",
+                )
             else:
                 col.prop(tool_settings, "use_transform_pivot_point_align", text="")
             # Column 3
@@ -213,26 +281,35 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row = col.row(align=False)
             # Snap elements
             row.prop(tool_settings, "snap_elements", text="")
-            if 'INCREMENT' in snap_elements:
+            if "INCREMENT" in snap_elements:
                 row.separator()
-                row.prop(tool_settings, "use_snap_grid_absolute", text="", icon='SNAP_GRID')
+                row.prop(
+                    tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
+                )
             # Snap targets
             col.prop(tool_settings, "snap_target", expand=True)
 
             row = col.row(align=False)
             split = row.split(factor=0.5, align=True)
             row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_self", text="", icon='SNAP_ON')
-            row.prop(tool_settings, "use_snap_align_rotation", text="", icon='SNAP_NORMAL')
-            if 'VOLUME' in snap_elements:
-                row.prop(tool_settings, "use_snap_peel_object", text="", icon='SNAP_PEEL_OBJECT')
+            row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
+            row.prop(
+                tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL"
+            )
+            if "VOLUME" in snap_elements:
+                row.prop(
+                    tool_settings,
+                    "use_snap_peel_object",
+                    text="",
+                    icon="SNAP_PEEL_OBJECT",
+                )
             split = split.split()
             row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_translate", text="", icon='CON_LOCLIMIT')
-            row.prop(tool_settings, "use_snap_rotate", text="", icon='CON_ROTLIMIT')
-            row.prop(tool_settings, "use_snap_scale", text="", icon='CON_SIZELIMIT')
+            row.prop(tool_settings, "use_snap_translate", text="", icon="CON_LOCLIMIT")
+            row.prop(tool_settings, "use_snap_rotate", text="", icon="CON_ROTLIMIT")
+            row.prop(tool_settings, "use_snap_scale", text="", icon="CON_SIZELIMIT")
         if context.area.type == "IMAGE_EDITOR":
-            if context.active_object.type == 'MESH' and context.mode == "EDIT_MESH":
+            if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
                 sima = context.space_data
                 show_uvedit = sima.show_uvedit
                 snap_uv_element = tool_settings.snap_uv_element
@@ -258,31 +335,38 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 if show_uvedit:
                     # Snap.
                     col.prop(tool_settings, "snap_uv_element", expand=True)
-                    if 'VERTEX' in snap_uv_element:
+                    if "VERTEX" in snap_uv_element:
                         col.label(text="Target:")
                         col.prop(tool_settings, "snap_target", expand=True)
                     col.label(text="Affect:")
                     row = col.row(align=True)
-                    row.prop(tool_settings, "use_snap_translate", text="Move", toggle=True)
-                    row.prop(tool_settings, "use_snap_rotate", text="Rotate", toggle=True)
+                    row.prop(
+                        tool_settings, "use_snap_translate", text="Move", toggle=True
+                    )
+                    row.prop(
+                        tool_settings, "use_snap_rotate", text="Rotate", toggle=True
+                    )
                     row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
 
 
 class IOPS_PT_TM_Panel(bpy.types.Panel):
     """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
+
     bl_label = "IOPS Transform panel"
     bl_idname = "IOPS_PT_TM_Panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'WINDOW'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "WINDOW"
     # bl_category = 'Item'
     # bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type in ["MESH","CURVE"] and
-                bpy.context.view_layer.objects.active.mode == 'OBJECT')
+        return (
+            context.area.type == "VIEW_3D"
+            and len(context.view_layer.objects.selected) != 0
+            and context.view_layer.objects.active.type in ["MESH", "CURVE"]
+            and bpy.context.view_layer.objects.active.mode == "OBJECT"
+        )
 
     def draw(self, context):
         obj = context.view_layer.objects.active
@@ -294,8 +378,10 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
         col.prop(obj, "scale")
         col.prop(obj, "dimensions")
 
+
 class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
     """Tranformation, PivotPoint, Snapping panel"""
+
     bl_idname = "iops.call_tps_panel"
     bl_label = "IOPS Transformation, PivotPoint, Snaps panel"
 
@@ -305,34 +391,39 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.wm.call_panel(name="IOPS_PT_TPS_Panel", keep_open=True)
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
     """Tranformation panel"""
+
     bl_idname = "iops.call_tm_panel"
     bl_label = "IOPS Transform panel"
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type in ["MESH","CURVE"] and
-                bpy.context.view_layer.objects.active.mode == 'OBJECT')
+        return (
+            context.area.type == "VIEW_3D"
+            and len(context.view_layer.objects.selected) != 0
+            and context.view_layer.objects.active.type in ["MESH", "CURVE"]
+            and bpy.context.view_layer.objects.active.mode == "OBJECT"
+        )
 
     def execute(self, context):
         bpy.ops.wm.call_panel(name="IOPS_PT_TM_Panel", keep_open=True)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class IOPS_PT_VCol_Panel(bpy.types.Panel):
     """VCOL"""
+
     bl_label = "IOPS Vertex Color"
     bl_idname = "IOPS_PT_VCol_Panel"
-    bl_space_type = 'VIEW_3D'
+    bl_space_type = "VIEW_3D"
     # bl_context = "mesh_edit"
-    bl_region_type = 'UI'
-    bl_category = 'iOps'
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_region_type = "UI"
+    bl_category = "iOps"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         # wm = context.window_manager
@@ -343,13 +434,13 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
 
         layout = self.layout
         col = layout.column(align=True)
-        col.prop(brush, 'color', text="")
-        if context.mode == 'OBJECT':
+        col.prop(brush, "color", text="")
+        if context.mode == "OBJECT":
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
                 layout.template_palette(settings, "palette", color=True)
-        col.operator("iops.assign_vertex_color", icon='GROUP_VCOL', text="Set Color")
+        col.operator("iops.assign_vertex_color", icon="GROUP_VCOL", text="Set Color")
         col.separator()
-        col.operator("iops.assign_vertex_color_alpha", icon='GROUP_VCOL', text="Set Alpha")
-
-
+        col.operator(
+            "iops.assign_vertex_color_alpha", icon="GROUP_VCOL", text="Set Alpha"
+        )

@@ -2,11 +2,11 @@ import bpy
 import blf
 import gpu
 from gpu_extras.batch import batch_for_shader
-from bpy.props import (BoolProperty, EnumProperty)
+from bpy.props import BoolProperty, EnumProperty
 
 
 def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons['InteractionOps'].preferences
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     tColor = prefs.text_color
     tKColor = prefs.text_color_key
     tCSize = prefs.text_size
@@ -25,7 +25,7 @@ def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):
         ("Spline type POLY", "F1"),
         ("Spline type BEZIER", "F2"),
         ("Spline type NURBS", "F3"),
-        )
+    )
 
     # FontID
     font = 0
@@ -56,25 +56,24 @@ def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):
 
 
 class IOPS_OT_CurveSplineType(bpy.types.Operator):
-    """ Curve select spline type """
+    """Curve select spline type"""
+
     bl_idname = "iops.curve_spline_type"
     bl_label = "CURVE: Spline type"
     bl_options = {"REGISTER", "UNDO"}
 
-    handles: BoolProperty(
-        name="Use handles",
-        description="Use handles",
-        default=False
-    )
+    handles: BoolProperty(name="Use handles", description="Use handles", default=False)
 
     spl_type = []
     curv_spline_type = []
 
     @classmethod
     def poll(self, context):
-        return (len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "CURVE" and
-                context.view_layer.objects.active.mode == "EDIT")
+        return (
+            len(context.view_layer.objects.selected) != 0
+            and context.view_layer.objects.active.type == "CURVE"
+            and context.view_layer.objects.active.mode == "EDIT"
+        )
 
     def get_curve_active_spline_type(self, context):
         curve = context.view_layer.objects.active.data
@@ -88,9 +87,9 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
 
-        if event.type in {'MIDDLEMOUSE', "WHEELDOWNMOUSE", "WHEELUPMOUSE"}:
+        if event.type in {"MIDDLEMOUSE", "WHEELDOWNMOUSE", "WHEELUPMOUSE"}:
             # Allow navigation
-            return {'PASS_THROUGH'}
+            return {"PASS_THROUGH"}
 
         elif event.type in {"F1"} and event.value == "PRESS":
             self.spl_type = "POLY"
@@ -131,7 +130,9 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             # Add drawing handler for text overlay rendering
             uidpi = int((72 * preferences.system.ui_scale))
             args = (self, context, uidpi, preferences.system.ui_scale)
-            self._handle_text = bpy.types.SpaceView3D.draw_handler_add(draw_iops_curve_spline_types_text_px, args, 'WINDOW', 'POST_PIXEL')
+            self._handle_text = bpy.types.SpaceView3D.draw_handler_add(
+                draw_iops_curve_spline_types_text_px, args, "WINDOW", "POST_PIXEL"
+            )
             # Add modal handler to enter modal mode
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}

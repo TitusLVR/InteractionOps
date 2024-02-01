@@ -6,32 +6,34 @@ from mathutils import Vector
 
 
 def ContextOverride(area):
-    for window in bpy.context.window_manager.windows:      
+    for window in bpy.context.window_manager.windows:
         screen = window.screen
         for screen_area in screen.areas:
-            if screen_area.ui_type == area.ui_type:            
+            if screen_area.ui_type == area.ui_type:
                 for region in screen_area.regions:
-                    if region.type == 'WINDOW':               
-                        context_override = {'window': window, 
-                                            'screen': screen, 
-                                            'area': screen_area, 
-                                            'region': region, 
-                                            'scene': bpy.context.scene, 
-                                            'edit_object': bpy.context.edit_object, 
-                                            'active_object': bpy.context.active_object, 
-                                            'selected_objects': bpy.context.selected_objects
-                                            } 
+                    if region.type == "WINDOW":
+                        context_override = {
+                            "window": window,
+                            "screen": screen,
+                            "area": screen_area,
+                            "region": region,
+                            "scene": bpy.context.scene,
+                            "edit_object": bpy.context.edit_object,
+                            "active_object": bpy.context.active_object,
+                            "selected_objects": bpy.context.selected_objects,
+                        }
                         return context_override
     raise Exception("ERROR: Override failed!")
+
 
 def view_selected_uv():
     active = bpy.context.view_layer.objects.active
     selected_verts = []
     selected_faces = set()
 
-    view_3d = [area for area in bpy.context.screen.areas if area.type == 'VIEW_3D']
+    view_3d = [area for area in bpy.context.screen.areas if area.type == "VIEW_3D"]
     view_3d = view_3d[0]
-    
+
     if bpy.context.tool_settings.use_uv_select_sync == False:
         try:
             mesh = bpy.context.active_object.data
@@ -53,17 +55,19 @@ def view_selected_uv():
             med_z = median([z.co[2] for z in selected_verts])
 
             # Put cursor to selected verts median
-            bpy.context.scene.cursor.location = active.matrix_world @ Vector((med_x, med_y, med_z))
+            bpy.context.scene.cursor.location = active.matrix_world @ Vector(
+                (med_x, med_y, med_z)
+            )
 
             bpy.ops.mesh.hide(unselected=True)
-            bpy.ops.mesh.select_all(action='DESELECT')
-            bpy.ops.uv.select_all(action='DESELECT')
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.uv.select_all(action="DESELECT")
 
             for v in selected_verts:
                 v.select = True
             for f in selected_faces:
                 f.select = True
-        
+
             bm.select_flush(True)
             bmesh.update_edit_mesh(mesh)
 
@@ -71,7 +75,7 @@ def view_selected_uv():
             with bpy.context.temp_override(**context_override):
                 bpy.ops.view3d.view_selected()
 
-            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.select_all(action="SELECT")
             bpy.ops.mesh.reveal(select=False)
 
         except StatisticsError:
@@ -83,7 +87,7 @@ def view_selected_uv():
 
 
 def get_iop(dictionary, query):
-    debug = bpy.context.preferences.addons['InteractionOps'].preferences.IOPS_DEBUG
+    debug = bpy.context.preferences.addons["InteractionOps"].preferences.IOPS_DEBUG
     if debug:
         print("Query from Blender:", query)
     current = dictionary
@@ -94,7 +98,7 @@ def get_iop(dictionary, query):
         current = next_
         if not isinstance(current, dict):
             return current
-    return (lambda: print("No entry in the dictionary for ", [q for q in query]))
+    return lambda: print("No entry in the dictionary for ", [q for q in query])
 
 
 def get_addon(addon, debug=False):
@@ -152,7 +156,9 @@ def curve_spline_type():
 
 
 def cursor_origin_mesh():
-    if bpy.context.view_layer.objects.selected[:] != [] and bpy.context.view_layer.objects.active.type in {"MESH", "LIGHT"}:
+    if bpy.context.view_layer.objects.selected[
+        :
+    ] != [] and bpy.context.view_layer.objects.active.type in {"MESH", "LIGHT"}:
         bpy.ops.iops.cursor_origin_mesh("INVOKE_DEFAULT")
     else:
         print("VisualOrigin: Selection is empty!")
@@ -182,8 +188,10 @@ def match_dimensions():
         for ob in selection:
             ob.dimensions = active.dimensions
 
+
 def set_display_mode(mode):
     bpy.context.area.spaces.active.display_mode = mode
+
 
 ############################## ZALOOPOK ##############################
 def z_connect():
@@ -199,9 +207,9 @@ def z_connect():
                 fs.add(lf)
         if fs:
             es.add(e)
-    r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)['geom_split']
+    r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)["geom_split"]
     vs = [a for a in r1 if type(a) == bmesh.types.BMVert]
-    r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)['edges']
+    r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)["edges"]
     for e in r2:
         e.select = True
     bmesh.update_edit_mesh(mesh)
@@ -211,7 +219,9 @@ def z_connect():
 def ShowMessageBox(text="", title="WARNING", icon="ERROR"):
     def draw(self, context):
         self.layout.label(text=text)
+
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+
 
 def get_active_and_selected():
     active = bpy.context.view_layer.objects.active
@@ -221,22 +231,38 @@ def get_active_and_selected():
             objects.append(ob)
     return active, objects
 
+
 ############################## Keymaps ##############################
 
-def register_keymaps(keys): 
+
+def register_keymaps(keys):
     # keyconfigs = bpy.context.window_manager.keyconfigs
-    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window").keymap_items
-    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Mesh").keymap_items
-    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Object Mode").keymap_items
+    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+        "Window"
+    ).keymap_items
+    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+        "Mesh"
+    ).keymap_items
+    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+        "Object Mode"
+    ).keymap_items
     for k in keys:
-        if ".z_" in k[0]:   # Make z_ops in mesh keymaps
-            keymapItemsMesh.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
-        elif "iops.mesh" in k[0]:   # Make iops.mesh in mesh keymaps
-            keymapItemsMesh.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
-        elif "iops.object" in k[0]:   # Make iops.object in mesh keymaps
-            keymapItemsObject.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+        if ".z_" in k[0]:  # Make z_ops in mesh keymaps
+            keymapItemsMesh.new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
+        elif "iops.mesh" in k[0]:  # Make iops.mesh in mesh keymaps
+            keymapItemsMesh.new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
+        elif "iops.object" in k[0]:  # Make iops.object in mesh keymaps
+            keymapItemsObject.new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
         else:
-            keymapItems.new(k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6])
+            keymapItems.new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
 
 
 def unregister_keymaps():
@@ -246,10 +272,7 @@ def unregister_keymaps():
             if keymap:
                 keymapItems = keymap.keymap_items
                 toDelete = tuple(
-                    item for item in keymapItems if item.idname.startswith('iops.'))
+                    item for item in keymapItems if item.idname.startswith("iops.")
+                )
                 for item in toDelete:
                     keymapItems.remove(item)
-
-
-
-

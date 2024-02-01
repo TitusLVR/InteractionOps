@@ -2,11 +2,13 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 import blf
-from bpy.props import (IntProperty,
-                       FloatProperty,
-                       BoolProperty,
-                       StringProperty,
-                       FloatVectorProperty)
+from bpy.props import (
+    IntProperty,
+    FloatProperty,
+    BoolProperty,
+    StringProperty,
+    FloatVectorProperty,
+)
 import bmesh
 import math
 from math import radians, degrees
@@ -15,7 +17,8 @@ import copy
 
 
 class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
-    """ Align object to selected face """
+    """Align object to selected face"""
+
     bl_idname = "iops.align_origin_to_normal"
     bl_label = "MESH: Align origin to face normal"
     bl_options = {"REGISTER", "UNDO"}
@@ -25,11 +28,12 @@ class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        return (context.area.type == "VIEW_3D" and
-                context.mode == "EDIT_MESH" and
-                len(context.view_layer.objects.selected) != 0 and
-                context.view_layer.objects.active.type == "MESH")
-
+        return (
+            context.area.type == "VIEW_3D"
+            and context.mode == "EDIT_MESH"
+            and len(context.view_layer.objects.selected) != 0
+            and context.view_layer.objects.active.type == "MESH"
+        )
 
     def align_origin_to_normal(self):
 
@@ -41,7 +45,7 @@ class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
         obj = bpy.context.view_layer.objects.active
         mx = obj.matrix_world.copy()
         loc = mx.to_translation()  # Store location
-        scale = mx.to_scale()      # Store scale
+        scale = mx.to_scale()  # Store scale
         polymesh = obj.data
         bm = bmesh.from_edit_mesh(polymesh)
         face = bm.faces.active
@@ -50,9 +54,9 @@ class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
         tangent = face.calc_tangent_edge()
 
         # Build vectors for new matrix
-        n = face.normal                                 
-        t = tangent                           
-        c = n.cross(t)                              
+        n = face.normal
+        t = tangent
+        c = n.cross(t)
 
         # Assemble new matrix
         mx_new = Matrix((t * -1.0, c * -1.0, n)).transposed().to_4x4()
@@ -66,19 +70,22 @@ class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
         obj.scale = scale
 
         bpy.ops.object.mode_set(mode="OBJECT")
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False, properties=False)
+        bpy.ops.object.transform_apply(
+            location=False, rotation=True, scale=False, properties=False
+        )
         obj.rotation_euler = new_rot
-
 
     def execute(self, context):
         if context.object and context.area.type == "VIEW_3D":
             # Apply transform so it works multiple times
             bpy.ops.object.mode_set(mode="OBJECT")
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=False, properties=False)
+            bpy.ops.object.transform_apply(
+                location=False, rotation=True, scale=False, properties=False
+            )
             bpy.ops.object.mode_set(mode="EDIT")
 
             # Initialize axis and assign starting values for object's location
-            self.axis_rotate = 'Z'
+            self.axis_rotate = "Z"
             self.flip = True
             self.edge_idx = 0
             self.counter = 0

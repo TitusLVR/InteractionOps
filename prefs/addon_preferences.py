@@ -1,23 +1,26 @@
 import bpy
 from mathutils import Vector
-from bpy.types import (Operator,
-                       Menu,
-                       Panel,
-                       PropertyGroup,
-                       AddonPreferences,
-                       )
-from bpy.props import (BoolProperty,
-                       EnumProperty,
-                       FloatProperty,
-                       IntProperty,
-                       PointerProperty,
-                       StringProperty,
-                       FloatVectorProperty,
-                       )
-from ..ui.iops_tm_panel import (IOPS_PT_VCol_Panel)
+from bpy.types import (
+    Operator,
+    Menu,
+    Panel,
+    PropertyGroup,
+    AddonPreferences,
+)
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    IntProperty,
+    PointerProperty,
+    StringProperty,
+    FloatVectorProperty,
+)
+from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
+
 
 def update_category(self, context):
     message = "Panel Update Failed"
@@ -27,7 +30,9 @@ def update_category(self, context):
                 bpy.utils.unregister_class(panel)
 
         for panel in panels:
-            panel.bl_category = context.preferences.addons["InteractionOps"].preferences.category
+            panel.bl_category = context.preferences.addons[
+                "InteractionOps"
+            ].preferences.category
             bpy.utils.register_class(panel)
 
     except Exception as e:
@@ -37,196 +42,176 @@ def update_category(self, context):
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
-    
-    category: StringProperty(
-            name="Tab Name",
-            description="Choose a name for the category of the panel",
-            default="iOps",
-            update=update_category
-            )
-    
-    # list itens (identifier, name, description, icon, number,)
-    #Area.type, Area.ui_type, Icon, PrefText
-    tabs: bpy.props.EnumProperty(
-        name="Preferences", 
-        items=[('PREFS','Preferences',''),
-               ('KM','Keymaps','')],
-        default="PREFS"
-        )
-    
-    split_areas_dict = {
-            "Empty": {
-                    "type": "EMPTY",
-                    "ui": "EMPTY",
-                    "icon": 'NONE',
-                    "num":0
-            },
-            "3D Viewport": {
-                    "type": "VIEW_3D",
-                    "ui": "VIEW_3D",
-                    "icon": "VIEW3D",
-                    "num":1
-            },
-            "Image Editor": {
-                    "type": "IMAGE_EDITOR",
-                    "ui": "IMAGE_EDITOR",
-                    "icon": "IMAGE",
-                    "num":2
-            },
-            "UV Editor": {
-                    "type": "IMAGE_EDITOR",
-                    "ui": "UV",
-                    "icon": "UV",
-                    "num":3
-            },
-            "Shader Editor": {
-                    "type": "NODE_EDITOR",
-                    "ui": "ShaderNodeTree",
-                    "icon": "NODE_MATERIAL",
-                    "num":4
-            },
-            "Compositor": {
-                    "type": "NODE_EDITOR",
-                    "ui": "CompositorNodeTree",
-                    "icon": "NODE_COMPOSITING",
-                    "num":5
-            },
-            "Texture Node Editor": {
-                    "type": "NODE_EDITOR",
-                    "ui": "TextureNodeTree",
-                    "icon": "NODE_TEXTURE",
-                    "num":6
-            },
-            "Video Sequencer": {
-                    "type": "SEQUENCE_EDITOR",
-                    "ui": "SEQUENCE_EDITOR",
-                    "icon": "SEQUENCE",
-                    "num":7
-            },
-            "Movie Clip Editor": {
-                    "type": "CLIP_EDITOR",
-                    "ui": "CLIP_EDITOR",
-                    "icon": "TRACKER",
-                    "num":8
-            },
-            "Dope Sheet": {
-                    "type": "DOPESHEET_EDITOR",
-                    "ui": "DOPESHEET",
-                    "icon": "ACTION",
-                    "num":9
-            },
-            "Timeline": {
-                    "type": "DOPESHEET_EDITOR",
-                    "ui": "TIMELINE",
-                    "icon": "TIME",
-                    "num":10
-            },
-            "Graph Editor": {
-                    "type": "GRAPH_EDITOR",
-                    "ui": "FCURVES",
-                    "icon": "GRAPH",
-                    "num":11
-            },
-            "Drivers": {
-                    "type": "GRAPH_EDITOR",
-                    "ui": "DRIVERS",
-                    "icon": "DRIVER",
-                    "num":12
-            },
-            "Nonlinear Animation": {
-                    "type": "NLA_EDITOR",
-                    "ui": "NLA_EDITOR",
-                    "icon": "NLA",
-                    "num":13
-            },
-            "Text Editor": {
-                    "type": "TEXT_EDITOR",
-                    "ui": "TEXT_EDITOR",
-                    "icon": "TEXT",
-                    "num":14
-            },
-            "Python Console": {
-                    "type": "CONSOLE",
-                    "ui": "CONSOLE",
-                    "icon": "CONSOLE",
-                    "num":15
-            },
-            "Info": {
-                    "type": "INFO",
-                    "ui": "INFO",
-                    "icon": "INFO",
-                    "num":16
-            },
-            "Outliner": {
-                    "type": "OUTLINER",
-                    "ui": "OUTLINER",
-                    "icon": "OUTLINER",
-                    "num":17
-            },
-            "Properties": {
-                    "type": "PROPERTIES",
-                    "ui": "PROPERTIES",
-                    "icon": "PROPERTIES",
-                    "num":18
-            },
-            "File Browser": {
-                    "type": "FILE_BROWSER",
-                    "ui": "FILE_BROWSER",
-                    "icon": "FILEBROWSER",
-                    "num":19
-            },
-            "Preferences": {
-                    "type": "PREFERENCES",
-                    "ui": "PREFERENCES",
-                    "icon": "PREFERENCES",
-                    "num":20
-            },
-            "Geometry Nodes": {
-                    "type": "NODE_EDITOR",
-                    "ui": "GeometryNodeTree",
-                    "icon": "NODETREE",
-                    "num":21
-            },
-            "Spreadsheet": {
-                    "type": "SPREADSHEET",
-                    "ui": "SPREADSHEET",
-                    "icon": "SPREADSHEET",
-                    "num":22
-            }
 
-             
+    category: StringProperty(
+        name="Tab Name",
+        description="Choose a name for the category of the panel",
+        default="iOps",
+        update=update_category,
+    )
+
+    # list itens (identifier, name, description, icon, number,)
+    # Area.type, Area.ui_type, Icon, PrefText
+    tabs: bpy.props.EnumProperty(
+        name="Preferences",
+        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", "")],
+        default="PREFS",
+    )
+
+    split_areas_dict = {
+        "Empty": {"type": "EMPTY", "ui": "EMPTY", "icon": "NONE", "num": 0},
+        "3D Viewport": {"type": "VIEW_3D", "ui": "VIEW_3D", "icon": "VIEW3D", "num": 1},
+        "Image Editor": {
+            "type": "IMAGE_EDITOR",
+            "ui": "IMAGE_EDITOR",
+            "icon": "IMAGE",
+            "num": 2,
+        },
+        "UV Editor": {"type": "IMAGE_EDITOR", "ui": "UV", "icon": "UV", "num": 3},
+        "Shader Editor": {
+            "type": "NODE_EDITOR",
+            "ui": "ShaderNodeTree",
+            "icon": "NODE_MATERIAL",
+            "num": 4,
+        },
+        "Compositor": {
+            "type": "NODE_EDITOR",
+            "ui": "CompositorNodeTree",
+            "icon": "NODE_COMPOSITING",
+            "num": 5,
+        },
+        "Texture Node Editor": {
+            "type": "NODE_EDITOR",
+            "ui": "TextureNodeTree",
+            "icon": "NODE_TEXTURE",
+            "num": 6,
+        },
+        "Video Sequencer": {
+            "type": "SEQUENCE_EDITOR",
+            "ui": "SEQUENCE_EDITOR",
+            "icon": "SEQUENCE",
+            "num": 7,
+        },
+        "Movie Clip Editor": {
+            "type": "CLIP_EDITOR",
+            "ui": "CLIP_EDITOR",
+            "icon": "TRACKER",
+            "num": 8,
+        },
+        "Dope Sheet": {
+            "type": "DOPESHEET_EDITOR",
+            "ui": "DOPESHEET",
+            "icon": "ACTION",
+            "num": 9,
+        },
+        "Timeline": {
+            "type": "DOPESHEET_EDITOR",
+            "ui": "TIMELINE",
+            "icon": "TIME",
+            "num": 10,
+        },
+        "Graph Editor": {
+            "type": "GRAPH_EDITOR",
+            "ui": "FCURVES",
+            "icon": "GRAPH",
+            "num": 11,
+        },
+        "Drivers": {
+            "type": "GRAPH_EDITOR",
+            "ui": "DRIVERS",
+            "icon": "DRIVER",
+            "num": 12,
+        },
+        "Nonlinear Animation": {
+            "type": "NLA_EDITOR",
+            "ui": "NLA_EDITOR",
+            "icon": "NLA",
+            "num": 13,
+        },
+        "Text Editor": {
+            "type": "TEXT_EDITOR",
+            "ui": "TEXT_EDITOR",
+            "icon": "TEXT",
+            "num": 14,
+        },
+        "Python Console": {
+            "type": "CONSOLE",
+            "ui": "CONSOLE",
+            "icon": "CONSOLE",
+            "num": 15,
+        },
+        "Info": {"type": "INFO", "ui": "INFO", "icon": "INFO", "num": 16},
+        "Outliner": {
+            "type": "OUTLINER",
+            "ui": "OUTLINER",
+            "icon": "OUTLINER",
+            "num": 17,
+        },
+        "Properties": {
+            "type": "PROPERTIES",
+            "ui": "PROPERTIES",
+            "icon": "PROPERTIES",
+            "num": 18,
+        },
+        "File Browser": {
+            "type": "FILE_BROWSER",
+            "ui": "FILE_BROWSER",
+            "icon": "FILEBROWSER",
+            "num": 19,
+        },
+        "Preferences": {
+            "type": "PREFERENCES",
+            "ui": "PREFERENCES",
+            "icon": "PREFERENCES",
+            "num": 20,
+        },
+        "Geometry Nodes": {
+            "type": "NODE_EDITOR",
+            "ui": "GeometryNodeTree",
+            "icon": "NODETREE",
+            "num": 21,
+        },
+        "Spreadsheet": {
+            "type": "SPREADSHEET",
+            "ui": "SPREADSHEET",
+            "icon": "SPREADSHEET",
+            "num": 22,
+        },
     }
-    file_browser_name = 'FILE_BROWSER'
+    file_browser_name = "FILE_BROWSER"
     if bpy.app.version[1] >= 92:
         file_browser_name = "FILES"
-        split_areas_dict['File Browser']['ui'] = "FILES"
-        split_areas_dict['Asset Browser'] = {
-                                             "type": "FILE_BROWSER",
-                                             "ui": "ASSETS",
-                                             "icon": "ASSET_MANAGER",
-                                             "num":23
-                                            }
+        split_areas_dict["File Browser"]["ui"] = "FILES"
+        split_areas_dict["Asset Browser"] = {
+            "type": "FILE_BROWSER",
+            "ui": "ASSETS",
+            "icon": "ASSET_MANAGER",
+            "num": 23,
+        }
     if bpy.app.version[0] >= 3:
         file_browser_name = "FILES"
-        split_areas_dict['File Browser']['ui'] = "FILES"
-        split_areas_dict['Asset Browser'] = {
-                                             "type": "FILE_BROWSER",
-                                             "ui": "ASSETS",
-                                             "icon": "ASSET_MANAGER",
-                                             "num":23
-                                            }
+        split_areas_dict["File Browser"]["ui"] = "FILES"
+        split_areas_dict["Asset Browser"] = {
+            "type": "FILE_BROWSER",
+            "ui": "ASSETS",
+            "icon": "ASSET_MANAGER",
+            "num": 23,
+        }
 
-    split_areas_list = [(v["ui"], k, "", v["icon"], v["num"]) for  k, v in split_areas_dict.items()]
-    
-    split_areas_position_list = [('LEFT',   'LEFT',   '',  '',   0),
-                                 ('RIGHT',  'RIGHT',  '',  '',   1),
-                                 ('TOP',    'TOP',    '',  '',   2),
-                                 ('BOTTOM', 'BOTTOM', '',  '',   3)]
+    split_areas_list = [
+        (v["ui"], k, "", v["icon"], v["num"]) for k, v in split_areas_dict.items()
+    ]
 
+    split_areas_position_list = [
+        ("LEFT", "LEFT", "", "", 0),
+        ("RIGHT", "RIGHT", "", "", 1),
+        ("TOP", "TOP", "", "", 2),
+        ("BOTTOM", "BOTTOM", "", "", 3),
+    ]
 
     text_color: FloatVectorProperty(
         name="Color",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
@@ -235,7 +220,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     text_color_key: FloatVectorProperty(
         name="Color key",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
@@ -247,7 +232,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Modal operators text size",
         default=20,
         soft_min=1,
-        soft_max=100
+        soft_max=100,
     )
 
     text_pos_x: IntProperty(
@@ -255,7 +240,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Modal operators Text pos X",
         default=60,
         soft_min=1,
-        soft_max=10000
+        soft_max=10000,
     )
 
     text_pos_y: IntProperty(
@@ -263,38 +248,31 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Modal operators Text pos Y",
         default=60,
         soft_min=1,
-        soft_max=10000
+        soft_max=10000,
     )
 
     text_shadow_color: FloatVectorProperty(
         name="Shadow",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
         default=(0.0, 0.0, 0.0, 1.0),
     )
 
-    text_shadow_toggle: BoolProperty(
-        name="ON/OFF",
-        description="ON/Off",
-        default=False
-    )
+    text_shadow_toggle: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
 
-    IOPS_DEBUG: BoolProperty(
-        name="Query debug",
-        description="ON/Off",
-        default=False
-    )
+    IOPS_DEBUG: BoolProperty(name="Query debug", description="ON/Off", default=False)
 
     text_shadow_blur: EnumProperty(
-        name='Blur',
-        description='Could be 0,3,5',
+        name="Blur",
+        description="Could be 0,3,5",
         items=[
-            ('0', 'None', '', '', 0),
-            ('3', 'Mid', '', '', 3),
-            ('5', 'High', '', '', 5)],
-        default='0',
+            ("0", "None", "", "", 0),
+            ("3", "Mid", "", "", 3),
+            ("5", "High", "", "", 5),
+        ],
+        default="0",
     )
 
     text_shadow_pos_x: IntProperty(
@@ -302,28 +280,29 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Modal operators Text pos X",
         default=2,
         soft_min=-50,
-        soft_max=50
+        soft_max=50,
     )
     text_shadow_pos_y: IntProperty(
         name="Shadow pos Y",
         description="Modal operators Text pos Y",
         default=-2,
         soft_min=-50,
-        soft_max=50
+        soft_max=50,
     )
 
     vo_cage_color: FloatVectorProperty(
         name="Cage color",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25)) - Vector((0.3,0.3,0.3,0)),
+        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25))
+        - Vector((0.3, 0.3, 0.3, 0)),
     )
 
     vo_cage_points_color: FloatVectorProperty(
         name="Cage points color",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
@@ -332,11 +311,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     vo_cage_ap_color: FloatVectorProperty(
         name="Active point color",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)) - Vector((0.2,0.2,0.2,0)),
+        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5))
+        - Vector((0.2, 0.2, 0.2, 0)),
     )
 
     vo_cage_p_size: IntProperty(
@@ -344,7 +324,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Visual origin cage point size",
         default=2,
         soft_min=2,
-        soft_max=20
+        soft_max=20,
     )
 
     vo_cage_ap_size: IntProperty(
@@ -352,12 +332,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Visual origin active point size",
         default=4,
         soft_min=2,
-        soft_max=20
+        soft_max=20,
     )
 
     align_edge_color: FloatVectorProperty(
         name="Edge color",
-        subtype='COLOR_GAMMA',
+        subtype="COLOR_GAMMA",
         size=4,
         min=0,
         max=1,
@@ -365,179 +345,161 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 1 - BOTTOM - LEFT
     split_area_pie_1_ui: EnumProperty(
-        name='',
-        description='Area Types',
+        name="",
+        description="Area Types",
         items=split_areas_list,
-        default='ShaderNodeTree'
+        default="ShaderNodeTree",
     )
     split_area_pie_1_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='BOTTOM'
+        default="BOTTOM",
     )
     split_area_pie_1_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.2, 
+        name="",
+        description="Split factor",
+        default=0.2,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 2 - BOTTOM
     split_area_pie_2_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='TIMELINE'
+        name="", description="Area Types", items=split_areas_list, default="TIMELINE"
     )
     split_area_pie_2_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='BOTTOM'
+        default="BOTTOM",
     )
     split_area_pie_2_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 3 - BOTTOM - RIGHT
     split_area_pie_3_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='PROPERTIES'
+        name="", description="Area Types", items=split_areas_list, default="PROPERTIES"
     )
     split_area_pie_3_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='RIGHT'
+        default="RIGHT",
     )
     split_area_pie_3_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 4 - LEFT
     split_area_pie_4_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='OUTLINER'
+        name="", description="Area Types", items=split_areas_list, default="OUTLINER"
     )
     split_area_pie_4_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='LEFT'
+        default="LEFT",
     )
     split_area_pie_4_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 6 - RIGHT
     split_area_pie_6_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='UV'
+        name="", description="Area Types", items=split_areas_list, default="UV"
     )
     split_area_pie_6_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='RIGHT'
+        default="RIGHT",
     )
     split_area_pie_6_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 7 - TOP - LEFT
     split_area_pie_7_ui: EnumProperty(
-        name='',
-        description='Area Types',
+        name="",
+        description="Area Types",
         items=split_areas_list,
-        default= file_browser_name
+        default=file_browser_name,
     )
     split_area_pie_7_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='RIGHT'
+        default="RIGHT",
     )
     split_area_pie_7_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 8 - TOP
     split_area_pie_8_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='CONSOLE'
+        name="", description="Area Types", items=split_areas_list, default="CONSOLE"
     )
     split_area_pie_8_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='TOP'
+        default="TOP",
     )
     split_area_pie_8_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
     # 9 - TOP - RIGHT
     split_area_pie_9_ui: EnumProperty(
-        name='',
-        description='Area Types',
-        items=split_areas_list,
-        default='TEXT_EDITOR'
+        name="", description="Area Types", items=split_areas_list, default="TEXT_EDITOR"
     )
     split_area_pie_9_pos: EnumProperty(
-        name='',
-        description='Area screen position',
+        name="",
+        description="Area screen position",
         items=split_areas_position_list,
-        default='RIGHT'
+        default="RIGHT",
     )
     split_area_pie_9_factor: FloatProperty(
-        name="", 
-        description="Split factor", 
-        default=0.5, 
+        name="",
+        description="Split factor",
+        default=0.5,
         min=0.05,
         max=1.0,
         step=0.01,
-        precision=2
+        precision=2,
     )
 
     executor_column_count: IntProperty(
@@ -545,44 +507,42 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Scripts per column ",
         default=20,
         min=5,
-        max=1000
+        max=1000,
     )
     executor_scripts_folder: StringProperty(
         name="Scripts Folder",
-        subtype='DIR_PATH',
+        subtype="DIR_PATH",
         default=bpy.utils.script_path_user(),
     )
 
     texture_to_material_prefixes: StringProperty(
         name="Prefixes",
         description="Type prefixes what you want to clean",
-        default="env_"
-        )
+        default="env_",
+    )
     texture_to_material_suffixes: StringProperty(
         name="Suffixes",
         description="Type suffixes what you want to clean",
-        default="_df,_dfa,_mk,_emk,_nm"
-        )
-    
+        default="_df,_dfa,_mk,_emk,_nm",
+    )
+
     switch_list_axis: StringProperty(
         name="Axis Switch List",
         description="Axis Switch List, types should be with capital letters and separated by comma",
-        default="GLOBAL, LOCAL, NORMAL, GIMBAL, VIEW, CURSOR"
-        )
-    
+        default="GLOBAL, LOCAL, NORMAL, GIMBAL, VIEW, CURSOR",
+    )
+
     switch_list_ppoint: StringProperty(
         name="PivotPoint Switch List",
         description="PivotPoint Switch List, types should be with capital letters and separated by comma",
-        default="BOUNDING_BOX_CENTER, CURSOR, INDIVIDUAL_ORIGINS, MEDIAN_POINT, ACTIVE_ELEMENT"
-        )
-    
+        default="BOUNDING_BOX_CENTER, CURSOR, INDIVIDUAL_ORIGINS, MEDIAN_POINT, ACTIVE_ELEMENT",
+    )
+
     switch_list_snap: StringProperty(
         name="Snap With.. Switch List",
         description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
-        default="CLOSEST, CENTER, MEDIAN, ACTIVE"
-        )
-
-
+        default="CLOSEST, CENTER, MEDIAN, ACTIVE",
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -605,13 +565,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.separator()
             row.separator()
             row.separator()
-            row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon='ERROR')
+            row.operator(
+                "iops.load_default_hotkeys", text="Load Default Hotkeys", icon="ERROR"
+            )
             col.separator()
             col.separator()
             col.separator()
 
-            # Keymaps  
-            col = column_main.column(align=False)    
+            # Keymaps
+            col = column_main.column(align=False)
             try:
                 mainRow = col.row(align=True)
                 # mainRow.alignment = 'LEFT'
@@ -621,78 +583,88 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
                 colKeys = mainRow.column(align=True)
                 # colKeys.alignment = 'EXPAND'
-            
+
                 keymap_win = context.window_manager.keyconfigs.user.keymaps["Window"]
                 keymap_mesh = context.window_manager.keyconfigs.user.keymaps["Mesh"]
-                colKeys.context_pointer_set("keymap", keymap_win)  # For the 'wm.keyitem_restore' operator.
+                colKeys.context_pointer_set(
+                    "keymap", keymap_win
+                )  # For the 'wm.keyitem_restore' operator.
 
-                for item in (keymap_win.keymap_items):
-                    if item.idname.startswith('iops.'):
-                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")                        
-                        subCmdRow=colLabels.row()
-                        subCmdRow.prop(item, 'active',text="")
-                        subCmdRow.label(text=op.name)
-                        subCmdRow.alignment = 'EXPAND'
-                        subRow = colKeys.row()                                                
-                        subRow.prop(item, 'type', text='', full_event=True)                        
-                        subRow.alignment = 'EXPAND'
-                        # subRow.prop(item, 'shift')
-                        # subRow.prop(item, 'ctrl')
-                        # subRow.prop(item, 'alt')
-                        # subRow.prop(item, 'oskey')
-                        if item.is_user_modified:
-                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
-                
-                colKeys.context_pointer_set("keymap", keymap_mesh)
-                for item in (keymap_mesh.keymap_items):
-                    if item.idname.startswith('iops.'):
+                for item in keymap_win.keymap_items:
+                    if item.idname.startswith("iops."):
                         op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                        subCmdRow=colLabels.row()
-                        subCmdRow.prop(item, 'active',text="")
+                        subCmdRow = colLabels.row()
+                        subCmdRow.prop(item, "active", text="")
                         subCmdRow.label(text=op.name)
-                        subCmdRow.alignment = 'EXPAND'
-                        subRow = colKeys.row()                                             
-                        subRow.prop(item, 'type', text='', full_event=True)                        
-                        subRow.alignment = 'EXPAND'
+                        subCmdRow.alignment = "EXPAND"
+                        subRow = colKeys.row()
+                        subRow.prop(item, "type", text="", full_event=True)
+                        subRow.alignment = "EXPAND"
                         # subRow.prop(item, 'shift')
                         # subRow.prop(item, 'ctrl')
                         # subRow.prop(item, 'alt')
                         # subRow.prop(item, 'oskey')
                         if item.is_user_modified:
-                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
-                
+                            subRow.operator(
+                                "preferences.keyitem_restore", text="", icon="BACK"
+                            ).item_id = item.id
 
-                keymap = context.window_manager.keyconfigs.user.keymaps["Screen Editing"]
-                colKeys.context_pointer_set("keymap", keymap)  # For the 'wm.keyitem_restore' operator.
+                colKeys.context_pointer_set("keymap", keymap_mesh)
+                for item in keymap_mesh.keymap_items:
+                    if item.idname.startswith("iops."):
+                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
+                        subCmdRow = colLabels.row()
+                        subCmdRow.prop(item, "active", text="")
+                        subCmdRow.label(text=op.name)
+                        subCmdRow.alignment = "EXPAND"
+                        subRow = colKeys.row()
+                        subRow.prop(item, "type", text="", full_event=True)
+                        subRow.alignment = "EXPAND"
+                        # subRow.prop(item, 'shift')
+                        # subRow.prop(item, 'ctrl')
+                        # subRow.prop(item, 'alt')
+                        # subRow.prop(item, 'oskey')
+                        if item.is_user_modified:
+                            subRow.operator(
+                                "preferences.keyitem_restore", text="", icon="BACK"
+                            ).item_id = item.id
 
-                for item in (keymap.keymap_items):
-                    if item.idname.startswith('iops.split_area'):
+                keymap = context.window_manager.keyconfigs.user.keymaps[
+                    "Screen Editing"
+                ]
+                colKeys.context_pointer_set(
+                    "keymap", keymap
+                )  # For the 'wm.keyitem_restore' operator.
+
+                for item in keymap.keymap_items:
+                    if item.idname.startswith("iops.split_area"):
                         op = eval("bpy.ops." + item.idname + ".get_rna_type()")
                         colLabels.label(text=op.name)
-                        colLabels.alignment = 'LEFT'
+                        colLabels.alignment = "LEFT"
                         subRow = colKeys.row()
-                        subRow.alignment = 'LEFT'                        
-                        subRow.prop(item, 'active')
-                        subRow.prop(item, 'type', text='', full_event=True)
-                        subRow.prop(item, 'shift')
-                        subRow.prop(item, 'ctrl')
-                        subRow.prop(item, 'alt')
-                        subRow.prop(item, 'oskey')
+                        subRow.alignment = "LEFT"
+                        subRow.prop(item, "active")
+                        subRow.prop(item, "type", text="", full_event=True)
+                        subRow.prop(item, "shift")
+                        subRow.prop(item, "ctrl")
+                        subRow.prop(item, "alt")
+                        subRow.prop(item, "oskey")
                         if item.is_user_modified:
-                            subRow.operator('preferences.keyitem_restore', text='', icon='BACK').item_id = item.id
+                            subRow.operator(
+                                "preferences.keyitem_restore", text="", icon="BACK"
+                            ).item_id = item.id
             except:
-                layout.label(text='No keymaps found.', icon='ERROR')
-
+                layout.label(text="No keymaps found.", icon="ERROR")
 
         if self.tabs == "PREFS":
-            col = column_main.column(align=False)            
+            col = column_main.column(align=False)
             box = col.box()
-            col = box.column(align=True)            
+            col = box.column(align=True)
             col.label(text="Category:")
             col.prop(self, "category")
-            col = column_main.column(align=False)            
+            col = column_main.column(align=False)
             box = col.box()
-            col = box.column(align=True)            
+            col = box.column(align=True)
             col.label(text="3D View Overlay Text Settings:")
             row = box.row(align=True)
             split = row.split(factor=0.5, align=False)
@@ -706,8 +678,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col_text.row(align=True)
             row.prop(self, "text_pos_x")
             row.prop(self, "text_pos_y")
-            
-            # Shadow            
+
+            # Shadow
             row = col_shadow.row(align=False)
             row.prop(self, "text_shadow_color")
             row.prop(self, "text_shadow_blur")
@@ -723,7 +695,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.label(text="Align to edge:")
             row = box.row(align=True)
-            row.alignment = 'LEFT'
+            row.alignment = "LEFT"
             row.prop(self, "align_edge_color")
             col.separator()
             # Visual origin
@@ -749,9 +721,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "vo_cage_ap_color", text="")
 
             # Cage color
-            
+
             col = box.column(align=True)
-            col.prop(self, "vo_cage_color")       
+            col.prop(self, "vo_cage_color")
             col.separator()
             # Split Pie preferences
             col = column_main.column(align=False)
@@ -759,7 +731,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.label(text="IOPS Split Pie Setup:")
             row = col.row(align=True)
-            
+
             # TOP LEFT
             box_1 = row.box()
             col = box_1.column(align=True)
@@ -780,7 +752,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "split_area_pie_9_ui")
             col.prop(self, "split_area_pie_9_pos")
             col.prop(self, "split_area_pie_9_factor")
-            
+
             col = box.column(align=True)
             row = col.row(align=True)
             # LEFT
@@ -795,7 +767,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box_2.column(align=True)
             col.label(text=" ")
             col.label(text=" ")
-            col.label(text=" ")        
+            col.label(text=" ")
             row.separator()
             # RIGHT
             box_3 = row.box()
@@ -823,11 +795,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.separator()
             # BOTTOM RIGHT
             box_3 = row.box()
-            col = box_3.column(align=True)        
+            col = box_3.column(align=True)
             col.prop(self, "split_area_pie_3_ui")
             col.prop(self, "split_area_pie_3_pos")
             col.prop(self, "split_area_pie_3_factor")
-            
+
             # Executor
             col = column_main.column(align=False)
             box = col.box()
@@ -837,7 +809,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "executor_scripts_folder")
             col.prop(self, "executor_column_count")
             col.separator()
-            # Textures to materials 
+            # Textures to materials
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
@@ -846,7 +818,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_prefixes")
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
-            # Switch lists  
+            # Switch lists
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
@@ -857,7 +829,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "switch_list_snap")
             col.separator()
 
-            
             # Preferences
             col = column_main.column(align=False)
             box = col.box()
@@ -873,5 +844,5 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.label(text="Debug:")
             row = box.row(align=True)
-            row.alignment = 'LEFT'
+            row.alignment = "LEFT"
             row.prop(self, "IOPS_DEBUG")

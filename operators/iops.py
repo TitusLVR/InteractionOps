@@ -19,8 +19,8 @@ class IOPS_OT_Main(bpy.types.Operator):
 
     # @classmethod
     # def poll(cls, context):
-        # return (bpy.context.object is not None and
-                # bpy.context.active_object is not None)
+    # return (bpy.context.object is not None and
+    # bpy.context.active_object is not None)
 
     def get_mode_3d(self, tool_mesh):
         mode = ""
@@ -47,14 +47,22 @@ class IOPS_OT_Main(bpy.types.Operator):
                 if flag_uv:
                     mode_uv = mode_mesh
 
-                query = (type_area, type_object, mode_object, mode_mesh, flag_uv, mode_uv, op)
+                query = (
+                    type_area,
+                    type_object,
+                    mode_object,
+                    mode_mesh,
+                    flag_uv,
+                    mode_uv,
+                    op,
+                )
                 # tool = bpy.context.tool_settings
 
             else:
-                query = (type_area, None, None, None, None, None, op)      
+                query = (type_area, None, None, None, None, None, op)
 
             function = get_iop(IOPS_Dict.iops_dict, query)
             function()
         else:
             self.report({"INFO"}, "Focus your mouse pointer on corresponding window.")
-        return{"FINISHED"}
+        return {"FINISHED"}

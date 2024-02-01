@@ -2,47 +2,50 @@ import bpy
 import copy
 import re
 from bpy.props import (
-        IntProperty,
-        StringProperty,
-        BoolProperty,
-        )
+    IntProperty,
+    StringProperty,
+    BoolProperty,
+)
 from mathutils import Vector
+
 
 def distance_vec(point1: Vector, point2: Vector):
     """Calculate distance between two points."""
     return (point2 - point1).length
 
-class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
-    """ Rename Object as Active ObjectName"""
+
+class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
+    """Rename Object as Active ObjectName"""
+
     bl_idname = "iops.object_name_from_active"
     bl_label = "IOPS Object Name From Active"
     bl_options = {"REGISTER", "UNDO"}
 
-    new_name:StringProperty(
+    new_name: StringProperty(
         name="New Name",
         default="",
-        )
+    )
 
-    active_name:StringProperty(
+    active_name: StringProperty(
         name="Active Name",
         default="",
-        )
+    )
 
     pattern: StringProperty(
         name="Pattern",
-        description='''Naming Syntaxis:
+        description="""Naming Syntaxis:
     [N] - Name
     [C] - Counter
     [T] - Object Type
     [COL] - Collection Name
-    ''',
+    """,
         default="[N].[C]",
-        )
+    )
 
     use_distance: BoolProperty(
         name="By Distance",
         description="Rename Selected Objects Based on Distance to Active Object",
-        default=True
+        default=True,
     )
 
     counter_digits: IntProperty(
@@ -50,25 +53,21 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         description="Number Of Digits For Counter",
         default=3,
         min=2,
-        max=10
-        )
+        max=10,
+    )
 
     counter_shift: BoolProperty(
         name="+1",
         description="+1 shift for counter, useful when we need to rename active object too",
-        default=True
+        default=True,
     )
 
     rename_active: BoolProperty(
-        name="Rename Active",
-        description="Rename active also",
-        default=True
+        name="Rename Active", description="Rename active also", default=True
     )
 
     rename_mesh_data: BoolProperty(
-        name="Rename Mesh Data",
-        description="Rename Mesh Data",
-        default=True
+        name="Rename Mesh Data", description="Rename Mesh Data", default=True
     )
 
     trim_prefix: IntProperty(
@@ -76,22 +75,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         description="Number Of Digits for Prefix trim",
         default=0,
         min=0,
-        max=100
-        )
+        max=100,
+    )
 
     trim_suffix: IntProperty(
         name="Suffix",
         description="Number Of Digits for Suffix trim",
         default=0,
         min=0,
-        max=100
-        )
-    use_trim: BoolProperty(
-        name="Trim",
-        description="Trim Name Prefix/Suffix",
-        default=False
+        max=100,
     )
-
+    use_trim: BoolProperty(
+        name="Trim", description="Trim Name Prefix/Suffix", default=False
+    )
 
     def invoke(self, context, event):
         self.active_name = context.view_layer.objects.active.name
@@ -100,18 +96,17 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
 
     def execute(self, context):
         if self.pattern:
-            if  self.active_name != context.view_layer.objects.active.name:
+            if self.active_name != context.view_layer.objects.active.name:
                 context.view_layer.objects.active.name = self.active_name
             # Trim string
             if self.use_trim:
                 name = self.active_name
                 if self.trim_suffix == 0:
-                    self.new_name = name[(self.trim_prefix):]
+                    self.new_name = name[(self.trim_prefix) :]
                 else:
-                    self.new_name = name[(self.trim_prefix):-(self.trim_suffix)]
-            else:                
+                    self.new_name = name[(self.trim_prefix) : -(self.trim_suffix)]
+            else:
                 self.trim_suffix = self.trim_prefix = 0
-                
 
             digit = "{0:0>" + str(self.counter_digits) + "}"
             # Combine objects
@@ -150,20 +145,19 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
                 o.name = "".join(pattern)
                 # Rename object mesh data
                 if self.rename_mesh_data:
-                    if o.type == 'MESH':
+                    if o.type == "MESH":
                         o.data.name = o.name
-                counter +=1
+                counter += 1
         else:
-            self.report ({'ERROR'}, "Please fill the pattern field")
-        return {'FINISHED'}
-
+            self.report({"ERROR"}, "Please fill the pattern field")
+        return {"FINISHED"}
 
     def draw(self, context):
-        layout = self.layout        
+        layout = self.layout
         col_active_name = layout.column(align=True)
         col_active_name.enabled = False
         col_active_name.prop(self, "active_name", text="Old Name")
-        
+
         col = layout.column(align=True)
         col.prop(self, "new_name", text="New Name")
         col.separator()
@@ -172,7 +166,7 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         row = col.row(align=True)
         sub = row.row(align=True)
         sub.enabled = self.use_trim
-        sub.prop(self, "trim_prefix")        
+        sub.prop(self, "trim_prefix")
         row.prop(self, "use_trim", toggle=True)
         sub = row.row(align=True)
         sub.enabled = self.use_trim
@@ -195,5 +189,3 @@ class IOPS_OT_Object_Name_From_Active (bpy.types.Operator):
         row.prop(self, "use_distance", text="By Distance")
         row.separator()
         row.prop(self, "rename_mesh_data", text="Object's MeshData")
-
-
