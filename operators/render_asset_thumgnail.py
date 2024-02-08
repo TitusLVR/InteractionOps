@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import FloatProperty, BoolProperty
+from bpy.props import FloatProperty, BoolProperty, EnumProperty
 import os
 
 
@@ -15,6 +15,16 @@ class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
 
     thumbnail_lens: FloatProperty(name="Thumbnail Lens", default=100)
     toggle_overlays: BoolProperty(name="Toggle Overlays", default=True)
+
+    render_for: EnumProperty(
+        name="Render for:",
+        items=[
+            ("OBJECT", "Object", "Render the selected object"),
+            ("COLLECTION", "Collection", "Render the selected collection"),
+            ("MATERIAL", "Material", "Render the selected material"),
+        ],
+        default="COLLECTION",
+    )
 
     def render_viewport(self, context, filepath):
         resolution = (
@@ -51,13 +61,39 @@ class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
             context.space_data.overlay.show_overlays = True
 
     def execute(self, context):
-        active_collection = bpy.context.collection
+        if self.render_for == "COLLECTION":
+            active_collection = bpy.context.collection
 
-        thumbpath = os.path.join(get_path(), "resources", "thumb.png")
-        self.render_viewport(context, thumbpath)
+            thumbpath = os.path.join(get_path(), "resources", "thumb.png")
+            self.render_viewport(context, thumbpath)
+            if os.path.exists(thumbpath):
+                with context.temp_override(id=active_collection):
+                    bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
+                os.unlink(thumbpath)
+        elif self.render_for == "OBJECT":
+            active_object = bpy.context.object
 
-        if os.path.exists(thumbpath):
-            with context.temp_override(id=active_collection):
-                bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
-            os.unlink(thumbpath)
+            thumbpath = os.path.join(get_path(), "resources", "thumb.png")
+            self.render_viewport(context, thumbpath)
+            if os.path.exists(thumbpath):
+                with context.temp_override(id=active_object):
+                    bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
+                os.unlink(thumbpath)
+        elif self.render_for == "MATERIAL":
+            active_object = bpy.context.object
+            if active_object.type == "MESH":
+                active_material = active_object.active_material
+
+                thumbpath = os.path.join(get_path(), "resources", "thumb.png")
+                self.render_viewport(context, thumbpath)
+                if os.path.exists(thumbpath):
+                    try:
+                        with context.temp_override(id=active_material):
+                            bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
+                        os.unlink(thumbpath)
+                    except RuntimeError:
+                        self.report({"ERROR"}, "Current object does not have a material marked as asset")
+            else:
+                self.report({"ERROR"}, "Active object is not a mesh")
+
         return {"FINISHED"}
