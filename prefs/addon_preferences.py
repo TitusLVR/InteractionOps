@@ -1,4 +1,5 @@
 import bpy
+import rna_keymap_ui
 from mathutils import Vector
 from bpy.types import (
     Operator,
@@ -574,87 +575,32 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             # Keymaps
             col = column_main.column(align=False)
-            try:
-                mainRow = col.row(align=True)
-                # mainRow.alignment = 'LEFT'
+            km_row = col.row(align=True)
+            km_col = km_row.column(align=True)
+            
+            '''
+            kc - keyconfigs
+            km - keymap
+            kmi - keymap item
+            
+            '''
+            kc = context.window_manager.keyconfigs
+            kc_user = context.window_manager.keyconfigs.user
+            # IOPS keymaps
+            keymaps = [kc_user.keymaps["Window"], kc_user.keymaps["Mesh"], kc_user.keymaps["Object Mode"], kc_user.keymaps["Screen Editing"]]
+            for km in keymaps:
+                for kmi in km.keymap_items:
+                    if kmi.idname.startswith("iops."):
+                        try:
+                            rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0)
+                        except AttributeError:
+                            km_col.label(text="No modal key maps attached to this operator ¯\_(ツ)_/¯", icon="INFO")
+                    elif kmi.idname.startswith("iops.split_area"):
+                        try:
+                            rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0)
+                        except AttributeError:
+                            km_col.label(text="No modal key maps attached to this operator ¯\_(ツ)_/¯", icon="INFO")
 
-                colLabels = mainRow.column(align=True)
-                # colLabels.alignment = 'LEFT'
-
-                colKeys = mainRow.column(align=True)
-                # colKeys.alignment = 'EXPAND'
-
-                keymap_win = context.window_manager.keyconfigs.user.keymaps["Window"]
-                keymap_mesh = context.window_manager.keyconfigs.user.keymaps["Mesh"]
-                colKeys.context_pointer_set(
-                    "keymap", keymap_win
-                )  # For the 'wm.keyitem_restore' operator.
-
-                for item in keymap_win.keymap_items:
-                    if item.idname.startswith("iops."):
-                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                        subCmdRow = colLabels.row()
-                        subCmdRow.prop(item, "active", text="")
-                        subCmdRow.label(text=op.name)
-                        subCmdRow.alignment = "EXPAND"
-                        subRow = colKeys.row()
-                        subRow.prop(item, "type", text="", full_event=True)
-                        subRow.alignment = "EXPAND"
-                        # subRow.prop(item, 'shift')
-                        # subRow.prop(item, 'ctrl')
-                        # subRow.prop(item, 'alt')
-                        # subRow.prop(item, 'oskey')
-                        if item.is_user_modified:
-                            subRow.operator(
-                                "preferences.keyitem_restore", text="", icon="BACK"
-                            ).item_id = item.id
-
-                colKeys.context_pointer_set("keymap", keymap_mesh)
-                for item in keymap_mesh.keymap_items:
-                    if item.idname.startswith("iops."):
-                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                        subCmdRow = colLabels.row()
-                        subCmdRow.prop(item, "active", text="")
-                        subCmdRow.label(text=op.name)
-                        subCmdRow.alignment = "EXPAND"
-                        subRow = colKeys.row()
-                        subRow.prop(item, "type", text="", full_event=True)
-                        subRow.alignment = "EXPAND"
-                        # subRow.prop(item, 'shift')
-                        # subRow.prop(item, 'ctrl')
-                        # subRow.prop(item, 'alt')
-                        # subRow.prop(item, 'oskey')
-                        if item.is_user_modified:
-                            subRow.operator(
-                                "preferences.keyitem_restore", text="", icon="BACK"
-                            ).item_id = item.id
-
-                keymap = context.window_manager.keyconfigs.user.keymaps[
-                    "Screen Editing"
-                ]
-                colKeys.context_pointer_set(
-                    "keymap", keymap
-                )  # For the 'wm.keyitem_restore' operator.
-
-                for item in keymap.keymap_items:
-                    if item.idname.startswith("iops.split_area"):
-                        op = eval("bpy.ops." + item.idname + ".get_rna_type()")
-                        colLabels.label(text=op.name)
-                        colLabels.alignment = "LEFT"
-                        subRow = colKeys.row()
-                        subRow.alignment = "LEFT"
-                        subRow.prop(item, "active")
-                        subRow.prop(item, "type", text="", full_event=True)
-                        subRow.prop(item, "shift")
-                        subRow.prop(item, "ctrl")
-                        subRow.prop(item, "alt")
-                        subRow.prop(item, "oskey")
-                        if item.is_user_modified:
-                            subRow.operator(
-                                "preferences.keyitem_restore", text="", icon="BACK"
-                            ).item_id = item.id
-            except:
-                layout.label(text="No keymaps found.", icon="ERROR")
 
         if self.tabs == "PREFS":
             col = column_main.column(align=False)

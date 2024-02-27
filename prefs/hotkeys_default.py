@@ -55,14 +55,6 @@ keys_default = [
     ("iops.snap_scroll_up", "WHEELUPMOUSE", "PRESS", False, True, False, True),
     ("iops.snap_scroll_down", "WHEELDOWNMOUSE", "PRESS", False, True, False, True),
     ("iops.active_object_scroll_up", "WHEELUPMOUSE", "PRESS", True, True, False, True),
-    (
-        "iops.active_object_scroll_down",
-        "WHEELDOWNMOUSE",
-        "PRESS",
-        True,
-        True,
-        False,
-        True,
-    ),
+    ("iops.active_object_scroll_down", "WHEELDOWNMOUSE", "PRESS", True, True, False, True),
     ("iops.mouseover_fill_select", "F19", "PRESS", True, True, True, False),
 ]
