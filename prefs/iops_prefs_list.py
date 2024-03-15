@@ -47,4 +47,12 @@ iops_prefs_list = [
     "switch_list_axis",
     "switch_list_ppoint",
     "switch_list_snap",
+    "snap_combo_1",
+    "snap_combo_2",
+    "snap_combo_3",
+    "snap_combo_4",
+    "snap_combo_5",
+    "snap_combo_6",
+    "snap_combo_7",
+    "snap_combo_8",
 ]

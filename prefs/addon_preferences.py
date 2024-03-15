@@ -1,3 +1,4 @@
+from cgitb import text
 import bpy
 import rna_keymap_ui
 from mathutils import Vector
@@ -544,6 +545,46 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
         default="CLOSEST, CENTER, MEDIAN, ACTIVE",
     )
+    snap_combo_1: StringProperty(
+        name="Snap Combo 1",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="GLOBAL, ACTIVE_ELEMENT, CENTER",
+    )
+    snap_combo_2: StringProperty(
+        name="Snap Combo 2",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="CURSOR, CURSOR, CENTER",
+    )
+    snap_combo_3: StringProperty(
+        name="Snap Combo 3",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="LOCAL, INDIVIDUAL_ORIGINS, CENTER",
+    )
+    snap_combo_4: StringProperty(
+        name="Snap Combo 4",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="GLOBAL, MEDIAN_POINT, CENTER",
+    )
+    snap_combo_5: StringProperty(
+        name="Snap Combo 4",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="GLOBAL, ACTIVE_ELEMENT, ACTIVE",
+    )
+    snap_combo_6: StringProperty(
+        name="Snap Combo 4",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="NORMAL, ACTIVE_ELEMENT, CENTER",
+    )
+    snap_combo_7: StringProperty(
+        name="Snap Combo 4",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="CURSOR, INDIVIDUAL_ORIGINS, CENTER",
+    )
+    snap_combo_8: StringProperty(
+        name="Snap Combo 4",
+        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
+        default="LOCAL, ACTIVE_ELEMENT, CENTER",
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -577,30 +618,44 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = column_main.column(align=False)
             km_row = col.row(align=True)
             km_col = km_row.column(align=True)
-            
-            '''
+
+            """
             kc - keyconfigs
             km - keymap
             kmi - keymap item
-            
-            '''
+
+            """
             kc = context.window_manager.keyconfigs
             kc_user = context.window_manager.keyconfigs.user
             # IOPS keymaps
-            keymaps = [kc_user.keymaps["Window"], kc_user.keymaps["Mesh"], kc_user.keymaps["Object Mode"], kc_user.keymaps["Screen Editing"]]
+            keymaps = [
+                kc_user.keymaps["Window"],
+                kc_user.keymaps["Mesh"],
+                kc_user.keymaps["Object Mode"],
+                kc_user.keymaps["Screen Editing"],
+            ]
             for km in keymaps:
                 for kmi in km.keymap_items:
                     if kmi.idname.startswith("iops."):
                         try:
-                            rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0)
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                            )
                         except AttributeError:
-                            km_col.label(text="No modal key maps attached to this operator ¯\_(ツ)_/¯", icon="INFO")
+                            km_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
                     elif kmi.idname.startswith("iops.split_area"):
                         try:
-                            rna_keymap_ui.draw_kmi(["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0)
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                            )
                         except AttributeError:
-                            km_col.label(text="No modal key maps attached to this operator ¯\_(ツ)_/¯", icon="INFO")
-
+                            km_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
 
         if self.tabs == "PREFS":
             col = column_main.column(align=False)
@@ -773,6 +828,22 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "switch_list_axis")
             col.prop(self, "switch_list_ppoint")
             col.prop(self, "switch_list_snap")
+            col.separator()
+
+            # Switch lists
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Snap Combos:")
+            col = box.column(align=True)
+            col.prop(self, "snap_combo_1", text="Combo 1")
+            col.prop(self, "snap_combo_2", text="Combo 2")
+            col.prop(self, "snap_combo_3", text="Combo 3")
+            col.prop(self, "snap_combo_4", text="Combo 4")
+            col.prop(self, "snap_combo_5", text="Combo 5")
+            col.prop(self, "snap_combo_6", text="Combo 6")
+            col.prop(self, "snap_combo_7", text="Combo 7")
+            col.prop(self, "snap_combo_8", text="Combo 8")
             col.separator()
 
             # Preferences

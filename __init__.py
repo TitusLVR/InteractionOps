@@ -174,6 +174,16 @@ from .operators.ui_prop_switch import (
     IOPS_OT_ActiveObject_Scroll_UP,
     IOPS_OT_ActiveObject_Scroll_DOWN,
 )
+from .operators.snap_combos import (
+    IOPS_OT_SnapCombo_1,
+    IOPS_OT_SnapCombo_2,
+    IOPS_OT_SnapCombo_3,
+    IOPS_OT_SnapCombo_4,
+    IOPS_OT_SnapCombo_5,
+    IOPS_OT_SnapCombo_6,
+    IOPS_OT_SnapCombo_7,
+    IOPS_OT_SnapCombo_8,
+)
 
 from .utils.functions import register_keymaps, unregister_keymaps
 
@@ -309,6 +319,14 @@ classes = (
     IOPS_OT_Object_Name_From_Active,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,
+    IOPS_OT_SnapCombo_1,
+    IOPS_OT_SnapCombo_2,
+    IOPS_OT_SnapCombo_3,
+    IOPS_OT_SnapCombo_4,
+    IOPS_OT_SnapCombo_5,
+    IOPS_OT_SnapCombo_6,
+    IOPS_OT_SnapCombo_7,
+    IOPS_OT_SnapCombo_8,
     Z_OT_GrowLoop,
     Z_OT_ShrinkLoop,
     Z_OT_GrowRing,
