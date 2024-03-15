@@ -144,7 +144,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         snap_target = scene.tool_settings.snap_target
 
         props = wm.IOPS_AddonProperties
-
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
         ueops, _, _, _ = get_addon("Unreal OPS")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
         batchops, _, _, _ = get_addon("Batch Operations™")
@@ -239,52 +239,37 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     row.scale_x = 1
 
         if context.area.type == "VIEW_3D":
+            row = layout.row(align=True)
+            grid_flow = row.grid_flow(row_major=True, columns=4, even_columns=False, even_rows=True, align=False)
             # Column 1
-            split = layout.split()
-            col = split.column(align=True)
+            col = grid_flow.column(align=True)
             col.label(text="Transformation:")
             col.prop(orient_slot, "type", expand=True)
             if orientation:
                 col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
-                col.operator(
-                    "iops.transform_orientation_delete", text="", icon="REMOVE"
-                )
+                col.operator("iops.transform_orientation_delete", text="", icon="REMOVE")
             # Column 2
-            col = split.column(align=True)
+            col = grid_flow.column(align=True)
             col.label(text="PivotPoint:")
             col.prop(tool_settings, "transform_pivot_point", expand=True)
             if ver != 80:
                 row = col.row(align=True)
                 # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                 o_state = True if tool_settings.use_transform_data_origin else False
-                row.operator(
-                    "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
-                )
-                row.prop(
-                    tool_settings,
-                    "use_transform_pivot_point_align",
-                    text="",
-                    icon="CENTER_ONLY",
-                )
-                row.prop(
-                    tool_settings,
-                    "use_transform_skip_children",
-                    text="",
-                    icon="TRANSFORM_ORIGINS",
-                )
+                row.operator("iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state)
+                row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon="CENTER_ONLY",)
+                row.prop(tool_settings, "use_transform_skip_children", text="", icon="TRANSFORM_ORIGINS",)
             else:
                 col.prop(tool_settings, "use_transform_pivot_point_align", text="")
             # Column 3
-            col = split.column(align=True)
+            col = grid_flow.column(align=True)
             col.label(text="Snapping:")
             row = col.row(align=False)
             # Snap elements
             row.prop(tool_settings, "snap_elements", text="")
             if "INCREMENT" in snap_elements:
                 row.separator()
-                row.prop(
-                    tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
-                )
+                row.prop(tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID")
             # Snap targets
             col.prop(tool_settings, "snap_target", expand=True)
 
@@ -294,7 +279,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
             row.prop(tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL")
             row.separator()
-            
+
             if "VOLUME" in snap_elements:
                 row.prop(tool_settings, "use_snap_peel_object", text="", icon="SNAP_PEEL_OBJECT")
                 row.separator()
@@ -311,9 +296,13 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.prop(tool_settings, "use_snap_translate", text="", icon="CON_LOCLIMIT")
             row.prop(tool_settings, "use_snap_rotate", text="", icon="CON_ROTLIMIT")
             row.prop(tool_settings, "use_snap_scale", text="", icon="CON_SIZELIMIT")
-
-
-
+            # Column 4
+            col = grid_flow.column(align=True)
+            col.label(text=" ")
+            row = col.row(align=True)
+            col = row.column(align=True)
+            col.prop(prefs, "snap_combo_list", expand=True)
+            col.operator("iops.set_snap_combo", text="", icon="ADD")
 
         if context.area.type == "IMAGE_EDITOR":
             if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
@@ -354,17 +343,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         tool_settings, "use_snap_rotate", text="Rotate", toggle=True
                     )
                     row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
-        
-        # new row for snap combos
-        row = layout.row(align=True)
-        row.operator("iops.snap_combo_1", text="1", icon="SNAP_ON")
-        row.operator("iops.snap_combo_2", text="2", icon="SNAP_ON")
-        row.operator("iops.snap_combo_3", text="3", icon="SNAP_ON")
-        row.operator("iops.snap_combo_4", text="4", icon="SNAP_ON")
-        row.operator("iops.snap_combo_5", text="5", icon="SNAP_ON")
-        row.operator("iops.snap_combo_6", text="6", icon="SNAP_ON")
-        row.operator("iops.snap_combo_7", text="7", icon="SNAP_ON")
-        row.operator("iops.snap_combo_8", text="8", icon="SNAP_ON")
+
+
 
 
 

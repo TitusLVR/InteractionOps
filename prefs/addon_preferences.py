@@ -19,6 +19,7 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
+from ..utils.functions import ShowMessageBox
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
@@ -40,6 +41,29 @@ def update_category(self, context):
     except Exception as e:
         print("\n[{}]\n{}\n\nError:\n{}".format("InteractionOps", message, e))
         pass
+
+def update_combo(self, context):
+    prefs = context.preferences.addons["InteractionOps"].preferences
+    index = int(prefs.snap_combo_list)
+    snap_combos = [
+            prefs.snap_combo_1.replace(" ", "").split(","),
+            prefs.snap_combo_2.replace(" ", "").split(","),
+            prefs.snap_combo_3.replace(" ", "").split(","),
+            prefs.snap_combo_4.replace(" ", "").split(","),
+            prefs.snap_combo_5.replace(" ", "").split(","),
+            prefs.snap_combo_6.replace(" ", "").split(","),
+        ]
+    snap_combo = snap_combos[index]
+    if len(snap_combo) == 3:
+        context.scene.transform_orientation_slots[0].type = snap_combo[0]
+        context.scene.tool_settings.transform_pivot_point = snap_combo[1]
+        context.scene.tool_settings.snap_target = snap_combo[2]
+    else:
+        ShowMessageBox(
+            text="Snap Combo is not properly set",
+            title="WARNING",
+            icon="ERROR",
+        )
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
@@ -575,16 +599,22 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
         default="NORMAL, ACTIVE_ELEMENT, CENTER",
     )
-    snap_combo_7: StringProperty(
-        name="Snap Combo 4",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="CURSOR, INDIVIDUAL_ORIGINS, CENTER",
+ 
+    snap_combo_list: EnumProperty(
+        name="Snap Combo List",
+        description="Snap Combo List",
+        items=[
+            ("0", "", "", "EVENT_F1", 0),
+            ("1", "", "", "EVENT_F2", 1),
+            ("2", "", "", "EVENT_F3", 2),
+            ("3", "", "", "EVENT_F4", 3),
+            ("4", "", "", "EVENT_F5", 4),
+            ("5", "", "", "EVENT_F6", 5),
+        ],
+        default="1",
+        update = update_combo,
     )
-    snap_combo_8: StringProperty(
-        name="Snap Combo 4",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="LOCAL, ACTIVE_ELEMENT, CENTER",
-    )
+
 
     def draw(self, context):
         layout = self.layout
@@ -841,9 +871,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "snap_combo_3", text="Combo 3")
             col.prop(self, "snap_combo_4", text="Combo 4")
             col.prop(self, "snap_combo_5", text="Combo 5")
-            col.prop(self, "snap_combo_6", text="Combo 6")
-            col.prop(self, "snap_combo_7", text="Combo 7")
-            col.prop(self, "snap_combo_8", text="Combo 8")
+            col.prop(self, "snap_combo_6", text="Combo 6")            
             col.separator()
 
             # Preferences
