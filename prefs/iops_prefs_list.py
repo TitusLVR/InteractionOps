@@ -52,7 +52,5 @@ iops_prefs_list = [
     "snap_combo_3",
     "snap_combo_4",
     "snap_combo_5",
-    "snap_combo_6",
-    "snap_combo_7",
-    "snap_combo_8",
+    "snap_combo_6",    
 ]

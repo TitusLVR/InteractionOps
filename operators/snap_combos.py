@@ -1,7 +1,9 @@
 import bpy
 
+
 class IOPS_OT_SetSnapCombo(bpy.types.Operator):
-    '''IOPS Set Snap combo - Sets Transform Orientation, Pivot Point, and Snap Target from IOPS addon preferences.'''
+    """IOPS Set Snap combo - Sets Transform Orientation, Pivot Point, and Snap Target from IOPS addon preferences."""
+
     bl_idname = "iops.set_snap_combo"
     bl_label = "Set Snap Combo "
     bl_options = {"REGISTER", "UNDO"}
@@ -11,21 +13,90 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
         index = int(prefs.snap_combo_list)
         match index:
             case 0:
-                prefs.snap_combo_1 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"
+                
+                prefs.snap_combo_1 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
             case 1:
-                prefs.snap_combo_2 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"
+                prefs.snap_combo_2 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
             case 2:
-                prefs.snap_combo_3 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"
+                prefs.snap_combo_3 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
             case 3:
-                prefs.snap_combo_4 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"
+                prefs.snap_combo_4 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
             case 4:
-                prefs.snap_combo_5 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"
+                prefs.snap_combo_5 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
             case 5:
-                prefs.snap_combo_6 = f"{bpy.context.scene.transform_orientation_slots[0].type}, {bpy.context.scene.tool_settings.transform_pivot_point}, {bpy.context.scene.tool_settings.snap_target}"        
-              
+                prefs.snap_combo_6 = f"{bpy.context.scene.transform_orientation_slots[0].type}|\
+                    {bpy.context.scene.tool_settings.transform_pivot_point}|\
+                    {bpy.context.scene.tool_settings.snap_target}|\
+                    {bpy.context.scene.tool_settings.snap_elements}|\
+                    {bpy.context.scene.tool_settings.use_snap_grid_absolute}|\
+                    {bpy.context.scene.tool_settings.use_snap_self}|\
+                    {bpy.context.scene.tool_settings.use_snap_align_rotation}|\
+                    {bpy.context.scene.tool_settings.use_snap_peel_object}|\
+                    {bpy.context.scene.tool_settings.use_snap_backface_culling}|\
+                    {bpy.context.scene.tool_settings.use_snap_selectable}|\
+                    {bpy.context.scene.tool_settings.use_snap_translate}|\
+                    {bpy.context.scene.tool_settings.use_snap_rotate}|\
+                    {bpy.context.scene.tool_settings.use_snap_scale}".replace(" ", "")
+
         self.report({"INFO"}, f"Snapping Combo {index+1} Saved!")
         return {"FINISHED"}
-
-
-
-

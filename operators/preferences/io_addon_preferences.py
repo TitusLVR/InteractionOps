@@ -2,10 +2,7 @@ import bpy
 import os
 from ...prefs.iops_prefs_list import iops_prefs_list as iops_prefs
 
-
 ############################## SAVE Addon Preferences ##############################
-
-
 def save_iops_preferences(iops_prefs_list):
 
     path = bpy.utils.script_path_user()

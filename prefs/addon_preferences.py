@@ -42,22 +42,62 @@ def update_category(self, context):
         print("\n[{}]\n{}\n\nError:\n{}".format("InteractionOps", message, e))
         pass
 
+
 def update_combo(self, context):
     prefs = context.preferences.addons["InteractionOps"].preferences
     index = int(prefs.snap_combo_list)
     snap_combos = [
-            prefs.snap_combo_1.replace(" ", "").split(","),
-            prefs.snap_combo_2.replace(" ", "").split(","),
-            prefs.snap_combo_3.replace(" ", "").split(","),
-            prefs.snap_combo_4.replace(" ", "").split(","),
-            prefs.snap_combo_5.replace(" ", "").split(","),
-            prefs.snap_combo_6.replace(" ", "").split(","),
-        ]
+        prefs.snap_combo_1.replace(" ", "").split("|"),
+        prefs.snap_combo_2.replace(" ", "").split("|"),
+        prefs.snap_combo_3.replace(" ", "").split("|"),
+        prefs.snap_combo_4.replace(" ", "").split("|"),
+        prefs.snap_combo_5.replace(" ", "").split("|"),
+        prefs.snap_combo_6.replace(" ", "").split("|"),
+    ]
     snap_combo = snap_combos[index]
-    if len(snap_combo) == 3:
+    if len(snap_combo) == 13:
+        # transform_type
         context.scene.transform_orientation_slots[0].type = snap_combo[0]
+        # pivot_point
         context.scene.tool_settings.transform_pivot_point = snap_combo[1]
+        # snap_with
         context.scene.tool_settings.snap_target = snap_combo[2]
+        # Snap element
+        context.scene.tool_settings.snap_elements = set(
+            snap_combo[3]
+            .replace("{", "")
+            .replace("}", "")
+            .replace("'", "")
+            .replace(" ", "")
+            .split(",")
+        )
+        context.scene.tool_settings.use_snap_grid_absolute = (
+            True if snap_combo[4] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_self = (
+            True if snap_combo[5] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_align_rotation = (
+            True if snap_combo[6] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_peel_object = (
+            True if snap_combo[7] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_backface_culling = (
+            True if snap_combo[8] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_selectable = (
+            True if snap_combo[9] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_translate = (
+            True if snap_combo[10] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_rotate = (
+            True if snap_combo[11] == "True" else False
+        )
+        context.scene.tool_settings.use_snap_scale = (
+            True if snap_combo[12] == "True" else False
+        )
     else:
         ShowMessageBox(
             text="Snap Combo is not properly set",
@@ -572,49 +612,49 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     snap_combo_1: StringProperty(
         name="Snap Combo 1",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, ACTIVE_ELEMENT, CENTER",
+        default="GLOBAL|ACTIVE_ELEMENT|ACTIVE|{'EDGE','FACE','VERTEX'}|True|True|False|False|False|False|True|False|False",
     )
     snap_combo_2: StringProperty(
         name="Snap Combo 2",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="CURSOR, CURSOR, CENTER",
+        default="GLOBAL|MEDIAN_POINT|CENTER|{'EDGE','FACE','VERTEX'}|True|True|False|False|False|False|True|False|False",
     )
     snap_combo_3: StringProperty(
         name="Snap Combo 3",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="LOCAL, INDIVIDUAL_ORIGINS, CENTER",
+        default="LOCAL|ACTIVE_ELEMENT|ACTIVE|{'EDGE','FACE','VERTEX'}|True|True|False|False|False|False|True|False|False",
     )
     snap_combo_4: StringProperty(
         name="Snap Combo 4",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, MEDIAN_POINT, CENTER",
+        default="CURSOR|CURSOR|ACTIVE|{'EDGE','FACE','VERTEX'}|True|True|False|False|False|False|True|False|False",
     )
     snap_combo_5: StringProperty(
         name="Snap Combo 4",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, ACTIVE_ELEMENT, ACTIVE",
+        default="GLOBAL|CURSOR|CENTER|{'EDGE','INCREMENT','VERTEX','FACE'}|True|True|False|False|False|False|True|False|False",
     )
     snap_combo_6: StringProperty(
         name="Snap Combo 4",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="NORMAL, ACTIVE_ELEMENT, CENTER",
+        default="GLOBAL|ACTIVE_ELEMENT|MEDIAN|{'INCREMENT','FACE_NEAREST','VOLUME','EDGE_MIDPOINT','EDGE_PERPENDICULAR','EDGE','FACE','VERTEX','FACE_PROJECT'}|True|True|False|False|False|False|True|False|False",
     )
- 
+    
+
     snap_combo_list: EnumProperty(
         name="Snap Combo List",
         description="Snap Combo List",
         items=[
-            ("0", "", "", "EVENT_F1", 0),
-            ("1", "", "", "EVENT_F2", 1),
-            ("2", "", "", "EVENT_F3", 2),
-            ("3", "", "", "EVENT_F4", 3),
-            ("4", "", "", "EVENT_F5", 4),
-            ("5", "", "", "EVENT_F6", 5),
+            ("0", "", "Combo 1", "EVENT_F1", 0),
+            ("1", "", "Combo 2", "EVENT_F2", 1),
+            ("2", "", "Combo 3", "EVENT_F3", 2),
+            ("3", "", "Combo 4", "EVENT_F4", 3),
+            ("4", "", "Combo 5", "EVENT_F5", 4),
+            ("5", "", "Combo 6", "EVENT_F6", 5),
         ],
         default="1",
-        update = update_combo,
+        update=update_combo,
     )
-
 
     def draw(self, context):
         layout = self.layout
@@ -871,7 +911,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "snap_combo_3", text="Combo 3")
             col.prop(self, "snap_combo_4", text="Combo 4")
             col.prop(self, "snap_combo_5", text="Combo 5")
-            col.prop(self, "snap_combo_6", text="Combo 6")            
+            col.prop(self, "snap_combo_6", text="Combo 6")
             col.separator()
 
             # Preferences
