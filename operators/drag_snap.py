@@ -50,8 +50,7 @@ def draw_point(point):
     color = bpy.context.preferences.themes[0].view_3d.editmesh_active
 
     radius = (
-        bpy.context.preferences.addons["InteractionOps"].preferences.vo_cage_ap_size
-        / 1.5
+        bpy.context.preferences.addons["InteractionOps"].preferences.vo_cage_ap_size / 1.5
     )
     segments = 12
     # create vertices
@@ -69,14 +68,21 @@ def draw_point(point):
 def draw_snap_line(self, context):
     if not self.source[0] or not self.target[0]:
         return
-
+    prefs = context.preferences.addons["InteractionOps"].preferences
+    # color = prefs.vo_cage_color
+    line_thickness = prefs.drag_snap_line_thickness
     color = (*bpy.context.preferences.themes[0].view_3d.empty, 0.5)
     shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     batch = batch_for_shader(
         shader, "LINES", {"pos": (self.source[0], self.preview[0])}
     )
     shader.bind()
+    # color and thickness
+    region = bpy.context.region
+    shader.uniform_float("viewportSize", (region.width, region.height))
+    shader.uniform_float("lineWidth", line_thickness)
     shader.uniform_float("color", color)
+    
     batch.draw(shader)
 
 

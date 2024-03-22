@@ -400,6 +400,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         soft_min=2,
         soft_max=20,
     )
+    vo_cage_line_thickness: FloatProperty(
+        name="Cage Line thickness",
+        description="Thickness of the cage lines",
+        default=0.25,
+        min=0.0,
+        max=1000.0,
+    )
+    drag_snap_line_thickness: FloatProperty(
+        name="Drag Snap Line thickness",
+        description="Thickness of the drag snap lines",
+        default=0.25,
+        min=0.0,
+        max=1000.0,
+    )
 
     align_edge_color: FloatVectorProperty(
         name="Edge color",
@@ -592,23 +606,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="_df,_dfa,_mk,_emk,_nm",
     )
 
-    switch_list_axis: StringProperty(
-        name="Axis Switch List",
-        description="Axis Switch List, types should be with capital letters and separated by comma",
-        default="GLOBAL, LOCAL, NORMAL, GIMBAL, VIEW, CURSOR",
-    )
-
-    switch_list_ppoint: StringProperty(
-        name="PivotPoint Switch List",
-        description="PivotPoint Switch List, types should be with capital letters and separated by comma",
-        default="BOUNDING_BOX_CENTER, CURSOR, INDIVIDUAL_ORIGINS, MEDIAN_POINT, ACTIVE_ELEMENT",
-    )
-
-    switch_list_snap: StringProperty(
-        name="Snap With.. Switch List",
-        description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
-        default="CLOSEST, CENTER, MEDIAN, ACTIVE",
-    )
     snap_combo_1: StringProperty(
         name="Snap Combo 1",
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
@@ -639,7 +636,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
         default="GLOBAL|ACTIVE_ELEMENT|MEDIAN|{'INCREMENT','FACE_NEAREST','VOLUME','EDGE_MIDPOINT','EDGE_PERPENDICULAR','EDGE','FACE','VERTEX','FACE_PROJECT'}|True|True|False|False|False|False|True|False|False",
     )
-    
+
 
     snap_combo_list: EnumProperty(
         name="Snap Combo List",
@@ -792,10 +789,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "vo_cage_ap_color", text="")
 
             # Cage color
-
             col = box.column(align=True)
             col.prop(self, "vo_cage_color")
+            col.prop(self, "vo_cage_line_thickness")
             col.separator()
+            
+            # Drag snap line thickness
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Drag Snap:")
+            row = col.row(align=True)
+            row.prop(self, "drag_snap_line_thickness")
+
             # Split Pie preferences
             col = column_main.column(align=False)
             box = col.box()
@@ -889,30 +895,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_prefixes")
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
-            # Switch lists
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Switch lists:")
-            col = box.column(align=True)
-            col.prop(self, "switch_list_axis")
-            col.prop(self, "switch_list_ppoint")
-            col.prop(self, "switch_list_snap")
-            col.separator()
 
             # Switch lists
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Snap Combos:")
-            col = box.column(align=True)
-            col.prop(self, "snap_combo_1", text="Combo 1")
-            col.prop(self, "snap_combo_2", text="Combo 2")
-            col.prop(self, "snap_combo_3", text="Combo 3")
-            col.prop(self, "snap_combo_4", text="Combo 4")
-            col.prop(self, "snap_combo_5", text="Combo 5")
-            col.prop(self, "snap_combo_6", text="Combo 6")
-            col.separator()
+            # col = column_main.column(align=False)
+            # box = col.box()
+            # col = box.column(align=True)
+            # col.label(text="Snap Combos:")
+            # col = box.column(align=True)
+            # col.prop(self, "snap_combo_1", text="Combo 1")
+            # col.prop(self, "snap_combo_2", text="Combo 2")
+            # col.prop(self, "snap_combo_3", text="Combo 3")
+            # col.prop(self, "snap_combo_4", text="Combo 4")
+            # col.prop(self, "snap_combo_5", text="Combo 5")
+            # col.prop(self, "snap_combo_6", text="Combo 6")
+            # col.separator()
 
             # Preferences
             col = column_main.column(align=False)

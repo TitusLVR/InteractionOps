@@ -31,7 +31,6 @@ iops_prefs_list = [
     "text_color_key",
     "text_pos_x",
     "text_pos_y",
-    #             "text_shadow_blur",
     "text_shadow_color",
     "text_shadow_pos_x",
     "text_shadow_pos_y",
@@ -42,6 +41,8 @@ iops_prefs_list = [
     "vo_cage_color",
     "vo_cage_p_size",
     "vo_cage_points_color",
+    "vo_cage_line_thickness",
+    "drag_snap_line_thickness",
     "texture_to_material_prefixes",
     "texture_to_material_suffixes",
     "switch_list_axis",
@@ -52,5 +53,5 @@ iops_prefs_list = [
     "snap_combo_3",
     "snap_combo_4",
     "snap_combo_5",
-    "snap_combo_6",    
+    "snap_combo_6",
 ]
