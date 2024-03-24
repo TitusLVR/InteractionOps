@@ -205,7 +205,6 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             and context.preferences.addons[
                 "MACHIN3tools"
             ].preferences.activate_shading_pie
-            == True
         ):
             row.separator()
             active = context.active_object
@@ -301,8 +300,17 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             col.label(text=" ")
             row = col.row(align=True)
             col = row.column(align=True)
-            col.prop(prefs, "snap_combo_list", expand=True)
-            col.operator("iops.set_snap_combo", text="", icon="ADD")
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_A").idx = 1
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_B").idx = 2
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_C").idx = 3
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_D").idx = 4
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_E").idx = 5
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_F").idx = 6
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_G").idx = 7
+            col.operator("iops.set_snap_combo", text="", icon="EVENT_H").idx = 8
+            
+            # col.prop(prefs, "snap_combo_list", expand=True, text="")
+            # col.operator("iops.save_snap_combo", text="", icon="ADD")
 
         if context.area.type == "IMAGE_EDITOR":
             if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":

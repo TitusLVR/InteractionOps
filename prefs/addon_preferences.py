@@ -2,28 +2,24 @@ from cgitb import text
 import bpy
 import rna_keymap_ui
 from mathutils import Vector
-from bpy.types import (
-    Operator,
-    Menu,
-    Panel,
-    PropertyGroup,
-    AddonPreferences,
-)
 from bpy.props import (
     BoolProperty,
     EnumProperty,
     FloatProperty,
     IntProperty,
-    PointerProperty,
     StringProperty,
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from ..utils.functions import ShowMessageBox
+from ..utils.split_areas_dict import (
+    split_areas_dict,
+    split_areas_list,
+    split_areas_position_list,
+)
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
-
 
 def update_category(self, context):
     message = "Panel Update Failed"
@@ -42,28 +38,9 @@ def update_category(self, context):
         print("\n[{}]\n{}\n\nError:\n{}".format("InteractionOps", message, e))
         pass
 
+
 def update_combo(self, context):
-    prefs = context.preferences.addons["InteractionOps"].preferences
-    index = int(prefs.snap_combo_list)
-    snap_combos = [
-            prefs.snap_combo_1.replace(" ", "").split(","),
-            prefs.snap_combo_2.replace(" ", "").split(","),
-            prefs.snap_combo_3.replace(" ", "").split(","),
-            prefs.snap_combo_4.replace(" ", "").split(","),
-            prefs.snap_combo_5.replace(" ", "").split(","),
-            prefs.snap_combo_6.replace(" ", "").split(","),
-        ]
-    snap_combo = snap_combos[index]
-    if len(snap_combo) == 3:
-        context.scene.transform_orientation_slots[0].type = snap_combo[0]
-        context.scene.tool_settings.transform_pivot_point = snap_combo[1]
-        context.scene.tool_settings.snap_target = snap_combo[2]
-    else:
-        ShowMessageBox(
-            text="Snap Combo is not properly set",
-            title="WARNING",
-            icon="ERROR",
-        )
+    bpy.ops.iops.set_snap_combo()
 
 
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
@@ -76,164 +53,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         update=update_category,
     )
 
-    # list itens (identifier, name, description, icon, number,)
+    # list items (identifier, name, description, icon, number,)
     # Area.type, Area.ui_type, Icon, PrefText
     tabs: bpy.props.EnumProperty(
         name="Preferences",
         items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", "")],
         default="PREFS",
     )
-
-    split_areas_dict = {
-        "Empty": {"type": "EMPTY", "ui": "EMPTY", "icon": "NONE", "num": 0},
-        "3D Viewport": {"type": "VIEW_3D", "ui": "VIEW_3D", "icon": "VIEW3D", "num": 1},
-        "Image Editor": {
-            "type": "IMAGE_EDITOR",
-            "ui": "IMAGE_EDITOR",
-            "icon": "IMAGE",
-            "num": 2,
-        },
-        "UV Editor": {"type": "IMAGE_EDITOR", "ui": "UV", "icon": "UV", "num": 3},
-        "Shader Editor": {
-            "type": "NODE_EDITOR",
-            "ui": "ShaderNodeTree",
-            "icon": "NODE_MATERIAL",
-            "num": 4,
-        },
-        "Compositor": {
-            "type": "NODE_EDITOR",
-            "ui": "CompositorNodeTree",
-            "icon": "NODE_COMPOSITING",
-            "num": 5,
-        },
-        "Texture Node Editor": {
-            "type": "NODE_EDITOR",
-            "ui": "TextureNodeTree",
-            "icon": "NODE_TEXTURE",
-            "num": 6,
-        },
-        "Video Sequencer": {
-            "type": "SEQUENCE_EDITOR",
-            "ui": "SEQUENCE_EDITOR",
-            "icon": "SEQUENCE",
-            "num": 7,
-        },
-        "Movie Clip Editor": {
-            "type": "CLIP_EDITOR",
-            "ui": "CLIP_EDITOR",
-            "icon": "TRACKER",
-            "num": 8,
-        },
-        "Dope Sheet": {
-            "type": "DOPESHEET_EDITOR",
-            "ui": "DOPESHEET",
-            "icon": "ACTION",
-            "num": 9,
-        },
-        "Timeline": {
-            "type": "DOPESHEET_EDITOR",
-            "ui": "TIMELINE",
-            "icon": "TIME",
-            "num": 10,
-        },
-        "Graph Editor": {
-            "type": "GRAPH_EDITOR",
-            "ui": "FCURVES",
-            "icon": "GRAPH",
-            "num": 11,
-        },
-        "Drivers": {
-            "type": "GRAPH_EDITOR",
-            "ui": "DRIVERS",
-            "icon": "DRIVER",
-            "num": 12,
-        },
-        "Nonlinear Animation": {
-            "type": "NLA_EDITOR",
-            "ui": "NLA_EDITOR",
-            "icon": "NLA",
-            "num": 13,
-        },
-        "Text Editor": {
-            "type": "TEXT_EDITOR",
-            "ui": "TEXT_EDITOR",
-            "icon": "TEXT",
-            "num": 14,
-        },
-        "Python Console": {
-            "type": "CONSOLE",
-            "ui": "CONSOLE",
-            "icon": "CONSOLE",
-            "num": 15,
-        },
-        "Info": {"type": "INFO", "ui": "INFO", "icon": "INFO", "num": 16},
-        "Outliner": {
-            "type": "OUTLINER",
-            "ui": "OUTLINER",
-            "icon": "OUTLINER",
-            "num": 17,
-        },
-        "Properties": {
-            "type": "PROPERTIES",
-            "ui": "PROPERTIES",
-            "icon": "PROPERTIES",
-            "num": 18,
-        },
-        "File Browser": {
-            "type": "FILE_BROWSER",
-            "ui": "FILE_BROWSER",
-            "icon": "FILEBROWSER",
-            "num": 19,
-        },
-        "Preferences": {
-            "type": "PREFERENCES",
-            "ui": "PREFERENCES",
-            "icon": "PREFERENCES",
-            "num": 20,
-        },
-        "Geometry Nodes": {
-            "type": "NODE_EDITOR",
-            "ui": "GeometryNodeTree",
-            "icon": "NODETREE",
-            "num": 21,
-        },
-        "Spreadsheet": {
-            "type": "SPREADSHEET",
-            "ui": "SPREADSHEET",
-            "icon": "SPREADSHEET",
-            "num": 22,
-        },
-    }
-    file_browser_name = "FILE_BROWSER"
-    if bpy.app.version[1] >= 92:
-        file_browser_name = "FILES"
-        split_areas_dict["File Browser"]["ui"] = "FILES"
-        split_areas_dict["Asset Browser"] = {
-            "type": "FILE_BROWSER",
-            "ui": "ASSETS",
-            "icon": "ASSET_MANAGER",
-            "num": 23,
-        }
-    if bpy.app.version[0] >= 3:
-        file_browser_name = "FILES"
-        split_areas_dict["File Browser"]["ui"] = "FILES"
-        split_areas_dict["Asset Browser"] = {
-            "type": "FILE_BROWSER",
-            "ui": "ASSETS",
-            "icon": "ASSET_MANAGER",
-            "num": 23,
-        }
-
-    split_areas_list = [
-        (v["ui"], k, "", v["icon"], v["num"]) for k, v in split_areas_dict.items()
-    ]
-
-    split_areas_position_list = [
-        ("LEFT", "LEFT", "", "", 0),
-        ("RIGHT", "RIGHT", "", "", 1),
-        ("TOP", "TOP", "", "", 2),
-        ("BOTTOM", "BOTTOM", "", "", 3),
-    ]
 
     text_color: FloatVectorProperty(
         name="Color",
@@ -296,7 +122,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         items=[
             ("0", "None", "", "", 0),
             ("3", "Mid", "", "", 3),
-            ("5", "High", "", "", 5),
+            ("5", "High", "", "", 5)
         ],
         default="0",
     )
@@ -450,7 +276,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 6 - RIGHT
     split_area_pie_6_ui: EnumProperty(
-        name="", description="Area Types", items=split_areas_list, default="UV"
+        name="", 
+        description="Area Types", 
+        items=split_areas_list, 
+        default="UV"
     )
     split_area_pie_6_pos: EnumProperty(
         name="",
@@ -472,7 +301,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="",
         description="Area Types",
         items=split_areas_list,
-        default=file_browser_name,
+        default='FILES',
     )
     split_area_pie_7_pos: EnumProperty(
         name="",
@@ -491,7 +320,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 8 - TOP
     split_area_pie_8_ui: EnumProperty(
-        name="", description="Area Types", items=split_areas_list, default="CONSOLE"
+        name="", 
+        description="Area Types", 
+        items=split_areas_list, 
+        default="CONSOLE"
     )
     split_area_pie_8_pos: EnumProperty(
         name="",
@@ -510,7 +342,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 9 - TOP - RIGHT
     split_area_pie_9_ui: EnumProperty(
-        name="", description="Area Types", items=split_areas_list, default="TEXT_EDITOR"
+        name="", 
+        description="Area Types", 
+        items=split_areas_list, 
+        default="TEXT_EDITOR"
     )
     split_area_pie_9_pos: EnumProperty(
         name="",
@@ -569,52 +404,23 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
         default="CLOSEST, CENTER, MEDIAN, ACTIVE",
     )
-    snap_combo_1: StringProperty(
-        name="Snap Combo 1",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, ACTIVE_ELEMENT, CENTER",
-    )
-    snap_combo_2: StringProperty(
-        name="Snap Combo 2",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="CURSOR, CURSOR, CENTER",
-    )
-    snap_combo_3: StringProperty(
-        name="Snap Combo 3",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="LOCAL, INDIVIDUAL_ORIGINS, CENTER",
-    )
-    snap_combo_4: StringProperty(
-        name="Snap Combo 4",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, MEDIAN_POINT, CENTER",
-    )
-    snap_combo_5: StringProperty(
-        name="Snap Combo 4",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="GLOBAL, ACTIVE_ELEMENT, ACTIVE",
-    )
-    snap_combo_6: StringProperty(
-        name="Snap Combo 4",
-        description="Format: transform type, pivot point, Snap With. example:LOCAL, ACTIVE_ELEMENT, CENTER",
-        default="NORMAL, ACTIVE_ELEMENT, CENTER",
-    )
- 
+
     snap_combo_list: EnumProperty(
         name="Snap Combo List",
         description="Snap Combo List",
         items=[
-            ("0", "", "", "EVENT_F1", 0),
-            ("1", "", "", "EVENT_F2", 1),
-            ("2", "", "", "EVENT_F3", 2),
-            ("3", "", "", "EVENT_F4", 3),
-            ("4", "", "", "EVENT_F5", 4),
-            ("5", "", "", "EVENT_F6", 5),
+            ("1", "Snap Combo 1", "", "EVENT_A", 0),
+            ("2", "Snap Combo 2", "", "EVENT_B", 1),
+            ("3", "Snap Combo 3", "", "EVENT_C", 2),
+            ("4", "Snap Combo 4", "", "EVENT_D", 3),
+            ("5", "Snap Combo 5", "", "EVENT_E", 4),
+            ("6", "Snap Combo 6", "", "EVENT_F", 5),
+            ("7", "Snap Combo 7", "", "EVENT_G", 6),
+            ("8", "Snap Combo 8", "", "EVENT_H", 7),
         ],
         default="1",
-        update = update_combo,
+        update = update_combo
     )
-
 
     def draw(self, context):
         layout = self.layout
@@ -662,7 +468,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Window"],
                 kc_user.keymaps["Mesh"],
                 kc_user.keymaps["Object Mode"],
-                kc_user.keymaps["Screen Editing"],
+                kc_user.keymaps["Screen Editing"]
             ]
             for km in keymaps:
                 for kmi in km.keymap_items:
@@ -860,19 +666,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "switch_list_snap")
             col.separator()
 
-            # Switch lists
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Snap Combos:")
-            col = box.column(align=True)
-            col.prop(self, "snap_combo_1", text="Combo 1")
-            col.prop(self, "snap_combo_2", text="Combo 2")
-            col.prop(self, "snap_combo_3", text="Combo 3")
-            col.prop(self, "snap_combo_4", text="Combo 4")
-            col.prop(self, "snap_combo_5", text="Combo 5")
-            col.prop(self, "snap_combo_6", text="Combo 6")            
-            col.separator()
+            # # Snap combos
+            # col = column_main.column(align=False)
+            # box = col.box()
+            # col = box.column(align=True)
+            # col.label(text="Snap Combos:")
+            # col = box.column(align=True)
+            # col.prop(self, "snap_combo_1", text="Combo 1")
+            # col.prop(self, "snap_combo_2", text="Combo 2")
+            # col.prop(self, "snap_combo_3", text="Combo 3")
+            # col.prop(self, "snap_combo_4", text="Combo 4")
+            # col.prop(self, "snap_combo_5", text="Combo 5")
+            # col.prop(self, "snap_combo_6", text="Combo 6")
+            # col.prop(self, "snap_combo_6", text="Combo 7")
+            # col.prop(self, "snap_combo_6", text="Combo 8")
+            # col.separator()
 
             # Preferences
             col = column_main.column(align=False)

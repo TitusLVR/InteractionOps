@@ -182,6 +182,10 @@ from .utils.functions import register_keymaps, unregister_keymaps
 # Hotkeys
 from .prefs.hotkeys_default import keys_default as keys_default
 
+# Preferences
+from .operators.preferences.io_addon_preferences import load_iops_preferences
+
+
 
 bl_info = {
     "name": "iOps",
@@ -336,7 +340,9 @@ def register():
         type=IOPS_AddonProperties
     )
     path = bpy.utils.script_path_user()
+    
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
+
     if os.path.exists(user_hotkeys_file):
         with open(user_hotkeys_file) as f:
             keys_user = json.load(f)
@@ -344,15 +350,8 @@ def register():
     else:
         register_keymaps(keys_default)
 
-    iops_preferences_file = os.path.join(
-        path, "presets", "IOPS", "iops_preferences_user.py"
-    )
-    if os.path.exists(iops_preferences_file):
-        with open(iops_preferences_file, "r") as f:
-            content = f.readlines()
-            if content:
-                for line in content:
-                    exec(line)
+    load_iops_preferences()
+
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
@@ -361,11 +360,14 @@ def register():
 
 
 def unregister():
+    try:
+        bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
+        bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
+    except:
+        pass
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
-    bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
-    bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
     unregister_keymaps()
     print("IOPS Unregistered!")
 

@@ -1,5 +1,6 @@
 import bpy
 from bpy.types import Menu
+from ..utils.split_areas_dict import split_areas_dict
 
 
 def get_text_icon(ui_type, dict):
@@ -33,7 +34,7 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_1_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_1_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_1_ui,
             )
@@ -41,7 +42,7 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_1_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_1_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_1_ui,
                 pos=prefs.split_area_pie_1_pos,
@@ -65,14 +66,14 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_2_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_2_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_2_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_2_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_2_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_2_ui,
                 pos=prefs.split_area_pie_2_pos,
@@ -95,14 +96,14 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_3_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_3_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_3_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_3_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_3_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_3_ui,
                 pos=prefs.split_area_pie_3_pos,
@@ -125,14 +126,14 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_4_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_4_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_4_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_4_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_4_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_4_ui,
                 pos=prefs.split_area_pie_4_pos,
@@ -155,14 +156,14 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_6_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_6_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_6_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_6_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_6_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_6_ui,
                 pos=prefs.split_area_pie_6_pos,
@@ -185,14 +186,14 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_7_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_7_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_7_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_7_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_7_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_7_ui,
                 pos=prefs.split_area_pie_7_pos,
@@ -215,14 +216,14 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_8_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_8_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_8_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_8_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_8_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_8_ui,
                 pos=prefs.split_area_pie_8_pos,
@@ -245,14 +246,14 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_9_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_9_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_9_ui,
             )
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
-                    prefs.split_area_pie_9_ui, prefs.split_areas_dict
+                    prefs.split_area_pie_9_ui, split_areas_dict
                 ),
                 ui=prefs.split_area_pie_9_ui,
                 pos=prefs.split_area_pie_9_pos,
@@ -267,8 +268,6 @@ class IOPS_MT_Pie_Split(Menu):
 
     def draw(self, context):
         prefs = context.preferences.addons["InteractionOps"].preferences
-
-        split_areas_dict = prefs.split_areas_dict
 
         pie_1_text, pie_1_icon = get_text_icon(
             prefs.split_area_pie_1_ui, split_areas_dict
