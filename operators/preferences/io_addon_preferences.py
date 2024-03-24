@@ -98,11 +98,7 @@ def load_iops_preferences():
 
     except FileNotFoundError:
         save_iops_preferences()
-        ShowMessageBox(
-            "IOPS Preferences file was not found. Default preferences were saved.",
-            "IOPS Preferences",
-            "ERROR",
-        )
+        print("IOPS Preferences file was not found. A new one was created at:", iops_prefs_file)
         return
 
 

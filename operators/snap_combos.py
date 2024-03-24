@@ -2,6 +2,39 @@ import bpy
 import os
 import json
 
+def ensure_snap_combos_prefs():
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+
+    for i in range(1,9):
+        if not f"snap_combo_{i}" in prefs.keys():
+            prefs[f"snap_combo_{i}"] = {
+                "SNAP_ELEMENTS": {
+                    "INCREMENT": False,
+                    "VERTEX": True,
+                    "EDGE": False,
+                    "FACE": False,
+                    "VOLUME": False,
+                    "EDGE_MIDPOINT": False,
+                    "EDGE_PERPENDICULAR": False,
+                    "FACE_PROJECT": False,
+                    "FACE_NEAREST": False
+                },
+                "TOOL_SETTINGS": {
+                    "transform_pivot_point": "ACTIVE_ELEMENT",
+                    "snap_target": "ACTIVE",
+                    "use_snap_grid_absolute": True,
+                    "use_snap_self": True,
+                    "use_snap_align_rotation": False,
+                    "use_snap_peel_object": True,
+                    "use_snap_backface_culling": False,
+                    "use_snap_selectable": False,
+                    "use_snap_translate": False,
+                    "use_snap_rotate": False,
+                    "use_snap_scale": False,
+                    "use_snap_to_same_target": False
+                },
+                "TRANSFORMATION": "GLOBAL"
+            }
 
 def save_snap_combo(idx):
     tool_settings = bpy.context.scene.tool_settings
@@ -12,40 +45,33 @@ def save_snap_combo(idx):
     with open(iops_prefs_file, "r") as f:
         iops_prefs = json.load(f)
 
+    ensure_snap_combos_prefs()
+
+    for snap_combo, snap_details in iops_prefs.get("SNAP_COMBOS", {}).items():
+        if snap_combo[-1] == str(idx):
+            snap_elements = tool_settings.snap_elements
+            snap_elements_dict = {k: k in snap_elements for k in snap_details.get("SNAP_ELEMENTS", {})}
+            tool_settings_dict = {
+                "transform_pivot_point": tool_settings.transform_pivot_point,
+                "snap_target": tool_settings.snap_target,
+                "use_snap_grid_absolute": tool_settings.use_snap_grid_absolute,
+                "use_snap_self": tool_settings.use_snap_self,
+                "use_snap_align_rotation": tool_settings.use_snap_align_rotation,
+                "use_snap_peel_object": tool_settings.use_snap_peel_object,
+                "use_snap_backface_culling": tool_settings.use_snap_backface_culling,
+                "use_snap_selectable": tool_settings.use_snap_selectable,
+                "use_snap_translate": tool_settings.use_snap_translate,
+                "use_snap_rotate": tool_settings.use_snap_rotate,
+                "use_snap_scale": tool_settings.use_snap_scale,
+                "use_snap_to_same_target": tool_settings.use_snap_to_same_target
+            }
+            snap_details["SNAP_ELEMENTS"] = snap_elements_dict
+            snap_details["TOOL_SETTINGS"] = tool_settings_dict
+            snap_details["TRANSFORMATION"] = bpy.context.scene.transform_orientation_slots[0].type
+            prefs[snap_combo] = snap_details
+            break
+
     with open(iops_prefs_file, "w") as f:
-        for key, value in iops_prefs.items():
-            if key == "SNAP_COMBOS":
-                for snap_combo in value:
-                    if snap_combo[-1] == str(idx):
-                        for k, v in value[snap_combo]["SNAP_ELEMENTS"].items():
-                            value[snap_combo]["SNAP_ELEMENTS"][k] = k in tool_settings.snap_elements
-                        value[snap_combo]         ["TOOL_SETTINGS"]["transform_pivot_point"]     = tool_settings.transform_pivot_point
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["transform_pivot_point"]     = tool_settings.transform_pivot_point
-                        value[snap_combo]         ["TOOL_SETTINGS"]["snap_target"]               = tool_settings.snap_target
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["snap_target"]               = tool_settings.snap_target
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_grid_absolute"]    = tool_settings.use_snap_grid_absolute
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_grid_absolute"]    = tool_settings.use_snap_grid_absolute
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_self"]             = tool_settings.use_snap_self
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_self"]             = tool_settings.use_snap_self
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_align_rotation"]   = tool_settings.use_snap_align_rotation
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_align_rotation"]   = tool_settings.use_snap_align_rotation
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_peel_object"]      = tool_settings.use_snap_peel_object
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_peel_object"]      = tool_settings.use_snap_peel_object
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_backface_culling"] = tool_settings.use_snap_backface_culling
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_backface_culling"] = tool_settings.use_snap_backface_culling
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_selectable"]       = tool_settings.use_snap_selectable
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_selectable"]       = tool_settings.use_snap_selectable
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_translate"]        = tool_settings.use_snap_translate
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_translate"]        = tool_settings.use_snap_translate
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_rotate"]           = tool_settings.use_snap_rotate
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_rotate"]           = tool_settings.use_snap_rotate
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_scale"]            = tool_settings.use_snap_scale
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_scale"]            = tool_settings.use_snap_scale
-                        value[snap_combo]         ["TOOL_SETTINGS"]["use_snap_to_same_target"]   = tool_settings.use_snap_to_same_target
-                        prefs[f'snap_combo_{idx}']["TOOL_SETTINGS"]["use_snap_to_same_target"]   = tool_settings.use_snap_to_same_target
-                        value[snap_combo]         ["TRANSFORMATION"]          = bpy.context.scene.transform_orientation_slots[0].type
-                        prefs[f'snap_combo_{idx}']["TRANSFORMATION"] = bpy.context.scene.transform_orientation_slots[0].type
-                        break
         json.dump(iops_prefs, f, indent=4)
 
 
