@@ -76,9 +76,12 @@ def save_snap_combo(idx):
 
 
 class IOPS_OT_SetSnapCombo(bpy.types.Operator):
-    '''IOPS Set Snap combo'''
+    '''
+    Click to set the Snap Combo
+    Shift+Click to save the current Snap Combo
+    '''
     bl_idname = "iops.set_snap_combo"
-    bl_label = "Set Snap Combo "
+    bl_label = "Set Snap Combo"
     bl_options = {"REGISTER", "UNDO"}
 
     idx: bpy.props.IntProperty()
@@ -88,7 +91,7 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
 
         if event.shift:
             save_snap_combo(self.idx)
-            self.report({"INFO"}, f"Snapping Combo {self.idx} Saved.")
+            self.report({"INFO"}, f"Snap Combo {self.idx} Saved.")
 
         else:
             tool_settings = context.scene.tool_settings
@@ -111,6 +114,6 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
                     tool_settings.use_snap_to_same_target                 = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_to_same_target"]
                     bpy.context.scene.transform_orientation_slots[0].type = prefs[snap_combo]["TRANSFORMATION"]
                     break
-            self.report({"INFO"}, f"Snapping Combo {self.idx} Loaded.")
+            self.report({"INFO"}, f"Snap Combo {self.idx} Loaded.")
         return {"FINISHED"}
 
