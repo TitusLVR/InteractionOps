@@ -140,7 +140,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             return {"PASS_THROUGH"}
 
         elif event.type == "F4" and event.value == "PRESS":
-            bpy.ops.iops.visual_origin("INVOKE_DEFAULT")
+            bpy.ops.iops.object_visual_origin("INVOKE_DEFAULT")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
             return {"FINISHED"}
