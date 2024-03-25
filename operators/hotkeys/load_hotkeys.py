@@ -2,7 +2,7 @@ import bpy
 import os
 import json
 from ...utils.functions import register_keymaps, unregister_keymaps
-from ...prefs.hotkeys_default import keys_default as keys_default
+from ...prefs.hotkeys_default import keys_default
 
 
 class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):

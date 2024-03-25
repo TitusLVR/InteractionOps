@@ -1,0 +1,38 @@
+import bpy
+
+old_new_km_map = {
+    "iops.call_data_panel": "iops.call_panel_data",
+    "iops.call_tm_panel": "iops.call_panel_tm",
+    "iops.call_tps_panel": "iops.call_panel_tps",
+    "iops.line_up_edges": "iops.z_line_up_edges",
+    "iops.eq_edges": "iops.z_eq_edges",
+    "iops.drag_snap": "iops.object_drag_snap",
+    "iops.drag_snap_uv": "iops.object_drag_snap_uv",
+    "iops.drag_snap_cursor": "iops.object_drag_snap_cursor",
+    "iops.f1": "iops.function_f1",
+    "iops.f2": "iops.function_f2",
+    "iops.f3": "iops.function_f3",
+    "iops.f4": "iops.function_f4",
+    "iops.f5": "iops.function_f5",
+    "iops.esc": "iops.function_esc",
+    "iops.to_verts": "iops.mesh_to_verts",
+    "iops.to_edges": "iops.mesh_to_edges",
+    "iops.to_faces": "iops.mesh_to_faces",
+    "iops.align_origin_to_normal": "iops.mesh_align_origin_to_normal",
+    "iops.mouseover_fill_select": "iops.mesh_mouseover_fill_select",
+    "iops.run_text": "iops.scripts_run_text",
+    "iops.call_mt_executor": "iops.scripts_call_mt_executor",
+    "iops.to_grid_from_active": "iops.object_to_grid_from_active",
+    "iops.modal_three_point_rotation": "iops.object_modal_three_point_rotation",
+    "iops.active_object_scroll_up": "iops.object_active_object_scroll_up",
+    "iops.active_object_scroll_down": "iops.object_active_object_scroll_down",
+}
+
+km_to_remove = ['iops.snap_scroll_down', 
+             'iops.snap_scroll_up',
+             'iops.ppoint_scroll_down',
+             'iops.ppoint_scroll_up',
+             'iops.axis_scroll_down',
+             'iops.axis_scroll_up',
+             'iops.prop_scroll_down',
+             'iops.prop_scroll_up']

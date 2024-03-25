@@ -169,7 +169,7 @@ from .operators.ui_prop_switch import (
 from .operators.snap_combos import IOPS_OT_SetSnapCombo
 
 
-from .utils.functions import register_keymaps, unregister_keymaps
+from .utils.functions import register_keymaps, unregister_keymaps, fix_old_keymaps
 
 # Hotkeys
 from .prefs.hotkeys_default import keys_default as keys_default
@@ -326,6 +326,7 @@ def register():
     path = bpy.utils.script_path_user()
     
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
+    fix_old_keymaps()
 
     if os.path.exists(user_hotkeys_file):
         with open(user_hotkeys_file) as f:

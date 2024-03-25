@@ -1,18 +1,18 @@
 # CTRL, ALT, Shift
 keys_default = [
     # IOPS F Keys
-    ("iops.function_1", "F1", "PRESS", False, False, False, False),
-    ("iops.function_2", "F2", "PRESS", False, False, False, False),
-    ("iops.function_3", "F3", "PRESS", False, False, False, False),
-    ("iops.function_4", "F4", "PRESS", False, False, False, False),
-    ("iops.function_5", "F5", "PRESS", False, False, False, False),
+    ("iops.function_f1", "F1", "PRESS", False, False, False, False),
+    ("iops.function_f2", "F2", "PRESS", False, False, False, False),
+    ("iops.function_f3", "F3", "PRESS", False, False, False, False),
+    ("iops.function_f4", "F4", "PRESS", False, False, False, False),
+    ("iops.function_f5", "F5", "PRESS", False, False, False, False),
     ("iops.function_esc", "ESC", "PRESS", False, False, False, False),    
     # IOPS Operators Mesh
     ("iops.mesh_to_verts", "F1", "PRESS", False, True, False, False),
     ("iops.mesh_to_edges", "F2", "PRESS", False, True, False, False),
     ("iops.mesh_to_faces", "F3", "PRESS", False, True, False, False),
     ("iops.mesh_align_origin_to_normal", "F5", "PRESS", False, True, False, False),
-    ("iops.mesh_select_mouseover_fill", "F19", "PRESS", True, True, True, False),
+    ("iops.mesh_mouseover_fill_select", "F19", "PRESS", True, True, True, False),
     ("iops.mesh_to_grid", "UP_ARROW", "PRESS", False, False, False, False),
     # Zaloopok's operators
     ("iops.z_grow_loop", "F19", "PRESS", True, True, True, False),

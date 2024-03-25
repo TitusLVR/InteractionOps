@@ -1,6 +1,8 @@
 import bpy
 import bmesh
 import addon_utils
+import os
+import json
 from statistics import median, StatisticsError
 from mathutils import Vector
 
@@ -233,6 +235,42 @@ def get_active_and_selected():
 
 
 ############################## Keymaps ##############################
+old_new_km_map = {
+    "iops.call_data_panel": "iops.call_panel_data",
+    "iops.call_tm_panel": "iops.call_panel_tm",
+    "iops.call_tps_panel": "iops.call_panel_tps",
+    "iops.line_up_edges": "iops.z_line_up_edges",
+    "iops.eq_edges": "iops.z_eq_edges",
+    "iops.drag_snap": "iops.object_drag_snap",
+    "iops.drag_snap_uv": "iops.object_drag_snap_uv",
+    "iops.drag_snap_cursor": "iops.object_drag_snap_cursor",
+    "iops.f1": "iops.function_f1",
+    "iops.f2": "iops.function_f2",
+    "iops.f3": "iops.function_f3",
+    "iops.f4": "iops.function_f4",
+    "iops.f5": "iops.function_f5",
+    "iops.esc": "iops.function_esc",
+    "iops.to_verts": "iops.mesh_to_verts",
+    "iops.to_edges": "iops.mesh_to_edges",
+    "iops.to_faces": "iops.mesh_to_faces",
+    "iops.align_origin_to_normal": "iops.mesh_align_origin_to_normal",
+    "iops.mouseover_fill_select": "iops.mesh_mouseover_fill_select",
+    "iops.run_text": "iops.scripts_run_text",
+    "iops.call_mt_executor": "iops.scripts_call_mt_executor",
+    "iops.to_grid_from_active": "iops.object_to_grid_from_active",
+    "iops.modal_three_point_rotation": "iops.object_modal_three_point_rotation",
+    "iops.active_object_scroll_up": "iops.object_active_object_scroll_up",
+    "iops.active_object_scroll_down": "iops.object_active_object_scroll_down",
+}
+
+km_to_remove = ['iops.snap_scroll_down',
+             'iops.snap_scroll_up',
+             'iops.ppoint_scroll_down',
+             'iops.ppoint_scroll_up',
+             'iops.axis_scroll_down',
+             'iops.axis_scroll_up',
+             'iops.prop_scroll_down',
+             'iops.prop_scroll_up']
 
 
 def register_keymaps(keys):
@@ -276,3 +314,24 @@ def unregister_keymaps():
                 )
                 for item in toDelete:
                     keymapItems.remove(item)
+
+def fix_old_keymaps():
+    path = bpy.utils.script_path_user()
+    user_hotkeys_file = os.path.join(
+        path, "presets", "IOPS", "iops_hotkeys_user.py"
+    )
+    fixed_km = []
+
+    if os.path.exists(user_hotkeys_file):
+        with open(user_hotkeys_file, 'r') as f:
+            keys_user_old = json.load(f)
+        for km in keys_user_old:
+            if km[0] not in km_to_remove:
+                if km[0] in old_new_km_map.keys():
+                    km[0] = old_new_km_map[km[0]]
+                    fixed_km.append(km)
+                else:
+                    fixed_km.append(km)
+        with open(user_hotkeys_file, "w") as f:
+            f.write("[" + ",\n".join(json.dumps(i) for i in fixed_km) + "]\n")
+    

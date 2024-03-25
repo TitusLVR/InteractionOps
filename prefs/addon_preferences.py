@@ -439,12 +439,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.separator()
             row.separator()
             row.separator()
-            row.operator(
-                "iops.load_default_hotkeys", text="Load Default Hotkeys", icon="ERROR"
-            )
-            col.separator()
-            col.separator()
-            col.separator()
+            row.operator("iops.load_default_hotkeys", text="Load Default Hotkeys", icon="ERROR")
+            row.separator()
+            row.separator()
+            row.separator()
+            row.operator("iops.fix_old_hotkeys", text="Fix Old Hotkeys", icon="ERROR")
+
 
             # Keymaps
             col = column_main.column(align=False)
