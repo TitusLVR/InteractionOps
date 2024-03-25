@@ -11,6 +11,9 @@ from bpy.props import (
     StringProperty,
 )
 
+def update_exec_filter(self, context):    
+    bpy.ops.iops.scripts_call_mt_executor()
+
 
 class IOPS_AddonProperties(PropertyGroup):
     iops_panel_mesh_info: bpy.props.BoolProperty(
@@ -27,6 +30,8 @@ class IOPS_AddonProperties(PropertyGroup):
     iops_exec_filter: StringProperty(
         name="Filter",
         default="",
+        # options={'TEXTEDIT_UPDATE'},
+        update=update_exec_filter,
     )
 
 
