@@ -73,16 +73,12 @@ def get_iops_prefs():
             "vo_cage_ap_size": prefs.vo_cage_ap_size,
             "vo_cage_color": list(prefs.vo_cage_color),
             "vo_cage_p_size": prefs.vo_cage_p_size,
-            "vo_cage_points_color": list(prefs.vo_cage_points_color)
+            "vo_cage_points_color": list(prefs.vo_cage_points_color),
+            "vo_cage_line_thickness": prefs.vo_cage_line_thickness
             },
         "TEXTURE_TO_MATERIAL": {
             "texture_to_material_prefixes": prefs.texture_to_material_prefixes,
             "texture_to_material_suffixes": prefs.texture_to_material_suffixes
-            },
-        "SWITCH_LIST": {
-            "switch_list_axis": prefs.switch_list_axis,
-            "switch_list_ppoint": prefs.switch_list_ppoint,
-            "switch_list_snap": prefs.switch_list_snap,
             },
         "SNAP_COMBOS": {
             "snap_combo_1": snap_combo_dict["snap_combo_1"],
@@ -93,6 +89,9 @@ def get_iops_prefs():
             "snap_combo_6": snap_combo_dict["snap_combo_6"],
             "snap_combo_7": snap_combo_dict["snap_combo_7"],
             "snap_combo_8": snap_combo_dict["snap_combo_8"]
+            },
+        "DRAG_SNAP": {
+            "drag_snap_line_thickness": prefs.drag_snap_line_thickness
             }
         }
 

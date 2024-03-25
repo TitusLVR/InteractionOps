@@ -59,7 +59,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     """Three point rotation"""
 
-    bl_idname = "iops.modal_three_point_rotation"
+    bl_idname = "iops.object_modal_three_point_rotation"
     bl_label = "Complex Modal Rotation"
     bl_options = {"REGISTER", "UNDO"}
     obj = None

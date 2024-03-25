@@ -24,7 +24,7 @@ def get_unit_scale():
 class IOPS_MESH_OT_CopyEdgesLength(bpy.types.Operator):
     """Copy the active edge length to the clipboard"""
 
-    bl_idname = "mesh.iops_copy_edge_length"
+    bl_idname = "iops.mesh_copy_edge_length"
     bl_label = "Copy Active Edge Length to Clipboard"
 
     @classmethod

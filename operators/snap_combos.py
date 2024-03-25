@@ -75,6 +75,7 @@ def save_snap_combo(idx):
         json.dump(iops_prefs, f, indent=4)
 
 
+
 class IOPS_OT_SetSnapCombo(bpy.types.Operator):
     '''
     Click to set the Snap Combo

@@ -16,7 +16,14 @@ from bpy_extras.view3d_utils import (
     location_3d_to_region_2d,
 )
 from bpy.props import BoolProperty
+# from gpu_extras.presets import draw_circle_2d
 
+# pos = 200, 200
+# color = 1, 0, 0, 1
+# radius = 50
+
+# def draw():
+#     draw_circle_2d(pos, color, radius)
 
 # get circle vertices on pos 2D by segments
 def generate_circle_verts(position, radius, segments):
@@ -155,15 +162,19 @@ def draw_bbox_lines(self, context):
             )
         else:
             indices = ()
-        color = bpy.context.preferences.addons[
-            "InteractionOps"
-        ].preferences.vo_cage_color
+        
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        color = prefs.vo_cage_color
+        line_thickness = prefs.vo_cage_line_thickness
+
         shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
         batch = batch_for_shader(shader, "LINES", {"pos": coords}, indices=indices)
         shader.bind()
+        region = bpy.context.region
         shader.uniform_float("color", color)
-        shader.uniform_float("lineWidth", 0.25)
-        shader.uniform_float("viewportSize", gpu.state.scissor_get()[2:])
+        shader.uniform_float("viewportSize", (region.width, region.height))
+        shader.uniform_float("lineWidth", line_thickness)
+        # shader.uniform_float("viewportSize", gpu.state.scissor_get()[2:])
         batch.draw(shader)
 
 
@@ -220,7 +231,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
 class IOPS_OT_VisualOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
 
-    bl_idname = "iops.visual_origin"
+    bl_idname = "iops.object_visual_origin"
     bl_label = "Visual origin"
     bl_options = {"REGISTER", "UNDO"}
 

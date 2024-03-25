@@ -86,7 +86,7 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
 class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
     """Active object data(mesh) information"""
 
-    bl_idname = "iops.call_mt_executor"
+    bl_idname = "iops.scripts_call_mt_executor"
     bl_label = "IOPS Call Executor"
 
     def execute(self, context):

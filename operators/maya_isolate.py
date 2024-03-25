@@ -7,7 +7,7 @@ import bpy
 class IOPS_OT_MayaIsolate(bpy.types.Operator):
     """Maya-like isolate selection"""
 
-    bl_idname = "iops.maya_isolate"
+    bl_idname = "iops.view3d_maya_isolate"
     bl_label = "IOPS Maya Isolate"
     bl_options = {"REGISTER", "UNDO"}
 

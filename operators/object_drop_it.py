@@ -14,7 +14,7 @@ from bpy.props import (
 class IOPS_OT_Drop_It(bpy.types.Operator):
     """Drop objects to surface"""
 
-    bl_idname = "iops.drop_it"
+    bl_idname = "iops.object_drop_it"
     bl_label = "Drop It!"
     bl_options = {"REGISTER", "UNDO"}
 

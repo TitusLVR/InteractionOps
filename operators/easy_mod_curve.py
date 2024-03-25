@@ -13,7 +13,7 @@ from bpy.props import (
 class IOPS_OT_Easy_Mod_Curve(bpy.types.Operator):
     """Select picked curve in curve modifier"""
 
-    bl_idname = "iops.easy_mod_curve"
+    bl_idname = "iops.modifier_easy_curve"
     bl_label = "Easy Modifier - Curve"
     bl_options = {"REGISTER", "UNDO"}
 

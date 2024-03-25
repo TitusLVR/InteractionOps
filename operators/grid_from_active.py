@@ -6,7 +6,7 @@ from mathutils import Vector, Matrix
 class IOPS_OT_ToGridFromActive(bpy.types.Operator):
     """Locations to grid from active"""
 
-    bl_idname = "iops.to_grid_from_active"
+    bl_idname = "iops.object_to_grid_from_active"
     bl_label = "To Grid From Active"
     bl_options = {"REGISTER", "UNDO"}
 

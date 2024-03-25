@@ -79,7 +79,7 @@ def draw_callback_iops_aotf_px(self, context, _uidpi, _uifactor):
 class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
     """Align object to selected face"""
 
-    bl_idname = "iops.align_object_to_face"
+    bl_idname = "iops.mesh_align_object_to_face"
     bl_label = "MESH: Align object to face"
     bl_options = {"REGISTER", "UNDO"}
 

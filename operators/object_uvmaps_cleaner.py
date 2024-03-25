@@ -25,7 +25,7 @@ def uvmap_clean_by_index(obj, index):
 class IOPS_OT_Clean_UVMap_0(bpy.types.Operator):
     """Clean all UVMaps on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_0"
+    bl_idname = "iops.object_clean_uvmap_0"
     bl_label = "Remove All UVMaps"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -53,7 +53,7 @@ class IOPS_OT_Clean_UVMap_0(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_1(bpy.types.Operator):
     """Clean from UVMap #2 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_1"
+    bl_idname = "iops.object_clean_uvmap_1"
     bl_label = "Remove UVMap 1"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -81,7 +81,7 @@ class IOPS_OT_Clean_UVMap_1(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_2(bpy.types.Operator):
     """Clean from UVMap #3 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_2"
+    bl_idname = "iops.object_clean_uvmap_2"
     bl_label = "Remove UVMap 2"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -109,7 +109,7 @@ class IOPS_OT_Clean_UVMap_2(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_3(bpy.types.Operator):
     """Clean from UVMap #4 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_3"
+    bl_idname = "iops.object_clean_uvmap_3"
     bl_label = "Remove UVMap 3"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -137,7 +137,7 @@ class IOPS_OT_Clean_UVMap_3(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_4(bpy.types.Operator):
     """Clean from UVMap #5 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_4"
+    bl_idname = "iops.object_clean_uvmap_4"
     bl_label = "Remove UVMap 4"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -165,7 +165,7 @@ class IOPS_OT_Clean_UVMap_4(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_5(bpy.types.Operator):
     """Clean from UVMap #6 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_5"
+    bl_idname = "iops.object_clean_uvmap_5"
     bl_label = "Remove UVMap 5"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -193,7 +193,7 @@ class IOPS_OT_Clean_UVMap_5(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_6(bpy.types.Operator):
     """Clean from UVMap #7 and up - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_6"
+    bl_idname = "iops.object_clean_uvmap_6"
     bl_label = "Remove UVMap 6"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -221,7 +221,7 @@ class IOPS_OT_Clean_UVMap_6(bpy.types.Operator):
 class IOPS_OT_Clean_UVMap_7(bpy.types.Operator):
     """Clean UVMap #8  - on selected objects"""
 
-    bl_idname = "iops.clean_uvmap_7"
+    bl_idname = "iops.object_clean_uvmap_7"
     bl_label = "Remove UVMap 7"
     bl_options = {"REGISTER", "UNDO"}
 

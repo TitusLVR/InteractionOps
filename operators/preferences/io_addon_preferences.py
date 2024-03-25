@@ -5,7 +5,6 @@ from ...prefs.iops_prefs import get_iops_prefs
 from ...utils.functions import ShowMessageBox
 from ...utils.split_areas_dict import split_areas_dict, split_areas_position_list
 
-
 # Save Addon Preferences
 def save_iops_preferences():
     iops_prefs = get_iops_prefs()
@@ -75,6 +74,7 @@ def load_iops_preferences():
                         prefs.vo_cage_color = value["vo_cage_color"]
                         prefs.vo_cage_p_size = value["vo_cage_p_size"]
                         prefs.vo_cage_points_color = value["vo_cage_points_color"]
+                        prefs.vo_cage_line_thickness = value["vo_cage_line_thickness"]
                     case "TEXTURE_TO_MATERIAL":
                         prefs.texture_to_material_prefixes = value[
                             "texture_to_material_prefixes"
@@ -82,13 +82,11 @@ def load_iops_preferences():
                         prefs.texture_to_material_suffixes = value[
                             "texture_to_material_suffixes"
                         ]
-                    case "SWITCH_LIST":
-                        prefs.switch_list_axis = value["switch_list_axis"]
-                        prefs.switch_list_ppoint = value["switch_list_ppoint"]
-                        prefs.switch_list_snap = value["switch_list_snap"]
                     case "SNAP_COMBOS":
                         for i in range(1, 9):
                             prefs[f"snap_combo_{i}"] = value[f"snap_combo_{i}"]
+                    case "DRAG_SNAP":
+                        prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
                     case _:
                         ShowMessageBox(
                             "No entry in the dictionary for " + key,

@@ -6,7 +6,7 @@ from bpy.props import FloatProperty, FloatVectorProperty
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in editr mode to selected vertecies"""
 
-    bl_idname = "iops.assign_vertex_color"
+    bl_idname = "iops.mesh_assign_vertex_color"
     bl_label = "Assign Vertex color in editr mode to selected vertecies"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -87,7 +87,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
 class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
     """Assign Vertex Color Alpha to selected vertecies"""
 
-    bl_idname = "iops.assign_vertex_color_alpha"
+    bl_idname = "iops.mesh_assign_vertex_color_alpha"
     bl_label = "Assign Vertex Color Alpha to selected vertecies"
     bl_options = {"REGISTER", "UNDO"}
 

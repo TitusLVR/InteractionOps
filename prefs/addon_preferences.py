@@ -186,6 +186,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         soft_min=2,
         soft_max=20,
     )
+    vo_cage_line_thickness: FloatProperty(
+        name="Cage Line thickness",
+        description="Thickness of the cage lines",
+        default=0.25,
+        min=0.0,
+        max=1000.0,
+    )
+    drag_snap_line_thickness: FloatProperty(
+        name="Drag Snap Line thickness",
+        description="Thickness of the drag snap lines",
+        default=0.25,
+        min=0.0,
+        max=1000.0,
+    )
 
     align_edge_color: FloatVectorProperty(
         name="Edge color",
@@ -387,24 +401,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="_df,_dfa,_mk,_emk,_nm",
     )
 
-    switch_list_axis: StringProperty(
-        name="Axis Switch List",
-        description="Axis Switch List, types should be with capital letters and separated by comma",
-        default="GLOBAL, LOCAL, NORMAL, GIMBAL, VIEW, CURSOR",
-    )
-
-    switch_list_ppoint: StringProperty(
-        name="PivotPoint Switch List",
-        description="PivotPoint Switch List, types should be with capital letters and separated by comma",
-        default="BOUNDING_BOX_CENTER, CURSOR, INDIVIDUAL_ORIGINS, MEDIAN_POINT, ACTIVE_ELEMENT",
-    )
-
-    switch_list_snap: StringProperty(
-        name="Snap With.. Switch List",
-        description="Snap With.. Switch List, types should be with capital letters and separated by comma ",
-        default="CLOSEST, CENTER, MEDIAN, ACTIVE",
-    )
-
     snap_combo_list: EnumProperty(
         name="Snap Combo List",
         description="Snap Combo List",
@@ -452,8 +448,43 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             # Keymaps
             col = column_main.column(align=False)
-            km_row = col.row(align=True)
-            km_col = km_row.column(align=True)
+            # Function keys
+            box_functions = col.box()            
+            box_functions.label(text="Main:")
+            col_functions = box_functions.column(align=True)
+            km_functions_row = col_functions.row(align=True)
+            km_functions_col = km_functions_row.column(align=True)
+            # ObjectMode keys
+            box_object = col.box()
+            box_object.label(text="Object Mode:")
+            col_object = box_object.column(align=True)
+            km_object_row = col_object.row(align=True)
+            km_object_col = km_object_row.column(align=True)
+            # Mesh/EditMode keys
+            box_mesh = col.box()
+            box_mesh.label(text="Mesh or EditMode:")
+            col_mesh = box_mesh.column(align=True)
+            km_mesh_row = col_mesh.row(align=True)
+            km_mesh_col = km_mesh_row.column(align=True)
+            # Panels keys
+            box_panels = col.box()
+            box_panels.label(text="Panels:")
+            col_panels = box_panels.column(align=True)
+            km_panels_row = col_panels.row(align=True)
+            km_panels_col = km_panels_row.column(align=True)
+            # Pie keys
+            box_pie = col.box()
+            box_pie.label(text="Pie Menus:")
+            col_pie = box_pie.column(align=True)
+            km_pie_row = col_pie.row(align=True)
+            km_pie_col = km_pie_row.column(align=True)            
+            # Scripts keys
+            box_scripts = col.box()
+            box_scripts.label(text="Scripts:")
+            col_scripts = box_scripts.column(align=True)
+            km_scripts_row = col_scripts.row(align=True)
+            km_scripts_col = km_scripts_row.column(align=True)
+            
 
             """
             kc - keyconfigs
@@ -461,6 +492,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             kmi - keymap item
 
             """
+
             kc = context.window_manager.keyconfigs
             kc_user = context.window_manager.keyconfigs.user
             # IOPS keymaps
@@ -470,28 +502,72 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Object Mode"],
                 kc_user.keymaps["Screen Editing"]
             ]
+            
+            
             for km in keymaps:
                 for kmi in km.keymap_items:
-                    if kmi.idname.startswith("iops."):
+                    if kmi.idname.startswith("iops.function_"):
                         try:
                             rna_keymap_ui.draw_kmi(
-                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_functions_col, 0
                             )
                         except AttributeError:
-                            km_col.label(
+                            km_functions_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )                    
+                    elif kmi.idname.startswith("iops.mesh") or kmi.idname.startswith("iops.z_"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_mesh_col, 0
+                            )
+                        except AttributeError:
+                            km_mesh_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )                    
+                    elif kmi.idname.startswith("iops.object"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_object_col, 0
+                            )
+                        except AttributeError:
+                            km_object_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
-                    elif kmi.idname.startswith("iops.split_area"):
+                    elif kmi.idname.startswith("iops.call_panel"):
                         try:
                             rna_keymap_ui.draw_kmi(
-                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_panels_col, 0
                             )
                         except AttributeError:
-                            km_col.label(
+                            km_panels_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
+                    elif kmi.idname.startswith("iops.call_pie"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_pie_col, 0
+                            )
+                        except AttributeError:
+                            km_pie_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    elif kmi.idname.startswith("iops.scripts"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_scripts_col, 0
+                            )
+                        except AttributeError:
+                            km_scripts_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    
+                    
 
         if self.tabs == "PREFS":
             col = column_main.column(align=False)
@@ -558,10 +634,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "vo_cage_ap_color", text="")
 
             # Cage color
-
             col = box.column(align=True)
             col.prop(self, "vo_cage_color")
+            col.prop(self, "vo_cage_line_thickness")
             col.separator()
+            
+            # Drag snap line thickness
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Drag Snap:")
+            row = col.row(align=True)
+            row.prop(self, "drag_snap_line_thickness")
+
             # Split Pie preferences
             col = column_main.column(align=False)
             box = col.box()
@@ -655,32 +740,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_prefixes")
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
-            # Switch lists
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Switch lists:")
-            col = box.column(align=True)
-            col.prop(self, "switch_list_axis")
-            col.prop(self, "switch_list_ppoint")
-            col.prop(self, "switch_list_snap")
-            col.separator()
-
-            # # Snap combos
-            # col = column_main.column(align=False)
-            # box = col.box()
-            # col = box.column(align=True)
-            # col.label(text="Snap Combos:")
-            # col = box.column(align=True)
-            # col.prop(self, "snap_combo_1", text="Combo 1")
-            # col.prop(self, "snap_combo_2", text="Combo 2")
-            # col.prop(self, "snap_combo_3", text="Combo 3")
-            # col.prop(self, "snap_combo_4", text="Combo 4")
-            # col.prop(self, "snap_combo_5", text="Combo 5")
-            # col.prop(self, "snap_combo_6", text="Combo 6")
-            # col.prop(self, "snap_combo_6", text="Combo 7")
-            # col.prop(self, "snap_combo_6", text="Combo 8")
-            # col.separator()
 
             # Preferences
             col = column_main.column(align=False)

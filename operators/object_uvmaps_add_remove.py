@@ -22,7 +22,7 @@ def active_uvmap_by_active(obj, index):
 class IOPS_OT_Add_UVMap(bpy.types.Operator):
     """Add UVMap to selected objects"""
 
-    bl_idname = "iops.add_uvmap"
+    bl_idname = "iops.uv_add_uvmap"
     bl_label = "Add UVMap to selected objects"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -45,7 +45,7 @@ class IOPS_OT_Add_UVMap(bpy.types.Operator):
 class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
     """Remove UVMap by Name of Active UVMap on selected objects"""
 
-    bl_idname = "iops.remove_uvmap_by_active_name"
+    bl_idname = "iops.uv_remove_uvmap_by_active_name"
     bl_label = "Remove UVMap by Name of Active UVMap on selected objects"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -69,7 +69,7 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
 class IOPS_OT_Active_UVMap_by_Active(bpy.types.Operator):
     """Remove UVMap by Name of Active UVMap on selected objects"""
 
-    bl_idname = "iops.active_uvmap_by_active_object"
+    bl_idname = "iops.uv_active_uvmap_by_active_object"
     bl_label = "Set Active UVMap as Active object active UVMap"
     bl_options = {"REGISTER", "UNDO"}
 

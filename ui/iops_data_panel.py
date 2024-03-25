@@ -32,14 +32,14 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             )
         # row.operator("iops.uvmaps_cleanup", text="", icon='BRUSH_DATA')
         row.separator()
-        row.operator("iops.clean_uvmap_0", text="All")
-        row.operator("iops.clean_uvmap_1", text="2+")
-        row.operator("iops.clean_uvmap_2", text="3+")
-        row.operator("iops.clean_uvmap_3", text="4+")
-        row.operator("iops.clean_uvmap_4", text="5+")
-        row.operator("iops.clean_uvmap_5", text="6+")
-        row.operator("iops.clean_uvmap_6", text="7+")
-        row.operator("iops.clean_uvmap_7", text="8")
+        row.operator("iops.object_clean_uvmap_0", text="All")
+        row.operator("iops.object_clean_uvmap_1", text="2+")
+        row.operator("iops.object_clean_uvmap_2", text="3+")
+        row.operator("iops.object_clean_uvmap_3", text="4+")
+        row.operator("iops.object_clean_uvmap_4", text="5+")
+        row.operator("iops.object_clean_uvmap_5", text="6+")
+        row.operator("iops.object_clean_uvmap_6", text="7+")
+        row.operator("iops.object_clean_uvmap_7", text="8")
 
         row.separator()
 
@@ -70,10 +70,10 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             col = row.column(align=True)
             # col.operator("mesh.uv_texture_add", icon='ADD', text="")
             # col.operator("mesh.uv_texture_remove", icon='REMOVE', text="")
-            col.operator("iops.add_uvmap", icon="ADD", text="")
-            col.operator("iops.remove_uvmap_by_active_name", icon="REMOVE", text="")
+            col.operator("iops.uv_add_uvmap", icon="ADD", text="")
+            col.operator("iops.uv_remove_uvmap_by_active_name", icon="REMOVE", text="")
             col.operator(
-                "iops.active_uvmap_by_active_object", icon="LAYER_ACTIVE", text=""
+                "iops.uv_active_uvmap_by_active_object", icon="LAYER_ACTIVE", text=""
             )
             # SEPARATORS------------------------------------
             row_main.separator()
@@ -222,7 +222,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
 class IOPS_OT_Call_Data_Panel(bpy.types.Operator):
     """Active object data(mesh) information"""
 
-    bl_idname = "iops.call_data_panel"
+    bl_idname = "iops.call_panel_data"
     bl_label = "IOPS Data panel"
 
     @classmethod

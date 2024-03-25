@@ -163,14 +163,6 @@ from .operators.executor import (
 from .operators.render_asset_thumgnail import IOPS_OT_RenderCollectionAssetThumbnail
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (
-    IOPS_OT_PropScroll_UP,
-    IOPS_OT_PropScroll_DOWN,
-    IOPS_OT_Axis_Scroll_UP,
-    IOPS_OT_Axis_Scroll_DOWN,
-    IOPS_OT_PPoint_Scroll_UP,
-    IOPS_OT_PPoint_Scroll_DOWN,
-    IOPS_OT_Snap_Scroll_UP,
-    IOPS_OT_Snap_Scroll_DOWN,
     IOPS_OT_ActiveObject_Scroll_UP,
     IOPS_OT_ActiveObject_Scroll_DOWN,
 )
@@ -281,14 +273,6 @@ classes = (
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
     IOPS_OT_DragSnapCursor,
-    IOPS_OT_PropScroll_UP,
-    IOPS_OT_PropScroll_DOWN,
-    IOPS_OT_Axis_Scroll_UP,
-    IOPS_OT_Axis_Scroll_DOWN,
-    IOPS_OT_PPoint_Scroll_UP,
-    IOPS_OT_PPoint_Scroll_DOWN,
-    IOPS_OT_Snap_Scroll_UP,
-    IOPS_OT_Snap_Scroll_DOWN,
     IOPS_OT_ActiveObject_Scroll_UP,
     IOPS_OT_ActiveObject_Scroll_DOWN,
     IOPS_OT_VertexColorAssign,

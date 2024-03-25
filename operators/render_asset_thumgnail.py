@@ -8,7 +8,7 @@ def get_path():
 
 
 class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
-    bl_idname = "iops.render_collection_asset_thumbnail"
+    bl_idname = "iops.assets_render_collection_asset_thumbnail"
     bl_label = "Render Active Collection Asset Thumbnail"
     bl_description = "Render Active Collection Asset Thumbnail"
     bl_options = {"REGISTER", "UNDO"}
