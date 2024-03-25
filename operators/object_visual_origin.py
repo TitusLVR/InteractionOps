@@ -231,7 +231,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
 class IOPS_OT_VisualOrigin(bpy.types.Operator):
     """Visual origin placing helper tool"""
 
-    bl_idname = "iops.visual_origin"
+    bl_idname = "iops.object_visual_origin"
     bl_label = "Visual origin"
     bl_options = {"REGISTER", "UNDO"}
 

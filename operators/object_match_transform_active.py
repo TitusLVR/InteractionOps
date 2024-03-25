@@ -4,7 +4,7 @@ import bpy
 class IOPS_OT_MatchTransformActive(bpy.types.Operator):
     """Match dimensions of selected object to active"""
 
-    bl_idname = "iops.match_transform_active"
+    bl_idname = "iops.object_match_transform_active"
     bl_label = "Match dimensions"
     bl_options = {"REGISTER", "UNDO"}
 

@@ -25,7 +25,7 @@ def ContextOverride():
 class IOPS_OT_RunText(bpy.types.Operator):
     """Run Current Script in Text Editor"""
 
-    bl_idname = "iops.run_text"
+    bl_idname = "iops.scripts_run_text"
     bl_label = "IOPS Run Text"
     bl_options = {"REGISTER", "UNDO"}
 

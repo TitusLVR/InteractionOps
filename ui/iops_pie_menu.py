@@ -30,24 +30,24 @@ class IOPS_MT_Pie_Menu(Menu):
             "iops_vertex_color",
             text="",
         )
-        col.operator("iops.assign_vertex_color", text="Set Vertex Color")
-        col.operator("iops.assign_vertex_color_alpha", text="Set Vertex Alpha")
+        col.operator("iops.mesh_assign_vertex_color", text="Set Vertex Color")
+        col.operator("iops.mesh_assign_vertex_color_alpha", text="Set Vertex Alpha")
         col.separator()
         col.operator("iops.materials_from_textures", text="Materials from Textures")
         col.separator()
         col.operator("iops.object_replace", text="Object Replace")
-        col.operator("iops.align_between_two", text="Align Between Two")
-        col.operator("iops.quick_snap", text="Quick Snap")
-        col.operator("iops.drop_it", text="Drop It!")
-        col.operator("iops.kitbash_grid", text="Grid")
+        col.operator("iops.object_align_between_two", text="Align Between Two")
+        col.operator("iops.object_quick_snap", text="Quick Snap")
+        col.operator("iops.object_drop_it", text="Drop It!")
+        col.operator("iops.object_kitbash_grid", text="Grid")
         col.separator()
-        col.operator("iops.easy_mod_array_caps", text="Easy Modifier - Array Caps")
-        col.operator("iops.easy_mod_array_curve", text="Easy Modifier - Array Curve")
-        col.operator("iops.easy_mod_curve", text="Easy Modifier - Curve")
-        col.operator("iops.easy_mod_shwarp", text="Easy Modifier - SHWARP")
+        col.operator("iops.modifier_easy_array_caps", text="Easy Modifier - Array Caps")
+        col.operator("iops.modifier_easy_array_curve", text="Easy Modifier - Array Curve")
+        col.operator("iops.modifier_easy_curve", text="Easy Modifier - Curve")
+        col.operator("iops.modifier_easy_shwarp", text="Easy Modifier - SHWARP")
         col.separator()
         col.operator(
-            "iops.render_collection_asset_thumbnail", text="Render Asset Thumbnail"
+            "iops.assets_render_collection_asset_thumbnail", text="Render Asset Thumbnail"
         )
 
         # 6 - RIGHT

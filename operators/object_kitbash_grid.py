@@ -13,7 +13,7 @@ from bpy.props import (
 class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     """Perfect for KitBashing. Set selected objects to grid."""
 
-    bl_idname = "iops.kitbash_grid"
+    bl_idname = "iops.object_kitbash_grid"
     bl_label = "Grid!"
     bl_options = {"REGISTER", "UNDO"}
 

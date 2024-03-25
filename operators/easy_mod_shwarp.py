@@ -13,7 +13,7 @@ from bpy.props import (
 class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
     """Select picked curve in curve modifier"""
 
-    bl_idname = "iops.easy_mod_shwarp"
+    bl_idname = "iops.modifier_easy_shwarp"
     bl_label = "Easy Modifier - Shrinkwarp"
     bl_options = {"REGISTER", "UNDO"}
 

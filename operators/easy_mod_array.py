@@ -67,7 +67,7 @@ def draw_iops_array_text(self, context, _uidpi, _uifactor):
 class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
     """Auto setup for array modifier"""
 
-    bl_idname = "iops.easy_mod_array_caps"
+    bl_idname = "iops.modifier_easy_array_caps"
     bl_label = "OBJECT: Array mod and caps setup"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -297,7 +297,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 class IOPS_OT_Easy_Mod_Array_Curve(bpy.types.Operator):
     """Auto setup for array modifier"""
 
-    bl_idname = "iops.easy_mod_array_curve"
+    bl_idname = "iops.modifier_easy_array_curve"
     bl_label = "OBJECT: Array mod and caps setup"
     bl_options = {"REGISTER", "UNDO"}
 

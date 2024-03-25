@@ -941,7 +941,7 @@ class Z_OT_ContextDelete(bpy.types.Operator):
 class Z_OT_EdgeEq(bpy.types.Operator):
     """Equalize the selected contiguous edges."""
 
-    bl_idname = "iops.eq_edges"
+    bl_idname = "iops.z_eq_edges"
     bl_label = "Equalize"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -959,7 +959,7 @@ class Z_OT_EdgeEq(bpy.types.Operator):
 class Z_OT_EdgeLineUp(bpy.types.Operator):
     """Line up the selected contiguous edges."""
 
-    bl_idname = "iops.line_up_edges"
+    bl_idname = "iops.z_line_up_edges"
     bl_label = "Line Up"
     bl_options = {"REGISTER", "UNDO"}
 

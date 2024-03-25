@@ -8,7 +8,7 @@ from bpy.props import BoolProperty
 class IOPS_OT_QuickSnap(bpy.types.Operator):
     """Quick Snap point to point"""
 
-    bl_idname = "iops.quick_snap"
+    bl_idname = "iops.mesh_quick_snap"
     bl_label = "IOPS Quick Snap"
     bl_options = {"REGISTER", "UNDO"}
 

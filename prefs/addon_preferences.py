@@ -683,8 +683,43 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             # Keymaps
             col = column_main.column(align=False)
-            km_row = col.row(align=True)
-            km_col = km_row.column(align=True)
+            # Function keys
+            box_functions = col.box()            
+            box_functions.label(text="Main:")
+            col_functions = box_functions.column(align=True)
+            km_functions_row = col_functions.row(align=True)
+            km_functions_col = km_functions_row.column(align=True)
+            # ObjectMode keys
+            box_object = col.box()
+            box_object.label(text="Object Mode:")
+            col_object = box_object.column(align=True)
+            km_object_row = col_object.row(align=True)
+            km_object_col = km_object_row.column(align=True)
+            # Mesh/EditMode keys
+            box_mesh = col.box()
+            box_mesh.label(text="Mesh or EditMode:")
+            col_mesh = box_mesh.column(align=True)
+            km_mesh_row = col_mesh.row(align=True)
+            km_mesh_col = km_mesh_row.column(align=True)
+            # Panels keys
+            box_panels = col.box()
+            box_panels.label(text="Panels:")
+            col_panels = box_panels.column(align=True)
+            km_panels_row = col_panels.row(align=True)
+            km_panels_col = km_panels_row.column(align=True)
+            # Pie keys
+            box_pie = col.box()
+            box_pie.label(text="Pie Menus:")
+            col_pie = box_pie.column(align=True)
+            km_pie_row = col_pie.row(align=True)
+            km_pie_col = km_pie_row.column(align=True)            
+            # Scripts keys
+            box_scripts = col.box()
+            box_scripts.label(text="Scripts:")
+            col_scripts = box_scripts.column(align=True)
+            km_scripts_row = col_scripts.row(align=True)
+            km_scripts_col = km_scripts_row.column(align=True)
+            
 
             """
             kc - keyconfigs
@@ -692,6 +727,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             kmi - keymap item
 
             """
+
             kc = context.window_manager.keyconfigs
             kc_user = context.window_manager.keyconfigs.user
             # IOPS keymaps
@@ -701,28 +737,72 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Object Mode"],
                 kc_user.keymaps["Screen Editing"],
             ]
+            
+            
             for km in keymaps:
                 for kmi in km.keymap_items:
-                    if kmi.idname.startswith("iops."):
+                    if kmi.idname.startswith("iops.function_"):
                         try:
                             rna_keymap_ui.draw_kmi(
-                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_functions_col, 0
                             )
                         except AttributeError:
-                            km_col.label(
+                            km_functions_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )                    
+                    elif kmi.idname.startswith("iops.mesh") or kmi.idname.startswith("iops.z_"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_mesh_col, 0
+                            )
+                        except AttributeError:
+                            km_mesh_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )                    
+                    elif kmi.idname.startswith("iops.object"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_object_col, 0
+                            )
+                        except AttributeError:
+                            km_object_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
-                    elif kmi.idname.startswith("iops.split_area"):
+                    elif kmi.idname.startswith("iops.call_panel"):
                         try:
                             rna_keymap_ui.draw_kmi(
-                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_col, 0
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_panels_col, 0
                             )
                         except AttributeError:
-                            km_col.label(
+                            km_panels_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
+                    elif kmi.idname.startswith("iops.call_pie"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_pie_col, 0
+                            )
+                        except AttributeError:
+                            km_pie_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    elif kmi.idname.startswith("iops.scripts"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_scripts_col, 0
+                            )
+                        except AttributeError:
+                            km_scripts_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    
+                    
 
         if self.tabs == "PREFS":
             col = column_main.column(align=False)

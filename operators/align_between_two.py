@@ -17,7 +17,7 @@ from ..utils.functions import get_active_and_selected, ShowMessageBox
 class IOPS_OT_Align_between_two(bpy.types.Operator):
     """Align active object between two selected objects. Works for two objects also."""
 
-    bl_idname = "iops.align_between_two"
+    bl_idname = "iops.object_align_between_two"
     bl_label = "Align Between Two"
     bl_options = {"REGISTER", "UNDO"}
 

@@ -19,7 +19,7 @@ import copy
 class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):
     """Align object to selected face"""
 
-    bl_idname = "iops.align_origin_to_normal"
+    bl_idname = "iops.mesh_align_origin_to_normal"
     bl_label = "MESH: Align origin to face normal"
     bl_options = {"REGISTER", "UNDO"}
 

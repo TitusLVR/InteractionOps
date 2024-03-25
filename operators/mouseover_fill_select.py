@@ -4,7 +4,7 @@ import bpy
 class IOPS_MouseoverFillSelect(bpy.types.Operator):
     """Fill select faces at mouseover"""
 
-    bl_idname = "iops.mouseover_fill_select"
+    bl_idname = "iops.mesh_select_mouseover_fill"
     bl_label = "IOPS Mouseover Fill Select"
     bl_options = {"REGISTER", "UNDO"}
 

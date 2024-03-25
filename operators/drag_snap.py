@@ -94,7 +94,7 @@ def draw_snap_points(self, context):
 class IOPS_OT_DragSnap(bpy.types.Operator):
     """Quick drag & snap point to point"""
 
-    bl_idname = "iops.drag_snap"
+    bl_idname = "iops.object_drag_snap"
     bl_label = "IOPS Drag Snap"
     bl_options = {"REGISTER", "UNDO"}
 
