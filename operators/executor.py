@@ -51,21 +51,17 @@ class IOPS_MT_ExecuteList(bpy.types.Menu):
         # scripts_folder = os.path.join(scripts_folder, "custom")
         _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
         files = [os.path.join(scripts_folder, f) for f in _files]
-        scripts = [script for script in files if script[-2:] == "py"]
+        scripts = [script for script in files if script[-2:] == "py"]    
+        filtered_scripts = [script for script in scripts if addon_prop.iops_exec_filter in script]
+        if filtered_scripts:
+            scripts = filtered_scripts
         if scripts:
             layout = self.layout
             row = layout.row(align=True)
             col = row.column()
             col.separator()
             col.prop(addon_prop, "iops_exec_filter", text="", icon="VIEWZOOM")
-            if addon_prop.iops_exec_filter:
-                filtered_scripts = [
-                    script
-                    for script in scripts
-                    if addon_prop.iops_exec_filter in script
-                ]
-                if filtered_scripts:
-                    scripts = filtered_scripts
+            
             count = len(scripts)
             for count, script in enumerate(scripts, 1):  # Start counting from 1
                 if count % executor_column_count == 0:
