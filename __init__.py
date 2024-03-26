@@ -157,7 +157,7 @@ from .operators.object_uvmaps_add_remove import (
 
 from .operators.executor import (
     IOPS_OT_Executor,
-    IOPS_MT_ExecuteList,
+    IOPS_PT_ExecuteList,
     IOPS_OT_Call_MT_Executor,
 )
 from .operators.render_asset_thumgnail import IOPS_OT_RenderCollectionAssetThumbnail
@@ -256,7 +256,7 @@ classes = (
     IOPS_OT_Call_Data_Panel,
     IOPS_OT_Easy_Mod_Curve,
     IOPS_OT_Executor,
-    IOPS_MT_ExecuteList,
+    IOPS_PT_ExecuteList,
     IOPS_OT_Call_MT_Executor,
     IOPS_OT_Easy_Mod_Array_Caps,
     IOPS_OT_Easy_Mod_Array_Curve,

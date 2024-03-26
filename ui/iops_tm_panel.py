@@ -1,4 +1,5 @@
 import bpy
+from math import radians
 from ..utils.functions import get_addon
 
 
@@ -230,10 +231,16 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         else:
                             row.prop(mesh, "auto_smooth_angle", text="")
                     row.scale_x = 0.25
-                    row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
-                    row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
-                    row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
-                    row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
+                    if bpy.app.version < (4,1,0):
+                        row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
+                        row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
+                        row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
+                        row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
+                    else:
+                        row.operator("object.shade_smooth_by_angle", text="30").angle = radians(30)
+                        row.operator("object.shade_smooth_by_angle", text="60").angle = radians(60)
+                        row.operator("object.shade_smooth_by_angle", text="90").angle = radians(90)
+                        row.operator("object.shade_smooth_by_angle", text="180").angle = radians(180)
 
                     row.scale_x = 1
 

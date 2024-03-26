@@ -11,8 +11,10 @@ from bpy.props import (
     StringProperty,
 )
 
-def update_exec_filter(self, context):    
-    bpy.ops.iops.scripts_call_mt_executor()
+def update_exec_filter(self, context):
+    scripts = bpy.context.scene['IOPS']['executor_scripts']
+    filtered_scripts = [script for script in scripts if self.iops_exec_filter.lower() in script.lower()]
+    bpy.context.scene['IOPS']['filtered_executor_scripts'] = filtered_scripts
 
 
 class IOPS_AddonProperties(PropertyGroup):
@@ -30,7 +32,7 @@ class IOPS_AddonProperties(PropertyGroup):
     iops_exec_filter: StringProperty(
         name="Filter",
         default="",
-        # options={'TEXTEDIT_UPDATE'},
+        options={'TEXTEDIT_UPDATE'},
         update=update_exec_filter,
     )
 
