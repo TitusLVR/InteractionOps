@@ -170,17 +170,17 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         # if hit and hit_obj.type == 'MESH':
         if hit and hit_obj.type is not None:
             depsgraph = context.evaluated_depsgraph_get()
-            for object_instance in depsgraph.object_instances:
-                # This is an object which is being instanced.
-                obj = object_instance.object
-                # `is_instance` denotes whether the object is coming from instances (as an opposite of
-                # being an emitting object. )
-                if not object_instance.is_instance:
-                    print(f"Object {obj.name} at {object_instance.matrix_world}")
-                else:
-                    # Instanced will additionally have fields like uv, random_id and others which are
-                    # specific for instances. See Python API for DepsgraphObjectInstance for details,
-                    print(f"Instance of {obj.name} at {object_instance.matrix_world}")
+            # for object_instance in depsgraph.object_instances:
+            #     # This is an object which is being instanced.
+            #     obj = object_instance.object
+            #     # `is_instance` denotes whether the object is coming from instances (as an opposite of
+            #     # being an emitting object. )
+            #     if not object_instance.is_instance:
+            #         print(f"Object {obj.name} at {object_instance.matrix_world}")
+            #     else:
+            #         # Instanced will additionally have fields like uv, random_id and others which are
+            #         # specific for instances. See Python API for DepsgraphObjectInstance for details,
+            #         print(f"Instance of {obj.name} at {object_instance.matrix_world}")
 
             for v in hit_obj.data.vertices:
                 v_co3d = hit_obj.matrix_world @ v.co
