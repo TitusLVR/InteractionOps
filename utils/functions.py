@@ -146,7 +146,7 @@ def object_mode_switch(mode):
 
 
 def align_to_face():
-    bpy.ops.iops.align_object_to_face("INVOKE_DEFAULT")
+    bpy.ops.iops.mesh_align_object_to_face("INVOKE_DEFAULT")
 
 
 def curve_subdivide():
