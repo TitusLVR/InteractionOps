@@ -42,6 +42,17 @@ def save_snap_combo(idx):
     path = bpy.utils.script_path_user()
     iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
 
+    snap_elements_list = ['VERTEX',
+                          'EDGE',
+                          'FACE',
+                          'VOLUME',
+                          'INCREMENT',
+                          'EDGE_MIDPOINT',
+                          'EDGE_PERPENDICULAR',
+                          'FACE_PROJECT',
+                          'FACE_NEAREST'
+                          ]
+
     with open(iops_prefs_file, "r") as f:
         iops_prefs = json.load(f)
 
@@ -50,7 +61,7 @@ def save_snap_combo(idx):
     for snap_combo, snap_details in iops_prefs.get("SNAP_COMBOS", {}).items():
         if snap_combo[-1] == str(idx):
             snap_elements = tool_settings.snap_elements
-            snap_elements_dict = {k: k in snap_elements for k in snap_details.get("SNAP_ELEMENTS", {})}
+            snap_elements_dict = {k: k in snap_elements for k in snap_elements_list}
             tool_settings_dict = {
                 "transform_pivot_point": tool_settings.transform_pivot_point,
                 "snap_target": tool_settings.snap_target,
