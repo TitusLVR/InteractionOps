@@ -36,7 +36,8 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
     def execute(self, context):
         count = 1
         for obj in bpy.context.selected_objects:
-            obj.auto_smooth_modifier = 'Auto Smooth'
+            if getattr(obj, "auto_smooth_modifier", None) == "Auto Smooth":
+                obj.auto_smooth_modifier = 'Auto Smooth'
             print(f"Adding Auto Smooth modifier to {obj.name}, {count} of {len(bpy.context.selected_objects)}")
             count += 1
             with bpy.context.temp_override(object=obj):
