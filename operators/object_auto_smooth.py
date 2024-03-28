@@ -34,13 +34,9 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
     )
 
     def execute(self, context):
-        for obj in context.selected_objects:
-            if obj.type == "MESH":
-                with context.temp_override(
-                    active_object=obj,
-                    selected_editable_objects=[obj],
-                    selected_objects=[obj],
-                ):
+        for obj in bpy.context.selected_objects:
+            with bpy.context.temp_override(object=obj):
+                if obj.type == "MESH":
                     #Delete existing Auto Smooth modifier
                     for mod in obj.modifiers:
                         if "Auto Smooth" in mod.name and mod.type == "NODES":
