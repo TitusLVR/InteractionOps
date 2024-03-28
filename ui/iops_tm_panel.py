@@ -237,11 +237,10 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
                         row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
                     else:
-                        row.operator("object.shade_smooth_by_angle", text="30").angle = radians(30)
-                        row.operator("object.shade_smooth_by_angle", text="60").angle = radians(60)
-                        row.operator("object.shade_smooth_by_angle", text="90").angle = radians(90)
-                        row.operator("object.shade_smooth_by_angle", text="180").angle = radians(180)
-
+                        row.operator("iops.object_auto_smooth", text="30").angle = 30
+                        row.operator("iops.object_auto_smooth", text="60").angle = 60
+                        row.operator("iops.object_auto_smooth", text="90").angle = 90
+                        row.operator("iops.object_auto_smooth", text="180").angle = 180
                     row.scale_x = 1
 
         if context.area.type == "VIEW_3D":
