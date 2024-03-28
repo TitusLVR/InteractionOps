@@ -3,10 +3,10 @@ from math import radians
 
 # Check box to put the modifier at the top of the stack or bottom
 
-def move_modifier_to_top(obj, mod):
-    if obj.modifiers:
-        while obj.modifiers[0] != mod:
-            bpy.ops.object.modifier_move_up(modifier=mod.name)
+# def move_modifier_to_top(obj, mod):
+#     if obj.modifiers:
+#         while obj.modifiers[0] != mod:
+#             bpy.ops.object.modifier_move_up(modifier=mod.name)
 
 class IOPS_OT_AutoSmooth(bpy.types.Operator):
     bl_idname = "iops.object_auto_smooth"
@@ -34,7 +34,11 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
     )
 
     def execute(self, context):
+        count = 1
         for obj in bpy.context.selected_objects:
+            obj.auto_smooth_modifier = 'Auto Smooth'
+            print(f"Adding Auto Smooth modifier to {obj.name}, {count} of {len(bpy.context.selected_objects)}")
+            count += 1
             with bpy.context.temp_override(object=obj):
                 if obj.type == "MESH":
                     # #Delete existing Auto Smooth modifier
@@ -59,7 +63,11 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                     mod["Socket_1"] = self.ignore_sharp
 
                     if self.stack_top:
-                        move_modifier_to_top(obj, mod)
+                        bpy.ops.object.modifier_move_to_index(modifier=mod.name, 
+                                                              index=0)
+                    else:
+                        bpy.ops.object.modifier_move_to_index(modifier=mod.name, 
+                                                              index=len(obj.modifiers)-1) 
     
         return {"FINISHED"}
 
