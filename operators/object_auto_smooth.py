@@ -37,19 +37,24 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         for obj in bpy.context.selected_objects:
             with bpy.context.temp_override(object=obj):
                 if obj.type == "MESH":
-                    #Delete existing Auto Smooth modifier
-                    for mod in obj.modifiers:
-                        if "Auto Smooth" in mod.name and mod.type == "NODES":
-                            bpy.ops.object.modifier_remove(modifier=mod.name)
+                    # #Delete existing Auto Smooth modifier
+                    # for mod in obj.modifiers:
+                    #     if "Auto Smooth" in mod.name and mod.type == "NODES":
+                    #         bpy.ops.object.modifier_remove(modifier=mod.name)
                     
                     #Add Smooth by Angle modifier from Essentials library
-                    bpy.ops.object.modifier_add_node_group(
-                        asset_library_type="ESSENTIALS",
-                        asset_library_identifier="",
-                        relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
-                    )
-                    mod = obj.modifiers[-1]
-                    mod.name = "Auto Smooth"
+                    if not "Auto Smooth" in [mod.name for mod in obj.modifiers]:
+                        bpy.ops.object.modifier_add_node_group(
+                            asset_library_type="ESSENTIALS",
+                            asset_library_identifier="",
+                            relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
+                        )
+                        mod = obj.modifiers[-1]
+                        mod.name = "Auto Smooth"
+                    else:
+                        mod = obj.modifiers["Auto Smooth"]
+                    
+                    mod.node_group = bpy.data.node_groups['Smooth by Angle']
                     mod["Input_1"] = radians(self.angle)
                     mod["Socket_1"] = self.ignore_sharp
 
