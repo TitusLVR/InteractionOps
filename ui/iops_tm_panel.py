@@ -222,21 +222,26 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         depress=state,
                     )
 
-                    if mesh.use_auto_smooth:
-                        if mesh.has_custom_normals:
-                            row.operator(
-                                "mesh.customdata_custom_splitnormals_clear",
-                                text="Clear Custom Normals",
-                            )
-                        else:
-                            row.prop(mesh, "auto_smooth_angle", text="")
                     row.scale_x = 0.25
                     if bpy.app.version < (4,1,0):
+                        if mesh.use_auto_smooth:
+                            if mesh.has_custom_normals:
+                                row.operator(
+                                    "mesh.customdata_custom_splitnormals_clear",
+                                    text="Clear Custom Normals",
+                                )
+                            else:
+                                row.prop(mesh, "auto_smooth_angle", text="")
                         row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
                         row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
                         row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
                         row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
                     else:
+                        if getattr(mesh, "has_custom_normals", False):
+                            row.operator(
+                                "mesh.customdata_custom_splitnormals_clear",
+                                text="Clear Custom Normals",
+                            )
                         row.operator("iops.object_auto_smooth", text="30").angle = 30
                         row.operator("iops.object_auto_smooth", text="60").angle = 60
                         row.operator("iops.object_auto_smooth", text="90").angle = 90
