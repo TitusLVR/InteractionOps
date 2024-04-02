@@ -65,7 +65,7 @@ from .operators.object_rotate import (
     IOPS_OT_object_rotate_Y,
     IOPS_OT_object_rotate_Z,
 )
-from .operators.object_auto_smooth import IOPS_OT_AutoSmooth
+from .operators.object_auto_smooth import IOPS_OT_AutoSmooth, IOPS_OT_ClearCustomNormals
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
@@ -217,6 +217,7 @@ classes = (
     IOPS_OT_Align_between_two,
     IOPS_OT_VisualOrigin,
     IOPS_OT_AutoSmooth,
+    IOPS_OT_ClearCustomNormals,
     IOPS_OT_object_rotate_Z,
     IOPS_OT_object_rotate_MZ,
     IOPS_OT_object_rotate_Y,
