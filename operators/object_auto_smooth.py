@@ -44,33 +44,67 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         count = 1
         meshes = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
         for obj in meshes:
+            auto_smooth_exists = False
+            # Only change parameters if existing Auto Smooth has node_groups["Smooth by Angle"]
+            for mod in obj.modifiers:
+                if (
+                    "Auto Smooth" in mod.name
+                    and mod.type == "NODES"
+                    and mod.node_group.name == "Smooth by Angle"
+                ):
+                    print(f"Auto Smooth modifier exists on {obj.name}. Changing parameters.")
+                    mod["Input_1"] = radians(self.angle)
+                    mod["Socket_1"] = self.ignore_sharp
+                    #redraw ui
+                    areas = [area for area in bpy.context.screen.areas if area.type == 'PROPERTIES']
+                    if areas:
+                        for area in areas:
+                            with bpy.context.temp_override():
+                                area.tag_redraw()
+                    auto_smooth_exists = True
+                    break
+
+            if auto_smooth_exists:
+                continue
+
+
             if getattr(obj, "auto_smooth_modifier", None) == "Auto Smooth":
                 obj.auto_smooth_modifier = "Auto Smooth"
             print(
                 f"Adding Auto Smooth modifier to {obj.name}, {count} of {len(bpy.context.selected_objects)}"
             )
+            
             count += 1
+            
             with bpy.context.temp_override(object=obj):
                 #Delete existing Auto Smooth modifier
                 for mod in obj.modifiers:
                     if (
-                        "Auto Smooth" in mod.name 
-                        and mod.type == "NODES" 
+                        "Auto Smooth" in mod.name
+                        and mod.type == "NODES"
                         and mod.node_group.name == "Auto Smooth"
                         ):
-                        bpy.ops.object.modifier_remove(modifier=mod.name)
+                        try:
+                            bpy.ops.object.modifier_remove(modifier=mod.name)
+                        except:
+                            print(f"Could not remove Auto Smooth modifier from {obj.name}")
+                            break
 
                 # Add Smooth by Angle modifier from Essentials library
-                if not "Auto Smooth" in [mod.name for mod in obj.modifiers]:
-                    bpy.ops.object.modifier_add_node_group(
-                        asset_library_type="ESSENTIALS",
-                        asset_library_identifier="",
-                        relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
-                    )
-                    mod = obj.modifiers[-1]
-                    mod.name = "Auto Smooth"
-                else:
-                    mod = obj.modifiers["Auto Smooth"]
+                try:
+                    if not "Auto Smooth" in [mod.name for mod in obj.modifiers]:
+                        bpy.ops.object.modifier_add_node_group(
+                            asset_library_type="ESSENTIALS",
+                            asset_library_identifier="",
+                            relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
+                        )
+                        mod = obj.modifiers[-1]
+                        mod.name = "Auto Smooth"
+                    else:
+                        mod = obj.modifiers["Auto Smooth"]
+                except:
+                    print(f"Could not add Auto Smooth modifier to {obj.name}")
+                    continue
 
                 mod.node_group = bpy.data.node_groups["Smooth by Angle"]
                 mod["Input_1"] = radians(self.angle)
