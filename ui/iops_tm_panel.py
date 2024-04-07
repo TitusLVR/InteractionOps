@@ -212,8 +212,12 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             if active:
                 if active.type == "MESH":
                     mesh = active.data
-                    row.operator("machin3.shade", text="", icon="NODE_MATERIAL").shade_type = "SMOOTH"
-                    row.operator("machin3.shade", text="", icon="MATCUBE").shade_type = "FLAT"
+                    row.operator(
+                        "machin3.shade", text="", icon="NODE_MATERIAL"
+                    ).shade_type = "SMOOTH"
+                    row.operator(
+                        "machin3.shade", text="", icon="MATCUBE"
+                    ).shade_type = "FLAT"
                     state = True if mesh.use_auto_smooth else False
                     row.operator(
                         "machin3.toggle_auto_smooth",
@@ -222,13 +226,13 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         depress=state,
                     )
 
-                if bpy.app.version < (4,1,0):
+                if bpy.app.version < (4, 1, 0):
                     if mesh.use_auto_smooth:
                         if mesh.has_custom_normals:
                             row.operator(
                                 "iops.object_clear_normals",
                                 text="",
-                                icon="COLORSET_06_VEC"
+                                icon="COLORSET_06_VEC",
                             )
                         else:
                             row.prop(mesh, "auto_smooth_angle", text="")
@@ -240,9 +244,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 else:
                     if bpy.types.IOPS_OT_object_clear_normals.poll(context):
                         row.operator(
-                            "iops.object_clear_normals",
-                            text="",
-                            icon="COLORSET_06_VEC"
+                            "iops.object_clear_normals", text="", icon="COLORSET_06_VEC"
                         )
                     row.scale_x = 0.25
                     row.operator("iops.object_auto_smooth", text="30").angle = 30
@@ -253,14 +255,22 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
         if context.area.type == "VIEW_3D":
             row = layout.row(align=True)
-            grid_flow = row.grid_flow(row_major=True, columns=4, even_columns=False, even_rows=True, align=False)
+            grid_flow = row.grid_flow(
+                row_major=True,
+                columns=4,
+                even_columns=False,
+                even_rows=True,
+                align=False,
+            )
             # Column 1
             col = grid_flow.column(align=True)
             col.label(text="Transformation:")
             col.prop(orient_slot, "type", expand=True)
             if orientation:
                 col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
-                col.operator("iops.transform_orientation_delete", text="", icon="REMOVE")
+                col.operator(
+                    "iops.transform_orientation_delete", text="", icon="REMOVE"
+                )
             # Column 2
             col = grid_flow.column(align=True)
             col.label(text="PivotPoint:")
@@ -269,9 +279,21 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 row = col.row(align=True)
                 # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                 o_state = True if tool_settings.use_transform_data_origin else False
-                row.operator("iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state)
-                row.prop(tool_settings, "use_transform_pivot_point_align", text="", icon="CENTER_ONLY",)
-                row.prop(tool_settings, "use_transform_skip_children", text="", icon="TRANSFORM_ORIGINS",)
+                row.operator(
+                    "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
+                )
+                row.prop(
+                    tool_settings,
+                    "use_transform_pivot_point_align",
+                    text="",
+                    icon="CENTER_ONLY",
+                )
+                row.prop(
+                    tool_settings,
+                    "use_transform_skip_children",
+                    text="",
+                    icon="TRANSFORM_ORIGINS",
+                )
             else:
                 col.prop(tool_settings, "use_transform_pivot_point_align", text="")
             # Column 3
@@ -282,7 +304,9 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row.prop(tool_settings, "snap_elements", text="")
             if "INCREMENT" in snap_elements:
                 row.separator()
-                row.prop(tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID")
+                row.prop(
+                    tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
+                )
             # Snap targets
             col.prop(tool_settings, "snap_target", expand=True)
 
@@ -290,21 +314,38 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             # split = row.split(factor=0.5, align=True)
             # row = split.row(align=True)
             row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
-            row.prop(tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL")
+            row.prop(
+                tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL"
+            )
             row.separator()
 
             if "VOLUME" in snap_elements:
-                row.prop(tool_settings, "use_snap_peel_object", text="", icon="SNAP_PEEL_OBJECT")
+                row.prop(
+                    tool_settings,
+                    "use_snap_peel_object",
+                    text="",
+                    icon="SNAP_PEEL_OBJECT",
+                )
                 row.separator()
             if "FACE_NEAREST" in snap_elements:
-                row.prop(tool_settings, "se_snap_to_same_target", text="", icon="GP_CAPS_ROUND")
+                row.prop(
+                    tool_settings,
+                    "se_snap_to_same_target",
+                    text="",
+                    icon="GP_CAPS_ROUND",
+                )
                 row.separator()
 
             # split = split.split()
             # row = split.row(align=True)
             row.prop(tool_settings, "use_snap_backface_culling", text="", icon="XRAY")
             row.separator()
-            row.prop(tool_settings, "use_snap_selectable", text="", icon="RESTRICT_SELECT_OFF")
+            row.prop(
+                tool_settings,
+                "use_snap_selectable",
+                text="",
+                icon="RESTRICT_SELECT_OFF",
+            )
             row.separator()
             row.prop(tool_settings, "use_snap_translate", text="", icon="CON_LOCLIMIT")
             row.prop(tool_settings, "use_snap_rotate", text="", icon="CON_ROTLIMIT")
@@ -322,7 +363,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             col.operator("iops.set_snap_combo", text="", icon="EVENT_F").idx = 6
             col.operator("iops.set_snap_combo", text="", icon="EVENT_G").idx = 7
             col.operator("iops.set_snap_combo", text="", icon="EVENT_H").idx = 8
-            
+
             # col.prop(prefs, "snap_combo_list", expand=True, text="")
             # col.operator("iops.save_snap_combo", text="", icon="ADD")
 
@@ -367,11 +408,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
 
 
-
-
-
 class IOPS_PT_TM_Panel(bpy.types.Panel):
-    """Creates a Panel from Tranformation,PivotPoint,Snapping panels"""
+    """Transform panel"""
 
     bl_label = "IOPS Transform panel"
     bl_idname = "IOPS_PT_TM_Panel"
@@ -379,15 +417,6 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
     bl_region_type = "WINDOW"
     # bl_category = 'Item'
     # bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(self, context):
-        return (
-            context.area.type == "VIEW_3D"
-            and len(context.view_layer.objects.selected) != 0
-            and context.view_layer.objects.active.type in ["MESH", "CURVE"]
-            and bpy.context.view_layer.objects.active.mode == "OBJECT"
-        )
 
     def draw(self, context):
         obj = context.view_layer.objects.active
@@ -397,7 +426,15 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
         col.prop(obj, "location")
         col.prop(obj, "rotation_euler")
         col.prop(obj, "scale")
-        col.prop(obj, "dimensions")
+        if getattr(obj, "dimensions", False) and obj.type in [
+            "MESH",
+            "CURVE",
+            "FONT",
+            "ARMATURE",
+            "META",
+            "GPENCIL",
+        ]:
+            col.prop(obj, "dimensions")
 
 
 class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
@@ -416,7 +453,7 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
 
 
 class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
-    """Tranformation panel"""
+    """Call Tranformation panel"""
 
     bl_idname = "iops.call_panel_tm"
     bl_label = "IOPS Transform panel"
@@ -426,7 +463,23 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and len(context.view_layer.objects.selected) != 0
-            and context.view_layer.objects.active.type in ["MESH", "CURVE"]
+            and context.view_layer.objects.active.type
+            in [
+                "MESH",
+                "CURVE",
+                "EMPTY",
+                "FONT",
+                "LIGHT",
+                "CAMERA",
+                "ARMATURE",
+                "LATTICE",
+                "META",
+                "SPEAKER",
+                "GPENCIL",
+                "SURFACE",
+                "VOLUME",
+                "LIGHT_PROBE",
+            ]
             and bpy.context.view_layer.objects.active.mode == "OBJECT"
         )
 

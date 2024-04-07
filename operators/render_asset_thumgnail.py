@@ -22,6 +22,8 @@ class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
             ("OBJECT", "Object", "Render the selected object"),
             ("COLLECTION", "Collection", "Render the selected collection"),
             ("MATERIAL", "Material", "Render the selected material"),
+            ("GEOMETRY", "Geometry Nodes", "Render the selected geometry node"),
+
         ],
         default="COLLECTION",
     )
@@ -93,6 +95,20 @@ class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
                         os.unlink(thumbpath)
                     except RuntimeError:
                         self.report({"ERROR"}, "Current object does not have a material marked as asset")
+        elif self.render_for == "GEOMETRY":
+            active_object = bpy.context.object
+            if active_object.type == "MESH" and active_object.modifiers.active.type == "NODES":
+                active_node = active_object.modifiers.active.node_group
+
+                thumbpath = os.path.join(get_path(), "resources", "thumb.png")
+                self.render_viewport(context, thumbpath)
+                if os.path.exists(thumbpath):
+                    try:
+                        with context.temp_override(id=active_node):
+                            bpy.ops.ed.lib_id_load_custom_preview(filepath=thumbpath)
+                        os.unlink(thumbpath)
+                    except RuntimeError:
+                        self.report({"ERROR"}, "Current object does not have a node groups marked as asset")
             else:
                 self.report({"ERROR"}, "Active object is not a mesh")
 
