@@ -51,10 +51,14 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
             )
             count += 1
             with bpy.context.temp_override(object=obj):
-                # #Delete existing Auto Smooth modifier
-                # for mod in obj.modifiers:
-                #     if "Auto Smooth" in mod.name and mod.type == "NODES":
-                #         bpy.ops.object.modifier_remove(modifier=mod.name)
+                #Delete existing Auto Smooth modifier
+                for mod in obj.modifiers:
+                    if (
+                        "Auto Smooth" in mod.name 
+                        and mod.type == "NODES" 
+                        and mod.node_group.name == "Auto Smooth"
+                        ):
+                        bpy.ops.object.modifier_remove(modifier=mod.name)
 
                 # Add Smooth by Angle modifier from Essentials library
                 if not "Auto Smooth" in [mod.name for mod in obj.modifiers]:
