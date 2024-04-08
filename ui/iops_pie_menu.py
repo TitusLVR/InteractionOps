@@ -47,7 +47,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.modifier_easy_shwarp", text="Easy Modifier - SHWARP")
         col.separator()
         col.operator(
-            "iops.assets_render_collection_asset_thumbnail", text="Render Asset Thumbnail"
+            "iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail"
         )
 
         # 6 - RIGHT

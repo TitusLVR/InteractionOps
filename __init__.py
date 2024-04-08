@@ -161,7 +161,7 @@ from .operators.executor import (
     IOPS_PT_ExecuteList,
     IOPS_OT_Call_MT_Executor,
 )
-from .operators.render_asset_thumgnail import IOPS_OT_RenderCollectionAssetThumbnail
+from .operators.render_asset_thumbnail import IOPS_OT_RenderAssetThumbnail
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (
     IOPS_OT_ActiveObject_Scroll_UP,
@@ -270,7 +270,7 @@ classes = (
     IOPS_OT_SaveUserHotkeys,
     IOPS_OT_SaveAddonPreferences,
     IOPS_OT_LoadAddonPreferences,
-    IOPS_OT_RenderCollectionAssetThumbnail,
+    IOPS_OT_RenderAssetThumbnail,
     IOPS_OT_RunText,
     IOPS_OT_MayaIsolate,
     IOPS_OT_DragSnap,

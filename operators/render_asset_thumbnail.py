@@ -7,10 +7,10 @@ def get_path():
     return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 
-class IOPS_OT_RenderCollectionAssetThumbnail(bpy.types.Operator):
-    bl_idname = "iops.assets_render_collection_asset_thumbnail"
-    bl_label = "Render Active Collection Asset Thumbnail"
-    bl_description = "Render Active Collection Asset Thumbnail"
+class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
+    bl_idname = "iops.assets_render_asset_thumbnail"
+    bl_label = "Render Active Asset Thumbnail"
+    bl_description = "Render Active Asset Thumbnail: Collection, Object, Material, Geometry Nodes"
     bl_options = {"REGISTER", "UNDO"}
 
     thumbnail_lens: FloatProperty(name="Thumbnail Lens", default=100)
