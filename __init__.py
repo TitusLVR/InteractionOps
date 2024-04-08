@@ -341,7 +341,10 @@ def register():
     load_iops_preferences()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
-    bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
+    try:
+        bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
+    except:
+        print("MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon")
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
 
     print("IOPS Registered!")
