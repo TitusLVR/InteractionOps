@@ -5,7 +5,7 @@ from mathutils import Vector
 from bpy.props import BoolProperty
 
 
-class IOPS_OT_QuickSnap(bpy.types.Operator):
+class IOPS_OT_Mesh_QuickSnap(bpy.types.Operator):
     """Quick Snap point to point"""
 
     bl_idname = "iops.mesh_quick_snap"

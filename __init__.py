@@ -69,7 +69,7 @@ from .operators.object_auto_smooth import IOPS_OT_AutoSmooth, IOPS_OT_ClearCusto
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
-from .operators.quick_snap import IOPS_OT_QuickSnap
+from .operators.mesh_quick_snap import IOPS_OT_Mesh_QuickSnap
 
 from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveSpaceData
 
@@ -264,7 +264,7 @@ classes = (
     IOPS_OT_Easy_Mod_Array_Caps,
     IOPS_OT_Easy_Mod_Array_Curve,
     IOPS_OT_Easy_Mod_Shwarp,
-    IOPS_OT_QuickSnap,
+    IOPS_OT_Mesh_QuickSnap,
     IOPS_OT_LoadDefaultHotkeys,
     IOPS_OT_LoadUserHotkeys,
     IOPS_OT_SaveUserHotkeys,

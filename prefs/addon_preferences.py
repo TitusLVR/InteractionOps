@@ -443,7 +443,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.separator()
             row.separator()
             row.separator()
-            row.operator("iops.fix_old_hotkeys", text="Fix Old Hotkeys", icon="ERROR")
+            # row.operator("iops.fix_old_hotkeys", text="Fix Old Hotkeys", icon="ERROR")
 
 
             # Keymaps
@@ -466,6 +466,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col_mesh = box_mesh.column(align=True)
             km_mesh_row = col_mesh.row(align=True)
             km_mesh_col = km_mesh_row.column(align=True)
+            # UV keys
+            box_uv = col.box()
+            box_uv.label(text="UV Editor:")
+            col_uv = box_uv.column(align=True)
+            km_uv_row = col_uv.row(align=True)
+            km_uv_col = km_uv_row.column(align=True)
             # Panels keys
             box_panels = col.box()
             box_panels.label(text="Panels:")
@@ -500,7 +506,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Window"],
                 kc_user.keymaps["Mesh"],
                 kc_user.keymaps["Object Mode"],
-                kc_user.keymaps["Screen Editing"]
+                kc_user.keymaps["Screen Editing"],
+                kc_user.keymaps["UV Editor"],
             ]
             
             
@@ -525,7 +532,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             km_mesh_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
-                            )                    
+                            )
+                    elif kmi.idname.startswith("iops.uv"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_uv_col, 0
+                            )
+                        except AttributeError:
+                            km_uv_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )                                        
                     elif kmi.idname.startswith("iops.object"):
                         try:
                             rna_keymap_ui.draw_kmi(

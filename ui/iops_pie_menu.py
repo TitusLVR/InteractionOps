@@ -37,7 +37,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.separator()
         col.operator("iops.object_replace", text="Object Replace")
         col.operator("iops.object_align_between_two", text="Align Between Two")
-        col.operator("iops.object_quick_snap", text="Quick Snap")
+        col.operator("iops.mesh_quick_snap", text="Quick Snap")
         col.operator("iops.object_drop_it", text="Drop It!")
         col.operator("iops.object_kitbash_grid", text="Grid")
         col.separator()

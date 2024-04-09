@@ -140,7 +140,7 @@ def draw_snap_points(self, context):
 class IOPS_OT_DragSnapUV(bpy.types.Operator):
     """Quick drag & snap uv to another uv"""
 
-    bl_idname = "iops.object_drag_snap_uv"
+    bl_idname = "iops.uv_drag_snap_uv"
     bl_label = "IOPS Drag Snap UV"
     bl_options = {"REGISTER", "UNDO"}
 

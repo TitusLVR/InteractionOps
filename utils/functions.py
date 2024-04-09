@@ -242,7 +242,7 @@ old_new_km_map = {
     "iops.line_up_edges": "iops.z_line_up_edges",
     "iops.eq_edges": "iops.z_eq_edges",
     "iops.drag_snap": "iops.object_drag_snap",
-    "iops.drag_snap_uv": "iops.object_drag_snap_uv",
+    "iops.drag_snap_uv": "iops.uv_drag_snap_uv",
     "iops.drag_snap_cursor": "iops.object_drag_snap_cursor",
     "iops.f1": "iops.function_f1",
     "iops.f2": "iops.function_f2",
@@ -270,7 +270,8 @@ km_to_remove = ['iops.snap_scroll_down',
              'iops.axis_scroll_down',
              'iops.axis_scroll_up',
              'iops.prop_scroll_down',
-             'iops.prop_scroll_up']
+             'iops.prop_scroll_up',
+             'iops.object_drag_snap_uv',]
 
 
 def register_keymaps(keys):
@@ -284,7 +285,11 @@ def register_keymaps(keys):
     keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
         "Object Mode"
     ).keymap_items
-    for k in keys:        
+    keymapItemsUV = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+        "UV Editor"
+    ).keymap_items
+    for k in keys:
+        # print ("init", k)
         if ".z_" in k[0]:  # Make z_ops in mesh keymaps
             keymapItemsMesh.new(
                 k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
@@ -295,6 +300,10 @@ def register_keymaps(keys):
             )
         elif "iops.object" in k[0]:  # Make iops.object in mesh keymaps
             keymapItemsObject.new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
+        elif "iops.uv" in k[0]:  # Make iops.object in mesh keymaps
+            keymapItemsUV.new(
                 k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
             )
         else:
@@ -334,4 +343,3 @@ def fix_old_keymaps():
                     fixed_km.append(km)
         with open(user_hotkeys_file, "w") as f:
             f.write("[" + ",\n".join(json.dumps(i) for i in fixed_km) + "]\n")
-    
