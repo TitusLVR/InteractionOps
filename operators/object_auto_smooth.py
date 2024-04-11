@@ -1,4 +1,5 @@
 import bpy
+import os
 from math import radians
 
 # Check box to put the modifier at the top of the stack or bottom
@@ -40,6 +41,19 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         # True if any of the selected objects are meshes
         return any(obj.type == "MESH" for obj in bpy.context.selected_objects)
 
+    def invoke(self, context, event):
+        # check if bpy.data.node_groups["Smooth by Angle"] exists, if not import it
+        if not "Smooth by Angle" in bpy.data.node_groups.keys():
+            res_path = bpy.utils.resource_path("LOCAL")
+            path = os.path.join(
+                res_path, "datafiles\\assets\\geometry_nodes\\smooth_by_angle.blend"
+            )
+
+            with bpy.data.libraries.load(path) as (data_from, data_to):
+                data_to.node_groups = data_from.node_groups
+                print(f"Loaded {path}")
+        return self.execute(context)
+
     def execute(self, context):
         count = 1
         meshes = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
@@ -50,13 +64,19 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                 if (
                     "Auto Smooth" in mod.name
                     and mod.type == "NODES"
-                    and mod.node_group.name == "Smooth by Angle"
+                    and getattr(mod.node_group, "name", None) == "Smooth by Angle"
                 ):
-                    print(f"Auto Smooth modifier exists on {obj.name}. Changing parameters.")
+                    print(
+                        f"Auto Smooth modifier exists on {obj.name}. Changing parameters."
+                    )
                     mod["Input_1"] = radians(self.angle)
                     mod["Socket_1"] = self.ignore_sharp
-                    #redraw ui
-                    areas = [area for area in bpy.context.screen.areas if area.type == 'PROPERTIES']
+                    # redraw ui
+                    areas = [
+                        area
+                        for area in bpy.context.screen.areas
+                        if area.type == "PROPERTIES"
+                    ]
                     if areas:
                         for area in areas:
                             with bpy.context.temp_override():
@@ -67,27 +87,28 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
             if auto_smooth_exists:
                 continue
 
-
             if getattr(obj, "auto_smooth_modifier", None) == "Auto Smooth":
                 obj.auto_smooth_modifier = "Auto Smooth"
             print(
                 f"Adding Auto Smooth modifier to {obj.name}, {count} of {len(bpy.context.selected_objects)}"
             )
-            
+
             count += 1
-            
+
             with bpy.context.temp_override(object=obj):
-                #Delete existing Auto Smooth modifier
+                # Delete existing Auto Smooth modifier
                 for mod in obj.modifiers:
                     if (
                         "Auto Smooth" in mod.name
                         and mod.type == "NODES"
-                        and mod.node_group.name == "Auto Smooth"
-                        ):
+                        and getattr(mod.node_group, "name", None) == "Auto Smooth"
+                    ):
                         try:
                             bpy.ops.object.modifier_remove(modifier=mod.name)
                         except:
-                            print(f"Could not remove Auto Smooth modifier from {obj.name}")
+                            print(
+                                f"Could not remove Auto Smooth modifier from {obj.name}"
+                            )
                             break
 
                 # Add Smooth by Angle modifier from Essentials library
