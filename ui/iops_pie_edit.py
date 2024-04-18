@@ -2,6 +2,28 @@ import bpy
 from bpy.types import Menu
 
 
+def get_text_icon(context, operator):
+    if context.object.type == "MESH":
+        match operator:
+            case 'f1':
+                return "Vertex", "VERTEXSEL"
+            case 'f2':
+                return "Edge", "EDGESEL"
+            case 'f3':
+                return "Face", "FACESEL"
+            case 'esc':
+                return "Esc", "EVENT_ESC"
+    elif context.object.type == "ARMATURE":
+        match operator:
+            case 'f1':
+                return "Edit Mode", "EDITMODE_HLT"
+            case 'f2':
+                return "Pose Mode", "POSE_HLT"
+            case 'f3':
+                return "Set Parent to Bone", "BONE_DATA"
+            case 'esc':
+                return "Esc", "EVENT_ESC"
+
 class IOPS_MT_Pie_Edit_Submenu(Menu):
     bl_label = "IOPS_MT_Pie_Edit_Submenu"
 
@@ -32,13 +54,21 @@ class IOPS_MT_Pie_Edit(Menu):
 
         if context.area.type == "VIEW_3D":
             # 4 - LEFT
-            pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
+            pie.operator("iops.function_f1", 
+                         text=get_text_icon(context, 'f1')[0], 
+                         icon=get_text_icon(context, 'f1')[1])
             # 6 - RIGHT
-            pie.operator("iops.function_f3", text="Face", icon="FACESEL")
+            pie.operator("iops.function_f3", 
+                         text=get_text_icon(context, 'f3')[0], 
+                         icon=get_text_icon(context, 'f3')[1])
             # 2 - BOTTOM
-            pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
+            pie.operator("iops.function_esc", 
+                         text=get_text_icon(context, 'esc')[0], 
+                         icon=get_text_icon(context, 'esc')[1])
             # 8 - TOP
-            pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
+            pie.operator("iops.function_f2", 
+                         text=get_text_icon(context, 'f2')[0], 
+                         icon=get_text_icon(context, 'f2')[1])
             # 7 - TOP - LEFT
             # pie.separator()
             # 9 - TOP - RIGHT
@@ -62,32 +92,32 @@ class IOPS_MT_Pie_Edit(Menu):
             # r = row.row(align=True)
             # r.active = False if context.mode == 'TEXTURE_PAINT' else True
             # r.operator("object.mode_set", text="", icon="TPAINT_HLT").mode = 'TEXTURE_PAINT'
+            if context.object.type in {"MESH"}:
+                r = row.row(align=True)
+                r.active = False if context.mode == "WEIGHT_PAINT" else True
+                r.operator("object.mode_set", text="", icon="WPAINT_HLT").mode = (
+                    "WEIGHT_PAINT"
+                )
 
-            r = row.row(align=True)
-            r.active = False if context.mode == "WEIGHT_PAINT" else True
-            r.operator("object.mode_set", text="", icon="WPAINT_HLT").mode = (
-                "WEIGHT_PAINT"
-            )
+                r = row.row(align=True)
+                r.active = False if context.mode == "VERTEX_PAINT" else True
+                r.operator("object.mode_set", text="", icon="VPAINT_HLT").mode = (
+                    "VERTEX_PAINT"
+                )
 
-            r = row.row(align=True)
-            r.active = False if context.mode == "VERTEX_PAINT" else True
-            r.operator("object.mode_set", text="", icon="VPAINT_HLT").mode = (
-                "VERTEX_PAINT"
-            )
+                r = row.row(align=True)
+                r.active = False if context.mode == "SCULPT" else True
+                r.operator("object.mode_set", text="", icon="SCULPTMODE_HLT").mode = (
+                    "SCULPT"
+                )
 
-            r = row.row(align=True)
-            r.active = False if context.mode == "SCULPT" else True
-            r.operator("object.mode_set", text="", icon="SCULPTMODE_HLT").mode = (
-                "SCULPT"
-            )
+                r = row.row(align=True)
+                r.active = False if context.mode == "OBJECT" else True
+                r.operator("object.mode_set", text="", icon="OBJECT_DATA").mode = "OBJECT"
 
-            r = row.row(align=True)
-            r.active = False if context.mode == "OBJECT" else True
-            r.operator("object.mode_set", text="", icon="OBJECT_DATA").mode = "OBJECT"
-
-            r = row.row(align=True)
-            r.active = False if context.mode == "EDIT_MESH" else True
-            r.operator("object.mode_set", text="", icon="EDITMODE_HLT").mode = "EDIT"
+                r = row.row(align=True)
+                r.active = False if context.mode == "EDIT_MESH" else True
+                r.operator("object.mode_set", text="", icon="EDITMODE_HLT").mode = "EDIT"
 
         if context.area.type == "IMAGE_EDITOR":
             if context.tool_settings.use_uv_select_sync == True:
