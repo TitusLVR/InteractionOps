@@ -343,6 +343,7 @@ def register():
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
+        bpy.types.VIEW3D_MT_edit_mesh_select_similar.append(select_interior_faces)
     except:
         print("MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon")
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
@@ -354,6 +355,7 @@ def unregister():
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
+        bpy.types.VIEW3D_MT_edit_mesh_select_similar.remove(select_interior_faces)
     except:
         pass
     unreg_cls()
@@ -372,6 +374,8 @@ def outliner_collection_ops(self, context):
     self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
     self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
 
+def select_interior_faces(self, context):
+    self.layout.operator("mesh.select_interior_faces")
 
 if __name__ == "__main__":
     register()

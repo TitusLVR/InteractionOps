@@ -121,13 +121,19 @@ def draw_snap_line(self, context):
     if not self.source or not self.target:
         return
 
+    prefs = context.preferences.addons["InteractionOps"].preferences
     start = context.region.view2d.view_to_region(self.source[0], self.source[1])
     end = context.region.view2d.view_to_region(self.preview[0], self.preview[1])
 
+    line_thickness = prefs.drag_snap_line_thickness
     color = (*bpy.context.preferences.themes[0].view_3d.empty, 0.5)
     shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     batch = batch_for_shader(shader, "LINE_STRIP", {"pos": (start, end)})
     shader.bind()
+    # color and thickness
+    region = bpy.context.region
+    shader.uniform_float("viewportSize", (region.width, region.height))
+    shader.uniform_float("lineWidth", line_thickness)
     shader.uniform_float("color", color)
     batch.draw(shader)
 
