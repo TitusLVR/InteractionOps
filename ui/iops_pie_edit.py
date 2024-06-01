@@ -83,6 +83,17 @@ class IOPS_MT_Pie_Edit(Menu):
                 )
                 op.blendpath = blendpath
                 op.library = library
+            # Curve
+            elif context.object.type == "CURVE":
+                # 4 - LEFT
+                pie.separator()
+                # 6 - RIGHT
+                pie.separator()
+                # 2 - BOTTOM
+                pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
+                # 8 - TOP
+                pie.operator("iops.function_f1", text="Edit", icon="CURVE_DATA")
+
             else:
                 # 4 - LEFT
                 pie.operator(
