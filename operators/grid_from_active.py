@@ -1,6 +1,6 @@
 import bpy
 import numpy as np
-from mathutils import Vector, Matrix
+from mathutils import Vector
 
 
 class IOPS_OT_ToGridFromActive(bpy.types.Operator):

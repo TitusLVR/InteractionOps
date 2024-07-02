@@ -2,7 +2,6 @@ import bpy
 import os
 import json
 from ...prefs.iops_prefs import get_iops_prefs
-from ...utils.functions import ShowMessageBox
 from ...utils.split_areas_dict import split_areas_dict, split_areas_position_list
 
 # Save Addon Preferences
@@ -100,10 +99,8 @@ def load_iops_preferences():
                     case "DRAG_SNAP":
                         prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
                     case _:
-                        ShowMessageBox(
-                            "No entry in the dictionary for " + key,
-                            "IOPS Preferences",
-                            "ERROR",
+                        print(
+                            "IOPS Prefs: No entry for " + key,
                         )
 
     except FileNotFoundError:

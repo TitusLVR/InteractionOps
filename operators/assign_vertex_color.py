@@ -1,7 +1,6 @@
 import bpy
 import bmesh
-from bpy.props import FloatProperty, FloatVectorProperty
-
+from bpy.props import FloatProperty
 
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in editr mode to selected vertecies"""
@@ -24,7 +23,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         sel = [obj for obj in context.selected_objects]
         # Create color attribute if not exists
         for obj in sel:
-            if not self.col_attr_name in obj.data.color_attributes:
+            if self.col_attr_name not in obj.data.color_attributes:
                 obj.data.color_attributes.new(
                     self.col_attr_name, "FLOAT_COLOR", "POINT"
                 )

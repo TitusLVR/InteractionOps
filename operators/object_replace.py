@@ -1,8 +1,6 @@
 import bpy
 import random
 from bpy.props import (
-    IntProperty,
-    StringProperty,
     BoolProperty,
 )
 from ..utils.functions import get_active_and_selected

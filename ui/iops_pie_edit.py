@@ -28,7 +28,7 @@ def get_text_icon(context, operator):
         match operator:
             case "f1":
                 return "Open Instance Collection .blend", "FILE_BACKUP"
-            case default:
+            case _:
                 return "Esc", "EVENT_ESC"
 
 
@@ -175,7 +175,7 @@ class IOPS_MT_Pie_Edit(Menu):
                     )
 
         elif context.area.type == "IMAGE_EDITOR":
-            if context.tool_settings.use_uv_select_sync == True:
+            if context.tool_settings.use_uv_select_sync:
                 # 4 - LEFT
                 pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
                 # 6 - RIGHT
@@ -185,7 +185,7 @@ class IOPS_MT_Pie_Edit(Menu):
                 # 8 - TOP
                 pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
                 # 7 - TOP - LEFT
-            elif context.tool_settings.use_uv_select_sync == False:
+            elif not context.tool_settings.use_uv_select_sync:
                 # 4 - LEFT
                 pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
                 # 6 - RIGHT

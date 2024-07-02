@@ -4,15 +4,9 @@ import gpu
 import bmesh
 from math import sin, cos, pi
 import numpy as np
-from mathutils import Vector, Matrix
+from mathutils import Vector
 from mathutils.kdtree import KDTree
-from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
-from bpy_extras.view3d_utils import (
-    region_2d_to_vector_3d,
-    region_2d_to_origin_3d,
-    location_3d_to_region_2d,
-)
 
 
 # SNAP_DIST_SQ = 30**2 #Pixels Squared Tolerance
@@ -236,13 +230,13 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
         dir = self.target - self.source
 
-        if x == True and y == True:
+        if x and y:
             return dir
 
-        elif x == False:
+        elif not x:
             return (0, dir[1], 0)
 
-        elif y == False:
+        elif not y:
             return (dir[0], 0, 0)
 
     def update_distances(self, context, event, kd):

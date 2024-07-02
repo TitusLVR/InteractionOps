@@ -1,14 +1,9 @@
 import bpy
 import blf
 import gpu
-import bmesh
 import numpy
-import math
-import copy
-from math import radians, degrees
-from mathutils import Vector, Matrix, Euler
+from mathutils import Vector
 from math import sin, cos, pi
-from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import (
     region_2d_to_vector_3d,
@@ -341,7 +336,6 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # Clean Up End
 
     def getBBOX_from_selected(self, context):
-        scene = bpy.context.scene
         sel_objs = []
         # Collect selected
         for ob in context.view_layer.objects.selected:
@@ -408,7 +402,6 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             if ob.type == "MESH":
                 sel_objs.append(ob)
 
-        res = self.result
         obj = context.view_layer.objects.active
         # Duplicate active obj
         matrix = obj.matrix_world
@@ -469,7 +462,6 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         # get the ray from the viewport and mouse
         view_vector = region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = region_2d_to_origin_3d(region, rv3d, coord)
-        ray_target = ray_origin + view_vector
 
         if bpy.app.version[0] == 2 and bpy.app.version[1] > 90:
             result, location, normal, index, obj, matrix = scene.ray_cast(
@@ -490,27 +482,18 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         return result, obj
 
     def object_bbox(self, context):
-        scene = context.scene
         region = context.region
         rv3d = context.region_data
-        coord = self.mouse_pos
-        view_layer = context.view_layer
-
-        res = self.result
         obj = self.result_obj
 
-        verts_pos = []
         bbox_batch = []
         bbox_batch_3d = []
-        face_batch = []
-        face_batch_3d = []
         if obj is not None:
             matrix = obj.matrix_world
             matrix_trans = matrix.transposed()
             bbox = obj.bound_box
             bbox_verts_3d = []
             if len(bbox) != 0:
-                subd_vert_pos = []
                 bbox_edges = (
                     (0, 1),
                     (1, 2),

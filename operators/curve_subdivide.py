@@ -3,17 +3,8 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 import blf
 from bpy.props import (
-    IntProperty,
-    FloatProperty,
-    BoolProperty,
-    StringProperty,
-    FloatVectorProperty,
+    IntProperty
 )
-import bmesh
-import math
-from math import radians, degrees
-from mathutils import Vector, Matrix, Euler
-
 
 def draw_curve_pts(self, context):
     coords = self.get_curve_pts()  # <- sequence
@@ -90,7 +81,6 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         return {"FINISHED"}
 
     def subdivide(self, points):
-        obj = bpy.context.view_layer.objects.active
         self.points_num = points
         bpy.ops.curve.subdivide(number_cuts=self.points_num)
 
@@ -110,12 +100,12 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
 
         for idx in range(len(pts) - 1):
             A = pts[idx].co @ obj.matrix_world + obj.location
-            Ahl = pts[idx].handle_left @ obj.matrix_world + obj.location
+            # Ahl = pts[idx].handle_left @ obj.matrix_world + obj.location
             Ahr = pts[idx].handle_right @ obj.matrix_world + obj.location  # Ha
 
             B = pts[idx + 1].co @ obj.matrix_world + obj.location
             Bhl = pts[idx + 1].handle_left @ obj.matrix_world + obj.location  # Hb
-            Bhr = pts[idx + 1].handle_right @ obj.matrix_world + obj.location
+            # Bhr = pts[idx + 1].handle_right @ obj.matrix_world + obj.location
 
             for ip in range(self.points_num):
                 p = 1 / (self.points_num + 1) * (ip + 1)

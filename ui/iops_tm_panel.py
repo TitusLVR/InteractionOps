@@ -1,5 +1,4 @@
 import bpy
-from math import radians
 from ..utils.functions import get_addon
 
 
@@ -133,19 +132,14 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
     # bl_category = 'Item'
 
     def draw(self, context):
-        wm = context.window_manager
         ver = bpy.app.version[2]
         tool_settings = context.tool_settings
         scene = context.scene
         orient_slot = scene.transform_orientation_slots[0]
         orientation = orient_slot.custom_orientation
-        pivot = scene.tool_settings.transform_pivot_point
         # snap_elements = scene.tool_settings.snap_elements
         snap_elements = scene.tool_settings.snap_elements_base
-        snap_target = scene.tool_settings.snap_target
 
-        props = wm.IOPS_AddonProperties
-        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
         ueops, _, _, _ = get_addon("Unreal OPS")
         machinetools, _, _, _ = get_addon("MACHIN3tools")
         batchops, _, _, _ = get_addon("Batch Operations™")

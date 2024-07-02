@@ -1,7 +1,6 @@
 import bpy
 import os
 import json
-from ...utils.functions import register_keymaps, unregister_keymaps, get_addon
 
 
 def save_hotkeys():

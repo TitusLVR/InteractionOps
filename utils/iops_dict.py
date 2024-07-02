@@ -1,10 +1,24 @@
-from collections import defaultdict
-from .functions import *
+from .functions import (
+    no_operator,
+    object_mode_switch,
+    mesh_select_mode,
+    cursor_origin_mesh,
+    cursor_origin_selected,
+    match_dimensions,
+    z_connect,
+    align_to_face,
+    empty_to_cursor,
+    view_selected_uv,
+    uv_select_mode,
+    uv_sync_toggle,
+    set_display_mode,
+    curve_subdivide,
+    curve_spline_type,
+)
 import bpy
 
 
 class IOPS_Dict:
-
     operators = {"F1", "F2", "F3", "F4", "F5", "ESC"}
 
     iops_dict = {

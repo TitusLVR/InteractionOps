@@ -1,13 +1,8 @@
 import bpy
-from bpy.types import Operator, Menu, Panel, PropertyGroup, UIList, AddonPreferences
+from bpy.types import PropertyGroup
 from bpy.props import (
-    BoolProperty,
-    EnumProperty,
     FloatProperty,
     FloatVectorProperty,
-    IntProperty,
-    PointerProperty,
-    CollectionProperty,
     StringProperty,
 )
 

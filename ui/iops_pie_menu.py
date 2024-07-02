@@ -1,6 +1,6 @@
 import bpy
 from bpy.types import Menu
-from ..utils.functions import *
+from ..utils.functions import get_addon
 
 
 class IOPS_MT_Pie_Menu(Menu):

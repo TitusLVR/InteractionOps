@@ -3,10 +3,6 @@ from bpy.props import (
     BoolProperty,
     EnumProperty,
     FloatProperty,
-    IntProperty,
-    PointerProperty,
-    StringProperty,
-    FloatVectorProperty,
 )
 
 
@@ -146,7 +142,7 @@ class IOPS_OT_Easy_Mod_Shwarp(bpy.types.Operator):
                     if self.shwarp_use_vg and ob.vertex_groups:
                         mod.vertex_group = ob.vertex_groups[0].name
 
-                if self.transfer_normals == True:
+                if self.transfer_normals:
                     if "iOps Transfer Normals" not in ob.modifiers.keys():
                         mod = ob.modifiers.new(
                             "iOps Transfer Normals", type="DATA_TRANSFER"

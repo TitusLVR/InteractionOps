@@ -37,7 +37,6 @@ class IOPS_OT_Add_UVMap(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -60,7 +59,6 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -85,7 +83,6 @@ class IOPS_OT_Active_UVMap_by_Active(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected

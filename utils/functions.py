@@ -36,7 +36,7 @@ def view_selected_uv():
     view_3d = [area for area in bpy.context.screen.areas if area.type == "VIEW_3D"]
     view_3d = view_3d[0]
 
-    if bpy.context.tool_settings.use_uv_select_sync == False:
+    if not bpy.context.tool_settings.use_uv_select_sync:
         try:
             mesh = bpy.context.active_object.data
             bm = bmesh.from_edit_mesh(mesh)

@@ -34,7 +34,6 @@ class IOPS_OT_Clean_UVMap_0(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -62,7 +61,6 @@ class IOPS_OT_Clean_UVMap_1(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -90,7 +88,6 @@ class IOPS_OT_Clean_UVMap_2(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -118,7 +115,6 @@ class IOPS_OT_Clean_UVMap_3(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -146,7 +142,6 @@ class IOPS_OT_Clean_UVMap_4(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -174,7 +169,6 @@ class IOPS_OT_Clean_UVMap_5(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -202,7 +196,6 @@ class IOPS_OT_Clean_UVMap_6(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected
@@ -230,7 +223,6 @@ class IOPS_OT_Clean_UVMap_7(bpy.types.Operator):
     #     return (context.area.type == "VIEW_3D")
 
     def execute(self, context):
-        scene = context.scene
         selected_objs = [
             o
             for o in context.view_layer.objects.selected

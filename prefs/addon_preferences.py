@@ -170,7 +170,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=((*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7)),
     )
 
-    text_size_stat: IntProperty(
+    text_size_stat: FloatProperty(
         name="Size",
         description="Modal operators text size",
         default=20,

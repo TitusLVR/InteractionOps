@@ -12,8 +12,6 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
 
     def draw(self, context):
         wm = context.window_manager
-        tool_settings = context.tool_settings
-        scene = context.scene
         props = wm.IOPS_AddonProperties
         app_version = int("".join([str(v) for v in bpy.app.version]))
 

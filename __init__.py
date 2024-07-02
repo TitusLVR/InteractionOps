@@ -177,8 +177,9 @@ from .prefs.hotkeys_default import keys_default as keys_default
 
 # Preferences
 from .operators.preferences.io_addon_preferences import load_iops_preferences
+
 # IOPS Statistics
-from .utils.draw2d_stat import draw_iops_statistics
+from .utils.draw_stats import draw_iops_statistics
 
 
 bl_info = {
@@ -328,6 +329,7 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 #     draw_logo_hops()
 draw_handler = None
 
+
 def register():
     reg_cls()
 
@@ -335,7 +337,7 @@ def register():
         type=IOPS_AddonProperties
     )
     path = bpy.utils.script_path_user()
-    
+
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
     fix_old_keymaps()
 
@@ -346,20 +348,24 @@ def register():
     else:
         register_keymaps(keys_default)
 
-    
-
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.append(select_interior_faces)
-    except:
-        print("MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon")
+    except Exception:
+        print(
+            "MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon"
+        )
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
-    
+
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
-        global draw_handler   
-        draw_handler = bpy.types.SpaceView3D.draw_handler_add(draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL")
+        global draw_handler
+        draw_handler = bpy.types.SpaceView3D.draw_handler_add(
+            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL"
+        )
+
     load_iops_preferences()
+
     print("IOPS Registered!")
 
 
@@ -368,13 +374,14 @@ def unregister():
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.remove(select_interior_faces)
-    except:
+    except Exception as e:
+        print(e)
         pass
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
-    
+
     # Unregister the draw handler
     global draw_handler
     bpy.types.SpaceView3D.draw_handler_remove(draw_handler, "WINDOW")
@@ -392,8 +399,10 @@ def outliner_collection_ops(self, context):
     self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
     self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
 
+
 def select_interior_faces(self, context):
     self.layout.operator("mesh.select_interior_faces")
+
 
 if __name__ == "__main__":
     register()

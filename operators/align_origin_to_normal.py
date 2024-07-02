@@ -1,19 +1,9 @@
 import bpy
-import gpu
-from gpu_extras.batch import batch_for_shader
-import blf
 from bpy.props import (
-    IntProperty,
-    FloatProperty,
-    BoolProperty,
-    StringProperty,
-    FloatVectorProperty,
+    FloatVectorProperty
 )
 import bmesh
-import math
-from math import radians, degrees
-from mathutils import Vector, Matrix
-import copy
+from mathutils import Matrix
 
 
 class IOPS_OT_AlignOriginToNormal(bpy.types.Operator):

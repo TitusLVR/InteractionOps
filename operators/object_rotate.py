@@ -4,7 +4,6 @@ from mathutils import Euler, Vector
 
 # import bmesh
 # from mathutils import Matrix,
-import copy
 from bpy.props import BoolProperty
 
 

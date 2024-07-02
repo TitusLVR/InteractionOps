@@ -1,6 +1,5 @@
 import bpy
 import bmesh
-import json
 from mathutils import Vector
 from bpy.props import BoolProperty
 

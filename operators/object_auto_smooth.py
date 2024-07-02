@@ -43,7 +43,7 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
 
     def invoke(self, context, event):
         # check if bpy.data.node_groups["Smooth by Angle"] exists, if not import it
-        if not "Smooth by Angle" in bpy.data.node_groups.keys():
+        if "Smooth by Angle" not in bpy.data.node_groups.keys():
             res_path = bpy.utils.resource_path("LOCAL")
             path = os.path.join(
                 res_path, "datafiles\\assets\\geometry_nodes\\smooth_by_angle.blend"
@@ -105,15 +105,15 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                     ):
                         try:
                             bpy.ops.object.modifier_remove(modifier=mod.name)
-                        except:
+                        except Exception as e:
                             print(
-                                f"Could not remove Auto Smooth modifier from {obj.name}"
+                                f"Could not remove Auto Smooth modifier from {obj.name} — {e}"
                             )
                             break
 
                 # Add Smooth by Angle modifier from Essentials library
                 try:
-                    if not "Auto Smooth" in [mod.name for mod in obj.modifiers]:
+                    if "Auto Smooth" not in [mod.name for mod in obj.modifiers]:
                         bpy.ops.object.modifier_add_node_group(
                             asset_library_type="ESSENTIALS",
                             asset_library_identifier="",
@@ -123,8 +123,8 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                         mod.name = "Auto Smooth"
                     else:
                         mod = obj.modifiers["Auto Smooth"]
-                except:
-                    print(f"Could not add Auto Smooth modifier to {obj.name}")
+                except Exception as e:
+                    print(f"Could not add Auto Smooth modifier to {obj.name} — {e}")
                     continue
 
                 mod.node_group = bpy.data.node_groups["Smooth by Angle"]

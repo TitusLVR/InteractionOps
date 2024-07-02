@@ -4,16 +4,12 @@ from gpu_extras.batch import batch_for_shader
 import blf
 from bpy.props import (
     IntProperty,
-    FloatProperty,
     BoolProperty,
     StringProperty,
     FloatVectorProperty,
 )
 import bmesh
-import math
-from math import radians, degrees
 from mathutils import Vector, Matrix
-import copy
 
 
 def draw_edge(self, context):

@@ -24,7 +24,6 @@ class IOPS_OT_Collections_Include(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        active_col = bpy.context.view_layer.active_layer_collection
         selected_cols = [
             col
             for col in bpy.context.selected_ids
@@ -57,7 +56,6 @@ class IOPS_OT_Collections_Exclude(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        active_col = bpy.context.view_layer.active_layer_collection
         selected_cols = [
             col
             for col in bpy.context.selected_ids

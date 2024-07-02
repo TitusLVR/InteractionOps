@@ -1,17 +1,8 @@
 import bpy
 import blf
-import math
 import gpu
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector, Matrix
-from bpy.props import (
-    IntProperty,
-    FloatProperty,
-    BoolProperty,
-    StringProperty,
-    FloatVectorProperty,
-)
-from mathutils import Vector, Matrix
+from mathutils import Vector
 from ..iops import IOPS_OT_Main
 
 

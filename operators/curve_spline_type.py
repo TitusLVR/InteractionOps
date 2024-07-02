@@ -1,8 +1,6 @@
 import bpy
 import blf
-import gpu
-from gpu_extras.batch import batch_for_shader
-from bpy.props import BoolProperty, EnumProperty
+from bpy.props import BoolProperty
 
 
 def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):

@@ -1,16 +1,12 @@
 import bpy
-import blf
 import gpu
-import bmesh
 from math import sin, cos, pi
 import numpy as np
-from mathutils import Vector, Matrix
+from mathutils import Vector
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from bpy_extras.view3d_utils import (
-    region_2d_to_vector_3d,
-    region_2d_to_origin_3d,
-    location_3d_to_region_2d,
+    location_3d_to_region_2d
 )
 
 
@@ -148,7 +144,6 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         region = context.region
         mouse_pos = Vector((event.mouse_region_x, event.mouse_region_y))
         rv3d = context.region_data
-        view_layer = context.view_layer
         view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse_pos)
         ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_pos)
         depsgraph = context.evaluated_depsgraph_get()

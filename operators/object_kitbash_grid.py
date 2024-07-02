@@ -1,12 +1,8 @@
 import bpy
 from bpy.props import (
     BoolProperty,
-    EnumProperty,
     FloatProperty,
     IntProperty,
-    PointerProperty,
-    StringProperty,
-    FloatVectorProperty,
 )
 
 

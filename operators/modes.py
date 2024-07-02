@@ -1,4 +1,3 @@
-import bpy
 from .iops import IOPS_OT_Main
 
 

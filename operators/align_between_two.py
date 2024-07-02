@@ -1,14 +1,9 @@
 import bpy
 
-from mathutils import Vector, Matrix
 from bpy.props import (
     BoolProperty,
     EnumProperty,
-    FloatProperty,
-    IntProperty,
-    PointerProperty,
-    StringProperty,
-    FloatVectorProperty,
+    IntProperty
 )
 
 from ..utils.functions import get_active_and_selected, ShowMessageBox

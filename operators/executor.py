@@ -1,4 +1,3 @@
-from doctest import script_from_examples
 import bpy
 import os
 from os import listdir

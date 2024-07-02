@@ -1,5 +1,4 @@
 import bpy
-import copy
 import re
 from bpy.props import (
     IntProperty,
