@@ -346,7 +346,7 @@ def register():
     else:
         register_keymaps(keys_default)
 
-    load_iops_preferences()
+    
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
@@ -359,6 +359,7 @@ def register():
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
         global draw_handler   
         draw_handler = bpy.types.SpaceView3D.draw_handler_add(draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL")
+    load_iops_preferences()
     print("IOPS Registered!")
 
 
