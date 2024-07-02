@@ -65,11 +65,13 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
             if o.type == "MESH" and o.data.polygons[:] != [] and o.visible_get()
         ]
         if selected_objs and context.active_object in selected_objs:
-            uvmap_name = context.active_object.data.uv_layers.active.name
-            for ob in selected_objs:
-                uvmap_clean_by_name(ob, uvmap_name)
-                tag_redraw(context)
-            self.report({"INFO"}, ("UVMap %s Was Deleted" % (uvmap_name)))
+            if context.active_object.data.uv_layers:           
+                uvmap_name = context.active_object.data.uv_layers.active.name
+                for ob in selected_objs:
+                    if ob.data.uv_layers:
+                        uvmap_clean_by_name(ob, uvmap_name)
+                        tag_redraw(context)
+                self.report({"INFO"}, ("UVMap %s Was Deleted" % (uvmap_name)))
         else:
             self.report({"ERROR"}, "Select MESH objects.")
         return {"FINISHED"}
@@ -89,12 +91,14 @@ class IOPS_OT_Active_UVMap_by_Active(bpy.types.Operator):
             if o.type == "MESH" and o.data.polygons[:] != [] and o.visible_get()
         ]
         if selected_objs and context.active_object in selected_objs:
-            uvmap_name = context.active_object.data.uv_layers.active.name
-            uvmap_index = context.active_object.data.uv_layers.active_index
-            for ob in selected_objs:
-                active_uvmap_by_active(ob, uvmap_index)
-                tag_redraw(context)
-            self.report({"INFO"}, ("UVMap %s Active" % (uvmap_name)))
+            if context.active_object.data.uv_layers:
+                uvmap_name = context.active_object.data.uv_layers.active.name
+                uvmap_index = context.active_object.data.uv_layers.active_index
+                for ob in selected_objs:
+                    if ob.data.uv_layers:
+                        active_uvmap_by_active(ob, uvmap_index)
+                        tag_redraw(context)
+                self.report({"INFO"}, ("UVMap %s Active" % (uvmap_name)))
         else:
             self.report({"ERROR"}, "Select MESH objects.")
         return {"FINISHED"}

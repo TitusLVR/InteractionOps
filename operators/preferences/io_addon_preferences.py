@@ -79,6 +79,8 @@ def load_iops_preferences():
                         prefs.text_shadow_pos_y_stat = value["text_shadow_pos_y_stat"]
                         prefs.text_shadow_toggle_stat = value["text_shadow_toggle_stat"]
                         prefs.text_size_stat = value["text_size_stat"]
+                        prefs.text_column_offset_stat = value["text_column_offset_stat"]
+                        prefs.text_column_width_stat = value["text_column_width_stat"]
                     case "VISUAL_ORIGIN":
                         prefs.vo_cage_ap_color = value["vo_cage_ap_color"]
                         prefs.vo_cage_ap_size = value["vo_cage_ap_size"]

@@ -11,6 +11,14 @@ import bpy
 #                        )
 
 
+def tag_redraw(context, space_type="VIEW_3D", region_type="WINDOW"):
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.spaces[0].type == space_type:
+                for region in area.regions:
+                    if region.type == region_type:
+                        region.tag_redraw()
+
 def uvmap_clean_by_index(obj, index):
     obj_uvmaps = obj.data.uv_layers
     if obj_uvmaps:
@@ -42,6 +50,7 @@ class IOPS_OT_Clean_UVMap_0(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 0)
+            tag_redraw(context)
             self.report({"INFO"}, "All UVMaps Were Removed")
 
         else:
@@ -69,6 +78,7 @@ class IOPS_OT_Clean_UVMap_1(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 1)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 2 to 8 Removed")
 
         else:
@@ -96,6 +106,7 @@ class IOPS_OT_Clean_UVMap_2(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 2)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 3 to 8 Removed")
 
         else:
@@ -123,6 +134,7 @@ class IOPS_OT_Clean_UVMap_3(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 3)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 4 to 8 Removed")
 
         else:
@@ -150,6 +162,7 @@ class IOPS_OT_Clean_UVMap_4(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 4)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 5 to 8 Removed")
 
         else:
@@ -177,6 +190,7 @@ class IOPS_OT_Clean_UVMap_5(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 5)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 6 to 8 Removed")
 
         else:
@@ -204,6 +218,7 @@ class IOPS_OT_Clean_UVMap_6(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 6)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMaps 7 to 8 Removed")
 
         else:
@@ -231,6 +246,7 @@ class IOPS_OT_Clean_UVMap_7(bpy.types.Operator):
         if selected_objs:
             for ob in selected_objs:
                 uvmap_clean_by_index(ob, 7)
+            tag_redraw(context)
             self.report({"INFO"}, "UVMap 8 Removed")
 
         else:

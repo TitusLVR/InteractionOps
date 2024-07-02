@@ -79,7 +79,9 @@ def get_iops_prefs():
             "text_shadow_pos_x_stat": prefs.text_shadow_pos_x_stat,
             "text_shadow_pos_y_stat": prefs.text_shadow_pos_y_stat,
             "text_shadow_toggle_stat": prefs.text_shadow_toggle_stat,
-            "text_size_stat": prefs.text_size_stat
+            "text_size_stat": prefs.text_size_stat,
+            "text_column_offset_stat": prefs.text_column_offset_stat,
+            "text_column_width_stat": prefs.text_column_width_stat
             },
         "VISUAL_ORIGIN": {
             "vo_cage_ap_color": list(prefs.vo_cage_ap_color),

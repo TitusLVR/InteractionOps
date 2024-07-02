@@ -144,6 +144,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     # Statistics text properties
     iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
+    
     text_color_stat: FloatVectorProperty(
         name="Color",
         subtype="COLOR_GAMMA",
@@ -181,7 +182,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     text_pos_x_stat: IntProperty(
         name="Position X",
         description="Modal operators Text pos X",
-        default=60,
+        default=9,
         soft_min=1,
         soft_max=10000,
     )
@@ -189,7 +190,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     text_pos_y_stat: IntProperty(
         name="Position Y",
         description="Modal operators Text pos Y",
-        default=60,
+        default=220,
         soft_min=1,
         soft_max=10000,
     )
@@ -229,6 +230,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=-2,
         soft_min=-50,
         soft_max=50,
+    )
+    text_column_offset_stat: FloatProperty(
+        name="Column Offset",
+        description="Column Offset",
+        default=30,
+        min=0,
+        max=10000,
+    )
+    text_column_width_stat: FloatProperty(
+        name="Column Width",
+        description="Column Width",
+        default=4,
+        min=0,
+        max=10000,
     )
 
     # Cage Props
@@ -726,6 +741,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.prop(self, "text_color_error_stat")
             row = col_text.row(align=True)
             row.prop(self, "text_size_stat")
+            row.prop(self, "text_column_offset_stat")
+            row.prop(self, "text_column_width_stat")
             row = col_text.row(align=True)
             row.prop(self, "text_pos_x_stat")
             row.prop(self, "text_pos_y_stat")
