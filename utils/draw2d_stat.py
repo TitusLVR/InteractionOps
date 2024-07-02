@@ -37,12 +37,16 @@ def draw_iops_statistics():
             #Add brackets and add active uvmap but not twice
             if uvmap == active_object.data.uv_layers.active:
                 uvmaps += "[" + uvmap.name + "], "
-            else:                
+            else:
                 uvmaps += uvmap.name + ", "
             #delete last comma
-        uvmaps = uvmaps[:-2]
+        if uvmaps:
+            uvmaps = uvmaps[:-2]
+        else:
+            uvmaps = "No UVMaps"
+        
 
-        # Check object scale for non-uniform scaling and negative scaling        
+        # Check object scale for non-uniform scaling and negative scaling
         scale = active_object.scale
         if scale[0] != scale[1] or scale[1] != scale[2] or scale[0] != scale[2]:
             uniform_scale_stat = "Non-uniform"
@@ -53,9 +57,9 @@ def draw_iops_statistics():
             negative_scale_stat = ", Negative scaling"
         else:
             negative_scale_stat = ""
-        
+
         scale_stat = uniform_scale_stat + negative_scale_stat
-    
+
 
         iops_text = [
             ["UVMaps:", str(uvmaps)],
@@ -76,17 +80,17 @@ def draw_iops_statistics():
         blf.shadow_offset(font, tSPosX, tSPosY)
     else:
         blf.disable(0, blf.SHADOW)
-    
-    textsize = tCSize    
+
+    textsize = tCSize
     uidpi = bpy.context.preferences.system.ui_scale
-    
+
     rw = bpy.context.region.width#  - get_3d_view_tools_panel_overlay_width(bpy.context.area, "right")
     rh = bpy.context.region.height - 50 * uidpi
-    
+
     offset_x = rw - tCPosX * uidpi
     offset_y = rh - tCPosY * uidpi
-    
-    
+
+
     columnoffs = (textsize * 6) * uidpi
 
     for line in reversed(iops_text):
@@ -94,18 +98,17 @@ def draw_iops_statistics():
         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
         blf.position(font, offset_x, offset_y, 0)
         blf.draw(font, line[0])
-        #Column 2
 
-        if line[1] != "":
-            blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-        else:
+        #Column 2
+        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+
+        if line[0] == "UVMaps:" and line[1] == "No UVMaps":
             blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
-            line[1] = "No UVMaps"
-        
+
         if line[0] == "Scale:" and line[1] != "Uniform":
             blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
 
         blf.position(font, offset_x + columnoffs, offset_y, 0)
         blf.draw(font, line[1])
         offset_y += textsize * 1.5
-        
+

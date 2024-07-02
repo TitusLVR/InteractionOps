@@ -1,6 +1,14 @@
 import bpy
 
 
+def tag_redraw(context, space_type="VIEW_3D", region_type="WINDOW"):
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.spaces[0].type == space_type:
+                for region in area.regions:
+                    if region.type == region_type:
+                        region.tag_redraw()
+
 def uvmap_add(obj):
     obj_uvmaps = obj.data.uv_layers
     ch_num_text = "ch" + str(len(obj_uvmaps) + 1)
@@ -11,13 +19,14 @@ def uvmap_clean_by_name(obj, name):
     obj_uvmaps = obj.data.uv_layers
     if obj_uvmaps and name in obj_uvmaps:
         obj_uvmaps.remove(obj_uvmaps[name])
-    obj.data.uv_layers.update()
+
 
 
 def active_uvmap_by_active(obj, index):
     obj_uvmaps = obj.data.uv_layers
     if len(obj_uvmaps) >= index + 1:
         obj_uvmaps.active_index = index
+
 
 
 class IOPS_OT_Add_UVMap(bpy.types.Operator):
@@ -61,7 +70,7 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
             uvmap_name = context.active_object.data.uv_layers.active.name
             for ob in selected_objs:
                 uvmap_clean_by_name(ob, uvmap_name)
-                ob.data.uv_layers.update()
+                tag_redraw(context)
             self.report({"INFO"}, ("UVMap %s Was Deleted" % (uvmap_name)))
         else:
             self.report({"ERROR"}, "Select MESH objects.")
@@ -87,6 +96,7 @@ class IOPS_OT_Active_UVMap_by_Active(bpy.types.Operator):
             uvmap_index = context.active_object.data.uv_layers.active_index
             for ob in selected_objs:
                 active_uvmap_by_active(ob, uvmap_index)
+                tag_redraw(context)
             self.report({"INFO"}, ("UVMap %s Active" % (uvmap_name)))
         else:
             self.report({"ERROR"}, "Select MESH objects.")
