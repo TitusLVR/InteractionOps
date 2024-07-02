@@ -1,5 +1,6 @@
 import bpy
-from ..utils.iops_dict import IOPS_Dict, get_iop
+from ..utils.iops_dict import IOPS_Dict
+from ..utils.functions import get_iop
 
 
 class IOPS_OT_Main(bpy.types.Operator):
