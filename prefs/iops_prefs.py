@@ -68,6 +68,19 @@ def get_iops_prefs():
             "text_shadow_toggle": prefs.text_shadow_toggle,
             "text_size": prefs.text_size
             },
+        "UI_TEXT_STAT": {
+            "iops_stat" : prefs.iops_stat,
+            "text_color_stat": list(prefs.text_color_stat),
+            "text_color_key_stat": list(prefs.text_color_key_stat),
+            "text_color_error_stat": list(prefs.text_color_error_stat),
+            "text_pos_x_stat": prefs.text_pos_x_stat,
+            "text_pos_y_stat": prefs.text_pos_y_stat,
+            "text_shadow_color_stat": list(prefs.text_shadow_color_stat),
+            "text_shadow_pos_x_stat": prefs.text_shadow_pos_x_stat,
+            "text_shadow_pos_y_stat": prefs.text_shadow_pos_y_stat,
+            "text_shadow_toggle_stat": prefs.text_shadow_toggle_stat,
+            "text_size_stat": prefs.text_size_stat
+            },
         "VISUAL_ORIGIN": {
             "vo_cage_ap_color": list(prefs.vo_cage_ap_color),
             "vo_cage_ap_size": prefs.vo_cage_ap_size,

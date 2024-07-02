@@ -177,7 +177,8 @@ from .prefs.hotkeys_default import keys_default as keys_default
 
 # Preferences
 from .operators.preferences.io_addon_preferences import load_iops_preferences
-
+# IOPS Statistics
+from .utils.draw2d_stat import draw_iops_statistics
 
 
 bl_info = {
@@ -319,6 +320,13 @@ classes = (
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 
+# def draw_iops_hud():
+#     # set_drawing_dpi(get_dpi())
+#     # dpi_factor = get_dpi_factor()
+
+#     # if addon.preference().color.Hops_display_logo:
+#     draw_logo_hops()
+draw_handler = None
 
 def register():
     reg_cls()
@@ -347,7 +355,10 @@ def register():
     except:
         print("MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon")
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
-
+    
+    if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
+        global draw_handler   
+        draw_handler = bpy.types.SpaceView3D.draw_handler_add(draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL")
     print("IOPS Registered!")
 
 
@@ -362,6 +373,12 @@ def unregister():
     del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
+    
+    # Unregister the draw handler
+    global draw_handler
+    bpy.types.SpaceView3D.draw_handler_remove(draw_handler, "WINDOW")
+    draw_handler = None
+
     print("IOPS Unregistered!")
 
 

@@ -11,6 +11,7 @@ def uvmap_clean_by_name(obj, name):
     obj_uvmaps = obj.data.uv_layers
     if obj_uvmaps and name in obj_uvmaps:
         obj_uvmaps.remove(obj_uvmaps[name])
+    obj.data.uv_layers.update()
 
 
 def active_uvmap_by_active(obj, index):
@@ -60,6 +61,7 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
             uvmap_name = context.active_object.data.uv_layers.active.name
             for ob in selected_objs:
                 uvmap_clean_by_name(ob, uvmap_name)
+                ob.data.uv_layers.update()
             self.report({"INFO"}, ("UVMap %s Was Deleted" % (uvmap_name)))
         else:
             self.report({"ERROR"}, "Select MESH objects.")

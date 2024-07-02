@@ -46,6 +46,8 @@ def update_combo(self, context):
 class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = "InteractionOps"
 
+    IOPS_DEBUG: BoolProperty(name="Query debug", description="ON/Off", default=False)
+
     category: StringProperty(
         name="Tab Name",
         description="Choose a name for the category of the panel",
@@ -60,7 +62,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", "")],
         default="PREFS",
     )
-
+    # Operator text properties
     text_color: FloatVectorProperty(
         name="Color",
         subtype="COLOR_GAMMA",
@@ -114,8 +116,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     text_shadow_toggle: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
 
-    IOPS_DEBUG: BoolProperty(name="Query debug", description="ON/Off", default=False)
-
     text_shadow_blur: EnumProperty(
         name="Blur",
         description="Could be 0,3,5",
@@ -142,6 +142,96 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         soft_max=50,
     )
 
+    # Statistics text properties
+    iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
+    text_color_stat: FloatVectorProperty(
+        name="Color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
+    )
+
+    text_color_key_stat: FloatVectorProperty(
+        name="Color key",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
+    )
+    text_color_error_stat: FloatVectorProperty(
+        name="Color error",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=((*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7)),
+    )
+
+    text_size_stat: IntProperty(
+        name="Size",
+        description="Modal operators text size",
+        default=20,
+        soft_min=1,
+        soft_max=100,
+    )
+
+    text_pos_x_stat: IntProperty(
+        name="Position X",
+        description="Modal operators Text pos X",
+        default=60,
+        soft_min=1,
+        soft_max=10000,
+    )
+
+    text_pos_y_stat: IntProperty(
+        name="Position Y",
+        description="Modal operators Text pos Y",
+        default=60,
+        soft_min=1,
+        soft_max=10000,
+    )
+
+    text_shadow_color_stat: FloatVectorProperty(
+        name="Shadow",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(0.0, 0.0, 0.0, 1.0),
+    )
+
+    text_shadow_toggle_stat: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
+
+    text_shadow_blur_stat: EnumProperty(
+        name="Blur",
+        description="Could be 0,3,5",
+        items=[
+            ("0", "None", "", "", 0),
+            ("3", "Mid", "", "", 3),
+            ("5", "High", "", "", 5)
+        ],
+        default="0",
+    )
+
+    text_shadow_pos_x_stat: IntProperty(
+        name="Shadow pos X",
+        description="Modal operators Text pos X",
+        default=2,
+        soft_min=-50,
+        soft_max=50,
+    )
+    text_shadow_pos_y_stat: IntProperty(
+        name="Shadow pos Y",
+        description="Modal operators Text pos Y",
+        default=-2,
+        soft_min=-50,
+        soft_max=50,
+    )
+
+    # Cage Props
     vo_cage_color: FloatVectorProperty(
         name="Cage color",
         subtype="COLOR_GAMMA",
@@ -290,9 +380,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 6 - RIGHT
     split_area_pie_6_ui: EnumProperty(
-        name="", 
-        description="Area Types", 
-        items=split_areas_list, 
+        name="",
+        description="Area Types",
+        items=split_areas_list,
         default="UV"
     )
     split_area_pie_6_pos: EnumProperty(
@@ -334,9 +424,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 8 - TOP
     split_area_pie_8_ui: EnumProperty(
-        name="", 
-        description="Area Types", 
-        items=split_areas_list, 
+        name="",
+        description="Area Types",
+        items=split_areas_list,
         default="CONSOLE"
     )
     split_area_pie_8_pos: EnumProperty(
@@ -356,9 +446,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     # 9 - TOP - RIGHT
     split_area_pie_9_ui: EnumProperty(
-        name="", 
-        description="Area Types", 
-        items=split_areas_list, 
+        name="",
+        description="Area Types",
+        items=split_areas_list,
         default="TEXT_EDITOR"
     )
     split_area_pie_9_pos: EnumProperty(
@@ -449,7 +539,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             # Keymaps
             col = column_main.column(align=False)
             # Function keys
-            box_functions = col.box()            
+            box_functions = col.box()
             box_functions.label(text="Main:")
             col_functions = box_functions.column(align=True)
             km_functions_row = col_functions.row(align=True)
@@ -483,14 +573,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_pie.label(text="Pie Menus:")
             col_pie = box_pie.column(align=True)
             km_pie_row = col_pie.row(align=True)
-            km_pie_col = km_pie_row.column(align=True)            
+            km_pie_col = km_pie_row.column(align=True)
             # Scripts keys
             box_scripts = col.box()
             box_scripts.label(text="Scripts:")
             col_scripts = box_scripts.column(align=True)
             km_scripts_row = col_scripts.row(align=True)
             km_scripts_col = km_scripts_row.column(align=True)
-            
+
 
             """
             kc - keyconfigs
@@ -509,8 +599,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Screen Editing"],
                 kc_user.keymaps["UV Editor"],
             ]
-            
-            
+
+
             for km in keymaps:
                 for kmi in km.keymap_items:
                     if kmi.idname.startswith("iops.function_"):
@@ -522,7 +612,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             km_functions_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
-                            )                    
+                            )
                     elif kmi.idname.startswith("iops.mesh") or kmi.idname.startswith("iops.z_"):
                         try:
                             rna_keymap_ui.draw_kmi(
@@ -542,7 +632,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             km_uv_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
-                            )                                        
+                            )
                     elif kmi.idname.startswith("iops.object"):
                         try:
                             rna_keymap_ui.draw_kmi(
@@ -583,8 +673,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
-                    
-                    
+
+
 
         if self.tabs == "PREFS":
             col = column_main.column(align=False)
@@ -592,6 +682,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.label(text="Category:")
             col.prop(self, "category")
+            # TextProps
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
@@ -608,8 +699,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col_text.row(align=True)
             row.prop(self, "text_pos_x")
             row.prop(self, "text_pos_y")
-
-            # Shadow
+            # TextShadow column
             row = col_shadow.row(align=False)
             row.prop(self, "text_shadow_color")
             row.prop(self, "text_shadow_blur")
@@ -619,6 +709,37 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.prop(self, "text_shadow_pos_x")
             row.prop(self, "text_shadow_pos_y")
             col.separator()
+
+            #Statistics TextProps
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="3D View Overlay Statistics Text Settings:")
+            col.prop(self, "iops_stat", toggle=True)
+            row = box.row(align=True)
+            split = row.split(factor=0.5, align=False)
+            col_text = split.column(align=True)
+            col_shadow = split.column(align=True)
+            row = col_text.row(align=True)
+            row.prop(self, "text_color_stat")
+            row.prop(self, "text_color_key_stat")
+            row.prop(self, "text_color_error_stat")
+            row = col_text.row(align=True)
+            row.prop(self, "text_size_stat")
+            row = col_text.row(align=True)
+            row.prop(self, "text_pos_x_stat")
+            row.prop(self, "text_pos_y_stat")
+            # ShadowStatistics TextProps
+            row = col_shadow.row(align=False)
+            row.prop(self, "text_shadow_color_stat")
+            row.prop(self, "text_shadow_blur_stat")
+            row = col_shadow.row(align=True)
+            row.prop(self, "text_shadow_toggle_stat", toggle=True)
+            row = col_shadow.row(align=True)
+            row.prop(self, "text_shadow_pos_x_stat")
+            row.prop(self, "text_shadow_pos_y_stat")
+            col.separator()
+
             # Align to edge
             col = column_main.column(align=False)
             box = col.box()
@@ -655,7 +776,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "vo_cage_color")
             col.prop(self, "vo_cage_line_thickness")
             col.separator()
-            
+
             # Drag snap line thickness
             col = column_main.column(align=False)
             box = col.box()

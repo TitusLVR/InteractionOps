@@ -58,7 +58,7 @@ def load_iops_preferences():
                             ]
                             prefs[f"split_area_pie_{pie_num}_pos"] = pos
                             prefs[f"split_area_pie_{pie_num}_ui"] = ui
-                    case "UI_TEXT":
+                    case "UI_TEXT":                        
                         prefs.text_color = value["text_color"]
                         prefs.text_color_key = value["text_color_key"]
                         prefs.text_pos_x = value["text_pos_x"]
@@ -68,6 +68,18 @@ def load_iops_preferences():
                         prefs.text_shadow_pos_y = value["text_shadow_pos_y"]
                         prefs.text_shadow_toggle = value["text_shadow_toggle"]
                         prefs.text_size = value["text_size"]
+                    case "UI_TEXT_STAT":
+                        prefs.iops_stat = value["iops_stat"]
+                        prefs.text_color_stat = value["text_color_stat"]
+                        prefs.text_color_key_stat = value["text_color_key_stat"]
+                        prefs.text_color_error_stat = value["text_color_error_stat"]
+                        prefs.text_pos_x_stat = value["text_pos_x_stat"]
+                        prefs.text_pos_y_stat = value["text_pos_y_stat"]
+                        prefs.text_shadow_color_stat = value["text_shadow_color_stat"]
+                        prefs.text_shadow_pos_x_stat = value["text_shadow_pos_x_stat"]
+                        prefs.text_shadow_pos_y_stat = value["text_shadow_pos_y_stat"]
+                        prefs.text_shadow_toggle_stat = value["text_shadow_toggle_stat"]
+                        prefs.text_size_stat = value["text_size_stat"]
                     case "VISUAL_ORIGIN":
                         prefs.vo_cage_ap_color = value["vo_cage_ap_color"]
                         prefs.vo_cage_ap_size = value["vo_cage_ap_size"]
