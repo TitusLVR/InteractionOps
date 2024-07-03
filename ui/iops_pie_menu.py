@@ -46,9 +46,9 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.modifier_easy_curve", text="Easy Modifier - Curve")
         col.operator("iops.modifier_easy_shwarp", text="Easy Modifier - SHWARP")
         col.separator()
-        col.operator(
-            "iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail"
-        )
+        col.operator("iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail")
+        col.separator()
+        col.operator("iops.reload_libraries", text="Reload Libraries")
 
         # 6 - RIGHT
         # pie.separator()

@@ -21,6 +21,7 @@ from .operators.curve_spline_type import IOPS_OT_CurveSplineType
 from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive
 from .operators.iops import IOPS_OT_Main
+from .operators.library_reload import IOPS_OT_Reload_Libraries
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.split_screen_area import IOPS_OT_SwitchScreenArea
 from .operators.outliner_collection_ops import (
@@ -305,6 +306,7 @@ classes = (
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,
     IOPS_OT_SetSnapCombo,
+    IOPS_OT_Reload_Libraries,
     Z_OT_GrowLoop,
     Z_OT_ShrinkLoop,
     Z_OT_GrowRing,
