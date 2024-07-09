@@ -42,6 +42,7 @@ keys_default = [
     ("iops.object_rotate_y", "DOWN_ARROW", "PRESS", False, False, False, False),
     ("iops.object_rotate_mz", "RIGHT_ARROW", "PRESS", False, False, True, False),
     ("iops.object_rotate_z", "RIGHT_ARROW", "PRESS", False, False, False, False),
+    ("iops.mesh_uv_channel_hop", "F19", "PRESS", True, True, True, False),
     # IOPS Scripts
     ("iops.scripts_call_mt_executor", "X", "PRESS", True, True, True, False),
     ("iops.scripts_run_text", "F19", "PRESS", True, True, True, False),

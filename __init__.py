@@ -182,6 +182,9 @@ from .operators.preferences.io_addon_preferences import load_iops_preferences
 # IOPS Statistics
 from .utils.draw_stats import draw_iops_statistics
 
+# IOPS UV Channel Hop
+from .operators.mesh_uv_channel_hop import IOPS_OT_Mesh_UV_Channel_Hop
+
 
 bl_info = {
     "name": "iOps",
@@ -302,6 +305,7 @@ classes = (
     IOPS_OT_Add_UVMap,
     IOPS_OT_Remove_UVMap_by_Active_Name,
     IOPS_OT_Active_UVMap_by_Active,
+    IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,

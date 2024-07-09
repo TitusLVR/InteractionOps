@@ -73,6 +73,7 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
             col.operator(
                 "iops.uv_active_uvmap_by_active_object", icon="LAYER_ACTIVE", text=""
             )
+            col.operator("iops.mesh_uv_channel_hop", icon="FILE_REFRESH", text="")
             # SEPARATORS------------------------------------
             row_main.separator()
             row_main.separator()
