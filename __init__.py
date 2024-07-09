@@ -184,7 +184,8 @@ from .utils.draw_stats import draw_iops_statistics
 
 # IOPS UV Channel Hop
 from .operators.mesh_uv_channel_hop import IOPS_OT_Mesh_UV_Channel_Hop
-
+# IOPS Cursor rotate
+from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 
 bl_info = {
     "name": "iOps",
@@ -311,6 +312,7 @@ classes = (
     IOPS_MESH_OT_CopyEdgesLength,
     IOPS_OT_SetSnapCombo,
     IOPS_OT_Reload_Libraries,
+    IOPS_OT_Cursor_Rotate,
     Z_OT_GrowLoop,
     Z_OT_ShrinkLoop,
     Z_OT_GrowRing,

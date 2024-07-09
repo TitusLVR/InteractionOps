@@ -559,6 +559,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col_functions = box_functions.column(align=True)
             km_functions_row = col_functions.row(align=True)
             km_functions_col = km_functions_row.column(align=True)
+            # Cursor keys
+            box_object = col.box()
+            box_object.label(text="Cursor:")
+            col_object = box_object.column(align=True)
+            km_cursor_row = col_object.row(align=True)
+            km_cursor_col = km_cursor_row.column(align=True)
             # ObjectMode keys
             box_object = col.box()
             box_object.label(text="Object Mode:")
@@ -625,6 +631,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_functions_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    elif kmi.idname.startswith("iops.cursor") or kmi.idname.startswith("iops.cursor_"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_cursor_col, 0
+                            )
+                        except AttributeError:
+                            km_cursor_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )

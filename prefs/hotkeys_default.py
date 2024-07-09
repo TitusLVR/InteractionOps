@@ -6,7 +6,9 @@ keys_default = [
     ("iops.function_f3", "F3", "PRESS", False, False, False, False),
     ("iops.function_f4", "F4", "PRESS", False, False, False, False),
     ("iops.function_f5", "F5", "PRESS", False, False, False, False),
-    ("iops.function_esc", "ESC", "PRESS", False, False, False, False),    
+    ("iops.function_esc", "ESC", "PRESS", False, False, False, False),
+    #IOPS Operators Cursor
+    ("iops.cursor_rotate", "F19", "PRESS", True, True, True, False),
     # IOPS Operators Mesh
     ("iops.mesh_to_verts", "F1", "PRESS", False, True, False, False),
     ("iops.mesh_to_edges", "F2", "PRESS", False, True, False, False),
