@@ -21,7 +21,7 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
         name="Hop to Previous", description="Hop to previous UV Channel", default=False
     )
     set_render: BoolProperty(
-        name="Set Render Channel", description="Set Render Channel", default=False
+        name="Set Render Channel", description="Set Render Channel", default=True
     )
 
     @classmethod
