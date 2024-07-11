@@ -1,3 +1,4 @@
+import select
 import bpy
 import blf
 
@@ -32,7 +33,7 @@ def draw_iops_statistics():
         uidpi = bpy.context.preferences.system.ui_scale
 
         active_object = bpy.context.active_object
-        # Check if active object is a mesh
+        selected_objects = [ob for ob in bpy.context.selected_objects if ob.type == "MESH"]
 
         try:
             area_3d = [area for area in bpy.context.screen.areas if area.type == "VIEW_3D"][
@@ -59,30 +60,49 @@ def draw_iops_statistics():
             offset_x = tCPosX + t_offset
             offset_y = area_3d.height - tCPosY
 
-            if active_object and active_object.type == "MESH":
+            if selected_objects:
                 # Check if active object has UVMaps
                 uvmaps = []
-                active_uvmap = ""
-                active_render = ""
-                # Collect UV data
-                if active_object.data.uv_layers:
-                    active_uvmap = active_object.data.uv_layers.active.name
-                    for uvmap in active_object.data.uv_layers:
-                        uvmaps.append(uvmap.name)
-                        # Get active render uvmap
-                        if uvmap.active_render:
-                            active_render = uvmap.name
-                # Check object scale for non-uniform scaling and negative scaling
-                scale = active_object.scale
                 scale_stat = []
-                if scale[0] != scale[1] or scale[1] != scale[2] or scale[0] != scale[2]:
-                    scale_stat.append("Non-uniform")
-                if scale[0] < 0 or scale[1] < 0 or scale[2] < 0:
-                    scale_stat.append("Negative scaling")
+                selected_scale_stat = []
+                if active_object and active_object.type == "MESH":
+                    active_uvmap = ""
+                    active_render = ""
+                    # Collect UV data
+                    if active_object.data.uv_layers:
+                        active_uvmap = active_object.data.uv_layers.active.name
+                        for uvmap in active_object.data.uv_layers:
+                            uvmaps.append(uvmap.name)
+                            # Get active render uvmap
+                            if uvmap.active_render:
+                                active_render = uvmap.name
+                    # Check object scale for non-uniform scaling and negative scaling
+                    scale = active_object.scale
+                    if scale[0] != scale[1] or scale[1] != scale[2] or scale[0] != scale[2]:
+                        scale_stat.append("Non-uniform")
+                    if scale[0] < 0 or scale[1] < 0 or scale[2] < 0:
+                        scale_stat.append("Negative scaling")
 
+                # Check if there are a non-uniform scale or negative scaling in selected_objects just add "Scaled objects in selection" to the list
+                scaled_objects = 0
+                negative_scaled_objects = 0
+                for obj in selected_objects:
+                    if obj != active_object:
+                        scale = obj.scale
+                        if scale[0] != scale[1] or scale[1] != scale[2] or scale[0] != scale[2]:
+                            scaled_objects += 1
+                        if scale[0] < 0 or scale[1] < 0 or scale[2] < 0:
+                            negative_scaled_objects += 1
+                if scaled_objects != 0 or negative_scaled_objects != 0:
+                    selected_scale_stat.append("There are scaled objects")
+                
+                
+
+                # Draw UVMaps and Scale info list
                 iops_text = [
                     ["UVMaps:", uvmaps],
                     ["Scale:", scale_stat],
+                    ["Selection:", selected_scale_stat]
                 ]
 
                 size_multiplier = textsize * uidpi
@@ -128,6 +148,27 @@ def draw_iops_statistics():
                             offset_y -= textsize * 1.5
 
                     if k == "Scale:" and v != []:
+                        # Column 1
+                        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+                        blf.position(font, offset_x, offset_y, 0)
+                        blf.draw(font, k)
+                        column_offset_x = offset_x + size_multiplier + tColumnOffset
+                        for scale in v:
+                            # Column N
+                            blf.color(
+                                font,
+                                tErrorColor[0],
+                                tErrorColor[1],
+                                tErrorColor[2],
+                                tErrorColor[3],
+                            )
+                            dim = blf.dimensions(font, scale)
+                            blf.position(font, column_offset_x + dim[1] + 3, offset_y, 0)
+                            blf.draw(font, scale)
+                            column_offset_x += dim[0] + tColumnWidth
+                        offset_y -= textsize * 1.5
+
+                    if k == "Selection:" and v != []:
                         # Column 1
                         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
                         blf.position(font, offset_x, offset_y, 0)
