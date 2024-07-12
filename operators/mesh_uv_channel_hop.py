@@ -25,22 +25,19 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (
-            context.area.type == "VIEW_3D" and context.object.mode == "EDIT"
-            and len(context.view_layer.objects.selected) != 0
-        )
+        return context.area.type == "VIEW_3D" and context.object.mode == "EDIT"
 
     def execute(self, context):
         # Switch UV Channel by modulo of uv_layers length and set render channel
         ob = context.view_layer.objects.active
         me = ob.data
-        #save curentrly selected faces, deselect all faces, select all faces
+        # save curentrly selected faces, deselect all faces, select all faces
         bm = bmesh.from_edit_mesh(me)
         # list of selected faces
         selected_faces = [f for f in bm.faces if f.select]
         # Deselect all and select all faces
-        bpy.ops.mesh.select_all(action='DESELECT')
-        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bpy.ops.mesh.select_all(action="SELECT")
         # switch uv channel
         if self.hop_previous:
             ob.data.uv_layers.active_index = (ob.data.uv_layers.active_index - 1) % len(
@@ -53,14 +50,14 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
         # clear seams and mark seams by UV Islands
         if self.mark_seam:
             bpy.ops.mesh.mark_seam(clear=True)
-            bpy.ops.uv.select_all(action='SELECT')
+            bpy.ops.uv.select_all(action="SELECT")
             bpy.ops.uv.seams_from_islands(mark_seams=True)
         # set active render channel
         if self.set_render:
             ob.data.uv_layers[ob.data.uv_layers.active_index].active_render = True
-        #Deselect all and select previously selected faces
-        bpy.ops.mesh.select_all(action='DESELECT')
-        #Restore selection from selected_faces list
+        # Deselect all and select previously selected faces
+        bpy.ops.mesh.select_all(action="DESELECT")
+        # Restore selection from selected_faces list
         if selected_faces:
             for f in selected_faces:
                 f.select = True
@@ -69,7 +66,10 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
         active_render = ""
         for uv_layer in ob.data.uv_layers:
             if uv_layer.active_render:
-                active_render = uv_layer.name        
+                active_render = uv_layer.name
         # Print report
-        self.report({"INFO"}, f"UV Active Channel: {ob.data.uv_layers.active.name}, UV Active Render: {active_render}")
+        self.report(
+            {"INFO"},
+            f"UV Active Channel: {ob.data.uv_layers.active.name}, UV Active Render: {active_render}",
+        )
         return {"FINISHED"}
