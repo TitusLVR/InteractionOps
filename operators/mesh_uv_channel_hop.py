@@ -25,11 +25,16 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.area.type == "VIEW_3D" and context.object.mode == "EDIT"
+        return (
+            context.area.type == "VIEW_3D"
+            and context.active_object
+            and context.active_object.type == "MESH"
+            and context.active_object.mode == "EDIT"
+        )
 
     def execute(self, context):
         # Switch UV Channel by modulo of uv_layers length and set render channel
-        ob = context.view_layer.objects.active
+        ob = context.active_object
         me = ob.data
         # save curentrly selected faces, deselect all faces, select all faces
         bm = bmesh.from_edit_mesh(me)
