@@ -296,11 +296,11 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
             row = col.row(align=False)
             # Snap elements
             row.prop(tool_settings, "snap_elements", text="")
-            if "INCREMENT" in snap_elements:
-                row.separator()
-                row.prop(
-                    tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
-                )
+            # if "INCREMENT" in snap_elements:
+            #     row.separator()
+            #     row.prop(
+            #         tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
+            #     )
             # Snap targets
             col.prop(tool_settings, "snap_target", expand=True)
 

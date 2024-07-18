@@ -29,7 +29,7 @@ def get_iops_prefs():
                 "TOOL_SETTINGS": {
                     "transform_pivot_point": "ACTIVE_ELEMENT",
                     "snap_target": "ACTIVE",
-                    "use_snap_grid_absolute": True,
+                    # "use_snap_grid_absolute": True,
                     "use_snap_self": True,
                     "use_snap_align_rotation": False,
                     "use_snap_peel_object": True,

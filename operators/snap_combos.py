@@ -6,7 +6,7 @@ def ensure_snap_combos_prefs():
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
 
     for i in range(1,9):
-        if not f"snap_combo_{i}" in prefs.keys():
+        if f"snap_combo_{i}" not in prefs.keys():
             prefs[f"snap_combo_{i}"] = {
                 "SNAP_ELEMENTS": {
                     "INCREMENT": False,
@@ -22,7 +22,7 @@ def ensure_snap_combos_prefs():
                 "TOOL_SETTINGS": {
                     "transform_pivot_point": "ACTIVE_ELEMENT",
                     "snap_target": "ACTIVE",
-                    "use_snap_grid_absolute": True,
+                    # "use_snap_grid_absolute": True,
                     "use_snap_self": True,
                     "use_snap_align_rotation": False,
                     "use_snap_peel_object": True,
@@ -65,7 +65,7 @@ def save_snap_combo(idx):
             tool_settings_dict = {
                 "transform_pivot_point": tool_settings.transform_pivot_point,
                 "snap_target": tool_settings.snap_target,
-                "use_snap_grid_absolute": tool_settings.use_snap_grid_absolute,
+                # "use_snap_grid_absolute": tool_settings.use_snap_grid_absolute,
                 "use_snap_self": tool_settings.use_snap_self,
                 "use_snap_align_rotation": tool_settings.use_snap_align_rotation,
                 "use_snap_peel_object": tool_settings.use_snap_peel_object,
@@ -114,7 +114,7 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
                     tool_settings.snap_elements = elements
                     tool_settings.transform_pivot_point                   = prefs[snap_combo]["TOOL_SETTINGS"]["transform_pivot_point"]
                     tool_settings.snap_target                             = prefs[snap_combo]["TOOL_SETTINGS"]["snap_target"]
-                    tool_settings.use_snap_grid_absolute                  = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_grid_absolute"]
+                    # tool_settings.use_snap_grid_absolute                  = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_grid_absolute"]
                     tool_settings.use_snap_self                           = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_self"]
                     tool_settings.use_snap_align_rotation                 = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_align_rotation"]
                     tool_settings.use_snap_peel_object                    = prefs[snap_combo]["TOOL_SETTINGS"]["use_snap_peel_object"]

@@ -96,7 +96,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             "use_snap_translate": bpy.context.scene.tool_settings.use_snap_translate,
             "use_snap_rotate": bpy.context.scene.tool_settings.use_snap_rotate,
             "use_snap_scale": bpy.context.scene.tool_settings.use_snap_scale,
-            "use_snap_grid_absolute": bpy.context.scene.tool_settings.use_snap_grid_absolute,
+            # "use_snap_grid_absolute": bpy.context.scene.tool_settings.use_snap_grid_absolute,
         }
 
     def set_snaps(self, context):
@@ -108,7 +108,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         bpy.context.scene.tool_settings.use_snap_translate = True
         bpy.context.scene.tool_settings.use_snap_rotate = False
         bpy.context.scene.tool_settings.use_snap_scale = False
-        bpy.context.scene.tool_settings.use_snap_grid_absolute = False
+        # bpy.context.scene.tool_settings.use_snap_grid_absolute = False
         bpy.context.scene.tool_settings.use_snap = False
 
     def restore_snaps(self, context):
@@ -126,9 +126,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         ]
         bpy.context.scene.tool_settings.use_snap_rotate = self.snaps["use_snap_rotate"]
         bpy.context.scene.tool_settings.use_snap_scale = self.snaps["use_snap_scale"]
-        bpy.context.scene.tool_settings.use_snap_grid_absolute = self.snaps[
-            "use_snap_grid_absolute"
-        ]
+        # bpy.context.scene.tool_settings.use_snap_grid_absolute = self.snaps[
+        #     "use_snap_grid_absolute"
+        # ]
 
     def snap_dummy(self, context, dummy):
         if dummy == "O_Dummy":
