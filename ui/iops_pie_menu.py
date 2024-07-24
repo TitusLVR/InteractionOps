@@ -49,6 +49,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail")
         col.separator()
         col.operator("iops.reload_libraries", text="Reload Libraries")
+        col.operator("iops.reload_images", text="Reload Images")
 
         # 6 - RIGHT
         # pie.separator()

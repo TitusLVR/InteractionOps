@@ -147,259 +147,304 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         layout = self.layout
         layout.ui_units_x = 27.5
         row = layout.row(align=True)
+        try:
+            if context.area.type == "VIEW_3D":
+                row.prop(tool_settings, "use_snap", text="")
+                row.prop(tool_settings, "use_mesh_automerge", text="")
+                row.prop(
+                    tool_settings, "use_mesh_automerge_and_split", text="", icon="MOD_BOOLEAN"
+                )
+                row.separator()
+                row.prop(
+                    tool_settings, "use_transform_correct_face_attributes", text="", icon="UV"
+                )
+                row.prop(
+                    tool_settings,
+                    "use_transform_correct_keep_connected",
+                    text="",
+                    icon="STICKY_UVS_LOC",
+                )
+                row.prop(
+                    tool_settings, "use_edge_path_live_unwrap", text="", icon="UV_SYNC_SELECT"
+                )
+                row.separator()
+                row.operator("iops.transform_orientation_create", text="", icon="ADD")
+                row.separator()
+                row.operator("iops.homonize_uvmaps_names", text="", icon="UV_DATA")
+                row.operator("iops.uvmaps_cleanup", text="", icon="BRUSH_DATA")
+                row.operator("iops.object_name_from_active", text="", icon="OUTLINER_DATA_FONT")
 
-        row.prop(tool_settings, "use_snap", text="")
-        row.prop(tool_settings, "use_mesh_automerge", text="")
-        row.prop(
-            tool_settings, "use_mesh_automerge_and_split", text="", icon="MOD_BOOLEAN"
-        )
-        row.separator()
-        row.prop(
-            tool_settings, "use_transform_correct_face_attributes", text="", icon="UV"
-        )
-        row.prop(
-            tool_settings,
-            "use_transform_correct_keep_connected",
-            text="",
-            icon="STICKY_UVS_LOC",
-        )
-        row.prop(
-            tool_settings, "use_edge_path_live_unwrap", text="", icon="UV_SYNC_SELECT"
-        )
-        row.separator()
-        row.operator("iops.transform_orientation_create", text="", icon="ADD")
-        row.separator()
-        row.operator("iops.homonize_uvmaps_names", text="", icon="UV_DATA")
-        row.operator("iops.uvmaps_cleanup", text="", icon="BRUSH_DATA")
-        row.operator("iops.object_name_from_active", text="", icon="OUTLINER_DATA_FONT")
-
-        if batchops:
-            row.separator()
-            row.operator(
-                "batch_ops_objects.rename", text="", icon="OUTLINER_DATA_FONT"
-            ).use_pattern = False
-
-        if ueops:
-            row.separator()
-            row.operator(
-                "ueops.add_object_to_active_object_collection", icon="ADD", text=""
-            )
-            row.operator("ueops.remove_object_from_collection", icon="REMOVE", text="")
-            row.operator(
-                "ueops.outliner_make_collection_active_by_active_object",
-                text="",
-                icon="LAYER_ACTIVE",
-            )
-            row.operator(
-                "ueops.select_collection_objects", text="", icon="RESTRICT_SELECT_OFF"
-            )
-            row.operator("ueops.cleanup_empty_collections", text="", icon="PANEL_CLOSE")
-
-        if (
-            machinetools
-            and context.preferences.addons[
-                "MACHIN3tools"
-            ].preferences.activate_shading_pie
-        ):
-            row.separator()
-            active = context.active_object
-            if active:
-                if active.type == "MESH":
-                    mesh = active.data
+                if batchops:
+                    row.separator()
                     row.operator(
-                        "machin3.shade", text="", icon="NODE_MATERIAL"
-                    ).shade_type = "SMOOTH"
+                        "batch_ops_objects.rename", text="", icon="OUTLINER_DATA_FONT"
+                    ).use_pattern = False
+
+                if ueops:
+                    row.separator()
                     row.operator(
-                        "machin3.shade", text="", icon="MATCUBE"
-                    ).shade_type = "FLAT"
-                    state = True if mesh.use_auto_smooth else False
+                        "ueops.add_object_to_active_object_collection", icon="ADD", text=""
+                    )
+                    row.operator("ueops.remove_object_from_collection", icon="REMOVE", text="")
                     row.operator(
-                        "machin3.toggle_auto_smooth",
+                        "ueops.outliner_make_collection_active_by_active_object",
                         text="",
-                        icon="AUTO",
-                        depress=state,
+                        icon="LAYER_ACTIVE",
                     )
+                    row.operator(
+                        "ueops.select_collection_objects", text="", icon="RESTRICT_SELECT_OFF"
+                    )
+                    row.operator("ueops.cleanup_empty_collections", text="", icon="PANEL_CLOSE")
 
-                if bpy.app.version < (4, 1, 0):
-                    if mesh.use_auto_smooth:
-                        if mesh.has_custom_normals:
+                if (
+                    machinetools
+                    and context.preferences.addons[
+                        "MACHIN3tools"
+                    ].preferences.activate_shading_pie
+                ):
+                    row.separator()
+                    active = context.active_object
+                    if active:
+                        if active.type == "MESH":
+                            mesh = active.data
                             row.operator(
-                                "iops.object_clear_normals",
+                                "machin3.shade", text="", icon="NODE_MATERIAL"
+                            ).shade_type = "SMOOTH"
+                            row.operator(
+                                "machin3.shade", text="", icon="MATCUBE"
+                            ).shade_type = "FLAT"
+                            state = True if mesh.use_auto_smooth else False
+                            row.operator(
+                                "machin3.toggle_auto_smooth",
                                 text="",
-                                icon="COLORSET_06_VEC",
+                                icon="AUTO",
+                                depress=state,
                             )
+
+                        if bpy.app.version < (4, 1, 0):
+                            if mesh.use_auto_smooth:
+                                if mesh.has_custom_normals:
+                                    row.operator(
+                                        "iops.object_clear_normals",
+                                        text="",
+                                        icon="COLORSET_06_VEC",
+                                    )
+                                else:
+                                    row.prop(mesh, "auto_smooth_angle", text="")
+                            row.scale_x = 0.25
+                            row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
+                            row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
+                            row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
+                            row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
                         else:
-                            row.prop(mesh, "auto_smooth_angle", text="")
-                    row.scale_x = 0.25
-                    row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
-                    row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
-                    row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
-                    row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
-                else:
-                    if bpy.types.IOPS_OT_object_clear_normals.poll(context):
-                        row.operator(
-                            "iops.object_clear_normals", text="", icon="COLORSET_06_VEC"
-                        )
-                    row.scale_x = 0.25
-                    row.operator("iops.object_auto_smooth", text="30").angle = 30
-                    row.operator("iops.object_auto_smooth", text="60").angle = 60
-                    row.operator("iops.object_auto_smooth", text="90").angle = 90
-                    row.operator("iops.object_auto_smooth", text="180").angle = 180
-                row.scale_x = 1
+                            if bpy.types.IOPS_OT_object_clear_normals.poll(context):
+                                row.operator(
+                                    "iops.object_clear_normals", text="", icon="COLORSET_06_VEC"
+                                )
+                            row.scale_x = 0.25
+                            row.operator("iops.object_auto_smooth", text="30").angle = 30
+                            row.operator("iops.object_auto_smooth", text="60").angle = 60
+                            row.operator("iops.object_auto_smooth", text="90").angle = 90
+                            row.operator("iops.object_auto_smooth", text="180").angle = 180
+                        row.scale_x = 1
 
-        if context.area.type == "VIEW_3D":
-            row = layout.row(align=True)
-            grid_flow = row.grid_flow(
-                row_major=True,
-                columns=4,
-                even_columns=False,
-                even_rows=True,
-                align=False,
-            )
-            # Column 1
-            col = grid_flow.column(align=True)
-            col.label(text="Transformation:")
-            col.prop(orient_slot, "type", expand=True)
-            if orientation:
-                col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
-                col.operator(
-                    "iops.transform_orientation_delete", text="", icon="REMOVE"
+                row = layout.row(align=True)
+                grid_flow = row.grid_flow(
+                    row_major=False,
+                    columns=4,
+                    even_columns=False,
+                    even_rows=True,
+                    align=False,
                 )
-            # Column 2
-            col = grid_flow.column(align=True)
-            col.label(text="PivotPoint:")
-            col.prop(tool_settings, "transform_pivot_point", expand=True)
-            if ver != 80:
-                row = col.row(align=True)
-                # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
-                o_state = True if tool_settings.use_transform_data_origin else False
-                row.operator(
-                    "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
-                )
-                row.prop(
-                    tool_settings,
-                    "use_transform_pivot_point_align",
-                    text="",
-                    icon="CENTER_ONLY",
-                )
-                row.prop(
-                    tool_settings,
-                    "use_transform_skip_children",
-                    text="",
-                    icon="TRANSFORM_ORIGINS",
-                )
-            else:
-                col.prop(tool_settings, "use_transform_pivot_point_align", text="")
-            # Column 3
-            col = grid_flow.column(align=True)
-            col.label(text="Snapping:")
-            row = col.row(align=False)
-            # Snap elements
-            row.prop(tool_settings, "snap_elements", text="")
-            # if "INCREMENT" in snap_elements:
-            #     row.separator()
-            #     row.prop(
-            #         tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
-            #     )
-            # Snap targets
-            col.prop(tool_settings, "snap_target", expand=True)
-
-            row = col.row(align=True)
-            # split = row.split(factor=0.5, align=True)
-            # row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
-            row.prop(
-                tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL"
-            )
-            row.separator()
-
-            if "VOLUME" in snap_elements:
-                row.prop(
-                    tool_settings,
-                    "use_snap_peel_object",
-                    text="",
-                    icon="SNAP_PEEL_OBJECT",
-                )
-                row.separator()
-            if "FACE_NEAREST" in snap_elements:
-                row.prop(
-                    tool_settings,
-                    "se_snap_to_same_target",
-                    text="",
-                    icon="GP_CAPS_ROUND",
-                )
-                row.separator()
-
-            # split = split.split()
-            # row = split.row(align=True)
-            row.prop(tool_settings, "use_snap_backface_culling", text="", icon="XRAY")
-            row.separator()
-            row.prop(
-                tool_settings,
-                "use_snap_selectable",
-                text="",
-                icon="RESTRICT_SELECT_OFF",
-            )
-            row.separator()
-            row.prop(tool_settings, "use_snap_translate", text="", icon="CON_LOCLIMIT")
-            row.prop(tool_settings, "use_snap_rotate", text="", icon="CON_ROTLIMIT")
-            row.prop(tool_settings, "use_snap_scale", text="", icon="CON_SIZELIMIT")
-            # Column 4
-            col = grid_flow.column(align=True)
-            col.label(text=" ")
-            row = col.row(align=True)
-            col = row.column(align=True)
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_A").idx = 1
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_B").idx = 2
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_C").idx = 3
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_D").idx = 4
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_E").idx = 5
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_F").idx = 6
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_G").idx = 7
-            col.operator("iops.set_snap_combo", text="", icon="EVENT_H").idx = 8
-
-            # col.prop(prefs, "snap_combo_list", expand=True, text="")
-            # col.operator("iops.save_snap_combo", text="", icon="ADD")
-
-        if context.area.type == "IMAGE_EDITOR":
-            if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
-                sima = context.space_data
-                show_uvedit = sima.show_uvedit
-                snap_uv_element = tool_settings.snap_uv_element
                 # Column 1
-                split = layout.split()
-                col = split.column(align=True)
-                col.label(text="UV Selection mode:")
-                if show_uvedit:
-                    col.prop(tool_settings, "use_uv_select_sync", text="")
-                    if tool_settings.use_uv_select_sync:
-                        col.template_edit_mode_selection()
-                    else:
-                        col.prop(tool_settings, "uv_select_mode", expand=True)
-                        col.prop(tool_settings, "uv_sticky_select_mode", icon_only=True)
+                col = grid_flow.column(align=True)                
+                col.label(text="Transformation:")
+                col.alignment = "CENTER"
+                col.prop(orient_slot, "type", expand=True)
+                if orientation:
+                    col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
+                    col.operator(
+                        "iops.transform_orientation_delete", text="", icon="REMOVE"
+                    )
                 # Column 2
-                col = split.column(align=True)
+                col = grid_flow.column(align=True)
                 col.label(text="PivotPoint:")
-                # col.prop(sima, "pivot_point", icon_only=False)
-                col.prop(sima, "pivot_point", expand=True)
+                col.alignment = "CENTER"
+                col.prop(tool_settings, "transform_pivot_point", expand=True)
+                col.separator()
+                if ver != 80:
+                    row = col.row(align=True)                    
+                    # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
+                    o_state = True if tool_settings.use_transform_data_origin else False
+                    row.operator(
+                        "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
+                    )
+                    row.separator()
+                    row.prop(
+                        tool_settings,
+                        "use_transform_pivot_point_align",
+                        text="",
+                        icon="CENTER_ONLY",
+                    )
+                    row.separator()
+                    row.prop(
+                        tool_settings,
+                        "use_transform_skip_children",
+                        text="",
+                        icon="TRANSFORM_ORIGINS",
+                    )
+                    row.separator()
+                    row.alignment="CENTER"
+                else:                    
+                    col.prop(tool_settings, "use_transform_pivot_point_align", text="")
+                    col.alignment = "CENTER"
                 # Column 3
-                col = split.column(align=True)
+                col = grid_flow.column(align=True)
                 col.label(text="Snapping:")
-                if show_uvedit:
-                    # Snap.
-                    col.prop(tool_settings, "snap_uv_element", expand=True)
-                    if "VERTEX" in snap_uv_element:
-                        col.label(text="Target:")
-                        col.prop(tool_settings, "snap_target", expand=True)
-                    col.label(text="Affect:")
-                    row = col.row(align=True)
+                row = col.row(align=False)
+                row.alignment="CENTER"
+                # Snap elements
+                row.prop(tool_settings, "snap_elements", text="")
+                col.separator()
+                # if "INCREMENT" in snap_elements:
+                #     row.separator()
+                #     row.prop(
+                #         tool_settings, "use_snap_grid_absolute", text="", icon="SNAP_GRID"
+                #     )
+                # Snap targets
+                col.prop(tool_settings, "snap_target", expand=True)
+                col.separator()
+                row = col.row(align=True)
+                row.alignment="CENTER"
+                # split = row.split(factor=0.5, align=True)
+                # row = split.row(align=True)
+                row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
+                row.prop(
+                    tool_settings, "use_snap_align_rotation", text="", icon="SNAP_NORMAL"
+                )
+                row.separator()
+
+                if "VOLUME" in snap_elements:
                     row.prop(
-                        tool_settings, "use_snap_translate", text="Move", toggle=True
+                        tool_settings,
+                        "use_snap_peel_object",
+                        text="",
+                        icon="SNAP_PEEL_OBJECT",
                     )
+                    row.separator()
+                if "FACE_NEAREST" in snap_elements:
                     row.prop(
-                        tool_settings, "use_snap_rotate", text="Rotate", toggle=True
+                        tool_settings,
+                        "se_snap_to_same_target",
+                        text="",
+                        icon="GP_CAPS_ROUND",
                     )
-                    row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
+                    row.separator()
+
+                # split = split.split()
+                # row = split.row(align=True)
+                row.prop(tool_settings, "use_snap_backface_culling", text="", icon="XRAY")
+                row.separator()
+                row.prop(
+                    tool_settings,
+                    "use_snap_selectable",
+                    text="",
+                    icon="RESTRICT_SELECT_OFF",
+                )
+                row.separator()
+                row.prop(tool_settings, "use_snap_translate", text="", icon="CON_LOCLIMIT")
+                row.prop(tool_settings, "use_snap_rotate", text="", icon="CON_ROTLIMIT")
+                row.prop(tool_settings, "use_snap_scale", text="", icon="CON_SIZELIMIT")
+
+                #Rotate increment
+                col.separator()
+                row = col.row(align=True)
+                row.prop(tool_settings, "snap_angle_increment_3d", text="")
+                row.prop(tool_settings, "snap_angle_increment_3d_precision", text="")
+
+                # Column 4
+                col = grid_flow.column(align=True)
+                col.label(text=" ")
+                row = col.row(align=True)
+                col = row.column(align=True)
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_A").idx = 1
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_B").idx = 2
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_C").idx = 3
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_D").idx = 4
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_E").idx = 5
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_F").idx = 6
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_G").idx = 7
+                col.operator("iops.set_snap_combo", text="", icon="EVENT_H").idx = 8
+
+                # col.prop(prefs, "snap_combo_list", expand=True, text="")
+                # col.operator("iops.save_snap_combo", text="", icon="ADD")
+        except AttributeError:
+            pass
+        
+        try:
+            if context.area.type == "IMAGE_EDITOR":
+                if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
+                    sima = context.space_data
+                    show_uvedit = sima.show_uvedit
+                    snap_uv_element = tool_settings.snap_uv_element
+                    
+                    # Main row of buttons
+                    row = layout.row(align=True)
+                    row.operator("iops.reload_images", text="", icon="FILE_REFRESH")
+                    row.separator()
+                    row.prop(sima, "display_channels", icon_only=True)
+
+                    # Columns begin
+                    row = layout.row(align=True)
+                    grid_flow = row.grid_flow(
+                        row_major=True,
+                        columns=3,
+                        even_columns=True,
+                        even_rows=True,
+                        align=False,
+                    )
+                    # Column 1
+                    col = grid_flow.column(align=True)  
+                    # Column 1                    
+                    col.label(text="UV Selection mode:")
+                    if show_uvedit:
+                        col.prop(tool_settings, "use_uv_select_sync", text="")
+                        col.separator()
+                        if tool_settings.use_uv_select_sync:
+                            col.template_edit_mode_selection()
+                        else:
+                            col.prop(tool_settings, "uv_select_mode", expand=True)
+                            col.separator()
+                            col.prop(tool_settings, "uv_sticky_select_mode", text="")
+                    # Column 2 
+                    col = grid_flow.column(align=True)                   
+                    col.label(text="PivotPoint:")
+                    # col.prop(sima, "pivot_point", icon_only=False)
+                    col.prop(sima, "pivot_point", expand=True)
+                    # Column 3
+                    col = grid_flow.column(align=True)
+                    col.label(text="Snapping:")
+                    if show_uvedit:
+                        # Snap.
+                        col.prop(tool_settings, "snap_uv_element", expand=True)
+                        if "VERTEX" in snap_uv_element:
+                            col.label(text="Target:")
+                            col.prop(tool_settings, "snap_target", expand=True)
+                        col.label(text="Affect:")
+                        row = col.row(align=True)
+                        row.prop(
+                            tool_settings, "use_snap_translate", text="Move", toggle=True
+                        )
+                        row.prop(
+                            tool_settings, "use_snap_rotate", text="Rotate", toggle=True
+                        )
+                        row.prop(tool_settings, "use_snap_scale", text="Scale", toggle=True)
+                        col.separator()
+                        row = col.row(align=True)
+                        row.prop(tool_settings, "snap_angle_increment_2d", text="")
+                        row.prop(tool_settings, "snap_angle_increment_2d_precision", text="")
+        except AttributeError:
+            pass
 
 
 class IOPS_PT_TM_Panel(bpy.types.Panel):
