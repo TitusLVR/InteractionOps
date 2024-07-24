@@ -213,7 +213,10 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                             row.operator(
                                 "machin3.shade", text="", icon="MATCUBE"
                             ).shade_type = "FLAT"
-                            state = True if mesh.use_auto_smooth else False
+                            try:
+                                state = mesh.use_auto_smooth
+                            except AttributeError:
+                                state = False
                             row.operator(
                                 "machin3.toggle_auto_smooth",
                                 text="",
