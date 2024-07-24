@@ -272,7 +272,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col.alignment = "CENTER"
                 col.prop(tool_settings, "transform_pivot_point", expand=True)
                 col.separator()
-                if ver != 80:
+                if bpy.app.version > (2, 80, 0):
                     row = col.row(align=True)                    
                     # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                     o_state = True if tool_settings.use_transform_data_origin else False
@@ -294,7 +294,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         icon="TRANSFORM_ORIGINS",
                     )
                     row.separator()
-                    row.alignment="CENTER"
+                    row.alignment="LEFT"
                 else:                    
                     col.prop(tool_settings, "use_transform_pivot_point_align", text="")
                     col.alignment = "CENTER"
@@ -302,7 +302,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col = grid_flow.column(align=True)
                 col.label(text="Snapping:")
                 row = col.row(align=False)
-                row.alignment="CENTER"
+                row.alignment="LEFT"
                 # Snap elements
                 row.prop(tool_settings, "snap_elements", text="")
                 col.separator()
@@ -315,7 +315,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col.prop(tool_settings, "snap_target", expand=True)
                 col.separator()
                 row = col.row(align=True)
-                row.alignment="CENTER"
+                row.alignment="LEFT"
                 # split = row.split(factor=0.5, align=True)
                 # row = split.row(align=True)
                 row.prop(tool_settings, "use_snap_self", text="", icon="SNAP_ON")
