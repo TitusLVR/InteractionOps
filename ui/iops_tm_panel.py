@@ -383,17 +383,17 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         
         try:
             if context.area.type == "IMAGE_EDITOR":
-                if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
-                    sima = context.space_data
-                    show_uvedit = sima.show_uvedit
-                    snap_uv_element = tool_settings.snap_uv_element
-                    
-                    # Main row of buttons
-                    row = layout.row(align=True)
-                    row.operator("iops.reload_images", text="", icon="FILE_REFRESH")
-                    row.separator()
-                    row.prop(sima, "display_channels", icon_only=True)
+                sima = context.space_data
+                show_uvedit = sima.show_uvedit
+                snap_uv_element = tool_settings.snap_uv_element
+                
+                # Main row of buttons
+                row = layout.row(align=True)
+                row.operator("iops.reload_images", text="", icon="FILE_REFRESH")
+                row.separator()
+                row.prop(sima, "display_channels", icon_only=True)
 
+                if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
                     # Columns begin
                     row = layout.row(align=True)
                     grid_flow = row.grid_flow(
