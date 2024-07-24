@@ -132,7 +132,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
     # bl_category = 'Item'
 
     def draw(self, context):
-        ver = bpy.app.version[2]
+        # ver = bpy.app.version[2]
         tool_settings = context.tool_settings
         scene = context.scene
         orient_slot = scene.transform_orientation_slots[0]
@@ -247,7 +247,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                             row.operator("iops.object_auto_smooth", text="90").angle = 90
                             row.operator("iops.object_auto_smooth", text="180").angle = 180
                         row.scale_x = 1
-
+                col = layout.column(align=True)
+                col.separator()
                 row = layout.row(align=True)
                 grid_flow = row.grid_flow(
                     row_major=False,
@@ -258,7 +259,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 )
                 # Column 1
                 col = grid_flow.column(align=True)                
-                col.label(text="Transformation:")
+                # col.label(text="Transformation:")
                 col.alignment = "CENTER"
                 col.prop(orient_slot, "type", expand=True)
                 if orientation:
@@ -268,7 +269,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     )
                 # Column 2
                 col = grid_flow.column(align=True)
-                col.label(text="PivotPoint:")
+                # col.label(text="PivotPoint:")
                 col.alignment = "CENTER"
                 col.prop(tool_settings, "transform_pivot_point", expand=True)
                 col.separator()
@@ -300,7 +301,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     col.alignment = "CENTER"
                 # Column 3
                 col = grid_flow.column(align=True)
-                col.label(text="Snapping:")
+                # col.label(text="Snapping:")
                 row = col.row(align=False)
                 row.alignment="LEFT"
                 # Snap elements
