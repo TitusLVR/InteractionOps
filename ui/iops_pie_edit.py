@@ -61,28 +61,35 @@ class IOPS_MT_Pie_Edit(Menu):
         pie = layout.menu_pie()
 
         if context.area.type == "VIEW_3D":
-            # Open Library Blend
+            # Open Linked Library Blend
             if (
                 context.object.type == "EMPTY"
                 and context.object.instance_collection
-                and context.instance_type == "COLLECTION"
-                and context.object.instance_collection.library
+                and context.object.instance_type == "COLLECTION"
+                # and context.object.instance_collection.library
             ):
                 pie.separator()
                 pie.separator()
-                blendpath = os.path.abspath(
-                    bpy.path.abspath(
-                        context.object.instance_collection.library.filepath
-                    )
-                )
-                library = context.object.instance_collection.library.name
 
-                op = pie.operator(
-                    "machin3.open_library_blend",
-                    text=f"Open {os.path.basename(blendpath)}",
-                )
-                op.blendpath = blendpath
-                op.library = library
+                op = pie.operator("machin3.assemble_instance_collection", text="Expand Collection to Scene")
+
+                if context.object.instance_collection.library:
+                    blendpath = os.path.abspath(
+                        bpy.path.abspath(
+                            context.object.instance_collection.library.filepath
+                        )   
+                    )
+                    library = context.object.instance_collection.library.name
+
+                    op = pie.operator(
+                        "machin3.open_library_blend",
+                        text=f"Open {os.path.basename(blendpath)}",
+                    )
+                    op.blendpath = blendpath
+                    op.library = library
+
+
+
             # Curve
             elif context.object.type == "CURVE":
                 # 4 - LEFT
