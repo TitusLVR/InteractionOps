@@ -357,7 +357,7 @@ def keymap_registration():
 
 def register():
     # Register keymaps with a delay
-    # bpy.app.timers.register(delayed_keymap_registration, first_interval=0.5)
+    # bpy.app.timers.register(keymap_registration, first_interval=1.0)
     # bpy.app.timers.register(unregister_keymaps, first_interval=1.0)
     # bpy.app.timers.register(delayed_keymap_registration, first_interval=1.5)
 

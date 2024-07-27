@@ -276,16 +276,16 @@ km_to_remove = ['iops.snap_scroll_down',
 
 def register_keymaps(keys):
     # keyconfigs = bpy.context.window_manager.keyconfigs
-    keymapItems = bpy.context.window_manager.keyconfigs.user.keymaps.new(
+    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
         "Window"
     ).keymap_items
-    keymapItemsMesh = bpy.context.window_manager.keyconfigs.user.keymaps.new(
+    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
         "Mesh"
     ).keymap_items
-    keymapItemsObject = bpy.context.window_manager.keyconfigs.user.keymaps.new(
+    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
         "Object Mode"
     ).keymap_items
-    keymapItemsUV = bpy.context.window_manager.keyconfigs.user.keymaps.new(
+    keymapItemsUV = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
         "UV Editor"
     ).keymap_items
     for k in keys:
