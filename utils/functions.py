@@ -210,7 +210,7 @@ def z_connect():
         if fs:
             es.add(e)
     r1 = bmesh.ops.bisect_edges(bm, edges=list(es), cuts=1)["geom_split"]
-    vs = [a for a in r1 if type(a) == bmesh.types.BMVert]
+    vs = [a for a in r1 if type(a) is bmesh.types.BMVert]
     r2 = bmesh.ops.connect_verts(bm, verts=vs, check_degenerate=True)["edges"]
     for e in r2:
         e.select = True
@@ -276,16 +276,16 @@ km_to_remove = ['iops.snap_scroll_down',
 
 def register_keymaps(keys):
     # keyconfigs = bpy.context.window_manager.keyconfigs
-    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+    keymapItems = bpy.context.window_manager.keyconfigs.user.keymaps.new(
         "Window"
     ).keymap_items
-    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+    keymapItemsMesh = bpy.context.window_manager.keyconfigs.user.keymaps.new(
         "Mesh"
     ).keymap_items
-    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+    keymapItemsObject = bpy.context.window_manager.keyconfigs.user.keymaps.new(
         "Object Mode"
     ).keymap_items
-    keymapItemsUV = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
+    keymapItemsUV = bpy.context.window_manager.keyconfigs.user.keymaps.new(
         "UV Editor"
     ).keymap_items
     for k in keys:
@@ -325,6 +325,7 @@ def unregister_keymaps():
                 )
                 for item in toDelete:
                     keymapItems.remove(item)
+    print("IOPS Keymaps unregistered")
 
 def fix_old_keymaps():
     path = bpy.utils.script_path_user()

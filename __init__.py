@@ -341,7 +341,8 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 #     draw_logo_hops()
 draw_handler = None
 
-def delayed_keymap_registration():
+
+def keymap_registration():
     path = bpy.utils.script_path_user()
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
     fix_old_keymaps()
@@ -353,26 +354,20 @@ def delayed_keymap_registration():
     else:
         register_keymaps(keys_default)
 
+
 def register():
     # Register keymaps with a delay
-    bpy.app.timers.register(delayed_keymap_registration, first_interval=0.5)
+    # bpy.app.timers.register(delayed_keymap_registration, first_interval=0.5)
+    # bpy.app.timers.register(unregister_keymaps, first_interval=1.0)
+    # bpy.app.timers.register(delayed_keymap_registration, first_interval=1.5)
 
     reg_cls()
 
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
         type=IOPS_AddonProperties
     )
-    # path = bpy.utils.script_path_user()
-    # user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
-    # fix_old_keymaps()
 
-    # if os.path.exists(user_hotkeys_file):
-    #     with open(user_hotkeys_file) as f:
-    #         keys_user = json.load(f)
-    #     register_keymaps(keys_user)
-    # else:
-    #     register_keymaps(keys_default)
-
+    keymap_registration()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
