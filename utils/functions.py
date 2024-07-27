@@ -310,6 +310,8 @@ def register_keymaps(keys):
             keymapItems.new(
                 k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
             )
+        # print("Registered:", k[0])
+    print("IOPS Keymaps registered")
 
 
 def unregister_keymaps():

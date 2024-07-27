@@ -185,6 +185,7 @@ from .utils.draw_stats import draw_iops_statistics
 
 # IOPS UV Channel Hop
 from .operators.mesh_uv_channel_hop import IOPS_OT_Mesh_UV_Channel_Hop
+
 # IOPS Cursor rotate
 from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 
@@ -200,6 +201,7 @@ bl_info = {
     "tracker_url": "https://github.com/TitusLVR/InteractionOps/issues",
     "category": "Tools",
 }
+
 
 # Classes for reg and unreg
 classes = (
@@ -339,15 +341,8 @@ reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
 #     draw_logo_hops()
 draw_handler = None
 
-
-def register():
-    reg_cls()
-
-    bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
-        type=IOPS_AddonProperties
-    )
+def delayed_keymap_registration():
     path = bpy.utils.script_path_user()
-
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
     fix_old_keymaps()
 
@@ -357,6 +352,27 @@ def register():
         register_keymaps(keys_user)
     else:
         register_keymaps(keys_default)
+
+def register():
+    # Register keymaps with a delay
+    bpy.app.timers.register(delayed_keymap_registration, first_interval=0.5)
+
+    reg_cls()
+
+    bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
+        type=IOPS_AddonProperties
+    )
+    # path = bpy.utils.script_path_user()
+    # user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
+    # fix_old_keymaps()
+
+    # if os.path.exists(user_hotkeys_file):
+    #     with open(user_hotkeys_file) as f:
+    #         keys_user = json.load(f)
+    #     register_keymaps(keys_user)
+    # else:
+    #     register_keymaps(keys_default)
+
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
@@ -374,12 +390,10 @@ def register():
         draw_handler = bpy.types.SpaceView3D.draw_handler_add(
             draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL"
         )
-        print ("IOPS Statistics Registered!")
+        print("IOPS Statistics Registered!")
     else:
-        print ("IOPS Statistics Disabled!")
-    
+        print("IOPS Statistics Disabled!")
 
-        
     load_iops_preferences()
 
     print("IOPS Registered!")
