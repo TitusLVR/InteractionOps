@@ -133,6 +133,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
     def draw(self, context):
         # ver = bpy.app.version[2]
+        prefs = context.preferences
+        inputs = prefs.inputs
         tool_settings = context.tool_settings
         view = context.space_data
         scene = context.scene
@@ -149,10 +151,11 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         layout.ui_units_x = 27.5
         row = layout.row(align=True)
         try:
-            if context.area.type == "VIEW_3D":                
+            if context.area.type == "VIEW_3D":
                 row.prop(view, "lock_cursor", text="", icon="ORIENTATION_CURSOR")
+                inputs.use_mouse_depth_navigate = not view.lock_cursor
                 row.separator()
-                row.prop(tool_settings, "use_snap", text="")
+                row.prop(inputs, "use_rotate_around_active", text="", icon="ORIENTATION_GIMBAL")                
                 row.separator()
                 row.prop(tool_settings, "use_mesh_automerge", text="")
                 row.prop(
@@ -168,6 +171,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     text="",
                     icon="STICKY_UVS_LOC",
                 )
+
                 row.prop(
                     tool_settings, "use_edge_path_live_unwrap", text="", icon="UV_SYNC_SELECT"
                 )
