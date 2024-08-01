@@ -134,6 +134,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
     def draw(self, context):
         # ver = bpy.app.version[2]
         tool_settings = context.tool_settings
+        view = context.space_data
         scene = context.scene
         orient_slot = scene.transform_orientation_slots[0]
         orientation = orient_slot.custom_orientation
@@ -148,8 +149,11 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         layout.ui_units_x = 27.5
         row = layout.row(align=True)
         try:
-            if context.area.type == "VIEW_3D":
+            if context.area.type == "VIEW_3D":                
+                row.prop(view, "lock_cursor", text="", icon="ORIENTATION_CURSOR")
+                row.separator()
                 row.prop(tool_settings, "use_snap", text="")
+                row.separator()
                 row.prop(tool_settings, "use_mesh_automerge", text="")
                 row.prop(
                     tool_settings, "use_mesh_automerge_and_split", text="", icon="MOD_BOOLEAN"
@@ -261,7 +265,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     align=False,
                 )
                 # Column 1
-                col = grid_flow.column(align=True)                
+                col = grid_flow.column(align=True)
                 # col.label(text="Transformation:")
                 col.alignment = "CENTER"
                 col.prop(orient_slot, "type", expand=True)
@@ -277,7 +281,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col.prop(tool_settings, "transform_pivot_point", expand=True)
                 col.separator()
                 if bpy.app.version > (2, 80, 0):
-                    row = col.row(align=True)                    
+                    row = col.row(align=True)
                     # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                     o_state = True if tool_settings.use_transform_data_origin else False
                     row.operator(
@@ -299,7 +303,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     )
                     row.separator()
                     row.alignment="LEFT"
-                else:                    
+                else:
                     col.prop(tool_settings, "use_transform_pivot_point_align", text="")
                     col.alignment = "CENTER"
                 # Column 3
@@ -384,18 +388,29 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 # col.operator("iops.save_snap_combo", text="", icon="ADD")
         except AttributeError:
             pass
-        
+
         try:
             if context.area.type == "IMAGE_EDITOR":
                 sima = context.space_data
                 show_uvedit = sima.show_uvedit
                 snap_uv_element = tool_settings.snap_uv_element
-                
+                # ima = sima.image
+                show_uvedit = sima.show_uvedit
+                # uvedit = sima.uv_editor
+
                 # Main row of buttons
                 row = layout.row(align=True)
                 row.operator("iops.reload_images", text="", icon="FILE_REFRESH")
                 row.separator()
-                row.prop(sima, "display_channels", icon_only=True)
+                row.prop(sima, "display_channels", icon_only=True, expand=True)
+                # row.prop(sima, "display_channels", icon="IMAGE_RGB_ALPHA").value = "COLOR_ALPHA"
+                # row.prop(sima, "display_channels", icon="IMAGE_RGB").value = "COLOR"
+                # row.prop(sima, "display_channels", icon="IMAGE_ALPHA").value = "ALPHA"
+                # row.prop(sima, "display_channels", icon="COLOR_RED").value = "RED"
+                # row.prop(sima, "display_channels", icon="COLOR_GREEN").value = "GREEN"
+                # row.prop(sima, "display_channels", icon="COLOR_BLUE").value = "BLUE"
+                row.separator()
+                row.prop(sima, "show_repeat", text="", icon="IMAGE_PLANE")
 
                 if context.active_object.type == "MESH" and context.mode == "EDIT_MESH":
                     # Columns begin
@@ -408,8 +423,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                         align=False,
                     )
                     # Column 1
-                    col = grid_flow.column(align=True)  
-                    # Column 1                    
+                    col = grid_flow.column(align=True)
+                    # Column 1
                     col.label(text="UV Selection mode:")
                     if show_uvedit:
                         col.prop(tool_settings, "use_uv_select_sync", text="")
@@ -420,8 +435,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                             col.prop(tool_settings, "uv_select_mode", expand=True)
                             col.separator()
                             col.prop(tool_settings, "uv_sticky_select_mode", text="")
-                    # Column 2 
-                    col = grid_flow.column(align=True)                   
+                    # Column 2
+                    col = grid_flow.column(align=True)
                     col.label(text="PivotPoint:")
                     # col.prop(sima, "pivot_point", icon_only=False)
                     col.prop(sima, "pivot_point", expand=True)
