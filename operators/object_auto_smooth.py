@@ -96,6 +96,8 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
             count += 1
 
             with bpy.context.temp_override(object=obj):
+                # Shade Smooth
+                bpy.ops.object.shade_smooth()
                 # Delete existing Auto Smooth modifier
                 for mod in obj.modifiers:
                     if (
@@ -119,17 +121,24 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                             asset_library_identifier="",
                             relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
                         )
-                        mod = obj.modifiers[-1]
-                        mod.name = "Auto Smooth"
+                        for _mod in obj.modifiers:
+                            if _mod.type == "NODES" and "Smooth by Angle" in _mod.name:
+                                _mod.name = "Auto Smooth"
+                                _mod["Input_1"] = radians(self.angle)
+                                _mod["Socket_1"] = self.ignore_sharp
+                                _mod.name = "Auto Smooth"
+                                mod = _mod
+
+                        # if mod.type == "NODES":
+                        #     mod.node_group = bpy.data.node_groups["Smooth by Angle"]
+                        #     mod["Input_1"] = radians(self.angle)
+                        #     mod["Socket_1"] = self.ignore_sharp
+
                     else:
                         mod = obj.modifiers["Auto Smooth"]
                 except Exception as e:
                     print(f"Could not add Auto Smooth modifier to {obj.name} — {e}")
-                    continue
-
-                mod.node_group = bpy.data.node_groups["Smooth by Angle"]
-                mod["Input_1"] = radians(self.angle)
-                mod["Socket_1"] = self.ignore_sharp
+                    continue    
 
                 if self.stack_top:
                     bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
