@@ -55,6 +55,7 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
+        bpy.ops.object.shade_smooth()
         count = 1
         meshes = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
         for obj in meshes:
