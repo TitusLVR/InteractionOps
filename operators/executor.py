@@ -65,7 +65,7 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
 
         if "filtered_executor_scripts" in bpy.context.scene.IOPS.keys():
             layout = self.layout
-            layout.ui_units_x = get_executor_column_width(True) * 1.75
+            layout.ui_units_x = get_executor_column_width(True)
             column_amount = int(len(bpy.context.scene.IOPS["filtered_executor_scripts"]) / prefs.executor_column_count)
             column_flow = layout.column_flow(columns=column_amount, align=False)
             column_flow.prop(addon_prop, "iops_exec_filter", text="", icon="VIEWZOOM")
@@ -78,7 +78,7 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
                     column_flow.operator("iops.executor", text=name, icon="FILE_SCRIPT").script = script            
         else:
             layout = self.layout
-            layout.ui_units_x = get_executor_column_width(False) * 1.75
+            layout.ui_units_x = get_executor_column_width(False)
             column_amount = int(len(bpy.context.scene.IOPS["executor_scripts"]) / prefs.executor_column_count)
             column_flow = layout.column_flow(columns=column_amount, align=False)
             column_flow.prop(addon_prop, "iops_exec_filter", text="", icon="VIEWZOOM")

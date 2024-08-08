@@ -50,7 +50,7 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     counter_digits: IntProperty(
         name="Counter Digits",
         description="Number Of Digits For Counter",
-        default=3,
+        default=2,
         min=2,
         max=10,
     )
@@ -86,6 +86,11 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     )
     use_trim: BoolProperty(
         name="Trim", description="Trim Name Prefix/Suffix", default=False
+    )
+    rename_linked: BoolProperty(
+        name="Rename Linked",
+        description="Rename Linked Objects",
+        default=False,
     )
 
     def invoke(self, context, event):
@@ -127,6 +132,11 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
             counter = 0
             if self.counter_shift:
                 counter = 1
+            
+            if self.rename_linked:
+                if active.children_recursive:
+                    to_rename.extend([child.name for child in active.children_recursive])
+                
 
             for name in to_rename:
                 o = bpy.data.objects[name]
@@ -183,8 +193,8 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
         row.prop(self, "counter_shift")
         col = layout.column(align=True)
         col.label(text="Rename:")
-        row = col.row(align=True)
-        row.prop(self, "rename_active", text="Active Object")
-        row.prop(self, "use_distance", text="By Distance")
-        row.separator()
-        row.prop(self, "rename_mesh_data", text="Object's MeshData")
+        
+        col.prop(self, "rename_active", text="Active Object")
+        col.prop(self, "use_distance", text="By Distance")
+        col.prop(self, "rename_mesh_data", text="Object's MeshData")
+        col.prop(self, "rename_linked", text="Linked Objects")
