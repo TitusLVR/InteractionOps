@@ -1,3 +1,4 @@
+import select
 import bpy
 import os
 from math import radians
@@ -58,17 +59,17 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         bpy.ops.object.shade_smooth()
         count = 1
         meshes = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
-        for obj in meshes:
+        for mesh in meshes:
             auto_smooth_exists = False
             # Only change parameters if existing Auto Smooth has node_groups["Smooth by Angle"]
-            for mod in obj.modifiers:
+            for mod in mesh.modifiers:
                 if (
                     "Auto Smooth" in mod.name
                     and mod.type == "NODES"
                     and getattr(mod.node_group, "name", None) == "Smooth by Angle"
                 ):
                     print(
-                        f"Auto Smooth modifier exists on {obj.name}. Changing parameters."
+                        f"Auto Smooth modifier exists on {mesh.name}. Changing parameters."
                     )
                     mod["Input_1"] = radians(self.angle)
                     mod["Socket_1"] = self.ignore_sharp
@@ -88,19 +89,19 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
             if auto_smooth_exists:
                 continue
 
-            if getattr(obj, "auto_smooth_modifier", None) == "Auto Smooth":
-                obj.auto_smooth_modifier = "Auto Smooth"
+            if getattr(mesh, "auto_smooth_modifier", None) == "Auto Smooth":
+                mesh.auto_smooth_modifier = "Auto Smooth"
             print(
-                f"Adding Auto Smooth modifier to {obj.name}, {count} of {len(bpy.context.selected_objects)}"
+                f"Adding Auto Smooth modifier to {mesh.name}, {count} of {len(bpy.context.selected_objects)}"
             )
 
             count += 1
 
-            with bpy.context.temp_override(object=obj):
+            with bpy.context.temp_override(object=mesh, active_object=mesh, selected_objects=[mesh]):
                 # Shade Smooth
-                bpy.ops.object.shade_smooth()
+                # bpy.ops.object.shade_smooth()
                 # Delete existing Auto Smooth modifier
-                for mod in obj.modifiers:
+                for mod in mesh.modifiers:
                     if (
                         "Auto Smooth" in mod.name
                         and mod.type == "NODES"
@@ -110,19 +111,19 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                             bpy.ops.object.modifier_remove(modifier=mod.name)
                         except Exception as e:
                             print(
-                                f"Could not remove Auto Smooth modifier from {obj.name} — {e}"
+                                f"Could not remove Auto Smooth modifier from {mesh.name} — {e}"
                             )
                             break
 
                 # Add Smooth by Angle modifier from Essentials library
                 try:
-                    if "Auto Smooth" not in [mod.name for mod in obj.modifiers]:
+                    if "Auto Smooth" not in [mod.name for mod in mesh.modifiers]:
                         bpy.ops.object.modifier_add_node_group(
                             asset_library_type="ESSENTIALS",
                             asset_library_identifier="",
                             relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
                         )
-                        for _mod in obj.modifiers:
+                        for _mod in mesh.modifiers:
                             if _mod.type == "NODES" and "Smooth by Angle" in _mod.name:
                                 _mod.name = "Auto Smooth"
                                 _mod["Input_1"] = radians(self.angle)
@@ -136,16 +137,18 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                         #     mod["Socket_1"] = self.ignore_sharp
 
                     else:
-                        mod = obj.modifiers["Auto Smooth"]
+                        mod = mesh.modifiers["Auto Smooth"]
                 except Exception as e:
-                    print(f"Could not add Auto Smooth modifier to {obj.name} — {e}")
+                    print(f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
                     continue    
-
+                mod.show_viewport = False
+                mod.show_viewport = True
                 if self.stack_top:
                     bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+                    
                 else:
                     bpy.ops.object.modifier_move_to_index(
-                        modifier=mod.name, index=len(obj.modifiers) - 1
+                        modifier=mod.name, index=len(mesh.modifiers) - 1
                     )
 
         return {"FINISHED"}
