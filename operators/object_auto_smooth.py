@@ -50,9 +50,9 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                 res_path, "datafiles\\assets\\geometry_nodes\\smooth_by_angle.blend"
             )
 
-            with bpy.data.libraries.load(path) as (data_from, data_to):
+            with bpy.data.libraries.load(path, link=True) as (data_from, data_to):
                 data_to.node_groups = data_from.node_groups
-                print(f"Loaded {path}")
+                # print(f"Loaded {path}")
         return self.execute(context)
 
     def execute(self, context):
@@ -145,12 +145,12 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                         mod = mesh.modifiers["Auto Smooth"]
                 except Exception as e:
                     print(f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
-                    continue    
+                    continue
                 mod.show_viewport = False
                 mod.show_viewport = True
                 if self.stack_top:
                     bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
-                    
+
                 else:
                     bpy.ops.object.modifier_move_to_index(
                         modifier=mod.name, index=len(mesh.modifiers) - 1
