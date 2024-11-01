@@ -100,8 +100,12 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
+        save_combo_mod = prefs.snap_combo_mod
 
-        if event.shift:
+        if ((event.shift and save_combo_mod == "SHIFT") or
+            (event.ctrl and save_combo_mod == "CTRL") or
+            (event.alt and save_combo_mod == "ALT")):
+            
             save_snap_combo(self.idx)
             self.report({"INFO"}, f"Snap Combo {self.idx} Saved.")
 

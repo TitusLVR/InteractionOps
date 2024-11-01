@@ -1,4 +1,3 @@
-from cgitb import text
 import bpy
 import rna_keymap_ui
 from mathutils import Vector
@@ -11,9 +10,9 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
-from ..utils.functions import ShowMessageBox
+# from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
-    split_areas_dict,
+    # split_areas_dict,
     split_areas_list,
     split_areas_position_list,
 )
@@ -523,6 +522,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         update = update_combo
     )
 
+    snap_combo_mod: EnumProperty(
+        name="Save Modifier",
+        description="Save snap combo preset with this modifier",
+        items=[
+            ("SHIFT", "Shift", "", 0),
+            ("CTRL", "Ctrl", "", 1),
+            ("ALT", "Alt", "", 2)
+        ],
+        default="SHIFT"
+    )
+
     def draw(self, context):
         layout = self.layout
         tabs_row = layout.row()
@@ -921,6 +931,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.operator("iops.save_addon_preferences", text="Save preferences")
             row.operator("iops.load_addon_preferences", text="Load preferences")
             col.separator()
+            # Snap Combos
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Snap Combo:")
+            row = box.row(align=True)
+            row.alignment = "LEFT"
+            row.prop(self, "snap_combo_mod")
             # Debug
             col = column_main.column(align=False)
             box = col.box()
