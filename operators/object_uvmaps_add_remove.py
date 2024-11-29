@@ -1,6 +1,7 @@
 import bpy
 
 
+
 def tag_redraw(context, space_type="VIEW_3D", region_type="WINDOW"):
     for window in context.window_manager.windows:
         for area in window.screen.areas:
@@ -38,12 +39,20 @@ class IOPS_OT_Add_UVMap(bpy.types.Operator):
 
     def execute(self, context):
         selected_objs = [
-            o
-            for o in context.view_layer.objects.selected
+            o for o in context.view_layer.objects.selected
             if o.type == "MESH" and o.data.polygons[:] != [] and o.visible_get()
         ]
         if selected_objs:
+            #check for instances
+            unique_objects = {}
+            filtered_list = []
             for ob in selected_objs:
+            # Check if the object is an instance (linked data)
+                ob_data= ob.data
+                if ob_data not in unique_objects:
+                    unique_objects[ob_data] = ob
+                    filtered_list.append(ob)
+            for ob in filtered_list:
                 uvmap_add(ob)
             self.report({"INFO"}, "UVMaps Were Added")
         else:
@@ -65,7 +74,7 @@ class IOPS_OT_Remove_UVMap_by_Active_Name(bpy.types.Operator):
             if o.type == "MESH" and o.data.polygons[:] != [] and o.visible_get()
         ]
         if selected_objs and context.active_object in selected_objs:
-            if context.active_object.data.uv_layers:           
+            if context.active_object.data.uv_layers:
                 uvmap_name = context.active_object.data.uv_layers.active.name
                 for ob in selected_objs:
                     if ob.data.uv_layers:
