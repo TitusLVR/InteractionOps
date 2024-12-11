@@ -1,6 +1,6 @@
 import bpy
 import bmesh
-from bpy.props import FloatProperty
+from bpy.props import FloatProperty, BoolProperty
 
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in editr mode to selected vertecies"""
@@ -10,7 +10,23 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     col_attr_name: bpy.props.StringProperty(
-        name="Color Attribute Name", default="Color"
+        name="Color Attribute Name",
+        default="Color"
+    )
+    fill_color_black: BoolProperty(
+        name="Fill Black",
+        #description="Fill selected vertecies with black color",
+        default=False
+    )
+    fill_color_white: BoolProperty(
+        name="Fill White",
+        #descritpion="Fill selected vertecies with white color",
+        default=False
+    )
+    fill_color_grey: BoolProperty(
+        name="Fill Grey",
+        #description="Fill selected vertecies with grey color",
+        default=False
     )
 
     @classmethod
@@ -18,8 +34,25 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         return context.object and context.object.type == "MESH"
 
     def execute(self, context):
+        color_black = (0.0, 0.0, 0.0, 1.0)
+        color_white = (1.0, 1.0, 1.0, 1.0)
+        color_picker = context.scene.IOPS.iops_vertex_color
 
-        color = context.scene.IOPS.iops_vertex_color
+        color = color_picker
+
+        if self.fill_color_black:
+            self.fill_color_black = False
+            color = color_black
+        
+        if self.fill_color_grey:
+            self.fill_color_grey = False
+            color = (0.5, 0.5, 0.5, 1.0)
+
+        if self.fill_color_white:
+            self.fill_color_white = False
+            color = color_white
+
+
         sel = [obj for obj in context.selected_objects]
         # Create color attribute if not exists
         for obj in sel:
@@ -81,6 +114,9 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
             text="",
         )
         col.prop(self, "col_attr_name", text="Color Attribute Name")
+        col.prop(self, "fill_color_black", text="Fill Black")
+        col.prop(self, "fill_color_grey", text="Fill Grey")
+        col.prop(self, "fill_color_white", text="Fill White")
 
 
 class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):

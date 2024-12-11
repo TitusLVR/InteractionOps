@@ -31,6 +31,12 @@ class IOPS_MT_Pie_Menu(Menu):
             text="",
         )
         col.operator("iops.mesh_assign_vertex_color", text="Set Vertex Color")
+        col = box.column(align=True)
+        row = col.row(align=True)
+        row.operator("iops.mesh_assign_vertex_color", text="White").fill_color_white = True
+        row.operator("iops.mesh_assign_vertex_color", text="Grey").fill_color_grey = True
+        row.operator("iops.mesh_assign_vertex_color", text="Black").fill_color_black = True
+        col = box.column(align=True)
         col.operator("iops.mesh_assign_vertex_color_alpha", text="Set Vertex Alpha")
         col.separator()
         col.operator("iops.materials_from_textures", text="Materials from Textures")
