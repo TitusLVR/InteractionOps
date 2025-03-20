@@ -491,9 +491,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     executor_name_lenght: IntProperty(
         name="Name Length",
         description="Length of script names in executor panel",
-        default=20,
+        default=100,
         min=5,
-        max=100,
+        max=600,
     )
     executor_scripts_folder: StringProperty(
         name="Scripts Folder",

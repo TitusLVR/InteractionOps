@@ -1,7 +1,7 @@
-import bpy
 import os
 from os import listdir
 from os.path import isfile, join
+import bpy
 from bpy.props import StringProperty
 
 
@@ -19,20 +19,20 @@ def get_prefix(name):
         return name[0].upper(), name
 
 
-def get_executor_column_width(is_filtered):
+def get_executor_column_width(scripts):
     max_lenght = 0
     executor_name_lenght = bpy.context.preferences.addons["InteractionOps"].preferences.executor_name_lenght
-    if is_filtered:
-        scripts = bpy.context.scene.IOPS["filtered_executor_scripts"]
-    else:
-        scripts = bpy.context.scene.IOPS["executor_scripts"]
-
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+    
     for script in scripts:
         full_name = os.path.split(script)
         name = os.path.splitext(full_name[1])[0]
         if len(name) > max_lenght:
             max_lenght = len(name) + executor_name_lenght
-    return max_lenght
+
+    min_width = executor_name_lenght
+    column_count = max(1, int(len(scripts) / prefs.executor_column_count))
+    return max(min_width, max_lenght)
 
 
 class IOPS_OT_Executor(bpy.types.Operator):
@@ -61,41 +61,32 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
 
     def draw(self, context):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        addon_prop = context.window_manager.IOPS_AddonProperties
-        Letter = ""
+        props = context.window_manager.IOPS_AddonProperties
+        letter = ""
+        scripts = bpy.context.scene.IOPS["executor_scripts"]
+        global_column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
 
-        if "filtered_executor_scripts" in bpy.context.scene.IOPS.keys():
-            layout = self.layout
-            layout.ui_units_x = get_executor_column_width(True)
-            column_amount = int(len(bpy.context.scene.IOPS["filtered_executor_scripts"]) / prefs.executor_column_count)
-            column_flow = layout.column_flow(columns=column_amount, align=False)
-            column_flow.prop(addon_prop, "iops_exec_filter", text="", icon="VIEWZOOM")
-            scripts = bpy.context.scene.IOPS["filtered_executor_scripts"]
-            if scripts:
-                for script in scripts:  # Start counting from 1
-                    full_name = os.path.split(script)
-                    name = os.path.splitext(full_name[1])[0]
-                    listName = name[0].upper()
-                    column_flow.operator("iops.executor", text=name, icon="FILE_SCRIPT").script = script            
+        layout = self.layout
+        if getattr(props, "iops_exec_filter", None):
+            filtered_scripts = bpy.context.scene.IOPS.get("filtered_executor_scripts", [])
+            scripts = filtered_scripts if props.iops_exec_filter and filtered_scripts else bpy.context.scene.IOPS["executor_scripts"]
         else:
-            layout = self.layout
-            layout.ui_units_x = get_executor_column_width(False)
-            column_amount = int(len(bpy.context.scene.IOPS["executor_scripts"]) / prefs.executor_column_count)
-            column_flow = layout.column_flow(columns=column_amount, align=False)
-            column_flow.prop(addon_prop, "iops_exec_filter", text="", icon="VIEWZOOM")
             scripts = bpy.context.scene.IOPS["executor_scripts"]
-            if scripts:
-                for script in scripts:  # Start counting from 1
-                    full_name = os.path.split(script)
-                    name = os.path.splitext(full_name[1])[0]
-                    listName = name[0].upper()
-                    # listName, new_name = get_prefix(name)
-                    if str(listName) != Letter:
-                        column_flow.label(text=str(listName))
-                        Letter = str(listName)
-                    column_flow.operator(
-                        "iops.executor", text=name, icon="FILE_SCRIPT"
-                    ).script = script
+        column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
+        layout.ui_units_x = get_executor_column_width(scripts) / (global_column_amount / column_amount)
+        column_flow = layout.column_flow(columns=column_amount, align=False)
+        column_flow.prop(props, "iops_exec_filter", text="", icon="VIEWZOOM")
+        if scripts:
+            for script in scripts:  # Start counting from 1
+                full_name = os.path.split(script)
+                name = os.path.splitext(full_name[1])[0]
+                list_name = name[0].upper()
+                if str(list_name) != letter:
+                    column_flow.label(text=str(list_name))
+                    letter = str(list_name)
+                column_flow.operator(
+                    "iops.executor", text=name, icon="FILE_SCRIPT"
+                ).script = script
 
 
 class IOPS_OT_Call_MT_Executor(bpy.types.Operator):

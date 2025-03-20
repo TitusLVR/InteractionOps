@@ -48,7 +48,8 @@ def get_iops_prefs():
         "ALIGN_TO_EDGE": {"align_edge_color": list(prefs.align_edge_color)},
         "EXECUTOR": {
             "executor_column_count": prefs.executor_column_count,
-            "executor_scripts_folder": prefs.executor_scripts_folder
+            "executor_scripts_folder": prefs.executor_scripts_folder,
+            "executor_name_lenght": prefs.executor_name_lenght
             },
     "SPLIT_AREA_PIES": {
         f"PIE_{i}": {
