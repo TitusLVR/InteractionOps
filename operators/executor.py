@@ -21,6 +21,7 @@ def get_prefix(name):
 
 def get_executor_column_width(is_filtered):
     max_lenght = 0
+    executor_name_lenght = bpy.context.preferences.addons["InteractionOps"].preferences.executor_name_lenght
     if is_filtered:
         scripts = bpy.context.scene.IOPS["filtered_executor_scripts"]
     else:
@@ -30,7 +31,7 @@ def get_executor_column_width(is_filtered):
         full_name = os.path.split(script)
         name = os.path.splitext(full_name[1])[0]
         if len(name) > max_lenght:
-            max_lenght = len(name)
+            max_lenght = len(name) + executor_name_lenght
     return max_lenght
 
 

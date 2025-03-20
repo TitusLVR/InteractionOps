@@ -488,6 +488,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=5,
         max=1000,
     )
+    executor_name_lenght: IntProperty(
+        name="Name Length",
+        description="Length of script names in executor panel",
+        default=20,
+        min=5,
+        max=100,
+    )
     executor_scripts_folder: StringProperty(
         name="Scripts Folder",
         subtype="DIR_PATH",
@@ -911,6 +918,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.prop(self, "executor_scripts_folder")
             col.prop(self, "executor_column_count")
+            col.prop(self, "executor_name_lenght")
             col.separator()
             # Textures to materials
             col = column_main.column(align=False)
