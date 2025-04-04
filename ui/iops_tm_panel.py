@@ -155,7 +155,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 row.prop(view, "lock_cursor", text="", icon="ORIENTATION_CURSOR")
                 inputs.use_mouse_depth_navigate = not view.lock_cursor
                 row.separator()
-                row.prop(inputs, "use_rotate_around_active", text="", icon="ORIENTATION_GIMBAL")                
+                row.prop(inputs, "use_rotate_around_active", text="", icon="ORIENTATION_GIMBAL")
                 row.separator()
                 row.prop(tool_settings, "use_mesh_automerge", text="")
                 row.prop(
@@ -272,6 +272,11 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col = grid_flow.column(align=True)
                 # col.label(text="Transformation:")
                 col.alignment = "CENTER"
+                row = col.row(align=True)
+                row.operator("wm.context_toggle", text="M", icon='CHECKBOX_HLT' if context.space_data.show_gizmo_object_translate else 'CHECKBOX_DEHLT').data_path = 'space_data.show_gizmo_object_translate'
+                row.operator("wm.context_toggle", text="R", icon='CHECKBOX_HLT' if context.space_data.show_gizmo_object_rotate else 'CHECKBOX_DEHLT').data_path = 'space_data.show_gizmo_object_rotate'
+                row.operator("wm.context_toggle", text="S", icon='CHECKBOX_HLT' if context.space_data.show_gizmo_object_scale else 'CHECKBOX_DEHLT').data_path = 'space_data.show_gizmo_object_scale'
+                col.separator()
                 col.prop(orient_slot, "type", expand=True)
                 if orientation:
                     col.prop(orientation, "name", text="", icon="OBJECT_ORIGIN")
@@ -283,7 +288,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 # col.label(text="PivotPoint:")
                 col.alignment = "CENTER"
                 col.prop(tool_settings, "transform_pivot_point", expand=True)
-                col.separator()
+                col.separator()                   
                 if bpy.app.version > (2, 80, 0):
                     row = col.row(align=True)
                     # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
