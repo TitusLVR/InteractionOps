@@ -189,6 +189,9 @@ from .operators.mesh_uv_channel_hop import IOPS_OT_Mesh_UV_Channel_Hop
 # IOPS Cursor rotate
 from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 
+# IOPS Edge bisect with cursor
+from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
+
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
@@ -283,6 +286,7 @@ classes = (
     IOPS_OT_RenderAssetThumbnail,
     IOPS_OT_RunText,
     IOPS_OT_MayaIsolate,
+    IOPS_OT_Mesh_Cursor_Bisect,
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
     IOPS_OT_DragSnapCursor,
