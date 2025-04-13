@@ -284,7 +284,10 @@ class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
             bpy.context.area.type = self.area_type
             bpy.context.area.ui_type = self.ui
             context_override = ContextOverride(context.area)
-            with context.temp_override(**context_override):
-                bpy.ops.iops.space_data_load()
+            try:
+                with context.temp_override(**context_override):
+                    bpy.ops.iops.space_data_load()
+            except TypeError:
+                pass
 
         return {"FINISHED"}
