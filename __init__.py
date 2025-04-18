@@ -371,7 +371,6 @@ def register():
         type=IOPS_AddonProperties
     )
 
-    keymap_registration()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     try:
@@ -394,6 +393,7 @@ def register():
         print("IOPS Statistics Disabled!")
 
     load_iops_preferences()
+    keymap_registration()
 
     print("IOPS Registered!")
 
