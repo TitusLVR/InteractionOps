@@ -46,6 +46,8 @@ def load_iops_preferences():
                         prefs.executor_scripts_folder = value["executor_scripts_folder"]
                         prefs.executor_column_count = value["executor_column_count"]
                         prefs.executor_name_lenght = value["executor_name_lenght"]
+                        prefs.executor_use_script_path_user = value["executor_use_script_path_user"]
+                        prefs.executor_scripts_subfolder = value["executor_scripts_subfolder"]
                     case "SPLIT_AREA_PIES":
                         for pie in value:
                             pie_num = pie[-1]

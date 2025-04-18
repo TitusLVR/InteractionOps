@@ -1,5 +1,6 @@
 import bpy
 import rna_keymap_ui
+import os
 from mathutils import Vector
 from bpy.props import (
     BoolProperty,
@@ -501,6 +502,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=bpy.utils.script_path_user(),
     )
 
+    executor_scripts_subfolder: StringProperty(
+        name="Scripts sub-folder",
+        default="iops_exec",
+    )
+
+    executor_use_script_path_user: BoolProperty(
+        name="Use user script path",
+        description=r"User the scripts folder under %appdata%/blender/scripts", 
+        default=True
+    )
+
     texture_to_material_prefixes: StringProperty(
         name="Prefixes",
         description="Type prefixes what you want to clean",
@@ -915,8 +927,25 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box = col.box()
             col = box.column(align=True)
             col.label(text="Script Executor:")
-            col = box.column(align=True)
-            col.prop(self, "executor_scripts_folder")
+            col.separator()
+            col.separator()
+            col.separator()
+            col.prop(self, "executor_use_script_path_user")
+            row = col.row(align=True)
+            if self.executor_use_script_path_user:
+                row.label(text=bpy.utils.script_path_user())
+                col.prop(self, "executor_scripts_subfolder")
+                if len(self.executor_scripts_subfolder) > 0:
+                    self.executor_scripts_folder = os.path.join(
+                        bpy.utils.script_path_user(), self.executor_scripts_subfolder
+                    )
+                else:
+                    self.executor_scripts_folder = bpy.utils.script_path_user()
+            else:
+                col.prop(self, "executor_scripts_folder")
+            col.separator()
+            col.separator()
+            col.separator()
             col.prop(self, "executor_column_count")
             col.prop(self, "executor_name_lenght")
             col.separator()
