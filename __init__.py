@@ -192,6 +192,9 @@ from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 # IOPS Edge bisect with cursor
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 
+# Open asset in current Blender
+from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
@@ -333,6 +336,7 @@ classes = (
     Z_OT_PutOn,
     Z_OT_Mirror,
     Z_OT_EdgeConnect,
+    IOPS_OT_OpenAssetInCurrentBlender,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -381,6 +385,7 @@ def register():
             "MESH_MT_CopyFaceSettings not found, enable the Copy 'Attributes Menu' addon"
         )
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
+    bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
@@ -403,6 +408,7 @@ def unregister():
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.remove(select_interior_faces)
+        bpy.types.ASSETBROWSER_MT_context_menu.remove(open_asset_in_current_blender)
     except Exception as e:
         print(e)
         pass
@@ -423,6 +429,8 @@ def unregister():
 def add_copy_edge_length_item(self, context):
     self.layout.operator(IOPS_MESH_OT_CopyEdgesLength.bl_idname)
 
+def open_asset_in_current_blender(self, context):
+    self.layout.operator(IOPS_OT_OpenAssetInCurrentBlender.bl_idname)
 
 def outliner_collection_ops(self, context):
     self.layout.separator()

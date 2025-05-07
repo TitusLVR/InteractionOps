@@ -1,4 +1,3 @@
-import select
 import bpy
 import os
 from math import radians
