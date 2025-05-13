@@ -10,10 +10,7 @@ class IOPS_OT_ToFaces(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        sm = context.tool_settings.mesh_select_mode[:]
-        return context.mode == "EDIT_MESH" and (
-            sm == (True, False, False) or sm == (False, True, False)
-        )
+        return context.mode == "EDIT_MESH"
 
     def execute(self, context):
         bpy.ops.mesh.select_mode(use_expand=True, type="FACE")
@@ -30,10 +27,7 @@ class IOPS_OT_ToEdges(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        sm = context.tool_settings.mesh_select_mode[:]
-        return context.mode == "EDIT_MESH" and (
-            sm == (True, False, False) or sm == (False, False, True)
-        )
+        return context.mode == "EDIT_MESH"
 
     def execute(self, context):
         exp = False
@@ -53,10 +47,7 @@ class IOPS_OT_ToVerts(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        sm = context.tool_settings.mesh_select_mode[:]
-        return context.mode == "EDIT_MESH" and (
-            sm == (False, True, False) or sm == (False, False, True)
-        )
+        return context.mode == "EDIT_MESH"
 
     def execute(self, context):
         bpy.ops.mesh.select_mode(use_extend=True, type="VERT")
