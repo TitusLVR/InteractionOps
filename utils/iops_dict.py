@@ -5,6 +5,7 @@ from .functions import (
     cursor_origin_mesh,
     cursor_origin_selected,
     match_dimensions,
+    mesh_selection_convert,
     z_connect,
     align_to_face,
     empty_to_cursor,
@@ -17,266 +18,598 @@ from .functions import (
 )
 import bpy
 
+# QUERY: (type_area, type_object, mode_object, mode_mesh, op, event, flag_uv, mode_uv)
 
 class IOPS_Dict:
     operators = {"F1", "F2", "F3", "F4", "F5", "ESC"}
+    events = {"NONE", "ALT", "CTRL", "SHIFT", "ALT_CTRL", "ALT_SHIFT", "CTRL_SHIFT", "ALT_CTRL_SHIFT"}
 
     iops_dict = {
         "VIEW_3D": {
             "MESH": {
                 "OBJECT": {
-                    "F1": lambda: mesh_select_mode("VERT"),
-                    "F2": lambda: mesh_select_mode("EDGE"),
-                    "F3": lambda: mesh_select_mode("FACE"),
-                    "F4": lambda: cursor_origin_mesh(),
-                    "F5": lambda: match_dimensions(),
+                    "F1": {
+                        "NONE": lambda: mesh_select_mode("VERT"),
+                        "ALT": lambda: mesh_selection_convert("VERT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: mesh_select_mode("EDGE"),
+                        "ALT": lambda: mesh_selection_convert("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: mesh_select_mode("FACE"),
+                        "ALT": lambda: mesh_selection_convert("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: cursor_origin_mesh(),
+                    },
+                    "F5": {
+                        "NONE": lambda: match_dimensions(),
+                    },
                 },
                 "EDIT": {
                     "VERT": {
-                        "F1": lambda: bpy.ops.wm.call_menu(
-                            name="VIEW3D_MT_edit_mesh_vertices"
-                        ),
-                        "F2": lambda: mesh_select_mode("EDGE"),
-                        "F3": lambda: mesh_select_mode("FACE"),
-                        "F4": lambda: cursor_origin_selected(),
-                        "F5": lambda: no_operator(),
-                        "ESC": lambda: object_mode_switch("OBJECT"),
+                        "F1": {
+                            "NONE": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_vertices"),
+                            "ALT": lambda: mesh_selection_convert("VERT"),
+                        },
+                        "F2": {
+                            "NONE": lambda: mesh_select_mode("EDGE"),
+                            "ALT": lambda: mesh_selection_convert("EDGE"),
+                        },
+                        "F3": {
+                            "NONE": lambda: mesh_select_mode("FACE"),
+                            "ALT": lambda: mesh_selection_convert("FACE"),
+                        },
+                        "F4": {
+                            "NONE": lambda: cursor_origin_selected(),
+                        },
+                        "F5": {
+                            "NONE": lambda: no_operator(),
+                        },
+                        "ESC": {
+                            "NONE": lambda: object_mode_switch("OBJECT"),
+                        },
                     },
                     "EDGE": {
-                        "F1": lambda: mesh_select_mode("VERT"),
-                        "F2": lambda: bpy.ops.wm.call_menu(
-                            name="VIEW3D_MT_edit_mesh_edges"
-                        ),
-                        "F3": lambda: mesh_select_mode("FACE"),
-                        "F4": lambda: cursor_origin_selected(),
-                        "F5": lambda: z_connect(),
-                        "ESC": lambda: object_mode_switch("OBJECT"),
+                        "F1": {
+                            "NONE": lambda: mesh_select_mode("VERT"),
+                            "ALT": lambda: mesh_selection_convert("VERT"),
+                        },
+                        "F2": {
+                            "NONE": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_edges"),
+                            "ALT": lambda: mesh_selection_convert("EDGE"),
+                        },
+                        "F3": {
+                            "NONE": lambda: mesh_select_mode("FACE"),
+                            "ALT": lambda: mesh_selection_convert("FACE"),
+                        },
+                        "F4": {
+                            "NONE": lambda: cursor_origin_selected(),
+                        },
+                        "F5": {
+                            "NONE": lambda: z_connect(),
+                        },
+                        "ESC": {
+                            "NONE": lambda: object_mode_switch("OBJECT"),
+                        },
                     },
                     "FACE": {
-                        "F1": lambda: mesh_select_mode("VERT"),
-                        "F2": lambda: mesh_select_mode("EDGE"),
-                        "F3": lambda: bpy.ops.wm.call_menu(
-                            name="VIEW3D_MT_edit_mesh_faces"
-                        ),
-                        "F4": lambda: cursor_origin_selected(),
-                        "F5": lambda: align_to_face(),
-                        "ESC": lambda: object_mode_switch("OBJECT"),
+                        "F1": {
+                            "NONE": lambda: mesh_select_mode("VERT"),
+                            "ALT": lambda: mesh_selection_convert("VERT"),
+                        },
+                        "F2": {
+                            "NONE": lambda: mesh_select_mode("EDGE"),
+                            "ALT": lambda: mesh_selection_convert("EDGE"),
+                        },
+                        "F3": {
+                            "NONE": lambda: bpy.ops.wm.call_menu(name="VIEW3D_MT_edit_mesh_faces"),
+                            "ALT": lambda: mesh_selection_convert("FACE"),
+                        },
+                        "F4": {
+                            "NONE": lambda: cursor_origin_selected(),
+                        },
+                        "F5": {
+                            "NONE": lambda: align_to_face(),
+                        },
+                        "ESC": {
+                            "NONE": lambda: object_mode_switch("OBJECT"),
+                        },
                     },
                 },
             },
             "CURVE": {
                 "OBJECT": {
-                    "F1": lambda: object_mode_switch("EDIT"),
-                    "F2": lambda: no_operator(),
-                    "F3": lambda: no_operator(),
-                    "F4": lambda: bpy.ops.object.origin_set(
-                        type="ORIGIN_GEOMETRY", center="MEDIAN"
-                    ),
-                    "F5": lambda: no_operator(),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F3": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F4": {
+                        "NONE": lambda: bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN"),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
                 },
                 "EDIT": {
-                    "F1": lambda: object_mode_switch("OBJECT"),
-                    "F2": lambda: curve_subdivide(),
-                    "F3": lambda: curve_spline_type(),
-                    "F4": lambda: cursor_origin_selected(),
-                    "F5": lambda: no_operator(),
-                    "ESC": lambda: object_mode_switch("OBJECT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: curve_subdivide(),
+                    },
+                    "F3": {
+                        "NONE": lambda: curve_spline_type(),
+                    },
+                    "F4": {
+                        "NONE": lambda: cursor_origin_selected(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
             },
             "SURFACE": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
             "META": {
-                "F1": lambda: object_mode_switch("EDIT"),
-                "F2": lambda: object_mode_switch("EDIT"),
-                "F3": lambda: object_mode_switch("EDIT"),
-                "F4": lambda: object_mode_switch("EDIT"),
-                "F5": lambda: object_mode_switch("EDIT"),
-                "ESC": lambda: object_mode_switch("OBJECT"),
+                "F1": {
+                    "NONE": lambda: object_mode_switch("EDIT"),
+                },
+                "F2": {
+                    "NONE": lambda: object_mode_switch("EDIT"),
+                },
+                "F3": {
+                    "NONE": lambda: object_mode_switch("EDIT"),
+                },
+                "ESC": {
+                    "NONE": lambda: object_mode_switch("OBJECT"),
+                },
             },
             "FONT": {
                 "OBJECT": {
-                    "F1": lambda: object_mode_switch("EDIT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
                 },
-                "EDIT": {"ESC": lambda: object_mode_switch("OBJECT")},
+                "EDIT": {
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                },
             },
             "ARMATURE": {
-                "F1": lambda: object_mode_switch("EDIT"),
-                "F2": lambda: object_mode_switch("POSE"),
-                "F3": lambda: bpy.ops.object.parent_set(type="BONE"),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
-                "ESC": lambda: object_mode_switch("OBJECT"),
+                "F1": {
+                    "NONE": lambda: object_mode_switch("EDIT"),
+                },
+                "F2": {
+                    "NONE": lambda: object_mode_switch("POSE"),
+                },
+                "F3": {
+                    "NONE": lambda: bpy.ops.object.parent_set(type="BONE"),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
+                "ESC": {
+                    "NONE": lambda: object_mode_switch("OBJECT"),
+                },
             },
             "LATTICE": {
-                "F1": lambda: object_mode_switch("EDIT"),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
-                "ESC": lambda: object_mode_switch("OBJECT"),
+                "F1": {
+                    "NONE": lambda: object_mode_switch("EDIT"),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
+                "ESC": {
+                    "NONE": lambda: object_mode_switch("OBJECT"),
+                },
             },
             "EMPTY": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: empty_to_cursor(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: empty_to_cursor(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
             "GPENCIL": {
                 "EDIT_GPENCIL": {
-                    "F1": lambda: object_mode_switch("OBJECT"),
-                    "F2": lambda: object_mode_switch("SCULPT_GPENCIL"),
-                    "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
-                    "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
-                    "F5": lambda: no_operator(),
-                    "ESC": lambda: object_mode_switch("OBJECT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
                 "SCULPT_GPENCIL": {
-                    "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
-                    "F2": lambda: object_mode_switch("OBJECT"),
-                    "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
-                    "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
-                    "F5": lambda: no_operator(),
-                    "ESC": lambda: object_mode_switch("OBJECT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
                 "PAINT_GPENCIL": {
-                    "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
-                    "F2": lambda: object_mode_switch("SCULPT_GPENCIL"),
-                    "F3": lambda: object_mode_switch("OBJECT"),
-                    "F4": lambda: object_mode_switch("WEIGHT_GPENCIL"),
-                    "F5": lambda: no_operator(),
-                    "ESC": lambda: object_mode_switch("OBJECT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
                 "WEIGHT_GPENCIL": {
-                    "F1": lambda: object_mode_switch("EDIT_GPENCIL"),
-                    "F2": lambda: object_mode_switch("SCULPT_GPENCIL"),
-                    "F3": lambda: object_mode_switch("PAINT_GPENCIL"),
-                    "F4": lambda: object_mode_switch("OBJECT"),
-                    "F5": lambda: no_operator(),
-                    "ESC": lambda: object_mode_switch("OBJECT"),
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
             },
             "CAMERA": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
             "LIGHT": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: cursor_origin_mesh(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: cursor_origin_mesh(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
             "SPEAKER": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
             "LIGHT_PROBE": {
-                "F1": lambda: no_operator(),
-                "F2": lambda: no_operator(),
-                "F3": lambda: no_operator(),
-                "F4": lambda: no_operator(),
-                "F5": lambda: no_operator(),
+                "F1": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F2": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F3": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F4": {
+                    "NONE": lambda: no_operator(),
+                },
+                "F5": {
+                    "NONE": lambda: no_operator(),
+                },
             },
         },
-        "IMAGE_EDITOR": {
+"IMAGE_EDITOR": {
             # Sync flag on
             True: {
                 "VERT": {
-                    "F1": lambda: no_operator(),
-                    "F2": lambda: mesh_select_mode("EDGE"),
-                    "F3": lambda: mesh_select_mode("FACE"),
-                    "F4": lambda: no_operator(),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    "F1": {
+                        "NONE": lambda: no_operator(),  
+                    },
+                    "F2": {
+                        "NONE": lambda: mesh_select_mode("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: mesh_select_mode("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    },
                 },
                 "EDGE": {
-                    "F1": lambda: mesh_select_mode("VERT"),
-                    "F2": lambda: no_operator(),
-                    "F3": lambda: mesh_select_mode("FACE"),
-                    "F4": lambda: no_operator(),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    "F1": {
+                        "NONE": lambda: mesh_select_mode("VERT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F3": {
+                        "NONE": lambda: mesh_select_mode("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    },
                 },
                 "FACE": {
-                    "F1": lambda: mesh_select_mode("VERT"),
-                    "F2": lambda: mesh_select_mode("EDGE"),
-                    "F3": lambda: no_operator(),
-                    "F4": lambda: no_operator(),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    "F1": {
+                        "NONE": lambda: mesh_select_mode("VERT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: mesh_select_mode("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
                 },
             },
             # Sync flag off
             False: {
-                "VERTEX": {
-                    "F1": lambda: view_selected_uv(),
-                    "F2": lambda: uv_select_mode("EDGE"),
-                    "F3": lambda: uv_select_mode("FACE"),
-                    "F4": lambda: uv_select_mode("ISLAND"),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                "UV_VERTEX": {
+                    "F1": {
+                        "NONE": lambda: view_selected_uv(),
+                    },
+                    "F2": {
+                        "NONE": lambda: uv_select_mode("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: uv_select_mode("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: uv_select_mode("ISLAND"),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    },
                 },
-                "EDGE": {
-                    "F1": lambda: uv_select_mode("VERTEX"),
-                    "F2": lambda: view_selected_uv(),
-                    "F3": lambda: uv_select_mode("FACE"),
-                    "F4": lambda: uv_select_mode("ISLAND"),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                "UV_EDGE": {
+                    "F1": {
+                        "NONE": lambda: uv_select_mode("VERTEX"),
+                    },
+                    "F2": {
+                        "NONE": lambda: view_selected_uv(),
+                    },
+                    "F3": {
+                        "NONE": lambda: uv_select_mode("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: uv_select_mode("ISLAND"),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
                 },
-                "FACE": {
-                    "F1": lambda: uv_select_mode("VERTEX"),
-                    "F2": lambda: uv_select_mode("EDGE"),
-                    "F3": lambda: view_selected_uv(),
-                    "F4": lambda: uv_select_mode("ISLAND"),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                "UV_FACE": {
+                    "F1": {
+                        "NONE": lambda: uv_select_mode("VERTEX"),
+                    },
+                    "F2": {
+                        "NONE": lambda: uv_select_mode("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: view_selected_uv(),
+                    },
+                    "F4": { 
+                        "NONE": lambda: uv_select_mode("ISLAND"),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    },
                 },
-                "ISLAND": {
-                    "F1": lambda: uv_select_mode("VERTEX"),
-                    "F2": lambda: uv_select_mode("EDGE"),
-                    "F3": lambda: uv_select_mode("FACE"),
-                    "F4": lambda: view_selected_uv(),
-                    "F5": lambda: uv_sync_toggle(),
-                    "ESC": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                "UV_ISLAND": {
+                    "F1": {
+                        "NONE": lambda: uv_select_mode("VERTEX"),
+                    },
+                    "F2": {
+                        "NONE": lambda: uv_select_mode("EDGE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: uv_select_mode("FACE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: view_selected_uv(),
+                    },
+                    "F5": {
+                        "NONE": lambda: uv_sync_toggle(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.uv.snap_cursor(target="SELECTED"),
+                    },
                 },
             },
         },
         "OUTLINER": {
-            "F1": lambda: set_display_mode("VIEW_LAYER"),
-            "F2": lambda: no_operator(),
-            "F3": lambda: set_display_mode("LIBRARIES"),
-            "F4": lambda: set_display_mode("ORPHAN_DATA"),
-            "F5": lambda: no_operator(),
-            "ESC": lambda: no_operator(),
+            "F1": {
+                "NONE": lambda: set_display_mode("VIEW_LAYER"),
+            },
+            "F2": {
+                "NONE": lambda: no_operator(),
+            },
+            "F3": {
+                "NONE": lambda: set_display_mode("LIBRARIES"),
+            },
+            "F4": {
+                "NONE": lambda: set_display_mode("ORPHAN_DATA"),
+            },
+            "F5": {
+                "NONE": lambda: no_operator(),
+            },
+            "ESC": {
+                "NONE": lambda: no_operator(),
+            },
         },
         "PREFERENCES": {
-            "F1": lambda: bpy.ops.preferences.addon_show(module="InteractionOps"),
-            "F2": lambda: no_operator(),
-            "F3": lambda: no_operator(),
-            "F4": lambda: no_operator(),
-            "F5": lambda: no_operator(),
-            "ESC": lambda: no_operator(),
+            "F1": {
+                "NONE": lambda: bpy.ops.preferences.addon_show(module="InteractionOps"),
+            },
+            "F2": {
+                "NONE": lambda: no_operator(),
+            },
+            "F3": {
+                "NONE": lambda: no_operator(),
+            },
+            "F4": {
+                "NONE": lambda: no_operator(),
+            },
+            "F5": {
+                "NONE": lambda: no_operator(),
+            },
+            "ESC": {
+                "NONE": lambda: no_operator(),
+            },
         },
         "FILE_BROWSER": {
-            "F1": lambda: no_operator(),
-            "F2": lambda: bpy.ops.file.rename(),
-            "F3": lambda: no_operator(),
-            "F4": lambda: no_operator(),
-            "F5": lambda: bpy.ops.file.refresh(),
-            "ESC": lambda: bpy.ops.file.cancel(),
+            "F1": {
+                "NONE": lambda: no_operator(),
+            },
+            "F2": {
+                "NONE": lambda: bpy.ops.file.rename(),
+            },
+            "F3": {
+                "NONE": lambda: no_operator(),
+            },
+            "F4": {
+                "NONE": lambda: no_operator(),
+            },
+            "F5": {
+                "NONE": lambda: bpy.ops.file.refresh(),
+            },
+            "ESC": {
+                "NONE": lambda: bpy.ops.file.cancel(),
+            },
         },
     }
 

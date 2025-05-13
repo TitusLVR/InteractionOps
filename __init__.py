@@ -199,7 +199,7 @@ bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
     "version": (2, 1, 3),
-    "blender": (3, 2, 0),
+    "blender": (4, 2, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "iOPS - Boost your Blender Interactivity :p",
     "warning": "",

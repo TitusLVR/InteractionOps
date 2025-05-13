@@ -140,6 +140,15 @@ def mesh_select_mode(type):
         object_mode_switch("EDIT")
     bpy.ops.mesh.select_mode(type=type)
 
+def mesh_selection_convert(type):
+    print("Mesh selection convert:", type)
+    match type:
+        case "VERT":
+            bpy.ops.iops.mesh_to_verts()
+        case "EDGE":
+            bpy.ops.iops.mesh_to_edges()
+        case "FACE":
+            bpy.ops.iops.mesh_to_faces()
 
 def object_mode_switch(mode):
     bpy.ops.object.mode_set(mode=mode)
