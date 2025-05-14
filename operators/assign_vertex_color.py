@@ -9,6 +9,11 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     bl_label = "Assign Vertex color in editr mode to selected vertecies"
     bl_options = {"REGISTER", "UNDO"}
 
+    use_active_color: BoolProperty(
+        name="Use Active Color Attribute",
+        default=True
+    )
+
     col_attr_name: bpy.props.StringProperty(
         name="Color Attribute Name",
         default="Color"
@@ -29,6 +34,20 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         default=False
     )
 
+    domain: bpy.props.EnumProperty(
+        name="Domain",
+        description="Domain of the color attribute",
+        items=[("POINT", "Point", "Point"), ("CORNER", "Corner", "Corner")],
+        default="POINT"
+    )
+
+    attr_type: bpy.props.EnumProperty(
+        name="Attribute Type",
+        description="Type of the color attribute",
+        items=[("FLOAT_COLOR", "Float Color", "Float Color"), ("BYTE_COLOR", "Byte Color", "Byte Color")],
+        default="FLOAT_COLOR"
+    )
+
     @classmethod
     def poll(cls, context):
         return context.object and context.object.type == "MESH"
@@ -43,7 +62,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         if self.fill_color_black:
             self.fill_color_black = False
             color = color_black
-        
+
         if self.fill_color_grey:
             self.fill_color_grey = False
             color = (0.5, 0.5, 0.5, 1.0)
@@ -52,36 +71,67 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
             self.fill_color_white = False
             color = color_white
 
-
         sel = [obj for obj in context.selected_objects]
         # Create color attribute if not exists
-        for obj in sel:
-            if self.col_attr_name not in obj.data.color_attributes:
-                obj.data.color_attributes.new(
-                    self.col_attr_name, "FLOAT_COLOR", "POINT"
+        if not self.use_active_color:
+            for obj in sel:
+                if self.col_attr_name not in obj.data.color_attributes:
+                    obj.data.color_attributes.new(
+                        self.col_attr_name, self.attr_type, self.domain
+                    )
+                # Set color attribute as active
+                attr_name = obj.data.color_attributes[self.col_attr_name]
+                obj.data.color_attributes.active_color = attr_name
+        else:
+            try:
+                attr_name = context.object.data.color_attributes.active_color.name
+            except AttributeError:
+                # Create new color attribute if none exists
+                context.object.data.color_attributes.new(
+                    self.col_attr_name, self.attr_type, self.domain
                 )
-            # Set color attribute as active
-            color_attr = obj.data.color_attributes[self.col_attr_name]
-            obj.data.color_attributes.active_color = color_attr
+                attr_name = self.col_attr_name
+                context.object.data.color_attributes.active_color = context.object.data.color_attributes[attr_name]
+            
+        attr_type = context.object.data.color_attributes.active_color.data_type
 
         if sel and context.mode == "EDIT_MESH":
             # IF EDIT MODE
-            for obj in sel:
-                bm = bmesh.new()
-                bm = bmesh.from_edit_mesh(obj.data)
-                col_layer = bm.verts.layers.float_color[self.col_attr_name]
-                verts = [v for v in bm.verts if v.select]
-                for v in verts:
-                    v[col_layer] = color
+            attr_domain = context.object.data.color_attributes.active_color.domain # POINT or CORNER
+            col_layer = None
+            if attr_domain == "POINT":
+                for obj in sel:
+                    bm = bmesh.new()
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    if attr_type == "FLOAT_COLOR":
+                        col_layer = bm.verts.layers.float_color[attr_name]
+                    elif attr_type == "BYTE_COLOR":
+                        col_layer = bm.verts.layers.color[attr_name]
+                    verts = [v for v in bm.verts if v.select]
+                    if col_layer:
+                        for vert in verts:
+                            vert[col_layer] = color
+            elif attr_domain == "CORNER":
+                for obj in sel:
+                    bm = bmesh.new()
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    if attr_type == "FLOAT_COLOR":
+                        col_layer = bm.loops.layers.float_color[attr_name]
+                    elif attr_type == "BYTE_COLOR":
+                        col_layer = bm.loops.layers.color[attr_name]
+                    if col_layer:
+                        for f in bm.faces:
+                            if any(v.select for v in f.verts):
+                                for loop in f.loops:
+                                    loop[col_layer] = color
 
-                bmesh.update_edit_mesh(context.object.data)
-                bm.free()
+            bmesh.update_edit_mesh(context.object.data)
+            bm.free()
 
         elif context.mode == "OBJECT":
             self.report(
                 {"WARNING"}, "OBJECT MODE. Will be implemented soon. Crashing for now."
             )
-            pass
             # IF OBJECT MODE
             # # BOTH ARE CRASHING ON POST OPERATOR COLOR CHANGE
             # for obj in sel:
@@ -101,7 +151,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
             #     bm.to_mesh(obj.data)
             #     bm.free()
         else:
-            self.report({"WARNING"}, obj.name + " is not a MESH.")
+            self.report({"WARNING"}, context.object.name + " is not a MESH.")
 
         return {"FINISHED"}
 
@@ -113,7 +163,11 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
             "iops_vertex_color",
             text="",
         )
+        # TODO: Add use active color
+        # col.prop(self, "use_active_color", text="Use Active Color")
         col.prop(self, "col_attr_name", text="Color Attribute Name")
+        col.prop(self, "attr_type", text="Attribute Type")
+        col.prop(self, "domain", text="Domain")
         col.prop(self, "fill_color_black", text="Fill Black")
         col.prop(self, "fill_color_grey", text="Fill Grey")
         col.prop(self, "fill_color_white", text="Fill White")
