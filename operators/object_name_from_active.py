@@ -38,7 +38,7 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     [T] - Object Type
     [COL] - Collection Name
     """,
-        default="[N].[C]",
+        default="[N]_[C]",
     )
 
     use_distance: BoolProperty(

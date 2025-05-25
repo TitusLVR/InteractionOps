@@ -65,3 +65,4 @@ class IOPS_MESH_OT_CopyEdgesLength(bpy.types.Operator):
         else:
             # Invalid Selection
             self.report({"ERROR"}, "Invalid Selection")
+            return {"CANCELLED"}

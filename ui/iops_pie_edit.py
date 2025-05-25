@@ -28,6 +28,10 @@ def get_text_icon(context, operator):
         match operator:
             case "f1":
                 return "Open Instance Collection .blend", "FILE_BACKUP"
+            case "f2":
+                return "Make instance real", "OUTLINER_OB_GROUP_INSTANCE"
+            case "f3":
+                return "F3", "EVENT_F3"
             case _:
                 return "Esc", "EVENT_ESC"
 

@@ -54,6 +54,7 @@ from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
 from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
+from .operators.mesh_copy_edges_angle import IOPS_MESH_OT_CopyEdgesAngle
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
@@ -320,6 +321,7 @@ classes = (
     IOPS_OT_Object_Name_From_Active,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,
+    IOPS_MESH_OT_CopyEdgesAngle,
     IOPS_OT_SetSnapCombo,
     IOPS_OT_Reload_Libraries,
     IOPS_OT_Reload_Images,
@@ -428,6 +430,7 @@ def unregister():
 
 def add_copy_edge_length_item(self, context):
     self.layout.operator(IOPS_MESH_OT_CopyEdgesLength.bl_idname)
+    self.layout.operator(IOPS_MESH_OT_CopyEdgesAngle.bl_idname)
 
 def open_asset_in_current_blender(self, context):
     self.layout.operator(IOPS_OT_OpenAssetInCurrentBlender.bl_idname)
