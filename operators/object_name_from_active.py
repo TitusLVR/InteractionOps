@@ -6,6 +6,7 @@ from bpy.props import (
     BoolProperty,
 )
 from mathutils import Vector
+from ..utils.functions import get_object_col_names 
 
 
 def distance_vec(point1: Vector, point2: Vector):
@@ -150,7 +151,7 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
                     if p == "[T]":
                         pattern[i] = o.type.lower()
                     if p == "[COL]":
-                        pattern[i] = active_collection.name
+                        pattern[i] = get_object_col_names(o) 
                 o.name = "".join(pattern)
                 # Rename object mesh data
                 if self.rename_mesh_data:

@@ -27,6 +27,12 @@ def ContextOverride(area):
                         return context_override
     raise Exception("ERROR: Override failed!")
 
+def get_object_col_names(object):
+    found_cols = []
+    for col in bpy.data.collections:
+        if object.name in col.objects:
+            found_cols.append(col.name)
+    return '_'.join(found_cols) 
 
 def view_selected_uv():
     active = bpy.context.view_layer.objects.active
