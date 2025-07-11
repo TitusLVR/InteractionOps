@@ -45,7 +45,16 @@ def load_iops_preferences():
                     case "EXECUTOR":
                         prefs.executor_scripts_folder = value["executor_scripts_folder"]
                         prefs.executor_column_count = value["executor_column_count"]
-                        prefs.executor_name_lenght = value["executor_name_lenght"]
+                        # Handle old typo in JSON key
+                        try:
+                            prefs.executor_name_length = value["executor_name_length"]
+                        except KeyError:
+                            # Fallback to old typo key
+                            try:
+                                prefs.executor_name_length = value["executor_name_lenght"]
+                            except KeyError:
+                                # Use default value if neither key exists
+                                prefs.executor_name_length = 10  # Default value
                         prefs.executor_use_script_path_user = value["executor_use_script_path_user"]
                         prefs.executor_scripts_subfolder = value["executor_scripts_subfolder"]
                     case "SPLIT_AREA_PIES":

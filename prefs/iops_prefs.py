@@ -49,7 +49,7 @@ def get_iops_prefs():
         "EXECUTOR": {
             "executor_column_count": prefs.executor_column_count,
             "executor_scripts_folder": prefs.executor_scripts_folder,
-            "executor_name_lenght": prefs.executor_name_lenght,
+            "executor_name_length": prefs.executor_name_length,
             "executor_use_script_path_user": prefs.executor_use_script_path_user,
             "executor_scripts_subfolder": prefs.executor_scripts_subfolder,
             },

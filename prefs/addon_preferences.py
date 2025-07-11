@@ -489,7 +489,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=5,
         max=1000,
     )
-    executor_name_lenght: IntProperty(
+    executor_name_length: IntProperty(
         name="Name Length",
         description="Length of script names in executor panel",
         default=100,
@@ -1063,7 +1063,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.separator()
             col.separator()
             col.prop(self, "executor_column_count")
-            col.prop(self, "executor_name_lenght")
+            col.prop(self, "executor_name_length")
             col.separator()
             # Textures to materials
             col = column_main.column(align=False)
