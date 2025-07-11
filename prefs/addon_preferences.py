@@ -144,7 +144,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     # Statistics text properties
     iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
-    
+
     text_color_stat: FloatVectorProperty(
         name="Color",
         subtype="COLOR_GAMMA",
@@ -509,7 +509,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     executor_use_script_path_user: BoolProperty(
         name="Use user script path",
-        description=r"User the scripts folder under %appdata%/blender/scripts", 
+        description=r"User the scripts folder under %appdata%/blender/scripts",
         default=True
     )
 
@@ -551,6 +551,122 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         ],
         default="SHIFT"
     )
+
+    # Cursor Bisect Drawing Properties
+    cursor_bisect_plane_color: FloatVectorProperty(
+        name="Plane color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 0.0, 0.0, 0.15),
+    )
+
+    cursor_bisect_plane_outline_color: FloatVectorProperty(
+        name="Plane outline color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 0.0, 0.0, 0.8),
+    )
+
+    cursor_bisect_plane_outline_thickness: FloatProperty(
+        name="Plane outline thickness",
+        description="Thickness of the bisect plane outline",
+        default=2.0,
+        min=0.1,
+        max=10.0,
+    )
+
+    cursor_bisect_edge_color: FloatVectorProperty(
+        name="Edge color (unlocked)",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 1.0, 0.0, 1.0),
+    )
+
+    cursor_bisect_edge_locked_color: FloatVectorProperty(
+        name="Edge color (locked)",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 0.0, 0.0, 1.0),
+    )
+
+    cursor_bisect_edge_thickness: FloatProperty(
+        name="Edge thickness (unlocked)",
+        description="Thickness of the edge highlight when unlocked",
+        default=4.0,
+        min=0.1,
+        max=20.0,
+    )
+
+    cursor_bisect_edge_locked_thickness: FloatProperty(
+        name="Edge thickness (locked)",
+        description="Thickness of the edge highlight when locked",
+        default=8.0,
+        min=0.1,
+        max=20.0,
+    )
+
+    cursor_bisect_snap_color: FloatVectorProperty(
+        name="Snap points color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 1.0, 0.0, 1.0),
+    )
+
+    cursor_bisect_snap_hold_color: FloatVectorProperty(
+        name="Snap points color (hold)",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 0.5, 0.0, 1.0),
+    )
+
+    cursor_bisect_snap_closest_color: FloatVectorProperty(
+        name="Closest snap point color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(0.0, 1.0, 0.0, 1.0),
+    )
+
+    cursor_bisect_snap_closest_hold_color: FloatVectorProperty(
+        name="Closest snap point color (hold)",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 0.2, 0.0, 1.0),
+    )
+
+    cursor_bisect_snap_size: FloatProperty(
+        name="Snap point size",
+        description="Size of snap points",
+        default=6.0,
+        min=1.0,
+        max=20.0,
+    )
+
+    cursor_bisect_snap_closest_size: FloatProperty(
+        name="Closest snap point size",
+        description="Size of the closest snap point",
+        default=9.0,
+        min=1.0,
+        max=20.0,
+    )
+
+
+
 
     def draw(self, context):
         layout = self.layout
@@ -959,15 +1075,46 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
 
-            # Preferences
+
+            # Cursor Bisect preferences
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
-            col.label(text="Addon preferences")
-            row = col.row(align=True)
-            row.operator("iops.save_addon_preferences", text="Save preferences")
-            row.operator("iops.load_addon_preferences", text="Load preferences")
+            col.label(text="Cursor Bisect:")
+
+            # Plane settings
             col.separator()
+            col.label(text="Bisect Plane:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_plane_color")
+            row.prop(self, "cursor_bisect_plane_outline_color")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_plane_outline_thickness")
+
+            # Edge settings
+            col.separator()
+            col.label(text="Edge Highlight:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_edge_color")
+            row.prop(self, "cursor_bisect_edge_locked_color")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_edge_thickness")
+            row.prop(self, "cursor_bisect_edge_locked_thickness")
+
+            # Snap point settings
+            col.separator()
+            col.label(text="Snap Points:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_snap_color")
+            row.prop(self, "cursor_bisect_snap_hold_color")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_snap_closest_color")
+            row.prop(self, "cursor_bisect_snap_closest_hold_color")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_snap_size")
+            row.prop(self, "cursor_bisect_snap_closest_size")
+            col.separator()
+
             # Snap Combos
             col = column_main.column(align=False)
             box = col.box()
@@ -976,6 +1123,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = box.row(align=True)
             row.alignment = "LEFT"
             row.prop(self, "snap_combo_mod")
+            
+            # Preferences
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Addon preferences")
+            row = col.row(align=True)
+            row.operator("iops.save_addon_preferences", text="Save preferences")
+            row.operator("iops.load_addon_preferences", text="Load preferences")
+            col.separator()            
+            
             # Debug
             col = column_main.column(align=False)
             box = col.box()

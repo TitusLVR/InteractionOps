@@ -60,7 +60,7 @@ def load_iops_preferences():
                             ]
                             prefs[f"split_area_pie_{pie_num}_pos"] = pos
                             prefs[f"split_area_pie_{pie_num}_ui"] = ui
-                    case "UI_TEXT":                        
+                    case "UI_TEXT":
                         prefs.text_color = value["text_color"]
                         prefs.text_color_key = value["text_color_key"]
                         prefs.text_pos_x = value["text_pos_x"]
@@ -70,6 +70,20 @@ def load_iops_preferences():
                         prefs.text_shadow_pos_y = value["text_shadow_pos_y"]
                         prefs.text_shadow_toggle = value["text_shadow_toggle"]
                         prefs.text_size = value["text_size"]
+                    case "CURSOR_BISECT":
+                        prefs.cursor_bisect_plane_color = value["cursor_bisect_plane_color"]
+                        prefs.cursor_bisect_plane_outline_color = value["cursor_bisect_plane_outline_color"]
+                        prefs.cursor_bisect_plane_outline_thickness = value["cursor_bisect_plane_outline_thickness"]
+                        prefs.cursor_bisect_edge_color = value["cursor_bisect_edge_color"]
+                        prefs.cursor_bisect_edge_locked_color = value["cursor_bisect_edge_locked_color"]
+                        prefs.cursor_bisect_edge_thickness = value["cursor_bisect_edge_thickness"]
+                        prefs.cursor_bisect_edge_locked_thickness = value["cursor_bisect_edge_locked_thickness"]
+                        prefs.cursor_bisect_snap_color = value["cursor_bisect_snap_color"]
+                        prefs.cursor_bisect_snap_hold_color = value["cursor_bisect_snap_hold_color"]
+                        prefs.cursor_bisect_snap_closest_color = value["cursor_bisect_snap_closest_color"]
+                        prefs.cursor_bisect_snap_closest_hold_color = value["cursor_bisect_snap_closest_hold_color"]
+                        prefs.cursor_bisect_snap_size = value["cursor_bisect_snap_size"]
+                        prefs.cursor_bisect_snap_closest_size = value["cursor_bisect_snap_closest_size"]
                     case "UI_TEXT_STAT":
                         prefs.iops_stat = value["iops_stat"]
                         prefs.text_color_stat = value["text_color_stat"]

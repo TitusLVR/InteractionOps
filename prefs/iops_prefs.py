@@ -110,7 +110,22 @@ def get_iops_prefs():
             },
         "DRAG_SNAP": {
             "drag_snap_line_thickness": prefs.drag_snap_line_thickness
-            }
+            },
+        "CURSOR_BISECT": {
+            "cursor_bisect_plane_color": list(prefs.cursor_bisect_plane_color),
+            "cursor_bisect_plane_outline_color": list(prefs.cursor_bisect_plane_outline_color),
+            "cursor_bisect_plane_outline_thickness": prefs.cursor_bisect_plane_outline_thickness,
+            "cursor_bisect_edge_color": list(prefs.cursor_bisect_edge_color),
+            "cursor_bisect_edge_locked_color": list(prefs.cursor_bisect_edge_locked_color),
+            "cursor_bisect_edge_thickness": prefs.cursor_bisect_edge_thickness,
+            "cursor_bisect_edge_locked_thickness": prefs.cursor_bisect_edge_locked_thickness,
+            "cursor_bisect_snap_color": list(prefs.cursor_bisect_snap_color),
+            "cursor_bisect_snap_hold_color": list(prefs.cursor_bisect_snap_hold_color),
+            "cursor_bisect_snap_closest_color": list(prefs.cursor_bisect_snap_closest_color),
+            "cursor_bisect_snap_closest_hold_color": list(prefs.cursor_bisect_snap_closest_hold_color),
+            "cursor_bisect_snap_size": prefs.cursor_bisect_snap_size,
+            "cursor_bisect_snap_closest_size": prefs.cursor_bisect_snap_closest_size,
+            },
         }
 
     # # Update snap combos if exist in prefs
