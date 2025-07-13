@@ -125,6 +125,13 @@ def get_iops_prefs():
             "cursor_bisect_snap_closest_hold_color": list(prefs.cursor_bisect_snap_closest_hold_color),
             "cursor_bisect_snap_size": prefs.cursor_bisect_snap_size,
             "cursor_bisect_snap_closest_size": prefs.cursor_bisect_snap_closest_size,
+            "cursor_bisect_edge_subdivisions": prefs.cursor_bisect_edge_subdivisions,
+            "cursor_bisect_cut_preview_color": list(prefs.cursor_bisect_cut_preview_color),
+            "cursor_bisect_cut_preview_thickness": prefs.cursor_bisect_cut_preview_thickness,
+            "cursor_bisect_face_depth": prefs.cursor_bisect_face_depth,
+            "cursor_bisect_max_faces": prefs.cursor_bisect_max_faces,
+            "cursor_bisect_merge_distance": prefs.cursor_bisect_merge_distance,
+            "cursor_bisect_rotation_step": prefs.cursor_bisect_rotation_step,
             },
         }
 

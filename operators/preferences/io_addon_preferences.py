@@ -93,6 +93,13 @@ def load_iops_preferences():
                         prefs.cursor_bisect_snap_closest_hold_color = value["cursor_bisect_snap_closest_hold_color"]
                         prefs.cursor_bisect_snap_size = value["cursor_bisect_snap_size"]
                         prefs.cursor_bisect_snap_closest_size = value["cursor_bisect_snap_closest_size"]
+                        prefs.cursor_bisect_edge_subdivisions = value["cursor_bisect_edge_subdivisions"]
+                        prefs.cursor_bisect_cut_preview_color = value["cursor_bisect_cut_preview_color"]
+                        prefs.cursor_bisect_cut_preview_thickness = value["cursor_bisect_cut_preview_thickness"]
+                        prefs.cursor_bisect_face_depth = value["cursor_bisect_face_depth"]
+                        prefs.cursor_bisect_max_faces = value["cursor_bisect_max_faces"]
+                        prefs.cursor_bisect_merge_distance = value["cursor_bisect_merge_distance"]
+                        prefs.cursor_bisect_rotation_step = value["cursor_bisect_rotation_step"]
                     case "UI_TEXT_STAT":
                         prefs.iops_stat = value["iops_stat"]
                         prefs.text_color_stat = value["text_color_stat"]
