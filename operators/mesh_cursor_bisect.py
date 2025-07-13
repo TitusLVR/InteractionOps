@@ -10,7 +10,7 @@ import bpy_extras
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
     bl_label = "Cursor Bisect"
-    bl_description = "Bisect mesh. S-snap, D-hold points, Z-deselect all, Ctrl+Z-undo"
+    bl_description = "Bisect mesh. S-snap, D-hold points, Z-deselect all, Ctrl+Z-undo, A-lock orientation"
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
@@ -87,6 +87,46 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return closest_point
         
         return None
+    
+    def find_closest_edge_to_mouse(self, context, event, face):
+        """Find the closest edge in the face to the mouse cursor"""
+        if not face or not face.edges:
+            return 0
+            
+        region = context.region
+        rv3d = context.space_data.region_3d
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        
+        closest_edge_index = 0
+        closest_distance = float('inf')
+        
+        for i, edge in enumerate(face.edges):
+            v1, v2 = edge.verts
+            
+            # Transform vertices to world space
+            v1_world = self.hit_obj.matrix_world @ v1.co
+            v2_world = self.hit_obj.matrix_world @ v2.co
+            
+            # Project to screen space
+            v1_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v1_world)
+            v2_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v2_world)
+            
+            if v1_screen and v2_screen:
+                # Calculate distance from mouse to edge in screen space
+                edge_vec = Vector((v2_screen[0] - v1_screen[0], v2_screen[1] - v1_screen[1]))
+                mouse_vec = Vector((mouse_coord[0] - v1_screen[0], mouse_coord[1] - v1_screen[1]))
+                
+                if edge_vec.length > 0:
+                    # Project mouse vector onto edge vector
+                    t = max(0, min(1, mouse_vec.dot(edge_vec) / edge_vec.length_squared))
+                    projection = Vector(v1_screen) + t * edge_vec
+                    distance = (Vector(mouse_coord) - projection).length
+                    
+                    if distance < closest_distance:
+                        closest_distance = distance
+                        closest_edge_index = i
+        
+        return closest_edge_index
     
     def update_snapping(self, context, mouse_pos_world):
         """Update snap points and find closest snap point"""
@@ -366,7 +406,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
         
-        # Handle Ctrl+Wheel for edge subdivision control FIRST (before other wheel events)
+        # Handle Ctrl+Wheel for edge subdivision control
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and not event.shift:
             if self.snapping_enabled:
                 if event.type == 'WHEELUPMOUSE':
@@ -381,23 +421,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 return {'RUNNING_MODAL'}  # Consume the event
             return {'PASS_THROUGH'}
             
-        # Handle Shift+Wheel for edge cycling
-        elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.shift and not event.ctrl:
-            if self.face_edges:
-                if event.type == 'WHEELUPMOUSE':
-                    self.edge_index = (self.edge_index + 1) % len(self.face_edges)
-                else:
-                    self.edge_index = (self.edge_index - 1) % len(self.face_edges)
-                
-                # Always update orientation when manually cycling edges, even if locked
-                if not self.hold_snap_points:
-                    self.align_cursor_orientation()
-                context.area.tag_redraw()
-            return {'RUNNING_MODAL'}  # Consume the event
-            
         # Allow navigation - don't intercept middle mouse or plain navigation wheel
         elif event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            # Only handle if we haven't already handled it above
             return {'PASS_THROUGH'}
 
         # Mouse movement - update cursor position and orientation
@@ -417,6 +442,28 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 if face_changed and not self.hold_snap_points and not self.lock_orientation:
                     self.face_edges.clear()  # Reset edge cache
                     self.edge_index = 0  # Reset edge index
+                
+                # Update edge selection based on mouse position (if not locked)
+                if not self.lock_orientation:
+                    try:
+                        mesh = obj.data
+                        bm = bmesh.from_edit_mesh(mesh)
+                        bm.faces.ensure_lookup_table()
+                        
+                        if face_index < len(bm.faces):
+                            face = bm.faces[face_index]
+                            if face.edges:
+                                # Update face edges if needed
+                                if not self.face_edges or face_changed:
+                                    self.face_edges = [e.index for e in face.edges]
+                                
+                                # Find closest edge to mouse cursor
+                                closest_edge = self.find_closest_edge_to_mouse(context, event, face)
+                                if closest_edge != self.edge_index:
+                                    self.edge_index = closest_edge
+                                    
+                    except (IndexError, AttributeError):
+                        pass
                 
                 # Update snapping
                 self.update_snapping(context, loc)
@@ -450,7 +497,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             face = bm.faces[self.hit_face_index]
                             if face.edges:
                                 self.face_edges = [e.index for e in face.edges]
-                                self.edge_index = 0
+                                # Keep current edge index when locking
                     except (IndexError, AttributeError):
                         pass
                 self.align_cursor_orientation()
