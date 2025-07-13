@@ -665,8 +665,68 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=20.0,
     )
 
+    # Cut preview visual properties
+    cursor_bisect_cut_preview_color: bpy.props.FloatVectorProperty(
+        name="Cut Preview Color",
+        description="Color for cut preview lines",
+        subtype='COLOR_GAMMA',
+        size=4,
+        min=0.0, max=1.0,
+        default=(1.0, 0.5, 0.0, 1.0)
+    )
 
+    cursor_bisect_cut_preview_thickness: bpy.props.FloatProperty(
+        name="Cut Preview Thickness", 
+        description="Thickness of cut preview lines",
+        min=1.0, max=10.0,
+        default=3.0
+    )
 
+    # Face connectivity settings
+    cursor_bisect_face_depth: bpy.props.IntProperty(
+        name="Face Depth",
+        description="Number of face connections to traverse from raycast point for cut preview (higher = more complete but slower)",
+        min=1, max=20,
+        default=5
+    )
+
+    # Fallback performance limit (only used when no raycast hit)
+    cursor_bisect_max_faces: bpy.props.IntProperty(
+        name="Max Faces Fallback",
+        description="Maximum faces to process when no raycast target available (fallback only)",
+        min=100, max=10000,
+        default=1000
+    )
+
+    # Edge subdivision setting for snapping
+    cursor_bisect_edge_subdivisions: bpy.props.IntProperty(
+        name="Edge Subdivisions",
+        description="Default number of subdivision points along edges for snapping (0 = vertices and center only)",
+        default=1,
+        min=0,
+        max=100,
+    )
+
+    # Merge doubles setting for bisect operation
+    cursor_bisect_merge_distance: bpy.props.FloatProperty(
+        name="Merge Distance",
+        description="Distance threshold for merging duplicate vertices after bisect operation",
+        default=0.005,
+        min=0.0,
+        max=1.0,
+        precision=4,
+        step=0.001
+    )
+    # Rotation settings for bisect operation
+    cursor_bisect_rotation_step: bpy.props.FloatProperty(
+        name="Rotation Step",
+        description="Angle step in degrees for Alt+Wheel rotation around Z-axis",
+        default=45.0,
+        min=1.0,
+        max=180.0,
+        step=500,  # 5 degrees
+        precision=1
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -1075,8 +1135,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
 
-
-            # Cursor Bisect preferences
+           # Cursor Bisect preferences
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
@@ -1113,7 +1172,36 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_snap_size")
             row.prop(self, "cursor_bisect_snap_closest_size")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_edge_subdivisions")
+
+            # Cut preview settings
             col.separator()
+            col.label(text="Cut Preview:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_cut_preview_color")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_cut_preview_thickness")
+
+            # Face connectivity settings
+            col.separator()
+            col.label(text="Preview Scope:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_face_depth")
+            row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
+
+            # Bisect operation settings
+            col.separator()
+            col.label(text="Operation Settings:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_merge_distance")
+            # Bisect operation settings
+            col.separator()
+            col.label(text="Operation Settings:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_merge_distance")
+            row.prop(self, "cursor_bisect_rotation_step")
+            col.separator()           
 
             # Snap Combos
             col = column_main.column(align=False)
