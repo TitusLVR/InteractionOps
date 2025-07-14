@@ -6,7 +6,7 @@ from ..utils.functions import get_iop
 class IOPS_OT_Main(bpy.types.Operator):
     bl_idname = "iops.main"
     bl_label = "IOPS"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     # modes_3d = {0: "VERT", 1: "EDGE", 2: "FACE"}
     # modes_uv = {0: "VERTEX", 1: "EDGE", 2: "FACE", 3: "ISLAND"}
@@ -81,7 +81,7 @@ class IOPS_OT_Main(bpy.types.Operator):
                     event,
                 )
             else:
-                query = (type_area, None, None, None, None, None, None, None)
+                query = (type_area, None, None, None, None, None, op, event)
 
             # Get and execute the function
             function = get_iop(IOPS_Dict.iops_dict, query)
