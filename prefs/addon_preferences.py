@@ -1189,12 +1189,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_face_depth")
             row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
-
-            # Bisect operation settings
-            col.separator()
-            col.label(text="Operation Settings:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_merge_distance")
+            
             # Bisect operation settings
             col.separator()
             col.label(text="Operation Settings:")
