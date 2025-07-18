@@ -676,7 +676,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
 
     cursor_bisect_cut_preview_thickness: bpy.props.FloatProperty(
-        name="Cut Preview Thickness", 
+        name="Cut Preview Thickness",
         description="Thickness of cut preview lines",
         min=1.0, max=10.0,
         default=3.0
@@ -725,6 +725,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=1.0,
         max=180.0,
         step=500,  # 5 degrees
+        precision=1
+    )
+    cursor_bisect_coplanar_angle: bpy.props.FloatProperty(
+        name="Coplanar Angle",
+        description="Angle threshold in degrees to consider faces coplanar for bisect operation",
+        default=5.0,
+        min=0.0,
+        max=180.0,
+        step=100,  # 1 degree
         precision=1
     )
 
@@ -1189,14 +1198,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_face_depth")
             row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
-            
+            # Coplanar angle
+            col.separator()
+            col.label(text="Coplanar Angle:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_coplanar_angle")
+            col.separator()
             # Bisect operation settings
             col.separator()
             col.label(text="Operation Settings:")
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_merge_distance")
             row.prop(self, "cursor_bisect_rotation_step")
-            col.separator()           
+            col.separator()
 
             # Snap Combos
             col = column_main.column(align=False)
@@ -1206,7 +1220,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = box.row(align=True)
             row.alignment = "LEFT"
             row.prop(self, "snap_combo_mod")
-            
+
             # Preferences
             col = column_main.column(align=False)
             box = col.box()
@@ -1215,8 +1229,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.operator("iops.save_addon_preferences", text="Save preferences")
             row.operator("iops.load_addon_preferences", text="Load preferences")
-            col.separator()            
-            
+            col.separator()
+
             # Debug
             col = column_main.column(align=False)
             box = col.box()

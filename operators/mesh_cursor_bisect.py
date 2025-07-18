@@ -35,7 +35,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     snap_points = []
     closest_snap_point = None
     edge_subdivisions = 0  # 0 subdivisions by default (only vertices and center)
-    hold_snap_points = True  # Hold snap points without recalculating
+    hold_snap_points = False  # Hold snap points without recalculating
     last_face_index = -1  # Track last face to avoid unnecessary recalculations
 
     # Cut preview system
@@ -52,11 +52,113 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [P] Preview({preview_mode}) | [X] Axis | [C] Select Face | "
-                      f"[Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | [Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [RMB] Finish | [Esc] Cancel")
+                      f"[D] Hold Points | [P] Preview({preview_mode}) | [X] Axis | [RMB] Select Face | "
+                      f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
+                      f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
         # Set workspace status text
         context.workspace.status_text_set(status_text)
+
+    def select_coplanar_faces(self, context, event):
+        """Select faces that are coplanar with the clicked face within angle threshold"""
+        result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+        if not result or not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
+            return
+        
+        try:
+            # Get angle threshold from preferences and convert to threshold for select_similar
+            try:
+                prefs = context.preferences.addons["InteractionOps"].preferences
+                angle_threshold = prefs.cursor_bisect_coplanar_angle if hasattr(prefs, 'cursor_bisect_coplanar_angle') else 5.0
+            except:
+                angle_threshold = 5.0  # Default 5 degrees
+            
+            # Convert angle threshold to the threshold format used by select_similar
+            similarity_threshold = angle_threshold / 180.0  # Convert degrees to 0-1 range
+            similarity_threshold = max(0.001, min(1.0, similarity_threshold))  # Clamp to valid range
+            
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            
+            if face_index >= len(bm.faces):
+                return
+                
+            clicked_face = bm.faces[face_index]
+            if not self.is_face_visible_and_valid(clicked_face):
+                return
+            
+            # Store current selection state
+            original_selection = {f.index: f.select for f in bm.faces}
+            
+            # Check if the clicked face is already selected to determine add/remove mode
+            clicked_face_was_selected = clicked_face.select
+            
+            # Temporarily clear selection and select only the clicked face for similarity detection
+            for face in bm.faces:
+                face.select = False
+            clicked_face.select = True
+            bmesh.update_edit_mesh(obj.data)
+            
+            # Use Blender's built-in select similar with coplanar type
+            bpy.ops.mesh.select_similar(type='FACE_COPLANAR', threshold=similarity_threshold)
+            
+            # Refresh bmesh to get the similarity results
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            
+            # Get the faces that were detected as coplanar
+            coplanar_faces = [f.index for f in bm.faces if f.select and self.is_face_visible_and_valid(f)]
+            
+            # Restore original selection
+            for face in bm.faces:
+                face.select = original_selection.get(face.index, False)
+            
+            # Now apply add/remove logic based on whether clicked face was originally selected
+            if clicked_face_was_selected:
+                # Clicked face was selected - REMOVE coplanar faces from selection
+                removed_count = 0
+                for face_idx in coplanar_faces:
+                    if face_idx < len(bm.faces):
+                        face = bm.faces[face_idx]
+                        if face.select:
+                            face.select = False
+                            removed_count += 1
+                
+                action_text = f"Removed {removed_count} coplanar faces from selection"
+                
+            else:
+                # Clicked face was not selected - ADD coplanar faces to selection
+                added_count = 0
+                for face_idx in coplanar_faces:
+                    if face_idx < len(bm.faces):
+                        face = bm.faces[face_idx]
+                        if not face.select:
+                            face.select = True
+                            added_count += 1
+                
+                action_text = f"Added {added_count} coplanar faces to selection"
+            
+            # Flush selection to edges and vertices
+            bm.select_flush(True)
+            bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
+            
+            # Update cut preview after selection change
+            self.calculate_cut_preview(context)
+            
+            # Show feedback message
+            self.report({'INFO'}, f"{action_text} (angle ≤ {angle_threshold}°)")
+                
+        except Exception as e:
+            self.report({'WARNING'}, f"Failed to select coplanar faces: {e}")
+            # Restore original selection on error
+            try:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                for face in bm.faces:
+                    face.select = original_selection.get(face.index, False)
+                bmesh.update_edit_mesh(obj.data)
+            except:
+                pass
 
     def modal(self, context, event):
         # Handle timer events
@@ -227,22 +329,27 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle face selection
-        elif event.type == 'C' and event.value == 'PRESS' and not event.shift and not event.ctrl:
-            result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
-            if result and obj and obj.type == 'MESH' and obj.mode == 'EDIT':
-                try:
-                    bm = bmesh.from_edit_mesh(obj.data)
-                    bm.faces.ensure_lookup_table()
-                    if face_index < len(bm.faces):
-                        face = bm.faces[face_index]
-                        face.select_set(not face.select)
-                        bm.select_flush(True)
-                        bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
-                        # Update cut preview after selection change
-                        self.calculate_cut_preview(context)
-                except (IndexError, AttributeError):
-                    pass
+        # Face selection and coplanar selection
+        elif event.type == 'RIGHTMOUSE' and event.value == 'PRESS' and not event.ctrl:
+            if event.shift:
+                # Shift+RMB: Select coplanar faces
+                self.select_coplanar_faces(context, event)
+            else:
+                # Regular RMB: Toggle face selection
+                result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+                if result and obj and obj.type == 'MESH' and obj.mode == 'EDIT':
+                    try:
+                        bm = bmesh.from_edit_mesh(obj.data)
+                        bm.faces.ensure_lookup_table()
+                        if face_index < len(bm.faces):
+                            face = bm.faces[face_index]
+                            face.select_set(not face.select)
+                            bm.select_flush(True)
+                            bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
+                            # Update cut preview after selection change
+                            self.calculate_cut_preview(context)
+                    except (IndexError, AttributeError):
+                        pass
             return {'RUNNING_MODAL'}
 
         # Toggle cut preview mode
@@ -332,7 +439,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         # Finish operator
-        elif event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
+        elif event.type == 'SPACE' and event.value == 'PRESS':
             self.cancel(context)
             return {'FINISHED'}
 
@@ -1157,7 +1264,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.edge_subdivisions = prefs.cursor_bisect_edge_subdivisions if hasattr(prefs, 'cursor_bisect_edge_subdivisions') else 1
         except:
             self.edge_subdivisions = 1  # Fallback default
-        self.hold_snap_points = False
+        self.hold_snap_points = False  # Active by default
         self.last_face_index = -1
         self.cut_preview_mode = 'LINES'  # Default to line preview
         self.cut_preview_lines = []
@@ -1176,5 +1283,3 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {'RUNNING_MODAL'}
-
-    
