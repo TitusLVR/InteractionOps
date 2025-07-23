@@ -30,6 +30,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     # Add timer for better modal handling
     _timer = None
 
+    # Mouse coordinate tracking for screen-space snapping
+    _current_mouse_coord = (0, 0)
+
     # Snapping system
     snapping_enabled = True  # Active by default
     snap_points = []
@@ -236,6 +239,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Mouse movement - update cursor position and orientation
         if event.type == 'MOUSEMOVE':
+            # Store current mouse coordinates for screen-space snapping
+            self._current_mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+            
             result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
             if result and obj and obj.type == 'MESH' and obj.mode == 'EDIT':
                 self.hit_location = loc
@@ -274,7 +280,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     except (IndexError, AttributeError):
                         pass
 
-                # Update snapping
+                # Update snapping (now with screen-space support)
                 self.update_snapping(context, loc)
 
                 # Update cut preview
@@ -650,8 +656,63 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         return snap_points
 
-    def find_closest_snap_point(self, mouse_pos_world):
-        """Find the closest snap point to the mouse position"""
+    def find_closest_snap_point(self, context, mouse_coord, mouse_pos_world):
+        """Find closest snap point using weighted screen + world distance"""
+        if not self.snap_points or not context:
+            return None
+
+        try:
+            region = context.region
+            rv3d = context.space_data.region_3d
+            
+            # Get thresholds
+            try:
+                prefs = context.preferences.addons["InteractionOps"].preferences
+                screen_threshold = prefs.cursor_bisect_snap_threshold if hasattr(prefs, 'cursor_bisect_snap_threshold') else 30.0
+            except:
+                screen_threshold = 30.0
+
+            closest_point = None
+            best_weighted_score = float('inf')
+
+            # Calculate adaptive world threshold
+            obj_scale = self.hit_obj.matrix_world.to_scale()
+            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
+            world_threshold = max(0.1, min(max_scale * 0.02, 10.0))
+
+            for snap_type, point_local in self.snap_points:
+                point_world = self.hit_obj.matrix_world @ point_local
+                
+                # Calculate world distance (always available)
+                world_distance = (point_world - mouse_pos_world).length
+                world_score = world_distance / world_threshold  # Normalize to 0-1+ range
+                
+                # Try screen distance
+                point_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, point_world)
+                
+                if point_screen and 0 <= point_screen[0] <= region.width and 0 <= point_screen[1] <= region.height:
+                    # Screen projection successful
+                    screen_distance = (Vector(mouse_coord) - Vector(point_screen)).length
+                    screen_score = screen_distance / screen_threshold  # Normalize to 0-1+ range
+                    
+                    # Weighted combination: prefer screen distance but include world as backup
+                    weighted_score = (screen_score * 0.7) + (world_score * 0.3)
+                else:
+                    # No screen projection - use world distance only
+                    weighted_score = world_score
+                
+                # Only consider points within reasonable range
+                if weighted_score < 1.5 and weighted_score < best_weighted_score:
+                    best_weighted_score = weighted_score
+                    closest_point = (snap_type, point_local, point_world)
+
+            return closest_point if best_weighted_score < 1.0 else None
+            
+        except Exception:
+            return self.find_closest_snap_point_fallback(mouse_pos_world)
+
+    def find_closest_snap_point_fallback(self, mouse_pos_world):
+        """Fallback method using world-space distance with adaptive threshold"""
         if not self.snap_points:
             return None
 
@@ -659,7 +720,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         closest_distance = float('inf')
 
         for snap_type, point_local in self.snap_points:
-            # Transform to world space
             point_world = self.hit_obj.matrix_world @ point_local
             distance = (point_world - mouse_pos_world).length
 
@@ -667,9 +727,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 closest_distance = distance
                 closest_point = (snap_type, point_local, point_world)
 
-        # Only snap if within reasonable distance (viewport dependent)
-        if closest_distance < 0.5:  # Adjust this threshold as needed
-            return closest_point
+        # Use adaptive threshold based on object scale
+        if self.hit_obj and closest_point:
+            obj_scale = self.hit_obj.matrix_world.to_scale()
+            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
+            adaptive_threshold = 0.5 * max_scale
+            adaptive_threshold = max(0.1, min(adaptive_threshold, 50.0))
+            
+            if closest_distance < adaptive_threshold:
+                return closest_point
 
         return None
 
@@ -720,9 +786,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.closest_snap_point = None
             return
 
+        # Get mouse coordinates for screen-space calculation
+        mouse_coord = getattr(self, '_current_mouse_coord', (0, 0))
+
         # If holding snap points, only update closest point calculation, not the snap points themselves
         if self.hold_snap_points and self.snap_points:
-            self.closest_snap_point = self.find_closest_snap_point(mouse_pos_world)
+            self.closest_snap_point = self.find_closest_snap_point(context, mouse_coord, mouse_pos_world)
             return
 
         # Regular snap point calculation
@@ -747,7 +816,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             face = bm.faces[self.hit_face_index]
             self.snap_points = self.calculate_snap_points(face)
-            self.closest_snap_point = self.find_closest_snap_point(mouse_pos_world)
+            self.closest_snap_point = self.find_closest_snap_point(context, mouse_coord, mouse_pos_world)
 
         except (IndexError, AttributeError, ValueError):
             self.snap_points = []
@@ -1268,6 +1337,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.last_face_index = -1
         self.cut_preview_mode = 'LINES'  # Default to line preview
         self.cut_preview_lines = []
+
+        # Initialize mouse coordinate tracking for screen-space snapping
+        self._current_mouse_coord = (0, 0)
 
         # Add draw handler
         self._handle = bpy.types.SpaceView3D.draw_handler_add(

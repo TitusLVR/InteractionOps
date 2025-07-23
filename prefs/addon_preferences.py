@@ -736,6 +736,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         step=100,  # 1 degree
         precision=1
     )
+    cursor_bisect_snap_threshold: bpy.props.FloatProperty(
+    name="Snap Threshold (pixels)",
+    description="Screen-space distance threshold for snapping in pixels",
+    default=30.0,
+    min=5.0,
+    max=100.0,
+    step=5
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -1210,6 +1218,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_merge_distance")
             row.prop(self, "cursor_bisect_rotation_step")
+            row.prop(self, "cursor_bisect_snap_threshold")
             col.separator()
 
             # Snap Combos
