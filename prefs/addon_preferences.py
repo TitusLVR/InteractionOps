@@ -1,3 +1,6 @@
+from ast import In
+from pydoc import text
+from re import I
 import bpy
 import rna_keymap_ui
 import os
@@ -744,6 +747,42 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     max=100.0,
     step=5
     )
+    cursor_bisect_snap_use_modifiers: bpy.props.BoolProperty(
+    name="Snap to Modified Mesh",
+    description="Calculate snap points on mesh with modifiers applied (slower but more accurate)",
+    default=True
+    )   
+    # Distance text settings
+    cursor_bisect_distance_text_color: FloatVectorProperty(
+        name="Distance Text Color",
+        subtype="COLOR_GAMMA",
+        size=4,
+        min=0,
+        max=1,
+        default=(1.0, 1.0, 0.0, 1.0), # Yellow color       
+    )    
+    cursor_bisect_distance_text_size:IntProperty(
+        name="Distance Text Size",
+        description="Size of the distance text displayed during bisect operation",
+        default=12,
+        min=5,
+        max=100,
+    )
+    cursor_bisect_distance_offset_x:IntProperty(
+        name="Distance Text Offset X",
+        description="X offset for the distance text position",
+        default=25,
+        min=-1000,
+        max=1000,
+    )
+    cursor_bisect_distance_offset_y:IntProperty(
+        name="Distance Text Offset Y",
+        description="Y offset for the distance text position",
+        default=-25,
+        min=-1000,
+        max=1000,
+    )
+
 
     def draw(self, context):
         layout = self.layout
@@ -1219,6 +1258,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.prop(self, "cursor_bisect_merge_distance")
             row.prop(self, "cursor_bisect_rotation_step")
             row.prop(self, "cursor_bisect_snap_threshold")
+            row.prop(self, "cursor_bisect_snap_use_modifiers")
+            # Distance text settings
+            col.separator()
+            col.label(text="Bisect Info Text Settings:")
+            row = col.row(align=True)
+            row.prop(self, "cursor_bisect_distance_text_color", text="Text Color")            
+            row.prop(self, "cursor_bisect_distance_text_size", text="Text Size")
+            row.prop(self, "cursor_bisect_distance_offset_x", text="Offset X")
+            row.prop(self, "cursor_bisect_distance_offset_y", text="Offset Y")
             col.separator()
 
             # Snap Combos

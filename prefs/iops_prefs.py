@@ -142,6 +142,10 @@ def get_iops_prefs():
             "cursor_bisect_max_faces": safe("cursor_bisect_max_faces", 1000),
             "cursor_bisect_merge_distance": safe("cursor_bisect_merge_distance", 0.005),
             "cursor_bisect_rotation_step": safe("cursor_bisect_rotation_step", 45.0),
+            "cursor_bisect_distance_text_color": safelist("cursor_bisect_distance_text_color", (1.0, 1.0, 0.0, 1.0)),
+            "cursor_bisect_distance_text_size": safe("cursor_bisect_distance_text_size", 12.0),
+            "cursor_bisect_distance_offset_x": safe("cursor_bisect_distance_offset_x", -25),
+            "cursor_bisect_distance_offset_y": safe("cursor_bisect_distance_offset_y", 25),
         },
     }
 

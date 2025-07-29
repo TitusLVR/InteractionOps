@@ -100,6 +100,10 @@ def load_iops_preferences():
                         prefs.cursor_bisect_max_faces = value["cursor_bisect_max_faces"]
                         prefs.cursor_bisect_merge_distance = value["cursor_bisect_merge_distance"]
                         prefs.cursor_bisect_rotation_step = value["cursor_bisect_rotation_step"]
+                        prefs.cursor_bisect_distance_text_color = value["cursor_bisect_distance_text_color"]
+                        prefs.cursor_bisect_distance_text_size = value["cursor_bisect_distance_text_size"]
+                        prefs.cursor_bisect_distance_offset_x = value["cursor_bisect_distance_offset_x"]
+                        prefs.cursor_bisect_distance_offset_y = value["cursor_bisect_distance_offset_y"]
                     case "UI_TEXT_STAT":
                         prefs.iops_stat = value["iops_stat"]
                         prefs.text_color_stat = value["text_color_stat"]
