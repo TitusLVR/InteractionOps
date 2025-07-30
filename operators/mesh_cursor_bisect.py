@@ -721,6 +721,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_pixel, 'WINDOW')
             self._handle_pixel = None
 
+        if self._handle_iops_text:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, 'WINDOW')
+            self._handle_iops_text = None
+
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
@@ -1163,6 +1167,86 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             except (IndexError, AttributeError, ValueError):
                 continue
+
+    # Draw Help text
+    def draw_iops_text(self, context):
+        preferences = context.preferences
+        uifactor = preferences.system.ui_scale
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        
+        # Text appearance settings
+        tColor = prefs.text_color
+        tKColor = prefs.text_color_key
+        tCSize = prefs.text_size
+        tCPosX = prefs.text_pos_x
+        tCPosY = prefs.text_pos_y
+        
+        # Shadow settings
+        tShadow = prefs.text_shadow_toggle
+        tSColor = prefs.text_shadow_color
+        tSBlur = prefs.text_shadow_blur
+        tSPosX = prefs.text_shadow_pos_x
+        tSPosY = prefs.text_shadow_pos_y
+        
+        # Instructions text (action, key)
+        iops_text = (
+            ("Snapping", "S"),
+            ("Snap Points Subdivide", "Ctrl+Mouse Wheel"),
+            ("Hold Points", "D"),
+            ("Select Face", "Right Mouse Button"),
+            ("Select Coplanar Faces", "Shift+Right Mouse Button"),
+            ("Rotate Z-axis", "Alt+Mouse Wheel"),
+            ("Lock Edge (Orientation)", "A"),
+            ("Preview Line/Plane", "P"),
+            ("Toggle Distance Info", "I"),
+            ("Execute bisect", "Left Mouse Button"),
+            ("Finish operation", "Space"),
+            ("Cancel operation", "Esc"),
+        )
+        
+        # Font setup
+        font_id = 0
+        blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
+        blf.size(font_id, tCSize)
+        
+        # Configure shadow
+        if tShadow:
+            blf.enable(font_id, blf.SHADOW)
+            blf.shadow(font_id, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
+            blf.shadow_offset(font_id, tSPosX, tSPosY)
+        else:
+            blf.disable(font_id, blf.SHADOW)
+        
+        # Calculate layout - find the widest action text to avoid overlap
+        max_action_width = 0
+        for line in iops_text:
+            action_width = blf.dimensions(font_id, line[0])[0]
+            max_action_width = max(max_action_width, action_width)
+        
+        # Calculate the right edge position for key alignment
+        action_start_x = tCPosX * uifactor
+        padding = (tCSize * 2) * uifactor
+        keys_right_edge = action_start_x + max_action_width + padding + (tCSize * 15) * uifactor
+        
+        offset = tCPosY
+        
+        # Draw text lines (reversed order for bottom-up display)
+        for line in reversed(iops_text):
+            # Draw action description
+            blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
+            blf.position(font_id, action_start_x, offset, 0)
+            blf.draw(font_id, line[0])
+            
+            # Draw key binding (right-aligned to the keys_right_edge)
+            blf.color(font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+            key_width = blf.dimensions(font_id, line[1])[0]
+            key_x_pos = keys_right_edge - key_width
+            blf.position(font_id, key_x_pos, offset, 0)
+            blf.draw(font_id, line[1])
+            
+            # Move to next line
+            offset += (tCSize + 5) * uifactor
+
     # Part 11: Distance Text Drawing
 
     def draw_mouse_distance_text(self, context):
@@ -1554,8 +1638,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         )
         self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
             self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
-)
-
+        )
+        self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+            self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
+            )
         # Add timer for smoother updates
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
 
