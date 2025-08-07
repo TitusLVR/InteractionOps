@@ -36,8 +36,8 @@ def get_text_icon(context, operator):
                 return "Esc", "EVENT_ESC"
 
 
-class IOPS_MT_Pie_Edit_Submenu(Menu):
-    bl_label = "IOPS_MT_Pie_Edit_Submenu"
+class IOPS_MT_Pie_Edit_Modes(Menu):
+    bl_label = "IOPS_MT_Pie_Edit_Modes"
 
     def draw(self, context):
         layout = self.layout
@@ -55,7 +55,7 @@ class IOPS_MT_Pie_Edit(Menu):
     bl_label = "IOPS_MT_Pie_Edit"
 
     @classmethod
-    def poll(self, context):
+    def poll(cls, context):
         return (
             context.area.type in {"VIEW_3D", "IMAGE_EDITOR"} and context.active_object
         )
@@ -154,36 +154,36 @@ class IOPS_MT_Pie_Edit(Menu):
                 # r = row.row(align=True)
                 # r.active = False if context.mode == 'TEXTURE_PAINT' else True
                 # r.operator("object.mode_set", text="", icon="TPAINT_HLT").mode = 'TEXTURE_PAINT'
-                if context.object.type in {"MESH"}:
-                    r = row.row(align=True)
-                    r.active = False if context.mode == "WEIGHT_PAINT" else True
-                    r.operator("object.mode_set", text="", icon="WPAINT_HLT").mode = (
-                        "WEIGHT_PAINT"
-                    )
-
-                    r = row.row(align=True)
-                    r.active = False if context.mode == "VERTEX_PAINT" else True
-                    r.operator("object.mode_set", text="", icon="VPAINT_HLT").mode = (
-                        "VERTEX_PAINT"
-                    )
-
-                    r = row.row(align=True)
-                    r.active = False if context.mode == "SCULPT" else True
-                    r.operator(
-                        "object.mode_set", text="", icon="SCULPTMODE_HLT"
-                    ).mode = "SCULPT"
-
-                    r = row.row(align=True)
-                    r.active = False if context.mode == "OBJECT" else True
-                    r.operator("object.mode_set", text="", icon="OBJECT_DATA").mode = (
-                        "OBJECT"
-                    )
-
-                    r = row.row(align=True)
-                    r.active = False if context.mode == "EDIT_MESH" else True
-                    r.operator("object.mode_set", text="", icon="EDITMODE_HLT").mode = (
-                        "EDIT"
-                    )
+                # if context.object.type in {"MESH"}:
+                #     r = row.row(align=True)
+                #     r.active = False if context.mode == "WEIGHT_PAINT" else True
+                #     r.operator("object.mode_set", text="", icon="WPAINT_HLT").mode = (
+                #         "WEIGHT_PAINT"
+                #     )
+                #
+                #     r = row.row(align=True)
+                #     r.active = False if context.mode == "VERTEX_PAINT" else True
+                #     r.operator("object.mode_set", text="", icon="VPAINT_HLT").mode = (
+                #         "VERTEX_PAINT"
+                #     )
+                #
+                #     r = row.row(align=True)
+                #     r.active = False if context.mode == "SCULPT" else True
+                #     r.operator(
+                #         "object.mode_set", text="", icon="SCULPTMODE_HLT"
+                #     ).mode = "SCULPT"
+                #
+                #     r = row.row(align=True)
+                #     r.active = False if context.mode == "OBJECT" else True
+                #     r.operator("object.mode_set", text="", icon="OBJECT_DATA").mode = (
+                #         "OBJECT"
+                #     )
+                #
+                #     r = row.row(align=True)
+                #     r.active = False if context.mode == "EDIT_MESH" else True
+                #     r.operator("object.mode_set", text="", icon="EDITMODE_HLT").mode = (
+                #         "EDIT"
+                #     )
 
         elif context.area.type == "IMAGE_EDITOR":
             if context.tool_settings.use_uv_select_sync:

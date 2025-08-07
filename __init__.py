@@ -118,7 +118,7 @@ from .ui.iops_pie_split import (
 )
 
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
-from .ui.iops_pie_edit import IOPS_MT_Pie_Edit, IOPS_OT_Call_Pie_Edit
+from .ui.iops_pie_edit import IOPS_MT_Pie_Edit, IOPS_OT_Call_Pie_Edit, IOPS_MT_Pie_Edit_Modes
 from .operators.z_ops import (
     Z_OT_GrowLoop,
     Z_OT_ShrinkLoop,
@@ -261,6 +261,7 @@ classes = (
     IOPS_MT_Pie_Menu,
     IOPS_OT_Call_Pie_Menu,
     IOPS_MT_Pie_Edit,
+    IOPS_MT_Pie_Edit_Modes,
     IOPS_OT_Split_Area_Pie_1,
     IOPS_OT_Split_Area_Pie_2,
     IOPS_OT_Split_Area_Pie_3,
