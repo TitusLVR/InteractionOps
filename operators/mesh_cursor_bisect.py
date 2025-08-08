@@ -1,4 +1,4 @@
-# Part 1: Imports and Class Definition
+# Part 1: Imports and Class Definition with Modifier Management
 from multiprocessing import context
 import bpy
 import mathutils
@@ -53,6 +53,130 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     distance_text_offset_x = 20  # Offset from mouse cursor in pixels
     distance_text_offset_y = -30  # Offset from mouse cursor in pixels
     distance_text_size = 16  # Text size
+
+    # Modifier Management System
+    _modifier_states = {}  # Store original modifier states {obj_name: {modifier_name: show_viewport}}
+    
+    # Modifier types that should be disabled during bisect operation
+    DISABLE_MODIFIER_TYPES = {
+        'TRIANGULATE',
+        'SOLIDIFY', 
+        'ARRAY',
+        'SCREW',
+        'SPIN',
+        'WELD',
+        'DECIMATE',
+        'REMESH',
+        'SKIN',
+        'SUBSURF',
+        'MULTIRES',
+        'DISPLACE',
+        'CAST',
+        'HOOK',
+        'LAPLACIANDEFORM',
+        'LATTICE',
+        'MESH_DEFORM',
+        'SHRINKWRAP',
+        'SIMPLE_DEFORM',
+        'SMOOTH',
+        'CORRECTIVE_SMOOTH',
+        'LAPLACIANSMOOTH',
+        'SURFACE_DEFORM',
+        'WARP',
+        'WAVE',
+        'CLOTH',
+        'COLLISION',
+        'DYNAMIC_PAINT',
+        'EXPLODE',
+        'FLUID',
+        'OCEAN',
+        'PARTICLE_INSTANCE',
+        'PARTICLE_SYSTEM',
+        'SOFT_BODY',
+        'SURFACE'
+    }
+    
+    # Modifier types that should NOT be disabled (keep enabled)
+    KEEP_MODIFIER_TYPES = {
+        'MIRROR',
+        'BEVEL',
+        'EDGE_SPLIT',
+        'WEIGHTED_NORMAL',
+        'NORMAL_EDIT',
+        'UV_PROJECT',
+        'UV_WARP'
+    }
+
+    def store_modifier_states(self, context):
+        """Store the current show_viewport state of all modifiers for selected objects"""
+        self._modifier_states.clear()
+        
+        # Get all selected mesh objects
+        selected_objects = [obj for obj in context.selected_objects 
+                          if obj.type == 'MESH']
+        
+        for obj in selected_objects:
+            if obj.modifiers:
+                obj_states = {}
+                for modifier in obj.modifiers:
+                    # Store original show_viewport state
+                    obj_states[modifier.name] = modifier.show_viewport
+                self._modifier_states[obj.name] = obj_states
+                
+        print(f"DEBUG: Stored modifier states for {len(self._modifier_states)} objects")
+
+    def disable_modifiers_for_bisect(self, context):
+        """Disable specified modifier types for better bisect operation"""
+        disabled_count = 0
+        
+        # Get all selected mesh objects
+        selected_objects = [obj for obj in context.selected_objects 
+                          if obj.type == 'MESH']
+        
+        for obj in selected_objects:
+            if obj.modifiers:
+                for modifier in obj.modifiers:
+                    # Only disable modifiers that are currently visible and should be disabled
+                    if (modifier.show_viewport and 
+                        modifier.type in self.DISABLE_MODIFIER_TYPES and
+                        modifier.type not in self.KEEP_MODIFIER_TYPES):
+                        
+                        modifier.show_viewport = False
+                        disabled_count += 1
+                        print(f"DEBUG: Disabled {modifier.type} modifier '{modifier.name}' on {obj.name}")
+        
+        if disabled_count > 0:
+            # Update the depsgraph to reflect modifier changes
+            context.view_layer.update()
+            print(f"DEBUG: Disabled {disabled_count} modifiers for bisect operation")
+
+    def restore_modifier_states(self, context):
+        """Restore the original show_viewport state of all modifiers"""
+        if not self._modifier_states:
+            return
+            
+        restored_count = 0
+        
+        # Get all objects that were processed
+        for obj_name, modifier_states in self._modifier_states.items():
+            # Find the object in the scene
+            obj = bpy.data.objects.get(obj_name)
+            if obj and obj.modifiers:
+                for modifier_name, original_state in modifier_states.items():
+                    # Find the modifier
+                    modifier = obj.modifiers.get(modifier_name)
+                    if modifier:
+                        # Restore original state
+                        modifier.show_viewport = original_state
+                        restored_count += 1
+                        
+        if restored_count > 0:
+            # Update the depsgraph to reflect modifier changes
+            context.view_layer.update()
+            print(f"DEBUG: Restored {restored_count} modifier states")
+        
+        # Clear stored states
+        self._modifier_states.clear()
 
     # Part 2: Status Bar and Distance Calculation Methods
 
@@ -709,10 +833,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return {'CANCELLED'}
 
         return {'FINISHED'}
+    
     # Part 7: Cancel and Draw Methods
 
     def cancel(self, context):
         """Clean up and cancel the operation"""
+        # Restore modifier states before cleaning up
+        self.restore_modifier_states(context)
+        
         if self._handle:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self._handle = None
@@ -728,7 +856,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
-
 
         # Clear workspace status text
         context.workspace.status_text_set(None)
@@ -775,6 +902,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     snap_points.append(('edge', point))
 
         return snap_points
+    
     # Part 8: Snap Point Methods
 
     def find_closest_snap_point(self, context, mouse_coord, mouse_pos_world):
@@ -942,6 +1070,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         except (IndexError, AttributeError, ValueError):
             self.snap_points = []
             self.closest_snap_point = None
+    
     # Part 9: Face Processing Methods
 
     def get_connected_faces_by_depth(self, bm, start_face_index, max_depth=5):
@@ -1025,6 +1154,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 faces_to_process = set(visible_faces[:max_faces])
 
         return faces_to_process
+    
     # Part 10: Cut Preview Calculation
 
     def calculate_cut_preview(self, context):
@@ -1592,6 +1722,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.report({'WARNING'}, "View3D not found")
             return {'CANCELLED'}
 
+        # Store modifier states before any operation
+        self.store_modifier_states(context)
+        
+        # Disable specific modifiers for better bisect operation
+        self.disable_modifiers_for_bisect(context)
+
         # Initialize all state variables
         self.hit_location = None
         self.hit_normal = None
@@ -1651,5 +1787,3 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {'RUNNING_MODAL'}
-
-
