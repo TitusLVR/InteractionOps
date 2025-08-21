@@ -1177,6 +1177,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Calculate bisect axis
         axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
+        if not rotation:
+            rotation = Vector((1, 0, 0))
         axis_world = rotation @ axis
 
         # Get preferences for depth setting and line elevation

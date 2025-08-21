@@ -29,7 +29,7 @@ def get_text_icon(context, operator):
             case "f1":
                 return "Open Instance Collection .blend", "FILE_BACKUP"
             case "f2":
-                return "Make instance real", "OUTLINER_OB_GROUP_INSTANCE"
+                return "Realize Instances", "OUTLINER_OB_GROUP_INSTANCE"
             case "f3":
                 return "F3", "EVENT_F3"
             case _:
@@ -73,7 +73,8 @@ class IOPS_MT_Pie_Edit(Menu):
                 # and context.object.instance_collection.library
             ):
                 pie.separator()
-                pie.separator()
+                op = pie.operator("object.duplicates_make_real", text="Make Instances Real")
+                op.use_hierarchy = True
 
                 op = pie.operator("machin3.assemble_instance_collection", text="Expand Collection to Scene")
 
@@ -81,7 +82,7 @@ class IOPS_MT_Pie_Edit(Menu):
                     blendpath = os.path.abspath(
                         bpy.path.abspath(
                             context.object.instance_collection.library.filepath
-                        )   
+                        )
                     )
                     library = context.object.instance_collection.library.name
 
