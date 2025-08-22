@@ -92,8 +92,46 @@ class IOPS_MT_Pie_Edit(Menu):
                     )
                     op.blendpath = blendpath
                     op.library = library
-
-
+            elif context.object.type == "EMPTY":
+                # 4 - LEFT - Size options
+                box = pie.box()
+                col = box.column(align=True)
+                col.scale_y = 0.9
+                col.label(text="Size")
+                row = box.row(align=True)
+                row.operator("iops.set_empty_size", text="0.1").size = 0.1
+                row.operator("iops.set_empty_size", text="0.5").size = 0.5
+                row.operator("iops.set_empty_size", text="1.0").size = 1.0
+                row = box.row(align=True)
+                row.operator("iops.set_empty_size", text="2.0").size = 2.0
+                row.operator("iops.set_empty_size", text="5.0").size = 5.0
+                row.operator("iops.set_empty_size", text="10.0").size = 10.0
+                col.separator()
+                col.prop(context.object, "empty_display_size", text="Custom Size")
+                col.separator()
+                col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
+                
+                # 6 - RIGHT - Display options
+                box = pie.box()
+                col = box.column(align=True)
+                col.label(text="Display")
+                flow = col.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+                flow.scale_x = 1.35
+                flow.operator("iops.set_empty_display", text="Plain Axes", icon="EMPTY_AXIS").display_type = "PLAIN_AXES"
+                flow.operator("iops.set_empty_display", text="Arrows", icon="EMPTY_ARROWS").display_type = "ARROWS"
+                flow.operator("iops.set_empty_display", text="Single Arrow", icon="EMPTY_SINGLE_ARROW").display_type = "SINGLE_ARROW"
+                flow.operator("iops.set_empty_display", text="Circle", icon="MESH_CIRCLE").display_type = "CIRCLE"
+                flow.operator("iops.set_empty_display", text="Cube", icon="MESH_CUBE").display_type = "CUBE"
+                flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
+                flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
+                flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
+                
+                # 7 - TOP-LEFT
+                # 9 - TOP-RIGHT
+                # 1 - BOTTOM-LEFT
+                # 3 - BOTTOM-RIGHT
+                # 2 - BOTTOM
+                # 8 - TOP
 
             # Curve
             elif context.object.type == "CURVE":
@@ -148,43 +186,6 @@ class IOPS_MT_Pie_Edit(Menu):
 
                 row = column.row(align=True)
 
-                # r = row.row(align=True)
-                # r.active = False if context.mode == 'PAINT_GPENCIL' else True
-                # r.operator("machin3.surface_draw_mode", text="", icon="GREASEPENCIL")
-
-                # r = row.row(align=True)
-                # r.active = False if context.mode == 'TEXTURE_PAINT' else True
-                # r.operator("object.mode_set", text="", icon="TPAINT_HLT").mode = 'TEXTURE_PAINT'
-                # if context.object.type in {"MESH"}:
-                #     r = row.row(align=True)
-                #     r.active = False if context.mode == "WEIGHT_PAINT" else True
-                #     r.operator("object.mode_set", text="", icon="WPAINT_HLT").mode = (
-                #         "WEIGHT_PAINT"
-                #     )
-                #
-                #     r = row.row(align=True)
-                #     r.active = False if context.mode == "VERTEX_PAINT" else True
-                #     r.operator("object.mode_set", text="", icon="VPAINT_HLT").mode = (
-                #         "VERTEX_PAINT"
-                #     )
-                #
-                #     r = row.row(align=True)
-                #     r.active = False if context.mode == "SCULPT" else True
-                #     r.operator(
-                #         "object.mode_set", text="", icon="SCULPTMODE_HLT"
-                #     ).mode = "SCULPT"
-                #
-                #     r = row.row(align=True)
-                #     r.active = False if context.mode == "OBJECT" else True
-                #     r.operator("object.mode_set", text="", icon="OBJECT_DATA").mode = (
-                #         "OBJECT"
-                #     )
-                #
-                #     r = row.row(align=True)
-                #     r.active = False if context.mode == "EDIT_MESH" else True
-                #     r.operator("object.mode_set", text="", icon="EDITMODE_HLT").mode = (
-                #         "EDIT"
-                #     )
 
         elif context.area.type == "IMAGE_EDITOR":
             if context.tool_settings.use_uv_select_sync:
@@ -210,6 +211,104 @@ class IOPS_MT_Pie_Edit(Menu):
                 pie.separator()
                 # 9 - TOP - RIGHT
                 pie.operator("iops.function_f4", text="Island", icon="UV_ISLANDSEL")
+
+
+
+
+
+class IOPS_OT_Set_Empty_Size(bpy.types.Operator):
+    """Set empty size"""
+    bl_idname = "iops.set_empty_size"
+    bl_label = "Set Empty Size"
+    
+    size: bpy.props.FloatProperty(
+        name="Size",
+        description="Empty size to set",
+        default=1.0,
+        min=0.001,
+        max=1000.0
+    )
+    
+    def execute(self, context):
+        # Get all selected objects that are empties and not instances
+        selected_empties = [obj for obj in context.selected_objects 
+                           if obj.type == "EMPTY" and not obj.instance_collection]
+        
+        if selected_empties:
+            for obj in selected_empties:
+                obj.empty_display_size = self.size
+        elif context.object and context.object.type == "EMPTY" and not context.object.instance_collection:
+            # Fallback to active object if no selection
+            context.object.empty_display_size = self.size
+        
+        return {"FINISHED"}
+
+
+class IOPS_OT_Set_Empty_Display(bpy.types.Operator):
+    """Set empty display type"""
+    bl_idname = "iops.set_empty_display"
+    bl_label = "Set Empty Display Type"
+    
+    display_type: bpy.props.EnumProperty(
+        name="Display Type",
+        description="Empty display type to set",
+        items=[
+            ("PLAIN_AXES", "Plain Axes", "Plain axes"),
+            ("ARROWS", "Arrows", "Arrows"),
+            ("SINGLE_ARROW", "Single Arrow", "Single arrow"),
+            ("CIRCLE", "Circle", "Circle"),
+            ("CUBE", "Cube", "Cube"),
+            ("SPHERE", "Sphere", "Sphere"),
+            ("CONE", "Cone", "Cone"),
+            ("IMAGE", "Image", "Image")
+        ],
+        default="PLAIN_AXES"
+    )
+    
+    def execute(self, context):
+        # Get all selected objects that are empties and not instances
+        selected_empties = [obj for obj in context.selected_objects 
+                           if obj.type == "EMPTY" and not obj.instance_collection]
+        
+        if selected_empties:
+            for obj in selected_empties:
+                obj.empty_display_type = self.display_type
+        elif context.object and context.object.type == "EMPTY" and not context.object.instance_collection:
+            # Fallback to active object if no selection
+            context.object.empty_display_type = self.display_type
+        
+        return {"FINISHED"}
+
+
+class IOPS_OT_Copy_Empty_Size_From_Active(bpy.types.Operator):
+    """Copy empty size from active object to all selected empties"""
+    bl_idname = "iops.copy_empty_size_from_active"
+    bl_label = "Copy Empty Size from Active"
+    
+    def execute(self, context):
+        # Check if active object is an empty and not an instance
+        if (context.object and context.object.type == "EMPTY" 
+            and not context.object.instance_collection):
+            
+            active_size = context.object.empty_display_size
+            
+            # Get all selected objects that are empties and not instances
+            selected_empties = [obj for obj in context.selected_objects 
+                               if obj.type == "EMPTY" and not obj.instance_collection]
+            
+            # Copy size to all selected empties (excluding the active one)
+            for obj in selected_empties:
+                if obj != context.object:  # Don't copy to itself
+                    obj.empty_display_size = active_size
+            
+            if selected_empties:
+                self.report({'INFO'}, f"Copied size {active_size} to {len(selected_empties)} empty objects")
+            else:
+                self.report({'INFO'}, "No other empty objects selected")
+        else:
+            self.report({'ERROR'}, "Active object must be a non-instance empty")
+        
+        return {"FINISHED"}
 
 
 class IOPS_OT_Call_Pie_Edit(bpy.types.Operator):
