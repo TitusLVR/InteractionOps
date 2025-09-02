@@ -56,7 +56,7 @@ class IOPS_OT_object_rotate_Z(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
@@ -104,7 +104,7 @@ class IOPS_OT_object_rotate_MZ(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
@@ -152,7 +152,7 @@ class IOPS_OT_object_rotate_Y(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
@@ -200,7 +200,7 @@ class IOPS_OT_object_rotate_MY(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
@@ -248,7 +248,7 @@ class IOPS_OT_object_rotate_X(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
@@ -296,7 +296,7 @@ class IOPS_OT_object_rotate_MX(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     per_object: BoolProperty(
-        name="Per Object", description="Apply Per Object", default=False
+        name="Per Object", description="Apply Per Object", default=True
     )
     reset_cursor: BoolProperty(
         name="Reset Cursor", description="Reset Cursor", default=True
