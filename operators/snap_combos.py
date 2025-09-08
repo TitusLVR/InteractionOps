@@ -90,13 +90,30 @@ def save_snap_combo(idx):
 class IOPS_OT_SetSnapCombo(bpy.types.Operator):
     '''
     Click to set the Snap Combo
-    Shift+Click to save the current Snap Combo
+    Shift+Click to save current Snap Combo
     '''
     bl_idname = "iops.set_snap_combo"
     bl_label = "Set Snap Combo"
     bl_options = {"REGISTER", "UNDO"}
 
     idx: bpy.props.IntProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        save_combo_mod = prefs.snap_combo_mod
+        
+        modifier_text = {
+            "SHIFT": "Shift",
+            "CTRL": "Ctrl", 
+            "ALT": "Alt",
+            "CTRL_ALT": "Ctrl + Alt",
+            "SHIFT_ALT": "Shift + Alt",
+            "SHIFT_CTRL": "Shift + Ctrl",
+            "SHIFT_CTRL_ALT": "Shift + Ctrl + Alt"
+        }.get(save_combo_mod, "Shift")
+        
+        return f"{modifier_text} + Click to save current Snap Combo"
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
@@ -105,7 +122,10 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
         if ((event.shift and save_combo_mod == "SHIFT") or
             (event.ctrl and save_combo_mod == "CTRL") or
             (event.alt and save_combo_mod == "ALT") or
-            (event.type == 'SEMI_COLON' and save_combo_mod == "SEMI_COLON")):
+            (event.ctrl and event.alt and save_combo_mod == "CTRL_ALT") or
+            (event.shift and event.alt and save_combo_mod == "SHIFT_ALT") or
+            (event.shift and event.ctrl and save_combo_mod == "SHIFT_CTRL") or
+            (event.shift and event.ctrl and event.alt and save_combo_mod == "SHIFT_CTRL_ALT")):
             
             save_snap_combo(self.idx)
             self.report({"INFO"}, f"Snap Combo {self.idx} Saved.")
