@@ -550,7 +550,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         items=[
             ("SHIFT", "Shift", "", 0),
             ("CTRL", "Ctrl", "", 1),
-            ("ALT", "Alt", "", 2)
+            ("ALT", "Alt", "", 2),
+            ("SEMI_COLON", ";", 3)
         ],
         default="SHIFT"
     )

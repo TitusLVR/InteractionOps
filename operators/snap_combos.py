@@ -104,7 +104,8 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
 
         if ((event.shift and save_combo_mod == "SHIFT") or
             (event.ctrl and save_combo_mod == "CTRL") or
-            (event.alt and save_combo_mod == "ALT")):
+            (event.alt and save_combo_mod == "ALT") or
+            (event.type == 'SEMI_COLON' and save_combo_mod == "SEMI_COLON")):
             
             save_snap_combo(self.idx)
             self.report({"INFO"}, f"Snap Combo {self.idx} Saved.")
