@@ -1,5 +1,4 @@
-# Part 1: Imports and Class Definition with Modifier Management
-from multiprocessing import context
+# Part 1: Imports and Class Definition
 import bpy
 import mathutils
 import bmesh
@@ -56,7 +55,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Modifier Management System
     _modifier_states = {}  # Store original modifier states {obj_name: {modifier_name: show_viewport}}
-    
+
     # Modifier types that should be disabled during bisect operation
     DISABLE_MODIFIER_TYPES = {
         'TRIANGULATE',
@@ -106,6 +105,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         'UV_PROJECT',
         'UV_WARP'
     }
+
+    # Part 2: Modifier Management Methods
 
     def store_modifier_states(self, context):
         """Store the current show_viewport state of all modifiers for selected objects"""
@@ -178,7 +179,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Clear stored states
         self._modifier_states.clear()
 
-    # Part 2: Status Bar and Distance Calculation Methods
+    # Part 3: Status Bar and Distance Calculation Methods
 
     def update_status_bar(self, context):
         """Update workspace status text with current shortcuts and mode info"""
@@ -188,11 +189,19 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         preview_mode = self.cut_preview_mode
         distance_status = "ON" if self.show_distance_info else "OFF"
 
+        # Add raycast info for large models
+        raycast_info = ""
+        if hasattr(self, '_last_raycast_strategy'):
+            if self._last_raycast_strategy == 'area':
+                raycast_info = " | Area Raycast Active"
+            elif self._last_raycast_strategy == 'extended':
+                raycast_info = " | Extended Raycast Active"
+
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
                       f"[D] Hold Points | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
-                      f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
+                      f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel{raycast_info}")
 
         # Set workspace status text
         context.workspace.status_text_set(status_text)
@@ -510,6 +519,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     _, _, snap_world = self.closest_snap_point
                     context.scene.cursor.location = snap_world
                 else:
+                    # Use the raycast result directly - simple and reliable
                     context.scene.cursor.location = loc
 
                 # Only update orientation if face changed or if not locked/holding
@@ -671,9 +681,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Finish operator
+        # Finish operator - execute then finish
         elif event.type == 'SPACE' and event.value == 'PRESS':
-            self.cancel(context)
+            result = self.execute(context)
+            self.cancel(context)  # Clean up resources and restore modifiers
+            if result == {'CANCELLED'}:
+                return {'CANCELLED'}
             return {'FINISHED'}
 
         # Cancel operator
@@ -826,6 +839,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.report({'WARNING'}, f"Bisect failed on {obj.name}: {e}")
                 continue
 
+        # Restore modifier states after bisect operation
+        self.restore_modifier_states(context)
+
         if success_count > 0:
             self.report({'INFO'}, f"Bisect completed on {success_count} object(s)")
         else:
@@ -833,14 +849,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return {'CANCELLED'}
 
         return {'FINISHED'}
-    
     # Part 7: Cancel and Draw Methods
 
     def cancel(self, context):
         """Clean up and cancel the operation"""
-        # Restore modifier states before cleaning up
-        self.restore_modifier_states(context)
-        
         if self._handle:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
             self._handle = None
@@ -856,6 +868,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
+
+        # Restore modifier states on cancel (only if not already restored)
+        if self._modifier_states:
+            self.restore_modifier_states(context)
 
         # Clear workspace status text
         context.workspace.status_text_set(None)
@@ -902,7 +918,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     snap_points.append(('edge', point))
 
         return snap_points
-    
     # Part 8: Snap Point Methods
 
     def find_closest_snap_point(self, context, mouse_coord, mouse_pos_world):
@@ -1028,6 +1043,71 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         return closest_edge_index
 
+    def get_cursor_position_on_closest_edge(self, context, event, hit_obj, face_index):
+        """Get cursor position projected onto the closest edge - ideal for large faces"""
+        if not hit_obj or face_index < 0:
+            return None
+            
+        try:
+            # Get the face and find closest edge
+            if hit_obj.mode == 'EDIT':
+                mesh = hit_obj.data
+                bm = bmesh.from_edit_mesh(mesh)
+                bm.faces.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                
+                if face_index < len(bm.faces):
+                    face = bm.faces[face_index]
+                    closest_edge_idx = self.find_closest_edge_to_mouse(context, event, face)
+                    
+                    if closest_edge_idx < len(face.edges):
+                        edge = list(face.edges)[closest_edge_idx]
+                        v1, v2 = edge.verts
+                        
+                        # Get edge vertices in world space
+                        v1_world = hit_obj.matrix_world @ v1.co
+                        v2_world = hit_obj.matrix_world @ v2.co
+                        
+                        # Project mouse position onto edge in 3D space
+                        region = context.region
+                        rv3d = context.space_data.region_3d
+                        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+                        
+                        # Get mouse ray in 3D
+                        view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse_coord)
+                        ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_coord)
+                        
+                        # Project mouse ray onto edge
+                        edge_vec = v2_world - v1_world
+                        edge_length = edge_vec.length
+                        
+                        if edge_length > 0:
+                            # Find closest point on edge to mouse ray
+                            # Use screen space projection for more intuitive placement
+                            v1_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v1_world)
+                            v2_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v2_world)
+                            
+                            if v1_screen and v2_screen:
+                                # Calculate projection parameter along edge in screen space
+                                edge_screen_vec = Vector((v2_screen[0] - v1_screen[0], v2_screen[1] - v1_screen[1]))
+                                mouse_screen_vec = Vector((mouse_coord[0] - v1_screen[0], mouse_coord[1] - v1_screen[1]))
+                                
+                                if edge_screen_vec.length_squared > 0:
+                                    t = mouse_screen_vec.dot(edge_screen_vec) / edge_screen_vec.length_squared
+                                    t = max(0.0, min(1.0, t))  # Clamp to edge bounds
+                                    
+                                    # Calculate 3D position along edge
+                                    cursor_pos = v1_world + t * edge_vec
+                                    return cursor_pos
+                        
+                        # Fallback to edge midpoint
+                        return v1_world.lerp(v2_world, 0.5)
+                        
+        except Exception:
+            pass
+            
+        return None
+
     def update_snapping(self, context, mouse_pos_world):
         """Update snap points and find closest snap point"""
         if not self.snapping_enabled:
@@ -1070,7 +1150,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         except (IndexError, AttributeError, ValueError):
             self.snap_points = []
             self.closest_snap_point = None
-    
     # Part 9: Face Processing Methods
 
     def get_connected_faces_by_depth(self, bm, start_face_index, max_depth=5):
@@ -1154,7 +1233,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 faces_to_process = set(visible_faces[:max_faces])
 
         return faces_to_process
-    
     # Part 10: Cut Preview Calculation
 
     def calculate_cut_preview(self, context):
@@ -1177,8 +1255,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Calculate bisect axis
         axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
-        if not rotation:
-            rotation = Vector((1, 0, 0))
         axis_world = rotation @ axis
 
         # Get preferences for depth setting and line elevation
@@ -1647,14 +1723,153 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.draw_mouse_distance_text(context)
 
     def mouse_raycast(self, context, event):
-        """Perform raycast from mouse position"""
+        """Enhanced raycast for large models - tries multiple strategies"""
         region = context.region
         rv3d = context.space_data.region_3d
         coord = (event.mouse_region_x, event.mouse_region_y)
+        depsgraph = context.evaluated_depsgraph_get()
+        
+        # Strategy 1: Direct raycast from mouse position
         view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        depsgraph = context.evaluated_depsgraph_get()
-        return context.scene.ray_cast(depsgraph, ray_origin, view_vector)
+        result = context.scene.ray_cast(depsgraph, ray_origin, view_vector)
+        
+        # If direct raycast succeeds, return it
+        if result[0]:  # result[0] is success boolean
+            self._last_raycast_strategy = 'direct'
+            return result
+            
+        # Strategy 2: Area-based raycast for large models
+        # Try raycast in a small area around the mouse cursor
+        search_radius, step, extended_range_multiplier = self.get_raycast_sensitivity_settings(context)
+        
+        best_result = (False, None, None, -1, None, None)
+        closest_distance = float('inf')
+        
+        # Search in concentric squares around mouse position
+        for radius in range(step, search_radius + 1, step):
+            # Check 8 points around the mouse in a square pattern
+            offsets = [
+                (-radius, -radius), (0, -radius), (radius, -radius),
+                (-radius, 0),                     (radius, 0),
+                (-radius, radius),  (0, radius),  (radius, radius)
+            ]
+            
+            for offset_x, offset_y in offsets:
+                test_coord = (
+                    max(0, min(region.width - 1, coord[0] + offset_x)),
+                    max(0, min(region.height - 1, coord[1] + offset_y))
+                )
+                
+                test_view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, test_coord)
+                test_ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, test_coord)
+                test_result = context.scene.ray_cast(depsgraph, test_ray_origin, test_view_vector)
+                
+                if test_result[0]:  # Hit found
+                    # Calculate distance from original mouse position to hit point in screen space
+                    if test_result[1]:  # Hit location exists
+                        hit_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, test_result[1])
+                        if hit_screen:
+                            screen_distance = ((coord[0] - hit_screen[0])**2 + (coord[1] - hit_screen[1])**2)**0.5
+                            if screen_distance < closest_distance:
+                                closest_distance = screen_distance
+                                best_result = test_result
+                                
+            # If we found a hit in this radius, return the closest one
+            if best_result[0]:
+                self._last_raycast_strategy = 'area'
+                return best_result
+        
+        # Strategy 3: Extended range raycast (for very large models)
+        # Extend the ray much further for distant geometry
+        extended_vector = view_vector * extended_range_multiplier
+        extended_result = context.scene.ray_cast(depsgraph, ray_origin, extended_vector)
+        
+        if extended_result[0]:
+            self._last_raycast_strategy = 'extended'
+            return extended_result
+            
+        # No hit found with any strategy
+        self._last_raycast_strategy = 'none'
+        return (False, None, None, -1, None, None)
+
+    def get_raycast_sensitivity_settings(self, context):
+        """Get raycast sensitivity settings from preferences"""
+        try:
+            prefs = context.preferences.addons["InteractionOps"].preferences
+            search_radius = getattr(prefs, 'cursor_bisect_raycast_radius', 20)
+            step_size = getattr(prefs, 'cursor_bisect_raycast_step', 5)
+            extended_range = getattr(prefs, 'cursor_bisect_extended_range', 10000.0)
+            return search_radius, step_size, extended_range
+        except:
+            return 20, 5, 10000.0  # Default values
+
+    def smart_cursor_placement(self, context, hit_location, hit_normal, hit_obj, face_index, event=None):
+        """Enhanced cursor placement for large models - prioritizes edge-based positioning"""
+        # Reset edge placement flag
+        self._using_edge_placement = False
+        
+        if not hit_obj:
+            return hit_location
+            
+        try:
+            # For large models, prioritize edge-based cursor placement over face hits
+            if hit_obj.mode == 'EDIT' and face_index >= 0 and event:
+                mesh = hit_obj.data
+                bm = bmesh.from_edit_mesh(mesh)
+                bm.faces.ensure_lookup_table()
+                
+                if face_index < len(bm.faces):
+                    face = bm.faces[face_index]
+                    
+                    # Calculate face dimensions to detect large faces
+                    face_verts_world = [hit_obj.matrix_world @ vert.co for vert in face.verts]
+                    min_coords = [min(v[i] for v in face_verts_world) for i in range(3)]
+                    max_coords = [max(v[i] for v in face_verts_world) for i in range(3)]
+                    face_size = max(max_coords[i] - min_coords[i] for i in range(3))
+                    
+                    # For large faces (>5 units), prioritize edge-based positioning
+                    if face_size > 5.0:
+                        edge_position = self.get_cursor_position_on_closest_edge(context, event, hit_obj, face_index)
+                        if edge_position:
+                            self._using_edge_placement = True
+                            return edge_position
+                    
+                    # For very large faces (>20 units), always use edge positioning
+                    elif face_size > 20.0:
+                        edge_position = self.get_cursor_position_on_closest_edge(context, event, hit_obj, face_index)
+                        if edge_position:
+                            self._using_edge_placement = True
+                            return edge_position
+                        
+                        # If edge positioning fails, use face center as safer option
+                        face_center_local = face.calc_center_median()
+                        face_center_world = hit_obj.matrix_world @ face_center_local
+                        return face_center_world
+                    
+                    # For medium faces (5-20 units), use hybrid approach
+                    elif face_size > 5.0:
+                        if hit_location:
+                            face_center_local = face.calc_center_median()
+                            face_center_world = hit_obj.matrix_world @ face_center_local
+                            distance_to_center = (hit_location - face_center_world).length
+                            
+                            # If hit is far from center, try edge positioning first
+                            if distance_to_center > face_size * 0.25:
+                                edge_position = self.get_cursor_position_on_closest_edge(context, event, hit_obj, face_index)
+                                if edge_position:
+                                    self._using_edge_placement = True
+                                    return edge_position
+                                
+                                # Fallback: bias towards center
+                                blend_factor = 0.4  # 40% towards center
+                                return hit_location.lerp(face_center_world, blend_factor)
+                    
+            return hit_location
+            
+        except Exception:
+            # Fallback to original hit location
+            return hit_location
 
     def align_cursor_orientation(self):
         """Align cursor to selected edge and face normal"""
@@ -1769,6 +1984,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Initialize mouse coordinate tracking for screen-space snapping
         self._current_mouse_coord = (0, 0)
+        
+        # Initialize raycast strategy tracking
+        self._last_raycast_strategy = 'direct'
 
         # Add draw handler
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
@@ -1789,3 +2007,5 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {'RUNNING_MODAL'}
+
+
