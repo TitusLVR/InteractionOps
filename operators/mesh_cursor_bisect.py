@@ -681,12 +681,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Finish operator - execute then finish
+        # Finish operator without executing bisect
         elif event.type == 'SPACE' and event.value == 'PRESS':
-            result = self.execute(context)
             self.cancel(context)  # Clean up resources and restore modifiers
-            if result == {'CANCELLED'}:
-                return {'CANCELLED'}
             return {'FINISHED'}
 
         # Cancel operator
@@ -1572,57 +1569,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 gpu.state.line_width_set(outline_thickness)
                 batch_outline.draw(shader)
 
-            # Draw snap points if snapping is enabled - FROM PREFERENCES
-            if self.snapping_enabled and self.snap_points and self.hit_obj:
-                try:
-                    snap_coords = []
-                    for snap_type, point_local in self.snap_points:
-                        point_world = self.hit_obj.matrix_world @ point_local
-                        snap_coords.append(point_world)
-
-                    if snap_coords:
-                        # Choose snap points color based on hold state
-                        if self.hold_snap_points:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_hold_color'):
-                                snap_color = prefs.cursor_bisect_snap_hold_color
-                            else:
-                                snap_color = (1.0, 0.5, 0.0, 1.0)
-                        else:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_color'):
-                                snap_color = prefs.cursor_bisect_snap_color
-                            else:
-                                snap_color = (1.0, 1.0, 0.0, 1.0)
-
-                        batch_points = batch_for_shader(shader, 'POINTS', {"pos": snap_coords})
-                        shader.uniform_float("color", (snap_color[0], snap_color[1], snap_color[2], snap_color[3]))
-                        snap_size = getattr(prefs, 'cursor_bisect_snap_size', 8.0) if prefs else 8.0
-                        gpu.state.point_size_set(snap_size)
-                        gpu.state.depth_test_set('ALWAYS')
-                        batch_points.draw(shader)
-
-                        # Draw closest snap point
-                        if self.closest_snap_point:
-                            _, _, closest_world = self.closest_snap_point
-                            batch_closest = batch_for_shader(shader, 'POINTS', {"pos": [closest_world]})
-                            if self.hold_snap_points:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_hold_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_hold_color
-                                else:
-                                    closest_color = (1.0, 0.0, 0.0, 1.0)
-                            else:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_color
-                                else:
-                                    closest_color = (0.0, 1.0, 0.0, 1.0)
-                            shader.uniform_float("color", (closest_color[0], closest_color[1], closest_color[2], closest_color[3]))
-                            closest_size = getattr(prefs, 'cursor_bisect_snap_closest_size', 12.0) if prefs else 12.0
-                            gpu.state.point_size_set(closest_size)
-                            batch_closest.draw(shader)
-
-                except (IndexError, AttributeError, ReferenceError):
-                    pass
-
-            # Reset GPU state
+            # Reset GPU state after plane drawing
             gpu.state.point_size_set(1.0)
             gpu.state.line_width_set(1.0)
             gpu.state.depth_test_set('LESS')
@@ -1713,6 +1660,63 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError, ValueError, ReferenceError):
                     pass
 
+            # Draw snap points LAST so they appear on top of edges - FROM PREFERENCES
+            if self.snapping_enabled and self.snap_points and self.hit_obj:
+                try:
+                    snap_coords = []
+                    for snap_type, point_local in self.snap_points:
+                        point_world = self.hit_obj.matrix_world @ point_local
+                        snap_coords.append(point_world)
+
+                    if snap_coords:
+                        snap_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+                        snap_shader.bind()
+                        
+                        # Choose snap points color based on hold state
+                        if self.hold_snap_points:
+                            if prefs and hasattr(prefs, 'cursor_bisect_snap_hold_color'):
+                                snap_color = prefs.cursor_bisect_snap_hold_color
+                            else:
+                                snap_color = (1.0, 0.5, 0.0, 1.0)
+                        else:
+                            if prefs and hasattr(prefs, 'cursor_bisect_snap_color'):
+                                snap_color = prefs.cursor_bisect_snap_color
+                            else:
+                                snap_color = (1.0, 1.0, 0.0, 1.0)
+
+                        batch_points = batch_for_shader(snap_shader, 'POINTS', {"pos": snap_coords})
+                        snap_shader.uniform_float("color", (snap_color[0], snap_color[1], snap_color[2], snap_color[3]))
+                        snap_size = getattr(prefs, 'cursor_bisect_snap_size', 8.0) if prefs else 8.0
+                        gpu.state.point_size_set(snap_size)
+                        gpu.state.depth_test_set('ALWAYS')  # Draw through geometry
+                        batch_points.draw(snap_shader)
+
+                        # Draw closest snap point with larger size
+                        if self.closest_snap_point:
+                            _, _, closest_world = self.closest_snap_point
+                            batch_closest = batch_for_shader(snap_shader, 'POINTS', {"pos": [closest_world]})
+                            if self.hold_snap_points:
+                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_hold_color'):
+                                    closest_color = prefs.cursor_bisect_snap_closest_hold_color
+                                else:
+                                    closest_color = (1.0, 0.0, 0.0, 1.0)
+                            else:
+                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_color'):
+                                    closest_color = prefs.cursor_bisect_snap_closest_color
+                                else:
+                                    closest_color = (0.0, 1.0, 0.0, 1.0)
+                            snap_shader.uniform_float("color", (closest_color[0], closest_color[1], closest_color[2], closest_color[3]))
+                            closest_size = getattr(prefs, 'cursor_bisect_snap_closest_size', 12.0) if prefs else 12.0
+                            gpu.state.point_size_set(closest_size)
+                            batch_closest.draw(snap_shader)
+
+                        # Reset GPU state after snap points
+                        gpu.state.point_size_set(1.0)
+                        gpu.state.depth_test_set('LESS')
+
+                except (IndexError, AttributeError, ReferenceError):
+                    pass
+
         except (ReferenceError, AttributeError) as e:
             print(f"DEBUG: Exception in draw_callback: {e}")
             return
@@ -1722,17 +1726,65 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if self.show_distance_info:
             self.draw_mouse_distance_text(context)
 
+    def filtered_raycast(self, context, ray_origin, view_vector):
+        """Raycast that only hits active and selected objects"""
+        # Get active and selected objects that are mesh objects in edit mode or object mode
+        target_objects = []
+        
+        # Add active object if it's a mesh
+        if context.active_object and context.active_object.type == 'MESH':
+            target_objects.append(context.active_object)
+        
+        # Add selected mesh objects (avoid duplicates)
+        for obj in context.selected_objects:
+            if obj.type == 'MESH' and obj not in target_objects:
+                target_objects.append(obj)
+        
+        if not target_objects:
+            return (False, None, None, -1, None, None)
+        
+        closest_result = (False, None, None, -1, None, None)
+        closest_distance = float('inf')
+        
+        # Test raycast against each target object
+        for obj in target_objects:
+            try:
+                # Transform ray to object's local space
+                matrix_inv = obj.matrix_world.inverted()
+                local_origin = matrix_inv @ ray_origin
+                local_direction = matrix_inv.to_3x3() @ view_vector
+                
+                # Perform raycast on object
+                result, location, normal, face_index = obj.ray_cast(local_origin, local_direction)
+                
+                if result:
+                    # Transform hit location back to world space
+                    world_location = obj.matrix_world @ location
+                    world_normal = obj.matrix_world.to_3x3() @ normal
+                    
+                    # Calculate distance from ray origin
+                    distance = (world_location - ray_origin).length
+                    
+                    # Keep closest hit
+                    if distance < closest_distance:
+                        closest_distance = distance
+                        closest_result = (True, world_location, world_normal, face_index, obj, obj.matrix_world)
+                        
+            except (AttributeError, ValueError):
+                continue
+        
+        return closest_result
+
     def mouse_raycast(self, context, event):
-        """Enhanced raycast for large models - tries multiple strategies"""
+        """Enhanced raycast for large models - tries multiple strategies - ONLY active/selected objects"""
         region = context.region
         rv3d = context.space_data.region_3d
         coord = (event.mouse_region_x, event.mouse_region_y)
-        depsgraph = context.evaluated_depsgraph_get()
         
         # Strategy 1: Direct raycast from mouse position
         view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        result = context.scene.ray_cast(depsgraph, ray_origin, view_vector)
+        result = self.filtered_raycast(context, ray_origin, view_vector)
         
         # If direct raycast succeeds, return it
         if result[0]:  # result[0] is success boolean
@@ -1763,7 +1815,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 
                 test_view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, test_coord)
                 test_ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, test_coord)
-                test_result = context.scene.ray_cast(depsgraph, test_ray_origin, test_view_vector)
+                test_result = self.filtered_raycast(context, test_ray_origin, test_view_vector)
                 
                 if test_result[0]:  # Hit found
                     # Calculate distance from original mouse position to hit point in screen space
@@ -1783,7 +1835,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Strategy 3: Extended range raycast (for very large models)
         # Extend the ray much further for distant geometry
         extended_vector = view_vector * extended_range_multiplier
-        extended_result = context.scene.ray_cast(depsgraph, ray_origin, extended_vector)
+        extended_result = self.filtered_raycast(context, ray_origin, extended_vector)
         
         if extended_result[0]:
             self._last_raycast_strategy = 'extended'
