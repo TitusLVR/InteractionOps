@@ -103,6 +103,7 @@ from .ui.iops_tm_panel import (
 )
 
 from .ui.iops_data_panel import IOPS_PT_DATA_Panel, IOPS_OT_Call_Data_Panel
+from .ui.iops_mod_window import IOPS_OT_Modifier_Window
 
 from .ui.iops_pie_split import (
     IOPS_OT_Split_Area_Pie_1,
@@ -350,6 +351,7 @@ classes = (
     Z_OT_Mirror,
     Z_OT_EdgeConnect,
     IOPS_OT_OpenAssetInCurrentBlender,
+    IOPS_OT_Modifier_Window,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

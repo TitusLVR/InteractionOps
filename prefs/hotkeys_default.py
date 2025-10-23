@@ -58,4 +58,7 @@ keys_default = [
     ("iops.call_panel_tps", "BUTTON4MOUSE", "PRESS", False, False, True, False),
     ("iops.call_panel_data", "BUTTON4MOUSE", "PRESS", True, False, True, False),
     ("iops.call_panel_tm", "T", "PRESS", True, True, True, False),
+    
+    # IOPS Windows
+    ("iops.window_modifiers", "F19", "PRESS", True, True, True, False),
 ]

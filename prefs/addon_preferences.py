@@ -969,6 +969,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
+                    elif kmi.idname.startswith("iops.window"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_scripts_col, 0
+                            )
+                        except AttributeError:
+                            km_scripts_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
 
 
 
