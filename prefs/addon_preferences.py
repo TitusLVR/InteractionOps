@@ -147,6 +147,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     # Statistics text properties
     iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
+    
+    show_filename_stat: BoolProperty(name="Show Filename", description="Show/Hide filename in statistics", default=True)
 
     text_color_stat: FloatVectorProperty(
         name="Color",
@@ -1022,6 +1024,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = box.column(align=True)
             col.label(text="3D View Overlay Statistics Text Settings:")
             col.prop(self, "iops_stat", toggle=True)
+            col.prop(self, "show_filename_stat", toggle=True)
             row = box.row(align=True)
             split = row.split(factor=0.5, align=False)
             col_text = split.column(align=True)

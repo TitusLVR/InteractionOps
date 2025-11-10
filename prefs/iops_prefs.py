@@ -90,6 +90,7 @@ def get_iops_prefs():
         },
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
+            "show_filename_stat": safe("show_filename_stat", True),
             "text_color_stat": safelist("text_color_stat", (1.0, 1.0, 1.0, 1.0)),
             "text_color_key_stat": safelist("text_color_key_stat", (1.0, 1.0, 1.0, 1.0)),
             "text_color_error_stat": safelist("text_color_error_stat", (1.0, 0.0, 0.0, 1.0)),
