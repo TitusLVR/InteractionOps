@@ -1,5 +1,4 @@
 # Part 1: Imports and Class Definition with Modifier Management
-from multiprocessing import context
 import bpy
 import mathutils
 import bmesh
@@ -10,11 +9,29 @@ from gpu_extras.batch import batch_for_shader
 import bpy_extras
 import blf
 
+# Constants
+DEFAULT_ANGLE_THRESHOLD = 5.0
+DEFAULT_ROTATION_STEP = 45.0
+DEFAULT_MERGE_DISTANCE = 0.005
+DEFAULT_SNAP_THRESHOLD = 30.0
+DEFAULT_FACE_DEPTH = 5
+DEFAULT_MAX_FACES = 1000
+DEFAULT_EDGE_SUBDIVISIONS = 1
+DEFAULT_LINE_ELEVATION = 0.001
+DEFAULT_DISTANCE_TEXT_SIZE = 16
+DEFAULT_DISTANCE_TEXT_OFFSET_X = 20
+DEFAULT_DISTANCE_TEXT_OFFSET_Y = -30
+MAX_RAYCAST_ITERATIONS = 100
+RAYCAST_OFFSET_DISTANCE = 0.0001
+EPSILON = 1e-6
+FACE_SET_MIN = 1
+FACE_SET_MAX = 999
+
 
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
     bl_label = "Cursor Bisect"
-    bl_description = "Bisect mesh. S-snap, D-hold points, Z-deselect all, Ctrl+Z-undo, A-lock orientation, P-toggle preview mode, I-toggle distance info"
+    bl_description = "Bisect mesh. S-snap, D-hold points, Z-deselect all, Ctrl+Z-undo, A-lock orientation, W-world align, P-toggle preview mode, I-toggle distance info"
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
@@ -29,6 +46,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     normal_axis = 'X'
     lock_orientation = False
     locked_rotation = None
+    world_axis = 'X'  # Track current world axis alignment: 'X', 'Y', or 'Z'
 
     # Add timer for better modal handling
     _timer = None
@@ -106,6 +124,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         'UV_PROJECT',
         'UV_WARP'
     }
+
+    @staticmethod
+    def get_preferences(context):
+        """Get addon preferences with fallback to defaults"""
+        try:
+            return context.preferences.addons["InteractionOps"].preferences
+        except (KeyError, AttributeError):
+            return None
 
     def store_modifier_states(self, context):
         """Store the current show_viewport state of all modifiers for selected objects"""
@@ -190,7 +216,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [RMB] Select Face | "
+                      f"[D] Hold Points | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -285,18 +311,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if not result or not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
             return
 
+        # Get angle threshold from preferences and convert to threshold for select_similar
+        prefs = self.get_preferences(context)
+        if prefs and hasattr(prefs, 'cursor_bisect_coplanar_angle'):
+            angle_threshold = prefs.cursor_bisect_coplanar_angle
+        else:
+            angle_threshold = DEFAULT_ANGLE_THRESHOLD
+
+        # Convert angle threshold to the threshold format used by select_similar
+        similarity_threshold = angle_threshold / 180.0  # Convert degrees to 0-1 range
+        similarity_threshold = max(0.001, min(1.0, similarity_threshold))  # Clamp to valid range
+
         try:
-            # Get angle threshold from preferences and convert to threshold for select_similar
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-                angle_threshold = prefs.cursor_bisect_coplanar_angle if hasattr(prefs, 'cursor_bisect_coplanar_angle') else 5.0
-            except:
-                angle_threshold = 5.0  # Default 5 degrees
-
-            # Convert angle threshold to the threshold format used by select_similar
-            similarity_threshold = angle_threshold / 180.0  # Convert degrees to 0-1 range
-            similarity_threshold = max(0.001, min(1.0, similarity_threshold))  # Clamp to valid range
-
             bm = bmesh.from_edit_mesh(obj.data)
             bm.faces.ensure_lookup_table()
 
@@ -377,7 +403,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 for face in bm.faces:
                     face.select = original_selection.get(face.index, False)
                 bmesh.update_edit_mesh(obj.data)
-            except:
+            except (AttributeError, ReferenceError, ValueError):
                 pass
 
     # Part 4: Modal Method (First Half)
@@ -407,11 +433,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Handle Alt+Wheel for Z-axis rotation
         elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt and not event.shift and not event.ctrl:
             # Get rotation step from preferences
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-                rotation_step = prefs.cursor_bisect_rotation_step if hasattr(prefs, 'cursor_bisect_rotation_step') else 45.0
-            except:
-                rotation_step = 45.0
+            prefs = self.get_preferences(context)
+            if prefs and hasattr(prefs, 'cursor_bisect_rotation_step'):
+                rotation_step = prefs.cursor_bisect_rotation_step
+            else:
+                rotation_step = DEFAULT_ROTATION_STEP
 
             # Convert to radians
             rotation_radians = math.radians(rotation_step)
@@ -559,6 +585,21 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             if self.cut_preview_mode == 'LINES':
                 self.calculate_cut_preview(context)
 
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # World alignment - cycle through X, Y, Z
+        elif event.type == 'W' and event.value == 'PRESS' and not event.shift and not event.ctrl:
+            # Cycle through world axes: X -> Y -> Z -> X -> ...
+            if self.world_axis == 'X':
+                self.world_axis = 'Y'
+            elif self.world_axis == 'Y':
+                self.world_axis = 'Z'
+            else:  # world_axis == 'Z'
+                self.world_axis = 'X'
+            
+            self.align_cursor_to_world(context, self.world_axis)
+            self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
@@ -734,7 +775,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Assign face sets 1-999 to selected faces (cycling through if more than 999 faces)
                 if selected_faces:
                     for i, face in enumerate(selected_faces):
-                        face_set_id = ((i % 999) + 1)  # Range 1-999, cycling
+                        face_set_id = ((i % (FACE_SET_MAX - FACE_SET_MIN + 1)) + FACE_SET_MIN)  # Range 1-999, cycling
                         face[temp_layer] = face_set_id
 
                 # Step 2: Get geometry to bisect - respect face selection and visibility
@@ -785,7 +826,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Select all faces that have face set IDs in range 1-999
                 restored_count = 0
                 for face in bm.faces:
-                    if self.is_face_visible_and_valid(face) and 1 <= face[temp_layer] <= 999:
+                    if self.is_face_visible_and_valid(face) and FACE_SET_MIN <= face[temp_layer] <= FACE_SET_MAX:
                         face.select = True
                         restored_count += 1
 
@@ -801,19 +842,22 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 try:
                     if temp_layer and temp_layer.is_valid:
                         bm.faces.layers.int.remove(temp_layer)
-                except:
+                except (AttributeError, ValueError, ReferenceError):
                     # If layer removal fails, try to find and remove by name
-                    if "temp_selection" in bm.faces.layers.int:
-                        bm.faces.layers.int.remove(bm.faces.layers.int["temp_selection"])
+                    try:
+                        if "temp_selection" in bm.faces.layers.int:
+                            bm.faces.layers.int.remove(bm.faces.layers.int["temp_selection"])
+                    except (AttributeError, ValueError, ReferenceError):
+                        pass
 
                 # Step 7: Merge doubles if requested
                 if self.merge_doubles:
                     # Get merge distance from preferences
-                    try:
-                        prefs = context.preferences.addons["InteractionOps"].preferences
-                        merge_distance = prefs.cursor_bisect_merge_distance if hasattr(prefs, 'cursor_bisect_merge_distance') else 0.005
-                    except:
-                        merge_distance = 0.005
+                    prefs = self.get_preferences(context)
+                    if prefs and hasattr(prefs, 'cursor_bisect_merge_distance'):
+                        merge_distance = prefs.cursor_bisect_merge_distance
+                    else:
+                        merge_distance = DEFAULT_MERGE_DISTANCE
                     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
 
                 # Ensure selection is properly flushed
@@ -869,12 +913,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Show current merge distance from preferences (read-only info)
         if self.merge_doubles:
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
+            prefs = self.get_preferences(context)
+            if prefs and hasattr(prefs, 'cursor_bisect_merge_distance'):
                 row = layout.row()
                 row.prop(prefs, "cursor_bisect_merge_distance", text="Merge Distance")
-            except:
-                pass
 
     def calculate_snap_points(self, face):
         """Calculate snap points for a face: vertices, center, and edge midpoints with subdivisions"""
@@ -915,11 +957,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             rv3d = context.space_data.region_3d
 
             # Get thresholds
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-                screen_threshold = prefs.cursor_bisect_snap_threshold if hasattr(prefs, 'cursor_bisect_snap_threshold') else 30.0
-            except:
-                screen_threshold = 30.0
+            prefs = self.get_preferences(context)
+            if prefs and hasattr(prefs, 'cursor_bisect_snap_threshold'):
+                screen_threshold = prefs.cursor_bisect_snap_threshold
+            else:
+                screen_threshold = DEFAULT_SNAP_THRESHOLD
 
             closest_point = None
             best_weighted_score = float('inf')
@@ -1116,7 +1158,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         return True
 
-    def get_faces_to_process(self, bm, obj, face_depth):
+    def get_faces_to_process(self, bm, obj, face_depth, context=None):
         """Get faces to process based on selection and visibility"""
         faces_to_process = set()
 
@@ -1143,12 +1185,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             # If still no faces to process, use all visible faces
             if not faces_to_process:
-                # Get preferences for max faces limit
-                try:
-                    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-                    max_faces = prefs.cursor_bisect_max_faces if hasattr(prefs, 'cursor_bisect_max_faces') else 1000
-                except:
-                    max_faces = 1000
+                # Get preferences for max faces limit (use bpy.context if context not provided)
+                ctx = context if context is not None else bpy.context
+                prefs = self.get_preferences(ctx)
+                if prefs and hasattr(prefs, 'cursor_bisect_max_faces'):
+                    max_faces = prefs.cursor_bisect_max_faces
+                else:
+                    max_faces = DEFAULT_MAX_FACES
 
                 visible_faces = [f.index for f in bm.faces if self.is_face_visible_and_valid(f)]
                 faces_to_process = set(visible_faces[:max_faces])
@@ -1182,13 +1225,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         axis_world = rotation @ axis
 
         # Get preferences for depth setting and line elevation
-        try:
-            prefs = context.preferences.addons["InteractionOps"].preferences
-            face_depth = prefs.cursor_bisect_face_depth if hasattr(prefs, 'cursor_bisect_face_depth') else 5
-            line_elevation = prefs.cursor_bisect_line_elevation if hasattr(prefs, 'cursor_bisect_line_elevation') else 0.001
-        except:
-            face_depth = 5
-            line_elevation = 0.001
+        prefs = self.get_preferences(context)
+        if prefs and hasattr(prefs, 'cursor_bisect_face_depth'):
+            face_depth = prefs.cursor_bisect_face_depth
+        else:
+            face_depth = DEFAULT_FACE_DEPTH
+        
+        # Line elevation is not a preference property, use default
+        line_elevation = DEFAULT_LINE_ELEVATION
 
         # Calculate cut preview for each object
         for obj in edit_objects:
@@ -1209,7 +1253,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 plane_co = obj_matrix.inverted() @ cursor.location
 
                 # Get faces to process with improved selection and visibility checking
-                faces_to_process = self.get_faces_to_process(bm, obj, face_depth)
+                faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
 
                 if not faces_to_process:
                     continue
@@ -1244,9 +1288,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         d2 = (v2.co - plane_co).dot(plane_no)
 
                         # Check if edge crosses the plane (different signs or one is zero)
-                        if (d1 * d2 < 0) or (abs(d1) < 1e-6) or (abs(d2) < 1e-6):
+                        if (d1 * d2 < 0) or (abs(d1) < EPSILON) or (abs(d2) < EPSILON):
                             # Calculate intersection point
-                            if abs(d1 - d2) > 1e-6:  # Avoid division by zero
+                            if abs(d1 - d2) > EPSILON:  # Avoid division by zero
                                 t = d1 / (d1 - d2)
                                 intersection = v1.co.lerp(v2.co, t)
 
@@ -1329,6 +1373,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             ("Select Coplanar Faces", "Shift+Right Mouse Button"),
             ("Rotate Z-axis", "Alt+Mouse Wheel"),
             ("Lock Edge (Orientation)", "A"),
+            ("World Align", "W"),
             ("Preview Line/Plane", "P"),
             ("Toggle Distance Info", "I"),
             ("Execute bisect", "Left Mouse Button"),
@@ -1383,15 +1428,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def draw_mouse_distance_text(self, context):
         """Draw distance information as text near the mouse cursor"""
+        prefs = self.get_preferences(context)
+        if not prefs:
+            return
+
+        # Get distance information
+        distance_info = self.get_edge_split_distances(context)
+        if not distance_info:
+            return
+
         try:
-            import blf
-            prefs = context.preferences.addons["InteractionOps"].preferences
-
-            # Get distance information
-            distance_info = self.get_edge_split_distances(context)
-            if not distance_info:
-                return
-
             # Format the distance text
             total = distance_info['total']
             dist1 = distance_info['dist1']
@@ -1419,13 +1465,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             blf.shadow_offset(font_id, 1, -1)
 
             # Set text color
-            text_color = prefs.cursor_bisect_distance_text_color  # Yellow
+            if hasattr(prefs, 'cursor_bisect_distance_text_color'):
+                text_color = prefs.cursor_bisect_distance_text_color
+            else:
+                text_color = (1.0, 1.0, 0.0, 1.0)  # Default yellow
             blf.color(font_id, *text_color)
             # Draw the text
             blf.position(font_id, text_x, text_y, 0)
             blf.draw(font_id, distance_text)
 
-        except Exception as e:
+        except (AttributeError, KeyError, ValueError, TypeError) as e:
             print(f"Error in draw_mouse_distance_text: {e}")
 
 
@@ -1433,7 +1482,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Draw the bisect plane preview, snap points, and distance text - with debug info"""
         # Safety check: ensure the operator is still valid
         try:
-            test_access = self.lock_orientation
+            _ = self.lock_orientation
         except ReferenceError:
             return
 
@@ -1442,10 +1491,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         try:
             # Get preferences for all colors and sizes
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-            except:
-                prefs = None
+            prefs = self.get_preferences(context)
 
             origin = context.scene.cursor.location
             rotation = self.locked_rotation if self.lock_orientation else context.scene.cursor.matrix.to_quaternion()
@@ -1519,7 +1565,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                         batch_points = batch_for_shader(shader, 'POINTS', {"pos": snap_coords})
                         shader.uniform_float("color", (snap_color[0], snap_color[1], snap_color[2], snap_color[3]))
-                        snap_size = getattr(prefs, 'cursor_bisect_snap_size', 8.0) if prefs else 8.0
+                        if prefs and hasattr(prefs, 'cursor_bisect_snap_size'):
+                            snap_size = prefs.cursor_bisect_snap_size
+                        else:
+                            snap_size = 8.0
                         gpu.state.point_size_set(snap_size)
                         gpu.state.depth_test_set('ALWAYS')
                         batch_points.draw(shader)
@@ -1539,11 +1588,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                 else:
                                     closest_color = (0.0, 1.0, 0.0, 1.0)
                             shader.uniform_float("color", (closest_color[0], closest_color[1], closest_color[2], closest_color[3]))
-                            closest_size = getattr(prefs, 'cursor_bisect_snap_closest_size', 12.0) if prefs else 12.0
+                            if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_size'):
+                                closest_size = prefs.cursor_bisect_snap_closest_size
+                            else:
+                                closest_size = 12.0
                             gpu.state.point_size_set(closest_size)
                             batch_closest.draw(shader)
 
-                except (IndexError, AttributeError, ReferenceError):
+                except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 
             # Reset GPU state
@@ -1568,7 +1620,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         else:
                             preview_color = (1.0, 0.5, 0.0, 1.0)
 
-                        preview_thickness = getattr(prefs, 'cursor_bisect_cut_preview_thickness', 3.0) if prefs else 3.0
+                        if prefs and hasattr(prefs, 'cursor_bisect_cut_preview_thickness'):
+                            preview_thickness = prefs.cursor_bisect_cut_preview_thickness
+                        else:
+                            preview_thickness = 3.0
 
                         preview_shader.uniform_float("color", preview_color)
                         gpu.state.line_width_set(preview_thickness)
@@ -1580,7 +1635,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         gpu.state.line_width_set(1.0)
                         gpu.state.depth_test_set('LESS')
 
-                except (IndexError, AttributeError, ReferenceError):
+                except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
 
             # Draw highlighted edge
@@ -1634,10 +1689,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                         gpu.state.line_width_set(1.0)
 
-                except (IndexError, AttributeError, ValueError, ReferenceError):
+                except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
                     pass
 
-        except (ReferenceError, AttributeError) as e:
+        except (ReferenceError, AttributeError, ValueError) as e:
             print(f"DEBUG: Exception in draw_callback: {e}")
             return
 
@@ -1663,10 +1718,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return False, None, None, None, None, None
         
         # Perform multiple raycasts to find the first hit on a selected object
-        max_iterations = 100  # Prevent infinite loops
         current_ray_origin = ray_origin
         
-        for i in range(max_iterations):
+        for _ in range(MAX_RAYCAST_ITERATIONS):
             result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
                 depsgraph, current_ray_origin, view_vector
             )
@@ -1682,8 +1736,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             # Hit an unselected object, continue raycast from slightly beyond this point
             if location:
                 # Move ray origin slightly past the hit point to continue raycast
-                offset_distance = 0.0001  # Small offset to avoid hitting the same point
-                current_ray_origin = location + (view_vector.normalized() * offset_distance)
+                view_vec_norm = view_vector.normalized()
+                current_ray_origin = location + (view_vec_norm * RAYCAST_OFFSET_DISTANCE)
         
         # Exhausted max iterations without finding a selected object
         return False, None, None, None, None, None
@@ -1748,8 +1802,53 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             cursor.rotation_mode = 'QUATERNION'
             cursor.rotation_quaternion = self.locked_rotation
 
-        except (IndexError, AttributeError, ValueError) as e:
+        except (IndexError, AttributeError, ValueError, ReferenceError):
             pass
+
+    def align_cursor_to_world(self, context, world_axis):
+        """Align cursor's normal_axis to the specified world axis"""
+        # Determine which cursor axis is used as the bisect plane normal
+        # normal_axis can be 'X' or 'Y'
+        
+        # Create rotation matrix based on normal_axis and world_axis
+        if self.normal_axis == 'X':
+            # Cursor's X axis will be the bisect plane normal
+            if world_axis == 'X':
+                # Align cursor X to world X (identity)
+                rot_matrix = Matrix.Identity(3)
+            elif world_axis == 'Y':
+                # Align cursor X to world Y (rotate 90° around world Z)
+                rot_matrix = Matrix.Rotation(math.radians(90), 3, 'Z')
+            else:  # world_axis == 'Z'
+                # Align cursor X to world Z (rotate -90° around world Y)
+                rot_matrix = Matrix.Rotation(math.radians(-90), 3, 'Y')
+        else:  # normal_axis == 'Y'
+            # Cursor's Y axis will be the bisect plane normal
+            if world_axis == 'X':
+                # Align cursor Y to world X (rotate 90° around world Z)
+                rot_matrix = Matrix.Rotation(math.radians(90), 3, 'Z')
+            elif world_axis == 'Y':
+                # Align cursor Y to world Y (identity)
+                rot_matrix = Matrix.Identity(3)
+            else:  # world_axis == 'Z'
+                # Align cursor Y to world Z (rotate -90° around world X)
+                rot_matrix = Matrix.Rotation(math.radians(-90), 3, 'X')
+        
+        # Convert matrix to quaternion
+        world_rotation = rot_matrix.to_quaternion()
+        
+        # Apply to cursor
+        cursor = context.scene.cursor
+        cursor.rotation_mode = 'QUATERNION'
+        cursor.rotation_quaternion = world_rotation
+        
+        # Update locked rotation if orientation is locked
+        if self.lock_orientation:
+            self.locked_rotation = world_rotation
+        
+        # Update cut preview if in lines mode
+        if self.cut_preview_mode == 'LINES':
+            self.calculate_cut_preview(context)
 
     def invoke(self, context, event):
         if context.area.type != 'VIEW_3D':
@@ -1770,17 +1869,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.edge_index = 0
         self.face_edges = []
         self.normal_axis = 'X'
+        self.world_axis = 'X'  # Initialize world axis to X
         self.lock_orientation = False
         self.locked_rotation = None
         self.snapping_enabled = True  # Active by default
         self.snap_points = []
         self.closest_snap_point = None
         # Get initial subdivisions from preferences
-        try:
-            prefs = context.preferences.addons["InteractionOps"].preferences
-            self.edge_subdivisions = prefs.cursor_bisect_edge_subdivisions if hasattr(prefs, 'cursor_bisect_edge_subdivisions') else 1
-        except:
-            self.edge_subdivisions = 1  # Fallback default
+        prefs = self.get_preferences(context)
+        if prefs and hasattr(prefs, 'cursor_bisect_edge_subdivisions'):
+            self.edge_subdivisions = prefs.cursor_bisect_edge_subdivisions
+        else:
+            self.edge_subdivisions = DEFAULT_EDGE_SUBDIVISIONS
         self.hold_snap_points = False  # Active by default
         self.last_face_index = -1
         self.cut_preview_mode = 'LINES'  # Default to line preview
@@ -1789,15 +1889,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Initialize distance text system (OFF by default, toggle with I key)
         self.show_distance_info = False
         # Get text settings from preferences
-        try:
-            prefs = context.preferences.addons["InteractionOps"].preferences
-            self.distance_text_size = getattr(prefs, 'cursor_bisect_distance_text_size', 16)
-            self.distance_text_offset_x = getattr(prefs, 'cursor_bisect_distance_offset_x', 20)
-            self.distance_text_offset_y = getattr(prefs, 'cursor_bisect_distance_offset_y', -30)
-        except:
-            self.distance_text_size = 16
-            self.distance_text_offset_x = 20
-            self.distance_text_offset_y = -30
+        if prefs and hasattr(prefs, 'cursor_bisect_distance_text_size'):
+            self.distance_text_size = prefs.cursor_bisect_distance_text_size
+        else:
+            self.distance_text_size = DEFAULT_DISTANCE_TEXT_SIZE
+        if prefs and hasattr(prefs, 'cursor_bisect_distance_offset_x'):
+            self.distance_text_offset_x = prefs.cursor_bisect_distance_offset_x
+        else:
+            self.distance_text_offset_x = DEFAULT_DISTANCE_TEXT_OFFSET_X
+        if prefs and hasattr(prefs, 'cursor_bisect_distance_offset_y'):
+            self.distance_text_offset_y = prefs.cursor_bisect_distance_offset_y
+        else:
+            self.distance_text_offset_y = DEFAULT_DISTANCE_TEXT_OFFSET_Y
 
         # Initialize mouse coordinate tracking for screen-space snapping
         self._current_mouse_coord = (0, 0)
