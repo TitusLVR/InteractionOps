@@ -13,7 +13,15 @@ def get_iops_prefs():
     for i in range(1, 9):
         snap_combo_key = f"snap_combo_{i}"
         try:
-            snap_combo = prefs[snap_combo_key]
+            # Try to get as ID property first, fallback to attribute
+            try:
+                snap_combo = prefs[snap_combo_key]
+            except (TypeError, AttributeError, KeyError):
+                snap_combo = getattr(prefs, snap_combo_key, None)
+            
+            if snap_combo is None or not isinstance(snap_combo, dict):
+                raise ValueError(f"{snap_combo_key} is not a valid dictionary")
+            
             snap_combo_dict[snap_combo_key] = {
                 "SNAP_ELEMENTS": {k: snap_combo["SNAP_ELEMENTS"].get(k, False) for k in [
                     "INCREMENT", "VERTEX", "EDGE", "FACE", "VOLUME", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR", "FACE_PROJECT", "FACE_NEAREST"

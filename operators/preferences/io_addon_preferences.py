@@ -60,15 +60,39 @@ def load_iops_preferences():
                     case "SPLIT_AREA_PIES":
                         for pie in value:
                             pie_num = pie[-1]
-                            pos, ui = get_split_pos_ui(
-                                value[pie][f"split_area_pie_{pie_num}_pos"],
-                                value[pie][f"split_area_pie_{pie_num}_ui"],
-                            )
-                            prefs[f"split_area_pie_{pie_num}_factor"] = value[pie][
+                            # Get the raw values from JSON (they should already be string enum identifiers)
+                            pos_raw = value[pie][f"split_area_pie_{pie_num}_pos"]
+                            ui_raw = value[pie][f"split_area_pie_{pie_num}_ui"]
+                            
+                            # Convert old numeric format to string enum format if needed
+                            # (for backward compatibility with old saved preferences)
+                            if isinstance(pos_raw, int):
+                                # Convert integer to string enum identifier
+                                for p in split_areas_position_list:
+                                    if p[4] == pos_raw:
+                                        pos = p[0]  # Get the string identifier
+                                        break
+                                else:
+                                    pos = "BOTTOM"  # Default fallback
+                            else:
+                                pos = pos_raw  # Already a string
+                            
+                            if isinstance(ui_raw, int):
+                                # Convert integer to string enum identifier
+                                for key, val in split_areas_dict.items():
+                                    if val["num"] == ui_raw:
+                                        ui = val["ui"]  # Get the string identifier
+                                        break
+                                else:
+                                    ui = "VIEW_3D"  # Default fallback
+                            else:
+                                ui = ui_raw  # Already a string
+                            
+                            setattr(prefs, f"split_area_pie_{pie_num}_factor", value[pie][
                                 f"split_area_pie_{pie_num}_factor"
-                            ]
-                            prefs[f"split_area_pie_{pie_num}_pos"] = pos
-                            prefs[f"split_area_pie_{pie_num}_ui"] = ui
+                            ])
+                            setattr(prefs, f"split_area_pie_{pie_num}_pos", pos)
+                            setattr(prefs, f"split_area_pie_{pie_num}_ui", ui)
                     case "UI_TEXT":
                         prefs.text_color = value["text_color"]
                         prefs.text_color_key = value["text_color_key"]
@@ -134,7 +158,18 @@ def load_iops_preferences():
                         ]
                     case "SNAP_COMBOS":
                         for i in range(1, 9):
-                            prefs[f"snap_combo_{i}"] = value[f"snap_combo_{i}"]
+                            # Use setattr for Blender 5.0 compatibility
+                            # Note: snap_combo properties are ID properties stored as dictionaries
+                            combo_key = f"snap_combo_{i}"
+                            if hasattr(prefs, combo_key):
+                                setattr(prefs, combo_key, value[combo_key])
+                            else:
+                                # If property doesn't exist, try to set it as ID property
+                                try:
+                                    prefs[combo_key] = value[combo_key]
+                                except (TypeError, AttributeError):
+                                    # Fallback: use setattr which should work for regular properties
+                                    setattr(prefs, combo_key, value[combo_key])
                     case "DRAG_SNAP":
                         prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
                     case _:
