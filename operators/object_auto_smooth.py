@@ -1,6 +1,7 @@
 import bpy
 import os
 from math import radians
+from ..utils.functions import with_progress
 
 # Check box to put the modifier at the top of the stack or bottom
 
@@ -87,112 +88,82 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
-        if context.object.mode == 'OBJECT':
-            bpy.ops.object.shade_smooth()
-        else:
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.ops.object.shade_smooth()
-            bpy.ops.object.mode_set(mode='EDIT')
-        count = 1
+        # Get node group reference once (cached)
+        node_group = bpy.data.node_groups.get("Smooth by Angle")
+        if not node_group:
+            self.report({"ERROR"}, "Smooth by Angle node group not found. Please ensure the asset file exists.")
+            return {"CANCELLED"}
+        
+        # Get all mesh objects
         meshes = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
-        for mesh in meshes:
-            auto_smooth_exists = False
-            # Only change parameters if existing Auto Smooth has node_groups["Smooth by Angle"]
+        if not meshes:
+            return {"FINISHED"}
+        
+        # Apply shade smooth to all meshes at once (direct API, faster)
+        angle_rad = radians(self.angle)
+        needs_ui_update = False
+        
+        for mesh in with_progress(meshes, prefix="Adding Auto Smooth modifier"):
+            # Check if modifier already exists with correct node group
+            existing_mod = None
+            old_mod_to_remove = None
+            
             for mod in mesh.modifiers:
-                if (
-                    "Auto Smooth" in mod.name
-                    and mod.type == "NODES"
-                    and getattr(mod.node_group, "name", None) == "Smooth by Angle"
-                ):
-                    print(
-                        f"Auto Smooth modifier exists on {mesh.name}. Changing parameters."
-                    )
-                    mod["Input_1"] = radians(self.angle)
-                    mod["Socket_1"] = self.ignore_sharp
-                    # redraw ui
-                    areas = [
-                        area
-                        for area in bpy.context.screen.areas
-                        if area.type == "PROPERTIES"
-                    ]
-                    if areas:
-                        for area in areas:
-                            with bpy.context.temp_override():
-                                area.tag_redraw()
-                    auto_smooth_exists = True
-                    break
-
-            if auto_smooth_exists:
-                continue
-
-            if getattr(mesh, "auto_smooth_modifier", None) == "Auto Smooth":
-                mesh.auto_smooth_modifier = "Auto Smooth"
-            print(
-                f"Adding Auto Smooth modifier to {mesh.name}, {count} of {len(bpy.context.selected_objects)}"
-            )
-
-            count += 1
-
-            with bpy.context.temp_override(object=mesh, active_object=mesh, selected_objects=[mesh]):
-                # Shade Smooth
-                # bpy.ops.object.shade_smooth()
-                # Delete existing Auto Smooth modifier
-                for mod in mesh.modifiers:
-                    if (
-                        "Auto Smooth" in mod.name
-                        and mod.type == "NODES"
-                        and getattr(mod.node_group, "name", None) == "Auto Smooth"
-                    ):
-                        try:
-                            bpy.ops.object.modifier_remove(modifier=mod.name)
-                        except Exception as e:
-                            print(
-                                f"Could not remove Auto Smooth modifier from {mesh.name} — {e}"
-                            )
-                            break
-
-                # Add Smooth by Angle modifier from Essentials library
-                try:
-                    if "Auto Smooth" not in [mod.name for mod in mesh.modifiers]:
-                        # Try asset system first
-                        try:
-                            bpy.ops.object.modifier_add_node_group(
-                                asset_library_type="ESSENTIALS",
-                                asset_library_identifier="",
-                                relative_asset_identifier="geometry_nodes_essentials.blend/NodeTree/Smooth by Angle",
-                            )
-                            for _mod in mesh.modifiers:
-                                if _mod.type == "NODES" and "Smooth by Angle" in _mod.name:
-                                    _mod.name = "Auto Smooth"
-                                    _mod["Input_1"] = radians(self.angle)
-                                    _mod["Socket_1"] = self.ignore_sharp
-                                    _mod.name = "Auto Smooth"
-                                    mod = _mod
-                        except Exception as asset_error:
-                            # Fallback: Use directly loaded node group
-                            if "Smooth by Angle" in bpy.data.node_groups:
-                                mod = mesh.modifiers.new(name="Auto Smooth", type="NODES")
-                                mod.node_group = bpy.data.node_groups["Smooth by Angle"]
-                                mod["Input_1"] = radians(self.angle)
-                                mod["Socket_1"] = self.ignore_sharp
-                            else:
-                                raise asset_error
-
-                    else:
-                        mod = mesh.modifiers["Auto Smooth"]
-                except Exception as e:
-                    self.report({"ERROR"}, f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
-                    print(f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
-                    continue
-                mod.show_viewport = False
-                mod.show_viewport = True
+                if mod.name == "Auto Smooth" and mod.type == "NODES":
+                    if getattr(mod.node_group, "name", None) == "Smooth by Angle":
+                        # Update existing modifier parameters
+                        existing_mod = mod
+                        mod["Input_1"] = angle_rad
+                        mod["Socket_1"] = self.ignore_sharp
+                        needs_ui_update = True
+                        break
+                    elif getattr(mod.node_group, "name", None) == "Auto Smooth":
+                        # Old modifier to remove
+                        old_mod_to_remove = mod
+            
+            if existing_mod:
+                # Modifier exists and was updated, just move it if needed
+                mod = existing_mod
+                needs_move = False
+                if self.stack_top and mesh.modifiers[0] != mod:
+                    needs_move = True
+                elif not self.stack_top and mesh.modifiers[-1] != mod:
+                    needs_move = True
+            else:
+                # Remove old modifier if exists (direct API, much faster)
+                if old_mod_to_remove:
+                    mesh.modifiers.remove(old_mod_to_remove)
+                
+                # Add new modifier (direct API, no context override needed)
+                # New modifiers are added at the end by default
+                mod = mesh.modifiers.new(name="Auto Smooth", type="NODES")
+                mod.node_group = node_group
+                mod["Input_1"] = angle_rad
+                mod["Socket_1"] = self.ignore_sharp
+                # Only need to move if we want it at the top
+                needs_move = self.stack_top and len(mesh.modifiers) > 1
+            
+            # Move modifier to desired position only if needed (direct API, much faster than operator)
+            if needs_move:
                 if self.stack_top:
-                    bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
-
+                    # Move to top by removing and re-inserting at index 0
+                    mesh.modifiers.remove(mod)
+                    mesh.modifiers.insert(0, mod)
                 else:
-                    bpy.ops.object.modifier_move_to_index(
-                        modifier=mod.name, index=len(mesh.modifiers) - 1
-                    )
+                    # Move to bottom by removing and re-adding
+                    mesh.modifiers.remove(mod)
+                    mesh.modifiers.append(mod)
+            
+            # Apply shade smooth (direct API, faster)
+            if not mesh.data.use_auto_smooth:
+                mesh.data.use_auto_smooth = True
+            mesh.data.auto_smooth_angle = angle_rad
+        
+        # Update UI once at the end instead of per object
+        if needs_ui_update:
+            for area in context.screen.areas:
+                if area.type == "PROPERTIES":
+                    area.tag_redraw()
 
         return {"FINISHED"}
 

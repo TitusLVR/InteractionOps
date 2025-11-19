@@ -5,7 +5,135 @@ import os
 import json
 from statistics import median, StatisticsError
 from mathutils import Vector
+from typing import Any, Iterable, Callable, Optional
+from functools import wraps
 
+
+############################## Progress Bar Utilities ##############################
+
+def progress(i: int, total: int, prefix: str = ""):
+    """Display a progress bar in the console.
+    
+    Args:
+        i: Current iteration (1-indexed)
+        total: Total number of items
+        prefix: Optional prefix text before the progress bar
+    """
+    bar_len = 30
+    filled = int(bar_len * (i / total))
+    bar = "█" * filled + "·" * (bar_len - filled)
+    print(f"\r{prefix} [{bar}] {i}/{total}", end="", flush=True)
+
+
+def with_progress(items: Iterable, prefix: str = "Processing", total: Optional[int] = None):
+    """Context manager that wraps an iterable with a progress bar.
+    
+    Usage:
+        for item in with_progress(items, prefix="Processing items"):
+            # process item
+    
+    Args:
+        items: Iterable to process
+        prefix: Text to display before the progress bar
+        total: Total count (if None, will try to use len() on items)
+    
+    Yields:
+        Items from the iterable, one at a time
+    """
+    items_list = list(items) if not isinstance(items, (list, tuple)) else items
+    total_count = total if total is not None else len(items_list)
+    
+    if total_count > 0:
+        print(f"{prefix} {total_count} item(s)...\n")
+    
+    for i, item in enumerate(items_list, 1):
+        if total_count > 0:
+            progress(i, total_count, prefix=prefix)
+        yield item
+    
+    if total_count > 0:
+        print("\nDone ✔")
+
+
+def progress_decorator(prefix: str = "Processing", get_items: Optional[Callable] = None):
+    """Decorator to add progress bar to functions that process iterables.
+    
+    Usage:
+        @progress_decorator(prefix="Adding modifiers")
+        def process_objects(self, objects):
+            for obj in objects:
+                # process obj
+    
+    Or with custom item getter:
+        @progress_decorator(prefix="Processing", get_items=lambda self, *args: args[0])
+        def my_function(self, items):
+            for item in items:
+                # process item
+    
+    Args:
+        prefix: Text to display before the progress bar
+        get_items: Optional function to extract the iterable from function arguments.
+                   If None, assumes the first argument is the iterable.
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Get the iterable
+            if get_items:
+                items = get_items(*args, **kwargs)
+            else:
+                # Try to find an iterable in args or kwargs
+                items = None
+                for arg in args:
+                    if isinstance(arg, (list, tuple)) or hasattr(arg, '__iter__'):
+                        items = arg
+                        break
+                if items is None:
+                    for value in kwargs.values():
+                        if isinstance(value, (list, tuple)) or hasattr(value, '__iter__'):
+                            items = value
+                            break
+            
+            if items is None:
+                # No iterable found, just call the function normally
+                return func(*args, **kwargs)
+            
+            # Wrap the iterable with progress
+            items_list = list(items) if not isinstance(items, (list, tuple)) else items
+            total = len(items_list)
+            
+            if total > 0:
+                print(f"{prefix} {total} item(s)...\n")
+            
+            # Create a generator that yields items and updates progress
+            def progress_items():
+                for i, item in enumerate(items_list, 1):
+                    if total > 0:
+                        progress(i, total, prefix=prefix)
+                    yield item
+                if total > 0:
+                    print("\nDone ✔")
+            
+            # Replace the iterable argument with the progress-wrapped version
+            new_args = list(args)
+            for i, arg in enumerate(new_args):
+                if arg is items:
+                    new_args[i] = progress_items()
+                    break
+            
+            if items not in new_args:
+                # Items might be in kwargs
+                for key, value in kwargs.items():
+                    if value is items:
+                        kwargs[key] = progress_items()
+                        break
+            
+            return func(*new_args, **kwargs)
+        return wrapper
+    return decorator
+
+
+############################## Context Override ##############################
 
 def ContextOverride(area):
     for window in bpy.context.window_manager.windows:
