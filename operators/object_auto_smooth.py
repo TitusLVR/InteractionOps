@@ -30,8 +30,6 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         
         angle_rad = radians(self.angle)
         
-        # Apply auto smooth to all selected objects at once
-        bpy.ops.object.shade_auto_smooth()
         
         # Set the angle and clean up modifiers on all meshes
         for mesh in with_progress(meshes, prefix="Adding Auto Smooth"):
@@ -46,9 +44,9 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
             # Remove the modifiers
             for mod in modifiers_to_remove:
                 mesh.modifiers.remove(mod)
-            
-            # Set the angle
-            mesh.data.auto_smooth_angle = angle_rad
+
+        # Apply auto smooth to all selected objects at once
+        bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=angle_rad)
 
         return {"FINISHED"}
 

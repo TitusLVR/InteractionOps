@@ -11,13 +11,18 @@ def fuzzy_match(search_term, target):
     """
     Fuzzy match: checks if all characters in search_term appear in order in target.
     Characters don't need to be consecutive.
+    Spaces are ignored in both search_term and target.
     Example: "abc" matches "a_b_c", "abc", "aXbYc", etc.
     """
     if not search_term:
         return True
     
-    search_term = search_term.lower()
-    target = target.lower()
+    # Remove spaces from both search_term and target
+    search_term = search_term.lower().replace(" ", "")
+    target = target.lower().replace(" ", "")
+    
+    if not search_term:
+        return True
     
     # First check for exact substring match (highest priority)
     if search_term in target:
