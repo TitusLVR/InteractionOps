@@ -67,9 +67,11 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
         global_column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
 
         layout = self.layout
-        if getattr(props, "iops_exec_filter", None):
-            filtered_scripts = bpy.context.scene["IOPS"].get("filtered_executor_scripts", [])
-            scripts = filtered_scripts if props.iops_exec_filter and filtered_scripts else bpy.context.scene["IOPS"]["executor_scripts"]
+        # Use filtered scripts if filter is active and filtered list exists
+        filter_text = props.iops_exec_filter if hasattr(props, "iops_exec_filter") else ""
+        if filter_text and "filtered_executor_scripts" in bpy.context.scene["IOPS"]:
+            filtered_scripts = bpy.context.scene["IOPS"]["filtered_executor_scripts"]
+            scripts = filtered_scripts if filtered_scripts else []
         else:
             scripts = bpy.context.scene["IOPS"]["executor_scripts"]
         column_amount = max(1, int(len(scripts) / prefs.executor_column_count))

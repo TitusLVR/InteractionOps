@@ -1,3 +1,4 @@
+import os
 import bpy
 from bpy.types import PropertyGroup
 from bpy.props import (
@@ -6,12 +7,48 @@ from bpy.props import (
     StringProperty,
 )
 
+def fuzzy_match(search_term, target):
+    """
+    Fuzzy match: checks if all characters in search_term appear in order in target.
+    Characters don't need to be consecutive.
+    Example: "abc" matches "a_b_c", "abc", "aXbYc", etc.
+    """
+    if not search_term:
+        return True
+    
+    search_term = search_term.lower()
+    target = target.lower()
+    
+    # First check for exact substring match (highest priority)
+    if search_term in target:
+        return True
+    
+    # Then check for fuzzy match (characters in order)
+    search_idx = 0
+    for char in target:
+        if search_idx < len(search_term) and char == search_term[search_idx]:
+            search_idx += 1
+            if search_idx == len(search_term):
+                return True
+    
+    return False
+
 def update_exec_filter(self, context):
-    if hasattr(bpy.context.scene, 'IOPS') and hasattr(bpy.context.scene.IOPS, 'executor_scripts'):
-        scripts = bpy.context.scene.IOPS.executor_scripts
-        filtered_scripts = [script for script in scripts if self.iops_exec_filter.lower() in script.lower()]
-        if hasattr(bpy.context.scene.IOPS, 'filtered_executor_scripts'):
-            bpy.context.scene.IOPS.filtered_executor_scripts = filtered_scripts if len(filtered_scripts) > 0 else None
+    if "IOPS" in bpy.context.scene and "executor_scripts" in bpy.context.scene["IOPS"]:
+        scripts = bpy.context.scene["IOPS"]["executor_scripts"]
+        filter_text = self.iops_exec_filter.lower()
+        if filter_text:
+            # Filter by script filename (not full path) using fuzzy search
+            filtered_scripts = []
+            for script in scripts:
+                script_name = os.path.basename(script)
+                if fuzzy_match(filter_text, script_name):
+                    filtered_scripts.append(script)
+            bpy.context.scene["IOPS"]["filtered_executor_scripts"] = filtered_scripts
+        else:
+            # Clear filter when empty
+            if "filtered_executor_scripts" in bpy.context.scene["IOPS"]:
+                del bpy.context.scene["IOPS"]["filtered_executor_scripts"]
 
 
 

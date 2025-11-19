@@ -413,7 +413,6 @@ def register():
         print("IOPS Statistics Disabled!")
 
     load_iops_preferences()
-    keymap_registration()
 
     print("IOPS Registered!")
 
@@ -456,6 +455,9 @@ def outliner_collection_ops(self, context):
 
 def select_interior_faces(self, context):
     self.layout.operator("mesh.select_interior_faces")
+
+
+keymap_registration()
 
 
 if __name__ == "__main__":
