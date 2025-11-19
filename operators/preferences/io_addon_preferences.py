@@ -130,6 +130,7 @@ def load_iops_preferences():
                         prefs.cursor_bisect_distance_offset_y = value["cursor_bisect_distance_offset_y"]
                     case "UI_TEXT_STAT":
                         prefs.iops_stat = value["iops_stat"]
+                        prefs.show_filename_stat = value["show_filename_stat"]
                         prefs.text_color_stat = value["text_color_stat"]
                         prefs.text_color_key_stat = value["text_color_key_stat"]
                         prefs.text_color_error_stat = value["text_color_error_stat"]

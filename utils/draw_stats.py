@@ -61,6 +61,40 @@ def draw_iops_statistics():
             offset_y = area_3d.height - tCPosY
             size_multiplier = textsize * uidpi
 
+            # File save status (only if enabled in preferences)
+            if prefs.show_filename_stat:
+                file_saved = bpy.data.is_saved
+                file_dirty = bpy.data.is_dirty
+                
+                if file_saved and bpy.data.filepath:
+                    import os
+                    filename = os.path.basename(bpy.data.filepath)
+                    # Add asterisk if file has unsaved changes
+                    if file_dirty:
+                        file_status = filename + "*"
+                    else:
+                        file_status = filename
+                else:
+                    file_status = "Unsaved"
+                
+                # Draw file save status
+                blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
+                blf.position(font, offset_x, offset_y, 0)
+                blf.draw(font, "File:")
+                
+                column_offset_x = offset_x + size_multiplier + tColumnOffset
+                if file_saved and not file_dirty:
+                    blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
+                elif file_saved and file_dirty:
+                    blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])  # Error color for modified files
+                else:
+                    blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
+                
+                dim = blf.dimensions(font, file_status)
+                blf.position(font, column_offset_x + dim[1], offset_y, 0)
+                blf.draw(font, file_status)
+                offset_y -= textsize * 1.5
+
             if active_object and active_object.type == "MESH":
                 # Check if active object has UVMaps
                 uvmaps = []
