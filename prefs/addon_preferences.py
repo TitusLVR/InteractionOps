@@ -551,7 +551,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Save snap combo preset with this modifier",
         items=[
             ("SHIFT", "Shift", "", 0),
-            ("CTRL", "Ctrl", "", 1),
+             ("CTRL", "Ctrl", "", 1),
             ("ALT", "Alt", "", 2),
             ("CTRL_ALT", "Ctrl + Alt", "", 3),
             ("SHIFT_ALT", "Shift + Alt", "", 4),

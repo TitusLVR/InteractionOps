@@ -47,7 +47,7 @@ def load_space_data(context):
     if "IOPS" not in context.scene:
         context.scene["IOPS"] = {}
 
-    if context.scene["IOPS"].values() != []:
+    if context.scene["IOPS"]:
         if area_type in context.scene["IOPS"] and area_type == "OUTLINER":
             outliner = context.scene["IOPS"]["OUTLINER"]
             display_mode = context.space_data.display_mode

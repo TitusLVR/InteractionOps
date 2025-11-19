@@ -10,6 +10,18 @@ from math import radians
 #             bpy.ops.object.modifier_move_up(modifier=mod.name)
 
 
+def append_nodetree(filepath, nodetree_name):
+    """Append a node tree from a blend file"""
+    with bpy.data.libraries.load(filepath, link=False) as (data_from, data_to):
+        if nodetree_name in data_from.node_groups:
+            data_to.node_groups = [nodetree_name]
+    
+    # Return the appended node group
+    if nodetree_name in bpy.data.node_groups:
+        return bpy.data.node_groups[nodetree_name]
+    return None
+
+
 class IOPS_OT_AutoSmooth(bpy.types.Operator):
     bl_idname = "iops.object_auto_smooth"
     bl_description = "Add Auto Smooth modifier to selected objects"
@@ -42,16 +54,36 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         return any(obj.type == "MESH" for obj in bpy.context.selected_objects)
 
     def invoke(self, context, event):
-        # check if bpy.data.node_groups["Smooth by Angle"] exists, if not import it
-        if "Smooth by Angle" not in bpy.data.node_groups.keys():
-            res_path = bpy.utils.resource_path("LOCAL")
-            path = os.path.join(
-                res_path, "datafiles\\assets\\geometry_nodes\\smooth_by_angle.blend"
-            )
-
-            with bpy.data.libraries.load(path, link=True) as (data_from, data_to):
-                data_to.node_groups = data_from.node_groups
-                # print(f"Loaded {path}")
+        # Check if "Smooth by Angle" node group already exists
+        smooth_by_angles = [tree for tree in bpy.data.node_groups if tree.name.startswith('Smooth by Angle')]
+        
+        if not smooth_by_angles:
+            # Determine path based on Blender version
+            # Try system_resource first (if available), fallback to resource_path
+            try:
+                if hasattr(bpy.utils, 'system_resource'):
+                    datafiles_path = bpy.utils.system_resource('DATAFILES')
+                else:
+                    # Fallback for older Blender versions
+                    datafiles_path = os.path.join(bpy.utils.resource_path("LOCAL"), "datafiles")
+            except (AttributeError, TypeError):
+                datafiles_path = os.path.join(bpy.utils.resource_path("LOCAL"), "datafiles")
+            
+            if bpy.app.version >= (5, 0, 0):
+                path = os.path.join(datafiles_path, 'assets', 'nodes', 'geometry_nodes_essentials.blend')
+            else:
+                path = os.path.join(datafiles_path, 'assets', 'geometry_nodes', 'smooth_by_angle.blend')
+            
+            # Append the node group
+            ng = append_nodetree(path, 'Smooth by Angle')
+            
+            if ng:
+                # Clear asset data if it exists (to avoid asset system issues)
+                if hasattr(ng, 'asset_data') and ng.asset_data:
+                    ng.asset_clear()
+            else:
+                self.report({"WARNING"}, "Could not import 'Smooth by Angle' node group from ESSENTIALS! Asset file may be missing.")
+        
         return self.execute(context)
 
     def execute(self, context):
@@ -122,27 +154,34 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                 # Add Smooth by Angle modifier from Essentials library
                 try:
                     if "Auto Smooth" not in [mod.name for mod in mesh.modifiers]:
-                        bpy.ops.object.modifier_add_node_group(
-                            asset_library_type="ESSENTIALS",
-                            asset_library_identifier="",
-                            relative_asset_identifier="geometry_nodes/smooth_by_angle.blend/NodeTree/Smooth by Angle",
-                        )
-                        for _mod in mesh.modifiers:
-                            if _mod.type == "NODES" and "Smooth by Angle" in _mod.name:
-                                _mod.name = "Auto Smooth"
-                                _mod["Input_1"] = radians(self.angle)
-                                _mod["Socket_1"] = self.ignore_sharp
-                                _mod.name = "Auto Smooth"
-                                mod = _mod
-
-                        # if mod.type == "NODES":
-                        #     mod.node_group = bpy.data.node_groups["Smooth by Angle"]
-                        #     mod["Input_1"] = radians(self.angle)
-                        #     mod["Socket_1"] = self.ignore_sharp
+                        # Try asset system first
+                        try:
+                            bpy.ops.object.modifier_add_node_group(
+                                asset_library_type="ESSENTIALS",
+                                asset_library_identifier="",
+                                relative_asset_identifier="geometry_nodes_essentials.blend/NodeTree/Smooth by Angle",
+                            )
+                            for _mod in mesh.modifiers:
+                                if _mod.type == "NODES" and "Smooth by Angle" in _mod.name:
+                                    _mod.name = "Auto Smooth"
+                                    _mod["Input_1"] = radians(self.angle)
+                                    _mod["Socket_1"] = self.ignore_sharp
+                                    _mod.name = "Auto Smooth"
+                                    mod = _mod
+                        except Exception as asset_error:
+                            # Fallback: Use directly loaded node group
+                            if "Smooth by Angle" in bpy.data.node_groups:
+                                mod = mesh.modifiers.new(name="Auto Smooth", type="NODES")
+                                mod.node_group = bpy.data.node_groups["Smooth by Angle"]
+                                mod["Input_1"] = radians(self.angle)
+                                mod["Socket_1"] = self.ignore_sharp
+                            else:
+                                raise asset_error
 
                     else:
                         mod = mesh.modifiers["Auto Smooth"]
                 except Exception as e:
+                    self.report({"ERROR"}, f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
                     print(f"Could not add Auto Smooth modifier to {mesh.name} — {e}")
                     continue
                 mod.show_viewport = False

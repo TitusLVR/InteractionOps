@@ -7,9 +7,11 @@ from bpy.props import (
 )
 
 def update_exec_filter(self, context):
-    scripts = bpy.context.scene['IOPS']['executor_scripts']
-    filtered_scripts = [script for script in scripts if self.iops_exec_filter.lower() in script.lower()]
-    bpy.context.scene['IOPS']['filtered_executor_scripts'] = filtered_scripts if len(filtered_scripts) > 0 else None
+    if hasattr(bpy.context.scene, 'IOPS') and hasattr(bpy.context.scene.IOPS, 'executor_scripts'):
+        scripts = bpy.context.scene.IOPS.executor_scripts
+        filtered_scripts = [script for script in scripts if self.iops_exec_filter.lower() in script.lower()]
+        if hasattr(bpy.context.scene.IOPS, 'filtered_executor_scripts'):
+            bpy.context.scene.IOPS.filtered_executor_scripts = filtered_scripts if len(filtered_scripts) > 0 else None
 
 
 

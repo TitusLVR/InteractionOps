@@ -2,67 +2,74 @@ import bpy
 import os
 import json
 
-def ensure_snap_combos_prefs():
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+def get_snap_combos_file_path():
+    """Get the path to the snap combos JSON file."""
+    path = bpy.utils.script_path_user()
+    return os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
 
-    for i in range(1,9):
-        combo_key = f"snap_combo_{i}"
-        # Check if property exists - try both ID property and regular attribute
-        exists = False
+def ensure_snap_combos_prefs():
+    """Ensure the JSON file has default snap combo entries if they don't exist."""
+    iops_prefs_file = get_snap_combos_file_path()
+    
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(iops_prefs_file), exist_ok=True)
+    
+    # Load existing preferences or create new dict
+    if os.path.exists(iops_prefs_file):
         try:
-            # Try checking as ID property (Blender < 5.0)
-            if hasattr(prefs, 'keys'):
-                exists = combo_key in prefs.keys()
-            else:
-                exists = hasattr(prefs, combo_key)
-        except (TypeError, AttributeError):
-            exists = hasattr(prefs, combo_key)
-        
-        if not exists:
-            combo_value = {
-                "SNAP_ELEMENTS": {
-                    "INCREMENT": False,
-                    "VERTEX": True,
-                    "EDGE": False,
-                    "FACE": False,
-                    "VOLUME": False,
-                    "EDGE_MIDPOINT": False,
-                    "EDGE_PERPENDICULAR": False,
-                    "FACE_PROJECT": False,
-                    "FACE_NEAREST": False
-                },
-                "TOOL_SETTINGS": {
-                    "transform_pivot_point": "ACTIVE_ELEMENT",
-                    "snap_target": "ACTIVE",
-                    # "use_snap_grid_absolute": True,
-                    "use_snap_self": True,
-                    "use_snap_align_rotation": False,
-                    "use_snap_peel_object": True,
-                    "use_snap_backface_culling": False,
-                    "use_snap_selectable": False,
-                    "use_snap_translate": False,
-                    "use_snap_rotate": False,
-                    "use_snap_scale": False,
-                    "use_snap_to_same_target": False
-                },
-                "TRANSFORMATION": "GLOBAL"
-            }
-            # Try to set as ID property first, fallback to setattr if not supported
-            try:
-                prefs[combo_key] = combo_value
-            except (TypeError, AttributeError):
-                # ID properties not supported, use setattr (may not work for dict values)
-                try:
-                    setattr(prefs, combo_key, combo_value)
-                except (TypeError, AttributeError):
-                    # If both fail, log a warning but continue
-                    print(f"Warning: Could not set {combo_key} property. ID properties may not be supported on AddonPreferences in Blender 5.0+")
+            with open(iops_prefs_file, "r", encoding='utf-8') as f:
+                iops_prefs = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            iops_prefs = {}
+    else:
+        iops_prefs = {}
+    
+    # Ensure SNAP_COMBOS section exists
+    if "SNAP_COMBOS" not in iops_prefs:
+        iops_prefs["SNAP_COMBOS"] = {}
+    
+    # Ensure each snap combo has default values if missing
+    default_combo = {
+        "SNAP_ELEMENTS": {
+            "INCREMENT": False,
+            "VERTEX": True,
+            "EDGE": False,
+            "FACE": False,
+            "VOLUME": False,
+            "EDGE_MIDPOINT": False,
+            "EDGE_PERPENDICULAR": False,
+            "FACE_PROJECT": False,
+            "FACE_NEAREST": False
+        },
+        "TOOL_SETTINGS": {
+            "transform_pivot_point": "ACTIVE_ELEMENT",
+            "snap_target": "ACTIVE",
+            "use_snap_self": True,
+            "use_snap_align_rotation": False,
+            "use_snap_peel_object": True,
+            "use_snap_backface_culling": False,
+            "use_snap_selectable": False,
+            "use_snap_translate": False,
+            "use_snap_rotate": False,
+            "use_snap_scale": False,
+            "use_snap_to_same_target": False
+        },
+        "TRANSFORMATION": "GLOBAL"
+    }
+    
+    for i in range(1, 9):
+        combo_key = f"snap_combo_{i}"
+        if combo_key not in iops_prefs["SNAP_COMBOS"]:
+            iops_prefs["SNAP_COMBOS"][combo_key] = default_combo.copy()
+    
+    # Save the updated preferences
+    with open(iops_prefs_file, "w", encoding='utf-8') as f:
+        json.dump(iops_prefs, f, indent=4)
 
 def save_snap_combo(idx):
+    """Save the current snap settings to the JSON file."""
     tool_settings = bpy.context.scene.tool_settings
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    path = bpy.utils.script_path_user()
-    iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
+    iops_prefs_file = get_snap_combos_file_path()
 
     snap_elements_list = ['VERTEX',
                           'EDGE',
@@ -75,45 +82,46 @@ def save_snap_combo(idx):
                           'FACE_NEAREST'
                           ]
 
-    with open(iops_prefs_file, "r") as f:
-        iops_prefs = json.load(f)
-
+    # Ensure file exists with defaults
     ensure_snap_combos_prefs()
 
-    for snap_combo, snap_details in iops_prefs.get("SNAP_COMBOS", {}).items():
-        if snap_combo[-1] == str(idx):
-            snap_elements = tool_settings.snap_elements
-            snap_elements_dict = {k: k in snap_elements for k in snap_elements_list}
-            tool_settings_dict = {
-                "transform_pivot_point": tool_settings.transform_pivot_point,
-                "snap_target": tool_settings.snap_target,
-                # "use_snap_grid_absolute": tool_settings.use_snap_grid_absolute,
-                "use_snap_self": tool_settings.use_snap_self,
-                "use_snap_align_rotation": tool_settings.use_snap_align_rotation,
-                "use_snap_peel_object": tool_settings.use_snap_peel_object,
-                "use_snap_backface_culling": tool_settings.use_snap_backface_culling,
-                "use_snap_selectable": tool_settings.use_snap_selectable,
-                "use_snap_translate": tool_settings.use_snap_translate,
-                "use_snap_rotate": tool_settings.use_snap_rotate,
-                "use_snap_scale": tool_settings.use_snap_scale,
-                "use_snap_to_same_target": tool_settings.use_snap_to_same_target
-            }
-            snap_details["SNAP_ELEMENTS"] = snap_elements_dict
-            snap_details["TOOL_SETTINGS"] = tool_settings_dict
-            snap_details["TRANSFORMATION"] = bpy.context.scene.transform_orientation_slots[0].type
-            # Try to set as ID property first, fallback to setattr if not supported
-            try:
-                prefs[snap_combo] = snap_details
-            except (TypeError, AttributeError):
-                # ID properties not supported, use setattr (may not work for dict values)
-                try:
-                    setattr(prefs, snap_combo, snap_details)
-                except (TypeError, AttributeError):
-                    # If both fail, log a warning but continue
-                    print(f"Warning: Could not set {snap_combo} property. ID properties may not be supported on AddonPreferences in Blender 5.0+")
-            break
+    # Load existing preferences
+    with open(iops_prefs_file, "r", encoding='utf-8') as f:
+        iops_prefs = json.load(f)
 
-    with open(iops_prefs_file, "w") as f:
+    # Ensure SNAP_COMBOS section exists
+    if "SNAP_COMBOS" not in iops_prefs:
+        iops_prefs["SNAP_COMBOS"] = {}
+
+    # Find the matching snap combo
+    combo_key = f"snap_combo_{idx}"
+    
+    # Get current snap settings
+    snap_elements = tool_settings.snap_elements
+    snap_elements_dict = {k: k in snap_elements for k in snap_elements_list}
+    tool_settings_dict = {
+        "transform_pivot_point": tool_settings.transform_pivot_point,
+        "snap_target": tool_settings.snap_target,
+        "use_snap_self": tool_settings.use_snap_self,
+        "use_snap_align_rotation": tool_settings.use_snap_align_rotation,
+        "use_snap_peel_object": tool_settings.use_snap_peel_object,
+        "use_snap_backface_culling": tool_settings.use_snap_backface_culling,
+        "use_snap_selectable": tool_settings.use_snap_selectable,
+        "use_snap_translate": tool_settings.use_snap_translate,
+        "use_snap_rotate": tool_settings.use_snap_rotate,
+        "use_snap_scale": tool_settings.use_snap_scale,
+        "use_snap_to_same_target": tool_settings.use_snap_to_same_target
+    }
+    
+    # Update the snap combo in the JSON structure
+    iops_prefs["SNAP_COMBOS"][combo_key] = {
+        "SNAP_ELEMENTS": snap_elements_dict,
+        "TOOL_SETTINGS": tool_settings_dict,
+        "TRANSFORMATION": bpy.context.scene.transform_orientation_slots[0].type
+    }
+
+    # Save to file
+    with open(iops_prefs_file, "w", encoding='utf-8') as f:
         json.dump(iops_prefs, f, indent=4)
 
 
@@ -162,52 +170,59 @@ class IOPS_OT_SetSnapCombo(bpy.types.Operator):
             self.report({"INFO"}, f"Snap Combo {self.idx} Saved.")
 
         else:
+            # Load snap combo from JSON file
             tool_settings = context.scene.tool_settings
-            # Get snap combo keys - try both ID property keys() and dir() for attributes
-            snap_combos_prefs = []
-            try:
-                if hasattr(prefs, 'keys'):
-                    snap_combos_prefs = [sc for sc in prefs.keys() if sc.startswith("snap_combo_")]
-                else:
-                    # Fallback: check dir() for attributes starting with snap_combo_
-                    snap_combos_prefs = [sc for sc in dir(prefs) if sc.startswith("snap_combo_") and not sc.startswith("_")]
-            except (TypeError, AttributeError):
-                # Fallback: check dir() for attributes
-                snap_combos_prefs = [sc for sc in dir(prefs) if sc.startswith("snap_combo_") and not sc.startswith("_")]
+            iops_prefs_file = get_snap_combos_file_path()
             
-            for snap_combo in snap_combos_prefs:
-                if snap_combo[-1] == str(self.idx):
-                    # Try to get the property value - handle both ID property and regular attribute
-                    try:
-                        combo_data = prefs[snap_combo]
-                    except (TypeError, AttributeError, KeyError):
-                        try:
-                            combo_data = getattr(prefs, snap_combo)
-                        except AttributeError:
-                            print(f"Warning: Could not access {snap_combo} property")
-                            continue
-                    
-                    if not isinstance(combo_data, dict):
-                        print(f"Warning: {snap_combo} is not a dictionary")
-                        continue
-                    
-                    elements = {k for k, v in combo_data.get("SNAP_ELEMENTS", {}).items() if v}
-                    tool_settings.snap_elements = elements
-                    tool_settings_dict = combo_data.get("TOOL_SETTINGS", {})
-                    tool_settings.transform_pivot_point                   = tool_settings_dict.get("transform_pivot_point", "ACTIVE_ELEMENT")
-                    tool_settings.snap_target                             = tool_settings_dict.get("snap_target", "ACTIVE")
-                    # tool_settings.use_snap_grid_absolute                  = tool_settings_dict.get("use_snap_grid_absolute", True)
-                    tool_settings.use_snap_self                           = tool_settings_dict.get("use_snap_self", True)
-                    tool_settings.use_snap_align_rotation                 = tool_settings_dict.get("use_snap_align_rotation", False)
-                    tool_settings.use_snap_peel_object                    = tool_settings_dict.get("use_snap_peel_object", True)
-                    tool_settings.use_snap_backface_culling               = tool_settings_dict.get("use_snap_backface_culling", False)
-                    tool_settings.use_snap_selectable                     = tool_settings_dict.get("use_snap_selectable", False)
-                    tool_settings.use_snap_translate                      = tool_settings_dict.get("use_snap_translate", False)
-                    tool_settings.use_snap_rotate                         = tool_settings_dict.get("use_snap_rotate", False)
-                    tool_settings.use_snap_scale                          = tool_settings_dict.get("use_snap_scale", False)
-                    tool_settings.use_snap_to_same_target                 = tool_settings_dict.get("use_snap_to_same_target", False)
-                    bpy.context.scene.transform_orientation_slots[0].type = combo_data.get("TRANSFORMATION", "GLOBAL")
-                    break
+            # Ensure file exists with defaults
+            ensure_snap_combos_prefs()
+            
+            # Load preferences from JSON
+            try:
+                with open(iops_prefs_file, "r", encoding='utf-8') as f:
+                    iops_prefs = json.load(f)
+            except (IOError, json.JSONDecodeError):
+                self.report({"ERROR"}, f"Could not load snap combo from {iops_prefs_file}")
+                return {"CANCELLED"}
+            
+            # Get the snap combo data
+            combo_key = f"snap_combo_{self.idx}"
+            snap_combos = iops_prefs.get("SNAP_COMBOS", {})
+            
+            if combo_key not in snap_combos:
+                self.report({"WARNING"}, f"Snap Combo {self.idx} not found. Using defaults.")
+                ensure_snap_combos_prefs()
+                with open(iops_prefs_file, "r", encoding='utf-8') as f:
+                    iops_prefs = json.load(f)
+                snap_combos = iops_prefs.get("SNAP_COMBOS", {})
+            
+            combo_data = snap_combos.get(combo_key, {})
+            
+            if not isinstance(combo_data, dict):
+                self.report({"ERROR"}, f"Snap Combo {self.idx} has invalid data.")
+                return {"CANCELLED"}
+            
+            # Apply snap elements
+            elements = {k for k, v in combo_data.get("SNAP_ELEMENTS", {}).items() if v}
+            tool_settings.snap_elements = elements
+            
+            # Apply tool settings
+            tool_settings_dict = combo_data.get("TOOL_SETTINGS", {})
+            tool_settings.transform_pivot_point = tool_settings_dict.get("transform_pivot_point", "ACTIVE_ELEMENT")
+            tool_settings.snap_target = tool_settings_dict.get("snap_target", "ACTIVE")
+            tool_settings.use_snap_self = tool_settings_dict.get("use_snap_self", True)
+            tool_settings.use_snap_align_rotation = tool_settings_dict.get("use_snap_align_rotation", False)
+            tool_settings.use_snap_peel_object = tool_settings_dict.get("use_snap_peel_object", True)
+            tool_settings.use_snap_backface_culling = tool_settings_dict.get("use_snap_backface_culling", False)
+            tool_settings.use_snap_selectable = tool_settings_dict.get("use_snap_selectable", False)
+            tool_settings.use_snap_translate = tool_settings_dict.get("use_snap_translate", False)
+            tool_settings.use_snap_rotate = tool_settings_dict.get("use_snap_rotate", False)
+            tool_settings.use_snap_scale = tool_settings_dict.get("use_snap_scale", False)
+            tool_settings.use_snap_to_same_target = tool_settings_dict.get("use_snap_to_same_target", False)
+            
+            # Apply transformation orientation
+            bpy.context.scene.transform_orientation_slots[0].type = combo_data.get("TRANSFORMATION", "GLOBAL")
+            
             self.report({"INFO"}, f"Snap Combo {self.idx} Loaded.")
         return {"FINISHED"}
 

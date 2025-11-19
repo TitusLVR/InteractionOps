@@ -1,4 +1,6 @@
 import bpy
+import os
+import json
 from .addon_preferences import IOPS_AddonPreferences
 
 
@@ -10,55 +12,68 @@ def get_iops_prefs():
     def get_default(attr):
         return getattr(IOPS_AddonPreferences, attr).keywords.get('default', None)
 
+    # Default snap combo structure
+    default_combo = {
+        "SNAP_ELEMENTS": {
+            "INCREMENT": False,
+            "VERTEX": True,
+            "EDGE": False,
+            "FACE": False,
+            "VOLUME": False,
+            "EDGE_MIDPOINT": False,
+            "EDGE_PERPENDICULAR": False,
+            "FACE_PROJECT": False,
+            "FACE_NEAREST": False
+        },
+        "TOOL_SETTINGS": {
+            "transform_pivot_point": "ACTIVE_ELEMENT",
+            "snap_target": "ACTIVE",
+            "use_snap_self": True,
+            "use_snap_align_rotation": False,
+            "use_snap_peel_object": True,
+            "use_snap_backface_culling": False,
+            "use_snap_selectable": False,
+            "use_snap_translate": False,
+            "use_snap_rotate": False,
+            "use_snap_scale": False,
+            "use_snap_to_same_target": False
+        },
+        "TRANSFORMATION": "GLOBAL"
+    }
+
+    # Load snap combos from JSON file (Blender 5.0 compatible)
+    path = bpy.utils.script_path_user()
+    iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
+    
+    snap_combos_from_json = {}
+    if os.path.exists(iops_prefs_file):
+        try:
+            with open(iops_prefs_file, "r", encoding='utf-8') as f:
+                iops_prefs = json.load(f)
+                snap_combos_from_json = iops_prefs.get("SNAP_COMBOS", {})
+        except (json.JSONDecodeError, IOError):
+            snap_combos_from_json = {}
+
     for i in range(1, 9):
         snap_combo_key = f"snap_combo_{i}"
-        try:
-            # Try to get as ID property first, fallback to attribute
-            try:
-                snap_combo = prefs[snap_combo_key]
-            except (TypeError, AttributeError, KeyError):
-                snap_combo = getattr(prefs, snap_combo_key, None)
-            
-            if snap_combo is None or not isinstance(snap_combo, dict):
-                raise ValueError(f"{snap_combo_key} is not a valid dictionary")
-            
-            snap_combo_dict[snap_combo_key] = {
-                "SNAP_ELEMENTS": {k: snap_combo["SNAP_ELEMENTS"].get(k, False) for k in [
-                    "INCREMENT", "VERTEX", "EDGE", "FACE", "VOLUME", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR", "FACE_PROJECT", "FACE_NEAREST"
-                ]},
-                "TOOL_SETTINGS": {k: snap_combo["TOOL_SETTINGS"].get(k, False) if isinstance(snap_combo["TOOL_SETTINGS"].get(k, None), bool) else snap_combo["TOOL_SETTINGS"].get(k, "") for k in [
-                    "transform_pivot_point", "snap_target", "use_snap_self", "use_snap_align_rotation", "use_snap_peel_object", "use_snap_backface_culling", "use_snap_selectable", "use_snap_translate", "use_snap_rotate", "use_snap_scale", "use_snap_to_same_target"
-                ]},
-                "TRANSFORMATION": snap_combo.get("TRANSFORMATION", "GLOBAL")
-            }
-        except Exception:
-            snap_combo_dict[snap_combo_key] = {
-                "SNAP_ELEMENTS": {
-                    "INCREMENT": False,
-                    "VERTEX": True,
-                    "EDGE": False,
-                    "FACE": False,
-                    "VOLUME": False,
-                    "EDGE_MIDPOINT": False,
-                    "EDGE_PERPENDICULAR": False,
-                    "FACE_PROJECT": False,
-                    "FACE_NEAREST": False
-                },
-                "TOOL_SETTINGS": {
-                    "transform_pivot_point": "ACTIVE_ELEMENT",
-                    "snap_target": "ACTIVE",
-                    "use_snap_self": True,
-                    "use_snap_align_rotation": False,
-                    "use_snap_peel_object": True,
-                    "use_snap_backface_culling": False,
-                    "use_snap_selectable": False,
-                    "use_snap_translate": False,
-                    "use_snap_rotate": False,
-                    "use_snap_scale": False,
-                    "use_snap_to_same_target": False
-                },
-                "TRANSFORMATION": "GLOBAL"
-            }
+        
+        # Try to get from JSON file first
+        if snap_combo_key in snap_combos_from_json:
+            snap_combo = snap_combos_from_json[snap_combo_key]
+            if isinstance(snap_combo, dict):
+                snap_combo_dict[snap_combo_key] = {
+                    "SNAP_ELEMENTS": {k: snap_combo.get("SNAP_ELEMENTS", {}).get(k, False) for k in [
+                        "INCREMENT", "VERTEX", "EDGE", "FACE", "VOLUME", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR", "FACE_PROJECT", "FACE_NEAREST"
+                    ]},
+                    "TOOL_SETTINGS": {k: snap_combo.get("TOOL_SETTINGS", {}).get(k, False) if isinstance(snap_combo.get("TOOL_SETTINGS", {}).get(k, None), bool) else snap_combo.get("TOOL_SETTINGS", {}).get(k, "") for k in [
+                        "transform_pivot_point", "snap_target", "use_snap_self", "use_snap_align_rotation", "use_snap_peel_object", "use_snap_backface_culling", "use_snap_selectable", "use_snap_translate", "use_snap_rotate", "use_snap_scale", "use_snap_to_same_target"
+                    ]},
+                    "TRANSFORMATION": snap_combo.get("TRANSFORMATION", "GLOBAL")
+                }
+                continue
+        
+        # Fallback to default if not found in JSON
+        snap_combo_dict[snap_combo_key] = default_combo.copy()
 
     # Helper for safe getattr with fallback to class default
     def safe(attr, default=None):

@@ -158,19 +158,11 @@ def load_iops_preferences():
                             "texture_to_material_suffixes"
                         ]
                     case "SNAP_COMBOS":
-                        for i in range(1, 9):
-                            # Use setattr for Blender 5.0 compatibility
-                            # Note: snap_combo properties are ID properties stored as dictionaries
-                            combo_key = f"snap_combo_{i}"
-                            if hasattr(prefs, combo_key):
-                                setattr(prefs, combo_key, value[combo_key])
-                            else:
-                                # If property doesn't exist, try to set it as ID property
-                                try:
-                                    prefs[combo_key] = value[combo_key]
-                                except (TypeError, AttributeError):
-                                    # Fallback: use setattr which should work for regular properties
-                                    setattr(prefs, combo_key, value[combo_key])
+                        # In Blender 5.0, snap combos are stored in JSON file only
+                        # No need to set ID properties - they're read directly from JSON
+                        # This case is kept for compatibility but snap combos are handled
+                        # directly in snap_combos.py via JSON file
+                        pass
                     case "DRAG_SNAP":
                         prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
                     case _:

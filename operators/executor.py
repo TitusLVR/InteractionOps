@@ -63,15 +63,15 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
         prefs = context.preferences.addons["InteractionOps"].preferences
         props = context.window_manager.IOPS_AddonProperties
         letter = ""
-        scripts = bpy.context.scene.IOPS["executor_scripts"]
+        scripts = bpy.context.scene["IOPS"]["executor_scripts"]
         global_column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
 
         layout = self.layout
         if getattr(props, "iops_exec_filter", None):
-            filtered_scripts = bpy.context.scene.IOPS.get("filtered_executor_scripts", [])
-            scripts = filtered_scripts if props.iops_exec_filter and filtered_scripts else bpy.context.scene.IOPS["executor_scripts"]
+            filtered_scripts = bpy.context.scene["IOPS"].get("filtered_executor_scripts", [])
+            scripts = filtered_scripts if props.iops_exec_filter and filtered_scripts else bpy.context.scene["IOPS"]["executor_scripts"]
         else:
-            scripts = bpy.context.scene.IOPS["executor_scripts"]
+            scripts = bpy.context.scene["IOPS"]["executor_scripts"]
         column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
         layout.ui_units_x = get_executor_column_width(scripts) / (global_column_amount / column_amount)
         column_flow = layout.column_flow(columns=column_amount, align=False)
@@ -98,8 +98,8 @@ class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
     def execute(self, context):
         addon_prop = context.window_manager.IOPS_AddonProperties
         addon_prop.iops_exec_filter = ""
-        if "filtered_executor_scripts" in bpy.context.scene.IOPS.keys():
-            del bpy.context.scene.IOPS["filtered_executor_scripts"]
+        if "filtered_executor_scripts" in bpy.context.scene["IOPS"].keys():
+            del bpy.context.scene["IOPS"]["filtered_executor_scripts"]
         prefs = context.preferences.addons["InteractionOps"].preferences
         executor_scripts_folder = prefs.executor_scripts_folder
         scripts_folder = executor_scripts_folder  # TODO: Add user scripts folder
