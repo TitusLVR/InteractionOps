@@ -47,6 +47,29 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
 
         # Apply auto smooth to all selected objects at once
         bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=angle_rad)
+        
+        # Find "Smooth by Angle" modifier, unpin it, and move to first position
+        for mesh in meshes:
+            # Find the modifier
+            smooth_by_angle_mod = None
+            for mod in mesh.modifiers:
+                if "Smooth by Angle" in mod.name:
+                    smooth_by_angle_mod = mod
+                    break
+            
+            if smooth_by_angle_mod:
+                # Unpin the modifier (ensure it's enabled)
+                smooth_by_angle_mod.show_viewport = True
+                smooth_by_angle_mod.show_render = True
+                smooth_by_angle_mod.use_pin_to_last = False
+                
+                # Move to first position in stack (with safety limit)
+                with context.temp_override(object=mesh):
+                    max_moves = len(mesh.modifiers)
+                    moves = 0
+                    while mesh.modifiers[0] != smooth_by_angle_mod and moves < max_moves:
+                        bpy.ops.object.modifier_move_up(modifier=smooth_by_angle_mod.name)
+                        moves += 1
 
         return {"FINISHED"}
 
