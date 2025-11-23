@@ -69,6 +69,7 @@ from .operators.object_rotate import (
     IOPS_OT_object_rotate_Z,
 )
 from .operators.object_auto_smooth import IOPS_OT_AutoSmooth, IOPS_OT_ClearCustomNormals
+from .operators.object_change_scale import IOPS_OT_ChangeScale
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
 from .operators.object_visual_origin import IOPS_OT_VisualOrigin
@@ -243,6 +244,7 @@ classes = (
     IOPS_OT_VisualOrigin,
     IOPS_OT_AutoSmooth,
     IOPS_OT_ClearCustomNormals,
+    IOPS_OT_ChangeScale,
     IOPS_OT_object_rotate_Z,
     IOPS_OT_object_rotate_MZ,
     IOPS_OT_object_rotate_Y,
@@ -401,6 +403,7 @@ def register():
         )
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
+    bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
@@ -423,6 +426,7 @@ def unregister():
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.remove(select_interior_faces)
         bpy.types.ASSETBROWSER_MT_context_menu.remove(open_asset_in_current_blender)
+        bpy.types.VIEW3D_MT_object_apply.remove(object_apply_change_scale)
     except Exception as e:
         print(e)
         pass
@@ -455,6 +459,11 @@ def outliner_collection_ops(self, context):
 
 def select_interior_faces(self, context):
     self.layout.operator("mesh.select_interior_faces")
+
+
+def object_apply_change_scale(self, context):
+    self.layout.separator()
+    self.layout.operator(IOPS_OT_ChangeScale.bl_idname)
 
 
 keymap_registration()

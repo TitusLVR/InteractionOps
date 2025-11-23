@@ -30,46 +30,72 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
         
         angle_rad = radians(self.angle)
         
+        # Track and handle edit mode
+        # Store original mode states and active object
+        original_active = context.active_object
+        objects_in_edit_mode = []
         
-        # Set the angle and clean up modifiers on all meshes
-        for mesh in with_progress(meshes, prefix="Adding Auto Smooth"):
-            # First delete all modifiers with names containing "Auto Smooth" or "Smooth by Angle"
-            modifiers_to_remove = []
-            for mod in mesh.modifiers:
-                if mod.type == "NODES":
-                    mod_name = mod.name
-                    if "Auto Smooth" in mod_name or "Smooth by Angle" in mod_name:
-                        modifiers_to_remove.append(mod)
-            
-            # Remove the modifiers
-            for mod in modifiers_to_remove:
-                mesh.modifiers.remove(mod)
-
-        # Apply auto smooth to all selected objects at once
-        bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=angle_rad)
+        # Check which objects are in edit mode and exit temporarily
+        for obj in meshes:
+            if obj.mode == 'EDIT':
+                objects_in_edit_mode.append(obj)
+                # Exit edit mode for this object
+                with context.temp_override(object=obj):
+                    bpy.ops.object.mode_set(mode='OBJECT')
         
-        # Find "Smooth by Angle" modifier, unpin it, and move to first position
-        for mesh in meshes:
-            # Find the modifier
-            smooth_by_angle_mod = None
-            for mod in mesh.modifiers:
-                if "Smooth by Angle" in mod.name:
-                    smooth_by_angle_mod = mod
-                    break
-            
-            if smooth_by_angle_mod:
-                # Unpin the modifier (ensure it's enabled)
-                smooth_by_angle_mod.show_viewport = True
-                smooth_by_angle_mod.show_render = True
-                smooth_by_angle_mod.use_pin_to_last = False
+        try:
+            # Set the angle and clean up modifiers on all meshes
+            for mesh in with_progress(meshes, prefix="Adding Auto Smooth"):
+                # First delete all modifiers with names containing "Auto Smooth" or "Smooth by Angle"
+                modifiers_to_remove = []
+                for mod in mesh.modifiers:
+                    if mod.type == "NODES":
+                        mod_name = mod.name
+                        if "Auto Smooth" in mod_name or "Smooth by Angle" in mod_name:
+                            modifiers_to_remove.append(mod)
                 
-                # Move to first position in stack (with safety limit)
-                with context.temp_override(object=mesh):
-                    max_moves = len(mesh.modifiers)
-                    moves = 0
-                    while mesh.modifiers[0] != smooth_by_angle_mod and moves < max_moves:
-                        bpy.ops.object.modifier_move_up(modifier=smooth_by_angle_mod.name)
-                        moves += 1
+                # Remove the modifiers
+                for mod in modifiers_to_remove:
+                    mesh.modifiers.remove(mod)
+
+            # Apply auto smooth to all selected objects at once
+            bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=angle_rad)
+            
+            # Find "Smooth by Angle" modifier, unpin it, and move to first position
+            for mesh in meshes:
+                # Find the modifier
+                smooth_by_angle_mod = None
+                for mod in mesh.modifiers:
+                    if "Smooth by Angle" in mod.name:
+                        smooth_by_angle_mod = mod
+                        break
+                
+                if smooth_by_angle_mod:
+                    # Unpin the modifier (ensure it's enabled)
+                    smooth_by_angle_mod.show_viewport = True
+                    smooth_by_angle_mod.show_render = True
+                    smooth_by_angle_mod.use_pin_to_last = False
+                    
+                    # Move to first position in stack (with safety limit)
+                    with context.temp_override(object=mesh):
+                        max_moves = len(mesh.modifiers)
+                        moves = 0
+                        while mesh.modifiers[0] != smooth_by_angle_mod and moves < max_moves:
+                            bpy.ops.object.modifier_move_up(modifier=smooth_by_angle_mod.name)
+                            moves += 1
+        
+        finally:
+            # Restore edit mode for objects that were in edit mode
+            for obj in objects_in_edit_mode:
+                if obj and obj.name in context.scene.objects:
+                    # Only restore if object still exists and is still selected
+                    if obj in context.selected_objects:
+                        with context.temp_override(object=obj):
+                            bpy.ops.object.mode_set(mode='EDIT')
+            
+            # Restore original active object if it still exists
+            if original_active and original_active.name in context.scene.objects:
+                context.view_layer.objects.active = original_active
 
         return {"FINISHED"}
 

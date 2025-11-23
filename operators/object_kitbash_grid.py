@@ -6,6 +6,98 @@ import math # For ceil
 # --- Helper Functions (get_object_bbox_data, get_target_world_pos) ---
 # (Keep the helper functions from the previous script exactly as they were)
 # ... (omitting them here for brevity, but they are needed) ...
+
+def get_all_children_recursive(obj):
+    """
+    Recursively get all children of an object.
+    Returns a list of all descendant objects.
+    """
+    children = []
+    for child in obj.children:
+        children.append(child)
+        children.extend(get_all_children_recursive(child))
+    return children
+
+def get_empty_children_bbox_data(empty_obj, depsgraph):
+    """
+    Calculates compound bounding box data for an empty object based on all its children.
+    Returns a dictionary with 'min', 'max', 'center', 'dim', 'volume', 
+    'world_bbox_center_offset', 'obj_origin'.
+    """
+    if not empty_obj or empty_obj.type != 'EMPTY':
+        return None
+    
+    # Get all children recursively
+    all_children = get_all_children_recursive(empty_obj)
+    
+    if not all_children:
+        # Empty has no children, use its origin as a point
+        loc = empty_obj.matrix_world.translation
+        zero_vec = Vector((0,0,0))
+        return {
+            'min': loc, 'max': loc, 'center': loc,
+            'dim': zero_vec, 'volume': 0.0,
+            'world_bbox_center_offset': zero_vec,
+            'obj_origin': loc
+        }
+    
+    # Collect all bounding box corners from all children
+    all_world_corners = []
+    for child in all_children:
+        if child.type != 'MESH':
+            continue
+        
+        try:
+            eval_child = child.evaluated_get(depsgraph)
+            if not eval_child.bound_box:
+                continue
+            
+            # Transform corners to world space
+            bbox_corners_world = [eval_child.matrix_world @ Vector(corner) for corner in eval_child.bound_box]
+            all_world_corners.extend(bbox_corners_world)
+        except (RuntimeError, ReferenceError):
+            continue
+    
+    if not all_world_corners:
+        # No valid mesh children found, use empty's origin
+        loc = empty_obj.matrix_world.translation
+        zero_vec = Vector((0,0,0))
+        return {
+            'min': loc, 'max': loc, 'center': loc,
+            'dim': zero_vec, 'volume': 0.0,
+            'world_bbox_center_offset': zero_vec,
+            'obj_origin': loc
+        }
+    
+    # Calculate compound bounding box
+    min_coord = Vector((min(v.x for v in all_world_corners),
+                        min(v.y for v in all_world_corners),
+                        min(v.z for v in all_world_corners)))
+    max_coord = Vector((max(v.x for v in all_world_corners),
+                        max(v.y for v in all_world_corners),
+                        max(v.z for v in all_world_corners)))
+    
+    world_dim = max_coord - min_coord
+    world_dim.x = max(world_dim.x, 0.0)
+    world_dim.y = max(world_dim.y, 0.0)
+    world_dim.z = max(world_dim.z, 0.0)
+    
+    world_center = (min_coord + max_coord) / 2.0
+    volume = world_dim.x * world_dim.y * world_dim.z
+    
+    # Offset of the world bbox center from the empty's world origin
+    world_bbox_center_offset = world_center - empty_obj.matrix_world.translation
+    
+    return {
+        'min': min_coord,
+        'max': max_coord,
+        'center': world_center,
+        'dim': world_dim,
+        'volume': volume,
+        'world_bbox_center_offset': world_bbox_center_offset,
+        'obj_origin': empty_obj.matrix_world.translation
+    }
+
 def get_object_bbox_data(obj, depsgraph):
     """
     Calculates world space bounding box data for an evaluated object.
@@ -245,10 +337,22 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
 
         depsgraph = context.evaluated_depsgraph_get()
 
+        # Check if selection contains only empty objects
+        has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
+        has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
+        only_empties = has_empty and not has_mesh
+
         # --- 1. Get STARTING Reference Data from Active Object (BEFORE it potentially moves) ---
-        initial_active_bbox_data = get_object_bbox_data(active_obj, depsgraph)
+        if only_empties and active_obj.type == 'EMPTY':
+            initial_active_bbox_data = get_empty_children_bbox_data(active_obj, depsgraph)
+        else:
+            initial_active_bbox_data = get_object_bbox_data(active_obj, depsgraph)
+        
         if initial_active_bbox_data is None:
-            self.report({'WARNING'}, "Could not get bounding box for the initial active object. Ensure it's a Mesh.")
+            if only_empties:
+                self.report({'WARNING'}, "Could not get bounding box for the initial active empty object or its children.")
+            else:
+                self.report({'WARNING'}, "Could not get bounding box for the initial active object. Ensure it's a Mesh.")
             return {'CANCELLED'}
             
         # Determine the absolute starting reference point based on initial active obj & alignment
@@ -271,7 +375,12 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         for obj in selected_objs_all: # Iterate through ALL selected objects
             if not obj or obj.name not in context.scene.objects: continue # Check existence
             
-            bbox_data = get_object_bbox_data(obj, depsgraph)
+            # Use appropriate bbox function based on object type and selection context
+            if only_empties and obj.type == 'EMPTY':
+                bbox_data = get_empty_children_bbox_data(obj, depsgraph)
+            else:
+                bbox_data = get_object_bbox_data(obj, depsgraph)
+            
             if bbox_data is None: continue
 
             # --- Sorting Key Calculation (same as before) ---
@@ -296,7 +405,10 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             valid_selection_count += 1
 
         if not object_data:
-            self.report({'WARNING'}, "No valid mesh objects found in selection.")
+            if only_empties:
+                self.report({'WARNING'}, "No valid empty objects with mesh children found in selection.")
+            else:
+                self.report({'WARNING'}, "No valid mesh objects found in selection.")
             return {'CANCELLED'}
 
         # --- 3. Sort the Objects (incl. active) ---
@@ -321,7 +433,10 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             
             for i, data in enumerate(object_data):
                 obj = data['obj']
-                current_obj_bbox = get_object_bbox_data(obj, depsgraph)
+                if only_empties and obj.type == 'EMPTY':
+                    current_obj_bbox = get_empty_children_bbox_data(obj, depsgraph)
+                else:
+                    current_obj_bbox = get_object_bbox_data(obj, depsgraph)
                 if not current_obj_bbox: continue
 
                 obj_dim_primary = current_obj_bbox['dim'][primary_axis_idx]
@@ -359,7 +474,10 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                      depsgraph.update() # Update after move
 
                      # Update Cursor using the object JUST PLACED
-                     placed_bbox = get_object_bbox_data(obj, depsgraph)
+                     if only_empties and obj.type == 'EMPTY':
+                         placed_bbox = get_empty_children_bbox_data(obj, depsgraph)
+                     else:
+                         placed_bbox = get_object_bbox_data(obj, depsgraph)
                      if placed_bbox:
                           current_cursor_primary = placed_bbox['max'][primary_axis_idx]
                      else: 
@@ -399,7 +517,10 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                     is_first_row = False
 
                 # Process Object
-                current_obj_bbox = get_object_bbox_data(obj, depsgraph)
+                if only_empties and obj.type == 'EMPTY':
+                    current_obj_bbox = get_empty_children_bbox_data(obj, depsgraph)
+                else:
+                    current_obj_bbox = get_object_bbox_data(obj, depsgraph)
                 if not current_obj_bbox: continue
 
                 obj_dim_primary = current_obj_bbox['dim'][primary_axis_idx]
@@ -455,7 +576,10 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                      depsgraph.update()
 
                      # Update Cursors and Max Dim
-                     placed_bbox = get_object_bbox_data(obj, depsgraph)
+                     if only_empties and obj.type == 'EMPTY':
+                         placed_bbox = get_empty_children_bbox_data(obj, depsgraph)
+                     else:
+                         placed_bbox = get_object_bbox_data(obj, depsgraph)
                      if placed_bbox:
                           current_cursor_primary = placed_bbox['max'][primary_axis_idx]
                           max_dim_secondary_in_row = max(max_dim_secondary_in_row, placed_bbox['dim'][secondary_axis_idx])
