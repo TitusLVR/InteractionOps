@@ -211,7 +211,7 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         name="Mode",
         items=[('LINEAR', "Linear", "Arrange objects in a single line"),
                ('GRID', "Grid", "Arrange objects in a grid")],
-        default='LINEAR',
+        default='GRID',
         description="How to arrange the objects"
     )
 
@@ -320,6 +320,41 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         row.prop(self, "align_z", text="")
         row.label(text="Align (X, Y, Z)")
     # --- End Draw ---
+
+    # --- Invoke method to auto-calculate grid columns ---
+    def invoke(self, context, event):
+        # Auto-calculate grid columns based on selection if in GRID mode
+        if self.arrange_mode == 'GRID':
+            selected_objs_all = list(context.selected_objects)
+            
+            # Count valid objects (similar to execute method)
+            valid_count = 0
+            depsgraph = context.evaluated_depsgraph_get()
+            
+            # Check if selection contains only empty objects
+            has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
+            has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
+            only_empties = has_empty and not has_mesh
+            
+            for obj in selected_objs_all:
+                if not obj or obj.name not in context.scene.objects:
+                    continue
+                
+                # Use appropriate bbox function based on object type
+                if only_empties and obj.type == 'EMPTY':
+                    bbox_data = get_empty_children_bbox_data(obj, depsgraph)
+                else:
+                    bbox_data = get_object_bbox_data(obj, depsgraph)
+                
+                if bbox_data is not None:
+                    valid_count += 1
+            
+            # Calculate columns to make grid as square as possible
+            if valid_count > 0:
+                self.grid_columns = max(1, int(math.ceil(math.sqrt(valid_count))))
+        
+        # Show the dialog
+        return context.window_manager.invoke_props_dialog(self)
 
     # --- Execution Logic ---
     def execute(self, context):
