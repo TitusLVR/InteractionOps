@@ -471,6 +471,9 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                 
                 if target_origin_pos:
                      obj.location = target_origin_pos
+                     # Zero out Z coordinate for empty objects
+                     if only_empties and obj.type == 'EMPTY':
+                         obj.location.z = 0.0
                      depsgraph.update() # Update after move
 
                      # Update Cursor using the object JUST PLACED
@@ -573,6 +576,9 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
 
                 if target_origin_pos:
                      obj.location = target_origin_pos
+                     # Zero out Z coordinate for empty objects
+                     if only_empties and obj.type == 'EMPTY':
+                         obj.location.z = 0.0
                      depsgraph.update()
 
                      # Update Cursors and Max Dim
