@@ -37,6 +37,16 @@ class IOPS_OT_ChangeScale(bpy.types.Operator):
         layout = self.layout
         layout.prop(self, "scale")
     
+    def _scale_data(self, obj, factor):
+        """Scale object data to maintain visual dimensions"""
+        if obj.type == 'MESH':
+            if obj.data and hasattr(obj.data, 'vertices'):
+                for vertex in obj.data.vertices:
+                    vertex.co.x *= factor.x
+                    vertex.co.y *= factor.y
+                    vertex.co.z *= factor.z
+                obj.data.update()
+    
     def execute(self, context):
         selected_objects = context.view_layer.objects.selected
         
@@ -53,38 +63,31 @@ class IOPS_OT_ChangeScale(bpy.types.Operator):
         
         try:
             for obj in selected_objects:
-                if obj.type not in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
+                if obj.type != 'MESH':
                     continue
                 
-                # Apply current scale to mesh data
-                # This makes scale = (1,1,1) and mesh_data = mesh_data * old_scale
-                with context.temp_override(object=obj):
-                    bpy.ops.object.transform_apply(scale=True)
+                # Calculate scale factor to maintain dimensions
+                # current_visual = obj.scale * data
+                # target_visual = new_scale * new_data
+                # We want current_visual == target_visual
+                # obj.scale * data = new_scale * new_data
+                # new_data = data * (obj.scale / new_scale)
+                
+                sx = self.scale.x if self.scale.x != 0 else 1.0
+                sy = self.scale.y if self.scale.y != 0 else 1.0
+                sz = self.scale.z if self.scale.z != 0 else 1.0
+                
+                scale_factor = Vector((
+                    obj.scale.x / sx,
+                    obj.scale.y / sy,
+                    obj.scale.z / sz,
+                ))
+                
+                # Scale data
+                self._scale_data(obj, scale_factor)
                 
                 # Set new scale
                 obj.scale = self.scale.copy()
-                
-                # Calculate scale factor to maintain dimensions
-                # After apply: mesh_data = M * old_scale, scale = (1,1,1), dimensions = M * old_scale
-                # After set scale: mesh_data = M * old_scale, scale = new_scale, dimensions = M * old_scale * new_scale
-                # We want: dimensions = M * old_scale (original)
-                # So: M * old_scale = new_mesh_data * new_scale
-                # new_mesh_data = M * old_scale / new_scale = current_mesh_data / new_scale
-                scale_factor = Vector((
-                    1.0 / self.scale.x if self.scale.x != 0 else 1.0,
-                    1.0 / self.scale.y if self.scale.y != 0 else 1.0,
-                    1.0 / self.scale.z if self.scale.z != 0 else 1.0,
-                ))
-                
-                # Scale mesh data to maintain dimensions
-                if obj.data and hasattr(obj.data, 'vertices'):
-                    for vertex in obj.data.vertices:
-                        vertex.co.x *= scale_factor.x
-                        vertex.co.y *= scale_factor.y
-                        vertex.co.z *= scale_factor.z
-                    
-                    # Update mesh to reflect changes
-                    obj.data.update()
         
         finally:
             # Restore edit mode for objects that were in edit mode
