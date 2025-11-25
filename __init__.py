@@ -201,6 +201,7 @@ from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 
 # IOPS Edge bisect with cursor
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
+from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 
 # Open asset in current Blender
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
@@ -305,6 +306,7 @@ classes = (
     IOPS_OT_RunText,
     IOPS_OT_MayaIsolate,
     IOPS_OT_Mesh_Cursor_Bisect,
+    IOPS_OT_Mesh_Quick_Connect,
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
     IOPS_OT_DragSnapCursor,
