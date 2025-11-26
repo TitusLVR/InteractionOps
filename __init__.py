@@ -202,6 +202,7 @@ from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 # IOPS Edge bisect with cursor
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
+from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 
 # Open asset in current Blender
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
@@ -209,8 +210,8 @@ from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentB
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
-    "version": (2, 1, 3),
-    "blender": (4, 2, 0),
+    "version": (7, 7, 7),
+    "blender": (5, 0, 0),
     "location": "View3D > Toolbar and View3D",
     "description": "iOPS - Boost your Blender Interactivity :p",
     "warning": "",
@@ -356,6 +357,7 @@ classes = (
     Z_OT_EdgeConnect,
     IOPS_OT_OpenAssetInCurrentBlender,
     IOPS_OT_Modifier_Window,
+    IOPS_OT_MeshToTrisToQuads,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
