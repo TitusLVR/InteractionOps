@@ -11,7 +11,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
     bl_label = "Quick Connect"
     bl_description = "Connect two vertices by dragging"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}
 
     start_point_2d = None
     end_point_2d = None
@@ -21,6 +21,13 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     start_vert_index = -1
     end_vert_index = -1
     mouse_pos = (0, 0)
+    
+    # Hover data
+    hover_vert_index = -1
+    hover_point_2d = None
+    
+    # Undo tracking
+    undo_steps = 0
     
     # Drawing data
     shader = None
@@ -40,6 +47,9 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self.mouse_pos = (event.mouse_region_x, event.mouse_region_y)
         
         # Initialize drawing
+        self.undo_steps = 0
+        bpy.ops.ed.undo_push(message="Start Quick Connect")
+        
         self.shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         args = (context,)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
@@ -60,7 +70,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     def update_status_bar(self, context):
         snap_status = "ON" if self.use_midpoint_snap else "OFF"
         screen_status = "ON" if self.use_screen_space else "OFF"
-        status_text = f"Quick Connect: [LMB] Drag to Connect | [A] Hold to Split Edge | [S] Snap Midpoint({snap_status}) | [W] Screen Space({screen_status}) | [MMB] Navigation | [Esc] Cancel"
+        status_text = f"Quick Connect: [LMB] Drag to Connect | [A] Hold to Split Edge | [S] Snap Midpoint({snap_status}) | [W] Screen Space({screen_status}) | [MMB] Navigation | [Space] Finish | [Esc/RMB] Cancel"
         context.workspace.status_text_set(status_text)
 
     def draw_shortcuts_callback(self, context):
@@ -95,6 +105,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
                 ("Snap Midpoint", "S" + (" [ON]" if self.use_midpoint_snap else " [OFF]")),
                 ("Screen Space", "W" + (" [ON]" if self.use_screen_space else " [OFF]")),
                 ("Navigation", "MMB"),
+                ("Finish", "SPACE"),
                 ("Cancel", "ESC / RMB"),
             ]
             
@@ -153,6 +164,8 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             elif self.start_vert_index != -1:
                 self.end_vert_index = self.find_closest_vertex(context, event)
                 self.update_points(context)
+            else:
+                self.update_hover(context, event)
                 
             return {'RUNNING_MODAL'}
             
@@ -205,10 +218,20 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             self.update_status_bar(context)
             return {'RUNNING_MODAL'}
 
+        elif event.type == 'SPACE' and event.value == 'PRESS':
+            self.remove_handler(context)
+            context.workspace.status_text_set(None)
+            return {'FINISHED'}
+
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             self.remove_handler(context)
             context.workspace.status_text_set(None) # Clear status bar
-            return {'FINISHED'}
+            
+            # Undo changes made during the session
+            for _ in range(self.undo_steps):
+                bpy.ops.ed.undo()
+                
+            return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
 
@@ -223,6 +246,15 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def draw_callback_px(self, context):
         try:
+            # Draw hover highlight if not dragging
+            if self.start_vert_index == -1 and self.hover_point_2d:
+                gpu.state.point_size_set(10.0)
+                self.shader.bind()
+                self.shader.uniform_float("color", (0.0, 1.0, 0.0, 1.0)) # Green for hover
+                batch_hover = batch_for_shader(self.shader, 'POINTS', {"pos": [self.hover_point_2d]})
+                batch_hover.draw(self.shader)
+                gpu.state.point_size_set(1.0)
+
             if not self.start_point_2d:
                 return
 
@@ -382,7 +414,13 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             # We need to use bpy.ops.mesh.vert_connect_path to cut across edges (J-key behavior)
             # This operator works on selection.
             
-            bpy.ops.mesh.select_all(action='DESELECT')
+            # We need to use bpy.ops.mesh.vert_connect_path to cut across edges (J-key behavior)
+            # This operator works on selection.
+            
+            # Deselect all using bmesh to avoid undo step
+            for v in bm.verts: v.select = False
+            for e in bm.edges: e.select = False
+            for f in bm.faces: f.select = False
             
             v1.select = True
             v2.select = True
@@ -391,7 +429,9 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             bmesh.update_edit_mesh(obj.data)
             
             # Call the operator
+            bpy.ops.ed.undo_push(message="Connect Verts")
             bpy.ops.mesh.vert_connect_path()
+            self.undo_steps += 1
             
         except ValueError:
             self.report({'WARNING'}, "Could not connect vertices")
@@ -417,6 +457,9 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         try:
             edge = bm.edges[self.preview_edge_index]
             
+            bpy.ops.ed.undo_push(message="Split Edge")
+            self.undo_steps += 1
+            
             res = bmesh.ops.subdivide_edges(bm, edges=[edge], cuts=1)
             new_vert = res['geom_inner'][0]
             
@@ -429,7 +472,10 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             bmesh.update_edit_mesh(obj.data)
             
             if self.start_vert_index != -1:
-                bpy.ops.mesh.select_all(action='DESELECT')
+                # Deselect all using bmesh
+                for v in bm.verts: v.select = False
+                for e in bm.edges: e.select = False
+                for f in bm.faces: f.select = False
                 
                 bm.verts.ensure_lookup_table()
                 if self.start_vert_index < len(bm.verts):
@@ -439,6 +485,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
                     
                     bmesh.update_edit_mesh(obj.data)
                     bpy.ops.mesh.vert_connect_path()
+                    self.undo_steps += 1
             
             # Set new start vertex
             bm = bmesh.from_edit_mesh(obj.data)
@@ -529,6 +576,38 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         world_point = mw @ closest_point_on_edge
         
         return closest_edge_index, world_point
+
+    def update_hover(self, context, event):
+        # Find closest vertex for hover effect
+        idx = self.find_closest_vertex(context, event)
+        
+        if idx != -1:
+            obj = context.active_object
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.verts.ensure_lookup_table()
+            
+            try:
+                v = bm.verts[idx]
+                mw = obj.matrix_world
+                region = context.region
+                rv3d = context.region_data
+                
+                co_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ v.co)
+                
+                if co_2d:
+                    mouse_co = Vector((event.mouse_region_x, event.mouse_region_y))
+                    dist = (co_2d - mouse_co).length
+                    
+                    # Threshold for hover highlight (e.g. 20 pixels)
+                    if dist < 20.0:
+                        self.hover_vert_index = idx
+                        self.hover_point_2d = co_2d
+                        return
+            except IndexError:
+                pass
+                
+        self.hover_vert_index = -1
+        self.hover_point_2d = None
 
     def update_points(self, context):
         obj = context.active_object
