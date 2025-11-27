@@ -181,7 +181,11 @@ def view_selected_uv():
                 if not face.select:
                     continue
                 for loop in face.loops:
-                    if not loop[uvl].select:
+                    # Blender 5.0+ compatibility
+                    if hasattr(loop, "uv_select_vert"):
+                        if not loop.uv_select_vert:
+                            continue
+                    elif not loop[uvl].select:
                         continue
                     selected_verts.append(loop.vert)
                     selected_faces.add(face)

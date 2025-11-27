@@ -62,7 +62,18 @@ def uv_gather_nonsync(bm):
     hes = set()
     for f in bm.faces:
         for l in f.loops:
-            if l[uv].select and l.link_loop_next[uv].select:
+            l_select = False
+            ln_select = False
+
+            # Blender 5.0+ compatibility
+            if hasattr(l, "uv_select_vert"):
+                l_select = l.uv_select_vert
+                ln_select = l.link_loop_next.uv_select_vert
+            else:
+                l_select = l[uv].select
+                ln_select = l.link_loop_next[uv].select
+
+            if l_select and ln_select:
                 hes.add(l)
     return hes
 

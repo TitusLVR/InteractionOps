@@ -184,7 +184,11 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         for face in bm.faces:
             for loop in face.loops:
                 all_faces.add(face)
-                if loop[uv_layer].select:
+                # Blender 5.0+ compatibility
+                if hasattr(loop, "uv_select_vert"):
+                    if loop.uv_select_vert:
+                        selected_faces.add(face)
+                elif loop[uv_layer].select:
                     selected_faces.add(face)
 
         if type == "all":

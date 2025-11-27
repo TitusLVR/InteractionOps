@@ -3,6 +3,9 @@ import os
 import json
 
 
+from ...prefs.hotkeys_default import keys_default
+
+
 def save_hotkeys():
     path = bpy.utils.script_path_user()
     folder = os.path.join(path, "presets", "IOPS")
@@ -11,13 +14,20 @@ def save_hotkeys():
         os.makedirs(folder)
     with open(user_hotkeys_file, "w") as f:
         data = get_iops_keys()
+        
+        # Merge missing default keys
+        existing_idnames = {k[0] for k in data}
+        for default_key in keys_default:
+            if default_key[0] not in existing_idnames:
+                data.append(default_key)
+                
         f.write("[" + ",\n".join(json.dumps(i) for i in data) + "]\n")
 
 
 def get_iops_keys():
     keys = []
 
-    keyconfig = bpy.context.window_manager.keyconfigs.active
+    keyconfig = bpy.context.window_manager.keyconfigs.user
 
     for keymap in keyconfig.keymaps:
         if keymap:
