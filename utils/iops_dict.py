@@ -11,6 +11,7 @@ from .functions import (
     empty_to_cursor,
     view_selected_uv,
     uv_select_mode,
+    uv_island_toggle,
     uv_sync_toggle,
     set_display_mode,
     curve_subdivide,
@@ -483,7 +484,7 @@ class IOPS_Dict:
                         "NONE": lambda: uv_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: uv_select_mode("ISLAND"),
+                        "NONE": lambda: uv_island_toggle(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -503,7 +504,7 @@ class IOPS_Dict:
                         "NONE": lambda: uv_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: uv_select_mode("ISLAND"),
+                        "NONE": lambda: uv_island_toggle(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -520,7 +521,7 @@ class IOPS_Dict:
                         "NONE": lambda: view_selected_uv(),
                     },
                     "F4": { 
-                        "NONE": lambda: uv_select_mode("ISLAND"),
+                        "NONE": lambda: uv_island_toggle(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
