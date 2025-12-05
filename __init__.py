@@ -126,7 +126,8 @@ from .ui.iops_pie_edit import (
     IOPS_MT_Pie_Edit_Modes,
     IOPS_OT_Set_Empty_Size,
     IOPS_OT_Set_Empty_Display,
-    IOPS_OT_Copy_Empty_Size_From_Active
+    IOPS_OT_Copy_Empty_Size_From_Active,
+    IOPS_OT_Reload_Instance_Library
 )
 from .operators.z_ops import (
     Z_OT_GrowLoop,
@@ -277,6 +278,7 @@ classes = (
     IOPS_OT_Set_Empty_Size,
     IOPS_OT_Set_Empty_Display,
     IOPS_OT_Copy_Empty_Size_From_Active,
+    IOPS_OT_Reload_Instance_Library,
     IOPS_OT_Split_Area_Pie_1,
     IOPS_OT_Split_Area_Pie_2,
     IOPS_OT_Split_Area_Pie_3,

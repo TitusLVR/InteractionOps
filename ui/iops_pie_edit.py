@@ -127,6 +127,13 @@ class IOPS_MT_Pie_Edit(Menu):
                     )
                     op.blendpath = blendpath
                     op.library = library
+                    
+                    # 9 - TOP-RIGHT - Reload Library
+                    op = pie.operator(
+                        "iops.reload_instance_library",
+                        text=f"Reload {os.path.basename(blendpath)}",
+                        icon="FILE_REFRESH"
+                    )
             elif context.object.type == "EMPTY":
                 # 4 - LEFT - Size options
                 box = pie.box()
@@ -341,6 +348,43 @@ class IOPS_OT_Copy_Empty_Size_From_Active(bpy.types.Operator):
                 self.report({'INFO'}, "No other empty objects selected")
         else:
             self.report({'ERROR'}, "Active object must be an empty")
+        
+        return {"FINISHED"}
+
+
+class IOPS_OT_Reload_Instance_Library(bpy.types.Operator):
+    """Reload the linked libraries of selected instance collections"""
+    bl_idname = "iops.reload_instance_library"
+    bl_label = "Reload Instance Library"
+    
+    @classmethod
+    def poll(cls, context):
+        # Check if any selected object is an instance collection with a linked library
+        for obj in context.selected_objects:
+            if (obj.type == "EMPTY" 
+                and obj.instance_collection 
+                and obj.instance_collection.library):
+                return True
+        return False
+    
+    def execute(self, context):
+        # Collect unique libraries from all selected instance collections
+        libraries = set()
+        for obj in context.selected_objects:
+            if (obj.type == "EMPTY" 
+                and obj.instance_collection 
+                and obj.instance_collection.library):
+                libraries.add(obj.instance_collection.library)
+        
+        # Reload each unique library
+        for library in libraries:
+            library.reload()
+        
+        if len(libraries) == 1:
+            lib = next(iter(libraries))
+            self.report({'INFO'}, f"Library '{lib.name}' reloaded.")
+        else:
+            self.report({'INFO'}, f"{len(libraries)} libraries reloaded.")
         
         return {"FINISHED"}
 
