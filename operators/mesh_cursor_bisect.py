@@ -1625,9 +1625,26 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         else:
                             preview_thickness = 3.0
 
+                        # Calculate viewport distance to determine depth test mode
+                        rv3d = context.space_data.region_3d
+                        if rv3d and rv3d.view_perspective != 'ORTHO':
+                            view_matrix = rv3d.view_matrix
+                            camera_location = view_matrix.inverted().translation
+                            cursor_location = context.scene.cursor.location
+                            viewport_distance = (cursor_location - camera_location).length
+                        else:
+                            viewport_distance = rv3d.view_distance if rv3d else 10.0
+                        
+                        # Use ALWAYS depth test when very close to ensure visibility
+                        # Otherwise use LESS_EQUAL for proper depth sorting
+                        if viewport_distance < 0.5:
+                            depth_test_mode = 'ALWAYS'
+                        else:
+                            depth_test_mode = 'LESS_EQUAL'
+
                         preview_shader.uniform_float("color", preview_color)
                         gpu.state.line_width_set(preview_thickness)
-                        gpu.state.depth_test_set('LESS_EQUAL')
+                        gpu.state.depth_test_set(depth_test_mode)
 
                         preview_batch = batch_for_shader(preview_shader, 'LINES', {"pos": preview_coords})
                         preview_batch.draw(preview_shader)
@@ -1726,8 +1743,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             )
             
             if not result:
-                # No more hits found
-                return False, None, None, None, None, None
+                # No more hits found - try fallback strategy for large occluded faces
+                break
             
             if obj and obj in selected_mesh_objects:
                 # Hit a selected object - this is what we want
@@ -1739,7 +1756,42 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 view_vec_norm = view_vector.normalized()
                 current_ray_origin = location + (view_vec_norm * RAYCAST_OFFSET_DISTANCE)
         
-        # Exhausted max iterations without finding a selected object
+        # Fallback: Try casting from viewport corners/edges to find large faces
+        # This helps when a face covers the viewport but its center is occluded
+        fallback_coords = [
+            (region.width * 0.1, region.height * 0.1),  # Bottom-left
+            (region.width * 0.9, region.height * 0.1),  # Bottom-right
+            (region.width * 0.1, region.height * 0.9),  # Top-left
+            (region.width * 0.9, region.height * 0.9),  # Top-right
+            (region.width * 0.5, region.height * 0.1),  # Bottom-center
+            (region.width * 0.5, region.height * 0.9),  # Top-center
+            (region.width * 0.1, region.height * 0.5),  # Left-center
+            (region.width * 0.9, region.height * 0.5),  # Right-center
+        ]
+        
+        for fallback_coord in fallback_coords:
+            fallback_view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, fallback_coord)
+            fallback_ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, fallback_coord)
+            fallback_view_vec_norm = fallback_view_vector.normalized()
+            fallback_current_origin = fallback_ray_origin
+            
+            for _ in range(MAX_RAYCAST_ITERATIONS):
+                result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
+                    depsgraph, fallback_current_origin, fallback_view_vector
+                )
+                
+                if not result:
+                    break
+                
+                if obj and obj in selected_mesh_objects:
+                    # Found a selected object from fallback position
+                    return True, location, normal, face_index, obj, matrix
+                
+                # Continue through unselected objects
+                if location:
+                    fallback_current_origin = location + (fallback_view_vec_norm * RAYCAST_OFFSET_DISTANCE)
+        
+        # Exhausted all attempts without finding a selected object
         return False, None, None, None, None, None
 
     def align_cursor_orientation(self):
