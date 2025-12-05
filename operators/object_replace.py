@@ -74,7 +74,8 @@ class IOPS_OT_Object_Replace(bpy.types.Operator):
                 if self.keep_object_collection:
                     collection = ob.users_collection[0]
                 new_ob = active.copy()
-                if active.type == "MESH":
+                # Only copy mesh data if it's not linked from a library
+                if active.type == "MESH" and active.data.library is None:
                     new_ob.data = active.data.copy()
                 # position
                 new_ob.location = ob.location

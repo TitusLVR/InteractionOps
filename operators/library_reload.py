@@ -11,7 +11,8 @@ class IOPS_OT_Reload_Libraries(bpy.types.Operator):
         return (bpy.data.libraries)
     
     def execute(self, context):
-        for lib in bpy.data.libraries:
+        for lib in list(bpy.data.libraries):
+            lib_name = lib.name
             lib.reload()
-            self.report({'INFO'}, f"Library '{lib.name}' reloaded.")
+            self.report({'INFO'}, f"Library '{lib_name}' reloaded.")
         return {'FINISHED'}

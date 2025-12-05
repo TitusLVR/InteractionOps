@@ -72,12 +72,47 @@ class IOPS_MT_Pie_Edit(Menu):
                 and context.object.instance_type == "COLLECTION"
                 # and context.object.instance_collection.library
             ):
-                pie.separator()
+                # 4 - LEFT - Size options
+                box = pie.box()
+                col = box.column(align=True)
+                col.scale_y = 0.9
+                col.label(text="Size")
+                row = box.row(align=True)
+                row.operator("iops.set_empty_size", text="0.1").size = 0.1
+                row.operator("iops.set_empty_size", text="0.5").size = 0.5
+                row.operator("iops.set_empty_size", text="1.0").size = 1.0
+                row = box.row(align=True)
+                row.operator("iops.set_empty_size", text="2.0").size = 2.0
+                row.operator("iops.set_empty_size", text="5.0").size = 5.0
+                row.operator("iops.set_empty_size", text="10.0").size = 10.0
+                col.separator()
+                col.prop(context.object, "empty_display_size", text="Custom Size")
+                col.separator()
+                col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
+                
+                # 6 - RIGHT - Display options
+                box = pie.box()
+                col = box.column(align=True)
+                col.label(text="Display")
+                flow = col.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+                flow.scale_x = 1.35
+                flow.operator("iops.set_empty_display", text="Plain Axes", icon="EMPTY_AXIS").display_type = "PLAIN_AXES"
+                flow.operator("iops.set_empty_display", text="Arrows", icon="EMPTY_ARROWS").display_type = "ARROWS"
+                flow.operator("iops.set_empty_display", text="Single Arrow", icon="EMPTY_SINGLE_ARROW").display_type = "SINGLE_ARROW"
+                flow.operator("iops.set_empty_display", text="Circle", icon="MESH_CIRCLE").display_type = "CIRCLE"
+                flow.operator("iops.set_empty_display", text="Cube", icon="MESH_CUBE").display_type = "CUBE"
+                flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
+                flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
+                flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
+
+                # 2 - BOTTOM
                 op = pie.operator("object.duplicates_make_real", text="Make Instances Real")
                 op.use_hierarchy = True
 
+                # 8 - TOP
                 op = pie.operator("machin3.assemble_instance_collection", text="Expand Collection to Scene")
 
+                # 7 - TOP-LEFT
                 if context.object.instance_collection.library:
                     blendpath = os.path.abspath(
                         bpy.path.abspath(
@@ -92,6 +127,13 @@ class IOPS_MT_Pie_Edit(Menu):
                     )
                     op.blendpath = blendpath
                     op.library = library
+                    
+                    # 9 - TOP-RIGHT - Reload Library
+                    op = pie.operator(
+                        "iops.reload_instance_library",
+                        text=f"Reload {os.path.basename(blendpath)}",
+                        icon="FILE_REFRESH"
+                    )
             elif context.object.type == "EMPTY":
                 # 4 - LEFT - Size options
                 box = pie.box()
@@ -230,14 +272,14 @@ class IOPS_OT_Set_Empty_Size(bpy.types.Operator):
     )
     
     def execute(self, context):
-        # Get all selected objects that are empties and not instances
+        # Get all selected objects that are empties (including instance collections)
         selected_empties = [obj for obj in context.selected_objects 
-                           if obj.type == "EMPTY" and not obj.instance_collection]
+                           if obj.type == "EMPTY"]
         
         if selected_empties:
             for obj in selected_empties:
                 obj.empty_display_size = self.size
-        elif context.object and context.object.type == "EMPTY" and not context.object.instance_collection:
+        elif context.object and context.object.type == "EMPTY":
             # Fallback to active object if no selection
             context.object.empty_display_size = self.size
         
@@ -266,14 +308,14 @@ class IOPS_OT_Set_Empty_Display(bpy.types.Operator):
     )
     
     def execute(self, context):
-        # Get all selected objects that are empties and not instances
+        # Get all selected objects that are empties (including instance collections)
         selected_empties = [obj for obj in context.selected_objects 
-                           if obj.type == "EMPTY" and not obj.instance_collection]
+                           if obj.type == "EMPTY"]
         
         if selected_empties:
             for obj in selected_empties:
                 obj.empty_display_type = self.display_type
-        elif context.object and context.object.type == "EMPTY" and not context.object.instance_collection:
+        elif context.object and context.object.type == "EMPTY":
             # Fallback to active object if no selection
             context.object.empty_display_type = self.display_type
         
@@ -286,15 +328,14 @@ class IOPS_OT_Copy_Empty_Size_From_Active(bpy.types.Operator):
     bl_label = "Copy Empty Size from Active"
     
     def execute(self, context):
-        # Check if active object is an empty and not an instance
-        if (context.object and context.object.type == "EMPTY" 
-            and not context.object.instance_collection):
+        # Check if active object is an empty (including instance collections)
+        if context.object and context.object.type == "EMPTY":
             
             active_size = context.object.empty_display_size
             
-            # Get all selected objects that are empties and not instances
+            # Get all selected objects that are empties (including instance collections)
             selected_empties = [obj for obj in context.selected_objects 
-                               if obj.type == "EMPTY" and not obj.instance_collection]
+                               if obj.type == "EMPTY"]
             
             # Copy size to all selected empties (excluding the active one)
             for obj in selected_empties:
@@ -306,7 +347,44 @@ class IOPS_OT_Copy_Empty_Size_From_Active(bpy.types.Operator):
             else:
                 self.report({'INFO'}, "No other empty objects selected")
         else:
-            self.report({'ERROR'}, "Active object must be a non-instance empty")
+            self.report({'ERROR'}, "Active object must be an empty")
+        
+        return {"FINISHED"}
+
+
+class IOPS_OT_Reload_Instance_Library(bpy.types.Operator):
+    """Reload the linked libraries of selected instance collections"""
+    bl_idname = "iops.reload_instance_library"
+    bl_label = "Reload Instance Library"
+    
+    @classmethod
+    def poll(cls, context):
+        # Check if any selected object is an instance collection with a linked library
+        for obj in context.selected_objects:
+            if (obj.type == "EMPTY" 
+                and obj.instance_collection 
+                and obj.instance_collection.library):
+                return True
+        return False
+    
+    def execute(self, context):
+        # Collect unique libraries from all selected instance collections
+        libraries = set()
+        for obj in context.selected_objects:
+            if (obj.type == "EMPTY" 
+                and obj.instance_collection 
+                and obj.instance_collection.library):
+                libraries.add(obj.instance_collection.library)
+        
+        # Reload each unique library
+        for library in libraries:
+            library.reload()
+        
+        if len(libraries) == 1:
+            lib = next(iter(libraries))
+            self.report({'INFO'}, f"Library '{lib.name}' reloaded.")
+        else:
+            self.report({'INFO'}, f"{len(libraries)} libraries reloaded.")
         
         return {"FINISHED"}
 

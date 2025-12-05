@@ -264,7 +264,17 @@ def no_operator():
 
 
 def uv_select_mode(mode):
-    bpy.context.tool_settings.uv_select_mode = mode
+    # In Blender 5.0+, "ISLAND" is no longer a valid enum value
+    # Instead, use_uv_select_island is a separate boolean toggle
+    if mode == "ISLAND":
+        uv_island_toggle()
+    else:
+        bpy.context.tool_settings.uv_select_mode = mode
+
+
+def uv_island_toggle():
+    """Toggle UV island selection mode (Blender 5.0+ compatible)"""
+    bpy.context.scene.tool_settings.use_uv_select_island = not bpy.context.scene.tool_settings.use_uv_select_island
 
 
 def uv_sync_toggle():
