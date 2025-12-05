@@ -151,6 +151,7 @@ from .operators.easy_mod_array import (
 )
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active
+from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
 
 from .operators.object_uvmaps_cleaner import (
     IOPS_OT_Clean_UVMap_0,
@@ -338,6 +339,7 @@ classes = (
     IOPS_OT_Active_UVMap_by_Active,
     IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
+    IOPS_OT_SelectSimilarName,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,
     IOPS_MESH_OT_CopyEdgesAngle,
@@ -410,6 +412,7 @@ def register():
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
+    register_select_similar_name_menu()
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
@@ -436,6 +439,7 @@ def unregister():
     except Exception as e:
         print(e)
         pass
+    unregister_select_similar_name_menu()
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.WindowManager.IOPS_AddonProperties
@@ -470,6 +474,30 @@ def select_interior_faces(self, context):
 def object_apply_change_scale(self, context):
     self.layout.separator()
     self.layout.operator(IOPS_OT_ChangeScale.bl_idname)
+
+
+def select_grouped_similar_name(self, context):
+    self.layout.operator(IOPS_OT_SelectSimilarName.bl_idname)
+
+
+def register_select_similar_name_menu():
+    """Register Select Similar Name to View3D Select menu and HOPS menu if available."""
+    bpy.types.VIEW3D_MT_select_object.append(select_grouped_similar_name)
+    if hasattr(bpy.types, "HOPS_MT_SelectGrouped"):
+        bpy.types.HOPS_MT_SelectGrouped.append(select_grouped_similar_name)
+
+
+def unregister_select_similar_name_menu():
+    """Unregister Select Similar Name from menus."""
+    try:
+        bpy.types.VIEW3D_MT_select_object.remove(select_grouped_similar_name)
+    except Exception:
+        pass
+    if hasattr(bpy.types, "HOPS_MT_SelectGrouped"):
+        try:
+            bpy.types.HOPS_MT_SelectGrouped.remove(select_grouped_similar_name)
+        except Exception:
+            pass
 
 
 keymap_registration()
