@@ -165,6 +165,8 @@ def load_iops_preferences():
                         pass
                     case "DRAG_SNAP":
                         prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
+                    case "MODIFIER_WINDOW":
+                        prefs.modifier_window_method = value["modifier_window_method"]
                     case _:
                         print(
                             "IOPS Prefs: No entry for " + key,

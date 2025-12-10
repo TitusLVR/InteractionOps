@@ -145,6 +145,9 @@ def get_iops_prefs():
         "DRAG_SNAP": {
             "drag_snap_line_thickness": safe("drag_snap_line_thickness", 0.25)
         },
+        "MODIFIER_WINDOW": {
+            "modifier_window_method": safe("modifier_window_method", "RENDER")
+        },
         "CURSOR_BISECT": {
             "cursor_bisect_plane_color": safelist("cursor_bisect_plane_color", (1.0, 0.0, 0.0, 0.15)),
             "cursor_bisect_plane_outline_color": safelist("cursor_bisect_plane_outline_color", (1.0, 0.0, 0.0, 0.8)),

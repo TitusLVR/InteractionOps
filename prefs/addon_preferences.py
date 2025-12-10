@@ -757,7 +757,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     name="Snap to Modified Mesh",
     description="Calculate snap points on mesh with modifiers applied (slower but more accurate)",
     default=True
-    )   
+    )
+    
+    # Window creation method
+    modifier_window_method: EnumProperty(
+        name="Window Creation Method",
+        description="Method to use for creating modifier window",
+        items=[
+            ("RENDER", "Render Window", "Use render view method (allows size control)"),
+            ("NEW_WINDOW", "New Window", "Use bpy.ops.wm.window_new() (standard method)")
+        ],
+        default="RENDER"
+    )
+    
     # Distance text settings
     cursor_bisect_distance_text_color: FloatVectorProperty(
         name="Distance Text Color",
@@ -1303,6 +1315,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = col.row(align=True)
             row.operator("iops.save_addon_preferences", text="Save preferences")
             row.operator("iops.load_addon_preferences", text="Load preferences")
+            col.separator()
+
+            # Modifier Window
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Modifier Window:")
+            row = box.row(align=True)
+            row.alignment = "LEFT"
+            row.prop(self, "modifier_window_method", expand=True)
             col.separator()
 
             # Debug

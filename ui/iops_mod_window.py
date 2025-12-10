@@ -1,5 +1,6 @@
 import bpy
-
+import ctypes
+from ctypes import wintypes
 
 class IOPS_OT_Modifier_Window(bpy.types.Operator):
     """Creates a new window for Modifiers at 300x600 size"""
@@ -26,6 +27,10 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
         scene.render.resolution_x = original_x
         scene.render.resolution_y = original_y
 
+    def open_new_window_standard(self, width=350, height=550):
+        """Open a new window using bpy.ops.wm.window_new()."""
+        bpy.ops.wm.window_new()
+
     def execute(self, context):
         # Check if we have a valid context for window operations
         if not context.window_manager or not context.window_manager.windows:
@@ -38,8 +43,17 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
             self.report({'INFO'}, "Modifier window closed")
             return {'FINISHED'}
 
-        # Use the render view show method to open a new window at the desired size
-        self.open_new_window_with_size(350, 550)
+        # Get the window creation method from preferences
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        window_method = prefs.modifier_window_method
+
+        # Use the selected method to open a new window
+        if window_method == "RENDER":
+            # Use the render view show method to open a new window at the desired size
+            self.open_new_window_with_size(350, 550)
+        else:  # NEW_WINDOW
+            # Use the standard window_new method with resize
+            self.open_new_window_standard(350, 550)
 
         # Get the new window (should be the last one created)
         new_window = context.window_manager.windows[-1]
@@ -47,11 +61,43 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
 
         # Change the area type to Properties
         area.type = 'PROPERTIES'
+        
+        # For NEW_WINDOW method, resize now that window is renamed to Properties
+        if window_method == "NEW_WINDOW":
+            # Resize the Properties window immediately
+            try:
+                user32 = ctypes.windll.user32
+                properties_hwnd = None
+                
+                def enum_handler(hwnd, lParam):
+                    window_text = ctypes.create_unicode_buffer(512)
+                    user32.GetWindowTextW(hwnd, window_text, 512)
+                    if "Properties" in window_text.value:
+                        nonlocal properties_hwnd
+                        if properties_hwnd is None:
+                            properties_hwnd = hwnd
+                            return False  # Stop enumeration once found
+                    return True
+                
+                EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+                user32.EnumWindows(EnumWindowsProc(enum_handler), 0)
+                
+                if properties_hwnd:
+                    rect = wintypes.RECT()
+                    user32.GetWindowRect(properties_hwnd, ctypes.byref(rect))
+                    SWP_NOZORDER = 0x0004
+                    user32.SetWindowPos(
+                        properties_hwnd, None, rect.left, rect.top, 350, 550,
+                        SWP_NOZORDER
+                    )
+            except Exception as e:
+                print(f"Window resize failed: {e}")
 
-        # Clean up render result image if it exists
-        if 'Render Result' in bpy.data.images:
-            render_result = bpy.data.images['Render Result']
-            bpy.data.images.remove(render_result)
+        # Clean up render result image if it exists (only needed for render method)
+        if window_method == "RENDER":
+            if 'Render Result' in bpy.data.images:
+                render_result = bpy.data.images['Render Result']
+                bpy.data.images.remove(render_result)
 
         # Configure the Properties panel to show only Modifiers
         if area.spaces and len(area.spaces) > 0:
@@ -93,10 +139,11 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
                             print(f"Could not flip navigation bar alignment: {e}")
                     break
 
-        # Force a redraw to ensure window is fully initialized
-        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-
-        self.report({'INFO'}, "Modifier window created and sized using render resolution trick (300x600)")
+        # Report success with method used
+        if window_method == "RENDER":
+            self.report({'INFO'}, "Modifier window created using render method (350x550)")
+        else:
+            self.report({'INFO'}, "Modifier window created using new window method")
         return {'FINISHED'}
 
     def modifier_window_exists(self):
