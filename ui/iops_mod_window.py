@@ -126,18 +126,43 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
         # Configure navigation bar alignment and visibility
         # Override context to target the new window
         with context.temp_override(window=new_window, area=area):
-            # First, ensure navigation bar is visible
-            bpy.ops.screen.region_toggle(region_type='NAVIGATION_BAR')
-            # Toggle alignment to move navigation bar to the right
-            for region in area.regions:
-                if region.type == 'NAVIGATION_BAR':
-                    # Found the navigation bar region, now flip its alignment
-                    with context.temp_override(region=region):
-                        try:
-                            bpy.ops.screen.region_flip()
-                        except Exception as e:
-                            print(f"Could not flip navigation bar alignment: {e}")
-                    break
+            if window_method == "RENDER":
+                # For render method: show and flip navigation bar
+                # First, ensure navigation bar is visible
+                bpy.ops.screen.region_toggle(region_type='NAVIGATION_BAR')
+                # Toggle alignment to move navigation bar to the right
+                for region in area.regions:
+                    if region.type == 'NAVIGATION_BAR':
+                        # Found the navigation bar region, now flip its alignment
+                        with context.temp_override(region=region):
+                            try:
+                                bpy.ops.screen.region_flip()
+                            except Exception as e:
+                                print(f"Could not flip navigation bar alignment: {e}")
+                        break
+            else:  # NEW_WINDOW method
+                # For new window method: hide navigation bar and header
+                # Hide navigation bar
+                for region in area.regions:
+                    if region.type == 'NAVIGATION_BAR':
+                        # If region has size, it's visible - toggle to hide it
+                        if region.width > 0 or region.height > 0:
+                            try:
+                                bpy.ops.screen.region_toggle(region_type='NAVIGATION_BAR')
+                            except Exception as e:
+                                print(f"Could not hide navigation bar: {e}")
+                        break
+                
+                # Hide header
+                for region in area.regions:
+                    if region.type == 'HEADER':
+                        # If region has size, it's visible - toggle to hide it
+                        if region.width > 0 or region.height > 0:
+                            try:
+                                bpy.ops.screen.region_toggle(region_type='HEADER')
+                            except Exception as e:
+                                print(f"Could not hide header: {e}")
+                        break
 
         # Report success with method used
         if window_method == "RENDER":
