@@ -9,6 +9,45 @@ def get_text_icon(ui_type, dict):
             return (k, v["icon"])
 
 
+def shorten_text(text):
+    """Сокращает длинные названия для компактного отображения"""
+    if text == "Empty":
+        return text
+    # Сокращаем длинные названия
+    replacements = {
+        "3D Viewport": "3D View",
+        "Image Editor": "Image",
+        "UV Editor": "UV",
+        "Shader Editor": "Shader",
+        "Compositor": "Compositor",
+        "Texture Node Editor": "Texture",
+        "Video Sequencer": "VSE",
+        "Movie Clip Editor": "Clip",
+        "Dope Sheet": "Dope",
+        "Timeline": "Timeline",
+        "Graph Editor": "Graph",
+        "Drivers": "Drivers",
+        "Nonlinear Animation": "NLA",
+        "Text Editor": "Text",
+        "Python Console": "Console",
+        "Info": "Info",
+        "Outliner": "Outliner",
+        "Properties": "Props",
+        "File Browser": "Files",
+        "Preferences": "Prefs",
+        "Geometry Nodes": "Geo Nodes",
+        "Spreadsheet": "Sheet",
+        "Asset Manager": "Assets",
+    }
+    # Сначала проверяем полные замены
+    if text in replacements:
+        return replacements[text]
+    # Убираем "Editor" из названий, если не было замены
+    text = text.replace(" Editor", "")
+    text = text.replace("Editor", "")
+    return text
+
+
 def get_area_type(ui, dict):
     for _, v in dict.items():
         if v["ui"] == ui:
@@ -24,12 +63,19 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_1"
     bl_label = "IOPS Split Area Pie 1"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_1_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_1_alt_ui,
+                pos=prefs.split_area_pie_1_pos,
+                factor=prefs.split_area_pie_1_factor,
+            )
 
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
@@ -38,6 +84,9 @@ class IOPS_OT_Split_Area_Pie_1(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_1_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
 
         else:
             bpy.ops.iops.split_screen_area(
@@ -56,12 +105,19 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_2"
     bl_label = "IOPS Split Area Pie 2"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_2_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_2_alt_ui,
+                pos=prefs.split_area_pie_2_pos,
+                factor=prefs.split_area_pie_2_factor,
+            )
 
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
@@ -70,6 +126,10 @@ class IOPS_OT_Split_Area_Pie_2(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_2_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -87,12 +147,20 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_3"
     bl_label = "IOPS Split Area Pie 3"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_3_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_3_alt_ui,
+                pos=prefs.split_area_pie_3_pos,
+                factor=prefs.split_area_pie_3_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -100,6 +168,10 @@ class IOPS_OT_Split_Area_Pie_3(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_3_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -117,12 +189,20 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_4"
     bl_label = "IOPS Split Area Pie 4"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_4_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_4_alt_ui,
+                pos=prefs.split_area_pie_4_pos,
+                factor=prefs.split_area_pie_4_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -130,6 +210,10 @@ class IOPS_OT_Split_Area_Pie_4(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_4_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -147,12 +231,20 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_6"
     bl_label = "IOPS Split Area Pie 6"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_6_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_6_alt_ui,
+                pos=prefs.split_area_pie_6_pos,
+                factor=prefs.split_area_pie_6_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -160,6 +252,10 @@ class IOPS_OT_Split_Area_Pie_6(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_6_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -177,12 +273,20 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_7"
     bl_label = "IOPS Split Area Pie 7"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_7_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_7_alt_ui,
+                pos=prefs.split_area_pie_7_pos,
+                factor=prefs.split_area_pie_7_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -190,6 +294,10 @@ class IOPS_OT_Split_Area_Pie_7(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_7_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -207,12 +315,20 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_8"
     bl_label = "IOPS Split Area Pie 8"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_8_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_8_alt_ui,
+                pos=prefs.split_area_pie_8_pos,
+                factor=prefs.split_area_pie_8_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -220,6 +336,10 @@ class IOPS_OT_Split_Area_Pie_8(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_8_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -237,12 +357,20 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
 
     bl_idname = "iops.split_area_pie_9"
     bl_label = "IOPS Split Area Pie 9"
-    bl_description = """ ALT to Switch Area"""
+    bl_description = """ SHIFT for Alt Area, ALT to Switch Area"""
 
     def invoke(self, context, event):
         prefs = context.preferences.addons["InteractionOps"].preferences
-        if event.ctrl and not event.alt and not event.shift:
-            context.area.ui_type = "VIEW_3D"
+        if event.shift and not event.ctrl and not event.alt:
+            bpy.ops.iops.split_screen_area(
+                area_type=get_area_type(
+                    prefs.split_area_pie_9_alt_ui, split_areas_dict
+                ),
+                ui=prefs.split_area_pie_9_alt_ui,
+                pos=prefs.split_area_pie_9_pos,
+                factor=prefs.split_area_pie_9_factor,
+            )
+
         elif event.alt and not event.ctrl and not event.shift:
             bpy.ops.iops.switch_screen_area(
                 area_type=get_area_type(
@@ -250,6 +378,10 @@ class IOPS_OT_Split_Area_Pie_9(bpy.types.Operator):
                 ),
                 ui=prefs.split_area_pie_9_ui,
             )
+
+        elif event.ctrl and not event.alt and not event.shift:
+            context.area.ui_type = "VIEW_3D"
+
         else:
             bpy.ops.iops.split_screen_area(
                 area_type=get_area_type(
@@ -272,27 +404,82 @@ class IOPS_MT_Pie_Split(Menu):
         pie_1_text, pie_1_icon = get_text_icon(
             prefs.split_area_pie_1_ui, split_areas_dict
         )
+        pie_1_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_1_alt_ui, split_areas_dict
+        )
+        pie_1_text_short = shorten_text(pie_1_text)
+        pie_1_alt_text_short = shorten_text(pie_1_alt_text)
+        pie_1_text = f"{pie_1_text_short} / {pie_1_alt_text_short}" if pie_1_alt_text != "Empty" else pie_1_text_short
+
         pie_2_text, pie_2_icon = get_text_icon(
             prefs.split_area_pie_2_ui, split_areas_dict
         )
+        pie_2_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_2_alt_ui, split_areas_dict
+        )
+        pie_2_text_short = shorten_text(pie_2_text)
+        pie_2_alt_text_short = shorten_text(pie_2_alt_text)
+        pie_2_text = f"{pie_2_text_short} / {pie_2_alt_text_short}" if pie_2_alt_text != "Empty" else pie_2_text_short
+
         pie_3_text, pie_3_icon = get_text_icon(
             prefs.split_area_pie_3_ui, split_areas_dict
         )
+        pie_3_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_3_alt_ui, split_areas_dict
+        )
+        pie_3_text_short = shorten_text(pie_3_text)
+        pie_3_alt_text_short = shorten_text(pie_3_alt_text)
+        pie_3_text = f"{pie_3_text_short} / {pie_3_alt_text_short}" if pie_3_alt_text != "Empty" else pie_3_text_short
+
         pie_4_text, pie_4_icon = get_text_icon(
             prefs.split_area_pie_4_ui, split_areas_dict
         )
+        pie_4_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_4_alt_ui, split_areas_dict
+        )
+        pie_4_text_short = shorten_text(pie_4_text)
+        pie_4_alt_text_short = shorten_text(pie_4_alt_text)
+        pie_4_text = f"{pie_4_text_short} / {pie_4_alt_text_short}" if pie_4_alt_text != "Empty" else pie_4_text_short
+
         pie_6_text, pie_6_icon = get_text_icon(
             prefs.split_area_pie_6_ui, split_areas_dict
         )
+        pie_6_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_6_alt_ui, split_areas_dict
+        )
+        pie_6_text_short = shorten_text(pie_6_text)
+        pie_6_alt_text_short = shorten_text(pie_6_alt_text)
+        pie_6_text = f"{pie_6_text_short} / {pie_6_alt_text_short}" if pie_6_alt_text != "Empty" else pie_6_text_short
+
         pie_7_text, pie_7_icon = get_text_icon(
             prefs.split_area_pie_7_ui, split_areas_dict
         )
+        pie_7_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_7_alt_ui, split_areas_dict
+        )
+        pie_7_text_short = shorten_text(pie_7_text)
+        pie_7_alt_text_short = shorten_text(pie_7_alt_text)
+        pie_7_text = f"{pie_7_text_short} / {pie_7_alt_text_short}" if pie_7_alt_text != "Empty" else pie_7_text_short
+
         pie_8_text, pie_8_icon = get_text_icon(
             prefs.split_area_pie_8_ui, split_areas_dict
         )
+        pie_8_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_8_alt_ui, split_areas_dict
+        )
+        pie_8_text_short = shorten_text(pie_8_text)
+        pie_8_alt_text_short = shorten_text(pie_8_alt_text)
+        pie_8_text = f"{pie_8_text_short} / {pie_8_alt_text_short}" if pie_8_alt_text != "Empty" else pie_8_text_short
+
         pie_9_text, pie_9_icon = get_text_icon(
             prefs.split_area_pie_9_ui, split_areas_dict
         )
+        pie_9_alt_text, _ = get_text_icon(
+            prefs.split_area_pie_9_alt_ui, split_areas_dict
+        )
+        pie_9_text_short = shorten_text(pie_9_text)
+        pie_9_alt_text_short = shorten_text(pie_9_alt_text)
+        pie_9_text = f"{pie_9_text_short} / {pie_9_alt_text_short}" if pie_9_alt_text != "Empty" else pie_9_text_short
 
         layout = self.layout
         pie = layout.menu_pie()

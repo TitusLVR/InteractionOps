@@ -97,7 +97,8 @@ def get_iops_prefs():
             f"PIE_{i}": {
                 f"split_area_pie_{i}_factor": safe(f"split_area_pie_{i}_factor", 0.5),
                 f"split_area_pie_{i}_pos": safe(f"split_area_pie_{i}_pos", "BOTTOM"),
-                f"split_area_pie_{i}_ui": safe(f"split_area_pie_{i}_ui", "VIEW_3D")
+                f"split_area_pie_{i}_ui": safe(f"split_area_pie_{i}_ui", "VIEW_3D"),
+                f"split_area_pie_{i}_alt_ui": safe(f"split_area_pie_{i}_alt_ui", "VIEW_3D")
             } for i in range(1, 10) if i != 5
         },
         "UI_TEXT": {

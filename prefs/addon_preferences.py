@@ -486,6 +486,54 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         step=0.01,
         precision=2,
     )
+    # Alt variants for UI types
+    # 1 - BOTTOM - LEFT
+    split_area_pie_1_alt_ui: EnumProperty(
+        name="",
+        description="Area Types (Alt)",
+        items=split_areas_list,
+        default="ShaderNodeTree",
+    )
+    # 2 - BOTTOM
+    split_area_pie_2_alt_ui: EnumProperty(
+        name="", description="Area Types (Alt)", items=split_areas_list, default="TIMELINE"
+    )
+    # 3 - BOTTOM - RIGHT
+    split_area_pie_3_alt_ui: EnumProperty(
+        name="", description="Area Types (Alt)", items=split_areas_list, default="PROPERTIES"
+    )
+    # 4 - LEFT
+    split_area_pie_4_alt_ui: EnumProperty(
+        name="", description="Area Types (Alt)", items=split_areas_list, default="OUTLINER"
+    )
+    # 6 - RIGHT
+    split_area_pie_6_alt_ui: EnumProperty(
+        name="",
+        description="Area Types (Alt)",
+        items=split_areas_list,
+        default="UV"
+    )
+    # 7 - TOP - LEFT
+    split_area_pie_7_alt_ui: EnumProperty(
+        name="",
+        description="Area Types (Alt)",
+        items=split_areas_list,
+        default='FILES',
+    )
+    # 8 - TOP
+    split_area_pie_8_alt_ui: EnumProperty(
+        name="",
+        description="Area Types (Alt)",
+        items=split_areas_list,
+        default="CONSOLE"
+    )
+    # 9 - TOP - RIGHT
+    split_area_pie_9_alt_ui: EnumProperty(
+        name="",
+        description="Area Types (Alt)",
+        items=split_areas_list,
+        default="TEXT_EDITOR"
+    )
 
     executor_column_count: IntProperty(
         name="Scripts per column",
@@ -1119,6 +1167,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_1 = row.box()
             col = box_1.column(align=True)
             col.prop(self, "split_area_pie_7_ui")
+            col.prop(self, "split_area_pie_7_alt_ui")
             col.prop(self, "split_area_pie_7_pos")
             col.prop(self, "split_area_pie_7_factor")
             row.separator()
@@ -1126,6 +1175,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_2 = row.box()
             col = box_2.column(align=True)
             col.prop(self, "split_area_pie_8_ui")
+            col.prop(self, "split_area_pie_8_alt_ui")
             col.prop(self, "split_area_pie_8_pos")
             col.prop(self, "split_area_pie_8_factor")
             row.separator()
@@ -1133,6 +1183,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_3 = row.box()
             col = box_3.column(align=True)
             col.prop(self, "split_area_pie_9_ui")
+            col.prop(self, "split_area_pie_9_alt_ui")
             col.prop(self, "split_area_pie_9_pos")
             col.prop(self, "split_area_pie_9_factor")
 
@@ -1142,6 +1193,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_1 = row.box()
             col = box_1.column(align=True)
             col.prop(self, "split_area_pie_4_ui")
+            col.prop(self, "split_area_pie_4_alt_ui")
             col.prop(self, "split_area_pie_4_pos")
             col.prop(self, "split_area_pie_4_factor")
             row.separator()
@@ -1156,6 +1208,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_3 = row.box()
             col = box_3.column(align=True)
             col.prop(self, "split_area_pie_6_ui")
+            col.prop(self, "split_area_pie_6_alt_ui")
             col.prop(self, "split_area_pie_6_pos")
             col.prop(self, "split_area_pie_6_factor")
 
@@ -1166,6 +1219,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_1 = row.box()
             col = box_1.column(align=True)
             col.prop(self, "split_area_pie_1_ui")
+            col.prop(self, "split_area_pie_1_alt_ui")
             col.prop(self, "split_area_pie_1_pos")
             col.prop(self, "split_area_pie_1_factor")
             row.separator()
@@ -1173,6 +1227,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_2 = row.box()
             col = box_2.column(align=True)
             col.prop(self, "split_area_pie_2_ui")
+            col.prop(self, "split_area_pie_2_alt_ui")
             col.prop(self, "split_area_pie_2_pos")
             col.prop(self, "split_area_pie_2_factor")
             row.separator()
@@ -1180,6 +1235,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_3 = row.box()
             col = box_3.column(align=True)
             col.prop(self, "split_area_pie_3_ui")
+            col.prop(self, "split_area_pie_3_alt_ui")
             col.prop(self, "split_area_pie_3_pos")
             col.prop(self, "split_area_pie_3_factor")
 

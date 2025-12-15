@@ -276,9 +276,17 @@ class IOPS_OT_SwitchScreenArea(bpy.types.Operator):
             return {"FINISHED"}
 
         if (context.area.type == self.area_type) and (context.area.ui_type == self.ui):
-            context_override = ContextOverride(context.area)
-            with context.temp_override(**context_override):
-                bpy.ops.screen.area_close()
+            # Проверяем, что есть больше одной области, иначе нельзя закрыть
+            if len(context.screen.areas) > 1:
+                context_override = ContextOverride(context.area)
+                try:
+                    with context.temp_override(**context_override):
+                        # Проверяем, что оператор может быть выполнен
+                        if bpy.ops.screen.area_close.poll():
+                            bpy.ops.screen.area_close()
+                except (RuntimeError, AttributeError):
+                    # Если не удалось закрыть, просто игнорируем ошибку
+                    pass
 
         else:
             bpy.context.area.type = self.area_type
