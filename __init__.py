@@ -211,6 +211,10 @@ from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentB
 
 # Material Override
 from .operators.material_override import (
+    IOPS_MaterialOverrideSettings,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Refresh_Previews,
+    IOPS_OT_Material_Override_Generate_Previews,
     IOPS_OT_Material_Override_Apply,
     IOPS_OT_Material_Override_Clear,
     IOPS_PT_Material_Override_Panel,
@@ -370,6 +374,10 @@ classes = (
     IOPS_OT_OpenAssetInCurrentBlender,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    IOPS_MaterialOverrideSettings,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Refresh_Previews,
+    IOPS_OT_Material_Override_Generate_Previews,
     IOPS_OT_Material_Override_Apply,
     IOPS_OT_Material_Override_Clear,
     IOPS_PT_Material_Override_Panel,
@@ -414,6 +422,7 @@ def register():
 
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
+    bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.append(select_interior_faces)
@@ -454,6 +463,7 @@ def unregister():
     unregister_select_similar_name_menu()
     unreg_cls()
     del bpy.types.Scene.IOPS
+    del bpy.types.Scene.iops_material_override_settings
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
 
