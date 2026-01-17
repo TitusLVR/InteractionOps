@@ -6,12 +6,7 @@ import math
 class IOPS_MaterialOverrideSettings(bpy.types.PropertyGroup):
     fancy_mode: bpy.props.BoolProperty(
         name="Fancy Mode",
-        description="Show material thumbnail previews (slower, requires rendering)",
-        default=False
-    )
-    is_rendering: bpy.props.BoolProperty(
-        name="Is Rendering Previews",
-        description="True when previews are currently being rendered",
+        description="Show materials in grid layout with larger icons",
         default=False
     )
 
@@ -157,19 +152,14 @@ class IOPS_PT_Material_Override_Panel(bpy.types.Panel):
         header_row.label(text="Current Override:", icon='RENDERLAYERS')
 
         if current_override:
-            # Show current material with preview
+            # Show current material (no preview to avoid blocking)
             row = col.row(align=True)
             row.alignment = 'CENTER'
-            try:
-                row.template_icon(icon_value=current_override.preview.icon_id, scale=5.0)
-                if current_override:
-                    header_row = col.row(align=True)
-                    header_row.alignment = 'CENTER'
-                    header_row.operator("iops.material_override_clear", text="Clear", icon='X')
-            except (AttributeError, ReferenceError, RuntimeError):
-                # Fallback if preview is not available or invalid
-                row.label(text="", icon='MATERIAL')
+            # Use simple icon to avoid triggering preview rendering
+            icon = 'SHADING_RENDERED' if current_override.use_nodes else 'MATERIAL_DATA'
+            row.label(text="", icon=icon)
             row.label(text=current_override.name)
+            row.operator("iops.material_override_clear", text="Clear", icon='X')
         else:
             col.label(text="None - Using object materials")
 
@@ -192,18 +182,8 @@ class IOPS_PT_Material_Override_Panel(bpy.types.Panel):
         fancy_icon = 'SHADING_RENDERED' if settings.fancy_mode else 'SHADING_SOLID'
         row.prop(settings, "fancy_mode", text="Fancy Mode", icon=fancy_icon, toggle=True)
         
-        # Show preview controls only in fancy mode
-        if settings.fancy_mode:
-            row.operator("iops.material_override_generate_previews", text="", icon='RENDER_STILL')
-            row.operator("iops.material_override_refresh_previews", text="", icon='FILE_REFRESH')
-            
-            # Show warning when in rendering mode (user controlled)
-            if settings.is_rendering:
-                warning_box = layout.box()
-                warning_row = warning_box.row(align=True)
-                warning_row.alert = True
-                warning_row.label(text="⚠ Previews may be rendering, please wait...", icon='TIME')
-                warning_row.operator("iops.material_override_clear_rendering_flag", text="", icon='X')
+        # Note: Preview generation disabled to prevent blocking other addons
+        # Fancy mode now just shows grid layout with larger icons instead of thumbnails
         
         # Get all materials
         materials = bpy.data.materials
@@ -220,7 +200,7 @@ class IOPS_PT_Material_Override_Panel(bpy.types.Panel):
             materials_list = list(materials)
             num_materials = len(materials_list)
             
-            # FANCY MODE - Grid with thumbnails
+            # FANCY MODE - Grid with larger icons (no preview rendering to avoid blocking)
             if settings.fancy_mode:
                 # Material grid with dynamic column calculation
                 # Calculate optimal grid dimensions for 5:3 aspect ratio (width:height)
@@ -245,14 +225,13 @@ class IOPS_PT_Material_Override_Panel(bpy.types.Panel):
                             box = col.box()
                             box_col = box.column(align=True)
                             
-                            # Preview icon at the top - using template_icon for actual scaling
+                            # Large static icon (no preview to avoid blocking)
                             icon_row = box_col.row(align=True)
                             icon_row.alignment = 'CENTER'
-                            try:
-                                icon_row.template_icon(icon_value=mat.preview.icon_id, scale=5.0)
-                            except (AttributeError, ReferenceError, RuntimeError):
-                                # Fallback if preview is not available or invalid
-                                icon_row.label(text="", icon='MATERIAL')
+                            icon_row.scale_y = 3.0
+                            # Use static icon to avoid triggering preview rendering
+                            icon = 'SHADING_RENDERED' if mat.use_nodes else 'MATERIAL_DATA'
+                            icon_row.label(text="", icon=icon)
                             
                             # Add spacing
                             box_col.separator(factor=0.5)
