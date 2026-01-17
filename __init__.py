@@ -209,6 +209,14 @@ from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 # Open asset in current Blender
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 
+# Material Override
+from .operators.material_override import (
+    IOPS_OT_Material_Override_Apply,
+    IOPS_OT_Material_Override_Clear,
+    IOPS_PT_Material_Override_Panel,
+    IOPS_OT_Call_Material_Override_Panel,
+)
+
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
@@ -362,6 +370,10 @@ classes = (
     IOPS_OT_OpenAssetInCurrentBlender,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    IOPS_OT_Material_Override_Apply,
+    IOPS_OT_Material_Override_Clear,
+    IOPS_PT_Material_Override_Panel,
+    IOPS_OT_Call_Material_Override_Panel,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
