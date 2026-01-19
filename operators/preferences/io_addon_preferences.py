@@ -6,16 +6,39 @@ from ...utils.split_areas_dict import split_areas_dict, split_areas_position_lis
 
 # Save Addon Preferences
 def save_iops_preferences():
-    iops_prefs = get_iops_prefs()
-    path = bpy.utils.script_path_user()
-    folder = os.path.join(path, "presets", "IOPS")
-    iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
+    """Save addon preferences to JSON file with error handling"""
+    try:
+        iops_prefs = get_iops_prefs()
+        path = bpy.utils.script_path_user()
+        folder = os.path.join(path, "presets", "IOPS")
+        iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
 
-    if not os.path.exists(folder):
-        os.makedirs(folder)
+        # Create directory if it doesn't exist
+        os.makedirs(folder, exist_ok=True)
 
-    with open(iops_prefs_file, "w") as f:
-        json.dump(iops_prefs, f, indent=4)
+        # Write to a temporary file first, then rename (atomic operation)
+        temp_file = iops_prefs_file + ".tmp"
+        with open(temp_file, "w", encoding='utf-8') as f:
+            json.dump(iops_prefs, f, indent=4)
+        
+        # Replace the old file with the new one
+        if os.path.exists(iops_prefs_file):
+            os.replace(temp_file, iops_prefs_file)
+        else:
+            os.rename(temp_file, iops_prefs_file)
+        
+        print(f"IOPS Preferences saved successfully to: {iops_prefs_file}")
+        return True
+        
+    except Exception as e:
+        print(f"IOPS Preferences: Error saving preferences - {e}")
+        # Clean up temp file if it exists
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
+        return False
 
 
 def get_split_pos_ui(pos, ui):
@@ -32,149 +55,254 @@ def get_split_pos_ui(pos, ui):
 def load_iops_preferences():
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     path = bpy.utils.script_path_user()
+    iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
+    
+    # Get default preferences structure for fallback
+    default_prefs = get_iops_prefs()
+    
     try:
-        iops_prefs_file = os.path.join(path, "presets", "IOPS", "iops_prefs_user.json")
-        with open(iops_prefs_file, "r") as f:
-            iops_prefs = json.load(f)
-            for key, value in iops_prefs.items():
+        # Check if file exists
+        if not os.path.exists(iops_prefs_file):
+            print("IOPS Preferences file not found. Creating new one with defaults at:", iops_prefs_file)
+            save_iops_preferences()
+            return
+        
+        # Try to load and parse JSON
+        try:
+            with open(iops_prefs_file, "r", encoding='utf-8') as f:
+                iops_prefs = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"IOPS Preferences: JSON decode error - {e}. Using defaults and creating backup.")
+            # Backup corrupted file
+            backup_file = iops_prefs_file + ".backup"
+            try:
+                os.rename(iops_prefs_file, backup_file)
+                print(f"Corrupted preferences backed up to: {backup_file}")
+            except Exception:
+                pass
+            save_iops_preferences()
+            return
+        except Exception as e:
+            print(f"IOPS Preferences: Error reading file - {e}. Using defaults.")
+            save_iops_preferences()
+            return
+        
+        # Validate that iops_prefs is a dictionary
+        if not isinstance(iops_prefs, dict):
+            print("IOPS Preferences: Invalid file format. Using defaults.")
+            save_iops_preferences()
+            return
+        
+        # Safe get helper with default fallback
+        def safe_get(data, key, default=None):
+            """Safely get value from dict with default fallback"""
+            try:
+                return data.get(key, default)
+            except (AttributeError, KeyError):
+                return default
+        
+        # Process each preference section with error handling
+        for key, value in iops_prefs.items():
+            try:
                 match key:
                     case "IOPS_DEBUG":
-                        prefs.IOPS_DEBUG = value["IOPS_DEBUG"]
+                        if isinstance(value, dict):
+                            prefs.IOPS_DEBUG = safe_get(value, "IOPS_DEBUG", 
+                                default_prefs.get("IOPS_DEBUG", {}).get("IOPS_DEBUG", False))
+                    
                     case "ALIGN_TO_EDGE":
-                        prefs.align_edge_color = value["align_edge_color"]
+                        if isinstance(value, dict):
+                            prefs.align_edge_color = safe_get(value, "align_edge_color",
+                                default_prefs.get("ALIGN_TO_EDGE", {}).get("align_edge_color", (1.0, 1.0, 1.0, 1.0)))
+                    
                     case "EXECUTOR":
-                        prefs.executor_scripts_folder = value["executor_scripts_folder"]
-                        prefs.executor_column_count = value["executor_column_count"]
-                        # Handle old typo in JSON key
-                        try:
-                            prefs.executor_name_length = value["executor_name_length"]
-                        except KeyError:
-                            # Fallback to old typo key
-                            try:
-                                prefs.executor_name_length = value["executor_name_lenght"]
-                            except KeyError:
-                                # Use default value if neither key exists
-                                prefs.executor_name_length = 10  # Default value
-                        prefs.executor_use_script_path_user = value["executor_use_script_path_user"]
-                        prefs.executor_scripts_subfolder = value["executor_scripts_subfolder"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("EXECUTOR", {})
+                            prefs.executor_scripts_folder = safe_get(value, "executor_scripts_folder",
+                                defaults.get("executor_scripts_folder", bpy.utils.script_path_user()))
+                            prefs.executor_column_count = safe_get(value, "executor_column_count",
+                                defaults.get("executor_column_count", 20))
+                            # Handle old typo in JSON key
+                            prefs.executor_name_length = safe_get(value, "executor_name_length",
+                                safe_get(value, "executor_name_lenght", defaults.get("executor_name_length", 100)))
+                            prefs.executor_use_script_path_user = safe_get(value, "executor_use_script_path_user",
+                                defaults.get("executor_use_script_path_user", True))
+                            prefs.executor_scripts_subfolder = safe_get(value, "executor_scripts_subfolder",
+                                defaults.get("executor_scripts_subfolder", "iops_exec"))
+                    
                     case "SPLIT_AREA_PIES":
-                        for pie in value:
-                            pie_num = pie[-1]
-                            # Get the raw values from JSON (they should already be string enum identifiers)
-                            pos_raw = value[pie][f"split_area_pie_{pie_num}_pos"]
-                            ui_raw = value[pie][f"split_area_pie_{pie_num}_ui"]
-                            
-                            # Convert old numeric format to string enum format if needed
-                            # (for backward compatibility with old saved preferences)
-                            if isinstance(pos_raw, int):
-                                # Convert integer to string enum identifier
-                                for p in split_areas_position_list:
-                                    if p[4] == pos_raw:
-                                        pos = p[0]  # Get the string identifier
-                                        break
-                                else:
-                                    pos = "BOTTOM"  # Default fallback
-                            else:
-                                pos = pos_raw  # Already a string
-                            
-                            if isinstance(ui_raw, int):
-                                # Convert integer to string enum identifier
-                                for key, val in split_areas_dict.items():
-                                    if val["num"] == ui_raw:
-                                        ui = val["ui"]  # Get the string identifier
-                                        break
-                                else:
-                                    ui = "VIEW_3D"  # Default fallback
-                            else:
-                                ui = ui_raw  # Already a string
-                            
-                            setattr(prefs, f"split_area_pie_{pie_num}_factor", value[pie][
-                                f"split_area_pie_{pie_num}_factor"
-                            ])
-                            setattr(prefs, f"split_area_pie_{pie_num}_pos", pos)
-                            setattr(prefs, f"split_area_pie_{pie_num}_ui", ui)
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("SPLIT_AREA_PIES", {})
+                            for pie in value:
+                                try:
+                                    pie_num = pie[-1]
+                                    pie_data = safe_get(value, pie, {})
+                                    if not isinstance(pie_data, dict):
+                                        continue
+                                    
+                                    # Get default values for this pie
+                                    pie_defaults = defaults.get(pie, {})
+                                    
+                                    # Get the raw values from JSON
+                                    pos_raw = safe_get(pie_data, f"split_area_pie_{pie_num}_pos",
+                                        pie_defaults.get(f"split_area_pie_{pie_num}_pos", "BOTTOM"))
+                                    ui_raw = safe_get(pie_data, f"split_area_pie_{pie_num}_ui",
+                                        pie_defaults.get(f"split_area_pie_{pie_num}_ui", "VIEW_3D"))
+                                    
+                                    # Convert old numeric format to string enum format if needed
+                                    if isinstance(pos_raw, int):
+                                        for p in split_areas_position_list:
+                                            if p[4] == pos_raw:
+                                                pos = p[0]
+                                                break
+                                        else:
+                                            pos = "BOTTOM"
+                                    else:
+                                        pos = pos_raw
+                                    
+                                    if isinstance(ui_raw, int):
+                                        for split_key, val in split_areas_dict.items():
+                                            if val["num"] == ui_raw:
+                                                ui = val["ui"]
+                                                break
+                                        else:
+                                            ui = "VIEW_3D"
+                                    else:
+                                        ui = ui_raw
+                                    
+                                    setattr(prefs, f"split_area_pie_{pie_num}_factor",
+                                        safe_get(pie_data, f"split_area_pie_{pie_num}_factor",
+                                        pie_defaults.get(f"split_area_pie_{pie_num}_factor", 0.5)))
+                                    setattr(prefs, f"split_area_pie_{pie_num}_pos", pos)
+                                    setattr(prefs, f"split_area_pie_{pie_num}_ui", ui)
+                                    
+                                    # Handle alt_ui if it exists
+                                    if f"split_area_pie_{pie_num}_alt_ui" in pie_data:
+                                        alt_ui_raw = safe_get(pie_data, f"split_area_pie_{pie_num}_alt_ui",
+                                            pie_defaults.get(f"split_area_pie_{pie_num}_alt_ui", "VIEW_3D"))
+                                        if isinstance(alt_ui_raw, int):
+                                            for split_key, val in split_areas_dict.items():
+                                                if val["num"] == alt_ui_raw:
+                                                    alt_ui = val["ui"]
+                                                    break
+                                            else:
+                                                alt_ui = "VIEW_3D"
+                                        else:
+                                            alt_ui = alt_ui_raw
+                                        setattr(prefs, f"split_area_pie_{pie_num}_alt_ui", alt_ui)
+                                except Exception as e:
+                                    print(f"IOPS Prefs: Error loading split area pie {pie} - {e}")
+                                    continue
+                    
                     case "UI_TEXT":
-                        prefs.text_color = value["text_color"]
-                        prefs.text_color_key = value["text_color_key"]
-                        prefs.text_pos_x = value["text_pos_x"]
-                        prefs.text_pos_y = value["text_pos_y"]
-                        prefs.text_shadow_color = value["text_shadow_color"]
-                        prefs.text_shadow_pos_x = value["text_shadow_pos_x"]
-                        prefs.text_shadow_pos_y = value["text_shadow_pos_y"]
-                        prefs.text_shadow_toggle = value["text_shadow_toggle"]
-                        prefs.text_size = value["text_size"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("UI_TEXT", {})
+                            prefs.text_color = safe_get(value, "text_color", defaults.get("text_color", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.text_color_key = safe_get(value, "text_color_key", defaults.get("text_color_key", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.text_pos_x = safe_get(value, "text_pos_x", defaults.get("text_pos_x", 60))
+                            prefs.text_pos_y = safe_get(value, "text_pos_y", defaults.get("text_pos_y", 60))
+                            prefs.text_shadow_color = safe_get(value, "text_shadow_color", defaults.get("text_shadow_color", (0.0, 0.0, 0.0, 1.0)))
+                            prefs.text_shadow_pos_x = safe_get(value, "text_shadow_pos_x", defaults.get("text_shadow_pos_x", 2))
+                            prefs.text_shadow_pos_y = safe_get(value, "text_shadow_pos_y", defaults.get("text_shadow_pos_y", -2))
+                            prefs.text_shadow_toggle = safe_get(value, "text_shadow_toggle", defaults.get("text_shadow_toggle", False))
+                            prefs.text_size = safe_get(value, "text_size", defaults.get("text_size", 20))
+                    
                     case "CURSOR_BISECT":
-                        prefs.cursor_bisect_plane_color = value["cursor_bisect_plane_color"]
-                        prefs.cursor_bisect_plane_outline_color = value["cursor_bisect_plane_outline_color"]
-                        prefs.cursor_bisect_plane_outline_thickness = value["cursor_bisect_plane_outline_thickness"]
-                        prefs.cursor_bisect_edge_color = value["cursor_bisect_edge_color"]
-                        prefs.cursor_bisect_edge_locked_color = value["cursor_bisect_edge_locked_color"]
-                        prefs.cursor_bisect_edge_thickness = value["cursor_bisect_edge_thickness"]
-                        prefs.cursor_bisect_edge_locked_thickness = value["cursor_bisect_edge_locked_thickness"]
-                        prefs.cursor_bisect_snap_color = value["cursor_bisect_snap_color"]
-                        prefs.cursor_bisect_snap_hold_color = value["cursor_bisect_snap_hold_color"]
-                        prefs.cursor_bisect_snap_closest_color = value["cursor_bisect_snap_closest_color"]
-                        prefs.cursor_bisect_snap_closest_hold_color = value["cursor_bisect_snap_closest_hold_color"]
-                        prefs.cursor_bisect_snap_size = value["cursor_bisect_snap_size"]
-                        prefs.cursor_bisect_snap_closest_size = value["cursor_bisect_snap_closest_size"]
-                        prefs.cursor_bisect_edge_subdivisions = value["cursor_bisect_edge_subdivisions"]
-                        prefs.cursor_bisect_cut_preview_color = value["cursor_bisect_cut_preview_color"]
-                        prefs.cursor_bisect_cut_preview_thickness = value["cursor_bisect_cut_preview_thickness"]
-                        prefs.cursor_bisect_face_depth = value["cursor_bisect_face_depth"]
-                        prefs.cursor_bisect_max_faces = value["cursor_bisect_max_faces"]
-                        prefs.cursor_bisect_merge_distance = value["cursor_bisect_merge_distance"]
-                        prefs.cursor_bisect_rotation_step = value["cursor_bisect_rotation_step"]
-                        prefs.cursor_bisect_distance_text_color = value["cursor_bisect_distance_text_color"]
-                        prefs.cursor_bisect_distance_text_size = value["cursor_bisect_distance_text_size"]
-                        prefs.cursor_bisect_distance_offset_x = value["cursor_bisect_distance_offset_x"]
-                        prefs.cursor_bisect_distance_offset_y = value["cursor_bisect_distance_offset_y"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("CURSOR_BISECT", {})
+                            prefs.cursor_bisect_plane_color = safe_get(value, "cursor_bisect_plane_color", defaults.get("cursor_bisect_plane_color", (1.0, 0.0, 0.0, 0.15)))
+                            prefs.cursor_bisect_plane_outline_color = safe_get(value, "cursor_bisect_plane_outline_color", defaults.get("cursor_bisect_plane_outline_color", (1.0, 0.0, 0.0, 0.8)))
+                            prefs.cursor_bisect_plane_outline_thickness = safe_get(value, "cursor_bisect_plane_outline_thickness", defaults.get("cursor_bisect_plane_outline_thickness", 2.0))
+                            prefs.cursor_bisect_edge_color = safe_get(value, "cursor_bisect_edge_color", defaults.get("cursor_bisect_edge_color", (1.0, 1.0, 0.0, 1.0)))
+                            prefs.cursor_bisect_edge_locked_color = safe_get(value, "cursor_bisect_edge_locked_color", defaults.get("cursor_bisect_edge_locked_color", (1.0, 0.0, 0.0, 1.0)))
+                            prefs.cursor_bisect_edge_thickness = safe_get(value, "cursor_bisect_edge_thickness", defaults.get("cursor_bisect_edge_thickness", 4.0))
+                            prefs.cursor_bisect_edge_locked_thickness = safe_get(value, "cursor_bisect_edge_locked_thickness", defaults.get("cursor_bisect_edge_locked_thickness", 8.0))
+                            prefs.cursor_bisect_snap_color = safe_get(value, "cursor_bisect_snap_color", defaults.get("cursor_bisect_snap_color", (1.0, 1.0, 0.0, 1.0)))
+                            prefs.cursor_bisect_snap_hold_color = safe_get(value, "cursor_bisect_snap_hold_color", defaults.get("cursor_bisect_snap_hold_color", (1.0, 0.5, 0.0, 1.0)))
+                            prefs.cursor_bisect_snap_closest_color = safe_get(value, "cursor_bisect_snap_closest_color", defaults.get("cursor_bisect_snap_closest_color", (0.0, 1.0, 0.0, 1.0)))
+                            prefs.cursor_bisect_snap_closest_hold_color = safe_get(value, "cursor_bisect_snap_closest_hold_color", defaults.get("cursor_bisect_snap_closest_hold_color", (1.0, 0.2, 0.0, 1.0)))
+                            prefs.cursor_bisect_snap_size = safe_get(value, "cursor_bisect_snap_size", defaults.get("cursor_bisect_snap_size", 6.0))
+                            prefs.cursor_bisect_snap_closest_size = safe_get(value, "cursor_bisect_snap_closest_size", defaults.get("cursor_bisect_snap_closest_size", 9.0))
+                            prefs.cursor_bisect_edge_subdivisions = safe_get(value, "cursor_bisect_edge_subdivisions", defaults.get("cursor_bisect_edge_subdivisions", 1))
+                            prefs.cursor_bisect_cut_preview_color = safe_get(value, "cursor_bisect_cut_preview_color", defaults.get("cursor_bisect_cut_preview_color", (1.0, 0.5, 0.0, 1.0)))
+                            prefs.cursor_bisect_cut_preview_thickness = safe_get(value, "cursor_bisect_cut_preview_thickness", defaults.get("cursor_bisect_cut_preview_thickness", 3.0))
+                            prefs.cursor_bisect_face_depth = safe_get(value, "cursor_bisect_face_depth", defaults.get("cursor_bisect_face_depth", 5))
+                            prefs.cursor_bisect_max_faces = safe_get(value, "cursor_bisect_max_faces", defaults.get("cursor_bisect_max_faces", 1000))
+                            prefs.cursor_bisect_merge_distance = safe_get(value, "cursor_bisect_merge_distance", defaults.get("cursor_bisect_merge_distance", 0.005))
+                            prefs.cursor_bisect_rotation_step = safe_get(value, "cursor_bisect_rotation_step", defaults.get("cursor_bisect_rotation_step", 45.0))
+                            prefs.cursor_bisect_distance_text_color = safe_get(value, "cursor_bisect_distance_text_color", defaults.get("cursor_bisect_distance_text_color", (1.0, 1.0, 0.0, 1.0)))
+                            prefs.cursor_bisect_distance_text_size = safe_get(value, "cursor_bisect_distance_text_size", defaults.get("cursor_bisect_distance_text_size", 12.0))
+                            prefs.cursor_bisect_distance_offset_x = safe_get(value, "cursor_bisect_distance_offset_x", defaults.get("cursor_bisect_distance_offset_x", -25))
+                            prefs.cursor_bisect_distance_offset_y = safe_get(value, "cursor_bisect_distance_offset_y", defaults.get("cursor_bisect_distance_offset_y", 25))
+                    
                     case "UI_TEXT_STAT":
-                        prefs.iops_stat = value["iops_stat"]
-                        prefs.show_filename_stat = value["show_filename_stat"]
-                        prefs.text_color_stat = value["text_color_stat"]
-                        prefs.text_color_key_stat = value["text_color_key_stat"]
-                        prefs.text_color_error_stat = value["text_color_error_stat"]
-                        prefs.text_pos_x_stat = value["text_pos_x_stat"]
-                        prefs.text_pos_y_stat = value["text_pos_y_stat"]
-                        prefs.text_shadow_color_stat = value["text_shadow_color_stat"]
-                        prefs.text_shadow_pos_x_stat = value["text_shadow_pos_x_stat"]
-                        prefs.text_shadow_pos_y_stat = value["text_shadow_pos_y_stat"]
-                        prefs.text_shadow_toggle_stat = value["text_shadow_toggle_stat"]
-                        prefs.text_size_stat = value["text_size_stat"]
-                        prefs.text_column_offset_stat = value["text_column_offset_stat"]
-                        prefs.text_column_width_stat = value["text_column_width_stat"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("UI_TEXT_STAT", {})
+                            prefs.iops_stat = safe_get(value, "iops_stat", defaults.get("iops_stat", True))
+                            prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
+                            prefs.text_color_stat = safe_get(value, "text_color_stat", defaults.get("text_color_stat", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.text_color_key_stat = safe_get(value, "text_color_key_stat", defaults.get("text_color_key_stat", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.text_color_error_stat = safe_get(value, "text_color_error_stat", defaults.get("text_color_error_stat", (1.0, 0.0, 0.0, 1.0)))
+                            prefs.text_pos_x_stat = safe_get(value, "text_pos_x_stat", defaults.get("text_pos_x_stat", 9))
+                            prefs.text_pos_y_stat = safe_get(value, "text_pos_y_stat", defaults.get("text_pos_y_stat", 220))
+                            prefs.text_shadow_color_stat = safe_get(value, "text_shadow_color_stat", defaults.get("text_shadow_color_stat", (0.0, 0.0, 0.0, 1.0)))
+                            prefs.text_shadow_pos_x_stat = safe_get(value, "text_shadow_pos_x_stat", defaults.get("text_shadow_pos_x_stat", 2))
+                            prefs.text_shadow_pos_y_stat = safe_get(value, "text_shadow_pos_y_stat", defaults.get("text_shadow_pos_y_stat", -2))
+                            prefs.text_shadow_toggle_stat = safe_get(value, "text_shadow_toggle_stat", defaults.get("text_shadow_toggle_stat", False))
+                            prefs.text_size_stat = safe_get(value, "text_size_stat", defaults.get("text_size_stat", 20))
+                            prefs.text_column_offset_stat = safe_get(value, "text_column_offset_stat", defaults.get("text_column_offset_stat", 30))
+                            prefs.text_column_width_stat = safe_get(value, "text_column_width_stat", defaults.get("text_column_width_stat", 4))
+                    
                     case "VISUAL_ORIGIN":
-                        prefs.vo_cage_ap_color = value["vo_cage_ap_color"]
-                        prefs.vo_cage_ap_size = value["vo_cage_ap_size"]
-                        prefs.vo_cage_color = value["vo_cage_color"]
-                        prefs.vo_cage_p_size = value["vo_cage_p_size"]
-                        prefs.vo_cage_points_color = value["vo_cage_points_color"]
-                        prefs.vo_cage_line_thickness = value["vo_cage_line_thickness"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("VISUAL_ORIGIN", {})
+                            prefs.vo_cage_ap_color = safe_get(value, "vo_cage_ap_color", defaults.get("vo_cage_ap_color", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.vo_cage_ap_size = safe_get(value, "vo_cage_ap_size", defaults.get("vo_cage_ap_size", 4))
+                            prefs.vo_cage_color = safe_get(value, "vo_cage_color", defaults.get("vo_cage_color", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.vo_cage_p_size = safe_get(value, "vo_cage_p_size", defaults.get("vo_cage_p_size", 2))
+                            prefs.vo_cage_points_color = safe_get(value, "vo_cage_points_color", defaults.get("vo_cage_points_color", (1.0, 1.0, 1.0, 1.0)))
+                            prefs.vo_cage_line_thickness = safe_get(value, "vo_cage_line_thickness", defaults.get("vo_cage_line_thickness", 0.25))
+                    
                     case "TEXTURE_TO_MATERIAL":
-                        prefs.texture_to_material_prefixes = value[
-                            "texture_to_material_prefixes"
-                        ]
-                        prefs.texture_to_material_suffixes = value[
-                            "texture_to_material_suffixes"
-                        ]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("TEXTURE_TO_MATERIAL", {})
+                            prefs.texture_to_material_prefixes = safe_get(value, "texture_to_material_prefixes",
+                                defaults.get("texture_to_material_prefixes", "env_"))
+                            prefs.texture_to_material_suffixes = safe_get(value, "texture_to_material_suffixes",
+                                defaults.get("texture_to_material_suffixes", "_df,_dfa,_mk,_emk,_nm"))
+                    
                     case "SNAP_COMBOS":
                         # In Blender 5.0, snap combos are stored in JSON file only
                         # No need to set ID properties - they're read directly from JSON
                         # This case is kept for compatibility but snap combos are handled
                         # directly in snap_combos.py via JSON file
                         pass
+                    
                     case "DRAG_SNAP":
-                        prefs.drag_snap_line_thickness = value["drag_snap_line_thickness"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("DRAG_SNAP", {})
+                            prefs.drag_snap_line_thickness = safe_get(value, "drag_snap_line_thickness",
+                                defaults.get("drag_snap_line_thickness", 0.25))
+                    
                     case "MODIFIER_WINDOW":
-                        prefs.modifier_window_method = value["modifier_window_method"]
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("MODIFIER_WINDOW", {})
+                            prefs.modifier_window_method = safe_get(value, "modifier_window_method",
+                                defaults.get("modifier_window_method", "RENDER"))
+                    
                     case _:
-                        print(
-                            "IOPS Prefs: No entry for " + key,
-                        )
-
-    except FileNotFoundError:
+                        print(f"IOPS Prefs: No entry for {key}")
+            
+            except Exception as e:
+                print(f"IOPS Prefs: Error processing section '{key}' - {e}")
+                continue
+        
+        # Save the preferences to ensure any missing attributes are filled with defaults
+        print("IOPS Preferences loaded successfully.")
+        
+    except Exception as e:
+        print(f"IOPS Preferences: Unexpected error - {e}. Creating new preferences file.")
         save_iops_preferences()
-        print("IOPS Preferences file was not found. A new one was created at:", iops_prefs_file)
         return
 
 

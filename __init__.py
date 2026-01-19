@@ -401,9 +401,16 @@ def keymap_registration():
     fix_old_keymaps()
 
     if os.path.exists(user_hotkeys_file):
-        with open(user_hotkeys_file) as f:
-            keys_user = json.load(f)
-        register_keymaps(keys_user)
+        try:
+            with open(user_hotkeys_file, encoding='utf-8') as f:
+                keys_user = json.load(f)
+            if not isinstance(keys_user, list):
+                print("IOPS: Invalid hotkeys file format, using defaults")
+                keys_user = keys_default
+            register_keymaps(keys_user)
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+            print(f"IOPS: Error loading user hotkeys - {e}, using defaults")
+            register_keymaps(keys_default)
     else:
         register_keymaps(keys_default)
 
