@@ -492,14 +492,37 @@ def fix_old_keymaps():
     fixed_km = []
 
     if os.path.exists(user_hotkeys_file):
-        with open(user_hotkeys_file, 'r') as f:
-            keys_user_old = json.load(f)
-        for km in keys_user_old:
-            if km[0] not in km_to_remove:
-                if km[0] in old_new_km_map.keys():
-                    km[0] = old_new_km_map[km[0]]
-                    fixed_km.append(km)
-                else:
-                    fixed_km.append(km)
-        with open(user_hotkeys_file, "w") as f:
-            f.write("[" + ",\n".join(json.dumps(i) for i in fixed_km) + "]\n")
+        try:
+            with open(user_hotkeys_file, 'r', encoding='utf-8') as f:
+                keys_user_old = json.load(f)
+            
+            if not isinstance(keys_user_old, list):
+                print("IOPS: Invalid hotkeys file format in fix_old_keymaps")
+                return
+            
+            for km in keys_user_old:
+                if not isinstance(km, list) or len(km) < 1:
+                    continue
+                if km[0] not in km_to_remove:
+                    if km[0] in old_new_km_map.keys():
+                        km[0] = old_new_km_map[km[0]]
+                        fixed_km.append(km)
+                    else:
+                        fixed_km.append(km)
+            
+            # Write with atomic operation
+            temp_file = user_hotkeys_file + ".tmp"
+            with open(temp_file, "w", encoding='utf-8') as f:
+                f.write("[" + ",\n".join(json.dumps(i) for i in fixed_km) + "]\n")
+            
+            os.replace(temp_file, user_hotkeys_file)
+            
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+            print(f"IOPS: Error fixing old keymaps - {e}")
+            # Clean up temp file if it exists
+            temp_file = user_hotkeys_file + ".tmp"
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass

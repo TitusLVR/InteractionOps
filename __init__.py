@@ -218,6 +218,18 @@ from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 # Open asset in current Blender
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 
+# Material Override
+from .operators.material_override import (
+    IOPS_MaterialOverrideSettings,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Refresh_Previews,
+    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Material_Override_Apply,
+    IOPS_OT_Material_Override_Clear,
+    IOPS_PT_Material_Override_Panel,
+    IOPS_OT_Call_Material_Override_Panel,
+)
+
 bl_info = {
     "name": "iOps",
     "authors": "Titus, Cyrill, Aleksey",
@@ -378,6 +390,14 @@ classes = (
     IOPS_OT_OpenAssetInCurrentBlender,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    IOPS_MaterialOverrideSettings,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Refresh_Previews,
+    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Material_Override_Apply,
+    IOPS_OT_Material_Override_Clear,
+    IOPS_PT_Material_Override_Panel,
+    IOPS_OT_Call_Material_Override_Panel,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -397,9 +417,16 @@ def keymap_registration():
     fix_old_keymaps()
 
     if os.path.exists(user_hotkeys_file):
-        with open(user_hotkeys_file) as f:
-            keys_user = json.load(f)
-        register_keymaps(keys_user)
+        try:
+            with open(user_hotkeys_file, encoding='utf-8') as f:
+                keys_user = json.load(f)
+            if not isinstance(keys_user, list):
+                print("IOPS: Invalid hotkeys file format, using defaults")
+                keys_user = keys_default
+            register_keymaps(keys_user)
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+            print(f"IOPS: Error loading user hotkeys - {e}, using defaults")
+            register_keymaps(keys_default)
     else:
         register_keymaps(keys_default)
 
@@ -418,6 +445,7 @@ def register():
 
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
+    bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.append(select_interior_faces)
@@ -458,6 +486,7 @@ def unregister():
     unregister_select_similar_name_menu()
     unreg_cls()
     del bpy.types.Scene.IOPS
+    del bpy.types.Scene.iops_material_override_settings
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
 

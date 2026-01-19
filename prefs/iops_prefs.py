@@ -49,9 +49,17 @@ def get_iops_prefs():
     if os.path.exists(iops_prefs_file):
         try:
             with open(iops_prefs_file, "r", encoding='utf-8') as f:
-                iops_prefs = json.load(f)
-                snap_combos_from_json = iops_prefs.get("SNAP_COMBOS", {})
-        except (json.JSONDecodeError, IOError):
+                content = f.read().strip()
+                if content:  # Only parse if file is not empty
+                    iops_prefs = json.loads(content)
+                    if isinstance(iops_prefs, dict):
+                        snap_combos_from_json = iops_prefs.get("SNAP_COMBOS", {})
+                        if not isinstance(snap_combos_from_json, dict):
+                            snap_combos_from_json = {}
+                    else:
+                        snap_combos_from_json = {}
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+            print(f"IOPS Prefs: Error loading snap combos from JSON - {e}")
             snap_combos_from_json = {}
 
     for i in range(1, 9):
@@ -61,19 +69,45 @@ def get_iops_prefs():
         if snap_combo_key in snap_combos_from_json:
             snap_combo = snap_combos_from_json[snap_combo_key]
             if isinstance(snap_combo, dict):
-                snap_combo_dict[snap_combo_key] = {
-                    "SNAP_ELEMENTS": {k: snap_combo.get("SNAP_ELEMENTS", {}).get(k, False) for k in [
-                        "INCREMENT", "VERTEX", "EDGE", "FACE", "VOLUME", "EDGE_MIDPOINT", "EDGE_PERPENDICULAR", "FACE_PROJECT", "FACE_NEAREST"
-                    ]},
-                    "TOOL_SETTINGS": {k: snap_combo.get("TOOL_SETTINGS", {}).get(k, False) if isinstance(snap_combo.get("TOOL_SETTINGS", {}).get(k, None), bool) else snap_combo.get("TOOL_SETTINGS", {}).get(k, "") for k in [
-                        "transform_pivot_point", "snap_target", "use_snap_self", "use_snap_align_rotation", "use_snap_peel_object", "use_snap_backface_culling", "use_snap_selectable", "use_snap_translate", "use_snap_rotate", "use_snap_scale", "use_snap_to_same_target"
-                    ]},
-                    "TRANSFORMATION": snap_combo.get("TRANSFORMATION", "GLOBAL")
-                }
-                continue
+                try:
+                    # Get SNAP_ELEMENTS with proper defaults
+                    snap_elements_data = snap_combo.get("SNAP_ELEMENTS", {})
+                    if not isinstance(snap_elements_data, dict):
+                        snap_elements_data = {}
+                    
+                    snap_elements = {k: snap_elements_data.get(k, default_combo["SNAP_ELEMENTS"].get(k, False)) 
+                                    for k in default_combo["SNAP_ELEMENTS"].keys()}
+                    
+                    # Get TOOL_SETTINGS with proper defaults
+                    tool_settings_data = snap_combo.get("TOOL_SETTINGS", {})
+                    if not isinstance(tool_settings_data, dict):
+                        tool_settings_data = {}
+                    
+                    tool_settings = {}
+                    for k, default_value in default_combo["TOOL_SETTINGS"].items():
+                        value = tool_settings_data.get(k, default_value)
+                        # Validate type matches default
+                        if type(value) != type(default_value):
+                            value = default_value
+                        tool_settings[k] = value
+                    
+                    # Get TRANSFORMATION with validation
+                    transformation = snap_combo.get("TRANSFORMATION", "GLOBAL")
+                    if not isinstance(transformation, str):
+                        transformation = "GLOBAL"
+                    
+                    snap_combo_dict[snap_combo_key] = {
+                        "SNAP_ELEMENTS": snap_elements,
+                        "TOOL_SETTINGS": tool_settings,
+                        "TRANSFORMATION": transformation
+                    }
+                    continue
+                except Exception as e:
+                    print(f"IOPS Prefs: Error parsing snap combo {snap_combo_key} - {e}, using defaults")
         
-        # Fallback to default if not found in JSON
-        snap_combo_dict[snap_combo_key] = default_combo.copy()
+        # Fallback to default if not found in JSON or error occurred
+        import copy
+        snap_combo_dict[snap_combo_key] = copy.deepcopy(default_combo)
 
     # Helper for safe getattr with fallback to class default
     def safe(attr, default=None):

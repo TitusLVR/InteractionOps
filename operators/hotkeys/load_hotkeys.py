@@ -23,13 +23,22 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
         user_hotkeys_path = os.path.join(path, "presets", "IOPS")
 
         if os.path.exists(user_hotkeys_file):
-            with open(user_hotkeys_file) as f:
-                keys_user = json.load(f)
+            try:
+                with open(user_hotkeys_file, encoding='utf-8') as f:
+                    keys_user = json.load(f)
+                if not isinstance(keys_user, list):
+                    print("IOPS: Invalid hotkeys file format, using empty list")
+                    keys_user = []
+            except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+                print(f"IOPS: Error loading user hotkeys - {e}, using empty list")
+                keys_user = []
         else:
-            if not os.path.exists(user_hotkeys_path):
-                os.makedirs(user_hotkeys_path)
-            with open(user_hotkeys_file, "w") as f:
-                f.write("[]")
+            try:
+                os.makedirs(user_hotkeys_path, exist_ok=True)
+                with open(user_hotkeys_file, "w", encoding='utf-8') as f:
+                    f.write("[]")
+            except Exception as e:
+                print(f"IOPS: Error creating hotkeys file - {e}")
 
         register_keymaps(keys_user)
         print("Loaded user's hotkeys")
