@@ -22,6 +22,12 @@ from .operators.curve_subdivide import IOPS_OT_CurveSubdivide
 from .operators.grid_from_active import IOPS_OT_ToGridFromActive
 from .operators.iops import IOPS_OT_Main
 from .operators.library_reload import IOPS_OT_Reload_Libraries
+from .operators.instance_collection_append import (
+    IOPS_OT_Instance_Collection_Append,
+    IOPS_OT_Scan_Source_Collections,
+    IOPS_UL_SourceCollectionsList,
+    IOPS_OT_Select_All_Collections,
+)
 from .operators.image_reload import IOPS_OT_Reload_Images
 from .operators.maya_isolate import IOPS_OT_MayaIsolate
 from .operators.split_screen_area import IOPS_OT_SwitchScreenArea
@@ -80,6 +86,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
 from .prefs.addon_properties import IOPS_SceneProperties
+from .prefs.addon_properties import IOPS_CollectionItem
 
 from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAssign,
@@ -100,6 +107,8 @@ from .ui.iops_tm_panel import (
     IOPS_PT_TM_Panel,
     IOPS_OT_Call_TPS_Panel,
     IOPS_OT_Call_TM_Panel,
+    IOPS_PT_Collection_Append_Panel,
+    IOPS_OT_Call_Collection_Append_Panel,
     IOPS_PT_VCol_Panel,
 )
 
@@ -226,6 +235,7 @@ bl_info = {
 # Classes for reg and unreg
 classes = (
     IOPS_AddonPreferences,
+    IOPS_CollectionItem,
     IOPS_AddonProperties,
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,
@@ -270,6 +280,8 @@ classes = (
     IOPS_OT_MatchTransformActive,
     IOPS_PT_TM_Panel,
     IOPS_OT_Call_TM_Panel,
+    IOPS_PT_Collection_Append_Panel,
+    IOPS_OT_Call_Collection_Append_Panel,
     IOPS_PT_TPS_Panel,
     IOPS_OT_Call_TPS_Panel,
     IOPS_MT_Pie_Menu,
@@ -345,6 +357,10 @@ classes = (
     IOPS_MESH_OT_CopyEdgesAngle,
     IOPS_OT_SetSnapCombo,
     IOPS_OT_Reload_Libraries,
+    IOPS_OT_Scan_Source_Collections,
+    IOPS_OT_Instance_Collection_Append,
+    IOPS_OT_Select_All_Collections,
+    IOPS_UL_SourceCollectionsList,
     IOPS_OT_Reload_Images,
     IOPS_OT_Cursor_Rotate,
     Z_OT_GrowLoop,

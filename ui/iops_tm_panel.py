@@ -487,6 +487,7 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
 
     def draw(self, context):
         obj = context.view_layer.objects.active
+        
         layout = self.layout
         layout.ui_units_x = 8.0
         col = layout.column(align=True)
@@ -555,6 +556,89 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IOPS_PT_Collection_Append_Panel(bpy.types.Panel):
+    """Append Collection from Linked Asset"""
+
+    bl_label = "Collection Append"
+    bl_idname = "IOPS_PT_Collection_Append_Panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "iOps"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        wm = context.window_manager
+        props = wm.IOPS_AddonProperties
+        
+        layout = self.layout
+        col = layout.column(align=True)
+        
+        # Scan button
+        col.label(text="1. Scan Source Collections:", icon="VIEWZOOM")
+        col.operator("iops.scan_source_collections", text="Scan Collections", icon="FILE_REFRESH")
+        
+        col.separator()
+        
+        # Collection list
+        if props.iops_source_collections:
+            col.label(text="2. Select Collections:", icon="OUTLINER_COLLECTION")
+            row = col.row()
+            row.template_list(
+                "IOPS_UL_SourceCollectionsList",
+                "",
+                props,
+                "iops_source_collections",
+                props,
+                "iops_source_collections_index",
+                rows=5
+            )
+            
+            # Select/Deselect buttons
+            col.separator()
+            row = col.row(align=True)
+            row.operator("iops.select_all_collections", text="Select All").action = 'SELECT'
+            row.operator("iops.select_all_collections", text="Deselect All").action = 'DESELECT'
+            
+            col.separator()
+            
+            # Append button
+            col.label(text="3. Append Selected:", icon="APPEND_BLEND")
+            selected_count = sum(1 for item in props.iops_source_collections if item.is_selected)
+            col.operator("iops.instance_collection_append", 
+                        text=f"Append ({selected_count} selected)", 
+                        icon="IMPORT")
+        else:
+            box = col.box()
+            box.label(text="No collections scanned yet", icon="INFO")
+        
+        col.separator()
+        
+        # Instructions
+        box = layout.box()
+        box.label(text="Instructions:", icon="QUESTION")
+        col_inst = box.column(align=True)
+        col_inst.scale_y = 0.8
+        col_inst.label(text="1. Select a linked instance")
+        col_inst.label(text="2. Click 'Scan Collections'")
+        col_inst.label(text="3. Select desired collections")
+        col_inst.label(text="4. Click 'Append' button")
+
+
+class IOPS_OT_Call_Collection_Append_Panel(bpy.types.Operator):
+    """Call Collection Append panel"""
+
+    bl_idname = "iops.call_panel_collection_append"
+    bl_label = "IOPS Collection Append panel"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area.type == "VIEW_3D" and context.mode == "OBJECT"
+
+    def execute(self, context):
+        bpy.ops.wm.call_panel(name="IOPS_PT_Collection_Append_Panel", keep_open=True)
+        return {"FINISHED"}
+
+
 class IOPS_PT_VCol_Panel(bpy.types.Panel):
     """VCOL"""
 
@@ -575,13 +659,17 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
 
         layout = self.layout
         col = layout.column(align=True)
-        col.prop(brush, "color", text="")
+        
+        # Check if brush exists before trying to access its properties
+        if brush:
+            col.prop(brush, "color", text="")
+        
         if context.mode == "OBJECT":
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
                 layout.template_palette(settings, "palette", color=True)
-        col.operator("iops.assign_vertex_color", icon="GROUP_VCOL", text="Set Color")
+        col.operator("iops.mesh_assign_vertex_color", icon="GROUP_VCOL", text="Set Color")
         col.separator()
         col.operator(
-            "iops.assign_vertex_color_alpha", icon="GROUP_VCOL", text="Set Alpha"
+            "iops.mesh_assign_vertex_color_alpha", icon="GROUP_VCOL", text="Set Alpha"
         )

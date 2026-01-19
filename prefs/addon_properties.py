@@ -5,6 +5,9 @@ from bpy.props import (
     FloatProperty,
     FloatVectorProperty,
     StringProperty,
+    CollectionProperty,
+    IntProperty,
+    BoolProperty,
 )
 
 def fuzzy_match(search_term, target):
@@ -57,6 +60,20 @@ def update_exec_filter(self, context):
 
 
 
+class IOPS_CollectionItem(PropertyGroup):
+    """Property group for collection list items"""
+    name: StringProperty(
+        name="Collection Name",
+        description="Name of the collection in the source file",
+        default=""
+    )
+    is_selected: BoolProperty(
+        name="Select",
+        description="Select this collection for appending",
+        default=False
+    )
+
+
 class IOPS_AddonProperties(PropertyGroup):
     iops_panel_mesh_info: bpy.props.BoolProperty(
         name="Show mesh info", description="Show mesh info panel", default=False
@@ -74,6 +91,20 @@ class IOPS_AddonProperties(PropertyGroup):
         default="",
         options={'TEXTEDIT_UPDATE'},
         update=update_exec_filter,
+    )
+    iops_append_collection_name: StringProperty(
+        name="Collection Name",
+        description="Name of the collection to append from linked asset source",
+        default="",
+    )
+    iops_source_collections: CollectionProperty(
+        type=IOPS_CollectionItem,
+        name="Source Collections",
+        description="Collections available in the source file"
+    )
+    iops_source_collections_index: IntProperty(
+        name="Active Collection Index",
+        default=0
     )
 
 

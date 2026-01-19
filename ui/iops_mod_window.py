@@ -27,9 +27,12 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
         scene.render.resolution_x = original_x
         scene.render.resolution_y = original_y
 
-    def open_new_window_standard(self, width=350, height=550):
+    def open_new_window_standard(self, context, width=350, height=550):
         """Open a new window using bpy.ops.wm.window_new()."""
-        bpy.ops.wm.window_new()
+        # Use context override to ensure proper context for window_new operator
+        # Include both window and screen for proper context
+        with context.temp_override(window=context.window, screen=context.screen):
+            bpy.ops.wm.window_new()
 
     def execute(self, context):
         # Check if we have a valid context for window operations
@@ -53,7 +56,7 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
             self.open_new_window_with_size(350, 550)
         else:  # NEW_WINDOW
             # Use the standard window_new method with resize
-            self.open_new_window_standard(350, 550)
+            self.open_new_window_standard(context, 350, 550)
 
         # Get the new window (should be the last one created)
         new_window = context.window_manager.windows[-1]

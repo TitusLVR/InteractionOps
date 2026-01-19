@@ -48,6 +48,12 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
         ):
             ob = context.object
             me = ob.data
+            
+            # Check if mesh data is available (can be None for linked objects)
+            if me is None:
+                layout.label(text="Mesh data not available (linked object)")
+                return
+            
             # brush = context.tool_settings.vertex_paint.brush
 
             # split = layout.split()
