@@ -572,7 +572,7 @@ def grow_loop(context):
         loop_exts.extend(unselected_loop_extensions(se))
     for le in loop_exts:
         le.select = True
-    mesh.update()
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
@@ -585,7 +585,7 @@ def grow_ring(context):
         ring_exts.extend(unselected_ring_extensions(se))
     for re in ring_exts:
         re.select = True
-    mesh.update()
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
@@ -615,15 +615,26 @@ def shrink_loop(context):
     selected_edges = [e for e in bm.edges if e.select]
     loop_ends = []
     for se in selected_edges:
+        # Check if this edge has at least one selected neighbor
+        has_selected_neighbor = False
         for v in [se.verts[0], se.verts[1]]:
             le = loop_extension(se, v)
-            if not le or not le.select:
-                loop_ends.append(se)
+            if le and le.select:
+                has_selected_neighbor = True
+                break
+        # Only mark as end if it has a selected neighbor (boundary edge)
+        # and at least one unselected neighbor
+        if has_selected_neighbor:
+            for v in [se.verts[0], se.verts[1]]:
+                le = loop_extension(se, v)
+                if not le or not le.select:
+                    loop_ends.append(se)
+                    break
     loop_ends_unique = list(set(loop_ends))
     if len(loop_ends_unique):
         for e in loop_ends_unique:
             e.select = False
-    mesh.update()
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
@@ -632,14 +643,27 @@ def shrink_ring(context):
     bm = bmesh.from_edit_mesh(mesh)
     selected_edges = [e for e in bm.edges if e.select]
     ring_ends = []
-    for r in complete_associated_rings(selected_edges):
-        chains = group_selected(r)
-        for c in chains:
-            ring_ends.append(c[0])
-            ring_ends.append(c[-1])
-    for e in list((set(ring_ends))):
-        e.select = False
-    mesh.update()
+    for se in selected_edges:
+        # Check if this edge has at least one selected ring neighbor
+        has_selected_neighbor = False
+        for face in se.link_faces:
+            re = ring_extension(se, face)
+            if re and re.select:
+                has_selected_neighbor = True
+                break
+        # Only mark as end if it has a selected neighbor (boundary edge)
+        # and at least one unselected neighbor
+        if has_selected_neighbor:
+            for face in se.link_faces:
+                re = ring_extension(se, face)
+                if not re or not re.select:
+                    ring_ends.append(se)
+                    break
+    ring_ends_unique = list(set(ring_ends))
+    if len(ring_ends_unique):
+        for e in ring_ends_unique:
+            e.select = False
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
@@ -667,7 +691,7 @@ def select_bounded_loop(context):
             new_sel.extend(g)
         for e in new_sel:
             e.select = True
-    mesh.update()
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
@@ -695,7 +719,7 @@ def select_bounded_ring(context):
             new_sel.extend(g)
         for e in new_sel:
             e.select = True
-    mesh.update()
+    bmesh.update_edit_mesh(mesh)
     return {"FINISHED"}
 
 
