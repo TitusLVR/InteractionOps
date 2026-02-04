@@ -42,21 +42,21 @@ def fuzzy_match(search_term, target):
     return False
 
 def update_exec_filter(self, context):
-    if "IOPS" in bpy.context.scene and "executor_scripts" in bpy.context.scene["IOPS"]:
-        scripts = bpy.context.scene["IOPS"]["executor_scripts"]
-        filter_text = self.iops_exec_filter.lower()
-        if filter_text:
-            # Filter by script filename (not full path) using fuzzy search
-            filtered_scripts = []
-            for script in scripts:
-                script_name = os.path.basename(script)
-                if fuzzy_match(filter_text, script_name):
-                    filtered_scripts.append(script)
-            bpy.context.scene["IOPS"]["filtered_executor_scripts"] = filtered_scripts
-        else:
-            # Clear filter when empty
-            if "filtered_executor_scripts" in bpy.context.scene["IOPS"]:
-                del bpy.context.scene["IOPS"]["filtered_executor_scripts"]
+    scene = bpy.context.scene
+    iops = getattr(scene, "IOPS", None)
+    if iops is None:
+        return
+    scripts = [item.path for item in iops.executor_scripts]
+    if not scripts:
+        return
+    filter_text = self.iops_exec_filter.lower()
+    iops.filtered_executor_scripts.clear()
+    if filter_text:
+        for script in scripts:
+            script_name = os.path.basename(script)
+            if fuzzy_match(filter_text, script_name):
+                item = iops.filtered_executor_scripts.add()
+                item.path = script
 
 
 
@@ -72,6 +72,11 @@ class IOPS_CollectionItem(PropertyGroup):
         description="Select this collection for appending",
         default=False
     )
+
+
+class IOPS_ExecutorScriptItem(PropertyGroup):
+    """Single script path for the executor list"""
+    path: StringProperty(name="Script path", default="")
 
 
 class IOPS_AddonProperties(PropertyGroup):
@@ -109,6 +114,16 @@ class IOPS_AddonProperties(PropertyGroup):
 
 
 class IOPS_SceneProperties(PropertyGroup):
+    executor_scripts: CollectionProperty(
+        type=IOPS_ExecutorScriptItem,
+        name="Executor scripts",
+        description="Script paths for the executor panel",
+    )
+    filtered_executor_scripts: CollectionProperty(
+        type=IOPS_ExecutorScriptItem,
+        name="Filtered executor scripts",
+        description="Filtered script paths when search is active",
+    )
     dragsnap_point_a: FloatVectorProperty(
         name="DragSnap Point A",
         description="DragSnap Point A",

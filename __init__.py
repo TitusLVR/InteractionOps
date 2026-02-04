@@ -85,8 +85,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.addon_properties import IOPS_AddonProperties
-from .prefs.addon_properties import IOPS_SceneProperties
-from .prefs.addon_properties import IOPS_CollectionItem
+from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem
 
 from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAssign,
@@ -248,6 +247,7 @@ bl_info = {
 classes = (
     IOPS_AddonPreferences,
     IOPS_CollectionItem,
+    IOPS_ExecutorScriptItem,
     IOPS_AddonProperties,
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,

@@ -63,17 +63,19 @@ class IOPS_PT_ExecuteList(bpy.types.Panel):
         prefs = context.preferences.addons["InteractionOps"].preferences
         props = context.window_manager.IOPS_AddonProperties
         letter = ""
-        scripts = bpy.context.scene["IOPS"]["executor_scripts"]
+        iops = getattr(context.scene, "IOPS", None)
+        if iops is None:
+            layout = self.layout
+            layout.label(text="IOPS scene data not available")
+            return
+        scripts = [item.path for item in iops.executor_scripts]
         global_column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
 
         layout = self.layout
-        # Use filtered scripts if filter is active and filtered list exists
+        # Use filtered scripts when filter is active
         filter_text = props.iops_exec_filter if hasattr(props, "iops_exec_filter") else ""
-        if filter_text and "filtered_executor_scripts" in bpy.context.scene["IOPS"]:
-            filtered_scripts = bpy.context.scene["IOPS"]["filtered_executor_scripts"]
-            scripts = filtered_scripts if filtered_scripts else []
-        else:
-            scripts = bpy.context.scene["IOPS"]["executor_scripts"]
+        if filter_text:
+            scripts = [item.path for item in iops.filtered_executor_scripts]
         column_amount = max(1, int(len(scripts) / prefs.executor_column_count))
         layout.ui_units_x = get_executor_column_width(scripts) / (global_column_amount / column_amount)
         column_flow = layout.column_flow(columns=column_amount, align=False)
@@ -100,8 +102,10 @@ class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
     def execute(self, context):
         addon_prop = context.window_manager.IOPS_AddonProperties
         addon_prop.iops_exec_filter = ""
-        if "filtered_executor_scripts" in bpy.context.scene["IOPS"].keys():
-            del bpy.context.scene["IOPS"]["filtered_executor_scripts"]
+        iops = getattr(context.scene, "IOPS", None)
+        if iops is None:
+            return {"CANCELLED"}
+        iops.filtered_executor_scripts.clear()
         prefs = context.preferences.addons["InteractionOps"].preferences
         executor_scripts_folder = prefs.executor_scripts_folder
         scripts_folder = executor_scripts_folder  # TODO: Add user scripts folder
@@ -109,6 +113,9 @@ class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
         _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
         files = [os.path.join(scripts_folder, f) for f in _files]
         scripts = [script for script in files if script[-2:] == "py"]
-        bpy.context.scene["IOPS"]["executor_scripts"] = scripts
+        iops.executor_scripts.clear()
+        for path in scripts:
+            item = iops.executor_scripts.add()
+            item.path = path
         bpy.ops.wm.call_panel(name="IOPS_PT_ExecuteList")
         return {"FINISHED"}
