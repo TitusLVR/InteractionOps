@@ -505,6 +505,8 @@ def add_copy_edge_length_item(self, context):
 
 def open_asset_in_current_blender(self, context):
     self.layout.operator(IOPS_OT_OpenAssetInCurrentBlender.bl_idname)
+    self.layout.separator()
+    self.layout.operator(IOPS_OT_RenderAssetThumbnail.bl_idname, text="Render Asset Thumbnail")
 
 def outliner_collection_ops(self, context):
     self.layout.separator()
