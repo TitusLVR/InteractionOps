@@ -217,6 +217,31 @@ from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 # Open asset in current Blender
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 
+# Asset Management
+from .operators.assets_management import (
+    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetCreateCatalog,
+    IOPS_OT_AssetDeleteCatalog,
+    IOPS_OT_AssetDeleteEmptyCatalogs,
+    IOPS_OT_AssetSearchMoveToCatalog,
+    IOPS_OT_AssetSearchDeleteCatalog,
+    IOPS_OT_AssetMark,
+    IOPS_OT_AssetClear,
+    IOPS_OT_SetAssetLibrary,
+    IOPS_OT_SelectInAssetBrowser,
+    IOPS_OT_ClearAssetBrowserFilter,
+    IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_Call_Pie_Assets,
+    register_pool_menus,
+    unregister_pool_menus,
+)
+from .ui.iops_pie_assets import (
+    IOPS_MT_AssetMarkSub,
+    IOPS_MT_CatalogBrowseActive,
+    IOPS_MT_AssetDeleteCatalogsSub,
+    IOPS_MT_Pie_Assets,
+)
+
 # Material Override
 from .operators.material_override import (
     IOPS_MaterialOverrideSettings,
@@ -388,6 +413,23 @@ classes = (
     Z_OT_Mirror,
     Z_OT_EdgeConnect,
     IOPS_OT_OpenAssetInCurrentBlender,
+    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetCreateCatalog,
+    IOPS_OT_AssetDeleteCatalog,
+    IOPS_OT_AssetDeleteEmptyCatalogs,
+    IOPS_OT_AssetSearchMoveToCatalog,
+    IOPS_OT_AssetSearchDeleteCatalog,
+    IOPS_OT_AssetMark,
+    IOPS_OT_AssetClear,
+    IOPS_OT_SetAssetLibrary,
+    IOPS_MT_AssetMarkSub,
+    IOPS_MT_CatalogBrowseActive,
+    IOPS_MT_AssetDeleteCatalogsSub,
+    IOPS_MT_Pie_Assets,
+    IOPS_OT_SelectInAssetBrowser,
+    IOPS_OT_ClearAssetBrowserFilter,
+    IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
     IOPS_MaterialOverrideSettings,
@@ -438,6 +480,7 @@ def register():
     # bpy.app.timers.register(delayed_keymap_registration, first_interval=1.5)
 
     reg_cls()
+    register_pool_menus()
 
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
         type=IOPS_AddonProperties
@@ -484,6 +527,7 @@ def unregister():
         print(e)
         pass
     unregister_select_similar_name_menu()
+    unregister_pool_menus()
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.Scene.iops_material_override_settings
@@ -507,6 +551,7 @@ def open_asset_in_current_blender(self, context):
     self.layout.operator(IOPS_OT_OpenAssetInCurrentBlender.bl_idname)
     self.layout.separator()
     self.layout.operator(IOPS_OT_RenderAssetThumbnail.bl_idname, text="Render Asset Thumbnail")
+    self.layout.operator(IOPS_OT_Call_Pie_Assets.bl_idname, text="Move Asset to Catalog")
 
 def outliner_collection_ops(self, context):
     self.layout.separator()

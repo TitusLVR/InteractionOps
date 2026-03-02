@@ -111,6 +111,11 @@ class IOPS_AddonProperties(PropertyGroup):
         name="Active Collection Index",
         default=0
     )
+    iops_active_asset_library: StringProperty(
+        name="Active Asset Library",
+        description="Library path selected in the asset management pie (empty = Current File)",
+        default="",
+    )
 
 
 class IOPS_SceneProperties(PropertyGroup):
