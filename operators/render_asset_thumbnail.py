@@ -8,6 +8,8 @@ import array
 
 from mathutils import Vector, Matrix
 
+from ..utils.assets import resolve_assets_from_selection
+
 
 def get_path():
     return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -28,7 +30,10 @@ def get_objects_to_frame(context, render_for):
     """Return list of objects to frame in the view based on render_for."""
     if render_for == "COLLECTION":
         coll = context.collection
-        return [ob for ob in coll.all_objects if ob.type in ("MESH", "CURVE", "SURFACE", "META", "FONT")]
+        return [
+            ob for ob in coll.all_objects
+            if ob.type in ("MESH", "CURVE", "SURFACE", "META", "FONT") and ob.visible_get()
+        ]
     if render_for == "OBJECT":
         ob = context.object
         return [ob] if ob else []
@@ -629,28 +634,21 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
                 )
                 return {"CANCELLED"}
 
-            if self.render_for == "COLLECTION":
-                _load_custom_preview(context, bpy.context.collection, actual_path)
-            elif self.render_for == "OBJECT":
-                _load_custom_preview(context, bpy.context.object, actual_path)
-            elif self.render_for == "MATERIAL":
-                ob = bpy.context.object
-                if ob and ob.type == "MESH":
+            resolved = resolve_assets_from_selection(context)
+            if resolved:
+                applied = 0
+                for datablock, type_label in resolved:
+                    if getattr(datablock, "library", None) is not None:
+                        continue
                     try:
-                        _load_custom_preview(context, ob.active_material, actual_path)
+                        _load_custom_preview(context, datablock, actual_path)
+                        applied += 1
                     except RuntimeError:
-                        self.report({"ERROR"}, "Current object does not have a material marked as asset")
-            elif self.render_for == "GEOMETRY":
-                ob = bpy.context.object
-                if (ob and ob.type == "MESH"
-                        and ob.modifiers.active
-                        and ob.modifiers.active.type == "NODES"):
-                    try:
-                        _load_custom_preview(context, ob.modifiers.active.node_group, actual_path)
-                    except RuntimeError:
-                        self.report({"ERROR"}, "Current object does not have a node group marked as asset")
-                else:
-                    self.report({"ERROR"}, "Active object is not a mesh")
+                        self.report({"WARNING"}, f"Could not set preview on {type_label} '{datablock.name}'")
+                if not applied:
+                    self.report({"WARNING"}, "No local asset datablocks found in selection")
+            else:
+                self.report({"WARNING"}, "No asset datablocks found in selection")
 
             return {"FINISHED"}
         finally:

@@ -171,28 +171,43 @@ def resolve_assets_from_selection(context):
     - The object itself (``obj.asset_data``)
     - Collections it belongs to (``collection.asset_data``)
     - Materials assigned to the object (``material.asset_data``)
+    - Geometry Nodes modifiers whose node group has ``asset_data``
+    - Images used in material node trees whose image has ``asset_data``
 
     Returns a deduplicated list of ``(datablock, type_label)`` tuples.
     """
     seen = set()
     results = []
 
+    def _add(db, label):
+        if id(db) not in seen:
+            seen.add(id(db))
+            results.append((db, label))
+
     for obj in (context.selected_objects or []):
-        if getattr(obj, "asset_data", None) is not None and id(obj) not in seen:
-            seen.add(id(obj))
-            results.append((obj, "Object"))
+        if getattr(obj, "asset_data", None) is not None:
+            _add(obj, "Object")
 
         for coll in obj.users_collection:
-            if getattr(coll, "asset_data", None) is not None and id(coll) not in seen:
-                seen.add(id(coll))
-                results.append((coll, "Collection"))
+            if getattr(coll, "asset_data", None) is not None:
+                _add(coll, "Collection")
 
         obj_data = getattr(obj, "data", None)
         if obj_data is not None and hasattr(obj_data, "materials"):
             for mat in obj_data.materials:
-                if mat and getattr(mat, "asset_data", None) is not None and id(mat) not in seen:
-                    seen.add(id(mat))
-                    results.append((mat, "Material"))
+                if mat and getattr(mat, "asset_data", None) is not None:
+                    _add(mat, "Material")
+                if mat and getattr(mat, "use_nodes", False) and mat.node_tree:
+                    for node in mat.node_tree.nodes:
+                        if node.type == "TEX_IMAGE" and node.image:
+                            if getattr(node.image, "asset_data", None) is not None:
+                                _add(node.image, "Image")
+
+        for mod in obj.modifiers:
+            if mod.type == "NODES":
+                ng = getattr(mod, "node_group", None)
+                if ng and getattr(ng, "asset_data", None) is not None:
+                    _add(ng, "Geometry Nodes")
 
     return results
 
