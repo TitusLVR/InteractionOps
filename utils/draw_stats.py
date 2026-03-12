@@ -91,17 +91,7 @@ def draw_iops_statistics():
             offset_y -= textsize * 1.5
 
         if active_object and active_object.type == "MESH":
-            data = active_object.data
-            uvmaps = []
             scale_stat = []
-            active_uvmap = ""
-            active_render = ""
-            if data.uv_layers:
-                active_uvmap = data.uv_layers.active.name
-                for uv in data.uv_layers:
-                    uvmaps.append(uv.name)
-                    if uv.active_render:
-                        active_render = uv.name
             scale = active_object.scale
             if scale[0] != 1 and scale[1] != 1 and scale[2] != 1:
                 scale_stat.append("≠ 1")
@@ -110,16 +100,39 @@ def draw_iops_statistics():
             if scale[0] < 0 or scale[1] < 0 or scale[2] < 0:
                 scale_stat.append("Negative")
 
+            # Collect UV channels from all selected mesh objects
+            all_uvmap_names = []
+            active_uvmaps = set()
+            render_uvmaps = set()
+            seen = set()
+            selected_meshes = [
+                obj for obj in context.selected_objects if obj.type == "MESH"
+            ]
+            if active_object not in selected_meshes:
+                selected_meshes.insert(0, active_object)
+            for obj in selected_meshes:
+                obj_data = obj.data
+                if not obj_data.uv_layers:
+                    continue
+                if obj_data.uv_layers.active:
+                    active_uvmaps.add(obj_data.uv_layers.active.name)
+                for uv in obj_data.uv_layers:
+                    if uv.name not in seen:
+                        seen.add(uv.name)
+                        all_uvmap_names.append(uv.name)
+                    if uv.active_render:
+                        render_uvmaps.add(uv.name)
+
             # UVMaps line
             blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
             blf.position(font, offset_x, offset_y, 0)
             blf.draw(font, "UVMaps:")
             col_x = base_column_x
-            if uvmaps:
-                for uvmap in uvmaps:
-                    is_render = uvmap == active_render
+            if all_uvmap_names:
+                for uvmap in all_uvmap_names:
+                    is_render = uvmap in render_uvmaps
                     display = "[ " + uvmap + " ]" if is_render else uvmap
-                    if uvmap == active_uvmap:
+                    if uvmap in active_uvmaps:
                         blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
                     else:
                         blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
