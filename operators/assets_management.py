@@ -656,6 +656,28 @@ class IOPS_OT_RefreshAssetBrowser(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IOPS_OT_ExpandInstanceCollection(bpy.types.Operator):
+    """Make a collection instance real with hierarchy; parent new roots to the instancer."""
+
+    bl_idname = "iops.expand_instance_collection"
+    bl_label = "Expand Collection to Scene"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            obj is not None
+            and obj.type == "EMPTY"
+            and getattr(obj, "instance_type", None) == "COLLECTION"
+            and obj.instance_collection is not None
+        )
+
+    def execute(self, context):
+        bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+        return {"FINISHED"}
+
+
 class IOPS_OT_Call_Pie_Assets(bpy.types.Operator):
     """Call the asset management pie menu"""
 

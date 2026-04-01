@@ -2,9 +2,28 @@ import bpy
 import os
 from bpy.types import Menu
 
+from ..operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+
+
+def draw_open_asset_in_pie_if_poll(pie, context):
+    if not IOPS_OT_OpenAssetInCurrentBlender.poll(context):
+        return
+    pie.operator(
+        IOPS_OT_OpenAssetInCurrentBlender.bl_idname,
+        text=IOPS_OT_OpenAssetInCurrentBlender.bl_label,
+        icon="BLENDER",
+    )
+
 
 def get_text_icon(context, operator):
-    if context.object.type == "MESH":
+    """Labels/icons for IOPS_MT_Pie_Edit cardinals (Blender 5.x object types/modes)."""
+    obj = context.object
+    if not obj:
+        return "Esc", "EVENT_ESC"
+
+    m = obj.mode
+
+    if obj.type == "MESH":
         match operator:
             case "f1":
                 return "Vertex", "VERTEXSEL"
@@ -14,17 +33,40 @@ def get_text_icon(context, operator):
                 return "Face", "FACESEL"
             case "esc":
                 return "Esc", "EVENT_ESC"
-    elif context.object.type == "ARMATURE":
-        match operator:
-            case "f1":
-                return "Edit Mode", "EDITMODE_HLT"
-            case "f2":
-                return "Pose Mode", "POSE_HLT"
-            case "f3":
-                return "Set Parent to Bone", "BONE_DATA"
-            case "esc":
-                return "Esc", "EVENT_ESC"
-    elif context.object.type == "EMPTY":
+
+    elif obj.type == "ARMATURE":
+        if m == "EDIT":
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Pose Mode", "POSE_HLT"
+                case "f3":
+                    return "Set Parent to Bone", "BONE_DATA"
+                case "esc":
+                    return "Object Mode", "OBJECT_DATA"
+        elif m == "POSE":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f3":
+                    return "Set Parent to Bone", "BONE_DATA"
+                case "esc":
+                    return "Object Mode", "OBJECT_DATA"
+        else:
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Pose Mode", "POSE_HLT"
+                case "f3":
+                    return "Set Parent to Bone", "BONE_DATA"
+                case "esc":
+                    return "Frame Selected", "VIEWZOOM"
+
+    elif obj.type == "EMPTY":
         match operator:
             case "f1":
                 return "Open Instance Collection .blend", "FILE_BACKUP"
@@ -34,6 +76,160 @@ def get_text_icon(context, operator):
                 return "F3", "EVENT_F3"
             case _:
                 return "Esc", "EVENT_ESC"
+
+    elif obj.type in {"CURVE", "CURVES"}:
+        if m == "OBJECT":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Frame Selected", "VIEWZOOM"
+        elif obj.type == "CURVE" and m == "EDIT":
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Subdivide", "MOD_MULTIRES"
+                case "f3":
+                    return "Spline Type", "CURVE_DATA"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+        elif obj.type == "CURVES" and m in {"EDIT", "EDIT_CURVES"}:
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Subdivide", "MOD_MULTIRES"
+                case "f3":
+                    return "Cyclic", "CURVE_DATA"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+        elif obj.type == "CURVES" and m == "SCULPT_CURVES":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f3":
+                    return "Sculpt Toggle", "SCULPTMODE_HLT"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+
+    elif obj.type == "CAMERA":
+        match operator:
+            case "f1":
+                return "Active Camera", "VIEW_CAMERA"
+            case "f2":
+                return "Camera View", "CAMERA_DATA"
+            case "f3":
+                return "Cam to View", "VIEW_PERSPECTIVE"
+            case "esc":
+                return "Frame to Cam", "VIEW_CAMERA"
+
+    elif obj.type == "LIGHT":
+        match operator:
+            case "f1":
+                return "Duplicate", "DUPLICATE"
+            case "f2":
+                return "Origin", "OBJECT_ORIGIN"
+            case "f3":
+                return "Cursor to Active", "CURSOR"
+            case "esc":
+                return "Frame Selected", "VIEWZOOM"
+
+    elif obj.type == "FONT":
+        if m == "OBJECT":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Convert to Mesh", "MESH_DATA"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Frame Selected", "VIEWZOOM"
+        elif m == "EDIT":
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+
+    elif obj.type == "LATTICE":
+        if m == "OBJECT":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Frame Selected", "VIEWZOOM"
+        elif m == "EDIT":
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+
+    elif obj.type == "META":
+        if m == "OBJECT":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Frame Selected", "VIEWZOOM"
+        elif m == "EDIT":
+            match operator:
+                case "f1":
+                    return "Object Mode", "OBJECT_DATA"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Origin", "OBJECT_ORIGIN"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+
+    elif obj.type == "LIGHT_PROBE":
+        match operator:
+            case "f1":
+                return "Duplicate", "DUPLICATE"
+            case "f2":
+                return "Origin", "OBJECT_ORIGIN"
+            case "f3":
+                return "Cursor to Active", "CURSOR"
+            case "esc":
+                return "Frame Selected", "VIEWZOOM"
+
+    return "Esc", "EVENT_ESC"
+
+
+def draw_edit_pie_cardinals(pie, context):
+    t1, i1 = get_text_icon(context, "f1")
+    t2, i2 = get_text_icon(context, "f2")
+    t3, i3 = get_text_icon(context, "f3")
+    te, ie = get_text_icon(context, "esc")
+    pie.operator("iops.function_f1", text=t1, icon=i1)
+    pie.operator("iops.function_f3", text=t3, icon=i3)
+    pie.operator("iops.function_esc", text=te, icon=ie)
+    pie.operator("iops.function_f2", text=t2, icon=i2)
 
 
 class IOPS_MT_Pie_Edit_Modes(Menu):
@@ -56,15 +252,20 @@ class IOPS_MT_Pie_Edit(Menu):
 
     @classmethod
     def poll(cls, context):
-        return (
-            context.area.type in {"VIEW_3D", "IMAGE_EDITOR"} and context.active_object
-        )
+        if context.area.type not in {"VIEW_3D", "IMAGE_EDITOR"}:
+            return False
+        if context.active_object:
+            return True
+        return IOPS_OT_OpenAssetInCurrentBlender.poll(context)
 
     def draw(self, context):
         layout = self.layout
         pie = layout.menu_pie()
 
         if context.area.type == "VIEW_3D":
+            if not context.active_object:
+                draw_open_asset_in_pie_if_poll(pie, context)
+                return
             # Open Linked Library Blend
             if (
                 context.object.type == "EMPTY"
@@ -105,12 +306,32 @@ class IOPS_MT_Pie_Edit(Menu):
                 flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
                 flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
 
+                data = getattr(context.object, "data", None)
+                if context.object.empty_display_type == "IMAGE" and isinstance(
+                    data, bpy.types.Image
+                ):
+                    col.separator()
+                    row = col.row(align=True)
+                    row.operator(
+                        "iops.reload_empty_reference_image",
+                        text="Reload Image",
+                        icon="FILE_REFRESH",
+                    )
+                    row.operator("object.duplicate_move", text="Duplicate")
+                    o = row.operator("object.origin_set", text="Origin")
+                    o.type = "ORIGIN_GEOMETRY"
+                    o.center = "MEDIAN"
+
                 # 2 - BOTTOM
                 op = pie.operator("object.duplicates_make_real", text="Make Instances Real")
                 op.use_hierarchy = True
 
                 # 8 - TOP
-                op = pie.operator("machin3.assemble_instance_collection", text="Expand Collection to Scene")
+                pie.operator(
+                    "iops.expand_instance_collection",
+                    text="Expand Collection to Scene",
+                    icon="OUTLINER_OB_GROUP_INSTANCE",
+                )
 
                 # 7 - TOP-LEFT
                 if context.object.instance_collection.library:
@@ -122,7 +343,7 @@ class IOPS_MT_Pie_Edit(Menu):
                     library = context.object.instance_collection.library.name
 
                     op = pie.operator(
-                        "machin3.open_library_blend",
+                        "iops.open_asset_in_new_blender",
                         text=f"Open {os.path.basename(blendpath)}",
                     )
                     op.blendpath = blendpath
@@ -167,6 +388,22 @@ class IOPS_MT_Pie_Edit(Menu):
                 flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
                 flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
                 flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
+
+                data = getattr(context.object, "data", None)
+                if context.object.empty_display_type == "IMAGE" and isinstance(
+                    data, bpy.types.Image
+                ):
+                    col.separator()
+                    row = col.row(align=True)
+                    row.operator(
+                        "iops.reload_empty_reference_image",
+                        text="Reload Image",
+                        icon="FILE_REFRESH",
+                    )
+                    row.operator("object.duplicate_move", text="Duplicate")
+                    o = row.operator("object.origin_set", text="Origin")
+                    o.type = "ORIGIN_GEOMETRY"
+                    o.center = "MEDIAN"
                 
                 # 7 - TOP-LEFT
                 # 9 - TOP-RIGHT
@@ -175,61 +412,15 @@ class IOPS_MT_Pie_Edit(Menu):
                 # 2 - BOTTOM
                 # 8 - TOP
 
-            # Curve
-            elif context.object.type == "CURVE":
-                # 4 - LEFT
-                pie.separator()
-                # 6 - RIGHT
-                pie.separator()
-                # 2 - BOTTOM
-                pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
-                # 8 - TOP
-                pie.operator("iops.function_f1", text="Edit", icon="CURVE_DATA")
-
             else:
-                # 4 - LEFT
-                pie.operator(
-                    "iops.function_f1",
-                    text=get_text_icon(context, "f1")[0],
-                    icon=get_text_icon(context, "f1")[1],
-                )
-                # 6 - RIGHT
-                pie.operator(
-                    "iops.function_f3",
-                    text=get_text_icon(context, "f3")[0],
-                    icon=get_text_icon(context, "f3")[1],
-                )
-                # 2 - BOTTOM
-                pie.operator(
-                    "iops.function_esc",
-                    text=get_text_icon(context, "esc")[0],
-                    icon=get_text_icon(context, "esc")[1],
-                )
-                # 8 - TOP
-                pie.operator(
-                    "iops.function_f2",
-                    text=get_text_icon(context, "f2")[0],
-                    icon=get_text_icon(context, "f2")[1],
-                )
+                draw_edit_pie_cardinals(pie, context)
 
-                # 7 - TOP - LEFT
-                # pie.separator()
-                # 9 - TOP - RIGHT
-                # pie.separator()
-                # 1 - BOTTOM - LEFT
-                # pie.separator()
-                # 3 - BOTTOM - RIGHT
-                # pie.separator()
-                # Additional items underneath
-                box = pie.split()
-                column = box.column()
-                column.scale_y = 1.5
-                column.scale_x = 1.5
-
-                row = column.row(align=True)
-
+            draw_open_asset_in_pie_if_poll(pie, context)
 
         elif context.area.type == "IMAGE_EDITOR":
+            if not context.active_object:
+                draw_open_asset_in_pie_if_poll(pie, context)
+                return
             if context.tool_settings.use_uv_select_sync:
                 # 4 - LEFT
                 pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
@@ -254,8 +445,7 @@ class IOPS_MT_Pie_Edit(Menu):
                 # 9 - TOP - RIGHT
                 pie.operator("iops.function_f4", text="Island", icon="UV_ISLANDSEL")
 
-
-
+            draw_open_asset_in_pie_if_poll(pie, context)
 
 
 class IOPS_OT_Set_Empty_Size(bpy.types.Operator):
@@ -352,6 +542,27 @@ class IOPS_OT_Copy_Empty_Size_From_Active(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IOPS_OT_ReloadEmptyReferenceImage(bpy.types.Operator):
+    """Reload the image datablock used by a reference image empty."""
+
+    bl_idname = "iops.reload_empty_reference_image"
+    bl_label = "Reload Reference Image"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        if not obj or obj.type != "EMPTY" or obj.empty_display_type != "IMAGE":
+            return False
+        data = getattr(obj, "data", None)
+        return bool(data and isinstance(data, bpy.types.Image))
+
+    def execute(self, context):
+        img = context.object.data
+        img.reload()
+        self.report({"INFO"}, "Reloaded image '%s'" % img.name)
+        return {"FINISHED"}
+
+
 class IOPS_OT_Reload_Instance_Library(bpy.types.Operator):
     """Reload the linked libraries of selected instance collections"""
     bl_idname = "iops.reload_instance_library"
@@ -397,9 +608,11 @@ class IOPS_OT_Call_Pie_Edit(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
-        return (
-            context.area.type in {"VIEW_3D", "IMAGE_EDITOR"} and context.active_object
-        )
+        if context.area.type not in {"VIEW_3D", "IMAGE_EDITOR"}:
+            return False
+        if context.active_object:
+            return True
+        return IOPS_OT_OpenAssetInCurrentBlender.poll(context)
 
     def execute(self, context):
         bpy.ops.wm.call_menu_pie(name="IOPS_MT_Pie_Edit")

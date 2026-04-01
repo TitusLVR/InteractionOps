@@ -126,16 +126,21 @@ class IOPS_Dict:
                         "NONE": lambda: object_mode_switch("EDIT"),
                     },
                     "F2": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F3": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
                     },
                     "F4": {
                         "NONE": lambda: bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN"),
                     },
                     "F5": {
                         "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
                     },
                 },
                 "EDIT": {
@@ -150,6 +155,70 @@ class IOPS_Dict:
                     },
                     "F4": {
                         "NONE": lambda: cursor_origin_selected(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                },
+            },
+            "CURVES": {
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
+                },
+                "EDIT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.curves.subdivide(number_cuts=1),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.curves.cyclic_toggle(),
+                    },
+                    "F4": {
+                        "NONE": lambda: cursor_origin_selected(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                },
+                "SCULPT_CURVES": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.curves.sculptmode_toggle(),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
                     },
                     "F5": {
                         "NONE": lambda: no_operator(),
@@ -177,17 +246,49 @@ class IOPS_Dict:
                 },
             },
             "META": {
-                "F1": {
-                    "NONE": lambda: object_mode_switch("EDIT"),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
-                "F2": {
-                    "NONE": lambda: object_mode_switch("EDIT"),
-                },
-                "F3": {
-                    "NONE": lambda: object_mode_switch("EDIT"),
-                },
-                "ESC": {
-                    "NONE": lambda: object_mode_switch("OBJECT"),
+                "EDIT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
             },
             "FONT": {
@@ -195,51 +296,153 @@ class IOPS_Dict:
                     "F1": {
                         "NONE": lambda: object_mode_switch("EDIT"),
                     },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.convert(target="MESH"),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
                 "EDIT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
                     "ESC": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                 },
             },
             "ARMATURE": {
-                "F1": {
-                    "NONE": lambda: object_mode_switch("EDIT"),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("POSE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.parent_set(type="BONE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
-                "F2": {
-                    "NONE": lambda: object_mode_switch("POSE"),
+                "EDIT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("POSE"),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.parent_set(type="BONE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
-                "F3": {
-                    "NONE": lambda: bpy.ops.object.parent_set(type="BONE"),
-                },
-                "F4": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F5": {
-                    "NONE": lambda: no_operator(),
-                },
-                "ESC": {
-                    "NONE": lambda: object_mode_switch("OBJECT"),
+                "POSE": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.parent_set(type="BONE"),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
             },
             "LATTICE": {
-                "F1": {
-                    "NONE": lambda: object_mode_switch("EDIT"),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
-                "F2": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F3": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F4": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F5": {
-                    "NONE": lambda: no_operator(),
-                },
-                "ESC": {
-                    "NONE": lambda: object_mode_switch("OBJECT"),
+                "EDIT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
                 },
             },
             "EMPTY": {
@@ -342,37 +545,49 @@ class IOPS_Dict:
                 },
             },
             "CAMERA": {
-                "F1": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F2": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F3": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F4": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F5": {
-                    "NONE": lambda: no_operator(),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: bpy.ops.view3d.object_as_camera(),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.view3d.view_camera(),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.view3d.camera_to_view(),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.camera_to_view_selected(),
+                    },
                 },
             },
             "LIGHT": {
-                "F1": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F2": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F3": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F4": {
-                    "NONE": lambda: cursor_origin_mesh(),
-                },
-                "F5": {
-                    "NONE": lambda: no_operator(),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.view3d.snap_cursor_to_active(),
+                    },
+                    "F4": {
+                        "NONE": lambda: cursor_origin_mesh(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
             },
             "SPEAKER": {
@@ -393,20 +608,27 @@ class IOPS_Dict:
                 },
             },
             "LIGHT_PROBE": {
-                "F1": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F2": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F3": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F4": {
-                    "NONE": lambda: no_operator(),
-                },
-                "F5": {
-                    "NONE": lambda: no_operator(),
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: bpy.ops.object.duplicate_move(),
+                    },
+                    "F2": {
+                        "NONE": lambda: bpy.ops.object.origin_set(
+                            type="ORIGIN_GEOMETRY", center="MEDIAN"
+                        ),
+                    },
+                    "F3": {
+                        "NONE": lambda: bpy.ops.view3d.snap_cursor_to_active(),
+                    },
+                    "F4": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "F5": {
+                        "NONE": lambda: no_operator(),
+                    },
+                    "ESC": {
+                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                    },
                 },
             },
         },

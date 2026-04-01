@@ -128,14 +128,16 @@ from .ui.iops_pie_split import (
 )
 
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
+from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 from .ui.iops_pie_edit import (
-    IOPS_MT_Pie_Edit, 
-    IOPS_OT_Call_Pie_Edit, 
+    IOPS_MT_Pie_Edit,
+    IOPS_OT_Call_Pie_Edit,
     IOPS_MT_Pie_Edit_Modes,
     IOPS_OT_Set_Empty_Size,
     IOPS_OT_Set_Empty_Display,
     IOPS_OT_Copy_Empty_Size_From_Active,
-    IOPS_OT_Reload_Instance_Library
+    IOPS_OT_ReloadEmptyReferenceImage,
+    IOPS_OT_Reload_Instance_Library,
 )
 from .operators.z_ops import (
     Z_OT_GrowLoop,
@@ -213,9 +215,9 @@ from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
+# from .operators.mesh_straight_skeleton_bevel import IOPS_OT_StraightSkeletonBevel  # WIP
 
-# Open asset in current Blender
-from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 
 # Asset Management
 from .operators.assets_management import (
@@ -231,6 +233,7 @@ from .operators.assets_management import (
     IOPS_OT_SelectInAssetBrowser,
     IOPS_OT_ClearAssetBrowserFilter,
     IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_ExpandInstanceCollection,
     IOPS_OT_Call_Pie_Assets,
     register_pool_menus,
     unregister_pool_menus,
@@ -328,7 +331,9 @@ classes = (
     IOPS_OT_Set_Empty_Size,
     IOPS_OT_Set_Empty_Display,
     IOPS_OT_Copy_Empty_Size_From_Active,
+    IOPS_OT_ReloadEmptyReferenceImage,
     IOPS_OT_Reload_Instance_Library,
+    IOPS_OT_OpenAssetInNewBlender,
     IOPS_OT_Split_Area_Pie_1,
     IOPS_OT_Split_Area_Pie_2,
     IOPS_OT_Split_Area_Pie_3,
@@ -429,9 +434,11 @@ classes = (
     IOPS_OT_SelectInAssetBrowser,
     IOPS_OT_ClearAssetBrowserFilter,
     IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_ExpandInstanceCollection,
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    # IOPS_OT_StraightSkeletonBevel,  # WIP
     IOPS_MaterialOverrideSettings,
     IOPS_OT_Material_Override_Clear_Rendering_Flag,
     IOPS_OT_Material_Override_Refresh_Previews,

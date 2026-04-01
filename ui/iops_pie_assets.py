@@ -1,6 +1,5 @@
 import os
 
-import bpy
 from bpy.types import Menu
 
 from ..operators.assets_management import (
@@ -8,6 +7,7 @@ from ..operators.assets_management import (
     _build_tree,
     _assign_pool_ids,
 )
+from ..operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 from ..utils.assets import get_catalog_source_by_path
 
 
@@ -214,3 +214,11 @@ class IOPS_MT_Pie_Assets(Menu):
             text="Refresh",
             icon="FILE_REFRESH",
         )
+
+        if IOPS_OT_OpenAssetInCurrentBlender.poll(context):
+            col.separator()
+            col.operator(
+                IOPS_OT_OpenAssetInCurrentBlender.bl_idname,
+                text=IOPS_OT_OpenAssetInCurrentBlender.bl_label,
+                icon="BLENDER",
+            )
