@@ -26,6 +26,15 @@ RAYCAST_OFFSET_DISTANCE = 0.0001
 EPSILON = 1e-6
 FACE_SET_MIN = 1
 FACE_SET_MAX = 999
+DEFAULT_V_SNAP_DISTANCE_CM = 10.0
+
+NUMERIC_KEYS = {
+    'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
+    'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
+    'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3',
+    'NUMPAD_4': '4', 'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7',
+    'NUMPAD_8': '8', 'NUMPAD_9': '9',
+}
 
 
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
@@ -69,6 +78,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     # Fill cut system - bisect at every snap position along highlighted edge
     fill_cut_mode = False
     fill_cut_preview_lines = []
+
+    # V-snap: snap points at fixed distance from edge endpoints
+    v_snap_active = False
+    v_snap_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
+    v_snap_input_string = ""
+    v_snap_points = []
 
     # Distance text system
     show_distance_info = True  # Toggle for showing distance info (I key)
@@ -218,10 +233,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         preview_mode = self.cut_preview_mode
         distance_status = "ON" if self.show_distance_info else "OFF"
         fill_cut_status = "ON" if self.fill_cut_mode else "OFF"
+        if self.v_snap_active:
+            scale, suffix = self._bu_to_display_units(context)
+            v_display = self.v_snap_distance_bu * scale
+            v_snap_info = f"ON:{self._fmt(v_display)}{suffix}"
+        else:
+            v_snap_info = "OFF"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] V-Snap({v_snap_info}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -415,6 +436,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Handle timer events
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
+
+        # V-snap numeric input: intercept keys when v-snap input is active
+        if self.v_snap_active and event.value == 'PRESS':
+            if self._handle_v_snap_input(context, event):
+                return {'RUNNING_MODAL'}
 
         # Handle Ctrl+Wheel for edge subdivision control
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and not event.shift:
@@ -653,6 +679,23 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.calculate_fill_cut_preview(context)
             else:
                 self.fill_cut_preview_lines = []
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Toggle V-snap distance mode
+        elif event.type == 'V' and event.value == 'PRESS' and not event.shift and not event.ctrl:
+            self.v_snap_active = not self.v_snap_active
+            if self.v_snap_active:
+                scale, _ = self._bu_to_display_units(context)
+                display_val = self.v_snap_distance_bu * scale
+                self.v_snap_input_string = self._fmt(display_val)
+                self.calculate_v_snap_points()
+            else:
+                self.v_snap_points = []
+                self.v_snap_input_string = ""
+            if self.hit_obj and self.hit_face_index != -1:
+                self.update_snapping(context, context.scene.cursor.location)
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -1127,12 +1170,126 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             face = bm.faces[self.hit_face_index]
             self.snap_points = self.calculate_snap_points(face)
+
+            if self.v_snap_active:
+                self.calculate_v_snap_points()
+                self.snap_points.extend(self.v_snap_points)
+
             self.closest_snap_point = self.find_closest_snap_point(context, mouse_coord, mouse_pos_world)
 
         except (IndexError, AttributeError, ValueError):
             self.snap_points = []
             self.closest_snap_point = None
-    
+
+    # V-snap methods
+
+    def _handle_v_snap_input(self, context, event):
+        """Handle numeric input for v-snap distance. Returns True if event was consumed."""
+        if event.type in NUMERIC_KEYS:
+            self.v_snap_input_string += NUMERIC_KEYS[event.type]
+        elif event.type in {'PERIOD', 'NUMPAD_PERIOD'}:
+            if '.' not in self.v_snap_input_string:
+                self.v_snap_input_string += '.'
+        elif event.type == 'BACK_SPACE':
+            self.v_snap_input_string = self.v_snap_input_string[:-1]
+        elif event.type in {'RET', 'NUMPAD_ENTER'}:
+            return True
+        else:
+            return False
+
+        self._update_v_snap_distance(context)
+        self.calculate_v_snap_points()
+        if self.hit_obj and self.hit_face_index != -1:
+            self.update_snapping(context, context.scene.cursor.location)
+        self.update_status_bar(context)
+        context.area.tag_redraw()
+        return True
+
+    def _update_v_snap_distance(self, context):
+        """Convert the user's typed display-unit value to internal BU distance."""
+        if self.v_snap_input_string and self.v_snap_input_string != '.':
+            try:
+                display_val = float(self.v_snap_input_string)
+                scale, _ = self._bu_to_display_units(context)
+                if scale > EPSILON:
+                    self.v_snap_distance_bu = display_val / scale
+            except ValueError:
+                pass
+
+    def calculate_v_snap_points(self):
+        """Calculate snap points at v_snap_distance from each endpoint of the highlighted edge."""
+        self.v_snap_points = []
+        if not self.v_snap_active:
+            return
+        if not self.hit_obj or not self.face_edges or self.edge_index >= len(self.face_edges):
+            return
+
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return
+
+            mesh = self.hit_obj.data
+            bm = bmesh.from_edit_mesh(mesh)
+            bm.edges.ensure_lookup_table()
+
+            edge_idx = self.face_edges[self.edge_index]
+            if edge_idx >= len(bm.edges):
+                return
+
+            edge = bm.edges[edge_idx]
+            v1, v2 = edge.verts
+
+            v1_world = self.hit_obj.matrix_world @ v1.co
+            v2_world = self.hit_obj.matrix_world @ v2.co
+            edge_world_length = (v2_world - v1_world).length
+
+            if edge_world_length < EPSILON or self.v_snap_distance_bu <= 0:
+                return
+            if self.v_snap_distance_bu >= edge_world_length:
+                return
+
+            t = self.v_snap_distance_bu / edge_world_length
+
+            self.v_snap_points.append(('v_snap', v1.co.lerp(v2.co, t)))
+            if abs(t - (1.0 - t)) > EPSILON:
+                self.v_snap_points.append(('v_snap', v1.co.lerp(v2.co, 1.0 - t)))
+
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            pass
+
+    def draw_v_snap_input_text(self, context):
+        """Draw the V-snap distance input text near the mouse cursor."""
+        if not self.v_snap_active:
+            return
+
+        try:
+            _, suffix = self._bu_to_display_units(context)
+            input_str = self.v_snap_input_string if self.v_snap_input_string else "0"
+            v_text = f"V-Snap: {input_str}{suffix}"
+
+            mouse_x, mouse_y = self._current_mouse_coord
+            text_x = mouse_x + self.distance_text_offset_x
+            text_y = mouse_y + self.distance_text_offset_y - (self.distance_text_size + 6)
+
+            region = context.region
+            font_id = 0
+            blf.size(font_id, self.distance_text_size)
+            text_width, text_height = blf.dimensions(font_id, v_text)
+
+            text_x = min(max(text_x, 10), region.width - text_width - 10)
+            text_y = min(max(text_y, 10), region.height - text_height - 10)
+
+            blf.enable(font_id, blf.SHADOW)
+            blf.shadow(font_id, 5, 0, 0, 0, 1)
+            blf.shadow_offset(font_id, 1, -1)
+
+            blf.color(font_id, 0.4, 1.0, 1.0, 1.0)
+            blf.position(font_id, text_x, text_y, 0)
+            blf.draw(font_id, v_text)
+
+        except (AttributeError, KeyError, ValueError, TypeError):
+            pass
+
     # Part 9: Face Processing Methods
 
     def get_connected_faces_by_depth(self, bm, start_face_index, max_depth=5):
@@ -1388,13 +1545,23 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             v1, v2 = edge.verts
 
             positions = []
-            num_cuts = max(1, self.edge_subdivisions)
+
+            # Subdivision cuts: skip the fallback midpoint when V-snap provides positions
+            if self.v_snap_active and self.v_snap_points:
+                num_cuts = self.edge_subdivisions
+            else:
+                num_cuts = max(1, self.edge_subdivisions)
 
             for i in range(1, num_cuts + 1):
                 t = i / (num_cuts + 1)
                 point_local = v1.co.lerp(v2.co, t)
                 point_world = self.hit_obj.matrix_world @ point_local
                 positions.append(point_world)
+
+            if self.v_snap_active and self.v_snap_points:
+                for _, pt_local in self.v_snap_points:
+                    pt_world = self.hit_obj.matrix_world @ pt_local
+                    positions.append(pt_world)
 
             return positions
 
@@ -1680,6 +1847,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             ("Snap Points Subdivide", "Ctrl+Mouse Wheel"),
             ("Hold Points", "D"),
             ("Fill Cut (edge subdivisions)", "F"),
+            ("V-Snap (distance from ends)", "V + type value"),
             ("Select Face", "Right Mouse Button"),
             ("Select Coplanar Faces", "Shift+Right Mouse Button"),
             ("Rotate Z-axis", "Alt+Mouse Wheel"),
@@ -1907,6 +2075,21 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 
+            # Draw V-snap points as distinctive markers
+            if self.v_snap_active and self.v_snap_points and self.hit_obj:
+                try:
+                    v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.v_snap_points]
+                    if v_coords:
+                        v_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+                        v_shader.bind()
+                        v_shader.uniform_float("color", (1.0, 0.3, 0.8, 1.0))
+                        gpu.state.point_size_set(10.0)
+                        gpu.state.depth_test_set('ALWAYS')
+                        v_batch = batch_for_shader(v_shader, 'POINTS', {"pos": v_coords})
+                        v_batch.draw(v_shader)
+                except (IndexError, AttributeError, ReferenceError, ValueError):
+                    pass
+
             # Reset GPU state
             gpu.state.point_size_set(1.0)
             gpu.state.line_width_set(1.0)
@@ -2060,6 +2243,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def draw_distance_text_callback(self, context):
         if self.show_distance_info:
             self.draw_mouse_distance_text(context)
+        if self.v_snap_active:
+            self.draw_v_snap_input_text(context)
 
     def mouse_raycast(self, context, event):
         """Perform raycast from mouse position - filter to selected objects only"""
@@ -2282,6 +2467,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.cut_preview_lines = []
         self.fill_cut_mode = False
         self.fill_cut_preview_lines = []
+
+        self.v_snap_active = False
+        self.v_snap_distance_bu = DEFAULT_V_SNAP_DISTANCE_CM / 100.0  # 10 cm -> 0.1 BU
+        self.v_snap_input_string = ""
+        self.v_snap_points = []
 
         self.show_distance_info = True
         # Get text settings from preferences
