@@ -31,7 +31,7 @@ FACE_SET_MAX = 999
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
     bl_label = "Cursor Bisect"
-    bl_description = "Bisect mesh. S-snap, D-hold points, Z-deselect all, Ctrl+Z-undo, A-lock orientation, W-world align, P-toggle preview mode, I-toggle distance info"
+    bl_description = "Bisect mesh. S-snap, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, W-world align, P-toggle preview mode, I-toggle distance info"
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
@@ -66,8 +66,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     cut_preview_mode = 'LINES'  # 'LINES' or 'PLANE' - default to lines
     cut_preview_lines = []  # Store cut preview line segments
 
+    # Fill cut system - bisect at every snap position along highlighted edge
+    fill_cut_mode = False
+    fill_cut_preview_lines = []
+
     # Distance text system
-    show_distance_info = False  # Toggle for showing distance info (I key)
+    show_distance_info = True  # Toggle for showing distance info (I key)
     distance_text_offset_x = 20  # Offset from mouse cursor in pixels
     distance_text_offset_y = -30  # Offset from mouse cursor in pixels
     distance_text_size = 16  # Text size
@@ -213,23 +217,55 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         lock_status = " (LOCKED)" if self.lock_orientation else ""
         preview_mode = self.cut_preview_mode
         distance_status = "ON" if self.show_distance_info else "OFF"
+        fill_cut_status = "ON" if self.fill_cut_mode else "OFF"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
         # Set workspace status text
         context.workspace.status_text_set(status_text)
 
+    @staticmethod
+    def _bu_to_display_units(context):
+        """Get multiplier and suffix to convert Blender internal units (meters) to scene display units.
+        Returns (scale, suffix). Usage: display_value = internal_value * scale"""
+        unit_settings = context.scene.unit_settings
+        s = unit_settings.scale_length
+
+        if unit_settings.system == 'METRIC':
+            table = {
+                'KILOMETERS':  (s * 0.001,     "km"),
+                'METERS':      (s * 1.0,       "m"),
+                'CENTIMETERS': (s * 100.0,     "cm"),
+                'MILLIMETERS': (s * 1000.0,    "mm"),
+                'MICROMETERS': (s * 1000000.0, "µm"),
+            }
+            return table.get(unit_settings.length_unit, (s * 100.0, "cm"))
+        elif unit_settings.system == 'IMPERIAL':
+            table = {
+                'MILES':  (s * 0.000621371, "mi"),
+                'FEET':   (s * 3.28084,     "ft"),
+                'INCHES': (s * 39.3701,     "in"),
+                'THOU':   (s * 39370.1,     "thou"),
+            }
+            return table.get(unit_settings.length_unit, (s * 39.3701, "in"))
+        else:
+            return (s * 1.0, "BU")
+
+    @staticmethod
+    def _fmt(value):
+        """Format a distance value: strip unnecessary trailing zeros"""
+        return f"{value:.2f}".rstrip('0').rstrip('.')
+
     def get_edge_split_distances(self, context):
-        """Calculate the split distances for the current edge"""
+        """Calculate the edge length and split distance (cursor to nearest vertex)"""
         if not (self.hit_obj and self.face_edges and 0 <= self.edge_index < len(self.face_edges)):
             return None
 
         try:
-            # Check if object is still in edit mode
             if self.hit_obj.mode != 'EDIT':
                 return None
 
@@ -244,58 +280,25 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             edge = bm.edges[edge_idx]
             v1, v2 = edge.verts
 
-            # Transform edge vertices to world space
             v1_world = self.hit_obj.matrix_world @ v1.co
             v2_world = self.hit_obj.matrix_world @ v2.co
             total_edge_length = (v2_world - v1_world).length
 
-            # Get cursor position in world space
             cursor_pos = context.scene.cursor.location
-
-            # Project cursor position onto the edge line
             edge_vec = v2_world - v1_world
             cursor_vec = cursor_pos - v1_world
 
             if edge_vec.length > 0:
-                # Calculate projection parameter (0 to 1 along edge)
                 t = max(0, min(1, cursor_vec.dot(edge_vec) / edge_vec.length_squared))
-
-                # Calculate distances
                 dist1 = total_edge_length * t
                 dist2 = total_edge_length * (1.0 - t)
 
-                # Convert to display units
-                unit_settings = context.scene.unit_settings
-                if unit_settings.system == 'METRIC':
-                    if unit_settings.length_unit == 'METERS':
-                        unit_scale = 100.0  # Convert to cm
-                        unit_suffix = "cm"
-                    elif unit_settings.length_unit == 'CENTIMETERS':
-                        unit_scale = 1.0
-                        unit_suffix = "cm"
-                    elif unit_settings.length_unit == 'MILLIMETERS':
-                        unit_scale = 0.1  # Convert to cm
-                        unit_suffix = "cm"
-                    else:
-                        unit_scale = 100.0  # Default to cm
-                        unit_suffix = "cm"
-                elif unit_settings.system == 'IMPERIAL':
-                    unit_scale = 39.3701  # Convert to inches
-                    unit_suffix = "in"
-                else:
-                    unit_scale = 100.0  # Default to cm
-                    unit_suffix = "cm"
-
-                # Apply unit scaling
-                total_display = total_edge_length * unit_scale
-                dist1_display = dist1 * unit_scale
-                dist2_display = dist2 * unit_scale
+                scale, suffix = self._bu_to_display_units(context)
 
                 return {
-                    'total': total_display,
-                    'dist1': dist1_display,
-                    'dist2': dist2_display,
-                    'unit': unit_suffix
+                    'total': total_edge_length * scale,
+                    'split': min(dist1, dist2) * scale,
+                    'unit': suffix,
                 }
 
         except (IndexError, AttributeError, ValueError):
@@ -424,6 +427,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Update snap points with new subdivision
                 if self.hit_obj and self.hit_face_index != -1 and not self.hold_snap_points:
                     self.update_snapping(context, context.scene.cursor.location)
+
+                if self.fill_cut_mode:
+                    self.calculate_fill_cut_preview(context)
 
                 self.update_status_bar(context)
                 context.area.tag_redraw()
@@ -640,9 +646,23 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Execute bisect
+        # Toggle fill cut mode
+        elif event.type == 'F' and event.value == 'PRESS' and not event.shift and not event.ctrl:
+            self.fill_cut_mode = not self.fill_cut_mode
+            if self.fill_cut_mode:
+                self.calculate_fill_cut_preview(context)
+            else:
+                self.fill_cut_preview_lines = []
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Execute bisect (or fill cut)
         elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            self.execute(context)
+            if self.fill_cut_mode:
+                self.execute_fill_cut(context)
+            else:
+                self.execute(context)
             return {'RUNNING_MODAL'}
 
         # Toggle snapping
@@ -1344,6 +1364,296 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             except (IndexError, AttributeError, ValueError):
                 continue
 
+        if self.fill_cut_mode:
+            self.calculate_fill_cut_preview(context)
+
+    def get_fill_cut_positions(self):
+        """Get world-space cut positions along the highlighted edge based on subdivision count"""
+        if not self.hit_obj or not self.face_edges or self.edge_index >= len(self.face_edges):
+            return []
+
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return []
+
+            mesh = self.hit_obj.data
+            bm = bmesh.from_edit_mesh(mesh)
+            bm.edges.ensure_lookup_table()
+
+            edge_idx = self.face_edges[self.edge_index]
+            if edge_idx >= len(bm.edges):
+                return []
+
+            edge = bm.edges[edge_idx]
+            v1, v2 = edge.verts
+
+            positions = []
+            num_cuts = max(1, self.edge_subdivisions)
+
+            for i in range(1, num_cuts + 1):
+                t = i / (num_cuts + 1)
+                point_local = v1.co.lerp(v2.co, t)
+                point_world = self.hit_obj.matrix_world @ point_local
+                positions.append(point_world)
+
+            return positions
+
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return []
+
+    def calculate_fill_cut_preview(self, context):
+        """Calculate preview lines for fill cut at each position along the highlighted edge"""
+        self.fill_cut_preview_lines = []
+
+        if not self.fill_cut_mode:
+            return
+
+        positions = self.get_fill_cut_positions()
+        if not positions:
+            return
+
+        cursor = context.scene.cursor
+        rotation = self.locked_rotation if self.lock_orientation else cursor.matrix.to_quaternion()
+
+        axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
+        if not rotation:
+            return
+        axis_world = rotation @ axis
+
+        prefs = self.get_preferences(context)
+        if prefs and hasattr(prefs, 'cursor_bisect_face_depth'):
+            face_depth = prefs.cursor_bisect_face_depth
+        else:
+            face_depth = DEFAULT_FACE_DEPTH
+
+        line_elevation = DEFAULT_LINE_ELEVATION
+
+        edit_objects = [obj for obj in context.selected_objects
+                       if obj.type == 'MESH' and obj.mode == 'EDIT']
+
+        for cut_pos in positions:
+            for obj in edit_objects:
+                try:
+                    if obj.mode != 'EDIT':
+                        continue
+
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+
+                    obj_matrix = obj.matrix_world
+                    plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
+                    plane_no.normalize()
+                    plane_co = obj_matrix.inverted() @ cut_pos
+
+                    faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
+                    if not faces_to_process:
+                        continue
+
+                    face_intersections = {}
+                    processed_edges = set()
+
+                    for face_idx in faces_to_process:
+                        if face_idx >= len(bm.faces):
+                            continue
+                        face = bm.faces[face_idx]
+                        if not self.is_face_visible_and_valid(face):
+                            continue
+
+                        for edge in face.edges:
+                            if edge.index in processed_edges:
+                                continue
+                            processed_edges.add(edge.index)
+
+                            edge_faces = [f.index for f in edge.link_faces
+                                         if f.index in faces_to_process
+                                         and self.is_face_visible_and_valid(f)]
+                            if not edge_faces:
+                                continue
+
+                            v1, v2 = edge.verts
+                            d1 = (v1.co - plane_co).dot(plane_no)
+                            d2 = (v2.co - plane_co).dot(plane_no)
+
+                            if (d1 * d2 < 0) or (abs(d1) < EPSILON) or (abs(d2) < EPSILON):
+                                if abs(d1 - d2) > EPSILON:
+                                    t = d1 / (d1 - d2)
+                                    intersection = v1.co.lerp(v2.co, t)
+
+                                    face_normal = None
+                                    for fi in edge_faces:
+                                        if fi < len(bm.faces):
+                                            f = bm.faces[fi]
+                                            if self.is_face_visible_and_valid(f):
+                                                face_normal = f.normal.normalized()
+                                                break
+
+                                    if face_normal is None:
+                                        face_normal = plane_no
+
+                                    elevated = intersection + face_normal * line_elevation
+                                    world_pt = obj_matrix @ elevated
+
+                                    for fi in edge_faces:
+                                        if fi not in face_intersections:
+                                            face_intersections[fi] = []
+                                        face_intersections[fi].append(world_pt)
+
+                    for face_idx, intersections in face_intersections.items():
+                        if len(intersections) >= 2:
+                            intersections.sort(key=lambda p: (p.x, p.y, p.z))
+                            for i in range(len(intersections) - 1):
+                                self.fill_cut_preview_lines.append(
+                                    (intersections[i], intersections[i + 1]))
+
+                            if len(intersections) > 2:
+                                dist_to_close = (intersections[-1] - intersections[0]).length
+                                avg_edge_length = sum(
+                                    (intersections[i] - intersections[i - 1]).length
+                                    for i in range(1, len(intersections))
+                                ) / (len(intersections) - 1)
+                                if dist_to_close <= avg_edge_length * 2:
+                                    self.fill_cut_preview_lines.append(
+                                        (intersections[-1], intersections[0]))
+
+                except (IndexError, AttributeError, ValueError):
+                    continue
+
+    def execute_fill_cut(self, context):
+        """Execute bisect at each snap position along the highlighted edge"""
+        positions = self.get_fill_cut_positions()
+        if not positions:
+            self.report({'WARNING'}, "No fill cut positions available")
+            return {'CANCELLED'}
+
+        bpy.ops.ed.undo_push(message="Fill Cut Bisect")
+
+        edit_objects = [obj for obj in context.selected_objects
+                       if obj.type == 'MESH' and obj.mode == 'EDIT']
+
+        if not edit_objects:
+            self.report({'ERROR'}, "No mesh objects in Edit Mode selected.")
+            return {'CANCELLED'}
+
+        cursor = context.scene.cursor
+        rotation = self.locked_rotation if self.lock_orientation else cursor.matrix.to_quaternion()
+
+        axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
+        axis_world = rotation @ axis
+
+        total_cuts = 0
+
+        for obj in edit_objects:
+            try:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                bm.verts.ensure_lookup_table()
+
+                if "temp_selection" in bm.faces.layers.int:
+                    old_layer = bm.faces.layers.int["temp_selection"]
+                    bm.faces.layers.int.remove(old_layer)
+
+                temp_layer = bm.faces.layers.int.new("temp_selection")
+                selected_faces = [f for f in bm.faces
+                                 if f.select and self.is_face_visible_and_valid(f)]
+
+                for face in bm.faces:
+                    face[temp_layer] = 0
+
+                if selected_faces:
+                    for i, face in enumerate(selected_faces):
+                        face_set_id = ((i % (FACE_SET_MAX - FACE_SET_MIN + 1)) + FACE_SET_MIN)
+                        face[temp_layer] = face_set_id
+
+                for cut_pos in positions:
+                    obj_matrix = obj.matrix_world
+                    plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
+                    plane_no.normalize()
+                    plane_co = obj_matrix.inverted() @ cut_pos
+
+                    tracked_faces = [f for f in bm.faces
+                                    if self.is_face_visible_and_valid(f)
+                                    and FACE_SET_MIN <= f[temp_layer] <= FACE_SET_MAX]
+
+                    if tracked_faces:
+                        geom = list({v for f in tracked_faces for v in f.verts} |
+                                   {e for f in tracked_faces for e in f.edges} |
+                                   set(tracked_faces))
+                    else:
+                        visible_faces = [f for f in bm.faces
+                                        if self.is_face_visible_and_valid(f)]
+                        if visible_faces:
+                            geom = list({v for f in visible_faces for v in f.verts} |
+                                       {e for f in visible_faces for e in f.edges} |
+                                       set(visible_faces))
+                        else:
+                            continue
+
+                    result = bmesh.ops.bisect_plane(
+                        bm, geom=geom, plane_co=plane_co, plane_no=plane_no)
+
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+
+                    if 'geom_cut' in result:
+                        for elem in result['geom_cut']:
+                            if isinstance(elem, bmesh.types.BMFace):
+                                if self.is_face_visible_and_valid(elem):
+                                    elem[temp_layer] = FACE_SET_MIN
+
+                    total_cuts += 1
+
+                # Restore selection from face sets
+                for face in bm.faces:
+                    face.select = False
+                for edge in bm.edges:
+                    edge.select = False
+                for vert in bm.verts:
+                    vert.select = False
+
+                for face in bm.faces:
+                    if (self.is_face_visible_and_valid(face)
+                            and FACE_SET_MIN <= face[temp_layer] <= FACE_SET_MAX):
+                        face.select = True
+
+                try:
+                    if temp_layer and temp_layer.is_valid:
+                        bm.faces.layers.int.remove(temp_layer)
+                except (AttributeError, ValueError, ReferenceError):
+                    try:
+                        if "temp_selection" in bm.faces.layers.int:
+                            bm.faces.layers.int.remove(
+                                bm.faces.layers.int["temp_selection"])
+                    except (AttributeError, ValueError, ReferenceError):
+                        pass
+
+                if self.merge_doubles:
+                    prefs = self.get_preferences(context)
+                    if prefs and hasattr(prefs, 'cursor_bisect_merge_distance'):
+                        merge_distance = prefs.cursor_bisect_merge_distance
+                    else:
+                        merge_distance = DEFAULT_MERGE_DISTANCE
+                    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
+
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+
+            except Exception as e:
+                self.report({'WARNING'}, f"Fill cut failed on {obj.name}: {e}")
+                continue
+
+        if total_cuts > 0:
+            self.report({'INFO'},
+                       f"Fill cut: {total_cuts} cuts on {len(edit_objects)} object(s)")
+        else:
+            self.report({'ERROR'}, "Fill cut failed")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
     # Draw Help text
     def draw_iops_text(self, context):
         preferences = context.preferences
@@ -1369,6 +1679,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             ("Snapping", "S"),
             ("Snap Points Subdivide", "Ctrl+Mouse Wheel"),
             ("Hold Points", "D"),
+            ("Fill Cut (edge subdivisions)", "F"),
             ("Select Face", "Right Mouse Button"),
             ("Select Coplanar Faces", "Shift+Right Mouse Button"),
             ("Rotate Z-axis", "Alt+Mouse Wheel"),
@@ -1438,12 +1749,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return
 
         try:
-            # Format the distance text
             total = distance_info['total']
-            dist1 = distance_info['dist1']
-            dist2 = distance_info['dist2']
+            split = distance_info['split']
             unit = distance_info['unit']
-            distance_text = f"Edge: {total:.2f}{unit} | Split: {dist1:.2f}{unit} | {dist2:.2f}{unit}"
+            distance_text = f"Edge: {self._fmt(total)}{unit} | Split: {self._fmt(split)}{unit}"
 
             # Get current mouse position and offsets
             mouse_x, mouse_y = self._current_mouse_coord
@@ -1648,6 +1957,40 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                         preview_batch = batch_for_shader(preview_shader, 'LINES', {"pos": preview_coords})
                         preview_batch.draw(preview_shader)
+
+                        gpu.state.line_width_set(1.0)
+                        gpu.state.depth_test_set('LESS')
+
+                except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
+                    pass
+
+            # Draw fill cut preview lines
+            if self.fill_cut_mode and self.fill_cut_preview_lines:
+                try:
+                    fill_coords = []
+                    for line_start, line_end in self.fill_cut_preview_lines:
+                        fill_coords.extend([line_start, line_end])
+
+                    if fill_coords:
+                        fill_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+                        fill_shader.bind()
+
+                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_color'):
+                            fill_color = prefs.cursor_bisect_fill_cut_color
+                        else:
+                            fill_color = (0.0, 1.0, 0.5, 0.9)
+
+                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_thickness'):
+                            fill_thickness = prefs.cursor_bisect_fill_cut_thickness
+                        else:
+                            fill_thickness = 2.5
+
+                        fill_shader.uniform_float("color", fill_color)
+                        gpu.state.line_width_set(fill_thickness)
+                        gpu.state.depth_test_set('ALWAYS')
+
+                        fill_batch = batch_for_shader(fill_shader, 'LINES', {"pos": fill_coords})
+                        fill_batch.draw(fill_shader)
 
                         gpu.state.line_width_set(1.0)
                         gpu.state.depth_test_set('LESS')
@@ -1937,9 +2280,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.last_face_index = -1
         self.cut_preview_mode = 'LINES'  # Default to line preview
         self.cut_preview_lines = []
+        self.fill_cut_mode = False
+        self.fill_cut_preview_lines = []
 
-        # Initialize distance text system (OFF by default, toggle with I key)
-        self.show_distance_info = False
+        self.show_distance_info = True
         # Get text settings from preferences
         if prefs and hasattr(prefs, 'cursor_bisect_distance_text_size'):
             self.distance_text_size = prefs.cursor_bisect_distance_text_size
