@@ -19,6 +19,7 @@ keys_default = [
     ("iops.mesh_cursor_bisect", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_quick_connect", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_to_tris_to_quads", "F19", "PRESS", False, False, False, False),
+    ("iops.mesh_visual_uv", "U", "PRESS", True, True, False, False),
     # Zaloopok's operators
     ("iops.z_grow_loop", "F19", "PRESS", True, True, True, False),
     ("iops.z_shrink_loop", "F19", "PRESS", True, True, True, False),

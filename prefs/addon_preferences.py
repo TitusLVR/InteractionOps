@@ -609,6 +609,40 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="SHIFT"
     )
 
+    # Visual UV On-Mesh Properties
+    visual_uv_point_size: IntProperty(
+        name="Point size",
+        description="Size of UV corner points drawn on the mesh",
+        default=7,
+        min=2,
+        max=20,
+    )
+
+    visual_uv_edge_width: FloatProperty(
+        name="Edge width",
+        description="Width of UV edges drawn on the mesh",
+        default=2.0,
+        min=0.5,
+        max=5.0,
+    )
+
+    visual_uv_fill_alpha: FloatProperty(
+        name="Fill opacity",
+        description="Opacity of island face fill on the mesh",
+        default=0.10,
+        min=0.0,
+        max=0.5,
+    )
+
+    visual_uv_normal_offset: FloatProperty(
+        name="Normal offset",
+        description="How far to offset the overlay from the mesh surface",
+        default=0.002,
+        min=0.0001,
+        max=0.1,
+        precision=4,
+    )
+
     # Cursor Bisect Drawing Properties
     cursor_bisect_plane_color: FloatVectorProperty(
         name="Plane color",
@@ -1155,6 +1189,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.label(text="Drag Snap:")
             row = col.row(align=True)
             row.prop(self, "drag_snap_line_thickness")
+
+            # Visual UV
+            col = column_main.column(align=False)
+            box = col.box()
+            col = box.column(align=True)
+            col.label(text="Visual UV (on-mesh):")
+            row = col.row(align=True)
+            row.prop(self, "visual_uv_point_size")
+            row.prop(self, "visual_uv_edge_width")
+            row = col.row(align=True)
+            row.prop(self, "visual_uv_fill_alpha")
+            row.prop(self, "visual_uv_normal_offset")
+            col.separator()
 
             # Split Pie preferences
             col = column_main.column(align=False)

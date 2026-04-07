@@ -217,6 +217,7 @@ from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 # from .operators.mesh_straight_skeleton_bevel import IOPS_OT_StraightSkeletonBevel  # WIP
 
+from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 
 # Asset Management
@@ -438,6 +439,7 @@ classes = (
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    IOPS_OT_MeshVisualUV,
     # IOPS_OT_StraightSkeletonBevel,  # WIP
     IOPS_MaterialOverrideSettings,
     IOPS_OT_Material_Override_Clear_Rendering_Flag,

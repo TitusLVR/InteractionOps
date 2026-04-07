@@ -298,8 +298,239 @@ def mesh_selection_convert(type):
         case "FACE":
             bpy.ops.iops.mesh_to_faces()
 
+
+def mesh_object_shade_smooth():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "MESH" or ob.mode != "OBJECT":
+        return
+    bpy.ops.object.shade_smooth()
+
+
+def mesh_edit_select_more():
+    if bpy.context.mode != "EDIT_MESH":
+        return
+    bpy.ops.mesh.select_more()
+
+
 def object_mode_switch(mode):
     bpy.ops.object.mode_set(mode=mode)
+
+
+def curve_family_toggle_cyclic():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type not in {"CURVE", "CURVES"}:
+        return
+    prev = ob.mode
+    if prev != "EDIT":
+        bpy.ops.object.mode_set(mode="EDIT")
+    if ob.type == "CURVE":
+        bpy.ops.curve.cyclic_toggle()
+    else:
+        bpy.ops.curves.cyclic_toggle()
+    if prev != "EDIT":
+        bpy.ops.object.mode_set(mode=prev)
+
+
+def curve_object_switch_direction():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "CURVE":
+        return
+    prev = ob.mode
+    if prev != "EDIT":
+        bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.curve.switch_direction()
+    if prev != "EDIT":
+        bpy.ops.object.mode_set(mode=prev)
+
+
+def curve_family_select_more():
+    ob = bpy.context.object
+    if not ob:
+        return
+    if ob.type == "CURVE":
+        bpy.ops.curve.select_more()
+    elif ob.type == "CURVES":
+        bpy.ops.curves.select_more()
+
+
+def font_object_convert_to_curve():
+    bpy.ops.object.convert(target="CURVE")
+
+
+def font_edit_toggle_bold():
+    if bpy.context.object and bpy.context.object.type == "FONT":
+        try:
+            bpy.ops.font.style_toggle(style="BOLD")
+        except RuntimeError:
+            pass
+
+
+def lattice_flip_u():
+    if bpy.context.object and bpy.context.object.type == "LATTICE":
+        bpy.ops.lattice.flip(axis="U")
+
+
+def meta_bump_resolution(step=0.1):
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "META" or not ob.data:
+        return
+    d = ob.data
+    if "resolution" in d.bl_rna.properties:
+        r = d.resolution
+        d.resolution = float(min(1.0, max(0.05, r + step)))
+
+
+def meta_bump_threshold(delta=0.05):
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "META" or not ob.data:
+        return
+    d = ob.data
+    if "threshold" in d.bl_rna.properties:
+        d.threshold = float(max(0.001, min(5.0, d.threshold + delta)))
+
+
+def light_toggle_shadow():
+    ob = bpy.context.view_layer.objects.active
+    if ob and ob.type == "LIGHT" and ob.data and "use_shadow" in ob.data.bl_rna.properties:
+        ob.data.use_shadow = not ob.data.use_shadow
+
+
+def light_boost_energy():
+    ob = bpy.context.view_layer.objects.active
+    if ob and ob.type == "LIGHT" and ob.data and "energy" in ob.data.bl_rna.properties:
+        ob.data.energy = min(float(ob.data.energy) * 1.5, 1e7)
+
+
+def light_cycle_type():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "LIGHT" or not ob.data:
+        return
+    order = ("POINT", "SUN", "SPOT", "AREA")
+    try:
+        i = order.index(ob.data.type)
+        ob.data.type = order[(i + 1) % len(order)]
+    except ValueError:
+        ob.data.type = "POINT"
+
+
+def light_toggle_specular():
+    ob = bpy.context.view_layer.objects.active
+    if ob and ob.type == "LIGHT" and ob.data and "specular_factor" in ob.data.bl_rna.properties:
+        f = ob.data.specular_factor
+        ob.data.specular_factor = 0.0 if f > 0.01 else 1.0
+    elif ob and ob.type == "LIGHT" and ob.data and "use_specular" in ob.data.bl_rna.properties:
+        ob.data.use_specular = not ob.data.use_specular
+
+
+def camera_toggle_depth_of_field():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "CAMERA" or not ob.data:
+        return
+    dof = ob.data.dof
+    if dof and "use_dof" in dof.bl_rna.properties:
+        dof.use_dof = not dof.use_dof
+
+
+def camera_nudge_lens(delta=5.0):
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "CAMERA" or not ob.data:
+        return
+    if ob.data.type == "PERSP" and "lens" in ob.data.bl_rna.properties:
+        ob.data.lens = float(min(5000.0, max(1.0, ob.data.lens + delta)))
+
+
+def _view3d_context_override():
+    """VIEW_3D window region for temp_override (IOPS invoke often has wrong region)."""
+    ctx = bpy.context
+    if ctx.window:
+        screen = ctx.window.screen
+        for area in screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for region in area.regions:
+                if region.type == "WINDOW":
+                    return {
+                        "window": ctx.window,
+                        "screen": screen,
+                        "area": area,
+                        "region": region,
+                    }
+    for window in ctx.window_manager.windows:
+        screen = window.screen
+        for area in screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for region in area.regions:
+                if region.type == "WINDOW":
+                    return {
+                        "window": window,
+                        "screen": screen,
+                        "area": area,
+                        "region": region,
+                    }
+    return None
+
+
+def _run_view3d_op(op_attr):
+    ovr = _view3d_context_override()
+    if not ovr:
+        return
+    op = getattr(bpy.ops.view3d, op_attr, None)
+    if op is None:
+        return
+    with bpy.context.temp_override(**ovr):
+        try:
+            op()
+        except RuntimeError:
+            pass
+
+
+def camera_object_as_camera():
+    _run_view3d_op("object_as_camera")
+
+
+def camera_view_through():
+    _run_view3d_op("view_camera")
+
+
+def camera_align_to_view():
+    _run_view3d_op("camera_to_view")
+
+
+def probe_boost_influence(factor=1.25):
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "LIGHT_PROBE" or not ob.data:
+        return
+    d = ob.data
+    if "influence_distance" in d.bl_rna.properties:
+        dist = float(d.influence_distance)
+        d.influence_distance = dist * factor if dist > 0 else 1.0
+
+
+def probe_shrink_influence(factor=0.8):
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "LIGHT_PROBE" or not ob.data:
+        return
+    d = ob.data
+    if "influence_distance" in d.bl_rna.properties:
+        d.influence_distance = max(0.01, float(d.influence_distance) * factor)
+
+
+def probe_toggle_clip():
+    ob = bpy.context.view_layer.objects.active
+    if not ob or ob.type != "LIGHT_PROBE" or not ob.data:
+        return
+    d = ob.data
+    if "use_custom_parallax" in d.bl_rna.properties:
+        d.use_custom_parallax = not d.use_custom_parallax
+    elif "show_clip" in d.bl_rna.properties:
+        d.show_clip = not d.show_clip
+
+
+def probe_toggle_viewport_hide():
+    ob = bpy.context.view_layer.objects.active
+    if ob and ob.type == "LIGHT_PROBE":
+        ob.hide_viewport = not ob.hide_viewport
 
 
 def align_to_face():

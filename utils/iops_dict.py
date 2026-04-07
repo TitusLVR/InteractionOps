@@ -4,7 +4,7 @@ from .functions import (
     mesh_select_mode,
     cursor_origin_mesh,
     cursor_origin_selected,
-    match_dimensions,
+    match_dimensions,    
     mesh_selection_convert,
     z_connect,
     align_to_face,
@@ -16,6 +16,26 @@ from .functions import (
     set_display_mode,
     curve_subdivide,
     curve_spline_type,
+    curve_family_toggle_cyclic,    
+    curve_family_select_more,
+    font_object_convert_to_curve,
+    font_edit_toggle_bold,
+    lattice_flip_u,
+    meta_bump_resolution,
+    meta_bump_threshold,
+    light_toggle_shadow,
+    light_boost_energy,
+    light_cycle_type,
+    light_toggle_specular,
+    camera_toggle_depth_of_field,
+    camera_nudge_lens,
+    camera_object_as_camera,
+    camera_view_through,
+    camera_align_to_view,
+    probe_boost_influence,
+    probe_shrink_influence,
+    probe_toggle_clip,
+    probe_toggle_viewport_hide,
 )
 import bpy
 
@@ -140,7 +160,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: curve_family_toggle_cyclic(),
                     },
                 },
                 "EDIT": {
@@ -184,7 +204,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: no_operator(),
                     },
                 },
                 "EDIT": {
@@ -276,9 +296,7 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: meta_bump_threshold(-0.05),
                     },
                     "F4": {
                         "NONE": lambda: no_operator(),
@@ -300,9 +318,7 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.convert(target="MESH"),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: font_object_convert_to_curve(),
                     },
                     "F4": {
                         "NONE": lambda: no_operator(),
@@ -311,7 +327,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: no_operator(),
                     },
                 },
                 "EDIT": {
@@ -322,9 +338,7 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: font_edit_toggle_bold(),
                     },
                     "F4": {
                         "NONE": lambda: no_operator(),
@@ -355,7 +369,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: no_operator(),
                     },
                 },
                 "EDIT": {
@@ -408,9 +422,7 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: no_operator(),
                     },
                     "F4": {
                         "NONE": lambda: no_operator(),
@@ -419,7 +431,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: no_operator(),
                     },
                 },
                 "EDIT": {
@@ -430,9 +442,7 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: lattice_flip_u(),
                     },
                     "F4": {
                         "NONE": lambda: no_operator(),
@@ -547,22 +557,22 @@ class IOPS_Dict:
             "CAMERA": {
                 "OBJECT": {
                     "F1": {
-                        "NONE": lambda: bpy.ops.view3d.object_as_camera(),
+                        "NONE": lambda: camera_object_as_camera(),
                     },
                     "F2": {
-                        "NONE": lambda: bpy.ops.view3d.view_camera(),
+                        "NONE": lambda: camera_view_through(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.view3d.camera_to_view(),
+                        "NONE": lambda: camera_align_to_view(),
                     },
                     "F4": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: camera_nudge_lens(5.0),
                     },
                     "F5": {
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.camera_to_view_selected(),
+                        "NONE": lambda: camera_toggle_depth_of_field(),
                     },
                 },
             },
@@ -572,21 +582,19 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F2": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: light_toggle_shadow(),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.view3d.snap_cursor_to_active(),
+                        "NONE": lambda: light_boost_energy(),
                     },
                     "F4": {
-                        "NONE": lambda: cursor_origin_mesh(),
+                        "NONE": lambda: light_toggle_specular(),
                     },
                     "F5": {
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: light_cycle_type(),
                     },
                 },
             },
@@ -613,21 +621,19 @@ class IOPS_Dict:
                         "NONE": lambda: bpy.ops.object.duplicate_move(),
                     },
                     "F2": {
-                        "NONE": lambda: bpy.ops.object.origin_set(
-                            type="ORIGIN_GEOMETRY", center="MEDIAN"
-                        ),
+                        "NONE": lambda: probe_boost_influence(1.25),
                     },
                     "F3": {
-                        "NONE": lambda: bpy.ops.view3d.snap_cursor_to_active(),
+                        "NONE": lambda: probe_shrink_influence(0.8),
                     },
                     "F4": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: probe_toggle_clip(),
                     },
                     "F5": {
                         "NONE": lambda: no_operator(),
                     },
                     "ESC": {
-                        "NONE": lambda: bpy.ops.view3d.view_selected(),
+                        "NONE": lambda: probe_toggle_viewport_hide(),
                     },
                 },
             },

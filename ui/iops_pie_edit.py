@@ -15,6 +15,57 @@ def draw_open_asset_in_pie_if_poll(pie, context):
     )
 
 
+def draw_empty_pie_size_display_and_image(pie, context):
+    """Shared EMPTY pie UI: size column, display grid, optional image-empty row."""
+    obj = context.object
+    if not obj or obj.type != "EMPTY":
+        return
+
+    box = pie.box()
+    col = box.column(align=True)
+    col.scale_y = 0.9
+    col.label(text="Size")
+    row = box.row(align=True)
+    row.operator("iops.set_empty_size", text="0.1").size = 0.1
+    row.operator("iops.set_empty_size", text="0.5").size = 0.5
+    row.operator("iops.set_empty_size", text="1.0").size = 1.0
+    row = box.row(align=True)
+    row.operator("iops.set_empty_size", text="2.0").size = 2.0
+    row.operator("iops.set_empty_size", text="5.0").size = 5.0
+    row.operator("iops.set_empty_size", text="10.0").size = 10.0
+    col.separator()
+    col.prop(obj, "empty_display_size", text="Custom Size")
+    col.separator()
+    col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
+
+    box = pie.box()
+    col = box.column(align=True)
+    col.label(text="Display")
+    flow = col.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+    flow.scale_x = 1.35
+    flow.operator("iops.set_empty_display", text="Plain Axes", icon="EMPTY_AXIS").display_type = "PLAIN_AXES"
+    flow.operator("iops.set_empty_display", text="Arrows", icon="EMPTY_ARROWS").display_type = "ARROWS"
+    flow.operator("iops.set_empty_display", text="Single Arrow", icon="EMPTY_SINGLE_ARROW").display_type = "SINGLE_ARROW"
+    flow.operator("iops.set_empty_display", text="Circle", icon="MESH_CIRCLE").display_type = "CIRCLE"
+    flow.operator("iops.set_empty_display", text="Cube", icon="MESH_CUBE").display_type = "CUBE"
+    flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
+    flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
+    flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
+
+    data = getattr(obj, "data", None)
+    if obj.empty_display_type == "IMAGE" and isinstance(data, bpy.types.Image):
+        col.separator()
+        row = col.row(align=True)
+        row.operator(
+            "iops.reload_empty_reference_image",
+            text="Reload Image",
+            icon="FILE_REFRESH",
+        )
+        o = row.operator("object.origin_set", text="Origin")
+        o.type = "ORIGIN_GEOMETRY"
+        o.center = "MEDIAN"
+
+
 def get_text_icon(context, operator):
     """Labels/icons for IOPS_MT_Pie_Edit cardinals (Blender 5.x object types/modes)."""
     obj = context.object
@@ -35,36 +86,29 @@ def get_text_icon(context, operator):
                 return "Esc", "EVENT_ESC"
 
     elif obj.type == "ARMATURE":
-        if m == "EDIT":
-            match operator:
-                case "f1":
-                    return "Object Mode", "OBJECT_DATA"
-                case "f2":
-                    return "Pose Mode", "POSE_HLT"
-                case "f3":
-                    return "Set Parent to Bone", "BONE_DATA"
-                case "esc":
-                    return "Object Mode", "OBJECT_DATA"
-        elif m == "POSE":
-            match operator:
-                case "f1":
-                    return "Edit Mode", "EDITMODE_HLT"
-                case "f2":
-                    return "Object Mode", "OBJECT_DATA"
-                case "f3":
-                    return "Set Parent to Bone", "BONE_DATA"
-                case "esc":
-                    return "Object Mode", "OBJECT_DATA"
-        else:
-            match operator:
-                case "f1":
-                    return "Edit Mode", "EDITMODE_HLT"
-                case "f2":
-                    return "Pose Mode", "POSE_HLT"
-                case "f3":
-                    return "Set Parent to Bone", "BONE_DATA"
-                case "esc":
-                    return "Frame Selected", "VIEWZOOM"
+        arm = {
+            "EDIT": {
+                "f1": ("Object Mode", "OBJECT_DATA"),
+                "f2": ("Pose Mode", "POSE_HLT"),
+                "f3": ("Set Parent to Bone", "BONE_DATA"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "POSE": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Object Mode", "OBJECT_DATA"),
+                "f3": ("Set Parent to Bone", "BONE_DATA"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "OBJECT": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Pose Mode", "POSE_HLT"),
+                "f3": ("Set Parent to Bone", "BONE_DATA"),
+                "esc": ("Esc", "EVENT_ESC"),
+            },
+        }
+        row = arm.get(m, arm["OBJECT"])
+        if operator in row:
+            return row[operator]
 
     elif obj.type == "EMPTY":
         match operator:
@@ -77,7 +121,7 @@ def get_text_icon(context, operator):
             case _:
                 return "Esc", "EVENT_ESC"
 
-    elif obj.type in {"CURVE", "CURVES"}:
+    elif obj.type == "CURVE":
         if m == "OBJECT":
             match operator:
                 case "f1":
@@ -85,10 +129,10 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "Switch Direction", "CURVE_PATH"
                 case "esc":
-                    return "Frame Selected", "VIEWZOOM"
-        elif obj.type == "CURVE" and m == "EDIT":
+                    return "Toggle Cyclic", "CURVE_BEZCIRCLE"
+        elif m == "EDIT":
             match operator:
                 case "f1":
                     return "Object Mode", "OBJECT_DATA"
@@ -98,7 +142,19 @@ def get_text_icon(context, operator):
                     return "Spline Type", "CURVE_DATA"
                 case "esc":
                     return "Esc", "EVENT_ESC"
-        elif obj.type == "CURVES" and m in {"EDIT", "EDIT_CURVES"}:
+
+    elif obj.type == "CURVES":
+        if m == "OBJECT":
+            match operator:
+                case "f1":
+                    return "Edit Mode", "EDITMODE_HLT"
+                case "f2":
+                    return "Duplicate", "DUPLICATE"
+                case "f3":
+                    return "Toggle Cyclic", "CURVE_BEZCIRCLE"
+                case "esc":
+                    return "Esc", "EVENT_ESC"
+        elif m in {"EDIT", "EDIT_CURVES"}:
             match operator:
                 case "f1":
                     return "Object Mode", "OBJECT_DATA"
@@ -108,7 +164,7 @@ def get_text_icon(context, operator):
                     return "Cyclic", "CURVE_DATA"
                 case "esc":
                     return "Esc", "EVENT_ESC"
-        elif obj.type == "CURVES" and m == "SCULPT_CURVES":
+        elif m == "SCULPT_CURVES":
             match operator:
                 case "f1":
                     return "Edit Mode", "EDITMODE_HLT"
@@ -127,19 +183,23 @@ def get_text_icon(context, operator):
                 return "Camera View", "CAMERA_DATA"
             case "f3":
                 return "Cam to View", "VIEW_PERSPECTIVE"
+            case "f4":
+                return "Lens +5", "ZOOM_IN"
             case "esc":
-                return "Frame to Cam", "VIEW_CAMERA"
+                return "Toggle DOF", "VIEW_CAMERA"
 
     elif obj.type == "LIGHT":
         match operator:
             case "f1":
                 return "Duplicate", "DUPLICATE"
             case "f2":
-                return "Origin", "OBJECT_ORIGIN"
+                return "Toggle Shadow", "LIGHT_SPOT"
             case "f3":
-                return "Cursor to Active", "CURSOR"
+                return "Boost Power", "LIGHT_SUN"
+            case "f4":
+                return "Toggle Specular", "NODE_MATERIAL"
             case "esc":
-                return "Frame Selected", "VIEWZOOM"
+                return "Cycle Type", "LIGHT_AREA"
 
     elif obj.type == "FONT":
         if m == "OBJECT":
@@ -149,9 +209,9 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Convert to Mesh", "MESH_DATA"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "To Curve", "CURVE_DATA"
                 case "esc":
-                    return "Frame Selected", "VIEWZOOM"
+                    return "Esc", "EVENT_ESC"
         elif m == "EDIT":
             match operator:
                 case "f1":
@@ -159,7 +219,7 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "Bold", "FONT_DATA"
                 case "esc":
                     return "Esc", "EVENT_ESC"
 
@@ -171,9 +231,9 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "F3", "EVENT_F3"
                 case "esc":
-                    return "Frame Selected", "VIEWZOOM"
+                    return "Esc", "EVENT_ESC"
         elif m == "EDIT":
             match operator:
                 case "f1":
@@ -181,7 +241,7 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "Flip U", "ARROWLEFTRIGHT"
                 case "esc":
                     return "Esc", "EVENT_ESC"
 
@@ -193,9 +253,9 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "F3", "EVENT_F3"
                 case "esc":
-                    return "Frame Selected", "VIEWZOOM"
+                    return "Finer Preview", "META_DATA"
         elif m == "EDIT":
             match operator:
                 case "f1":
@@ -203,7 +263,7 @@ def get_text_icon(context, operator):
                 case "f2":
                     return "Duplicate", "DUPLICATE"
                 case "f3":
-                    return "Origin", "OBJECT_ORIGIN"
+                    return "Threshold -", "META_DATA"
                 case "esc":
                     return "Esc", "EVENT_ESC"
 
@@ -212,11 +272,13 @@ def get_text_icon(context, operator):
             case "f1":
                 return "Duplicate", "DUPLICATE"
             case "f2":
-                return "Origin", "OBJECT_ORIGIN"
+                return "+ Influence", "LIGHTPROBE_GRID"
             case "f3":
-                return "Cursor to Active", "CURSOR"
+                return "- Influence", "LIGHTPROBE_GRID"
+            case "f4":
+                return "Clip / Parallax", "LIGHTPROBE_PLANAR"
             case "esc":
-                return "Frame Selected", "VIEWZOOM"
+                return "Hide Viewport", "HIDE_OFF"
 
     return "Esc", "EVENT_ESC"
 
@@ -230,6 +292,187 @@ def draw_edit_pie_cardinals(pie, context):
     pie.operator("iops.function_f3", text=t3, icon=i3)
     pie.operator("iops.function_esc", text=te, icon=ie)
     pie.operator("iops.function_f2", text=t2, icon=i2)
+
+
+def _pie_prop(col, data, prop, **kwargs):
+    if data is not None and prop in data.bl_rna.properties:
+        col.prop(data, prop, **kwargs)
+
+
+def _pie_ext_block(obj, block_key):
+    if block_key == "object":
+        return obj
+    if block_key == "data":
+        return getattr(obj, "data", None)
+    if block_key == "dof":
+        d = getattr(obj, "data", None)
+        return getattr(d, "dof", None) if d else None
+    return None
+
+
+_PIE_GREASEPENCIL_EXT = (
+    "Grease Pencil",
+    "GREASEPENCIL",
+    [
+        ("object", "use_grease_pencil_lights", {"text": "Lights"}),
+        ("object", "use_grease_pencil_on_back", {"text": "On Back"}),
+    ],
+)
+
+# Object mode only: (title, icon, list of (block_key, rna_prop, prop_kwargs))
+_PIE_OBJECT_MODE_DATA_SPECS = {
+    "CURVE": (
+        "Curve",
+        "CURVE_DATA",
+        [
+            ("data", "bevel_depth", {"text": "Bevel"}),
+            ("data", "bevel_object", {"text": "Bevel Obj"}),
+            ("data", "resolution_u", {"text": "Res U"}),
+            ("data", "dimensions", {"text": "Dimensions"}),
+        ],
+    ),
+    "CURVES": (
+        "Curves",
+        "CURVES",
+        [
+            ("data", "surface_scale", {}),
+            ("data", "surface_uv_map", {"text": "UV Map"}),
+        ],
+    ),
+    "SURFACE": (
+        "Surface",
+        "SURFACE_DATA",
+        [
+            ("data", "resolution_u", {"text": "Res U"}),
+            ("data", "resolution_v", {"text": "Res V"}),
+        ],
+    ),
+    "FONT": (
+        "Text",
+        "FONT_DATA",
+        [
+            ("data", "size", {"text": "Size"}),
+            ("data", "extrude", {"text": "Extrude"}),
+            ("data", "body_alignment", {"text": "Align"}),
+            ("data", "space_character", {"text": "Spacing"}),
+        ],
+    ),
+    "META": (
+        "Metaball",
+        "META_DATA",
+        [
+            ("data", "threshold", {"text": "Threshold"}),
+            ("data", "resolution", {"text": "Resolution"}),
+            ("data", "render_resolution", {"text": "Render Res"}),
+        ],
+    ),
+    "LATTICE": (
+        "Lattice",
+        "LATTICE_DATA",
+        [
+            ("data", "points_u", {"text": "U"}),
+            ("data", "points_v", {"text": "V"}),
+            ("data", "points_w", {"text": "W"}),
+            ("data", "use_outside", {"text": "Outside"}),
+            ("data", "interpolation_type_u", {"text": "Interp U"}),
+        ],
+    ),
+    "ARMATURE": (
+        "Armature",
+        "ARMATURE_DATA",
+        [
+            ("data", "display_type", {"text": "Display"}),
+            ("object", "show_in_front", {"text": "In Front"}),
+        ],
+    ),
+    "CAMERA": (
+        "Camera",
+        "CAMERA_DATA",
+        [
+            ("data", "type", {"text": "Type"}),
+            ("data", "lens", {"text": "Lens"}),
+            ("data", "ortho_scale", {"text": "Ortho Scale"}),
+            ("data", "clip_start", {"text": "Clip Near"}),
+            ("data", "clip_end", {"text": "Clip Far"}),
+            ("dof", "use_dof", {"text": "DOF"}),
+            ("dof", "aperture_fstop", {"text": "F-Stop"}),
+            ("dof", "focus_distance", {"text": "Focus Dist"}),
+        ],
+    ),
+    "LIGHT": (
+        "Light",
+        "LIGHT_DATA",
+        [
+            ("data", "type", {"text": "Type"}),
+            ("data", "energy", {"text": "Power"}),
+            ("data", "color", {"text": ""}),
+            ("data", "exposure", {"text": "Exposure"}),
+            ("data", "diffuse_factor", {"text": "Diffuse"}),
+            ("data", "use_temperature", {"text": "Use Temp"}),
+            ("data", "temperature", {"text": "Temp K"}),
+        ],
+    ),
+    "LIGHT_PROBE": (
+        "Light Probe",
+        "LIGHTPROBE_PLANAR",
+        [
+            ("data", "influence_distance", {"text": "Distance"}),
+            ("data", "clip_start", {"text": "Clip Start"}),
+            ("data", "clip_end", {"text": "Clip End"}),
+            ("data", "show_influence", {"text": "Show Volume"}),
+            ("data", "show_clip", {"text": "Show Clip"}),
+            ("data", "use_data_display", {"text": "Data Viz"}),
+        ],
+    ),
+    "SPEAKER": (
+        "Speaker",
+        "SPEAKER",
+        [
+            ("data", "volume", {"text": "Volume"}),
+            ("data", "muted", {"text": "Mute"}),
+        ],
+    ),
+    "VOLUME": (
+        "Volume",
+        "VOLUME_DATA",
+        [
+            ("data", "density", {"text": "Density"}),
+            ("data", "display_density", {"text": "Display"}),
+        ],
+    ),
+    "POINTCLOUD": (
+        "Point Cloud",
+        "POINTCLOUD_DATA",
+        [
+            ("data", "display_percentage", {"text": "Display %"}),
+        ],
+    ),
+    "GPENCIL": _PIE_GREASEPENCIL_EXT,
+    "GREASEPENCIL": _PIE_GREASEPENCIL_EXT,
+}
+
+
+_PIE_EXTENSION_TYPES = frozenset(_PIE_OBJECT_MODE_DATA_SPECS.keys())
+
+
+def draw_edit_pie_type_extensions(pie, context):
+    """Object mode: RNA props on object / object.data / camera dof (View3D)."""
+    obj = context.object
+    if not obj or obj.mode != "OBJECT":
+        return
+    spec = _PIE_OBJECT_MODE_DATA_SPECS.get(obj.type)
+    if not spec:
+        return
+    title, icon, rows = spec
+    if any(b in ("data", "dof") for b, _, _ in rows) and getattr(obj, "data", None) is None:
+        return
+    box = pie.box()
+    col = box.column(align=True)
+    col.scale_y = 0.85
+    col.label(text=title, icon=icon)
+    for block_key, prop, pkwargs in rows:
+        block = _pie_ext_block(obj, block_key)
+        _pie_prop(col, block, prop, **pkwargs)
 
 
 class IOPS_MT_Pie_Edit_Modes(Menu):
@@ -273,54 +516,7 @@ class IOPS_MT_Pie_Edit(Menu):
                 and context.object.instance_type == "COLLECTION"
                 # and context.object.instance_collection.library
             ):
-                # 4 - LEFT - Size options
-                box = pie.box()
-                col = box.column(align=True)
-                col.scale_y = 0.9
-                col.label(text="Size")
-                row = box.row(align=True)
-                row.operator("iops.set_empty_size", text="0.1").size = 0.1
-                row.operator("iops.set_empty_size", text="0.5").size = 0.5
-                row.operator("iops.set_empty_size", text="1.0").size = 1.0
-                row = box.row(align=True)
-                row.operator("iops.set_empty_size", text="2.0").size = 2.0
-                row.operator("iops.set_empty_size", text="5.0").size = 5.0
-                row.operator("iops.set_empty_size", text="10.0").size = 10.0
-                col.separator()
-                col.prop(context.object, "empty_display_size", text="Custom Size")
-                col.separator()
-                col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
-                
-                # 6 - RIGHT - Display options
-                box = pie.box()
-                col = box.column(align=True)
-                col.label(text="Display")
-                flow = col.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
-                flow.scale_x = 1.35
-                flow.operator("iops.set_empty_display", text="Plain Axes", icon="EMPTY_AXIS").display_type = "PLAIN_AXES"
-                flow.operator("iops.set_empty_display", text="Arrows", icon="EMPTY_ARROWS").display_type = "ARROWS"
-                flow.operator("iops.set_empty_display", text="Single Arrow", icon="EMPTY_SINGLE_ARROW").display_type = "SINGLE_ARROW"
-                flow.operator("iops.set_empty_display", text="Circle", icon="MESH_CIRCLE").display_type = "CIRCLE"
-                flow.operator("iops.set_empty_display", text="Cube", icon="MESH_CUBE").display_type = "CUBE"
-                flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
-                flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
-                flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
-
-                data = getattr(context.object, "data", None)
-                if context.object.empty_display_type == "IMAGE" and isinstance(
-                    data, bpy.types.Image
-                ):
-                    col.separator()
-                    row = col.row(align=True)
-                    row.operator(
-                        "iops.reload_empty_reference_image",
-                        text="Reload Image",
-                        icon="FILE_REFRESH",
-                    )
-                    row.operator("object.duplicate_move", text="Duplicate")
-                    o = row.operator("object.origin_set", text="Origin")
-                    o.type = "ORIGIN_GEOMETRY"
-                    o.center = "MEDIAN"
+                draw_empty_pie_size_display_and_image(pie, context)
 
                 # 2 - BOTTOM
                 op = pie.operator("object.duplicates_make_real", text="Make Instances Real")
@@ -356,64 +552,14 @@ class IOPS_MT_Pie_Edit(Menu):
                         icon="FILE_REFRESH"
                     )
             elif context.object.type == "EMPTY":
-                # 4 - LEFT - Size options
-                box = pie.box()
-                col = box.column(align=True)
-                col.scale_y = 0.9
-                col.label(text="Size")
-                row = box.row(align=True)
-                row.operator("iops.set_empty_size", text="0.1").size = 0.1
-                row.operator("iops.set_empty_size", text="0.5").size = 0.5
-                row.operator("iops.set_empty_size", text="1.0").size = 1.0
-                row = box.row(align=True)
-                row.operator("iops.set_empty_size", text="2.0").size = 2.0
-                row.operator("iops.set_empty_size", text="5.0").size = 5.0
-                row.operator("iops.set_empty_size", text="10.0").size = 10.0
-                col.separator()
-                col.prop(context.object, "empty_display_size", text="Custom Size")
-                col.separator()
-                col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
-                
-                # 6 - RIGHT - Display options
-                box = pie.box()
-                col = box.column(align=True)
-                col.label(text="Display")
-                flow = col.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
-                flow.scale_x = 1.35
-                flow.operator("iops.set_empty_display", text="Plain Axes", icon="EMPTY_AXIS").display_type = "PLAIN_AXES"
-                flow.operator("iops.set_empty_display", text="Arrows", icon="EMPTY_ARROWS").display_type = "ARROWS"
-                flow.operator("iops.set_empty_display", text="Single Arrow", icon="EMPTY_SINGLE_ARROW").display_type = "SINGLE_ARROW"
-                flow.operator("iops.set_empty_display", text="Circle", icon="MESH_CIRCLE").display_type = "CIRCLE"
-                flow.operator("iops.set_empty_display", text="Cube", icon="MESH_CUBE").display_type = "CUBE"
-                flow.operator("iops.set_empty_display", text="Sphere", icon="MESH_UVSPHERE").display_type = "SPHERE"
-                flow.operator("iops.set_empty_display", text="Cone", icon="MESH_CONE").display_type = "CONE"
-                flow.operator("iops.set_empty_display", text="Image", icon="IMAGE").display_type = "IMAGE"
-
-                data = getattr(context.object, "data", None)
-                if context.object.empty_display_type == "IMAGE" and isinstance(
-                    data, bpy.types.Image
-                ):
-                    col.separator()
-                    row = col.row(align=True)
-                    row.operator(
-                        "iops.reload_empty_reference_image",
-                        text="Reload Image",
-                        icon="FILE_REFRESH",
-                    )
-                    row.operator("object.duplicate_move", text="Duplicate")
-                    o = row.operator("object.origin_set", text="Origin")
-                    o.type = "ORIGIN_GEOMETRY"
-                    o.center = "MEDIAN"
-                
-                # 7 - TOP-LEFT
-                # 9 - TOP-RIGHT
-                # 1 - BOTTOM-LEFT
-                # 3 - BOTTOM-RIGHT
-                # 2 - BOTTOM
-                # 8 - TOP
+                draw_empty_pie_size_display_and_image(pie, context)
 
             else:
                 draw_edit_pie_cardinals(pie, context)
+                draw_edit_pie_type_extensions(pie, context)
+                obj = context.object
+                if obj and obj.type == 'MESH' and obj.mode == 'EDIT':
+                    pie.operator("iops.mesh_visual_uv", text="Visual UV", icon="UV")
 
             draw_open_asset_in_pie_if_poll(pie, context)
 
@@ -421,28 +567,12 @@ class IOPS_MT_Pie_Edit(Menu):
             if not context.active_object:
                 draw_open_asset_in_pie_if_poll(pie, context)
                 return
-            if context.tool_settings.use_uv_select_sync:
-                # 4 - LEFT
-                pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
-                # 6 - RIGHT
-                pie.operator("iops.function_f3", text="Face", icon="FACESEL")
-                # 2 - BOTTOM
-                pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
-                # 8 - TOP
-                pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
-                # 7 - TOP - LEFT
-            elif not context.tool_settings.use_uv_select_sync:
-                # 4 - LEFT
-                pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
-                # 6 - RIGHT
-                pie.operator("iops.function_f3", text="Face", icon="FACESEL")
-                # 2 - BOTTOM
-                pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
-                # 8 - TOP
-                pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
-                # 7 - TOP - LEFT
+            pie.operator("iops.function_f1", text="Vertex", icon="VERTEXSEL")
+            pie.operator("iops.function_f3", text="Face", icon="FACESEL")
+            pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
+            pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
+            if not context.tool_settings.use_uv_select_sync:
                 pie.separator()
-                # 9 - TOP - RIGHT
                 pie.operator("iops.function_f4", text="Island", icon="UV_ISLANDSEL")
 
             draw_open_asset_in_pie_if_poll(pie, context)
