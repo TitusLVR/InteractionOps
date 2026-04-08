@@ -26,7 +26,7 @@ RAYCAST_OFFSET_DISTANCE = 0.0001
 EPSILON = 1e-6
 FACE_SET_MIN = 1
 FACE_SET_MAX = 999
-DEFAULT_V_SNAP_DISTANCE_CM = 10.0
+DEFAULT_INSET_DISTANCE_CM = 10.0
 
 NUMERIC_KEYS = {
     'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
@@ -40,7 +40,7 @@ NUMERIC_KEYS = {
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
     bl_label = "Cursor Bisect"
-    bl_description = "Bisect mesh. S-snap, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, W-world align, P-toggle preview mode, I-toggle distance info"
+    bl_description = "Bisect mesh. S-snap, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, X-toggle normal axis, W-world align, P-toggle preview mode, I-toggle distance info"
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
@@ -79,11 +79,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     fill_cut_mode = False
     fill_cut_preview_lines = []
 
-    # V-snap: snap points at fixed distance from edge endpoints
-    v_snap_active = False
-    v_snap_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
-    v_snap_input_string = ""
-    v_snap_points = []
+    # Inset points: snap points at fixed distance from edge endpoints
+    inset_active = False
+    inset_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
+    inset_input_string = ""
+    inset_points = []
 
     # Distance text system
     show_distance_info = True  # Toggle for showing distance info (I key)
@@ -233,16 +233,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         preview_mode = self.cut_preview_mode
         distance_status = "ON" if self.show_distance_info else "OFF"
         fill_cut_status = "ON" if self.fill_cut_mode else "OFF"
-        if self.v_snap_active:
+        if self.inset_active:
             scale, suffix = self._bu_to_display_units(context)
-            v_display = self.v_snap_distance_bu * scale
-            v_snap_info = f"ON:{self._fmt(v_display)}{suffix}"
+            v_display = self.inset_distance_bu * scale
+            inset_info = f"ON:{self._fmt(v_display)}{suffix}"
         else:
-            v_snap_info = "OFF"
+            inset_info = "OFF"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] V-Snap({v_snap_info}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -437,9 +437,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 
-        # V-snap numeric input: intercept keys when v-snap input is active
-        if self.v_snap_active and event.value == 'PRESS':
-            if self._handle_v_snap_input(context, event):
+        # Inset points numeric input: intercept keys when inset input is active
+        if self.inset_active and event.value == 'PRESS':
+            if self._handle_inset_input(context, event):
                 return {'RUNNING_MODAL'}
 
         # Handle Ctrl+Wheel for edge subdivision control
@@ -530,32 +530,31 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.hit_face_index = face_index
                 self.last_face_index = face_index
 
-                # Only reset edge cache if face changed AND not holding snap points AND not locked
-                if face_changed and not self.hold_snap_points and not self.lock_orientation:
+                # Only reset edge cache if face changed AND not holding snap points
+                if face_changed and not self.hold_snap_points:
                     self.face_edges.clear()  # Reset edge cache
                     self.edge_index = 0  # Reset edge index
 
-                # Update edge selection based on mouse position (if not locked)
-                if not self.lock_orientation:
-                    try:
-                        mesh = obj.data
-                        bm = bmesh.from_edit_mesh(mesh)
-                        bm.faces.ensure_lookup_table()
+                # Update edge selection based on mouse position
+                try:
+                    mesh = obj.data
+                    bm = bmesh.from_edit_mesh(mesh)
+                    bm.faces.ensure_lookup_table()
 
-                        if face_index < len(bm.faces):
-                            face = bm.faces[face_index]
-                            if face.edges:
-                                # Update face edges if needed
-                                if not self.face_edges or face_changed:
-                                    self.face_edges = [e.index for e in face.edges]
+                    if face_index < len(bm.faces):
+                        face = bm.faces[face_index]
+                        if face.edges:
+                            # Update face edges if needed
+                            if not self.face_edges or face_changed:
+                                self.face_edges = [e.index for e in face.edges]
 
-                                # Find closest edge to mouse cursor
-                                closest_edge = self.find_closest_edge_to_mouse(context, event, face)
-                                if closest_edge != self.edge_index:
-                                    self.edge_index = closest_edge
+                            # Find closest edge to mouse cursor
+                            closest_edge = self.find_closest_edge_to_mouse(context, event, face)
+                            if closest_edge != self.edge_index:
+                                self.edge_index = closest_edge
 
-                    except (IndexError, AttributeError):
-                        pass
+                except (IndexError, AttributeError):
+                    pass
 
                 # Update snapping (now with screen-space support)
                 self.update_snapping(context, loc)
@@ -590,19 +589,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.lock_orientation = not self.lock_orientation
 
             if self.lock_orientation and self.hit_obj:
-                # When locking, ensure we have face edges calculated for the current face
-                if not self.face_edges and self.hit_face_index != -1:
-                    try:
-                        mesh = self.hit_obj.data
-                        bm = bmesh.from_edit_mesh(mesh)
-                        bm.faces.ensure_lookup_table()
-                        if self.hit_face_index < len(bm.faces):
-                            face = bm.faces[self.hit_face_index]
-                            if face.edges:
-                                self.face_edges = [e.index for e in face.edges]
-                                # Keep current edge index when locking
-                    except (IndexError, AttributeError):
-                        pass
                 self.align_cursor_orientation()
 
             self.update_status_bar(context)
@@ -683,17 +669,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle V-snap distance mode
+        # Toggle inset points mode
         elif event.type == 'V' and event.value == 'PRESS' and not event.shift and not event.ctrl:
-            self.v_snap_active = not self.v_snap_active
-            if self.v_snap_active:
+            self.inset_active = not self.inset_active
+            if self.inset_active:
                 scale, _ = self._bu_to_display_units(context)
-                display_val = self.v_snap_distance_bu * scale
-                self.v_snap_input_string = self._fmt(display_val)
-                self.calculate_v_snap_points()
+                display_val = self.inset_distance_bu * scale
+                self.inset_input_string = self._fmt(display_val)
+                self.calculate_inset_points()
             else:
-                self.v_snap_points = []
-                self.v_snap_input_string = ""
+                self.inset_points = []
+                self.inset_input_string = ""
             if self.hit_obj and self.hit_face_index != -1:
                 self.update_snapping(context, context.scene.cursor.location)
             self.update_status_bar(context)
@@ -943,8 +929,36 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     
     # Part 7: Cancel and Draw Methods
 
+    def _save_scene_props(self, context):
+        """Save persistent operator state to scene properties."""
+        props = context.scene.IOPS
+        props.cursor_bisect_snapping = self.snapping_enabled
+        props.cursor_bisect_normal_axis = self.normal_axis
+        props.cursor_bisect_preview_mode = self.cut_preview_mode
+        props.cursor_bisect_fill_cut = self.fill_cut_mode
+        props.cursor_bisect_show_distance = self.show_distance_info
+        props.cursor_bisect_edge_subdivisions = self.edge_subdivisions
+        props.cursor_bisect_inset_active = self.inset_active
+        props.cursor_bisect_inset_distance = self.inset_distance_bu
+        props.cursor_bisect_inset_input = self.inset_input_string
+
+    def _load_scene_props(self, context):
+        """Load persistent operator state from scene properties."""
+        props = context.scene.IOPS
+        self.snapping_enabled = props.cursor_bisect_snapping
+        self.normal_axis = props.cursor_bisect_normal_axis
+        self.cut_preview_mode = props.cursor_bisect_preview_mode
+        self.fill_cut_mode = props.cursor_bisect_fill_cut
+        self.show_distance_info = props.cursor_bisect_show_distance
+        self.edge_subdivisions = props.cursor_bisect_edge_subdivisions
+        self.inset_active = props.cursor_bisect_inset_active
+        self.inset_distance_bu = props.cursor_bisect_inset_distance
+        self.inset_input_string = props.cursor_bisect_inset_input
+
     def cancel(self, context):
         """Clean up and cancel the operation"""
+        self._save_scene_props(context)
+
         # Restore modifier states before cleaning up
         self.restore_modifier_states(context)
         
@@ -1171,9 +1185,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             face = bm.faces[self.hit_face_index]
             self.snap_points = self.calculate_snap_points(face)
 
-            if self.v_snap_active:
-                self.calculate_v_snap_points()
-                self.snap_points.extend(self.v_snap_points)
+            if self.inset_active:
+                self.calculate_inset_points()
+                self.snap_points.extend(self.inset_points)
 
             self.closest_snap_point = self.find_closest_snap_point(context, mouse_coord, mouse_pos_world)
 
@@ -1181,45 +1195,45 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.snap_points = []
             self.closest_snap_point = None
 
-    # V-snap methods
+    # Inset points methods
 
-    def _handle_v_snap_input(self, context, event):
-        """Handle numeric input for v-snap distance. Returns True if event was consumed."""
+    def _handle_inset_input(self, context, event):
+        """Handle numeric input for inset distance. Returns True if event was consumed."""
         if event.type in NUMERIC_KEYS:
-            self.v_snap_input_string += NUMERIC_KEYS[event.type]
+            self.inset_input_string += NUMERIC_KEYS[event.type]
         elif event.type in {'PERIOD', 'NUMPAD_PERIOD'}:
-            if '.' not in self.v_snap_input_string:
-                self.v_snap_input_string += '.'
+            if '.' not in self.inset_input_string:
+                self.inset_input_string += '.'
         elif event.type == 'BACK_SPACE':
-            self.v_snap_input_string = self.v_snap_input_string[:-1]
+            self.inset_input_string = self.inset_input_string[:-1]
         elif event.type in {'RET', 'NUMPAD_ENTER'}:
             return True
         else:
             return False
 
-        self._update_v_snap_distance(context)
-        self.calculate_v_snap_points()
+        self._update_inset_distance(context)
+        self.calculate_inset_points()
         if self.hit_obj and self.hit_face_index != -1:
             self.update_snapping(context, context.scene.cursor.location)
         self.update_status_bar(context)
         context.area.tag_redraw()
         return True
 
-    def _update_v_snap_distance(self, context):
+    def _update_inset_distance(self, context):
         """Convert the user's typed display-unit value to internal BU distance."""
-        if self.v_snap_input_string and self.v_snap_input_string != '.':
+        if self.inset_input_string and self.inset_input_string != '.':
             try:
-                display_val = float(self.v_snap_input_string)
+                display_val = float(self.inset_input_string)
                 scale, _ = self._bu_to_display_units(context)
                 if scale > EPSILON:
-                    self.v_snap_distance_bu = display_val / scale
+                    self.inset_distance_bu = display_val / scale
             except ValueError:
                 pass
 
-    def calculate_v_snap_points(self):
-        """Calculate snap points at v_snap_distance from each endpoint of the highlighted edge."""
-        self.v_snap_points = []
-        if not self.v_snap_active:
+    def calculate_inset_points(self):
+        """Calculate snap points at inset distance from each endpoint of the highlighted edge."""
+        self.inset_points = []
+        if not self.inset_active:
             return
         if not self.hit_obj or not self.face_edges or self.edge_index >= len(self.face_edges):
             return
@@ -1243,29 +1257,29 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             v2_world = self.hit_obj.matrix_world @ v2.co
             edge_world_length = (v2_world - v1_world).length
 
-            if edge_world_length < EPSILON or self.v_snap_distance_bu <= 0:
+            if edge_world_length < EPSILON or self.inset_distance_bu <= 0:
                 return
-            if self.v_snap_distance_bu >= edge_world_length:
+            if self.inset_distance_bu >= edge_world_length:
                 return
 
-            t = self.v_snap_distance_bu / edge_world_length
+            t = self.inset_distance_bu / edge_world_length
 
-            self.v_snap_points.append(('v_snap', v1.co.lerp(v2.co, t)))
+            self.inset_points.append(('inset', v1.co.lerp(v2.co, t)))
             if abs(t - (1.0 - t)) > EPSILON:
-                self.v_snap_points.append(('v_snap', v1.co.lerp(v2.co, 1.0 - t)))
+                self.inset_points.append(('inset', v1.co.lerp(v2.co, 1.0 - t)))
 
         except (IndexError, AttributeError, ValueError, ReferenceError):
             pass
 
-    def draw_v_snap_input_text(self, context):
-        """Draw the V-snap distance input text near the mouse cursor."""
-        if not self.v_snap_active:
+    def draw_inset_input_text(self, context):
+        """Draw the inset distance input text near the mouse cursor."""
+        if not self.inset_active:
             return
 
         try:
             _, suffix = self._bu_to_display_units(context)
-            input_str = self.v_snap_input_string if self.v_snap_input_string else "0"
-            v_text = f"V-Snap: {input_str}{suffix}"
+            input_str = self.inset_input_string if self.inset_input_string else "0"
+            v_text = f"Inset: {input_str}{suffix}"
 
             mouse_x, mouse_y = self._current_mouse_coord
             text_x = mouse_x + self.distance_text_offset_x
@@ -1546,8 +1560,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             positions = []
 
-            # Subdivision cuts: skip the fallback midpoint when V-snap provides positions
-            if self.v_snap_active and self.v_snap_points:
+            # Subdivision cuts: skip the fallback midpoint when inset points provide positions
+            if self.inset_active and self.inset_points:
                 num_cuts = self.edge_subdivisions
             else:
                 num_cuts = max(1, self.edge_subdivisions)
@@ -1558,8 +1572,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 point_world = self.hit_obj.matrix_world @ point_local
                 positions.append(point_world)
 
-            if self.v_snap_active and self.v_snap_points:
-                for _, pt_local in self.v_snap_points:
+            if self.inset_active and self.inset_points:
+                for _, pt_local in self.inset_points:
                     pt_world = self.hit_obj.matrix_world @ pt_local
                     positions.append(pt_world)
 
@@ -1843,21 +1857,22 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         
         # Instructions text (action, key)
         iops_text = (
-            ("Snapping", "S"),
-            ("Snap Points Subdivide", "Ctrl+Mouse Wheel"),
+            ("Snap", "S"),
+            ("Subdivide", "Ctrl+Wheel"),
             ("Hold Points", "D"),
-            ("Fill Cut (edge subdivisions)", "F"),
-            ("V-Snap (distance from ends)", "V + type value"),
-            ("Select Face", "Right Mouse Button"),
-            ("Select Coplanar Faces", "Shift+Right Mouse Button"),
-            ("Rotate Z-axis", "Alt+Mouse Wheel"),
-            ("Lock Edge (Orientation)", "A"),
+            ("Fill Cut", "F"),
+            ("Inset Points", "V + value"),
+            ("Select Face", "RMB"),
+            ("Coplanar Select", "Shift+RMB"),
+            ("Rotate", "Alt+Wheel"),
+            ("Lock Orientation", "A"),
+            ("Select Direction", "X"),
             ("World Align", "W"),
-            ("Preview Line/Plane", "P"),
-            ("Toggle Distance Info", "I"),
-            ("Execute bisect", "Left Mouse Button"),
-            ("Finish operation", "Space"),
-            ("Cancel operation", "Esc"),
+            ("Preview", "P"),
+            ("Distance Info", "I"),
+            ("Bisect", "LMB"),
+            ("Finish", "Space"),
+            ("Cancel", "Esc"),
         )
         
         # Font setup
@@ -2075,10 +2090,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 
-            # Draw V-snap points as distinctive markers
-            if self.v_snap_active and self.v_snap_points and self.hit_obj:
+            # Draw inset points as distinctive markers
+            if self.inset_active and self.inset_points and self.hit_obj:
                 try:
-                    v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.v_snap_points]
+                    v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.inset_points]
                     if v_coords:
                         v_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
                         v_shader.bind()
@@ -2208,20 +2223,12 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         fresh_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
                         fresh_shader.bind()
 
-                        if self.lock_orientation:
-                            if prefs and hasattr(prefs, 'cursor_bisect_edge_locked_color'):
-                                edge_color = prefs.cursor_bisect_edge_locked_color
-                                edge_thickness = getattr(prefs, 'cursor_bisect_edge_locked_thickness', 4.0)
-                            else:
-                                edge_color = (1.0, 0.0, 1.0, 1.0)
-                                edge_thickness = 4.0
+                        if prefs and hasattr(prefs, 'cursor_bisect_edge_color'):
+                            edge_color = prefs.cursor_bisect_edge_color
+                            edge_thickness = getattr(prefs, 'cursor_bisect_edge_thickness', 3.0)
                         else:
-                            if prefs and hasattr(prefs, 'cursor_bisect_edge_color'):
-                                edge_color = prefs.cursor_bisect_edge_color
-                                edge_thickness = getattr(prefs, 'cursor_bisect_edge_thickness', 3.0)
-                            else:
-                                edge_color = (0.0, 1.0, 1.0, 1.0)
-                                edge_thickness = 3.0
+                            edge_color = (0.0, 1.0, 1.0, 1.0)
+                            edge_thickness = 3.0
 
                         fresh_shader.uniform_float("color", (edge_color[0], edge_color[1], edge_color[2], edge_color[3]))
                         gpu.state.line_width_set(edge_thickness)
@@ -2243,8 +2250,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def draw_distance_text_callback(self, context):
         if self.show_distance_info:
             self.draw_mouse_distance_text(context)
-        if self.v_snap_active:
-            self.draw_v_snap_input_text(context)
+        if self.inset_active:
+            self.draw_inset_input_text(context)
 
     def mouse_raycast(self, context, event):
         """Perform raycast from mouse position - filter to selected objects only"""
@@ -2441,54 +2448,25 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Disable specific modifiers for better bisect operation
         self.disable_modifiers_for_bisect(context)
 
-        # Initialize all state variables
+        # Load persistent user toggles from scene
+        self._load_scene_props(context)
+
+        # Reset runtime/raycast state
         self.hit_location = None
         self.hit_normal = None
         self.hit_obj = None
         self.hit_face_index = -1
         self.edge_index = 0
         self.face_edges = []
-        self.normal_axis = 'X'
-        self.world_axis = 'X'  # Initialize world axis to X
         self.lock_orientation = False
         self.locked_rotation = None
-        self.snapping_enabled = True  # Active by default
         self.snap_points = []
         self.closest_snap_point = None
-        # Get initial subdivisions from preferences
-        prefs = self.get_preferences(context)
-        if prefs and hasattr(prefs, 'cursor_bisect_edge_subdivisions'):
-            self.edge_subdivisions = prefs.cursor_bisect_edge_subdivisions
-        else:
-            self.edge_subdivisions = DEFAULT_EDGE_SUBDIVISIONS
-        self.hold_snap_points = False  # Active by default
+        self.hold_snap_points = False
         self.last_face_index = -1
-        self.cut_preview_mode = 'LINES'  # Default to line preview
         self.cut_preview_lines = []
-        self.fill_cut_mode = False
         self.fill_cut_preview_lines = []
-
-        self.v_snap_active = False
-        self.v_snap_distance_bu = DEFAULT_V_SNAP_DISTANCE_CM / 100.0  # 10 cm -> 0.1 BU
-        self.v_snap_input_string = ""
-        self.v_snap_points = []
-
-        self.show_distance_info = True
-        # Get text settings from preferences
-        if prefs and hasattr(prefs, 'cursor_bisect_distance_text_size'):
-            self.distance_text_size = prefs.cursor_bisect_distance_text_size
-        else:
-            self.distance_text_size = DEFAULT_DISTANCE_TEXT_SIZE
-        if prefs and hasattr(prefs, 'cursor_bisect_distance_offset_x'):
-            self.distance_text_offset_x = prefs.cursor_bisect_distance_offset_x
-        else:
-            self.distance_text_offset_x = DEFAULT_DISTANCE_TEXT_OFFSET_X
-        if prefs and hasattr(prefs, 'cursor_bisect_distance_offset_y'):
-            self.distance_text_offset_y = prefs.cursor_bisect_distance_offset_y
-        else:
-            self.distance_text_offset_y = DEFAULT_DISTANCE_TEXT_OFFSET_Y
-
-        # Initialize mouse coordinate tracking for screen-space snapping
+        self.inset_points = []
         self._current_mouse_coord = (0, 0)
 
         # Add draw handler

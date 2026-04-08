@@ -8,6 +8,7 @@ from bpy.props import (
     CollectionProperty,
     IntProperty,
     BoolProperty,
+    EnumProperty,
 )
 
 def fuzzy_match(search_term, target):
@@ -154,3 +155,22 @@ class IOPS_SceneProperties(PropertyGroup):
         subtype="COLOR",
         size=4,
     )
+
+    # Cursor Bisect persistent properties
+    cursor_bisect_snapping: BoolProperty(name="Snapping", default=True)
+    cursor_bisect_normal_axis: EnumProperty(
+        name="Normal Axis",
+        items=[('X', "X", ""), ('Y', "Y", "")],
+        default='X',
+    )
+    cursor_bisect_preview_mode: EnumProperty(
+        name="Preview Mode",
+        items=[('LINES', "Lines", ""), ('PLANE', "Plane", "")],
+        default='LINES',
+    )
+    cursor_bisect_fill_cut: BoolProperty(name="Fill Cut", default=False)
+    cursor_bisect_show_distance: BoolProperty(name="Show Distance", default=True)
+    cursor_bisect_edge_subdivisions: IntProperty(name="Edge Subdivisions", default=0, min=0, max=100)
+    cursor_bisect_inset_active: BoolProperty(name="Inset Active", default=False)
+    cursor_bisect_inset_distance: FloatProperty(name="Inset Distance (BU)", default=0.1, min=0.0)
+    cursor_bisect_inset_input: StringProperty(name="Inset Input", default="")

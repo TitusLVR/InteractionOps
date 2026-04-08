@@ -357,6 +357,8 @@ def _compute_screen_handles(op, context):
 def draw_3d_callback(op, context):
     if context.area != op._area:
         return
+    if op._clean_view:
+        return
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
     fill_base = getattr(prefs, 'visual_uv_fill_alpha', 0.10)
@@ -456,12 +458,13 @@ def draw_pixel_callback(op, context):
                       else COL_ROT_HANDLE)
                 _draw_circle(rsp.x, rsp.y, 6, rc)
 
-        td = idata.get('texel_density')
-        if td is not None and csp:
-            blf.size(0, 12)
-            blf.color(0, *island_col)
-            blf.position(0, csp.x + 14, csp.y - 6, 0)
-            blf.draw(0, f"TD:{td:.3f}")
+        if not op._clean_view:
+            td = idata.get('texel_density')
+            if td is not None and csp:
+                blf.size(0, 12)
+                blf.color(0, *island_col)
+                blf.position(0, csp.x + 14, csp.y - 6, 0)
+                blf.draw(0, f"TD:{td:.3f}")
 
     # Bounding box + handles (active island)
     handles = _compute_screen_handles(op, context)
@@ -586,6 +589,7 @@ def draw_shortcuts_callback(op, context):
         ("Randomize UV / U / V", "N / Shift+N / Ctrl+N"),
         ("Unwrap (seams)", "U"),
         ("Straighten chain", "T"),
+        ("Toggle overlays", "Q"),
         ("Pivot", "P"),
         ("Undo / Redo", f"Ctrl+Z ({uc}) / Ctrl+Shift+Z ({rc})"),
         ("Confirm / Cancel", "Enter / Space / Esc"),
@@ -927,6 +931,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             return {'CANCELLED'}
         self.selected_islands = set(range(len(self.islands_data)))
 
+        self._overlay_was_on = context.space_data.overlay.show_overlays
+        self._clean_view = False
+
         self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
             draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
         self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
@@ -1059,6 +1066,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _cleanup(self, context):
+        if hasattr(self, '_overlay_was_on'):
+            context.space_data.overlay.show_overlays = self._overlay_was_on
         for h in (self._handle_3d, self._handle_pixel,
                   self._handle_shortcuts):
             if h:
@@ -1616,6 +1625,13 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self._update_mesh(context)
             self.report({'INFO'},
                         f"Matched dimensions of {len(targets)} to active")
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'Q':
+            self._clean_view = not self._clean_view
+            context.space_data.overlay.show_overlays = not self._clean_view
+            state = "ON" if self._clean_view else "OFF"
+            self.report({'INFO'}, f"Clean view {state}")
             return {'RUNNING_MODAL'}
 
         if event.type == 'P':
