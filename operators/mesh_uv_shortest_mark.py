@@ -55,6 +55,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     _handle_text = None
     _timer = None
 
+    # Triangulate modifier state
+    _tri_mod = None
+    _tri_mod_show_viewport = None
+
     # Raycast state
     hit_obj = None
     hit_face_index = -1
@@ -776,6 +780,17 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         self._load_scene_props(context)
 
+        # Disable Triangulate modifier for accurate raycast on original geometry
+        self._tri_mod = None
+        self._tri_mod_show_viewport = None
+        obj = context.active_object
+        for mod in obj.modifiers:
+            if mod.type == 'TRIANGULATE':
+                self._tri_mod = mod
+                self._tri_mod_show_viewport = mod.show_viewport
+                mod.show_viewport = False
+                break
+
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             self._draw_3d, (context,), 'WINDOW', 'POST_VIEW'
         )
@@ -959,6 +974,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _cleanup(self, context):
+        # Restore Triangulate modifier state
+        if self._tri_mod is not None and self._tri_mod_show_viewport is not None:
+            self._tri_mod.show_viewport = self._tri_mod_show_viewport
+            self._tri_mod = None
+            self._tri_mod_show_viewport = None
+
         if self._handle:
             bpy.types.SpaceView3D.draw_handler_remove(
                 self._handle, 'WINDOW'
