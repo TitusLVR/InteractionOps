@@ -195,7 +195,7 @@ class IOPS_OT_Object_Replace(bpy.types.Operator):
     use_groups: BoolProperty(
         name="Use Groups",
         description="Source = group Empty or object in group. Targets = selected. Each target gets the full group (Empty + children)",
-        default=True,
+        default=False,
     )
 
     use_linked_data: BoolProperty(
@@ -292,6 +292,11 @@ class IOPS_OT_Object_Replace(bpy.types.Operator):
                     new_root, group_new = duplicate_group_hierarchy(
                         group_root, mx, collection, self.use_linked_data
                     )
+                    # Preserve target's parent hierarchy
+                    if target_ob.parent and target_ob.parent not in targets:
+                        new_root.parent = target_ob.parent
+                        new_root.matrix_parent_inverse = target_ob.matrix_parent_inverse.copy()
+                        new_root.matrix_world = mx
                     for new_ob in group_new:
                         new_ob.select_set(False)
                     new_objects.extend(group_new)
@@ -301,6 +306,11 @@ class IOPS_OT_Object_Replace(bpy.types.Operator):
                         new_ob.data = source.data.copy()
                     new_ob.matrix_world = mx
                     collection.objects.link(new_ob)
+                    # Preserve target's parent hierarchy
+                    if target_ob.parent and target_ob.parent not in targets:
+                        new_ob.parent = target_ob.parent
+                        new_ob.matrix_parent_inverse = target_ob.matrix_parent_inverse.copy()
+                        new_ob.matrix_world = mx
                     new_ob.select_set(False)
                     new_objects.append(new_ob)
 
