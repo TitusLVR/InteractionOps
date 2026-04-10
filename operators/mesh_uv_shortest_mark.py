@@ -72,6 +72,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     algorithm_idx = 0
     flow_angle = DEFAULT_FLOW_ANGLE
     sharp_angle = DEFAULT_SHARP_ANGLE
+    _angle_marked = False
 
     # Cached BMesh layers
     _crease_layer = None
@@ -510,8 +511,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         self._update_path(context)
 
-    def _execute_sharp_by_angle(self, context):
-        """Mark edges as sharp where the face angle exceeds the threshold."""
+    def _execute_mark_by_angle(self, context):
+        """Toggle mark/clear edges using the current mark type based on face angle threshold."""
         obj = self.hit_obj
         if not obj or obj.mode != 'EDIT':
             obj = context.active_object
@@ -519,9 +520,13 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             self.report({'WARNING'}, "No mesh in Edit Mode")
             return
 
-        bpy.ops.ed.undo_push(message="Mark Sharp by Angle")
+        clearing = self._angle_marked
+        mark_label = BARRIER_LABELS[self.mark_type]
+        action = "Clear" if clearing else "Mark"
+        bpy.ops.ed.undo_push(message=f"{action} {mark_label} by Angle")
 
         bm = bmesh.from_edit_mesh(obj.data)
+        self._cache_layers(bm)
         bm.edges.ensure_lookup_table()
         threshold = math.radians(self.sharp_angle)
         count = 0
@@ -530,16 +535,22 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             if len(edge.link_faces) == 2:
                 angle = edge.calc_face_angle(0.0)
                 if angle > threshold:
-                    edge.smooth = False
+                    if clearing:
+                        self._clear_mark(edge, bm)
+                    else:
+                        self._apply_mark(edge, bm)
                     count += 1
-                else:
-                    edge.smooth = True
             elif len(edge.link_faces) < 2:
-                edge.smooth = False
+                if clearing:
+                    self._clear_mark(edge, bm)
+                else:
+                    self._apply_mark(edge, bm)
                 count += 1
 
+        self._angle_marked = not clearing
         bmesh.update_edit_mesh(obj.data)
-        self.report({'INFO'}, f"Marked {count} sharp edges (angle > {self.sharp_angle}°)")
+        verb = "Cleared" if clearing else "Marked"
+        self.report({'INFO'}, f"{verb} {count} edges as {mark_label} (angle > {self.sharp_angle}°)")
         self._update_path(context)
 
     # ─── Path update ─────────────────────────────────────────────────
@@ -583,7 +594,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         context.workspace.status_text_set(
             f"Shortest Path Mark: [E] Barrier({bl}) | [R] Mark({ml}) | "
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
-            f"[S] Sharp by Angle | [Alt+Wheel] Sharp Angle({self.sharp_angle}°) | "
+            f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
             f"[LMB] Apply({n} edges) | [D] Clear Path | "
             f"[Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel"
         )
@@ -698,8 +709,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             (f"Mark: {ml}", "R"),
             (f"Algorithm: {al}", "A"),
             (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
-            (f"Sharp Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
-            ("Mark Sharp by Angle", "S"),
+            (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
+            ("Mark by Angle", "S"),
             (f"Apply ({n} edges)", "LMB"),
             ("Clear Path", "D"),
             ("Undo", "Ctrl+Z"),
@@ -761,6 +772,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.path_coords = []
         self.barrier_coords = []
         self._current_mouse_coord = (0, 0)
+        self._angle_marked = False
 
         self._load_scene_props(context)
 
@@ -800,6 +812,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 self.sharp_angle = min(self.sharp_angle + SHARP_ANGLE_STEP, 180)
             else:
                 self.sharp_angle = max(self.sharp_angle - SHARP_ANGLE_STEP, 0)
+            self._angle_marked = False
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -867,6 +880,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             self.mark_type_idx = (
                 (self.mark_type_idx + 1) % len(BARRIER_TYPES)
             )
+            self._angle_marked = False
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -893,7 +907,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             and not event.ctrl
             and not event.shift
         ):
-            self._execute_sharp_by_angle(context)
+            self._execute_mark_by_angle(context)
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
