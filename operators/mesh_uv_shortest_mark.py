@@ -526,6 +526,23 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     b = mat @ edge.verts[1].co.copy()
                     self.barrier_coords.append((a, b))
 
+    def _build_waypoint_coords(self, context):
+        self.waypoint_coords = []
+        if not self.waypoints:
+            return
+        obj = self.hit_obj if self.hit_obj else context.active_object
+        if not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
+            return
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.verts.ensure_lookup_table()
+            mat = obj.matrix_world
+            for vi in self.waypoints:
+                if 0 <= vi < len(bm.verts):
+                    self.waypoint_coords.append(mat @ bm.verts[vi].co.copy())
+        except (ReferenceError, AttributeError, ValueError):
+            pass
+
     # ─── Mouse / raycast ─────────────────────────────────────────────
 
     def _mouse_raycast(self, context, event):
@@ -712,6 +729,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.path_coords = []
         self.barrier_coords = []
 
+        # Always update waypoint coords (persists even without hovered edge)
+        self._build_waypoint_coords(context)
+
         obj = self.hit_obj
         if not obj or obj.mode != 'EDIT' or self.hovered_edge_index < 0:
             return
@@ -805,6 +825,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 gpu.state.depth_test_set('ALWAYS')
                 bb = batch_for_shader(shader, 'LINES', {"pos": bcoords})
                 bb.draw(shader)
+
+            # Waypoint dots
+            if self.waypoint_coords:
+                shader.uniform_float("color", WAYPOINT_COLOR)
+                gpu.state.point_size_set(WAYPOINT_SIZE)
+                gpu.state.depth_test_set('ALWAYS')
+                wp_batch = batch_for_shader(
+                    shader, 'POINTS', {"pos": self.waypoint_coords}
+                )
+                wp_batch.draw(shader)
 
             # Hovered edge highlight
             if self.hit_obj and self.hovered_edge_index >= 0:
@@ -909,6 +939,25 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             blf.draw(font_id, key)
 
             y += (tCSize + 5) * uifactor
+
+        # Draw waypoint chain numbers in 3D viewport
+        if self.waypoint_mode == 'CHAIN' and self.waypoint_coords:
+            region = context.region
+            rv3d = context.space_data.region_3d
+            for i, wco in enumerate(self.waypoint_coords):
+                s = bpy_extras.view3d_utils.location_3d_to_region_2d(
+                    region, rv3d, wco
+                )
+                if s:
+                    blf.color(
+                        font_id,
+                        WAYPOINT_COLOR[0],
+                        WAYPOINT_COLOR[1],
+                        WAYPOINT_COLOR[2],
+                        WAYPOINT_COLOR[3],
+                    )
+                    blf.position(font_id, s[0] + 10, s[1] + 10, 0)
+                    blf.draw(font_id, str(i + 1))
 
     # ─── Invoke / Modal / Cleanup ────────────────────────────────────
 
