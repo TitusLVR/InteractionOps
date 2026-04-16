@@ -167,6 +167,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     # ─── Path algorithms ─────────────────────────────────────────────
 
     def _compute_path(self, bm, hovered_edge):
+        if self.waypoints:
+            return self._compute_path_with_waypoints(bm, hovered_edge)
+
         v1, v2 = hovered_edge.verts
         # If start vertex already touches a barrier, arm is empty
         if self._vertex_touches_barrier(v1, hovered_edge):
@@ -394,6 +397,92 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             cur = pv
         edges.reverse()
         return edges
+
+    def _arm_terminal_vert(self, bm, arm_edges, start_vert):
+        """Walk the arm edge list from start_vert and return the far-end vertex."""
+        if not arm_edges:
+            return start_vert
+        current = start_vert
+        bm.edges.ensure_lookup_table()
+        for ei in arm_edges:
+            edge = bm.edges[ei]
+            v1, v2 = edge.verts
+            current = v2 if v1.index == current.index else v1
+        return current
+
+    def _compute_path_with_waypoints(self, bm, hovered_edge):
+        v1, v2 = hovered_edge.verts
+
+        # Trace arms to find terminal vertices (same as normal path)
+        if self._vertex_touches_barrier(v1, hovered_edge):
+            arm_a = []
+        else:
+            arm_a = self._trace_arm(bm, v1, excluded_edge=hovered_edge)
+
+        if self._vertex_touches_barrier(v2, hovered_edge):
+            arm_b = []
+        else:
+            arm_b = self._trace_arm(bm, v2, excluded_edge=hovered_edge)
+
+        terminal_start = self._arm_terminal_vert(bm, arm_a, v1)
+        terminal_end = self._arm_terminal_vert(bm, arm_b, v2)
+
+        # Build valid waypoint vertex list
+        bm.verts.ensure_lookup_table()
+        wp_verts = []
+        for vi in self.waypoints:
+            if 0 <= vi < len(bm.verts):
+                wp_verts.append(bm.verts[vi])
+
+        if not wp_verts:
+            arm_a.reverse()
+            return arm_a + [hovered_edge.index] + arm_b
+
+        # Build orderings to try
+        if self.waypoint_mode == 'CHAIN':
+            orderings = [wp_verts]
+        elif len(wp_verts) > MAX_AUTO_WAYPOINTS:
+            self.report(
+                {'INFO'},
+                f"Too many waypoints ({len(wp_verts)}) for auto-ordering, "
+                f"using placement order",
+            )
+            orderings = [wp_verts]
+        else:
+            orderings = list(permutations(wp_verts))
+
+        best_path = None
+        best_length = float('inf')
+
+        for ordering in orderings:
+            vertices = [terminal_start] + list(ordering) + [terminal_end]
+            path_edges = []
+            total_length = 0.0
+            valid = True
+
+            for i in range(len(vertices) - 1):
+                seg_start = vertices[i]
+                seg_end = vertices[i + 1]
+
+                if seg_start.index == seg_end.index:
+                    continue
+
+                segment = self._trace_arm(
+                    bm, seg_start, target_vert=seg_end
+                )
+                if not segment:
+                    valid = False
+                    break
+
+                for ei in segment:
+                    total_length += bm.edges[ei].calc_length()
+                path_edges.extend(segment)
+
+            if valid and total_length < best_length:
+                best_path = path_edges
+                best_length = total_length
+
+        return best_path if best_path else []
 
     # ─── Draw coordinate builders ────────────────────────────────────
 
