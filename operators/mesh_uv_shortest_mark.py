@@ -8,6 +8,7 @@ import blf
 from mathutils import Vector
 import heapq
 from collections import deque
+from itertools import permutations
 
 
 BARRIER_TYPES = ('SEAM', 'SHARP', 'CREASE', 'BEVEL')
@@ -40,6 +41,10 @@ HOVER_WIDTH = 4.0
 BARRIER_COLOR = (1.0, 0.2, 0.2, 0.8)
 BARRIER_WIDTH = 2.5
 
+WAYPOINT_COLOR = (0.0, 0.8, 0.0, 1.0)
+WAYPOINT_SIZE = 8.0
+MAX_AUTO_WAYPOINTS = 8
+
 
 class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     bl_idname = "iops.mesh_uv_shortest_mark"
@@ -69,6 +74,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     path_edge_indices = []
     path_coords = []
     barrier_coords = []
+
+    # Waypoints
+    waypoints = []
+    waypoint_mode = 'AUTO'
+    waypoint_coords = []
 
     # Settings indices
     barrier_type_idx = 0
