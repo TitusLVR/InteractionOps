@@ -722,6 +722,36 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.report({'INFO'}, f"{verb} {count} edges as {mark_label} (angle > {self.sharp_angle}°)")
         self._update_path(context)
 
+    def _toggle_waypoint(self, context, event, mode):
+        """Add or remove a waypoint at the closest vertex. Set waypoint_mode."""
+        if not self.hit_obj or self.hit_face_index < 0:
+            return
+        obj = self.hit_obj
+        if obj.mode != 'EDIT':
+            return
+
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            if self.hit_face_index >= len(bm.faces):
+                return
+            face = bm.faces[self.hit_face_index]
+            vi = self._closest_vert_in_face(context, event, face, obj)
+            if vi < 0:
+                return
+        except (IndexError, AttributeError, ReferenceError):
+            return
+
+        if vi in self.waypoints:
+            self.waypoints.remove(vi)
+        else:
+            self.waypoints.append(vi)
+
+        self.waypoint_mode = mode
+        self._update_path(context)
+        self._update_status(context)
+        context.area.tag_redraw()
+
     # ─── Path update ─────────────────────────────────────────────────
 
     def _update_path(self, context):
@@ -983,6 +1013,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.barrier_coords = []
         self._current_mouse_coord = (0, 0)
         self._angle_marked = False
+        self.waypoints = []
+        self.waypoint_mode = 'AUTO'
+        self.waypoint_coords = []
 
         self._load_scene_props(context)
 
@@ -1116,6 +1149,39 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             self.algorithm_idx = (
                 (self.algorithm_idx + 1) % len(ALGORITHM_TYPES)
             )
+            self._update_path(context)
+            self._update_status(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Toggle waypoint (Auto mode)
+        elif (
+            event.type == 'Q'
+            and event.value == 'PRESS'
+            and not event.ctrl
+            and not event.shift
+        ):
+            self._toggle_waypoint(context, event, 'AUTO')
+            return {'RUNNING_MODAL'}
+
+        # Toggle waypoint (Chain mode)
+        elif (
+            event.type == 'W'
+            and event.value == 'PRESS'
+            and not event.ctrl
+            and not event.shift
+        ):
+            self._toggle_waypoint(context, event, 'CHAIN')
+            return {'RUNNING_MODAL'}
+
+        # Clear all waypoints
+        elif (
+            event.type == 'Q'
+            and event.value == 'PRESS'
+            and event.ctrl
+            and not event.shift
+        ):
+            self.waypoints = []
             self._update_path(context)
             self._update_status(context)
             context.area.tag_redraw()
