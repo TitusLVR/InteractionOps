@@ -890,6 +890,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     pass
 
             gpu.state.line_width_set(1.0)
+            gpu.state.point_size_set(1.0)
             gpu.state.depth_test_set('LESS')
             gpu.state.blend_set('NONE')
 
@@ -1225,6 +1226,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             and event.ctrl
             and not event.shift
         ):
+            self.waypoints = []
             bpy.ops.ed.undo()
             self._update_path(context)
             self._update_status(context)
