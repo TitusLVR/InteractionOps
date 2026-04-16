@@ -763,10 +763,13 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         ml = BARRIER_LABELS[self.mark_type]
         al = ALGORITHM_LABELS[self.algorithm]
         n = len(self.path_edge_indices)
+        wp_n = len(self.waypoints)
+        wm = self.waypoint_mode
         context.workspace.status_text_set(
             f"Shortest Path Mark: [E] Barrier({bl}) | [R] Mark({ml}) | "
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
             f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
+            f"[Q] WP Auto | [W] WP Chain | WP({wm} {wp_n}) | [Ctrl+Q] Clear WP | "
             f"[LMB] Apply({n} edges) | [D] Clear Path | "
             f"[Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel"
         )
@@ -886,6 +889,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         al = ALGORITHM_LABELS[self.algorithm]
         n = len(self.path_edge_indices)
 
+        wp_n = len(self.waypoints)
+        wm = self.waypoint_mode
+
         lines = (
             (f"Barrier: {bl}", "E"),
             (f"Mark: {ml}", "R"),
@@ -893,6 +899,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
             (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
             ("Mark by Angle", "S"),
+            (f"Waypoint Auto ({wp_n})" if wm == 'AUTO' else "Waypoint Auto", "Q"),
+            (f"Waypoint Chain ({wp_n})" if wm == 'CHAIN' else "Waypoint Chain", "W"),
+            ("Clear Waypoints", "Ctrl+Q"),
             (f"Apply ({n} edges)", "LMB"),
             ("Clear Path", "D"),
             ("Undo", "Ctrl+Z"),
