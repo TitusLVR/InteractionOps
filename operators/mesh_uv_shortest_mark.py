@@ -180,18 +180,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         arm_a.reverse()
         return arm_a + [hovered_edge.index] + arm_b
 
-    def _trace_arm(self, bm, start_vert, excluded_edge):
+    def _trace_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
         algo = self.algorithm
         if algo == 'DIJKSTRA':
-            return self._dijkstra_arm(bm, start_vert, excluded_edge)
+            return self._dijkstra_arm(bm, start_vert, excluded_edge, target_vert)
         if algo == 'BFS':
-            return self._bfs_arm(bm, start_vert, excluded_edge)
-        return self._edge_loop_arm(bm, start_vert, excluded_edge)
+            return self._bfs_arm(bm, start_vert, excluded_edge, target_vert)
+        return self._edge_loop_arm(bm, start_vert, excluded_edge, target_vert)
 
-    def _vertex_touches_barrier(self, vert, excluded_edge):
+    def _vertex_touches_barrier(self, vert, excluded_edge=None):
         """Return True if any edge connected to vert is a barrier."""
         for edge in vert.link_edges:
-            if edge.index == excluded_edge.index:
+            if excluded_edge is not None and edge.index == excluded_edge.index:
                 continue
             if self._is_barrier(edge):
                 return True
@@ -211,9 +211,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         dot = incoming_dir.dot(outgoing.normalized())
         return dot >= self._flow_cos
 
-    def _dijkstra_arm(self, bm, start_vert, excluded_edge):
+    def _dijkstra_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
-        initial_dir = self._initial_dir(start_vert, excluded_edge)
+
+        if excluded_edge is not None:
+            initial_dir = self._initial_dir(start_vert, excluded_edge)
+        elif target_vert is not None:
+            d = target_vert.co - start_vert.co
+            initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
+        else:
+            initial_dir = Vector((1, 0, 0))
 
         dist = {start_vert.index: 0.0}
         prev = {}
@@ -232,16 +239,19 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
             vert = bm.verts[vi]
 
-            if vi != start_vert.index and self._vertex_touches_barrier(
-                vert, excluded_edge
-            ):
-                target = vi
-                break
+            if vi != start_vert.index:
+                if target_vert is not None:
+                    if vi == target_vert.index:
+                        target = vi
+                        break
+                elif self._vertex_touches_barrier(vert, excluded_edge):
+                    target = vi
+                    break
 
             inc_dir = incoming.get(vi, initial_dir)
 
             for edge in vert.link_edges:
-                if edge.index == excluded_edge.index:
+                if excluded_edge is not None and edge.index == excluded_edge.index:
                     continue
                 ov = edge.other_vert(vert)
                 if ov.index in visited:
@@ -262,9 +272,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             target = max(dist, key=dist.get)
         return self._reconstruct(prev, target) if target else []
 
-    def _bfs_arm(self, bm, start_vert, excluded_edge):
+    def _bfs_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
-        initial_dir = self._initial_dir(start_vert, excluded_edge)
+
+        if excluded_edge is not None:
+            initial_dir = self._initial_dir(start_vert, excluded_edge)
+        elif target_vert is not None:
+            d = target_vert.co - start_vert.co
+            initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
+        else:
+            initial_dir = Vector((1, 0, 0))
 
         prev = {}
         incoming = {start_vert.index: initial_dir}
@@ -278,16 +295,19 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 break
             vert = bm.verts[vi]
 
-            if vi != start_vert.index and self._vertex_touches_barrier(
-                vert, excluded_edge
-            ):
-                target = vi
-                break
+            if vi != start_vert.index:
+                if target_vert is not None:
+                    if vi == target_vert.index:
+                        target = vi
+                        break
+                elif self._vertex_touches_barrier(vert, excluded_edge):
+                    target = vi
+                    break
 
             inc_dir = incoming.get(vi, initial_dir)
 
             for edge in vert.link_edges:
-                if edge.index == excluded_edge.index:
+                if excluded_edge is not None and edge.index == excluded_edge.index:
                     continue
                 ov = edge.other_vert(vert)
                 if ov.index in visited:
@@ -306,7 +326,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             target = list(prev)[-1]
         return self._reconstruct(prev, target) if target else []
 
-    def _edge_loop_arm(self, bm, start_vert, excluded_edge):
+    def _edge_loop_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
         path = []
         current = start_vert
@@ -314,14 +334,19 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         visited = {start_vert.index}
 
         for _ in range(MAX_PATH_EDGES):
-            prev_dir = (current.co - prev_edge.other_vert(current).co)
+            if prev_edge is not None:
+                prev_dir = (current.co - prev_edge.other_vert(current).co)
+            elif target_vert is not None:
+                prev_dir = (target_vert.co - current.co)
+            else:
+                prev_dir = Vector((1, 0, 0))
             if prev_dir.length < 1e-8:
                 break
             prev_dir = prev_dir.normalized()
 
             candidates = []
             for edge in current.link_edges:
-                if edge.index == prev_edge.index:
+                if prev_edge is not None and edge.index == prev_edge.index:
                     continue
                 ov = edge.other_vert(current)
                 if ov.index in visited:
@@ -346,7 +371,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             nv = best.other_vert(current)
             visited.add(nv.index)
 
-            if self._vertex_touches_barrier(nv, excluded_edge):
+            if target_vert is not None:
+                if nv.index == target_vert.index:
+                    break
+            elif self._vertex_touches_barrier(nv, excluded_edge):
                 break
 
             prev_edge = best
