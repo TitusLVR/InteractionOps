@@ -472,6 +472,27 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         return best_idx
 
+    def _closest_vert_in_face(self, context, event, face, obj):
+        region = context.region
+        rv3d = context.space_data.region_3d
+        mx, my = event.mouse_region_x, event.mouse_region_y
+
+        best_idx = -1
+        best_dist = float('inf')
+
+        for vert in face.verts:
+            vw = obj.matrix_world @ vert.co
+            s = bpy_extras.view3d_utils.location_3d_to_region_2d(
+                region, rv3d, vw
+            )
+            if s:
+                d = (Vector((mx, my)) - Vector(s)).length
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = vert.index
+
+        return best_idx
+
     # ─── Mark execution ──────────────────────────────────────────────
 
     def _execute_mark(self, context):
