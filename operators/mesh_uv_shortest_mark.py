@@ -18,9 +18,10 @@ BARRIER_LABELS = {
     'CREASE': 'Crease',
     'BEVEL': 'Bevel Weight',
 }
-ALGORITHM_TYPES = ('DIJKSTRA', 'EDGE_LOOP', 'BFS')
+ALGORITHM_TYPES = ('DIJKSTRA', 'ASTAR', 'EDGE_LOOP', 'BFS')
 ALGORITHM_LABELS = {
     'DIJKSTRA': 'Dijkstra',
+    'ASTAR': 'A*',
     'EDGE_LOOP': 'Edge Loop',
     'BFS': 'BFS',
 }
@@ -199,6 +200,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         if algo == 'DIJKSTRA':
             return self._dijkstra_arm(bm, start_vert, excluded_edge, target_vert,
                                       forbidden_verts)
+        if algo == 'ASTAR':
+            return self._astar_arm(bm, start_vert, excluded_edge, target_vert,
+                                   forbidden_verts)
         if algo == 'BFS':
             return self._bfs_arm(bm, start_vert, excluded_edge, target_vert,
                                  forbidden_verts)
@@ -290,6 +294,68 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         if target is None and prev:
             target = max(dist, key=dist.get)
+        return self._reconstruct(prev, target) if target else []
+
+    def _astar_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
+                   forbidden_verts=None):
+        if target_vert is None:
+            return self._dijkstra_arm(bm, start_vert, excluded_edge,
+                                      target_vert, forbidden_verts)
+
+        self._flow_cos = math.cos(math.radians(self.flow_angle))
+
+        if excluded_edge is not None:
+            initial_dir = self._initial_dir(start_vert, excluded_edge)
+        else:
+            d = target_vert.co - start_vert.co
+            initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
+
+        target_co = target_vert.co
+        dist = {start_vert.index: 0.0}
+        prev = {}
+        incoming = {start_vert.index: initial_dir}
+        h0 = (start_vert.co - target_co).length
+        heap = [(h0, 0.0, start_vert.index)]
+        visited = set()
+        target = None
+
+        while heap:
+            _f, g, vi = heapq.heappop(heap)
+            if vi in visited:
+                continue
+            visited.add(vi)
+            if len(visited) > MAX_PATH_EDGES:
+                break
+
+            vert = bm.verts[vi]
+
+            if vi == target_vert.index:
+                target = vi
+                break
+
+            inc_dir = incoming.get(vi, initial_dir)
+
+            for edge in vert.link_edges:
+                if excluded_edge is not None and edge.index == excluded_edge.index:
+                    continue
+                ov = edge.other_vert(vert)
+                if ov.index in visited:
+                    continue
+                if forbidden_verts is not None and ov.index in forbidden_verts:
+                    continue
+                if self._is_barrier(edge):
+                    continue
+                if not self._passes_flow(inc_dir, vert, ov):
+                    continue
+                ng = g + edge.calc_length()
+                if ov.index not in dist or ng < dist[ov.index]:
+                    dist[ov.index] = ng
+                    prev[ov.index] = (vi, edge.index)
+                    edge_dir = ov.co - vert.co
+                    incoming[ov.index] = edge_dir.normalized() if edge_dir.length > 1e-8 else inc_dir
+                    h = (ov.co - target_co).length
+                    heapq.heappush(heap, (ng + h, ng, ov.index))
+
         return self._reconstruct(prev, target) if target else []
 
     def _bfs_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
@@ -585,10 +651,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 locally_forbidden.discard(verts[i].index)
                 locally_forbidden.discard(verts[j].index)
 
-                alt = self._dijkstra_arm(
-                    bm, verts[i], target_vert=verts[j],
-                    forbidden_verts=locally_forbidden,
-                )
+                if self.algorithm == 'ASTAR':
+                    alt = self._astar_arm(
+                        bm, verts[i], target_vert=verts[j],
+                        forbidden_verts=locally_forbidden,
+                    )
+                else:
+                    alt = self._dijkstra_arm(
+                        bm, verts[i], target_vert=verts[j],
+                        forbidden_verts=locally_forbidden,
+                    )
                 if not alt:
                     continue
                 alt_len = subpath_length(alt)
