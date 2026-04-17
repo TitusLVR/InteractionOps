@@ -8,7 +8,6 @@ import blf
 from mathutils import Vector
 import heapq
 from collections import deque
-from itertools import permutations
 
 
 BARRIER_TYPES = ('SEAM', 'SHARP', 'CREASE', 'BEVEL')
@@ -42,9 +41,11 @@ HOVER_WIDTH = 4.0
 BARRIER_COLOR = (1.0, 0.2, 0.2, 0.8)
 BARRIER_WIDTH = 2.5
 
-WAYPOINT_COLOR = (0.0, 0.8, 0.0, 1.0)
-WAYPOINT_SIZE = 8.0
-MAX_AUTO_WAYPOINTS = 8
+ANCHOR_COLOR = (0.0, 0.8, 0.0, 1.0)
+ANCHOR_SIZE = 10.0
+
+PATH_MODES = ('DIRECTION', 'BUILD')
+PATH_MODE_LABELS = {'DIRECTION': 'Direction', 'BUILD': 'Build'}
 MAX_SMOOTH_LEVEL = 10
 SMOOTH_STEP = 1
 
@@ -78,10 +79,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     path_coords = []
     barrier_coords = []
 
-    # Waypoints
-    waypoints = []
-    waypoint_mode = 'AUTO'
-    waypoint_coords = []
+    # Path mode
+    path_mode_idx = 0
+    anchor_vert_index = -1
+    anchor_coords = []
+    _target_vert_index = -1
 
     # Settings indices
     barrier_type_idx = 0
@@ -109,6 +111,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     @property
     def algorithm(self):
         return ALGORITHM_TYPES[self.algorithm_idx]
+
+    @property
+    def path_mode(self):
+        return PATH_MODES[self.path_mode_idx]
 
     @classmethod
     def poll(cls, context):
@@ -171,8 +177,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     # ─── Path algorithms ─────────────────────────────────────────────
 
     def _compute_path(self, bm, hovered_edge):
-        if self.waypoints:
-            return self._compute_path_with_waypoints(bm, hovered_edge)
+        if self.path_mode == 'BUILD':
+            return self._compute_path_build(bm)
 
         v1, v2 = hovered_edge.verts
         # If start vertex already touches a barrier, arm is empty
@@ -513,97 +519,21 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             result.add(current.index)
         return result
 
-    def _compute_path_with_waypoints(self, bm, hovered_edge):
-        v1, v2 = hovered_edge.verts
-
-        # Trace arms to find terminal vertices (same as normal path)
-        if self._vertex_touches_barrier(v1, hovered_edge):
-            arm_a = []
-        else:
-            arm_a = self._trace_arm(bm, v1, excluded_edge=hovered_edge)
-
-        if self._vertex_touches_barrier(v2, hovered_edge):
-            arm_b = []
-        else:
-            arm_b = self._trace_arm(bm, v2, excluded_edge=hovered_edge)
-
-        terminal_start = self._arm_terminal_vert(bm, arm_a, v1)
-        terminal_end = self._arm_terminal_vert(bm, arm_b, v2)
-
+    def _compute_path_build(self, bm):
+        if self.anchor_vert_index < 0 or self._target_vert_index < 0:
+            return []
         bm.verts.ensure_lookup_table()
-        wp_verts = []
-        for vi in self.waypoints:
-            if 0 <= vi < len(bm.verts):
-                wp_verts.append(bm.verts[vi])
-
-        if not wp_verts:
-            arm_a.reverse()
-            return arm_a + [hovered_edge.index] + arm_b
-
-        # Build orderings to try
-        if self.waypoint_mode == 'CHAIN':
-            orderings = [wp_verts]
-        elif len(wp_verts) > MAX_AUTO_WAYPOINTS:
-            self.report(
-                {'INFO'},
-                f"Too many waypoints ({len(wp_verts)}) for auto-ordering, "
-                f"using placement order",
-            )
-            orderings = [wp_verts]
-        else:
-            orderings = list(permutations(wp_verts))
-
-        best_path = None
-        best_length = float('inf')
-
-        for ordering in orderings:
-            vertices = [terminal_start] + list(ordering) + [terminal_end]
-            path_edges = []
-            total_length = 0.0
-            forbidden = set()
-            valid = True
-
-            for i in range(len(vertices) - 1):
-                seg_start = vertices[i]
-                seg_end = vertices[i + 1]
-
-                if seg_start.index == seg_end.index:
-                    continue
-
-                # Allow the target vertex even if it got into forbidden
-                # (can happen only if user placed duplicate waypoints; safe guard).
-                seg_forbidden = forbidden - {seg_end.index}
-
-                segment = self._trace_arm(
-                    bm, seg_start, target_vert=seg_end,
-                    forbidden_verts=seg_forbidden,
-                )
-                if not segment:
-                    valid = False
-                    break
-
-                segment = self._smooth_path(
-                    bm, segment, seg_start,
-                    forbidden_verts=seg_forbidden,
-                )
-
-                for ei in segment:
-                    total_length += bm.edges[ei].calc_length()
-                path_edges.extend(segment)
-
-                # Mark all vertices on this segment as forbidden for later
-                # segments, EXCLUDING seg_end so the next segment can start there.
-                seg_verts = self._segment_verts(bm, segment, seg_start)
-                seg_verts.discard(seg_end.index)
-                forbidden.update(seg_verts)
-
-            # Note: total_length is the post-smooth length. When smooth_level > 0,
-            # the winning permutation is decided on smoothed paths, not raw traces.
-            if valid and total_length < best_length:
-                best_path = path_edges
-                best_length = total_length
-
-        return best_path if best_path else []
+        if (self.anchor_vert_index >= len(bm.verts)
+                or self._target_vert_index >= len(bm.verts)):
+            return []
+        if self.anchor_vert_index == self._target_vert_index:
+            return []
+        anchor = bm.verts[self.anchor_vert_index]
+        target = bm.verts[self._target_vert_index]
+        path = self._trace_arm(bm, anchor, target_vert=target)
+        if path:
+            path = self._smooth_path(bm, path, anchor, forbidden_verts=None)
+        return path
 
     def _smooth_path(self, bm, edge_indices, start_vert, forbidden_verts=None):
         """Shortcut-based post-process. Returns input unchanged at level 0."""
@@ -718,9 +648,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     b = mat @ edge.verts[1].co.copy()
                     self.barrier_coords.append((a, b))
 
-    def _build_waypoint_coords(self, context):
-        self.waypoint_coords = []
-        if not self.waypoints:
+    def _build_anchor_coords(self, context):
+        self.anchor_coords = []
+        if self.anchor_vert_index < 0:
             return
         obj = self.hit_obj if self.hit_obj else context.active_object
         if not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
@@ -728,12 +658,34 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         try:
             bm = bmesh.from_edit_mesh(obj.data)
             bm.verts.ensure_lookup_table()
-            mat = obj.matrix_world
-            for vi in self.waypoints:
-                if 0 <= vi < len(bm.verts):
-                    self.waypoint_coords.append(mat @ bm.verts[vi].co.copy())
+            if 0 <= self.anchor_vert_index < len(bm.verts):
+                self.anchor_coords.append(
+                    obj.matrix_world
+                    @ bm.verts[self.anchor_vert_index].co.copy()
+                )
         except (ReferenceError, AttributeError, ValueError):
             pass
+
+    def _pick_closest_vert_of_edge(self, context, edge, obj):
+        region = context.region
+        rv3d = context.space_data.region_3d
+        if region is None or rv3d is None:
+            return edge.verts[0].index
+        mx, my = self._current_mouse_coord
+        mat = obj.matrix_world
+        best_i = -1
+        best_d = float('inf')
+        for v in edge.verts:
+            sc = bpy_extras.view3d_utils.location_3d_to_region_2d(
+                region, rv3d, mat @ v.co
+            )
+            if sc is None:
+                continue
+            d = (sc[0] - mx) ** 2 + (sc[1] - my) ** 2
+            if d < best_d:
+                best_d = d
+                best_i = v.index
+        return best_i if best_i >= 0 else edge.verts[0].index
 
     # ─── Mouse / raycast ─────────────────────────────────────────────
 
@@ -914,32 +866,46 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.report({'INFO'}, f"{verb} {count} edges as {mark_label} (angle > {self.sharp_angle}°)")
         self._update_path(context)
 
-    def _toggle_waypoint(self, context, event, mode):
-        """Add or remove a waypoint at the closest vertex. Set waypoint_mode."""
-        if not self.hit_obj or self.hit_face_index < 0:
+    def _build_mode_click(self, context):
+        """In BUILD mode: set anchor on first click, apply marks + chain on second."""
+        if not self.hit_obj or self.hovered_edge_index < 0:
             return
         obj = self.hit_obj
         if obj.mode != 'EDIT':
             return
-
         try:
             bm = bmesh.from_edit_mesh(obj.data)
-            bm.faces.ensure_lookup_table()
-            if self.hit_face_index >= len(bm.faces):
+            bm.edges.ensure_lookup_table()
+            if self.hovered_edge_index >= len(bm.edges):
                 return
-            face = bm.faces[self.hit_face_index]
-            vi = self._closest_vert_in_face(context, event, face, obj)
-            if vi < 0:
-                return
+            edge = bm.edges[self.hovered_edge_index]
+            target_vi = self._pick_closest_vert_of_edge(context, edge, obj)
         except (IndexError, AttributeError, ReferenceError):
             return
 
-        if vi in self.waypoints:
-            self.waypoints.remove(vi)
-        else:
-            self.waypoints.append(vi)
+        if self.anchor_vert_index < 0:
+            self.anchor_vert_index = target_vi
+            self._update_path(context)
+            return
 
-        self.waypoint_mode = mode
+        if target_vi == self.anchor_vert_index:
+            return
+
+        # Apply marks on the current preview path, then chain anchor forward.
+        self._execute_mark(context)
+        self.anchor_vert_index = target_vi
+        self._update_path(context)
+
+    def _toggle_path_mode(self, context):
+        self.path_mode_idx = (self.path_mode_idx + 1) % len(PATH_MODES)
+        if self.path_mode != 'BUILD':
+            self.anchor_vert_index = -1
+        self._update_path(context)
+        self._update_status(context)
+        context.area.tag_redraw()
+
+    def _clear_anchor(self, context):
+        self.anchor_vert_index = -1
         self._update_path(context)
         self._update_status(context)
         context.area.tag_redraw()
@@ -951,8 +917,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.path_coords = []
         self.barrier_coords = []
 
-        # Always update waypoint coords (persists even without hovered edge)
-        self._build_waypoint_coords(context)
+        self._build_anchor_coords(context)
 
         obj = self.hit_obj
         if not obj or obj.mode != 'EDIT' or self.hovered_edge_index < 0:
@@ -969,6 +934,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 return
 
             he = bm.edges[self.hovered_edge_index]
+            if self.path_mode == 'BUILD':
+                self._target_vert_index = self._pick_closest_vert_of_edge(
+                    context, he, obj
+                )
+            else:
+                self._target_vert_index = -1
             self.path_edge_indices = self._compute_path(bm, he)
             self._build_draw_coords(bm, obj)
             self._build_barrier_coords(bm, obj)
@@ -984,16 +955,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         bl = BARRIER_LABELS[self.barrier_type]
         ml = BARRIER_LABELS[self.mark_type]
         al = ALGORITHM_LABELS[self.algorithm]
+        pm = PATH_MODE_LABELS[self.path_mode]
         n = len(self.path_edge_indices)
-        wp_n = len(self.waypoints)
-        wm = self.waypoint_mode
+        anchor_set = self.anchor_vert_index >= 0
         context.workspace.status_text_set(
             f"Shortest Path Mark: [E] Barrier({bl}) | [R] Mark({ml}) | "
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
             f"[Shift+Wheel] Smooth({self.smooth_level}) | "
             f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
-            f"[Q] WP Auto | [W] WP Chain | WP({wm} {wp_n}) | [Ctrl+Q] Clear WP | "
-            f"[LMB] Apply({n} edges) | [D] Clear Path | "
+            f"[Q] Mode({pm}) | [Ctrl+Q] Clear Anchor"
+            f"{' (set)' if anchor_set else ''} | "
+            f"[LMB] {'Click Start/End' if self.path_mode == 'BUILD' else 'Apply'}"
+            f"({n} edges) | [D] Clear Path | "
             f"[Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel"
         )
 
@@ -1007,6 +980,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         props.shortest_mark_flow_angle = self.flow_angle
         props.shortest_mark_sharp_angle = self.sharp_angle
         props.shortest_mark_smooth_level = self.smooth_level
+        props.shortest_mark_path_mode_idx = self.path_mode_idx
 
     def _load_scene_props(self, context):
         props = context.scene.IOPS
@@ -1016,6 +990,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.flow_angle = props.shortest_mark_flow_angle
         self.sharp_angle = props.shortest_mark_sharp_angle
         self.smooth_level = props.shortest_mark_smooth_level
+        self.path_mode_idx = props.shortest_mark_path_mode_idx
 
     # ─── Draw callbacks ──────────────────────────────────────────────
 
@@ -1054,15 +1029,15 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 bb = batch_for_shader(shader, 'LINES', {"pos": bcoords})
                 bb.draw(shader)
 
-            # Waypoint dots
-            if self.waypoint_coords:
-                shader.uniform_float("color", WAYPOINT_COLOR)
-                gpu.state.point_size_set(WAYPOINT_SIZE)
+            # Anchor dot (build mode)
+            if self.anchor_coords:
+                shader.uniform_float("color", ANCHOR_COLOR)
+                gpu.state.point_size_set(ANCHOR_SIZE)
                 gpu.state.depth_test_set('ALWAYS')
-                wp_batch = batch_for_shader(
-                    shader, 'POINTS', {"pos": self.waypoint_coords}
+                ab = batch_for_shader(
+                    shader, 'POINTS', {"pos": self.anchor_coords}
                 )
-                wp_batch.draw(shader)
+                ab.draw(shader)
 
             # Hovered edge highlight
             if self.hit_obj and self.hovered_edge_index >= 0:
@@ -1113,10 +1088,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         bl = BARRIER_LABELS[self.barrier_type]
         ml = BARRIER_LABELS[self.mark_type]
         al = ALGORITHM_LABELS[self.algorithm]
+        pm = PATH_MODE_LABELS[self.path_mode]
         n = len(self.path_edge_indices)
+        anchor_set = self.anchor_vert_index >= 0
 
-        wp_n = len(self.waypoints)
-        wm = self.waypoint_mode
+        apply_label = (
+            "Click Start/End" if self.path_mode == 'BUILD' else "Apply"
+        )
+        clear_anchor_label = (
+            "Clear Anchor (set)" if anchor_set else "Clear Anchor"
+        )
 
         lines = (
             (f"Barrier: {bl}", "E"),
@@ -1126,10 +1107,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
             (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
             ("Mark by Angle", "S"),
-            (f"Waypoint Auto ({wp_n})" if wm == 'AUTO' else "Waypoint Auto", "Q"),
-            (f"Waypoint Chain ({wp_n})" if wm == 'CHAIN' else "Waypoint Chain", "W"),
-            ("Clear Waypoints", "Ctrl+Q"),
-            (f"Apply ({n} edges)", "LMB"),
+            (f"Mode: {pm}", "Q"),
+            (clear_anchor_label, "Ctrl+Q"),
+            (f"{apply_label} ({n} edges)", "LMB"),
             ("Clear Path", "D"),
             ("Undo", "Ctrl+Z"),
             ("Finish", "Space"),
@@ -1176,25 +1156,6 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
             y += (tCSize + 5) * uifactor
 
-        # Draw waypoint chain numbers in 3D viewport
-        if self.waypoint_mode == 'CHAIN' and self.waypoint_coords:
-            region = context.region
-            rv3d = context.space_data.region_3d
-            for i, wco in enumerate(self.waypoint_coords):
-                s = bpy_extras.view3d_utils.location_3d_to_region_2d(
-                    region, rv3d, wco
-                )
-                if s:
-                    blf.color(
-                        font_id,
-                        WAYPOINT_COLOR[0],
-                        WAYPOINT_COLOR[1],
-                        WAYPOINT_COLOR[2],
-                        WAYPOINT_COLOR[3],
-                    )
-                    blf.position(font_id, s[0] + 10, s[1] + 10, 0)
-                    blf.draw(font_id, str(i + 1))
-
     # ─── Invoke / Modal / Cleanup ────────────────────────────────────
 
     def invoke(self, context, event):
@@ -1210,10 +1171,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.barrier_coords = []
         self._current_mouse_coord = (0, 0)
         self._angle_marked = False
-        self.waypoints = []
-        self.waypoint_mode = 'AUTO'
-        self.waypoint_coords = []
+        self.anchor_vert_index = -1
+        self.anchor_coords = []
+        self._target_vert_index = -1
         self.smooth_level = 0
+        self.path_mode_idx = 0
 
         self._load_scene_props(context)
 
@@ -1363,37 +1325,24 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle waypoint (Auto mode)
+        # Toggle path mode (Direction <-> Build)
         elif (
             event.type == 'Q'
             and event.value == 'PRESS'
             and not event.ctrl
             and not event.shift
         ):
-            self._toggle_waypoint(context, event, 'AUTO')
+            self._toggle_path_mode(context)
             return {'RUNNING_MODAL'}
 
-        # Toggle waypoint (Chain mode)
-        elif (
-            event.type == 'W'
-            and event.value == 'PRESS'
-            and not event.ctrl
-            and not event.shift
-        ):
-            self._toggle_waypoint(context, event, 'CHAIN')
-            return {'RUNNING_MODAL'}
-
-        # Clear all waypoints
+        # Clear build-mode anchor
         elif (
             event.type == 'Q'
             and event.value == 'PRESS'
             and event.ctrl
             and not event.shift
         ):
-            self.waypoints = []
-            self._update_path(context)
-            self._update_status(context)
-            context.area.tag_redraw()
+            self._clear_anchor(context)
             return {'RUNNING_MODAL'}
 
         # Mark sharp by angle
@@ -1420,9 +1369,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Apply marks
+        # LMB: apply marks (Direction) or click start/end (Build)
         elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            self._execute_mark(context)
+            if self.path_mode == 'BUILD':
+                self._build_mode_click(context)
+            else:
+                self._execute_mark(context)
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -1434,7 +1386,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             and event.ctrl
             and not event.shift
         ):
-            self.waypoints = []
+            self.anchor_vert_index = -1
             bpy.ops.ed.undo()
             self._update_path(context)
             self._update_status(context)
