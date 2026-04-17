@@ -666,16 +666,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         except (ReferenceError, AttributeError, ValueError):
             pass
 
-    def _pick_closest_vert_of_edge(self, context, edge, obj):
+    def _pick_closest_vert_of_face(self, context, face, obj):
         region = context.region
         rv3d = context.space_data.region_3d
         if region is None or rv3d is None:
-            return edge.verts[0].index
+            return face.verts[0].index
         mx, my = self._current_mouse_coord
         mat = obj.matrix_world
         best_i = -1
         best_d = float('inf')
-        for v in edge.verts:
+        for v in face.verts:
             sc = bpy_extras.view3d_utils.location_3d_to_region_2d(
                 region, rv3d, mat @ v.co
             )
@@ -685,7 +685,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             if d < best_d:
                 best_d = d
                 best_i = v.index
-        return best_i if best_i >= 0 else edge.verts[0].index
+        return best_i if best_i >= 0 else face.verts[0].index
 
     # ─── Mouse / raycast ─────────────────────────────────────────────
 
@@ -868,18 +868,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
     def _build_mode_click(self, context):
         """In BUILD mode: set anchor on first click, apply marks + chain on second."""
-        if not self.hit_obj or self.hovered_edge_index < 0:
+        if not self.hit_obj or self.hit_face_index < 0:
             return
         obj = self.hit_obj
         if obj.mode != 'EDIT':
             return
         try:
             bm = bmesh.from_edit_mesh(obj.data)
-            bm.edges.ensure_lookup_table()
-            if self.hovered_edge_index >= len(bm.edges):
+            bm.faces.ensure_lookup_table()
+            if self.hit_face_index >= len(bm.faces):
                 return
-            edge = bm.edges[self.hovered_edge_index]
-            target_vi = self._pick_closest_vert_of_edge(context, edge, obj)
+            face = bm.faces[self.hit_face_index]
+            target_vi = self._pick_closest_vert_of_face(context, face, obj)
         except (IndexError, AttributeError, ReferenceError):
             return
 
@@ -920,7 +920,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self._build_anchor_coords(context)
 
         obj = self.hit_obj
-        if not obj or obj.mode != 'EDIT' or self.hovered_edge_index < 0:
+        if not obj or obj.mode != 'EDIT':
             return
 
         try:
@@ -930,19 +930,25 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             bm.edges.ensure_lookup_table()
             bm.faces.ensure_lookup_table()
 
-            if self.hovered_edge_index >= len(bm.edges):
-                return
-
-            he = bm.edges[self.hovered_edge_index]
             if self.path_mode == 'BUILD':
-                self._target_vert_index = self._pick_closest_vert_of_edge(
-                    context, he, obj
+                if self.hit_face_index < 0 or self.hit_face_index >= len(bm.faces):
+                    self._target_vert_index = -1
+                    return
+                face = bm.faces[self.hit_face_index]
+                self._target_vert_index = self._pick_closest_vert_of_face(
+                    context, face, obj
                 )
+                self.path_edge_indices = self._compute_path(bm, None)
+                self._build_draw_coords(bm, obj)
+                self._build_barrier_coords(bm, obj)
             else:
                 self._target_vert_index = -1
-            self.path_edge_indices = self._compute_path(bm, he)
-            self._build_draw_coords(bm, obj)
-            self._build_barrier_coords(bm, obj)
+                if self.hovered_edge_index < 0 or self.hovered_edge_index >= len(bm.edges):
+                    return
+                he = bm.edges[self.hovered_edge_index]
+                self.path_edge_indices = self._compute_path(bm, he)
+                self._build_draw_coords(bm, obj)
+                self._build_barrier_coords(bm, obj)
 
         except (IndexError, AttributeError, ReferenceError, ValueError):
             self.path_edge_indices = []
@@ -1039,12 +1045,24 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 )
                 ab.draw(shader)
 
-            # Hovered edge highlight
-            if self.hit_obj and self.hovered_edge_index >= 0:
+            # Hover highlight: target vertex (Build) or edge (Direction)
+            if self.hit_obj and self.hit_obj.mode == 'EDIT':
                 try:
                     obj = self.hit_obj
-                    if obj.mode == 'EDIT':
-                        bm = bmesh.from_edit_mesh(obj.data)
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    if (self.path_mode == 'BUILD'
+                            and self._target_vert_index >= 0):
+                        bm.verts.ensure_lookup_table()
+                        if self._target_vert_index < len(bm.verts):
+                            v = bm.verts[self._target_vert_index]
+                            p = obj.matrix_world @ v.co.copy()
+                            shader.uniform_float("color", HOVER_COLOR)
+                            gpu.state.point_size_set(ANCHOR_SIZE)
+                            tb = batch_for_shader(
+                                shader, 'POINTS', {"pos": [p]}
+                            )
+                            tb.draw(shader)
+                    elif self.path_mode != 'BUILD' and self.hovered_edge_index >= 0:
                         bm.edges.ensure_lookup_table()
                         if self.hovered_edge_index < len(bm.edges):
                             e = bm.edges[self.hovered_edge_index]
@@ -1260,13 +1278,23 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     bm.faces.ensure_lookup_table()
                     if fi < len(bm.faces):
                         face = bm.faces[fi]
-                        new_idx = self._closest_edge_in_face(
+                        new_edge_idx = self._closest_edge_in_face(
                             context, event, face, obj
                         )
-                        if new_idx != self.hovered_edge_index:
-                            self.hovered_edge_index = new_idx
-                            self._update_path(context)
-                            self._update_status(context)
+                        if self.path_mode == 'BUILD':
+                            new_tgt = self._pick_closest_vert_of_face(
+                                context, face, obj
+                            )
+                            if (new_tgt != self._target_vert_index
+                                    or new_edge_idx != self.hovered_edge_index):
+                                self.hovered_edge_index = new_edge_idx
+                                self._update_path(context)
+                                self._update_status(context)
+                        else:
+                            if new_edge_idx != self.hovered_edge_index:
+                                self.hovered_edge_index = new_edge_idx
+                                self._update_path(context)
+                                self._update_status(context)
                 except (IndexError, AttributeError, ReferenceError):
                     pass
             else:
