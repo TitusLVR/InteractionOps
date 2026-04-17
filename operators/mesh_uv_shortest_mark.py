@@ -918,6 +918,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         context.workspace.status_text_set(
             f"Shortest Path Mark: [E] Barrier({bl}) | [R] Mark({ml}) | "
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
+            f"[Shift+Wheel] Smooth({self.smooth_level}) | "
             f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
             f"[Q] WP Auto | [W] WP Chain | WP({wm} {wp_n}) | [Ctrl+Q] Clear WP | "
             f"[LMB] Apply({n} edges) | [D] Clear Path | "
@@ -1048,6 +1049,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             (f"Mark: {ml}", "R"),
             (f"Algorithm: {al}", "A"),
             (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
+            (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
             (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
             ("Mark by Angle", "S"),
             (f"Waypoint Auto ({wp_n})" if wm == 'AUTO' else "Waypoint Auto", "Q"),
