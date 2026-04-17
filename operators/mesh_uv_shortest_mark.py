@@ -44,6 +44,8 @@ BARRIER_WIDTH = 2.5
 WAYPOINT_COLOR = (0.0, 0.8, 0.0, 1.0)
 WAYPOINT_SIZE = 8.0
 MAX_AUTO_WAYPOINTS = 8
+MAX_SMOOTH_LEVEL = 10
+SMOOTH_STEP = 1
 
 
 class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
@@ -87,6 +89,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     flow_angle = DEFAULT_FLOW_ANGLE
     sharp_angle = DEFAULT_SHARP_ANGLE
     _angle_marked = False
+    smooth_level = 0
 
     # Cached BMesh layers
     _crease_layer = None
@@ -1017,6 +1020,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.waypoints = []
         self.waypoint_mode = 'AUTO'
         self.waypoint_coords = []
+        self.smooth_level = 0
 
         self._load_scene_props(context)
 
