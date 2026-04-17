@@ -184,13 +184,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         else:
             arm_b = self._trace_arm(bm, v2, hovered_edge)
 
-        # Smooth each arm between its endpoints
+        # Smooth each arm
         if arm_a:
-            arm_a_end = self._arm_terminal_vert(bm, arm_a, v1)
-            arm_a = self._smooth_path(bm, arm_a, v1, arm_a_end, forbidden_verts=None)
+            arm_a = self._smooth_path(bm, arm_a, v1, forbidden_verts=None)
         if arm_b:
-            arm_b_end = self._arm_terminal_vert(bm, arm_b, v2)
-            arm_b = self._smooth_path(bm, arm_b, v2, arm_b_end, forbidden_verts=None)
+            arm_b = self._smooth_path(bm, arm_b, v2, forbidden_verts=None)
 
         arm_a.reverse()
         return arm_a + [hovered_edge.index] + arm_b
@@ -519,7 +517,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     break
 
                 segment = self._smooth_path(
-                    bm, segment, seg_start, seg_end,
+                    bm, segment, seg_start,
                     forbidden_verts=seg_forbidden,
                 )
 
@@ -533,13 +531,15 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 seg_verts.discard(seg_end.index)
                 forbidden.update(seg_verts)
 
+            # Note: total_length is the post-smooth length. When smooth_level > 0,
+            # the winning permutation is decided on smoothed paths, not raw traces.
             if valid and total_length < best_length:
                 best_path = path_edges
                 best_length = total_length
 
         return best_path if best_path else []
 
-    def _smooth_path(self, bm, edge_indices, start_vert, end_vert, forbidden_verts=None):
+    def _smooth_path(self, bm, edge_indices, start_vert, forbidden_verts=None):
         """Shortcut-based post-process. Returns input unchanged at level 0."""
         if self.smooth_level <= 0 or len(edge_indices) < 2:
             return edge_indices
