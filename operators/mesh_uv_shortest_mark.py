@@ -525,6 +525,71 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         return best_path if best_path else []
 
+    def _smooth_path(self, bm, edge_indices, start_vert, end_vert, forbidden_verts=None):
+        """Shortcut-based post-process. Returns input unchanged at level 0."""
+        if self.smooth_level <= 0 or len(edge_indices) < 2:
+            return edge_indices
+
+        # Walk edges to build the ordered vertex list [start, ..., end]
+        verts = [start_vert]
+        current = start_vert
+        bm.edges.ensure_lookup_table()
+        for ei in edge_indices:
+            edge = bm.edges[ei]
+            v1, v2 = edge.verts
+            current = v2 if v1.index == current.index else v1
+            verts.append(current)
+
+        window = self.smooth_level + 1
+        outer = forbidden_verts if forbidden_verts is not None else set()
+
+        def subpath_length(edges):
+            return sum(bm.edges[ei].calc_length() for ei in edges)
+
+        i = 0
+        out_edges = []
+        while i < len(verts) - 1:
+            # Default: keep the single original edge from verts[i] to verts[i+1]
+            best_j = i + 1
+            best_sub = [edge_indices[i]]
+            best_improvement = 0.0
+
+            # Try shortcuts from verts[i] to verts[j] for j up to i + window.
+            # Pick the j with the largest length reduction vs. the original
+            # subpath edge_indices[i:j]. Advance by that j.
+            for j in range(i + 2, min(i + window + 1, len(verts))):
+                original_sub = edge_indices[i:j]
+                original_len = subpath_length(original_sub)
+
+                # Forbid: outer forbidden set + all path vertices outside
+                # [i, j]. Allow verts[i], verts[j], and any vertex strictly
+                # between them (the alternative route may use them).
+                locally_forbidden = set(outer)
+                for k, v in enumerate(verts):
+                    if k < i or k > j:
+                        locally_forbidden.add(v.index)
+                locally_forbidden.discard(verts[i].index)
+                locally_forbidden.discard(verts[j].index)
+
+                alt = self._dijkstra_arm(
+                    bm, verts[i], target_vert=verts[j],
+                    forbidden_verts=locally_forbidden,
+                )
+                if not alt:
+                    continue
+                alt_len = subpath_length(alt)
+                if alt_len < original_len:
+                    improvement = original_len - alt_len
+                    if improvement > best_improvement:
+                        best_improvement = improvement
+                        best_j = j
+                        best_sub = alt
+
+            out_edges.extend(best_sub)
+            i = best_j
+
+        return out_edges
+
     # ─── Draw coordinate builders ────────────────────────────────────
 
     def _build_draw_coords(self, bm, obj):
