@@ -426,6 +426,20 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             current = v2 if v1.index == current.index else v1
         return current
 
+    def _segment_verts(self, bm, edge_indices, start_vert):
+        """Walk segment edges and return the set of all vertex indices touched."""
+        result = {start_vert.index}
+        if not edge_indices:
+            return result
+        current = start_vert
+        bm.edges.ensure_lookup_table()
+        for ei in edge_indices:
+            edge = bm.edges[ei]
+            v1, v2 = edge.verts
+            current = v2 if v1.index == current.index else v1
+            result.add(current.index)
+        return result
+
     def _compute_path_with_waypoints(self, bm, hovered_edge):
         v1, v2 = hovered_edge.verts
 
