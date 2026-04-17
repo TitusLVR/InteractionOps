@@ -1168,6 +1168,17 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
+        # Shift+Scroll – adjust post-process smooth level
+        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.shift and not event.ctrl and not event.alt:
+            if event.type == 'WHEELUPMOUSE':
+                self.smooth_level = min(self.smooth_level + SMOOTH_STEP, MAX_SMOOTH_LEVEL)
+            else:
+                self.smooth_level = max(self.smooth_level - SMOOTH_STEP, 0)
+            self._update_path(context)
+            self._update_status(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
         # Alt+Scroll – adjust sharp angle threshold
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt and not event.ctrl and not event.shift:
             if event.type == 'WHEELUPMOUSE':
