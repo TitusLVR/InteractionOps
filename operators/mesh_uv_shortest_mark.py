@@ -457,7 +457,6 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         terminal_start = self._arm_terminal_vert(bm, arm_a, v1)
         terminal_end = self._arm_terminal_vert(bm, arm_b, v2)
 
-        # Build valid waypoint vertex list
         bm.verts.ensure_lookup_table()
         wp_verts = []
         for vi in self.waypoints:
@@ -488,6 +487,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             vertices = [terminal_start] + list(ordering) + [terminal_end]
             path_edges = []
             total_length = 0.0
+            forbidden = set()
             valid = True
 
             for i in range(len(vertices) - 1):
@@ -497,8 +497,13 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 if seg_start.index == seg_end.index:
                     continue
 
+                # Allow the target vertex even if it got into forbidden
+                # (can happen only if user placed duplicate waypoints; safe guard).
+                seg_forbidden = forbidden - {seg_end.index}
+
                 segment = self._trace_arm(
-                    bm, seg_start, target_vert=seg_end
+                    bm, seg_start, target_vert=seg_end,
+                    forbidden_verts=seg_forbidden,
                 )
                 if not segment:
                     valid = False
@@ -507,6 +512,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 for ei in segment:
                     total_length += bm.edges[ei].calc_length()
                 path_edges.extend(segment)
+
+                # Mark all vertices on this segment as forbidden for later
+                # segments, EXCLUDING seg_end so the next segment can start there.
+                seg_verts = self._segment_verts(bm, segment, seg_start)
+                seg_verts.discard(seg_end.index)
+                forbidden.update(seg_verts)
 
             if valid and total_length < best_length:
                 best_path = path_edges
