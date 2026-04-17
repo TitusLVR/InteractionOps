@@ -183,6 +183,15 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             arm_b = []
         else:
             arm_b = self._trace_arm(bm, v2, hovered_edge)
+
+        # Smooth each arm between its endpoints
+        if arm_a:
+            arm_a_end = self._arm_terminal_vert(bm, arm_a, v1)
+            arm_a = self._smooth_path(bm, arm_a, v1, arm_a_end, forbidden_verts=None)
+        if arm_b:
+            arm_b_end = self._arm_terminal_vert(bm, arm_b, v2)
+            arm_b = self._smooth_path(bm, arm_b, v2, arm_b_end, forbidden_verts=None)
+
         arm_a.reverse()
         return arm_a + [hovered_edge.index] + arm_b
 
