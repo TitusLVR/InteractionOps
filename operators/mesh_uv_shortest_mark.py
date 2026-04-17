@@ -518,6 +518,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     valid = False
                     break
 
+                segment = self._smooth_path(
+                    bm, segment, seg_start, seg_end,
+                    forbidden_verts=seg_forbidden,
+                )
+
                 for ei in segment:
                     total_length += bm.edges[ei].calc_length()
                 path_edges.extend(segment)
