@@ -186,13 +186,17 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         arm_a.reverse()
         return arm_a + [hovered_edge.index] + arm_b
 
-    def _trace_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
+    def _trace_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
+                   forbidden_verts=None):
         algo = self.algorithm
         if algo == 'DIJKSTRA':
-            return self._dijkstra_arm(bm, start_vert, excluded_edge, target_vert)
+            return self._dijkstra_arm(bm, start_vert, excluded_edge, target_vert,
+                                      forbidden_verts)
         if algo == 'BFS':
-            return self._bfs_arm(bm, start_vert, excluded_edge, target_vert)
-        return self._edge_loop_arm(bm, start_vert, excluded_edge, target_vert)
+            return self._bfs_arm(bm, start_vert, excluded_edge, target_vert,
+                                 forbidden_verts)
+        return self._edge_loop_arm(bm, start_vert, excluded_edge, target_vert,
+                                   forbidden_verts)
 
     def _vertex_touches_barrier(self, vert, excluded_edge=None):
         """Return True if any edge connected to vert is a barrier."""
@@ -217,7 +221,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         dot = incoming_dir.dot(outgoing.normalized())
         return dot >= self._flow_cos
 
-    def _dijkstra_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
+    def _dijkstra_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
+                      forbidden_verts=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
 
         if excluded_edge is not None:
@@ -262,6 +267,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 ov = edge.other_vert(vert)
                 if ov.index in visited:
                     continue
+                if forbidden_verts is not None and ov.index in forbidden_verts:
+                    continue
                 if self._is_barrier(edge):
                     continue
                 if not self._passes_flow(inc_dir, vert, ov):
@@ -278,7 +285,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             target = max(dist, key=dist.get)
         return self._reconstruct(prev, target) if target else []
 
-    def _bfs_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
+    def _bfs_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
+                 forbidden_verts=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
 
         if excluded_edge is not None:
@@ -318,6 +326,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 ov = edge.other_vert(vert)
                 if ov.index in visited:
                     continue
+                if forbidden_verts is not None and ov.index in forbidden_verts:
+                    continue
                 if self._is_barrier(edge):
                     continue
                 if not self._passes_flow(inc_dir, vert, ov):
@@ -332,7 +342,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             target = list(prev)[-1]
         return self._reconstruct(prev, target) if target else []
 
-    def _edge_loop_arm(self, bm, start_vert, excluded_edge=None, target_vert=None):
+    def _edge_loop_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
+                       forbidden_verts=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
         path = []
         current = start_vert
@@ -356,6 +367,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     continue
                 ov = edge.other_vert(current)
                 if ov.index in visited:
+                    continue
+                if forbidden_verts is not None and ov.index in forbidden_verts:
                     continue
                 if self._is_barrier(edge):
                     continue
