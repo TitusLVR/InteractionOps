@@ -410,12 +410,27 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             if not candidates:
                 break
 
-            best = max(
-                candidates,
-                key=lambda e: prev_dir.dot(
-                    (e.other_vert(current).co - current.co).normalized()
-                ),
-            )
+            if self.curvature != 0:
+                c = self.curvature / MAX_CURVATURE
+
+                def _score(e):
+                    ev = (e.other_vert(current).co - current.co).normalized()
+                    alignment = prev_dir.dot(ev)
+                    if len(e.link_faces) == 2:
+                        d = e.calc_face_angle(0.0) / math.pi
+                        b = 2.0 * d - 1.0
+                    else:
+                        b = 0.0
+                    return alignment + EDGE_LOOP_CURV_WEIGHT * c * b
+
+                best = max(candidates, key=_score)
+            else:
+                best = max(
+                    candidates,
+                    key=lambda e: prev_dir.dot(
+                        (e.other_vert(current).co - current.co).normalized()
+                    ),
+                )
 
             path.append(best.index)
             nv = best.other_vert(current)
