@@ -325,10 +325,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
 
         target_co = target_vert.co
+        h_scale = 1.0 - CURVATURE_SCALE if self.curvature != 0 else 1.0
         dist = {start_vert.index: 0.0}
         prev = {}
         incoming = {start_vert.index: initial_dir}
-        h0 = (start_vert.co - target_co).length
+        h0 = (start_vert.co - target_co).length * h_scale
         heap = [(h0, 0.0, start_vert.index)]
         visited = set()
         target = None
@@ -361,13 +362,13 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     continue
                 if not self._passes_flow(inc_dir, vert, ov):
                     continue
-                ng = g + edge.calc_length()
+                ng = g + edge.calc_length() * self._edge_curvature_multiplier(edge)
                 if ov.index not in dist or ng < dist[ov.index]:
                     dist[ov.index] = ng
                     prev[ov.index] = (vi, edge.index)
                     edge_dir = ov.co - vert.co
                     incoming[ov.index] = edge_dir.normalized() if edge_dir.length > 1e-8 else inc_dir
-                    h = (ov.co - target_co).length
+                    h = (ov.co - target_co).length * h_scale
                     heapq.heappush(heap, (ng + h, ng, ov.index))
 
         return self._reconstruct(prev, target) if target else []
