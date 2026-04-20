@@ -7,7 +7,6 @@ import bpy_extras
 import blf
 from mathutils import Vector
 import heapq
-from collections import deque
 
 
 BARRIER_TYPES = ('SEAM', 'SHARP', 'CREASE', 'BEVEL')
@@ -17,12 +16,11 @@ BARRIER_LABELS = {
     'CREASE': 'Crease',
     'BEVEL': 'Bevel Weight',
 }
-ALGORITHM_TYPES = ('DIJKSTRA', 'ASTAR', 'EDGE_LOOP', 'BFS')
+ALGORITHM_TYPES = ('DIJKSTRA', 'ASTAR', 'EDGE_LOOP')
 ALGORITHM_LABELS = {
     'DIJKSTRA': 'Dijkstra',
     'ASTAR': 'A*',
     'EDGE_LOOP': 'Edge Loop',
-    'BFS': 'BFS',
 }
 
 MAX_RAYCAST_ITERATIONS = 50
@@ -209,9 +207,6 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         if algo == 'ASTAR':
             return self._astar_arm(bm, start_vert, excluded_edge, target_vert,
                                    forbidden_verts)
-        if algo == 'BFS':
-            return self._bfs_arm(bm, start_vert, excluded_edge, target_vert,
-                                 forbidden_verts)
         return self._edge_loop_arm(bm, start_vert, excluded_edge, target_vert,
                                    forbidden_verts)
 
@@ -362,63 +357,6 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     h = (ov.co - target_co).length
                     heapq.heappush(heap, (ng + h, ng, ov.index))
 
-        return self._reconstruct(prev, target) if target else []
-
-    def _bfs_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
-                 forbidden_verts=None):
-        self._flow_cos = math.cos(math.radians(self.flow_angle))
-
-        if excluded_edge is not None:
-            initial_dir = self._initial_dir(start_vert, excluded_edge)
-        elif target_vert is not None:
-            d = target_vert.co - start_vert.co
-            initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
-        else:
-            initial_dir = Vector((1, 0, 0))
-
-        prev = {}
-        incoming = {start_vert.index: initial_dir}
-        queue = deque([start_vert.index])
-        visited = {start_vert.index}
-        target = None
-
-        while queue:
-            vi = queue.popleft()
-            if len(visited) > MAX_PATH_EDGES:
-                break
-            vert = bm.verts[vi]
-
-            if vi != start_vert.index:
-                if target_vert is not None:
-                    if vi == target_vert.index:
-                        target = vi
-                        break
-                elif self._vertex_touches_barrier(vert, excluded_edge):
-                    target = vi
-                    break
-
-            inc_dir = incoming.get(vi, initial_dir)
-
-            for edge in vert.link_edges:
-                if excluded_edge is not None and edge.index == excluded_edge.index:
-                    continue
-                ov = edge.other_vert(vert)
-                if ov.index in visited:
-                    continue
-                if forbidden_verts is not None and ov.index in forbidden_verts:
-                    continue
-                if self._is_barrier(edge):
-                    continue
-                if not self._passes_flow(inc_dir, vert, ov):
-                    continue
-                visited.add(ov.index)
-                prev[ov.index] = (vi, edge.index)
-                edge_dir = ov.co - vert.co
-                incoming[ov.index] = edge_dir.normalized() if edge_dir.length > 1e-8 else inc_dir
-                queue.append(ov.index)
-
-        if target is None and prev:
-            target = list(prev)[-1]
         return self._reconstruct(prev, target) if target else []
 
     def _edge_loop_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
