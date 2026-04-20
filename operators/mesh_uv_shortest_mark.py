@@ -238,6 +238,14 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         dot = incoming_dir.dot(outgoing.normalized())
         return dot >= self._flow_cos
 
+    def _edge_curvature_multiplier(self, edge):
+        if self.curvature == 0 or len(edge.link_faces) != 2:
+            return 1.0
+        d = edge.calc_face_angle(0.0) / math.pi
+        b = 2.0 * d - 1.0
+        c = self.curvature / MAX_CURVATURE
+        return max(0.1, 1.0 - CURVATURE_SCALE * c * b)
+
     def _dijkstra_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
                       forbidden_verts=None):
         self._flow_cos = math.cos(math.radians(self.flow_angle))
