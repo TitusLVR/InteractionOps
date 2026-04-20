@@ -186,6 +186,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
     tSPosX = prefs.text_shadow_pos_x
     tSPosY = prefs.text_shadow_pos_y
 
+    offset_state = "ON" if self.offset_instances else "OFF"
     iops_text = (
         ("World space group", "F1"),
         ("Local space for active", "F2"),
@@ -193,6 +194,7 @@ def draw_iops_text(self, context, _uidpi, _uifactor):
         ("Origin to World center", "W"),
         ("Selected to World center", "M"),
         ("Pick up active object", "Shift + LMB Click"),
+        (f"Offset instances: {offset_state}", "I"),
     )
 
     # FontID
@@ -255,6 +257,12 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         default=True,
     )
 
+    offset_instances: BoolProperty(
+        name="Offset instances",
+        description="Compensate linked duplicates (objects sharing mesh data) so they don't jump when origin changes",
+        default=False,
+    )
+
     @classmethod
     def poll(self, context):
         return (
@@ -264,14 +272,56 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             and context.view_layer.objects.selected[:] != []
         )
 
+    def get_mesh_instances(self, context, selected_objs):
+        """Find non-selected objects sharing mesh data with selected objects."""
+        selected_set = set(selected_objs)
+        selected_meshes = set(ob.data for ob in selected_objs if ob.type == "MESH")
+        instances = []
+        for ob in bpy.data.objects:
+            if ob.type == "MESH" and ob not in selected_set and ob.data in selected_meshes:
+                instances.append(ob)
+        return instances
+
+    def record_instance_refs(self, instances):
+        """Record world-space position of a reference vertex for each instance."""
+        ref_positions = {}
+        for inst in instances:
+            if len(inst.data.vertices) > 0:
+                ref_positions[inst] = (
+                    inst.matrix_world @ inst.data.vertices[0].co.copy()
+                )
+        return ref_positions
+
+    def compensate_instances(self, instances, ref_positions):
+        """Adjust instance positions to compensate for shared mesh data change."""
+        for inst in instances:
+            if inst in ref_positions and len(inst.data.vertices) > 0:
+                old_world_pos = ref_positions[inst]
+                new_world_pos = inst.matrix_world @ inst.data.vertices[0].co
+                shift = new_world_pos - old_world_pos
+                if inst.parent:
+                    parent_inv = inst.parent.matrix_world.inverted()
+                    shift = parent_inv.to_3x3() @ shift
+                inst.location -= shift
+
     # Place origin for selected objects
     def place_origin(self, context):
-        objs = context.view_layer.objects.selected
+        objs = list(context.view_layer.objects.selected)
         pos = self.pos_batch_3d[self.batch_idx]
         context.scene.cursor.location = pos
+
+        instances = []
+        ref_positions = {}
+        if self.offset_instances:
+            instances = self.get_mesh_instances(context, objs)
+            ref_positions = self.record_instance_refs(instances)
+
         for ob in objs:
             context.view_layer.objects.active = ob
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+
+        if self.offset_instances:
+            self.compensate_instances(instances, ref_positions)
 
     # Place origin for selected objects
     def move_selected_to_world(self, context):
@@ -281,12 +331,22 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     # Place origin to world center
     def origin_to_world(self, context):
-        objs = context.view_layer.objects.selected
+        objs = list(context.view_layer.objects.selected)
         context.scene.cursor.location = (0, 0, 0)
         context.scene.cursor.rotation_euler = (0, 0, 0)
+
+        instances = []
+        ref_positions = {}
+        if self.offset_instances:
+            instances = self.get_mesh_instances(context, objs)
+            ref_positions = self.record_instance_refs(instances)
+
         for ob in objs:
             context.view_layer.objects.active = ob
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+
+        if self.offset_instances:
+            self.compensate_instances(instances, ref_positions)
 
     # Calculate distance between raycasts
     def calc_distance(self, context):
@@ -653,6 +713,9 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             self.clear_draw_handlers()
             self.orphan_data_purge(context)
             return {"FINISHED"}
+
+        elif event.type == "I" and event.value == "PRESS":
+            self.offset_instances = not self.offset_instances
 
         elif event.type == "MOUSEMOVE":
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
