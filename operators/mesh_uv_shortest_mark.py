@@ -935,6 +935,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             f"Shortest Path Mark: [E] Barrier({bl}) | [R] Mark({ml}) | "
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
             f"[Shift+Wheel] Smooth({self.smooth_level}) | "
+            f"[Ctrl+Shift+Wheel] Curvature({self.curvature}) | "
             f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
             f"[Q] Mode({pm}) | [Ctrl+Q] Clear Anchor"
             f"{' (set)' if anchor_set else ''} | "
@@ -1095,6 +1096,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             (f"Algorithm: {al}", "A"),
             (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
             (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
+            (f"Curvature: {self.curvature}", "Ctrl+Shift+Wheel"),
             (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
             ("Mark by Angle", "S"),
             (f"Mode: {pm}", "Q"),
@@ -1229,6 +1231,17 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             else:
                 self.sharp_angle = max(self.sharp_angle - SHARP_ANGLE_STEP, 0)
             self._angle_marked = False
+            self._update_status(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Ctrl+Shift+Scroll – adjust curvature bias
+        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and event.shift and not event.alt:
+            if event.type == 'WHEELUPMOUSE':
+                self.curvature = min(self.curvature + CURVATURE_STEP, MAX_CURVATURE)
+            else:
+                self.curvature = max(self.curvature - CURVATURE_STEP, -MAX_CURVATURE)
+            self._update_path(context)
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
