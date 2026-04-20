@@ -178,7 +178,7 @@ class IOPS_SceneProperties(PropertyGroup):
     # Shortest Path Mark persistent properties
     shortest_mark_barrier_idx: IntProperty(name="Barrier Type Index", default=0, min=0, max=3)
     shortest_mark_mark_idx: IntProperty(name="Mark Type Index", default=0, min=0, max=3)
-    shortest_mark_algorithm_idx: IntProperty(name="Algorithm Index", default=0, min=0, max=3)
+    shortest_mark_algorithm_idx: IntProperty(name="Algorithm Index", default=0, min=0, max=2)
     shortest_mark_flow_angle: IntProperty(name="Flow Angle", default=180, min=0, max=180)
     shortest_mark_sharp_angle: IntProperty(name="Sharp Angle", default=30, min=0, max=180)
     shortest_mark_smooth_level: IntProperty(name="Smooth Level", default=0, min=0, max=10)
