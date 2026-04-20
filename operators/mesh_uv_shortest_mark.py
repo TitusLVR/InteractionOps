@@ -46,6 +46,10 @@ PATH_MODES = ('DIRECTION', 'BUILD')
 PATH_MODE_LABELS = {'DIRECTION': 'Direction', 'BUILD': 'Build'}
 MAX_SMOOTH_LEVEL = 10
 SMOOTH_STEP = 1
+MAX_CURVATURE = 10
+CURVATURE_STEP = 1
+CURVATURE_SCALE = 0.8
+EDGE_LOOP_CURV_WEIGHT = 0.5
 
 
 class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
@@ -91,6 +95,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     sharp_angle = DEFAULT_SHARP_ANGLE
     _angle_marked = False
     smooth_level = 0
+    curvature = 0
 
     # Cached BMesh layers
     _crease_layer = None
@@ -1134,6 +1139,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.anchor_coords = []
         self._target_vert_index = -1
         self.smooth_level = 0
+        self.curvature = 0
         self.path_mode_idx = 0
 
         self._load_scene_props(context)
