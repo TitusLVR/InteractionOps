@@ -930,6 +930,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         props.shortest_mark_sharp_angle = self.sharp_angle
         props.shortest_mark_smooth_level = self.smooth_level
         props.shortest_mark_path_mode_idx = self.path_mode_idx
+        props.shortest_mark_curvature = self.curvature
 
     def _load_scene_props(self, context):
         props = context.scene.IOPS
@@ -943,6 +944,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self.sharp_angle = props.shortest_mark_sharp_angle
         self.smooth_level = props.shortest_mark_smooth_level
         self.path_mode_idx = props.shortest_mark_path_mode_idx
+        self.curvature = props.shortest_mark_curvature
 
     # ─── Draw callbacks ──────────────────────────────────────────────
 

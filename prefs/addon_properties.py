@@ -183,3 +183,4 @@ class IOPS_SceneProperties(PropertyGroup):
     shortest_mark_sharp_angle: IntProperty(name="Sharp Angle", default=30, min=0, max=180)
     shortest_mark_smooth_level: IntProperty(name="Smooth Level", default=0, min=0, max=10)
     shortest_mark_path_mode_idx: IntProperty(name="Path Mode Index", default=0, min=0, max=1)
+    shortest_mark_curvature: IntProperty(name="Curvature", default=0, min=-10, max=10)
