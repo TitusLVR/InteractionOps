@@ -298,7 +298,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                     continue
                 if not self._passes_flow(inc_dir, vert, ov):
                     continue
-                nd = d + edge.calc_length()
+                nd = d + edge.calc_length() * self._edge_curvature_multiplier(edge)
                 if ov.index not in dist or nd < dist[ov.index]:
                     dist[ov.index] = nd
                     prev[ov.index] = (vi, edge.index)
