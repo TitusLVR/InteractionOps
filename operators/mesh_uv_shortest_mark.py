@@ -930,7 +930,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         props = context.scene.IOPS
         self.barrier_type_idx = props.shortest_mark_barrier_idx
         self.mark_type_idx = props.shortest_mark_mark_idx
-        self.algorithm_idx = props.shortest_mark_algorithm_idx
+        self.algorithm_idx = min(
+            max(props.shortest_mark_algorithm_idx, 0),
+            len(ALGORITHM_TYPES) - 1,
+        )
         self.flow_angle = props.shortest_mark_flow_angle
         self.sharp_angle = props.shortest_mark_sharp_angle
         self.smooth_level = props.shortest_mark_smooth_level
