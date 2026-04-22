@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "mesh_uv_shortest_mark_lib",
+]
+
+# Shared release profile for all member crates. Each crate can still opt into
+# its own profile settings, but these are the defaults that apply to every
+# cdylib we ship to `operators/`.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

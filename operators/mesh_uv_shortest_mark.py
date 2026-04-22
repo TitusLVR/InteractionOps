@@ -8,6 +8,17 @@ import blf
 from mathutils import Vector
 import heapq
 
+try:
+    from . import mesh_uv_shortest_mark_lib as _native  # packaged .pyd
+    NATIVE_AVAILABLE = True
+except Exception:
+    try:
+        import mesh_uv_shortest_mark_lib as _native
+        NATIVE_AVAILABLE = True
+    except Exception:
+        _native = None
+        NATIVE_AVAILABLE = False
+
 
 BARRIER_TYPES = ('SEAM', 'SHARP', 'CREASE', 'BEVEL')
 BARRIER_LABELS = {
@@ -46,10 +57,36 @@ PATH_MODES = ('DIRECTION', 'BUILD')
 PATH_MODE_LABELS = {'DIRECTION': 'Direction', 'BUILD': 'Build'}
 MAX_SMOOTH_LEVEL = 10
 SMOOTH_STEP = 1
-MAX_CURVATURE = 10
-CURVATURE_STEP = 1
+MAX_CURVATURE = 100
+CURVATURE_STEP = 10
 CURVATURE_SCALE = 0.8
 EDGE_LOOP_CURV_WEIGHT = 0.5
+
+# Arch / bending bias (BUILD mode — Ctrl+Alt+Wheel)
+MAX_ARCH = 10
+ARCH_STEP = 1
+# Arc sagitta (apex height above chord) as a fraction of chord length,
+# scaled by arch/MAX_ARCH. At ±MAX_ARCH the arc is a full semicircle (h = L/2).
+ARCH_MAX_SAGITTA = 0.5
+# Max number of intermediate waypoints along the arc. More = rounder.
+# Chosen dynamically from |arch_strength| up to this cap.
+ARCH_MAX_WAYPOINTS = 8
+
+# Smooth-marked sub-mode (F key)
+SMOOTH_MAGNET_RANGE = 10
+SMOOTH_MAGNET_STEP = 1
+SMOOTH_MARKED_WINDOW = 5
+MAX_SMOOTH_ITERATIONS = 100
+SMOOTH_ITER_STEP = 1
+SMOOTH_PREVIEW_COLOR = (1.0, 0.85, 0.0, 1.0)
+SMOOTH_PREVIEW_WIDTH = 3.5
+SMOOTH_ORIGINAL_COLOR = (0.6, 0.3, 0.3, 0.8)
+SMOOTH_ORIGINAL_WIDTH = 2.0
+# Weighted A*: inflates the heuristic to prune the frontier aggressively.
+# Paths are at most ASTAR_H_WEIGHT× optimal length; on curved/non-convex meshes
+# the Euclidean-distance heuristic is a very loose bound, so amortized paths
+# stay near-optimal while search time drops drastically.
+ASTAR_H_WEIGHT = 2.5
 
 
 class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
@@ -96,10 +133,37 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     _angle_marked = False
     smooth_level = 0
     curvature = 0
+    arch_strength = 0
 
     # Cached BMesh layers
     _crease_layer = None
     _bevel_layer = None
+
+    # Graph cache (mesh-stable; invalidated on topology change / undo)
+    _edge_length = None
+    _edge_has_angle = None
+    _edge_angle_bias = None
+    _edge_barrier = None
+    _cache_edge_count = -1
+    _cache_vert_count = -1
+    _cache_barrier_idx = -1
+    # CSR adjacency
+    _adj_starts = None   # list[int] len V+1
+    _adj_other = None    # list[int] len 2E
+    _adj_edge = None     # list[int] len 2E
+    _adj_dir = None      # list[Vector|None] len 2E (normalized v->other direction)
+    _vert_co = None      # list[Vector] len V
+    # Native (Rust) graph handle — None when unavailable or not yet built
+    _native_graph = None
+
+    # Smooth-marked sub-mode state
+    _smooth_mode = False
+    _smooth_magnet = 0
+    _smooth_iterations = 1
+    _smooth_preview_edges = []
+    _smooth_preview_coords = []
+    _smooth_original_coords = []
+    _smooth_original_marks = set()
 
     # ─── Properties ──────────────────────────────────────────────────
 
@@ -177,6 +241,150 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self._crease_layer = bm.edges.layers.float.get("crease_edge")
         self._bevel_layer = bm.edges.layers.float.get("bevel_weight_edge")
 
+    def _invalidate_graph_cache(self):
+        self._edge_length = None
+        self._edge_has_angle = None
+        self._edge_angle_bias = None
+        self._edge_barrier = None
+        self._adj_starts = None
+        self._adj_other = None
+        self._adj_edge = None
+        self._adj_dir = None
+        self._vert_co = None
+        self._native_graph = None
+        self._cache_edge_count = -1
+        self._cache_vert_count = -1
+        self._cache_barrier_idx = -1
+
+    def _invalidate_barrier_cache(self):
+        self._edge_barrier = None
+        self._cache_barrier_idx = -1
+        # Native graph keeps topology; we'll push a fresh barrier mask next call
+        self._native_barrier_dirty = True
+
+    def _ensure_graph_cache(self, bm):
+        """Build per-edge arrays + CSR adjacency + per-vert coord array.
+
+        Collapses BMesh attribute access and Python-level barrier / length
+        calls into pure list indexing in Dijkstra/A*. Built once per
+        mesh-topology state; reused across mouse moves and inside
+        _smooth_path's inner searches.
+        """
+        ec = len(bm.edges)
+        vc = len(bm.verts)
+        if (self._edge_length is None
+                or self._cache_edge_count != ec
+                or self._cache_vert_count != vc):
+            bm.edges.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+
+            # Per-edge scalars
+            lengths = [0.0] * ec
+            has_angle = [False] * ec
+            bias = [0.0] * ec
+            inv_pi = 1.0 / math.pi
+            for i, e in enumerate(bm.edges):
+                lengths[i] = e.calc_length()
+                if len(e.link_faces) == 2:
+                    has_angle[i] = True
+                    bias[i] = 2.0 * (e.calc_face_angle(0.0) * inv_pi) - 1.0
+
+            # Per-vertex coord snapshot
+            vert_co = [v.co.copy() for v in bm.verts]
+
+            # CSR adjacency build (two passes)
+            starts = [0] * (vc + 1)
+            for v in bm.verts:
+                starts[v.index + 1] = len(v.link_edges)
+            for i in range(1, vc + 1):
+                starts[i] += starts[i - 1]
+            total = starts[-1]
+            other = [0] * total
+            edge_idx = [0] * total
+            dirs = [None] * total
+            pos = list(starts)
+            for v in bm.verts:
+                vi = v.index
+                vco = vert_co[vi]
+                for e in v.link_edges:
+                    ov = e.other_vert(v)
+                    i = pos[vi]
+                    pos[vi] = i + 1
+                    other[i] = ov.index
+                    edge_idx[i] = e.index
+                    d = vert_co[ov.index] - vco
+                    if d.length > 1e-8:
+                        dirs[i] = d.normalized()
+
+            self._edge_length = lengths
+            self._edge_has_angle = has_angle
+            self._edge_angle_bias = bias
+            self._vert_co = vert_co
+            self._adj_starts = starts
+            self._adj_other = other
+            self._adj_edge = edge_idx
+            self._adj_dir = dirs
+            self._cache_edge_count = ec
+            self._cache_vert_count = vc
+            self._edge_barrier = None  # force barrier rebuild
+
+            # Build native graph (Rust) if available — one-shot per topology state
+            if NATIVE_AVAILABLE:
+                try:
+                    edge_verts_flat = [0] * (2 * ec)
+                    for i, e in enumerate(bm.edges):
+                        edge_verts_flat[i * 2] = e.verts[0].index
+                        edge_verts_flat[i * 2 + 1] = e.verts[1].index
+                    vc_flat = [0.0] * (3 * vc)
+                    for i, co in enumerate(vert_co):
+                        vc_flat[i * 3] = co[0]
+                        vc_flat[i * 3 + 1] = co[1]
+                        vc_flat[i * 3 + 2] = co[2]
+                    # Barrier mask populated below; pass zeros, set_barrier will update
+                    self._native_graph = _native.Graph(
+                        vc, edge_verts_flat, lengths,
+                        bytes(1 if b else 0 for b in has_angle),
+                        bias,
+                        bytes(ec),
+                        vc_flat,
+                    )
+                    self._native_barrier_dirty = True
+                except Exception:
+                    self._native_graph = None
+
+        if (self._edge_barrier is None
+                or self._cache_barrier_idx != self.barrier_type_idx):
+            bm.edges.ensure_lookup_table()
+            barriers = [False] * ec
+            bt = self.barrier_type
+            if bt == 'SEAM':
+                for i, e in enumerate(bm.edges):
+                    barriers[i] = e.seam
+            elif bt == 'SHARP':
+                for i, e in enumerate(bm.edges):
+                    barriers[i] = not e.smooth
+            elif bt == 'CREASE':
+                layer = self._crease_layer
+                if layer is not None:
+                    for i, e in enumerate(bm.edges):
+                        barriers[i] = e[layer] > 0.0
+            elif bt == 'BEVEL':
+                layer = self._bevel_layer
+                if layer is not None:
+                    for i, e in enumerate(bm.edges):
+                        barriers[i] = e[layer] > 0.0
+            self._edge_barrier = barriers
+            self._cache_barrier_idx = self.barrier_type_idx
+            self._native_barrier_dirty = True
+
+        # Sync native graph barrier mask if native path is active
+        if (NATIVE_AVAILABLE and self._native_graph is not None
+                and getattr(self, '_native_barrier_dirty', False)):
+            self._native_graph.set_barrier(
+                bytes(1 if b else 0 for b in self._edge_barrier)
+            )
+            self._native_barrier_dirty = False
+
     # ─── Path algorithms ─────────────────────────────────────────────
 
     def _compute_path(self, bm, hovered_edge):
@@ -217,8 +425,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
     def _vertex_touches_barrier(self, vert, excluded_edge=None):
         """Return True if any edge connected to vert is a barrier."""
+        barrier = self._edge_barrier
+        excluded_idx = excluded_edge.index if excluded_edge is not None else -1
+        if barrier is not None:
+            for edge in vert.link_edges:
+                ei = edge.index
+                if ei == excluded_idx:
+                    continue
+                if barrier[ei]:
+                    return True
+            return False
         for edge in vert.link_edges:
-            if excluded_edge is not None and edge.index == excluded_edge.index:
+            if edge.index == excluded_idx:
                 continue
             if self._is_barrier(edge):
                 return True
@@ -248,8 +466,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
     def _dijkstra_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
                       forbidden_verts=None):
+        self._ensure_graph_cache(bm)
         self._flow_cos = math.cos(math.radians(self.flow_angle))
 
+        start_idx = start_vert.index
         if excluded_edge is not None:
             initial_dir = self._initial_dir(start_vert, excluded_edge)
         elif target_vert is not None:
@@ -258,57 +478,128 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         else:
             initial_dir = Vector((1, 0, 0))
 
-        dist = {start_vert.index: 0.0}
-        prev = {}
-        incoming = {start_vert.index: initial_dir}
-        heap = [(0.0, start_vert.index)]
-        visited = set()
-        target = None
+        # Native fast path
+        if self._native_graph is not None:
+            ex_e = excluded_edge.index if excluded_edge is not None else -1
+            flow_cos_native = self._flow_cos if self.flow_angle < 180 else -2.0
+            curv_c = self.curvature / MAX_CURVATURE if self.curvature != 0 else 0.0
+            end_idx = target_vert.index if target_vert is not None else -1
+            forbidden_list = list(forbidden_verts) if forbidden_verts else None
+            return list(self._native_graph.dijkstra(
+                start_idx, end_idx, ex_e,
+                flow_cos_native, curv_c,
+                MAX_PATH_EDGES,
+                [initial_dir.x, initial_dir.y, initial_dir.z],
+                forbidden_list,
+            ))
+
+        # Local bindings
+        edge_len = self._edge_length
+        has_angle = self._edge_has_angle
+        angle_bias = self._edge_angle_bias
+        edge_barrier = self._edge_barrier
+        adj_starts = self._adj_starts
+        adj_other = self._adj_other
+        adj_edge = self._adj_edge
+        adj_dir = self._adj_dir
+        nv = self._cache_vert_count
+
+        curv_c = self.curvature / MAX_CURVATURE
+        curv_active = self.curvature != 0
+        flow_cos = self._flow_cos
+        flow_active = self.flow_angle < 180
+        excluded_idx = excluded_edge.index if excluded_edge is not None else -1
+        target_idx = target_vert.index if target_vert is not None else -1
+
+        INF = math.inf
+        dist = [INF] * nv
+        prev_v = [-1] * nv
+        prev_e = [-1] * nv
+        incoming = [None] * nv
+        visited = bytearray(nv)
+        dist[start_idx] = 0.0
+        incoming[start_idx] = initial_dir
+        heap = [(0.0, start_idx)]
+        heappush = heapq.heappush
+        heappop = heapq.heappop
+        target = -1
+        visited_count = 0
 
         while heap:
-            d, vi = heapq.heappop(heap)
-            if vi in visited:
+            d, vi = heappop(heap)
+            if visited[vi]:
                 continue
-            visited.add(vi)
-            if len(visited) > MAX_PATH_EDGES:
+            visited[vi] = 1
+            visited_count += 1
+            if visited_count > MAX_PATH_EDGES:
                 break
 
-            vert = bm.verts[vi]
-
-            if vi != start_vert.index:
-                if target_vert is not None:
-                    if vi == target_vert.index:
+            if vi != start_idx:
+                if target_idx >= 0:
+                    if vi == target_idx:
                         target = vi
                         break
-                elif self._vertex_touches_barrier(vert, excluded_edge):
-                    target = vi
-                    break
+                else:
+                    # Barrier-stop check (Direction mode without explicit target)
+                    # Scan neighbors directly via CSR instead of self._vertex_touches_barrier.
+                    touched = False
+                    s = adj_starts[vi]; ee = adj_starts[vi + 1]
+                    for k in range(s, ee):
+                        ei = adj_edge[k]
+                        if ei == excluded_idx:
+                            continue
+                        if edge_barrier[ei]:
+                            touched = True
+                            break
+                    if touched:
+                        target = vi
+                        break
 
-            inc_dir = incoming.get(vi, initial_dir)
+            inc_dir = incoming[vi]
+            if inc_dir is None:
+                inc_dir = initial_dir
 
-            for edge in vert.link_edges:
-                if excluded_edge is not None and edge.index == excluded_edge.index:
+            s = adj_starts[vi]; ee = adj_starts[vi + 1]
+            for k in range(s, ee):
+                ei = adj_edge[k]
+                if ei == excluded_idx:
                     continue
-                ov = edge.other_vert(vert)
-                if ov.index in visited:
+                if edge_barrier[ei]:
                     continue
-                if forbidden_verts is not None and ov.index in forbidden_verts:
+                ovi = adj_other[k]
+                if visited[ovi]:
                     continue
-                if self._is_barrier(edge):
+                if forbidden_verts is not None and ovi in forbidden_verts:
                     continue
-                if not self._passes_flow(inc_dir, vert, ov):
-                    continue
-                nd = d + edge.calc_length() * self._edge_curvature_multiplier(edge)
-                if ov.index not in dist or nd < dist[ov.index]:
-                    dist[ov.index] = nd
-                    prev[ov.index] = (vi, edge.index)
-                    edge_dir = ov.co - vert.co
-                    incoming[ov.index] = edge_dir.normalized() if edge_dir.length > 1e-8 else inc_dir
-                    heapq.heappush(heap, (nd, ov.index))
+                dir_vec = adj_dir[k]
+                if flow_active and dir_vec is not None:
+                    if inc_dir.dot(dir_vec) < flow_cos:
+                        continue
+                if curv_active and has_angle[ei]:
+                    mult = 1.0 - CURVATURE_SCALE * curv_c * angle_bias[ei]
+                    if mult < 0.1:
+                        mult = 0.1
+                    nd = d + edge_len[ei] * mult
+                else:
+                    nd = d + edge_len[ei]
+                if nd < dist[ovi]:
+                    dist[ovi] = nd
+                    prev_v[ovi] = vi
+                    prev_e[ovi] = ei
+                    incoming[ovi] = dir_vec if dir_vec is not None else inc_dir
+                    heappush(heap, (nd, ovi))
 
-        if target is None and prev:
-            target = max(dist, key=dist.get)
-        return self._reconstruct(prev, target) if target else []
+        if target < 0:
+            # Pick furthest reached vertex (Direction mode, unbounded expansion)
+            best_d = -1.0
+            for i in range(nv):
+                di = dist[i]
+                if di < INF and di > best_d:
+                    best_d = di
+                    target = i
+            if target < 0 or prev_v[target] == -1:
+                return []
+        return self._reconstruct_arr(prev_v, prev_e, target)
 
     def _astar_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
                    forbidden_verts=None):
@@ -316,66 +607,128 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             return self._dijkstra_arm(bm, start_vert, excluded_edge,
                                       target_vert, forbidden_verts)
 
+        self._ensure_graph_cache(bm)
         self._flow_cos = math.cos(math.radians(self.flow_angle))
 
+        start_idx = start_vert.index
+        target_idx = target_vert.index
         if excluded_edge is not None:
             initial_dir = self._initial_dir(start_vert, excluded_edge)
         else:
             d = target_vert.co - start_vert.co
             initial_dir = d.normalized() if d.length > 1e-8 else Vector((1, 0, 0))
 
+        # Native fast path
+        if self._native_graph is not None:
+            ex_e = excluded_edge.index if excluded_edge is not None else -1
+            flow_cos_native = self._flow_cos if self.flow_angle < 180 else -2.0
+            curv_c = self.curvature / MAX_CURVATURE if self.curvature != 0 else 0.0
+            h_weight = (1.0 - CURVATURE_SCALE if self.curvature != 0 else 1.0) * ASTAR_H_WEIGHT
+            forbidden_list = list(forbidden_verts) if forbidden_verts else None
+            return list(self._native_graph.astar(
+                start_idx, target_idx, ex_e,
+                flow_cos_native, curv_c, h_weight,
+                MAX_PATH_EDGES,
+                [initial_dir.x, initial_dir.y, initial_dir.z],
+                forbidden_list,
+            ))
+
         target_co = target_vert.co
-        h_scale = 1.0 - CURVATURE_SCALE if self.curvature != 0 else 1.0
-        dist = {start_vert.index: 0.0}
-        prev = {}
-        incoming = {start_vert.index: initial_dir}
+        base_h = 1.0 - CURVATURE_SCALE if self.curvature != 0 else 1.0
+        h_scale = base_h * ASTAR_H_WEIGHT
+
+        edge_len = self._edge_length
+        has_angle = self._edge_has_angle
+        angle_bias = self._edge_angle_bias
+        edge_barrier = self._edge_barrier
+        adj_starts = self._adj_starts
+        adj_other = self._adj_other
+        adj_edge = self._adj_edge
+        adj_dir = self._adj_dir
+        vert_co_arr = self._vert_co
+        nv = self._cache_vert_count
+
+        curv_c = self.curvature / MAX_CURVATURE
+        curv_active = self.curvature != 0
+        flow_cos = self._flow_cos
+        flow_active = self.flow_angle < 180
+        excluded_idx = excluded_edge.index if excluded_edge is not None else -1
+
+        INF = math.inf
+        dist = [INF] * nv
+        prev_v = [-1] * nv
+        prev_e = [-1] * nv
+        incoming = [None] * nv
+        visited = bytearray(nv)
+        dist[start_idx] = 0.0
+        incoming[start_idx] = initial_dir
         h0 = (start_vert.co - target_co).length * h_scale
-        heap = [(h0, 0.0, start_vert.index)]
-        visited = set()
-        target = None
+        heap = [(h0, 0.0, start_idx)]
+        heappush = heapq.heappush
+        heappop = heapq.heappop
+        target = -1
+        visited_count = 0
 
         while heap:
-            _f, g, vi = heapq.heappop(heap)
-            if vi in visited:
+            _f, g, vi = heappop(heap)
+            if visited[vi]:
                 continue
-            visited.add(vi)
-            if len(visited) > MAX_PATH_EDGES:
+            visited[vi] = 1
+            visited_count += 1
+            if visited_count > MAX_PATH_EDGES:
                 break
 
-            vert = bm.verts[vi]
-
-            if vi == target_vert.index:
+            if vi == target_idx:
                 target = vi
                 break
 
-            inc_dir = incoming.get(vi, initial_dir)
+            inc_dir = incoming[vi]
+            if inc_dir is None:
+                inc_dir = initial_dir
 
-            for edge in vert.link_edges:
-                if excluded_edge is not None and edge.index == excluded_edge.index:
+            s = adj_starts[vi]
+            ee = adj_starts[vi + 1]
+            for k in range(s, ee):
+                ei = adj_edge[k]
+                if ei == excluded_idx:
                     continue
-                ov = edge.other_vert(vert)
-                if ov.index in visited:
+                if edge_barrier[ei]:
                     continue
-                if forbidden_verts is not None and ov.index in forbidden_verts:
+                ovi = adj_other[k]
+                if visited[ovi]:
                     continue
-                if self._is_barrier(edge):
+                if forbidden_verts is not None and ovi in forbidden_verts:
                     continue
-                if not self._passes_flow(inc_dir, vert, ov):
-                    continue
-                ng = g + edge.calc_length() * self._edge_curvature_multiplier(edge)
-                if ov.index not in dist or ng < dist[ov.index]:
-                    dist[ov.index] = ng
-                    prev[ov.index] = (vi, edge.index)
-                    edge_dir = ov.co - vert.co
-                    incoming[ov.index] = edge_dir.normalized() if edge_dir.length > 1e-8 else inc_dir
-                    h = (ov.co - target_co).length * h_scale
-                    heapq.heappush(heap, (ng + h, ng, ov.index))
+                dir_vec = adj_dir[k]
+                if flow_active and dir_vec is not None:
+                    if inc_dir.dot(dir_vec) < flow_cos:
+                        continue
+                if curv_active and has_angle[ei]:
+                    mult = 1.0 - CURVATURE_SCALE * curv_c * angle_bias[ei]
+                    if mult < 0.1:
+                        mult = 0.1
+                    ng = g + edge_len[ei] * mult
+                else:
+                    ng = g + edge_len[ei]
+                if ng < dist[ovi]:
+                    dist[ovi] = ng
+                    prev_v[ovi] = vi
+                    prev_e[ovi] = ei
+                    incoming[ovi] = dir_vec if dir_vec is not None else inc_dir
+                    h = (vert_co_arr[ovi] - target_co).length * h_scale
+                    heappush(heap, (ng + h, ng, ovi))
 
-        return self._reconstruct(prev, target) if target else []
+        if target < 0:
+            return []
+        return self._reconstruct_arr(prev_v, prev_e, target)
 
     def _edge_loop_arm(self, bm, start_vert, excluded_edge=None, target_vert=None,
                        forbidden_verts=None):
+        self._ensure_graph_cache(bm)
         self._flow_cos = math.cos(math.radians(self.flow_angle))
+        edge_barrier = self._edge_barrier
+        has_angle = self._edge_has_angle
+        angle_bias = self._edge_angle_bias
         path = []
         current = start_vert
         prev_edge = excluded_edge
@@ -392,16 +745,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 break
             prev_dir = prev_dir.normalized()
 
+            prev_idx = prev_edge.index if prev_edge is not None else -1
             candidates = []
             for edge in current.link_edges:
-                if prev_edge is not None and edge.index == prev_edge.index:
+                ei = edge.index
+                if ei == prev_idx:
+                    continue
+                if edge_barrier[ei]:
                     continue
                 ov = edge.other_vert(current)
                 if ov.index in visited:
                     continue
                 if forbidden_verts is not None and ov.index in forbidden_verts:
-                    continue
-                if self._is_barrier(edge):
                     continue
                 if not self._passes_flow(prev_dir, current, ov):
                     continue
@@ -413,14 +768,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             if self.curvature != 0:
                 c = self.curvature / MAX_CURVATURE
 
-                def _score(e):
+                def _score(e, _ab=angle_bias, _ha=has_angle):
                     ev = (e.other_vert(current).co - current.co).normalized()
                     alignment = prev_dir.dot(ev)
-                    if len(e.link_faces) == 2:
-                        d = e.calc_face_angle(0.0) / math.pi
-                        b = 2.0 * d - 1.0
-                    else:
-                        b = 0.0
+                    ei = e.index
+                    b = _ab[ei] if _ha[ei] else 0.0
                     return alignment + EDGE_LOOP_CURV_WEIGHT * c * b
 
                 best = max(candidates, key=_score)
@@ -457,6 +809,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             pv, ei = prev[cur]
             edges.append(ei)
             cur = pv
+        edges.reverse()
+        return edges
+
+    @staticmethod
+    def _reconstruct_arr(prev_v, prev_e, target):
+        edges = []
+        cur = target
+        pv = prev_v[cur]
+        while pv != -1:
+            edges.append(prev_e[cur])
+            cur = pv
+            pv = prev_v[cur]
         edges.reverse()
         return edges
 
@@ -497,10 +861,194 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             return []
         anchor = bm.verts[self.anchor_vert_index]
         target = bm.verts[self._target_vert_index]
-        path = self._trace_arm(bm, anchor, target_vert=target)
-        if path:
-            path = self._smooth_path(bm, path, anchor, forbidden_verts=None)
+
+        # Step 1: compute baseline path normally (respects barriers, curvature, flow)
+        base_path = self._trace_arm(bm, anchor, target_vert=target)
+        if not base_path:
+            return []
+
+        # Step 2: optional arch post-process — deform the baseline toward a
+        # perpendicular-pushed arc. If any leg fails we fall through to the
+        # unarched baseline.
+        if self.arch_strength != 0:
+            waypoint_vis = self._compute_arch_waypoints_from_path(
+                bm, base_path, anchor, target
+            )
+            if waypoint_vis:
+                arched = self._trace_through_waypoints(
+                    bm, anchor, waypoint_vis, target
+                )
+                if arched:
+                    return self._smooth_path(bm, arched, anchor,
+                                             forbidden_verts=None)
+
+        # Step 3: smooth baseline
+        return self._smooth_path(bm, base_path, anchor, forbidden_verts=None)
+
+    def _trace_through_waypoints(self, bm, anchor, waypoint_vis, target):
+        """A*-chain anchor -> wp0 -> wp1 -> ... -> target.
+        Each subsequent leg forbids vertices already used (so the path can't
+        self-intersect), except for the current leg's start/end. If any leg
+        fails the whole arch routing is abandoned (caller falls back to
+        direct A*)."""
+        bm.verts.ensure_lookup_table()
+        stops = [anchor]
+        for vi in waypoint_vis:
+            stops.append(bm.verts[vi])
+        stops.append(target)
+        # Dedupe consecutive stops that snapped to the same vertex
+        dedup = [stops[0]]
+        for v in stops[1:]:
+            if v.index != dedup[-1].index:
+                dedup.append(v)
+        if len(dedup) < 2:
+            return []
+
+        used_verts = {dedup[0].index}
+        path = []
+        for i in range(len(dedup) - 1):
+            a = dedup[i]
+            b = dedup[i + 1]
+            forbidden = used_verts - {a.index, b.index}
+            leg = self._trace_arm(bm, a, target_vert=b, forbidden_verts=forbidden)
+            if not leg:
+                return []
+            path.extend(leg)
+            # Walk leg's verts and add to used set
+            cur = a
+            used_verts.add(cur.index)
+            for ei in leg:
+                e = bm.edges[ei]
+                v1, v2 = e.verts
+                cur = v2 if v1.index == cur.index else v1
+                used_verts.add(cur.index)
         return path
+
+    def _compute_arch_waypoints_from_path(self, bm, base_edges, anchor, target):
+        """Post-process: sample the baseline path and push each sample
+        perpendicular to the anchor→target chord along a view-aligned axis,
+        following a parabolic sagitta profile (0 at endpoints, peak at t=0.5).
+
+        This preserves the baseline's natural detours (from barriers /
+        curvature / flow) and layers an arc deformation on top — instead of
+        forcing a pristine arc from scratch."""
+        try:
+            rv3d = bpy.context.space_data.region_3d
+            view_dir = rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))
+        except (AttributeError, TypeError):
+            view_dir = Vector((0.0, 0.0, -1.0))
+
+        obj = self.hit_obj
+        if obj is None:
+            return []
+        mat = obj.matrix_world
+        a_world = mat @ anchor.co
+        t_world = mat @ target.co
+        line_vec = t_world - a_world
+        L = line_vec.length
+        if L < 1e-8:
+            return []
+        line_dir = line_vec / L
+
+        # Perpendicular axis in the view plane, pointing "up" on screen
+        horiz = line_dir.cross(view_dir)
+        if horiz.length < 1e-8:
+            horiz = line_dir.cross(Vector((0.0, 0.0, 1.0)))
+            if horiz.length < 1e-8:
+                horiz = Vector((1.0, 0.0, 0.0))
+        horiz = horiz.normalized()
+        up = horiz.cross(line_dir)
+        if up.length < 1e-8:
+            return []
+        up = up.normalized()
+
+        # Peak sagitta along the arc (world units)
+        s = self.arch_strength / MAX_ARCH
+        max_offset = ARCH_MAX_SAGITTA * s * L  # signed: sign picks which side
+        if abs(max_offset) < 1e-6:
+            return []
+
+        # Walk the baseline path to build an ordered world-space polyline with
+        # cumulative arc-length for arc-length-uniform sampling.
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        pts_world = [a_world]
+        cur = anchor
+        cum_len = [0.0]
+        total = 0.0
+        for ei in base_edges:
+            e = bm.edges[ei]
+            v1, v2 = e.verts
+            nv = v2 if v1.index == cur.index else v1
+            p = mat @ nv.co
+            seg = (p - pts_world[-1]).length
+            total += seg
+            pts_world.append(p)
+            cum_len.append(total)
+            cur = nv
+        if total < 1e-8 or len(pts_world) < 2:
+            return []
+
+        # How many waypoints: scale with |arch_strength|, cap at ARCH_MAX_WAYPOINTS.
+        # Also don't exceed path-interior vertex count (no point oversampling a
+        # 3-edge path with 8 waypoints).
+        count = max(1, min(ARCH_MAX_WAYPOINTS, abs(self.arch_strength)))
+        count = min(count, max(1, len(pts_world) - 2)) if len(pts_world) > 2 else count
+
+        try:
+            inv = mat.inverted()
+        except ValueError:
+            return []
+
+        waypoints = []
+        seen = set()
+        for i in range(1, count + 1):
+            t = i / (count + 1)
+            target_cum = t * total
+            # Binary-search-ish: find segment that contains target_cum
+            seg_i = 1
+            while seg_i < len(cum_len) and cum_len[seg_i] < target_cum:
+                seg_i += 1
+            if seg_i >= len(cum_len):
+                seg_i = len(cum_len) - 1
+            seg_a = cum_len[seg_i - 1]
+            seg_b = cum_len[seg_i]
+            seg_span = max(1e-8, seg_b - seg_a)
+            local_t = (target_cum - seg_a) / seg_span
+            path_pt = pts_world[seg_i - 1].lerp(pts_world[seg_i], local_t)
+
+            # Parabolic sagitta: 0 at endpoints, peak 4×max/4=max at t=0.5
+            push = 4.0 * t * (1.0 - t) * max_offset
+            pushed_world = path_pt + up * push
+            pushed_local = inv @ pushed_world
+
+            if self._native_graph is not None:
+                vi = int(self._native_graph.nearest_vertex(
+                    [pushed_local.x, pushed_local.y, pushed_local.z]
+                ))
+            else:
+                best_i = -1
+                best_d = float('inf')
+                wx, wy, wz = pushed_local.x, pushed_local.y, pushed_local.z
+                for j, co in enumerate(self._vert_co or []):
+                    dx = co[0] - wx
+                    dy = co[1] - wy
+                    dz = co[2] - wz
+                    d = dx * dx + dy * dy + dz * dz
+                    if d < best_d:
+                        best_d = d
+                        best_i = j
+                vi = best_i if best_i >= 0 else -1
+            if vi < 0:
+                continue
+            if vi == anchor.index or vi == target.index:
+                continue
+            if vi in seen:
+                continue
+            seen.add(vi)
+            waypoints.append(vi)
+        return waypoints
+
 
     def _smooth_path(self, bm, edge_indices, start_vert, forbidden_verts=None):
         """Shortcut-based post-process. Returns input unchanged at level 0."""
@@ -572,6 +1120,247 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             i = best_j
 
         return out_edges
+
+    # ─── Smooth-marked sub-mode ──────────────────────────────────────
+
+    def _collect_marked_edges(self, bm):
+        """Return set of edge indices currently marked with the active mark type."""
+        mt = self.mark_type
+        marked = set()
+        bm.edges.ensure_lookup_table()
+        if mt == 'SEAM':
+            for e in bm.edges:
+                if e.seam:
+                    marked.add(e.index)
+        elif mt == 'SHARP':
+            for e in bm.edges:
+                if not e.smooth:
+                    marked.add(e.index)
+        elif mt == 'CREASE':
+            layer = bm.edges.layers.float.get("crease_edge")
+            if layer is not None:
+                for e in bm.edges:
+                    if e[layer] > 0.0:
+                        marked.add(e.index)
+        elif mt == 'BEVEL':
+            layer = bm.edges.layers.float.get("bevel_weight_edge")
+            if layer is not None:
+                for e in bm.edges:
+                    if e[layer] > 0.0:
+                        marked.add(e.index)
+        return marked
+
+    def _extract_marked_chains(self, bm, marked):
+        """Split marked-edge subgraph into linear chains (endpoint-to-endpoint
+        or endpoint-to-junction). Returns list of (start_vert, [edge_indices]).
+        Junctions (vertex of marked-degree > 2) split chains; closed loops are
+        walked from an arbitrary start.
+        """
+        if not marked:
+            return []
+        v_edges = {}
+        bm.edges.ensure_lookup_table()
+        for ei in marked:
+            e = bm.edges[ei]
+            v_edges.setdefault(e.verts[0].index, []).append(ei)
+            v_edges.setdefault(e.verts[1].index, []).append(ei)
+
+        visited = set()
+        chains = []
+
+        def walk(start_vi, start_ei):
+            chain = [start_ei]
+            visited.add(start_ei)
+            e = bm.edges[start_ei]
+            v1, v2 = e.verts[0].index, e.verts[1].index
+            cur = v2 if v1 == start_vi else v1
+            while True:
+                edges_here = v_edges.get(cur, [])
+                # Stop if not a clean through-vertex (degree != 2 in marked subgraph)
+                # or if the only unvisited edge is back to start (closed loop)
+                if len(edges_here) != 2:
+                    break
+                unvisited = [ei for ei in edges_here if ei not in visited]
+                if not unvisited:
+                    break
+                ne_i = unvisited[0]
+                visited.add(ne_i)
+                chain.append(ne_i)
+                ne = bm.edges[ne_i]
+                v1, v2 = ne.verts[0].index, ne.verts[1].index
+                cur = v2 if v1 == cur else v1
+            return (start_vi, chain)
+
+        # Walk from endpoints / junctions first
+        for vi, eis in v_edges.items():
+            if len(eis) != 2:
+                for ei in eis:
+                    if ei not in visited:
+                        chains.append(walk(vi, ei))
+        # Remaining closed loops
+        for ei in marked:
+            if ei not in visited:
+                e = bm.edges[ei]
+                chains.append(walk(e.verts[0].index, ei))
+
+        return chains
+
+    def _smooth_marked_compute(self, bm):
+        """Compute the proposed smoothed edge set for the currently marked edges.
+        Reuses _smooth_path with a temporary higher window + magnet-driven
+        curvature bias. Returns (proposal_set, original_set).
+        """
+        original = self._collect_marked_edges(bm)
+        if not original:
+            return set(), set()
+        chains = self._extract_marked_chains(bm, original)
+
+        # Snapshot and override relevant operator state for the smoothing pass
+        save_curv = self.curvature
+        save_smooth = self.smooth_level
+        save_algo_idx = self.algorithm_idx
+        # Map magnet [-N..+N] onto curvature range [-MAX..+MAX]
+        if SMOOTH_MAGNET_RANGE > 0:
+            self.curvature = int(
+                self._smooth_magnet * MAX_CURVATURE / SMOOTH_MAGNET_RANGE
+            )
+        self.smooth_level = SMOOTH_MARKED_WINDOW
+        self.algorithm_idx = 1  # A*
+
+        proposal = set()
+        bm.verts.ensure_lookup_table()
+        try:
+            # Temporarily clear the marks so the smoothing search can use
+            # them as candidate routes (edges currently marked would be
+            # treated as barriers if the barrier type == mark type).
+            # Instead, we forbid in-chain verts outside the current window
+            # via the existing _smooth_path locally_forbidden logic, so we
+            # don't need to toggle marks on the mesh. Just run it.
+            iterations = max(1, min(self._smooth_iterations, MAX_SMOOTH_ITERATIONS))
+            for start_vi, chain_edges in chains:
+                if not chain_edges:
+                    continue
+                start_vert = bm.verts[start_vi]
+                current = chain_edges
+                for _ in range(iterations):
+                    smoothed = self._smooth_path(
+                        bm, current, start_vert, forbidden_verts=None
+                    )
+                    if not smoothed or smoothed == current:
+                        current = smoothed or current
+                        break  # converged (or degenerate) — further iterations won't change it
+                    current = smoothed
+                proposal.update(current)
+        finally:
+            self.curvature = save_curv
+            self.smooth_level = save_smooth
+            self.algorithm_idx = save_algo_idx
+
+        return proposal, original
+
+    def _enter_smooth_mode(self, context):
+        obj = self.hit_obj or context.active_object
+        if not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
+            self.report({'WARNING'}, "No mesh in Edit Mode")
+            return
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+            self._cache_layers(bm)
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            self._ensure_graph_cache(bm)
+        except (ReferenceError, AttributeError, ValueError):
+            return
+
+        if not self._collect_marked_edges(bm):
+            self.report({'INFO'}, "No marked edges to smooth")
+            return
+
+        self._smooth_mode = True
+        self._smooth_magnet = 0
+        self._smooth_iterations = 1
+        self.hit_obj = obj
+        self._refresh_smooth_preview(context)
+        self._update_status(context)
+        context.area.tag_redraw()
+
+    def _exit_smooth_mode(self, context, commit=False):
+        if not self._smooth_mode:
+            return
+        if commit:
+            self._commit_smooth(context)
+        self._smooth_mode = False
+        self._smooth_preview_edges = []
+        self._smooth_preview_coords = []
+        self._smooth_original_coords = []
+        self._smooth_original_marks = set()
+        self._update_status(context)
+        context.area.tag_redraw()
+
+    def _refresh_smooth_preview(self, context):
+        obj = self.hit_obj
+        if not obj or obj.mode != 'EDIT':
+            return
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+            self._cache_layers(bm)
+            bm.edges.ensure_lookup_table()
+            self._ensure_graph_cache(bm)
+            proposal, original = self._smooth_marked_compute(bm)
+            self._smooth_preview_edges = sorted(proposal)
+            self._smooth_original_marks = original
+            self._build_smooth_coords(bm, obj, proposal, original)
+        except (IndexError, AttributeError, ReferenceError, ValueError):
+            self._smooth_preview_edges = []
+            self._smooth_preview_coords = []
+            self._smooth_original_coords = []
+
+    def _build_smooth_coords(self, bm, obj, proposal, original):
+        mat = obj.matrix_world
+        self._smooth_preview_coords = []
+        self._smooth_original_coords = []
+        # Preview: edges proposed (new additions + retained)
+        for ei in proposal:
+            if 0 <= ei < len(bm.edges):
+                e = bm.edges[ei]
+                a = mat @ e.verts[0].co.copy()
+                b = mat @ e.verts[1].co.copy()
+                self._smooth_preview_coords.append((a, b))
+        # Original: edges that will be dropped (orig - proposal)
+        for ei in original - proposal:
+            if 0 <= ei < len(bm.edges):
+                e = bm.edges[ei]
+                a = mat @ e.verts[0].co.copy()
+                b = mat @ e.verts[1].co.copy()
+                self._smooth_original_coords.append((a, b))
+
+    def _commit_smooth(self, context):
+        obj = self.hit_obj
+        if not obj or obj.mode != 'EDIT':
+            return
+        proposal = set(self._smooth_preview_edges)
+        original = self._smooth_original_marks
+        if proposal == original:
+            self.report({'INFO'}, "Smooth: no changes")
+            return
+        bpy.ops.ed.undo_push(message="Smooth Marked Edges")
+        bm = bmesh.from_edit_mesh(obj.data)
+        self._cache_layers(bm)
+        bm.edges.ensure_lookup_table()
+        to_clear = original - proposal
+        to_apply = proposal - original
+        for ei in to_clear:
+            if 0 <= ei < len(bm.edges):
+                self._clear_mark(bm.edges[ei], bm)
+        for ei in to_apply:
+            if 0 <= ei < len(bm.edges):
+                self._apply_mark(bm.edges[ei], bm)
+        bmesh.update_edit_mesh(obj.data)
+        self._invalidate_barrier_cache()
+        self.report(
+            {'INFO'},
+            f"Smoothed: -{len(to_clear)} / +{len(to_apply)} edges",
+        )
 
     # ─── Draw coordinate builders ────────────────────────────────────
 
@@ -758,6 +1547,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 self._apply_mark(bm.edges[ei], bm)
                 count += 1
         bmesh.update_edit_mesh(obj.data)
+        self._invalidate_barrier_cache()
         self.report(
             {'INFO'},
             f"Marked {count} edges as {BARRIER_LABELS[self.mark_type]}",
@@ -784,6 +1574,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 self._clear_mark(bm.edges[ei], bm)
                 count += 1
         bmesh.update_edit_mesh(obj.data)
+        self._invalidate_barrier_cache()
         self.report(
             {'INFO'},
             f"Cleared {count} edges ({BARRIER_LABELS[self.mark_type]})",
@@ -829,6 +1620,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
         self._angle_marked = not clearing
         bmesh.update_edit_mesh(obj.data)
+        self._invalidate_barrier_cache()
         verb = "Cleared" if clearing else "Marked"
         self.report({'INFO'}, f"{verb} {count} edges as {mark_label} (angle > {self.sharp_angle}°)")
         self._update_path(context)
@@ -896,6 +1688,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             bm.verts.ensure_lookup_table()
             bm.edges.ensure_lookup_table()
             bm.faces.ensure_lookup_table()
+            self._ensure_graph_cache(bm)
 
             if self.path_mode == 'BUILD':
                 if self.hit_face_index < 0 or self.hit_face_index >= len(bm.faces):
@@ -925,6 +1718,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     # ─── Status / HUD ────────────────────────────────────────────────
 
     def _update_status(self, context):
+        if self._smooth_mode:
+            ml = BARRIER_LABELS[self.mark_type]
+            n_prop = len(self._smooth_preview_edges)
+            n_orig = len(self._smooth_original_marks)
+            context.workspace.status_text_set(
+                f"Smooth Marked ({ml}): "
+                f"[Alt+Wheel] Magnet({self._smooth_magnet:+d}) | "
+                f"[Shift+Wheel] Iterations({self._smooth_iterations}) | "
+                f"proposal {n_prop} / original {n_orig} edges | "
+                f"[Space] Accept | [F/Esc] Cancel"
+            )
+            return
         bl = BARRIER_LABELS[self.barrier_type]
         ml = BARRIER_LABELS[self.mark_type]
         al = ALGORITHM_LABELS[self.algorithm]
@@ -936,8 +1741,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             f"[A] Algorithm({al}) | [Ctrl+Wheel] Flow({self.flow_angle}°) | "
             f"[Shift+Wheel] Smooth({self.smooth_level}) | "
             f"[Ctrl+Shift+Wheel] Curvature({self.curvature}) | "
+            f"[Ctrl+Alt+Wheel] Arch({self.arch_strength:+d}) | "
             f"[S] Mark by Angle | [Alt+Wheel] Angle({self.sharp_angle}°) | "
-            f"[Q] Mode({pm}) | [Ctrl+Q] Clear Anchor"
+            f"[F] Smooth Marked | "
+            f"[Ctrl+Q] Mode({pm}) | [Q] New Mark"
             f"{' (set)' if anchor_set else ''} | "
             f"[LMB] {'Click Start/End' if self.path_mode == 'BUILD' else 'Apply'}"
             f"({n} edges) | [D] Clear Path | "
@@ -984,6 +1791,29 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         try:
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             shader.bind()
+
+            # Smooth-marked preview: dropped-original (faded) + proposed (yellow)
+            if self._smooth_mode:
+                if self._smooth_original_coords:
+                    coords = []
+                    for a, b in self._smooth_original_coords:
+                        coords.extend([a, b])
+                    shader.uniform_float("color", SMOOTH_ORIGINAL_COLOR)
+                    gpu.state.line_width_set(SMOOTH_ORIGINAL_WIDTH)
+                    gpu.state.depth_test_set('ALWAYS')
+                    gpu.state.blend_set('ALPHA')
+                    batch = batch_for_shader(shader, 'LINES', {"pos": coords})
+                    batch.draw(shader)
+                if self._smooth_preview_coords:
+                    coords = []
+                    for a, b in self._smooth_preview_coords:
+                        coords.extend([a, b])
+                    shader.uniform_float("color", SMOOTH_PREVIEW_COLOR)
+                    gpu.state.line_width_set(SMOOTH_PREVIEW_WIDTH)
+                    gpu.state.depth_test_set('ALWAYS')
+                    gpu.state.blend_set('ALPHA')
+                    batch = batch_for_shader(shader, 'LINES', {"pos": coords})
+                    batch.draw(shader)
 
             # Path edges
             if self.path_coords:
@@ -1083,30 +1913,44 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         n = len(self.path_edge_indices)
         anchor_set = self.anchor_vert_index >= 0
 
-        apply_label = (
-            "Click Start/End" if self.path_mode == 'BUILD' else "Apply"
-        )
-        clear_anchor_label = (
-            "Clear Anchor (set)" if anchor_set else "Clear Anchor"
-        )
+        if self._smooth_mode:
+            n_prop = len(self._smooth_preview_edges)
+            n_orig = len(self._smooth_original_marks)
+            lines = (
+                (f"Smooth Marked: {ml}", ""),
+                (f"Magnet: {self._smooth_magnet:+d}", "Alt+Wheel"),
+                (f"Iterations: {self._smooth_iterations}", "Shift+Wheel"),
+                (f"Proposal: {n_prop} / Orig: {n_orig}", ""),
+                ("Accept", "Space"),
+                ("Cancel sub-mode", "F / Esc"),
+            )
+        else:
+            apply_label = (
+                "Click Start/End" if self.path_mode == 'BUILD' else "Apply"
+            )
+            clear_anchor_label = (
+                "New Mark (anchor set)" if anchor_set else "New Mark"
+            )
 
-        lines = (
-            (f"Barrier: {bl}", "E"),
-            (f"Mark: {ml}", "R"),
-            (f"Algorithm: {al}", "A"),
-            (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
-            (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
-            (f"Curvature: {self.curvature}", "Ctrl+Shift+Wheel"),
-            (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
-            ("Mark by Angle", "S"),
-            (f"Mode: {pm}", "Q"),
-            (clear_anchor_label, "Ctrl+Q"),
-            (f"{apply_label} ({n} edges)", "LMB"),
-            ("Clear Path", "D"),
-            ("Undo", "Ctrl+Z"),
-            ("Finish", "Space"),
-            ("Cancel", "Esc"),
-        )
+            lines = (
+                (f"Barrier: {bl}", "E"),
+                (f"Mark: {ml}", "R"),
+                (f"Algorithm: {al}", "A"),
+                (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
+                (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
+                (f"Curvature: {self.curvature}", "Ctrl+Shift+Wheel"),
+                (f"Arch: {self.arch_strength:+d}", "Ctrl+Alt+Wheel"),
+                (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
+                ("Mark by Angle", "S"),
+                ("Smooth Marked", "F"),
+                (f"Mode: {pm}", "Ctrl+Q"),
+                (clear_anchor_label, "Q"),
+                (f"{apply_label} ({n} edges)", "LMB"),
+                ("Clear Path", "D"),
+                ("Undo", "Ctrl+Z"),
+                ("Finish", "Space"),
+                ("Cancel", "Esc"),
+            )
 
         uifactor = context.preferences.system.ui_scale
         font_id = 0
@@ -1168,9 +2012,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self._target_vert_index = -1
         self.smooth_level = 0
         self.curvature = 0
-        self.path_mode_idx = 0
+        self.path_mode_idx = 1
 
         self._load_scene_props(context)
+        # Force Mark (Build) mode as default on every invoke
+        self.path_mode_idx = 1
+        self._invalidate_graph_cache()
 
         # Disable Triangulate modifier for accurate raycast on original geometry
         self._tri_mod = None
@@ -1202,6 +2049,58 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 
+        # ── Smooth-marked sub-mode — handled first, blocks normal path modes ──
+        if self._smooth_mode:
+            # Alt+Wheel: adjust magnet (concave <-> convex bias)
+            if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt and not event.ctrl and not event.shift:
+                if event.type == 'WHEELUPMOUSE':
+                    self._smooth_magnet = min(
+                        self._smooth_magnet + SMOOTH_MAGNET_STEP, SMOOTH_MAGNET_RANGE
+                    )
+                else:
+                    self._smooth_magnet = max(
+                        self._smooth_magnet - SMOOTH_MAGNET_STEP, -SMOOTH_MAGNET_RANGE
+                    )
+                self._refresh_smooth_preview(context)
+                self._update_status(context)
+                context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            # Shift+Wheel: adjust iteration count
+            if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.shift and not event.ctrl and not event.alt:
+                if event.type == 'WHEELUPMOUSE':
+                    self._smooth_iterations = min(
+                        self._smooth_iterations + SMOOTH_ITER_STEP, MAX_SMOOTH_ITERATIONS
+                    )
+                else:
+                    self._smooth_iterations = max(
+                        self._smooth_iterations - SMOOTH_ITER_STEP, 1
+                    )
+                self._refresh_smooth_preview(context)
+                self._update_status(context)
+                context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            # Commit
+            if event.type in {'SPACE', 'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
+                self._exit_smooth_mode(context, commit=True)
+                return {'RUNNING_MODAL'}
+            # Cancel / exit without committing (F or Esc)
+            if event.type in {'F', 'ESC'} and event.value == 'PRESS':
+                self._exit_smooth_mode(context, commit=False)
+                return {'RUNNING_MODAL'}
+            # Allow viewport navigation
+            if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+                return {'PASS_THROUGH'}
+            if event.type == 'MOUSEMOVE':
+                return {'PASS_THROUGH'}
+            # Swallow all other keys while in sub-mode
+            return {'RUNNING_MODAL'}
+
+        # Enter smooth-marked sub-mode
+        if (event.type == 'F' and event.value == 'PRESS'
+                and not event.ctrl and not event.shift and not event.alt):
+            self._enter_smooth_mode(context)
+            return {'RUNNING_MODAL'}
+
         # Ctrl+Scroll – adjust flow angle
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and not event.shift and not event.alt:
             if event.type == 'WHEELUPMOUSE':
@@ -1231,6 +2130,17 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             else:
                 self.sharp_angle = max(self.sharp_angle - SHARP_ANGLE_STEP, 0)
             self._angle_marked = False
+            self._update_status(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Ctrl+Alt+Scroll – adjust arch / bending (BUILD mode: bends path off straight line)
+        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and event.alt and not event.shift:
+            if event.type == 'WHEELUPMOUSE':
+                self.arch_strength = min(self.arch_strength + ARCH_STEP, MAX_ARCH)
+            else:
+                self.arch_strength = max(self.arch_strength - ARCH_STEP, -MAX_ARCH)
+            self._update_path(context)
             self._update_status(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -1339,24 +2249,24 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle path mode (Direction <-> Build)
+        # New Mark: clear build-mode anchor to start a fresh chain
         elif (
             event.type == 'Q'
             and event.value == 'PRESS'
             and not event.ctrl
             and not event.shift
         ):
-            self._toggle_path_mode(context)
+            self._clear_anchor(context)
             return {'RUNNING_MODAL'}
 
-        # Clear build-mode anchor
+        # Toggle path mode (Direction <-> Build)
         elif (
             event.type == 'Q'
             and event.value == 'PRESS'
             and event.ctrl
             and not event.shift
         ):
-            self._clear_anchor(context)
+            self._toggle_path_mode(context)
             return {'RUNNING_MODAL'}
 
         # Mark sharp by angle
@@ -1402,6 +2312,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         ):
             self.anchor_vert_index = -1
             bpy.ops.ed.undo()
+            self._invalidate_graph_cache()
             self._update_path(context)
             self._update_status(context)
             context.area.tag_redraw()

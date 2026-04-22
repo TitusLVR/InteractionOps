@@ -1,0 +1,11 @@
+[package]
+name = "mesh_uv_shortest_mark_lib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mesh_uv_shortest_mark_lib"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py311"] }
