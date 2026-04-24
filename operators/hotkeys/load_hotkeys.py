@@ -12,7 +12,6 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
 
     def execute(self, context):
         unregister_keymaps()
-        bpy.context.window_manager.keyconfigs.update()
 
         keys_user = []
 
@@ -41,6 +40,7 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
                 print(f"IOPS: Error creating hotkeys file - {e}")
 
         register_keymaps(keys_user)
+        bpy.context.window_manager.keyconfigs.update()
         print("Loaded user's hotkeys")
         return {"FINISHED"}
 
@@ -52,7 +52,7 @@ class IOPS_OT_LoadDefaultHotkeys(bpy.types.Operator):
 
     def execute(self, context):
         unregister_keymaps()
-        bpy.context.window_manager.keyconfigs.update()
         register_keymaps(keys_default)
+        bpy.context.window_manager.keyconfigs.update()
         print("Loaded default hotkeys")
         return {"FINISHED"}

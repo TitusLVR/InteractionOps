@@ -196,14 +196,14 @@ def weighted_skeleton_offset(verts_2d, weights, offset):
 # ---------------------------------------------------------------------------
 
 
-class IOPS_OT_StraightSkeletonBevel(bpy.types.Operator):
-    """Bevel selected edges using the Straight Skeleton algorithm.
+class IOPS_OT_polygon_bevel(bpy.types.Operator):
+    """Bevel selected edges using a straight-skeleton polygon offset.
 Handles overlapping geometry by merging edges at collision points"""
 
-    bl_idname = "iops.straight_skeleton_bevel"
-    bl_label = "Straight Skeleton Bevel"
+    bl_idname = "iops.polygon_bevel"
+    bl_label = "Polygon Bevel"
     bl_description = (
-        "Bevel selected edges with collision-aware straight skeleton offset. "
+        "Bevel selected edges with collision-aware polygon offset. "
         "Overlapping bevel edges merge cleanly instead of creating broken geometry"
     )
     bl_options = {"REGISTER", "UNDO"}

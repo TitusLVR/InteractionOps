@@ -215,7 +215,9 @@ from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
-# from .operators.mesh_straight_skeleton_bevel import IOPS_OT_StraightSkeletonBevel  # WIP
+from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
+from .operators.mesh_edge_shear import IOPS_OT_edge_shear
+# from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
@@ -440,9 +442,11 @@ classes = (
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
     IOPS_OT_MeshToTrisToQuads,
+    IOPS_OT_straight_bevel,
+    IOPS_OT_edge_shear,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_Mesh_UV_Shortest_Mark,
-    # IOPS_OT_StraightSkeletonBevel,  # WIP
+    # IOPS_OT_polygon_bevel,  # WIP
     IOPS_MaterialOverrideSettings,
     IOPS_OT_Material_Override_Clear_Rendering_Flag,
     IOPS_OT_Material_Override_Refresh_Previews,
@@ -483,13 +487,10 @@ def keymap_registration():
     else:
         register_keymaps(keys_default)
 
+    bpy.context.window_manager.keyconfigs.update()
+
 
 def register():
-    # Register keymaps with a delay
-    # bpy.app.timers.register(keymap_registration, first_interval=1.0)
-    # bpy.app.timers.register(unregister_keymaps, first_interval=1.0)
-    # bpy.app.timers.register(delayed_keymap_registration, first_interval=1.5)
-
     reg_cls()
     register_pool_menus()
 
@@ -523,6 +524,7 @@ def register():
         print("IOPS Statistics Disabled!")
 
     load_iops_preferences()
+    keymap_registration()
 
     print("IOPS Registered!")
 
@@ -601,9 +603,6 @@ def unregister_select_similar_name_menu():
             bpy.types.HOPS_MT_SelectGrouped.remove(select_grouped_similar_name)
         except Exception:
             pass
-
-
-keymap_registration()
 
 
 if __name__ == "__main__":

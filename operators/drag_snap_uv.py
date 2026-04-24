@@ -158,8 +158,11 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (
-            context.area.type == "IMAGE_EDITOR"
-            and len(context.view_layer.objects.selected) != 0
+            context.area is not None
+            and context.area.type == "IMAGE_EDITOR"
+            and context.active_object is not None
+            and context.active_object.type == "MESH"
+            and context.active_object.mode == "EDIT"
         )
 
     def clear_draw_handlers(self):

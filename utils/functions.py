@@ -649,6 +649,7 @@ old_new_km_map = {
     "iops.modal_three_point_rotation": "iops.object_modal_three_point_rotation",
     "iops.active_object_scroll_up": "iops.object_active_object_scroll_up",
     "iops.active_object_scroll_down": "iops.object_active_object_scroll_down",
+    "iops.straight_bevel": "iops.mesh_straight_bevel",
 }
 
 km_to_remove = ['iops.snap_scroll_down',
@@ -703,16 +704,18 @@ def register_keymaps(keys):
 
 
 def unregister_keymaps():
-    keyconfigs = bpy.context.window_manager.keyconfigs
-    for kc in keyconfigs:
-        for keymap in kc.keymaps:
-            if keymap:
-                keymapItems = keymap.keymap_items
-                toDelete = tuple(
-                    item for item in keymapItems if item.idname.startswith("iops.")
-                )
-                for item in toDelete:
-                    keymapItems.remove(item)
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:
+        return
+    for keymap in kc.keymaps:
+        if not keymap:
+            continue
+        keymapItems = keymap.keymap_items
+        toDelete = tuple(
+            item for item in keymapItems if item.idname.startswith("iops.")
+        )
+        for item in toDelete:
+            keymapItems.remove(item)
     print("IOPS Keymaps unregistered")
 
 def fix_old_keymaps():

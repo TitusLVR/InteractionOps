@@ -46,7 +46,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.mesh_quick_snap", text="Quick Snap")
         col.operator("iops.mesh_quick_connect", text="Quick Connect")
         col.operator("iops.mesh_to_tris_to_quads", text="Tris to Quads")
-        # col.operator("iops.straight_skeleton_bevel", text="Straight Skeleton Bevel")  # WIP
+        # col.operator("iops.polygon_bevel", text="Polygon Bevel")  # WIP
         col.operator("iops.object_drop_it", text="Drop It!")
         col.operator("iops.object_kitbash_grid", text="Grid")
         col.separator()
