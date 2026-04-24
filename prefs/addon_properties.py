@@ -174,6 +174,8 @@ class IOPS_SceneProperties(PropertyGroup):
     cursor_bisect_inset_active: BoolProperty(name="Inset Active", default=False)
     cursor_bisect_inset_distance: FloatProperty(name="Inset Distance (BU)", default=0.1, min=0.0)
     cursor_bisect_inset_input: StringProperty(name="Inset Input", default="")
+    cursor_bisect_mark_active: BoolProperty(name="Mark Cut Edges", default=False)
+    cursor_bisect_mark_type_idx: IntProperty(name="Mark Type Index", default=0, min=0, max=3)
 
     # Shortest Path Mark persistent properties
     shortest_mark_barrier_idx: IntProperty(name="Barrier Type Index", default=0, min=0, max=3)

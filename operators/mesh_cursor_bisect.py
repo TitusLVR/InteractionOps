@@ -24,8 +24,6 @@ DEFAULT_DISTANCE_TEXT_OFFSET_Y = -30
 MAX_RAYCAST_ITERATIONS = 100
 RAYCAST_OFFSET_DISTANCE = 0.0001
 EPSILON = 1e-6
-FACE_SET_MIN = 1
-FACE_SET_MAX = 999
 DEFAULT_INSET_DISTANCE_CM = 10.0
 
 NUMERIC_KEYS = {
@@ -84,6 +82,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     inset_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
     inset_input_string = ""
     inset_points = []
+
+    # Edge marking system (M toggles, N cycles type)
+    mark_edges_active = False
+    mark_type_idx = 0
+    MARK_TYPES = ('SEAM', 'SHARP', 'CREASE', 'BEVEL')
 
     # Distance text system
     show_distance_info = True  # Toggle for showing distance info (I key)
@@ -225,6 +228,74 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Part 2: Status Bar and Distance Calculation Methods
 
+    @staticmethod
+    def _snapshot_face_selection(bm, is_visible):
+        """Stamp each visible+selected face with 1 on a fresh int layer.
+        The layer survives bisect_plane and remove_doubles (split / merged faces
+        inherit the value), so it's the robust way to restore selection after ops
+        that re-create faces. Returns the layer handle."""
+        # Drop any stale layer from a previous run
+        existing = bm.faces.layers.int.get("cursor_bisect_sel")
+        if existing is not None:
+            bm.faces.layers.int.remove(existing)
+        layer = bm.faces.layers.int.new("cursor_bisect_sel")
+        for f in bm.faces:
+            f[layer] = 1 if (f.select and is_visible(f)) else 0
+        return layer
+
+    @staticmethod
+    def _restore_face_selection(bm, layer, is_visible):
+        """Clear all selection then reselect faces whose layer value is 1."""
+        for v in bm.verts:
+            v.select = False
+        for e in bm.edges:
+            e.select = False
+        for f in bm.faces:
+            f.select = False
+        for f in bm.faces:
+            if f[layer] == 1 and is_visible(f):
+                f.select = True
+
+    @staticmethod
+    def _remove_layer_safe(bm, layer):
+        try:
+            if layer and layer.is_valid:
+                bm.faces.layers.int.remove(layer)
+        except (AttributeError, ValueError, ReferenceError):
+            stray = bm.faces.layers.int.get("cursor_bisect_sel")
+            if stray is not None:
+                try:
+                    bm.faces.layers.int.remove(stray)
+                except (AttributeError, ValueError, ReferenceError):
+                    pass
+
+    def _current_mark_type(self):
+        return self.MARK_TYPES[self.mark_type_idx % len(self.MARK_TYPES)]
+
+    def _apply_edge_mark(self, bm, edges):
+        """Apply the currently selected mark type to the given edges."""
+        if not edges:
+            return
+        mt = self._current_mark_type()
+        if mt == 'SEAM':
+            for e in edges:
+                e.seam = True
+        elif mt == 'SHARP':
+            for e in edges:
+                e.smooth = False
+        elif mt == 'CREASE':
+            layer = bm.edges.layers.float.get("crease_edge")
+            if layer is None:
+                layer = bm.edges.layers.float.new("crease_edge")
+            for e in edges:
+                e[layer] = 1.0
+        elif mt == 'BEVEL':
+            layer = bm.edges.layers.float.get("bevel_weight_edge")
+            if layer is None:
+                layer = bm.edges.layers.float.new("bevel_weight_edge")
+            for e in edges:
+                e[layer] = 1.0
+
     def update_status_bar(self, context):
         """Update workspace status text with current shortcuts and mode info"""
         snap_status = "ON" if self.snapping_enabled else "OFF"
@@ -239,10 +310,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             inset_info = f"ON:{self._fmt(v_display)}{suffix}"
         else:
             inset_info = "OFF"
+        mark_status = f"ON:{self._current_mark_type()}" if self.mark_edges_active else f"OFF:{self._current_mark_type()}"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [M] Mark({mark_status}) | [N] Mark Type | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -686,6 +758,20 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
+        # Toggle edge marking for new cut edges
+        elif event.type == 'M' and event.value == 'PRESS' and not event.shift and not event.ctrl and not event.alt:
+            self.mark_edges_active = not self.mark_edges_active
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Cycle edge mark type
+        elif event.type == 'N' and event.value == 'PRESS' and not event.shift and not event.ctrl and not event.alt:
+            self.mark_type_idx = (self.mark_type_idx + 1) % len(self.MARK_TYPES)
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
         # Execute bisect (or fill cut)
         elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if self.fill_cut_mode:
@@ -805,44 +891,28 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 bm.edges.ensure_lookup_table()
                 bm.verts.ensure_lookup_table()
 
-                # Step 1: Store selected faces using face set range (1-999) for robust multi-bisect handling
-                # Remove any existing temp layer to ensure clean state
-                if "temp_selection" in bm.faces.layers.int:
-                    old_layer = bm.faces.layers.int["temp_selection"]
-                    bm.faces.layers.int.remove(old_layer)
+                is_vis = self.is_face_visible_and_valid
 
-                # Create fresh temporary integer layer for face sets
-                temp_layer = bm.faces.layers.int.new("temp_selection")
+                # Snapshot selection into a face int layer — survives bisect
+                # (split halves inherit it) and remove_doubles (merged faces
+                # inherit it), so we can reselect exactly the right faces
+                # afterward without leaning on select-flush heuristics.
+                sel_layer = self._snapshot_face_selection(bm, is_vis)
 
-                # Get selected visible faces
-                selected_faces = [f for f in bm.faces if f.select and self.is_face_visible_and_valid(f)]
-
-                # Initialize all faces to 0 (no face set)
-                for face in bm.faces:
-                    face[temp_layer] = 0
-
-                # Assign face sets 1-999 to selected faces (cycling through if more than 999 faces)
+                # Build geom for bisect: selected visible faces if any, else all visible
+                selected_faces = [f for f in bm.faces if f[sel_layer] == 1]
                 if selected_faces:
-                    for i, face in enumerate(selected_faces):
-                        face_set_id = ((i % (FACE_SET_MAX - FACE_SET_MIN + 1)) + FACE_SET_MIN)  # Range 1-999, cycling
-                        face[temp_layer] = face_set_id
-
-                # Step 2: Get geometry to bisect - respect face selection and visibility
-                if selected_faces:
-                    # Use only selected visible faces and their components
-                    geom = list({v for f in selected_faces for v in f.verts} |
-                               {e for f in selected_faces for e in f.edges} |
-                               set(selected_faces))
+                    source_faces = selected_faces
                 else:
-                    # Use only visible geometry
-                    visible_faces = [f for f in bm.faces if self.is_face_visible_and_valid(f)]
-                    if visible_faces:
-                        geom = list({v for f in visible_faces for v in f.verts} |
-                                   {e for f in visible_faces for e in f.edges} |
-                                   set(visible_faces))
-                    else:
-                        # No visible faces to process
-                        continue
+                    source_faces = [f for f in bm.faces if is_vis(f)]
+
+                if not source_faces:
+                    self._remove_layer_safe(bm, sel_layer)
+                    continue
+
+                geom = list({v for f in source_faces for v in f.verts} |
+                            {e for f in source_faces for e in f.edges} |
+                            set(source_faces))
 
                 # Transform plane to object space
                 obj_matrix = obj.matrix_world
@@ -850,7 +920,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 plane_no.normalize()
                 plane_co = obj_matrix.inverted() @ cursor.location
 
-                # Step 3: Perform bisect
                 result = bmesh.ops.bisect_plane(
                     bm,
                     geom=geom,
@@ -858,48 +927,19 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     plane_no=plane_no,
                 )
 
-                # Update indices after bisect operation
                 bm.faces.ensure_lookup_table()
                 bm.edges.ensure_lookup_table()
                 bm.verts.ensure_lookup_table()
 
-                # Step 4: Restore selection using face set range (1-999)
-                # Clear current selection
-                for face in bm.faces:
-                    face.select = False
-                for edge in bm.edges:
-                    edge.select = False
-                for vert in bm.verts:
-                    vert.select = False
+                # Collect cut edges for optional marking. geom_cut holds only
+                # BMVert + BMEdge — no faces ever lie on the plane.
+                cut_edges = [e for e in result.get('geom_cut', ())
+                             if isinstance(e, bmesh.types.BMEdge) and e.is_valid]
 
-                # Select all faces that have face set IDs in range 1-999
-                restored_count = 0
-                for face in bm.faces:
-                    if self.is_face_visible_and_valid(face) and FACE_SET_MIN <= face[temp_layer] <= FACE_SET_MAX:
-                        face.select = True
-                        restored_count += 1
+                if self.mark_edges_active and cut_edges:
+                    self._apply_edge_mark(bm, cut_edges)
 
-                # Step 5: Also select new faces created by bisect
-                cut_faces_count = 0
-                if 'geom_cut' in result:
-                    for elem in result['geom_cut']:
-                        if isinstance(elem, bmesh.types.BMFace) and self.is_face_visible_and_valid(elem):
-                            elem.select = True
-                            cut_faces_count += 1
-
-                # Step 6: Clean up - remove temporary layer (ensure it's always removed)
-                try:
-                    if temp_layer and temp_layer.is_valid:
-                        bm.faces.layers.int.remove(temp_layer)
-                except (AttributeError, ValueError, ReferenceError):
-                    # If layer removal fails, try to find and remove by name
-                    try:
-                        if "temp_selection" in bm.faces.layers.int:
-                            bm.faces.layers.int.remove(bm.faces.layers.int["temp_selection"])
-                    except (AttributeError, ValueError, ReferenceError):
-                        pass
-
-                # Step 7: Merge doubles if requested
+                # Merge doubles if requested
                 if self.merge_doubles:
                     # Get merge distance from preferences
                     prefs = self.get_preferences(context)
@@ -908,8 +948,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     else:
                         merge_distance = DEFAULT_MERGE_DISTANCE
                     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
 
-                # Ensure selection is properly flushed
+                # Restore face selection from the snapshot layer, then flush
+                self._restore_face_selection(bm, sel_layer, is_vis)
+                self._remove_layer_safe(bm, sel_layer)
                 bm.select_flush_mode()
 
                 bmesh.update_edit_mesh(obj.data)
@@ -917,6 +962,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             except Exception as e:
                 self.report({'WARNING'}, f"Bisect failed on {obj.name}: {e}")
+                try:
+                    bm_err = bmesh.from_edit_mesh(obj.data)
+                    stray = bm_err.faces.layers.int.get("cursor_bisect_sel")
+                    if stray is not None:
+                        bm_err.faces.layers.int.remove(stray)
+                except (AttributeError, ValueError, ReferenceError):
+                    pass
                 continue
 
         if success_count > 0:
@@ -941,6 +993,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         props.cursor_bisect_inset_active = self.inset_active
         props.cursor_bisect_inset_distance = self.inset_distance_bu
         props.cursor_bisect_inset_input = self.inset_input_string
+        props.cursor_bisect_mark_active = self.mark_edges_active
+        props.cursor_bisect_mark_type_idx = self.mark_type_idx
 
     def _load_scene_props(self, context):
         """Load persistent operator state from scene properties."""
@@ -954,6 +1008,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.inset_active = props.cursor_bisect_inset_active
         self.inset_distance_bu = props.cursor_bisect_inset_distance
         self.inset_input_string = props.cursor_bisect_inset_input
+        self.mark_edges_active = props.cursor_bisect_mark_active
+        self.mark_type_idx = props.cursor_bisect_mark_type_idx
 
     def cancel(self, context):
         """Clean up and cancel the operation"""
@@ -1732,21 +1788,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 bm.edges.ensure_lookup_table()
                 bm.verts.ensure_lookup_table()
 
-                if "temp_selection" in bm.faces.layers.int:
-                    old_layer = bm.faces.layers.int["temp_selection"]
-                    bm.faces.layers.int.remove(old_layer)
+                is_vis = self.is_face_visible_and_valid
 
-                temp_layer = bm.faces.layers.int.new("temp_selection")
-                selected_faces = [f for f in bm.faces
-                                 if f.select and self.is_face_visible_and_valid(f)]
+                # Snapshot selection once. The int layer propagates through every
+                # subsequent bisect_plane (split faces inherit) and through the
+                # final remove_doubles, so we restore selection exactly at the end.
+                sel_layer = self._snapshot_face_selection(bm, is_vis)
 
-                for face in bm.faces:
-                    face[temp_layer] = 0
-
-                if selected_faces:
-                    for i, face in enumerate(selected_faces):
-                        face_set_id = ((i % (FACE_SET_MAX - FACE_SET_MIN + 1)) + FACE_SET_MIN)
-                        face[temp_layer] = face_set_id
+                had_selection = any(f[sel_layer] == 1 for f in bm.faces)
 
                 for cut_pos in positions:
                     obj_matrix = obj.matrix_world
@@ -1754,23 +1803,21 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     plane_no.normalize()
                     plane_co = obj_matrix.inverted() @ cut_pos
 
-                    tracked_faces = [f for f in bm.faces
-                                    if self.is_face_visible_and_valid(f)
-                                    and FACE_SET_MIN <= f[temp_layer] <= FACE_SET_MAX]
-
-                    if tracked_faces:
-                        geom = list({v for f in tracked_faces for v in f.verts} |
-                                   {e for f in tracked_faces for e in f.edges} |
-                                   set(tracked_faces))
+                    # Pick target faces for this iteration from the layer so it
+                    # stays consistent after splits. If nothing was originally
+                    # selected, cut across all visible faces every iteration.
+                    if had_selection:
+                        tracked = [f for f in bm.faces
+                                   if f[sel_layer] == 1 and is_vis(f)]
                     else:
-                        visible_faces = [f for f in bm.faces
-                                        if self.is_face_visible_and_valid(f)]
-                        if visible_faces:
-                            geom = list({v for f in visible_faces for v in f.verts} |
-                                       {e for f in visible_faces for e in f.edges} |
-                                       set(visible_faces))
-                        else:
-                            continue
+                        tracked = [f for f in bm.faces if is_vis(f)]
+
+                    if not tracked:
+                        break
+
+                    geom = list({v for f in tracked for v in f.verts} |
+                                {e for f in tracked for e in f.edges} |
+                                set(tracked))
 
                     result = bmesh.ops.bisect_plane(
                         bm, geom=geom, plane_co=plane_co, plane_no=plane_no)
@@ -1779,37 +1826,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     bm.edges.ensure_lookup_table()
                     bm.verts.ensure_lookup_table()
 
-                    if 'geom_cut' in result:
-                        for elem in result['geom_cut']:
-                            if isinstance(elem, bmesh.types.BMFace):
-                                if self.is_face_visible_and_valid(elem):
-                                    elem[temp_layer] = FACE_SET_MIN
+                    cut_edges = [e for e in result.get('geom_cut', ())
+                                 if isinstance(e, bmesh.types.BMEdge) and e.is_valid]
+
+                    if self.mark_edges_active and cut_edges:
+                        self._apply_edge_mark(bm, cut_edges)
 
                     total_cuts += 1
-
-                # Restore selection from face sets
-                for face in bm.faces:
-                    face.select = False
-                for edge in bm.edges:
-                    edge.select = False
-                for vert in bm.verts:
-                    vert.select = False
-
-                for face in bm.faces:
-                    if (self.is_face_visible_and_valid(face)
-                            and FACE_SET_MIN <= face[temp_layer] <= FACE_SET_MAX):
-                        face.select = True
-
-                try:
-                    if temp_layer and temp_layer.is_valid:
-                        bm.faces.layers.int.remove(temp_layer)
-                except (AttributeError, ValueError, ReferenceError):
-                    try:
-                        if "temp_selection" in bm.faces.layers.int:
-                            bm.faces.layers.int.remove(
-                                bm.faces.layers.int["temp_selection"])
-                    except (AttributeError, ValueError, ReferenceError):
-                        pass
 
                 if self.merge_doubles:
                     prefs = self.get_preferences(context)
@@ -1818,12 +1841,26 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     else:
                         merge_distance = DEFAULT_MERGE_DISTANCE
                     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
 
+                # Restore face selection from the snapshot, then flush
+                if had_selection:
+                    self._restore_face_selection(bm, sel_layer, is_vis)
+                self._remove_layer_safe(bm, sel_layer)
                 bm.select_flush_mode()
                 bmesh.update_edit_mesh(obj.data)
 
             except Exception as e:
                 self.report({'WARNING'}, f"Fill cut failed on {obj.name}: {e}")
+                try:
+                    bm_err = bmesh.from_edit_mesh(obj.data)
+                    stray = bm_err.faces.layers.int.get("cursor_bisect_sel")
+                    if stray is not None:
+                        bm_err.faces.layers.int.remove(stray)
+                except (AttributeError, ValueError, ReferenceError):
+                    pass
                 continue
 
         if total_cuts > 0:
@@ -1862,6 +1899,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             ("Hold Points", "D"),
             ("Fill Cut", "F"),
             ("Inset Points", "V + value"),
+            ("Mark Cut Edges", "M"),
+            ("Mark Type", "N"),
             ("Select Face", "RMB"),
             ("Coplanar Select", "Shift+RMB"),
             ("Rotate", "Alt+Wheel"),
