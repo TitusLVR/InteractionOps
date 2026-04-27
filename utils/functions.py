@@ -650,6 +650,8 @@ old_new_km_map = {
     "iops.active_object_scroll_up": "iops.object_active_object_scroll_up",
     "iops.active_object_scroll_down": "iops.object_active_object_scroll_down",
     "iops.straight_bevel": "iops.mesh_straight_bevel",
+    "iops.edge_shear": "iops.mesh_shear",
+    "iops.mesh_face_shear": "iops.mesh_shear",
 }
 
 km_to_remove = ['iops.snap_scroll_down',
