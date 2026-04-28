@@ -107,6 +107,62 @@ def _connected(v1, v2):
     return any(v2 in e.verts for e in v1.link_edges)
 
 
+def _arc_through_cuts(v_co, cut_a, cut_b, segs):
+    """Sample `segs+1` points along the unique circular arc tangent
+    to (V → cut_a) at cut_a and tangent to (V → cut_b) at cut_b.
+
+    Approximates the curve produced by `mesh.bevel(profile_type=
+    'SUPERELLIPSE', profile=0.5)` — that profile IS a circular arc.
+    A naive quadratic Bezier with V as control point sags toward
+    the corner for unequal cut distances or non-90° angles, which
+    is why the preview used to mismatch the actual bevel.
+
+    Returns a list of world-space Vectors, or None for degenerate
+    inputs (zero-length leg, collinear V/cut_a/cut_b)."""
+    dir_a = cut_a - v_co
+    dir_b = cut_b - v_co
+    da = dir_a.length
+    db = dir_b.length
+    if da < 1e-9 or db < 1e-9:
+        return None
+    u_axis = dir_a / da
+    n = u_axis.cross(dir_b)
+    if n.length < 1e-9:
+        return None  # collinear corner
+    n.normalize()
+    w_axis = n.cross(u_axis).normalized()
+    cos_th = max(-1.0, min(1.0, dir_a.dot(dir_b) / (da * db)))
+    sin_th = math.sqrt(max(0.0, 1.0 - cos_th * cos_th))
+    if sin_th < 1e-6:
+        return None
+    # Circle tangent at both cuts. In (u_axis, w_axis) coords with
+    # origin at V: cut_a = (da, 0); cut_b = (db cosθ, db sinθ).
+    # Center is (da, (db − da cosθ)/sinθ) — solved from the tangent-
+    # perpendicular constraint at each cut.
+    c_u = da
+    c_w = (db - da * cos_th) / sin_th
+    center = v_co + u_axis * c_u + w_axis * c_w
+    r = math.hypot(c_u - da, c_w - 0.0)  # |cut_a − center|
+    if r < 1e-9:
+        return None
+    # Arc angles relative to center.
+    a1 = math.atan2(0.0 - c_w, da - c_u)
+    a2 = math.atan2(db * sin_th - c_w, db * cos_th - c_u)
+    delta = a2 - a1
+    while delta > math.pi:
+        delta -= 2.0 * math.pi
+    while delta < -math.pi:
+        delta += 2.0 * math.pi
+    out = []
+    for i in range(segs + 1):
+        t = i / segs
+        a = a1 + t * delta
+        local_u = c_u + r * math.cos(a)
+        local_w = c_w + r * math.sin(a)
+        out.append(v_co + u_axis * local_u + w_axis * local_w)
+    return out
+
+
 # --------------------------------------------------------------------------
 # Operator
 # --------------------------------------------------------------------------
@@ -192,6 +248,13 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._mouse_start_x = event.mouse_region_x
         self._initial_offset = self.offset
         self._input_str = ""
+        # Percent-bevel overlay: B toggles, wheel adjusts segments.
+        # The standard preview keeps drawing alongside this overlay.
+        # On confirm with _pct_active, mesh.bevel runs at this segment
+        # count instead of the straight-bevel cuts. Default 16 gives
+        # a nicely rounded preview right after pressing B.
+        self._pct_active = False
+        self._pct_segments = 16
 
         _purge_handles()
 
@@ -209,6 +272,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
+
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
+                and self._pct_active and event.value == "PRESS":
+            # Wheel intercepted while the percent-bevel overlay is on.
+            # Up: more segments; down: fewer (clamped to 1..16).
+            if event.type == "WHEELUPMOUSE":
+                self._pct_segments = min(16, self._pct_segments + 1)
+            else:
+                self._pct_segments = max(1, self._pct_segments - 1)
+            context.workspace.status_text_set(self._status_text())
+            return {"RUNNING_MODAL"}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
@@ -249,7 +323,69 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
+            if event.type == "B":
+                self._pct_active = not self._pct_active
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
+                if self._pct_active:
+                    # Two-step: (1) run the existing perpendicular
+                    # straight bevel — cuts at the orange points
+                    # exactly. (2) re-select the same originally-
+                    # selected ridges (looked up by vert-index pair
+                    # in the post-cut mesh) and run mesh.bevel with
+                    # PERCENT 100% at the user's segment count, so
+                    # the arc forms between the orange cut points.
+                    # This avoids the junction skew of the single-
+                    # step pre-split approach.
+                    ridge_vert_pairs = set()
+                    for e in self._bm.edges:
+                        if e.select:
+                            ridge_vert_pairs.add(
+                                tuple(sorted(v.index for v in e.verts)))
+                    segments = self._pct_segments
+                    self._finish(context)
+                    result = self.execute(context)
+                    if result != {"FINISHED"}:
+                        return result
+                    obj = bpy.context.active_object
+                    if obj is None or obj.type != "MESH":
+                        return {"FINISHED"}
+                    me = obj.data
+                    bm = bmesh.from_edit_mesh(me)
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+                    bpy.ops.mesh.select_all(action="DESELECT")
+                    selected_count = 0
+                    for e in bm.edges:
+                        pair = tuple(sorted(v.index for v in e.verts))
+                        if pair in ridge_vert_pairs:
+                            e.select = True
+                            selected_count += 1
+                    bmesh.update_edit_mesh(me)
+                    if selected_count == 0:
+                        return {"FINISHED"}
+                    bpy.ops.mesh.bevel(
+                        offset_type="PERCENT",
+                        offset=0,
+                        profile_type="SUPERELLIPSE",
+                        offset_pct=100,
+                        segments=segments,
+                        profile=0.5,
+                        affect="EDGES",
+                        clamp_overlap=True,
+                        loop_slide=True,
+                        release_confirm=False,
+                    )
+                    # Merge zero-distance verts produced by the bevel
+                    # at junctions (Blender often emits coincident
+                    # corner verts there). Run on all verts so any
+                    # newly-overlapped geometry gets fused.
+                    bpy.ops.mesh.select_all(action="SELECT")
+                    bpy.ops.mesh.remove_doubles(threshold=1e-5)
+                    bpy.ops.mesh.select_all(action="DESELECT")
+                    return {"FINISHED"}
                 self._finish(context)
                 return self.execute(context)
 
@@ -293,11 +429,15 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
     def _status_text(self):
         typed = f" | typing: {self._input_str}" if self._input_str else ""
+        pct = (
+            f" | pct preview: segs={self._pct_segments} (wheel)"
+            if self._pct_active else " | [B] pct preview"
+        )
         return (
             f"Straight Bevel: offset = {self.offset:.4f}{typed} | "
             "[Mouse] drag | [Ctrl] snap 0.1 | [Shift] precise | "
             "[0-9 .] type | [Backspace] del | "
-            "[Enter/LMB] confirm | [Esc/RMB] cancel"
+            f"[Enter/LMB] confirm | [Esc/RMB] cancel{pct}"
         )
 
     # ------------------------------------------------------------------
@@ -469,6 +609,79 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 segments.append((cos[0].copy(), cos[1].copy()))
         return segments
 
+    def _draw_pct_overlay(self, region, rv3d, mw):
+        """Percent-bevel preview at each ridge corner. Bridges the
+        TWO cut points at each ridge-endpoint vert (the same orange
+        endpoints the perpendicular preview already draws) with a
+        quadratic Bezier — start = cut on face A's rail, control =
+        the ridge corner V, end = cut on face B's rail. Sampled at
+        `segments + 1` points. At segments=1 this collapses to a
+        single chamfer line between the orange dots; higher segments
+        approximate the rounded chamfer."""
+        face_pairs = getattr(self, "_face_pairs", {})
+        if not face_pairs:
+            return
+        base = getattr(self, "_vert_offset_base", {})
+        user_o = max(self.offset, 0.0)
+        # Group cut points per (corner V, selected ridge edge). When
+        # multiple ridges meet at the same corner (e.g. consecutive
+        # parallel ring selections share endpoints), V has more than
+        # two cuts — pairing by V alone would draw arcs between the
+        # wrong cuts. Pairing by (V, ridge) gives exactly two cuts
+        # per group (one per face sharing the ridge) and one clean
+        # arc per (corner, ridge).
+        by_pair = {}
+        for face, pair in face_pairs.items():
+            if not face.is_valid:
+                continue
+            for v, oe, direction, ridge in pair:
+                if not (v.is_valid and oe.is_valid):
+                    continue
+                if ridge is None or not ridge.is_valid:
+                    continue
+                L = direction.length
+                if L < 1e-9:
+                    continue
+                s = user_o + base.get(v, 0.0)
+                s = min(max(s, 0.0), L * 0.99)
+                cut = v.co + (direction / L) * s
+                by_pair.setdefault((v, ridge), []).append(cut)
+
+        segs = max(1, self._pct_segments)
+        line_pts = []
+        for (v, _ridge), cuts in by_pair.items():
+            if len(cuts) < 2:
+                continue
+            # Two cuts per (corner, ridge): one on each face sharing
+            # the ridge. Boundary edges (ridge with 1 face) only get
+            # one cut and are skipped here — bevel can't form an arc.
+            arc = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
+            if arc is None:
+                continue
+            prev_2d = None
+            for p_world in arc:
+                p_2d = view3d_utils.location_3d_to_region_2d(
+                    region, rv3d, mw @ p_world)
+                if p_2d is None:
+                    prev_2d = None
+                    continue
+                if prev_2d is not None:
+                    line_pts.extend([prev_2d, p_2d])
+                prev_2d = p_2d
+
+        if not line_pts:
+            return
+        gpu.state.blend_set("ALPHA")
+        gpu.state.line_width_set(2.0)
+        self._shader.bind()
+        # Distinct hue from the perpendicular preview (1.0, 0.7, 0.2)
+        # so the two layers read separately.
+        self._shader.uniform_float("color", (1.0, 0.4, 0.05, 0.85))
+        batch = batch_for_shader(self._shader, "LINES", {"pos": line_pts})
+        batch.draw(self._shader)
+        gpu.state.line_width_set(1.0)
+        gpu.state.blend_set("NONE")
+
     def _draw_callback(self, context):
         region = context.region
         rv3d = context.region_data
@@ -528,6 +741,9 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
             gpu.state.line_width_set(1.0)
             gpu.state.blend_set("NONE")
+
+        if self._pct_active:
+            self._draw_pct_overlay(region, rv3d, mw)
 
         font_id = 0
         try:

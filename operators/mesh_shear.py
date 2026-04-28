@@ -735,6 +735,7 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_data = None
         self._extrude_distance = 0.0
         self._extrude_start_x = 0
+        self._extrude_start_y = 0
 
         # Align sub-modal state. A enters; mouse hovers a face which
         # gets a 35% red overlay; LMB picks it and sets axis_dir to the
@@ -745,8 +746,14 @@ cancels. LMB clicks only pick widget handles."""
         self._align_face = None
         self._align_bvh = None
 
-        bpy.ops.ed.undo_push(message="Shear")
-
+        # Undo push is deferred to confirm. Pushing at invoke captures
+        # the PRE-shear state and finalizes that step — subsequent
+        # mesh changes (the modal itself) flow into the NEXT step.
+        # If a follow-up operator (e.g. straight_bevel) then auto-
+        # pushes its own step, the shear modal's changes get folded
+        # into the bevel's step, so a single Ctrl-Z undoes both ops
+        # at once. Pushing post-_apply at confirm puts the boundary
+        # AFTER the shear changes, so they land in their own step.
         self.shader = gpu.shader.from_builtin("UNIFORM_COLOR")
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
@@ -986,19 +993,39 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_active = True
         self._extrude_distance = 0.0
         self._extrude_start_x = event.mouse_region_x
+        self._extrude_start_y = event.mouse_region_y
         self.bm.normal_update()
         bmesh.update_edit_mesh(self.obj.data)
         return True
 
     def _extrude_modal(self, context, event):
         if event.type == "MOUSEMOVE":
+            # Project mouse delta onto the on-screen direction of the
+            # extrude arrow so dragging follows the arrow visually
+            # rather than pure screen +X. Recomputed each frame so it
+            # tracks camera orbits during the drag.
+            d = self._extrude_data
+            if d.get("kind") == "edge":
+                world_center = (d["active_anchor"] + d["fixed_anchor"]) * 0.5
+                world_dir_3d = d["active_side_dir"] + d["fixed_side_dir"]
+            else:
+                world_center = d["center"]
+                world_dir_3d = d["avg_dir"]
+            screen_dir = self._screen_direction(
+                context, world_center, world_dir_3d)
             dx = event.mouse_region_x - self._extrude_start_x
+            dy = event.mouse_region_y - self._extrude_start_y
+            if screen_dir is None:
+                # Camera looking down the arrow — fall back to
+                # horizontal motion so the user isn't stuck.
+                projected = dx
+            else:
+                projected = dx * screen_dir[0] + dy * screen_dir[1]
             sens = 0.01
             if event.shift:
                 sens *= 0.1
-            t = max(0.0, dx * sens)
+            t = max(0.0, projected * sens)
             self._extrude_distance = t
-            d = self._extrude_data
             if d["kind"] == "edge":
                 # Active end gets the full mouse t; fixed end stays at
                 # zero until t exceeds the saw-off offset, then grows.
@@ -1082,6 +1109,29 @@ cancels. LMB clicks only pick widget handles."""
         self.input_str = ""
         self._hotspots = []
         self._hover_idx = None
+
+    def _screen_direction(self, context, world_pt, world_dir):
+        """Returns a unit (dx, dy) tuple in region pixels representing
+        the on-screen direction of `world_dir` originating at
+        `world_pt`. None if either point fails to project or the
+        screen-space length collapses (camera looks down the arrow)."""
+        region = context.region
+        rv3d = context.region_data
+        if region is None or rv3d is None:
+            return None
+        mw = self.obj.matrix_world
+        p_tail = view3d_utils.location_3d_to_region_2d(
+            region, rv3d, mw @ world_pt)
+        p_head = view3d_utils.location_3d_to_region_2d(
+            region, rv3d, mw @ (world_pt + world_dir))
+        if p_tail is None or p_head is None:
+            return None
+        dx = p_head[0] - p_tail[0]
+        dy = p_head[1] - p_tail[1]
+        L = math.hypot(dx, dy)
+        if L < 1e-3:
+            return None
+        return (dx / L, dy / L)
 
     def _cancel_extrude(self):
         d = self._extrude_data
@@ -1564,6 +1614,10 @@ cancels. LMB clicks only pick widget handles."""
                 self.angle_deg = self._effective_angle()
                 self.input_str = ""
                 self._apply()
+                # Push AFTER the final apply so the post-shear state
+                # is the boundary; otherwise the modal's mesh changes
+                # get rolled into the next operator's undo step.
+                bpy.ops.ed.undo_push(message="Shear")
                 self._finish(context)
                 return {"FINISHED"}
 
