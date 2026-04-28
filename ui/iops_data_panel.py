@@ -1,4 +1,5 @@
 import bpy
+from ..prefs import addon_properties as _ap
 
 
 class IOPS_PT_DATA_Panel(bpy.types.Panel):
@@ -89,13 +90,22 @@ class IOPS_PT_DATA_Panel(bpy.types.Panel):
                 col = row_main.column(align=True)
                 col.label(text="Color Attributes:")
                 row = col.row(align=True)
+                # Mirror the active mesh's index into the wrapper prop without
+                # firing propagation (object-switch redraws must not retag selected).
+                current_idx = me.color_attributes.active_color_index
+                if props.iops_active_color_index != current_idx:
+                    _ap._iops_color_sync_lock = True
+                    try:
+                        props.iops_active_color_index = current_idx
+                    finally:
+                        _ap._iops_color_sync_lock = False
                 row.template_list(
                     "MESH_UL_color_attributes",
                     "color_attributes",
                     me,
                     "color_attributes",
-                    me.color_attributes,
-                    "active_color_index",
+                    props,
+                    "iops_active_color_index",
                     rows=5,
                 )
                 col = row.column(align=True)

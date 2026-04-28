@@ -42,6 +42,37 @@ def fuzzy_match(search_term, target):
     
     return False
 
+# Lock to suppress propagation when the panel syncs the wrapper index
+# from the active mesh on redraw (object switch, external change).
+_iops_color_sync_lock = False
+
+
+def update_iops_active_color_index(self, context):
+    """Propagate active color attribute (by name) to all selected meshes."""
+    global _iops_color_sync_lock
+    if _iops_color_sync_lock:
+        return
+    obj = context.active_object
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return
+    me = obj.data
+    val = self.iops_active_color_index
+    if not (0 <= val < len(me.color_attributes)):
+        return
+    name = me.color_attributes[val].name
+    if me.color_attributes.active_color_index != val:
+        me.color_attributes.active_color_index = val
+    for o in context.selected_objects:
+        if o.type != "MESH" or o.data is None or o.data is me:
+            continue
+        ca = o.data.color_attributes
+        for i, attr in enumerate(ca):
+            if attr.name == name:
+                if ca.active_color_index != i:
+                    ca.active_color_index = i
+                break
+
+
 def update_exec_filter(self, context):
     scene = bpy.context.scene
     iops = getattr(scene, "IOPS", None)
@@ -116,6 +147,13 @@ class IOPS_AddonProperties(PropertyGroup):
         name="Active Asset Library",
         description="Library path selected in the asset management pie (empty = Current File)",
         default="",
+    )
+    iops_active_color_index: IntProperty(
+        name="Active Color Attribute Index",
+        description="Wrapper index for the IOPS Data panel color attribute list; "
+                    "switching propagates the active attribute (by name) to all selected meshes",
+        default=0,
+        update=update_iops_active_color_index,
     )
 
 
