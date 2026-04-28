@@ -330,27 +330,45 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 if self._pct_active:
-                    # Hand off to Blender's bevel directly with
-                    # OFFSET type at the user's offset value. This
-                    # produces UNIFORM arc radii at every corner —
-                    # the perpendicular straight-bevel path
-                    # (execute() + PERCENT 100%) ran into uneven
-                    # arcs on non-uniform geometry because the
-                    # base[v] propagation correction gave each
-                    # corner a different stub length.
-                    #
-                    # Trade-off: cuts here aren't perpendicular to
-                    # the ridge across each face — they're at a
-                    # uniform distance from each corner. Junctions
-                    # are handled natively via clamp_overlap.
+                    # Two-step: (1) run execute() — perpendicular
+                    # straight bevel, so the orange cut points
+                    # become real verts. (2) re-select the same
+                    # originally-selected ridges by vert-pair
+                    # lookup and run mesh.bevel(PERCENT 100%) on
+                    # them, rounding the post-cut stubs into arcs
+                    # between the orange points.
+                    ridge_vert_pairs = set()
+                    for e in self._bm.edges:
+                        if e.select:
+                            ridge_vert_pairs.add(
+                                tuple(sorted(v.index for v in e.verts)))
                     segments = self._pct_segments
-                    offset = max(self.offset, 0.0)
                     self._finish(context)
+                    result = self.execute(context)
+                    if result != {"FINISHED"}:
+                        return result
+                    obj = bpy.context.active_object
+                    if obj is None or obj.type != "MESH":
+                        return {"FINISHED"}
+                    me = obj.data
+                    bm = bmesh.from_edit_mesh(me)
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+                    bpy.ops.mesh.select_all(action="DESELECT")
+                    selected_count = 0
+                    for e in bm.edges:
+                        pair = tuple(sorted(v.index for v in e.verts))
+                        if pair in ridge_vert_pairs:
+                            e.select = True
+                            selected_count += 1
+                    bmesh.update_edit_mesh(me)
+                    if selected_count == 0:
+                        return {"FINISHED"}
                     bpy.ops.mesh.bevel(
-                        offset_type="OFFSET",
-                        offset=offset,
+                        offset_type="PERCENT",
+                        offset=0,
                         profile_type="SUPERELLIPSE",
-                        offset_pct=0,
+                        offset_pct=100,
                         segments=segments,
                         profile=0.5,
                         affect="EDGES",
@@ -358,6 +376,9 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         loop_slide=True,
                         release_confirm=False,
                     )
+                    bpy.ops.mesh.select_all(action="SELECT")
+                    bpy.ops.mesh.remove_doubles(threshold=1e-5)
+                    bpy.ops.mesh.select_all(action="DESELECT")
                     return {"FINISHED"}
                 self._finish(context)
                 return self.execute(context)
