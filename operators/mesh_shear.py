@@ -805,6 +805,9 @@ cancels. LMB clicks only pick widget handles."""
 
         if rec["type"] == "face":
             face = rec["face"]
+            if not face.is_valid:
+                self.report({"WARNING"}, "extrude: face record invalid")
+                return False
             rails = rec.get("rails", [])
             projs = rec.get("projections", [])
             active_verts = rec["active_verts"]
@@ -1458,6 +1461,24 @@ cancels. LMB clicks only pick widget handles."""
         )
 
     def modal(self, context, event):
+        try:
+            return self._modal(context, event)
+        except ReferenceError:
+            # bmesh element invalidated mid-modal (undo, addon
+            # reload, or some other op that freed the underlying
+            # data). Tear down the draw handler so the viewport
+            # isn't left with a dangling render callback.
+            self._finish(context)
+            self.report({"WARNING"},
+                        "shear: bmesh data became invalid — operator cancelled")
+            return {"CANCELLED"}
+        except Exception:
+            # Any other exception leaves the draw handler stuck
+            # too. Clean up before propagating.
+            self._finish(context)
+            raise
+
+    def _modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
 
