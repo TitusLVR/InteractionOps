@@ -13,6 +13,7 @@ import blf
 DEFAULT_ANGLE_THRESHOLD = 5.0
 DEFAULT_ROTATION_STEP = 45.0
 DEFAULT_MERGE_DISTANCE = 0.005
+BISECT_PLANE_EPSILON = 1e-4  # Matches Blender's mesh.bisect default threshold; snaps near-plane verts so we don't get slivers / unwelded verts
 DEFAULT_SNAP_THRESHOLD = 30.0
 DEFAULT_FACE_DEPTH = 5
 DEFAULT_MAX_FACES = 1000
@@ -925,6 +926,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     geom=geom,
                     plane_co=plane_co,
                     plane_no=plane_no,
+                    dist=BISECT_PLANE_EPSILON,
                 )
 
                 bm.faces.ensure_lookup_table()
@@ -1820,7 +1822,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                 set(tracked))
 
                     result = bmesh.ops.bisect_plane(
-                        bm, geom=geom, plane_co=plane_co, plane_no=plane_no)
+                        bm, geom=geom, plane_co=plane_co, plane_no=plane_no,
+                        dist=BISECT_PLANE_EPSILON)
 
                     bm.faces.ensure_lookup_table()
                     bm.edges.ensure_lookup_table()
