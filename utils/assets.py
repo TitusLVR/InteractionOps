@@ -212,6 +212,33 @@ def resolve_assets_from_selection(context):
     return results
 
 
+def find_asset_collections_from_selection(context):
+    """Return asset-marked collections containing any selected object.
+
+    Walks every collection in the file and keeps those with ``asset_data`` whose
+    ``all_objects`` overlaps the current selection (or active object as a
+    fallback). Order is deterministic by collection name to give predictable
+    batch ordering. Linked collections (``library != None``) are excluded —
+    their previews can't be written locally."""
+    selected = set(context.selected_objects or [])
+    if context.active_object is not None:
+        selected.add(context.active_object)
+    if not selected:
+        return []
+
+    found = []
+    for coll in bpy.data.collections:
+        if getattr(coll, "asset_data", None) is None:
+            continue
+        if getattr(coll, "library", None) is not None:
+            continue
+        if any(ob in selected for ob in coll.all_objects):
+            found.append(coll)
+
+    found.sort(key=lambda c: c.name)
+    return found
+
+
 def iter_all_asset_datablocks():
     """Yield every datablock in the file that is marked as an asset."""
     for collection in (

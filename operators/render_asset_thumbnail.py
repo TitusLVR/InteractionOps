@@ -8,7 +8,10 @@ import array
 
 from mathutils import Vector, Matrix
 
-from ..utils.assets import resolve_assets_from_selection
+from ..utils.assets import (
+    find_asset_collections_from_selection,
+    resolve_assets_from_selection,
+)
 
 
 def get_path():
@@ -45,9 +48,20 @@ def _is_framable(ob):
     return False
 
 
-def get_objects_to_frame(context, render_for):
-    """Return list of objects to frame in the view based on render_for."""
+def get_objects_to_frame(context, render_for, target_collection=None):
+    """Return list of objects to frame in the view based on render_for.
+
+    *target_collection* overrides ``context.collection`` for the COLLECTION
+    case — used by the batch path so framing matches the asset being
+    rendered. When *target_collection* is given, ``visible_get()`` is NOT
+    consulted: the user explicitly picked this asset and we want framing to
+    cover its full geometry regardless of viewport eye-icon state on parent
+    LayerCollections (which would otherwise make ``visible_get()`` return
+    False and yield an empty list → no framing → identical default framing
+    across every iteration)."""
     if render_for == "COLLECTION":
+        if target_collection is not None:
+            return [ob for ob in target_collection.all_objects if _is_framable(ob)]
         coll = context.collection
         return [ob for ob in coll.all_objects if _is_framable(ob) and ob.visible_get()]
     if render_for == "OBJECT":
@@ -57,6 +71,229 @@ def get_objects_to_frame(context, render_for):
         ob = context.object
         return [ob] if ob and ob.type == "MESH" else []
     return []
+
+
+# ---------------------------------------------------------------------------
+#   Isolation (batch render path)
+# ---------------------------------------------------------------------------
+
+def _gather_render_keepalive(target_coll):
+    """Objects that must stay visible for *target_coll* to render correctly
+    when using the per-object hide_viewport fallback. Includes the
+    collection's contents plus, recursively, every object in any collection
+    referenced via a collection-instance empty."""
+    keep = set(target_coll.all_objects)
+    seen_colls = {target_coll}
+    todo = [target_coll]
+    while todo:
+        coll = todo.pop()
+        for ob in coll.all_objects:
+            if (
+                ob.type == "EMPTY"
+                and ob.instance_type == "COLLECTION"
+                and ob.instance_collection is not None
+                and ob.instance_collection not in seen_colls
+            ):
+                inst_coll = ob.instance_collection
+                seen_colls.add(inst_coll)
+                todo.append(inst_coll)
+                keep.update(inst_coll.all_objects)
+    return keep
+
+
+def _find_view3d_override():
+    """Return (window, area, region) for the first 3D viewport, or (None,)*3."""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                for region in area.regions:
+                    if region.type == "WINDOW":
+                        return window, area, region
+    return None, None, None
+
+
+def _toggle_localview(window, area, region):
+    """Toggle local view in *area*. Returns True when local-view state actually
+    flipped, False otherwise (poll fail, override mismatch, etc.)."""
+    space = area.spaces.active
+    before = getattr(space, "local_view", None)
+    try:
+        with bpy.context.temp_override(
+            window=window, screen=window.screen, area=area, region=region
+        ):
+            try:
+                bpy.ops.view3d.localview(frame_selected=False)
+            except TypeError:
+                bpy.ops.view3d.localview()
+    except RuntimeError:
+        return False
+    after = getattr(space, "local_view", None)
+    return (before is None) != (after is None)
+
+
+def _isolate_collection(context, target_coll):
+    """Isolate *target_coll* so the next render only shows its content
+    (plus the geometry spawned by any instancer empties inside it).
+
+    Primary path — local view in a 3D viewport. Local view filters that
+    viewport's drawn objects per-area, but the depsgraph still generates
+    dupli instances for any visible instancer empty regardless of whether
+    the source is in local view → instances render correctly while the
+    source meshes don't appear directly in the frame.
+
+    Fallback path — per-object ``hide_viewport`` with a keep-alive set that
+    leaves instance-source objects visible. Source meshes will render
+    directly if they're in the camera frame; used only when local view
+    can't be entered (no 3D viewport, headless, etc.).
+
+    Never touches: LayerCollection ``exclude``/``hide_viewport`` (resets
+    per-view-layer base state), eye-icon hide_set state."""
+    view_layer = context.view_layer
+
+    # ----- Try local view first ---------------------------------------
+    window, area, region = _find_view3d_override()
+    if area is not None:
+        saved_selection = list(context.selected_objects or [])
+        saved_active = view_layer.objects.active
+
+        for ob in view_layer.objects:
+            try:
+                ob.select_set(False)
+            except RuntimeError:
+                pass
+
+        selected = 0
+        first = None
+        for ob in target_coll.all_objects:
+            if ob.name not in view_layer.objects:
+                continue
+            try:
+                ob.select_set(True)
+                selected += 1
+                if first is None:
+                    first = ob
+            except RuntimeError:
+                pass
+
+        if first is not None:
+            try:
+                view_layer.objects.active = first
+            except (AttributeError, RuntimeError):
+                pass
+
+        if selected == 0:
+            # Roll back selection — nothing to isolate via local view.
+            for ob in saved_selection:
+                try:
+                    ob.select_set(True)
+                except (RuntimeError, ReferenceError):
+                    pass
+            if saved_active is not None:
+                try:
+                    view_layer.objects.active = saved_active
+                except (AttributeError, RuntimeError, ReferenceError):
+                    pass
+        else:
+            already_in_localview = (
+                getattr(area.spaces.active, "local_view", None) is not None
+            )
+            entered = False
+            if not already_in_localview:
+                entered = _toggle_localview(window, area, region)
+
+            if entered:
+                try:
+                    view_layer.update()
+                except AttributeError:
+                    pass
+                return {
+                    "method": "localview",
+                    "window": window,
+                    "area": area,
+                    "region": region,
+                    "saved_selection": saved_selection,
+                    "saved_active": saved_active,
+                }
+
+            # Local view didn't engage — roll back selection and fall through.
+            for ob in view_layer.objects:
+                try:
+                    ob.select_set(False)
+                except RuntimeError:
+                    pass
+            for ob in saved_selection:
+                try:
+                    ob.select_set(True)
+                except (RuntimeError, ReferenceError):
+                    pass
+            if saved_active is not None:
+                try:
+                    view_layer.objects.active = saved_active
+                except (AttributeError, RuntimeError, ReferenceError):
+                    pass
+
+    # ----- Fallback: per-object hide_viewport with keep-alive ---------
+    keep = _gather_render_keepalive(target_coll)
+    hidden_by_us = []
+    for ob in view_layer.objects:
+        if ob in keep:
+            continue
+        if ob.hide_viewport:
+            continue
+        try:
+            ob.hide_viewport = True
+            hidden_by_us.append(ob)
+        except (AttributeError, ReferenceError):
+            pass
+    try:
+        view_layer.update()
+    except AttributeError:
+        pass
+    return {"method": "hide_viewport", "hidden_by_us": hidden_by_us}
+
+
+def _restore_isolation(context, state):
+    if not state:
+        return
+    method = state.get("method")
+
+    if method == "localview":
+        window = state.get("window")
+        area = state.get("area")
+        region = state.get("region")
+        if area is not None:
+            space = area.spaces.active
+            if getattr(space, "local_view", None) is not None:
+                _toggle_localview(window, area, region)
+
+        view_layer = context.view_layer
+        try:
+            for ob in view_layer.objects:
+                try:
+                    ob.select_set(False)
+                except RuntimeError:
+                    pass
+            for ob in state.get("saved_selection", []):
+                try:
+                    ob.select_set(True)
+                except (RuntimeError, ReferenceError):
+                    pass
+            saved_active = state.get("saved_active")
+            if saved_active is not None:
+                try:
+                    view_layer.objects.active = saved_active
+                except (AttributeError, RuntimeError, ReferenceError):
+                    pass
+        except ReferenceError:
+            pass
+        return
+
+    if method == "hide_viewport":
+        for ob in state.get("hidden_by_us", []):
+            try:
+                ob.hide_viewport = False
+            except (AttributeError, ReferenceError):
+                pass
 
 
 def _expand_bbox_with_corners(matrix_world, local_corners, bb_min, bb_max):
@@ -432,7 +669,7 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
     def render_with_temp_camera(self, context):
         """Render via a temporary camera + render.opengl(CAMERA). Returns file path or None."""
         scene = context.scene
-        objects = get_objects_to_frame(context, self.render_for)
+        objects = get_objects_to_frame(context, self.render_for, self._target_collection)
         if self.use_framing and not objects:
             try:
                 objects = [ob for ob in context.visible_objects if _is_framable(ob)]
@@ -559,7 +796,7 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
         if self.toggle_overlays:
             space.overlay.show_overlays = False
 
-        objects = get_objects_to_frame(context, self.render_for)
+        objects = get_objects_to_frame(context, self.render_for, self._target_collection)
         if self.use_framing and objects:
             self._apply_viewport_framing(context, objects)
 
@@ -673,6 +910,17 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def execute(self, context):
+        # Per-call target override used by render methods. None = use context.collection.
+        self._target_collection = None
+
+        # Batch path: when rendering for a Collection and the selection spans
+        # one or more asset-marked collections, render a thumbnail per asset
+        # collection with each isolated in turn so the renders don't overlap.
+        if self.render_for == "COLLECTION":
+            asset_colls = find_asset_collections_from_selection(context)
+            if asset_colls:
+                return self._execute_batch_collections(context, asset_colls)
+
         objects_to_frame = get_objects_to_frame(context, self.render_for)
         if self.use_framing and not objects_to_frame:
             self.report({"WARNING"}, "Nothing to frame: no mesh/curve objects for current selection.")
@@ -717,3 +965,128 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
                     os.unlink(actual_path)
                 except OSError:
                     pass
+
+    # ------------------------------------------------------------------
+    #  Batch (multi-collection) path
+    # ------------------------------------------------------------------
+
+    def _execute_batch_collections(self, context, collections):
+        """Render one thumbnail per asset collection with isolation between renders."""
+        thumb_dir = os.path.join(tempfile.gettempdir(), "iops_thumb")
+        os.makedirs(thumb_dir, exist_ok=True)
+
+        total = len(collections)
+        wm = context.window_manager
+        # Cursor progress bar (cheap, no-op on headless).
+        try:
+            wm.progress_begin(0, total)
+        except (AttributeError, RuntimeError):
+            wm = None
+
+        # Header text on every 3D view so progress is visible without the console.
+        view3d_areas = []
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    view3d_areas.append(area)
+
+        def _set_header(text):
+            for area in view3d_areas:
+                try:
+                    area.header_text_set(text)
+                    area.tag_redraw()
+                except (AttributeError, RuntimeError):
+                    pass
+
+        print(f"[IOPS Thumbnail] Batch start: {total} asset collection(s)")
+
+        rendered = 0
+        failed = []
+        try:
+            for index, coll in enumerate(collections, 1):
+                progress_text = (
+                    f"IOPS Thumbnail {index}/{total}: rendering '{coll.name}'..."
+                )
+                print(f"[IOPS Thumbnail] ({index}/{total}) {coll.name} — rendering...")
+                _set_header(progress_text)
+                if wm is not None:
+                    try:
+                        wm.progress_update(index - 1)
+                    except (AttributeError, RuntimeError):
+                        pass
+
+                isolation = None
+                actual_path = None
+                try:
+                    isolation = _isolate_collection(context, coll)
+                    self._target_collection = coll
+
+                    thumb_path = os.path.join(
+                        thumb_dir, "thumb_%s.png" % uuid.uuid4().hex[:8]
+                    )
+                    actual_path = self.render_viewport(context, thumb_path)
+                    if not actual_path:
+                        actual_path = self.render_with_temp_camera(context)
+
+                    if not actual_path:
+                        print(
+                            f"[IOPS Thumbnail] ({index}/{total}) {coll.name} — FAILED (render produced no image)"
+                        )
+                        failed.append(coll.name)
+                        continue
+
+                    try:
+                        _load_custom_preview(context, coll, actual_path)
+                        rendered += 1
+                        print(
+                            f"[IOPS Thumbnail] ({index}/{total}) {coll.name} — OK"
+                        )
+                    except RuntimeError:
+                        self.report(
+                            {"WARNING"},
+                            f"Could not set preview on Collection '{coll.name}'",
+                        )
+                        print(
+                            f"[IOPS Thumbnail] ({index}/{total}) {coll.name} — FAILED (preview assignment refused)"
+                        )
+                        failed.append(coll.name)
+                finally:
+                    self._target_collection = None
+                    _restore_isolation(context, isolation)
+                    if actual_path and os.path.exists(actual_path):
+                        try:
+                            os.unlink(actual_path)
+                        except OSError:
+                            pass
+        finally:
+            _set_header(None)
+            if wm is not None:
+                try:
+                    wm.progress_end()
+                except (AttributeError, RuntimeError):
+                    pass
+
+        print(
+            f"[IOPS Thumbnail] Batch done: {rendered}/{total} succeeded"
+            + (f", failed: {', '.join(failed)}" if failed else "")
+        )
+
+        if rendered == 0:
+            self.report(
+                {"ERROR"},
+                f"Thumbnail batch failed for all {total} asset collection(s).",
+            )
+            return {"CANCELLED"}
+
+        if failed:
+            self.report(
+                {"WARNING"},
+                f"Rendered {rendered}/{total} asset collection thumbnails "
+                f"(failed: {', '.join(failed)})",
+            )
+        else:
+            self.report(
+                {"INFO"},
+                f"Rendered {rendered} asset collection thumbnail(s).",
+            )
+        return {"FINISHED"}
