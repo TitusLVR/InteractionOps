@@ -26,14 +26,30 @@ def get_view3d_context(context):
     return None, None
 
 
+_FRAMABLE_GEOMETRY_TYPES = ("MESH", "CURVE", "SURFACE", "META", "FONT")
+
+
+def _is_framable(ob):
+    """True for direct geometry or for empties carrying a collection instance.
+
+    Collection-instance empties are framed via the geometry they spawn (handled
+    in compute_combined_bound_box), not their display gizmo bound box."""
+    if ob.type in _FRAMABLE_GEOMETRY_TYPES:
+        return True
+    if (
+        ob.type == "EMPTY"
+        and ob.instance_type == "COLLECTION"
+        and ob.instance_collection is not None
+    ):
+        return True
+    return False
+
+
 def get_objects_to_frame(context, render_for):
     """Return list of objects to frame in the view based on render_for."""
     if render_for == "COLLECTION":
         coll = context.collection
-        return [
-            ob for ob in coll.all_objects
-            if ob.type in ("MESH", "CURVE", "SURFACE", "META", "FONT") and ob.visible_get()
-        ]
+        return [ob for ob in coll.all_objects if _is_framable(ob) and ob.visible_get()]
     if render_for == "OBJECT":
         ob = context.object
         return [ob] if ob else []
@@ -43,23 +59,67 @@ def get_objects_to_frame(context, render_for):
     return []
 
 
-def compute_combined_bound_box(objects):
-    """World-space axis-aligned bounding box encompassing all objects. Returns (min, max) or None."""
+def _expand_bbox_with_corners(matrix_world, local_corners, bb_min, bb_max):
+    for corner in local_corners:
+        wc = matrix_world @ Vector(corner)
+        if wc.x < bb_min.x: bb_min.x = wc.x
+        if wc.y < bb_min.y: bb_min.y = wc.y
+        if wc.z < bb_min.z: bb_min.z = wc.z
+        if wc.x > bb_max.x: bb_max.x = wc.x
+        if wc.y > bb_max.y: bb_max.y = wc.y
+        if wc.z > bb_max.z: bb_max.z = wc.z
+
+
+def compute_combined_bound_box(objects, context=None):
+    """World-space axis-aligned bbox encompassing *objects*.
+
+    When *context* is given, dependency-graph instances spawned by collection-
+    instance empties (and geometry-node instancers) under any root in *objects*
+    are included — so empty-based assets frame against the real geometry they
+    visualise rather than the empty's tiny display gizmo.
+    Returns (min, max) or None.
+    """
     if not objects:
         return None
     inf = float("inf")
     bb_min = Vector((inf, inf, inf))
     bb_max = Vector((-inf, -inf, -inf))
+    found = False
+
     for ob in objects:
-        for corner in ob.bound_box:
-            wc = ob.matrix_world @ Vector(corner)
-            bb_min.x = min(bb_min.x, wc.x)
-            bb_min.y = min(bb_min.y, wc.y)
-            bb_min.z = min(bb_min.z, wc.z)
-            bb_max.x = max(bb_max.x, wc.x)
-            bb_max.y = max(bb_max.y, wc.y)
-            bb_max.z = max(bb_max.z, wc.z)
-    return bb_min, bb_max
+        if ob.type in _FRAMABLE_GEOMETRY_TYPES:
+            _expand_bbox_with_corners(ob.matrix_world, ob.bound_box, bb_min, bb_max)
+            found = True
+
+    if context is not None:
+        try:
+            depsgraph = context.evaluated_depsgraph_get()
+        except AttributeError:
+            depsgraph = None
+        if depsgraph is not None:
+            roots = {ob.original for ob in objects}
+            for inst in depsgraph.object_instances:
+                if not inst.is_instance:
+                    continue
+                parent = inst.parent
+                if parent is None or parent.original not in roots:
+                    continue
+                inst_ob = inst.object
+                if inst_ob is None or inst_ob.type not in _FRAMABLE_GEOMETRY_TYPES:
+                    continue
+                _expand_bbox_with_corners(
+                    inst.matrix_world, inst_ob.bound_box, bb_min, bb_max
+                )
+                found = True
+
+    if not found:
+        # Last-resort fallback: include any provided objects' bound boxes so
+        # framing still produces a sensible result for unusual instancer setups.
+        for ob in objects:
+            _expand_bbox_with_corners(ob.matrix_world, ob.bound_box, bb_min, bb_max)
+            found = True
+
+    return (bb_min, bb_max) if found else None
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +397,7 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
     def _setup_temp_camera(self, context, objects):
         """Create a temporary camera framing *objects*. Returns (cam_obj, orig_camera) or (None, None)."""
         scene = context.scene
-        bbox = compute_combined_bound_box(objects) if objects else None
+        bbox = compute_combined_bound_box(objects, context) if objects else None
         if bbox:
             center = (bbox[0] + bbox[1]) * 0.5
         else:
@@ -375,9 +435,9 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
         objects = get_objects_to_frame(context, self.render_for)
         if self.use_framing and not objects:
             try:
-                objects = [ob for ob in context.visible_objects if ob.type == "MESH"]
+                objects = [ob for ob in context.visible_objects if _is_framable(ob)]
             except AttributeError:
-                objects = [ob for ob in scene.objects if ob.type == "MESH" and ob.visible_get()]
+                objects = [ob for ob in scene.objects if _is_framable(ob) and ob.visible_get()]
 
         cam_obj, original_camera = self._setup_temp_camera(context, objects)
         if not cam_obj:
@@ -434,7 +494,7 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
         if not objects or not space or not getattr(space, "region_3d", None):
             return
         rv3d = space.region_3d
-        bbox = compute_combined_bound_box(objects)
+        bbox = compute_combined_bound_box(objects, context)
         if not bbox:
             return
         center = (bbox[0] + bbox[1]) * 0.5
