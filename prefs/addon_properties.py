@@ -194,6 +194,51 @@ class IOPS_SceneProperties(PropertyGroup):
         size=4,
     )
 
+    # Object Color picker + 8 recent swatches. ``iops_object_color`` is the
+    # active picker value; the eight ``iops_object_color_recent_N`` slots are
+    # the history shown in the Object Color panel (slot 0 = most recent).
+    iops_object_color: FloatVectorProperty(
+        name="Object Color",
+        description="Color assigned to obj.color of selected objects",
+        default=(1.0, 1.0, 1.0, 1.0),
+        min=0.0,
+        max=1.0,
+        subtype="COLOR",
+        size=4,
+    )
+    iops_object_color_recent_0: FloatVectorProperty(
+        name="Recent 0", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_1: FloatVectorProperty(
+        name="Recent 1", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_2: FloatVectorProperty(
+        name="Recent 2", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_3: FloatVectorProperty(
+        name="Recent 3", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_4: FloatVectorProperty(
+        name="Recent 4", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_5: FloatVectorProperty(
+        name="Recent 5", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_6: FloatVectorProperty(
+        name="Recent 6", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+    iops_object_color_recent_7: FloatVectorProperty(
+        name="Recent 7", subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 1.0, 1.0, 1.0),
+    )
+
     # Cursor Bisect persistent properties
     cursor_bisect_snapping: BoolProperty(name="Snapping", default=True)
     cursor_bisect_normal_axis: EnumProperty(
