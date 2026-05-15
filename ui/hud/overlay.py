@@ -40,13 +40,13 @@ _WARP_PIN_SEC = 0.2 # how long the warp-detected pin lasts
 
 _STATE_ALPHA = {
     ItemState.ON: 1.0,
-    ItemState.OFF: 0.7,
-    ItemState.DISABLED: 0.35,
+    ItemState.OFF: 1.0,
+    ItemState.DISABLED: 0.45,
 }
 _STATE_ROLE = {
-    ItemState.ON: Role.PRIMARY,
-    ItemState.OFF: Role.SECONDARY,
-    ItemState.DISABLED: Role.SECONDARY,
+    ItemState.ON: Role.HUD_LABEL_ON,
+    ItemState.OFF: Role.HUD_LABEL_OFF,
+    ItemState.DISABLED: Role.HUD_LABEL_OFF,
 }
 
 

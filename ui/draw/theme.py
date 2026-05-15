@@ -17,6 +17,8 @@ class Role(Enum):
     SUCCESS = "success"
     POINT_OUTLINE = "point_outline"
     HUD_KEY = "hud_key"
+    HUD_LABEL_ON = "hud_label_on"
+    HUD_LABEL_OFF = "hud_label_off"
 
 
 _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
@@ -33,6 +35,8 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.SUCCESS:      (0.302, 1.000, 0.620, 1.00),
     Role.POINT_OUTLINE:(0.000, 0.000, 0.000, 1.00),
     Role.HUD_KEY:      (1.000, 0.722, 0.302, 1.00),  # amber, accent for key glyphs
+    Role.HUD_LABEL_ON: (1.000, 1.000, 1.000, 1.00),  # white when option active
+    Role.HUD_LABEL_OFF:(0.533, 0.541, 0.557, 0.85),  # muted grey when inactive
 }
 
 _DEFAULT_WIDTHS = {"normal": 1.5, "thick": 3.0, "preview": 2.0}
@@ -111,6 +115,8 @@ def get_theme(context) -> "Theme":
             Role.SUCCESS:      tuple(t.color_success),
             Role.POINT_OUTLINE:tuple(getattr(t, "color_point_outline", (0.0, 0.0, 0.0, 1.0))),
             Role.HUD_KEY:      tuple(getattr(t, "color_hud_key", (1.0, 0.722, 0.302, 1.0))),
+            Role.HUD_LABEL_ON: tuple(getattr(t, "color_hud_label_on", (1.0, 1.0, 1.0, 1.0))),
+            Role.HUD_LABEL_OFF:tuple(getattr(t, "color_hud_label_off", (0.533, 0.541, 0.557, 0.85))),
         },
         widths={
             "normal":  t.line_width_normal,
