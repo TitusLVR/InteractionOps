@@ -30,9 +30,14 @@
 - `prefs/theme.py` — `IOPS_Theme` PropertyGroup, theme tab UI, reset op
 - `prefs/theme_migration.py` — one-shot migration of old per-op color props
 - `operators/draw_theme_preview.py` — `IOPS_OT_DrawThemePreview` debug op
-- `tests/__init__.py`
 - `tests/conftest.py` — pytest fixtures with `bpy` mocked
 - `tests/ui/__init__.py`
+- `pytest.ini` — `--import-mode=importlib`
+
+Note: do NOT create `tests/__init__.py`. The addon root has `__init__.py`,
+so creating `tests/__init__.py` makes pytest resolve `tests` as a sub-package
+of `InteractionOps` and tries to import the addon root before conftest mocks
+load — which fails on `import bpy`. Modern pytest does not require it.
 - `tests/ui/test_theme.py`
 - `tests/ui/test_layout.py`
 - `tests/ui/test_items.py`
@@ -51,16 +56,21 @@ is `from ..ui.draw import primitives as draw`.
 ## Task 1: Project test scaffolding
 
 **Files:**
-- Create: `tests/__init__.py`
 - Create: `tests/conftest.py`
 - Create: `tests/ui/__init__.py`
+- Create: `pytest.ini`
 
-- [ ] **Step 1: Create empty `tests/__init__.py`**
+Do NOT create `tests/__init__.py` — see file structure note above.
 
-```python
+- [ ] **Step 1: Create `pytest.ini`**
+
+```ini
+[pytest]
+testpaths = tests
+addopts = --import-mode=importlib
 ```
 
-- [ ] **Step 2: Create `tests/ui/__init__.py`**
+- [ ] **Step 2: Create `tests/ui/__init__.py`** (empty)
 
 ```python
 ```
@@ -86,7 +96,7 @@ Expected: `no tests ran` (no test functions yet, but no collection errors).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/
+git add tests/ pytest.ini
 git commit -m "test: add pytest scaffolding with bpy mocks for ui tests"
 ```
 
