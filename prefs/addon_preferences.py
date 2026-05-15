@@ -69,6 +69,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
 
+    theme_migrated_v1: bpy.props.BoolProperty(default=False)
+
     # Operator text properties
     text_color: FloatVectorProperty(
         name="Color",
