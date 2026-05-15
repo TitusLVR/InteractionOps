@@ -1905,23 +1905,31 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._sync_hud_header()
 
     def _sync_hud_header(self):
-        """Render distance info as the first HUD line when toggled on."""
+        """Update HUD header lines: distance info (first), inset prompt (second)."""
         if getattr(self, "hud", None) is None:
             return
-        if not self.show_distance_info:
-            self.hud.set_header(None)
-            return
-        try:
-            info = self.get_edge_split_distances(bpy.context)
-        except Exception:
-            info = None
-        if not info:
-            self.hud.set_header(None)
-            return
-        unit = info.get("unit", "")
-        total = self._fmt(info["total"])
-        split = self._fmt(info["split"])
-        self.hud.set_header(f"Edge {total}{unit}  Split {split}{unit}")
+        distance_line = None
+        if self.show_distance_info:
+            try:
+                info = self.get_edge_split_distances(bpy.context)
+            except Exception:
+                info = None
+            if info:
+                unit = info.get("unit", "")
+                total = self._fmt(info["total"])
+                split = self._fmt(info["split"])
+                distance_line = f"Edge {total}{unit}  Split {split}{unit}"
+
+        inset_line = None
+        if self.inset_active:
+            scale = bpy.context.scene.unit_settings.scale_length or 1.0
+            if self.inset_input_string:
+                val = self.inset_input_string
+            else:
+                val = self._fmt(self.inset_distance_bu * scale)
+            inset_line = f"Inset {val}"
+
+        self.hud.set_header(distance_line, inset_line)
 
     def _build_hud(self, context):
         from ..ui.draw.theme import get_theme

@@ -48,7 +48,7 @@ class HUDOverlay:
         self._last_origin = (0, 0)
         self._last_size = (0, 0)
         self._bound_region = None
-        self._header: str | None = None
+        self._header_lines: list[str] = []
         self.verbosity: str = verbosity  # "compact" | "full"
 
     # --- setup ---
@@ -72,8 +72,10 @@ class HUDOverlay:
             state = ItemState(state)
         self._items_by_key[key].state = state
 
-    def set_header(self, text: str | None) -> None:
-        self._header = text if text else None
+    def set_header(self, *lines: str | None) -> None:
+        """Set 0+ header lines rendered above the section list, in primary
+        at title size. Falsy entries are skipped."""
+        self._header_lines = [ln for ln in lines if ln]
 
     def toggle_verbosity(self) -> str:
         self.verbosity = "full" if self.verbosity == "compact" else "compact"
@@ -96,13 +98,12 @@ class HUDOverlay:
         row_h = theme.text_size("normal")
         h = 0
         max_w = 0
-        if self._header:
-            hw, _ = hud_text.measure(self._header, theme=theme,
-                                     size_token="title")
+        for line in self._header_lines:
+            hw, _ = hud_text.measure(line, theme=theme, size_token="title")
             max_w = max(max_w, int(hw))
             h += title_h + theme.hud.row_spacing
         for i, sec in enumerate(sections):
-            if i > 0 or self._header:
+            if i > 0 or self._header_lines:
                 h += theme.hud.section_spacing
             if sec.title:
                 tw, _ = hud_text.measure(sec.title, theme=theme,
@@ -140,7 +141,7 @@ class HUDOverlay:
                 and context.region.as_pointer() != self._bound_region):
             return
         sections = self._visible_sections()
-        if not sections and not self._header:
+        if not sections and not self._header_lines:
             return
         theme = get_theme(context)
         region = context.region
@@ -175,9 +176,9 @@ class HUDOverlay:
         key_col_w = theme.hud.key_column_width
         col_gap = max(theme.hud.key_column_width, 24)
 
-        if self._header:
+        for line in self._header_lines:
             y -= title_h
-            hud_text.draw(self._header, x0, y, theme=theme,
+            hud_text.draw(line, x0, y, theme=theme,
                           role=Role.PRIMARY, size_token="title")
             y -= theme.hud.row_spacing
 
@@ -192,7 +193,7 @@ class HUDOverlay:
             col_w += col_gap
 
         for i, sec in enumerate(sections):
-            if i > 0 or self._header:
+            if i > 0 or self._header_lines:
                 y -= theme.hud.section_spacing
             if sec.title:
                 y -= title_h

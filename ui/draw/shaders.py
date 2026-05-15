@@ -3,7 +3,11 @@
 Three shaders:
 - UNIFORM_COLOR — builtin, used for filled tris and simple lines
 - POLYLINE_UNIFORM_COLOR — builtin, antialiased lines independent of MSAA
-- POINT_DISC — custom: antialiased filled disc with 1px contrasting ring
+- POINT_DISC — custom: antialiased filled disc with 1px contrasting ring.
+  Point size is driven by `gpu.state.point_size_set(px)` from the caller —
+  we do NOT write gl_PointSize from VS because that path requires
+  GL_PROGRAM_POINT_SIZE which Blender does not enable by default for
+  custom shaders.
 """
 from __future__ import annotations
 import gpu
@@ -12,7 +16,6 @@ import gpu
 _POINT_DISC_VS = """
 void main() {
     gl_Position = ModelViewProjectionMatrix * vec4(pos, 1.0);
-    gl_PointSize = pointSize;
 }
 """
 
@@ -20,13 +23,12 @@ _POINT_DISC_FS = """
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
     float d = length(uv);
-    float radius = 1.0;
-    float ring_inner = 1.0 - (2.0 / max(pointSize, 2.0));
+    if (d > 1.0) discard;
     float aa = fwidth(d) * 1.5;
-    if (d > radius) discard;
+    float ring_inner = max(0.0, 1.0 - max(2.0 / max(pointSize, 2.0), aa * 1.5));
     float fill_a = 1.0 - smoothstep(ring_inner - aa, ring_inner, d);
     float ring_a = smoothstep(ring_inner - aa, ring_inner, d) *
-                   (1.0 - smoothstep(radius - aa, radius, d));
+                   (1.0 - smoothstep(1.0 - aa, 1.0, d));
     fragColor = color * fill_a + ringColor * ring_a;
 }
 """
