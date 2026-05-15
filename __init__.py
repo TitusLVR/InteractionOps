@@ -229,6 +229,7 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
+from .operators.draw_theme_preview import IOPS_OT_DrawThemePreview
 
 # Asset Management
 from .operators.assets_management import (
@@ -286,6 +287,7 @@ bl_info = {
 classes = (
     *_theme_classes,
     IOPS_AddonPreferences,
+    IOPS_OT_DrawThemePreview,
     IOPS_CollectionItem,
     IOPS_ExecutorScriptItem,
     IOPS_AddonProperties,
