@@ -29,6 +29,21 @@ RAYCAST_OFFSET_DISTANCE = 0.0001
 EPSILON = 1e-6
 DEFAULT_INSET_DISTANCE_CM = 10.0
 
+
+# Set of (post_kind, handle) tuples for SpaceView3D draw handlers owned by
+# this operator. Survives addon reloads and orphaned exits so a fresh invoke
+# can clean up after dead instances.
+_ACTIVE_HANDLES: set = set()
+
+
+def _drop_stale_handles():
+    for kind, h in list(_ACTIVE_HANDLES):
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+        except (ValueError, RuntimeError):
+            pass
+        _ACTIVE_HANDLES.discard((kind, h))
+
 NUMERIC_KEYS = {
     'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
     'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
@@ -1043,14 +1058,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         
         if self._handle:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_VIEW', self._handle))
             self._handle = None
 
         if self._handle_pixel:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_pixel, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_pixel))
             self._handle_pixel = None
 
         if self._handle_iops_text:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_iops_text))
             self._handle_iops_text = None
 
         if self._timer:
@@ -2368,6 +2386,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._modal_region = context.region.as_pointer()
         self.hud = self._build_hud(context)
 
+        # Drop any leftover draw handlers from prior invocations whose Python
+        # operator was destroyed before invoke->modal cleanup ran (e.g. when
+        # the addon was reloaded mid-operation, or a previous exit path
+        # skipped _remove_handles). Without this they keep firing with a dead
+        # self and overdraw the current modal.
+        _drop_stale_handles()
+
         # Add draw handler
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
@@ -2378,6 +2403,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
             self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
             )
+        _ACTIVE_HANDLES.update({
+            ('POST_VIEW',  self._handle),
+            ('POST_PIXEL', self._handle_pixel),
+            ('POST_PIXEL', self._handle_iops_text),
+        })
         # Add timer for smoother updates
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
 
