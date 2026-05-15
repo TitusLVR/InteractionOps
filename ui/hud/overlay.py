@@ -1,5 +1,11 @@
 """HUDOverlay — composes sections and items, computes layout, draws via blf.
 
+Cursor-follow positioning auto-freezes during viewport navigation:
+- explicit pin via pin_for(seconds) (used by operators for MMB/wheel)
+- warp detection: any single-frame mouse jump >= WARP_PX triggers a brief
+  pin so the HUD doesn't chase Blender's cursor-warp during MMB pan/rotate.
+
+
 State color rules (from spec):
 - ItemState.ON       → primary
 - ItemState.OFF      → secondary @ alpha * 0.7
@@ -19,12 +25,17 @@ overlay to the region where the operator was invoked via `bind_region()`;
 the overlay no-ops in any other region.
 """
 from __future__ import annotations
+import time
 from typing import Iterable
 
 from ..draw.theme import Role, get_theme
 from . import text as hud_text
 from .items import HUDItem, HUDSection, ItemState
 from .layout import (compute_origin, DragState, is_inside)
+
+
+_WARP_PX = 40       # any single-frame mouse jump >= this is treated as a warp
+_WARP_PIN_SEC = 0.2 # how long the warp-detected pin lasts
 
 
 _STATE_ALPHA = {
@@ -49,7 +60,8 @@ class HUDOverlay:
         self._last_size = (0, 0)
         self._bound_region = None
         self._header_lines: list[str] = []
-        self._pinned = False
+        self._pin_until: float = 0.0
+        self._prev_mouse: tuple[int, int] | None = None
         self.verbosity: str = verbosity  # "compact" | "full"
 
     # --- setup ---
@@ -82,11 +94,17 @@ class HUDOverlay:
         self.verbosity = "full" if self.verbosity == "compact" else "compact"
         return self.verbosity
 
-    def set_pinned(self, pinned: bool) -> None:
-        """Freeze the HUD at its last computed origin. Use during viewport
-        navigation (MMB pan/rotate) where Blender warps the cursor and makes
-        cursor-follow positioning jitter."""
-        self._pinned = bool(pinned)
+    def pin_for(self, seconds: float) -> None:
+        """Freeze the HUD origin for at least `seconds` more from now.
+        Calls are rolling: each call extends the pin window if it lands
+        further in the future than the current deadline."""
+        new_deadline = time.perf_counter() + max(0.0, seconds)
+        if new_deadline > self._pin_until:
+            self._pin_until = new_deadline
+
+    @property
+    def _pinned(self) -> bool:
+        return time.perf_counter() < self._pin_until
 
     # --- visible item selection ---
     def _visible_sections(self) -> list[HUDSection]:
@@ -156,12 +174,15 @@ class HUDOverlay:
         self._last_size = size
         mouse = (0, 0)
         if event is not None:
-            # Use window-absolute coords and subtract the current draw region's
-            # origin. event.mouse_region_x/y is relative to whichever region
-            # the event was generated in — that can differ from the region we
-            # are drawing into (especially during viewport navigation that
-            # passes through to us), which makes the HUD jump.
             mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
+            # Warp detection: if the cursor jumped a lot since last draw,
+            # Blender is probably warping it for MMB navigation. Pin briefly.
+            if self._prev_mouse is not None:
+                dx = mouse[0] - self._prev_mouse[0]
+                dy = mouse[1] - self._prev_mouse[1]
+                if abs(dx) >= _WARP_PX or abs(dy) >= _WARP_PX:
+                    self.pin_for(_WARP_PIN_SEC)
+            self._prev_mouse = mouse
         if self._drag.active and event is not None:
             new = self._drag.update(mouse)
             free = (int(new[0]), int(new[1]))

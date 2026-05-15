@@ -510,22 +510,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def modal(self, context, event):
         # Track latest event for HUD positioning
         self._last_event = event
-        # Pin HUD during viewport navigation. MMB pan/rotate warps the cursor
-        # so cursor-follow jitters. Pin on MMB press; unpin on RELEASE or on
-        # any non-MMB event that signals nav is over (the view-nav operator
-        # often consumes the RELEASE, so we also unpin on the next keystroke
-        # or LMB/RMB action).
+        # Pin HUD during viewport navigation. Rolling timer is refreshed on
+        # every nav-related event; once events stop coming, the HUD resumes
+        # cursor-follow automatically. Warp detection inside HUDOverlay
+        # handles drift between explicit pin events.
         if getattr(self, "hud", None) is not None:
             if event.type == 'MIDDLEMOUSE':
-                if event.value == 'PRESS':
-                    self.hud.set_pinned(True)
-                elif event.value == 'RELEASE':
-                    self.hud.set_pinned(False)
-            elif self.hud._pinned and event.type not in {
-                'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 'WHEELUPMOUSE',
-                'WHEELDOWNMOUSE', 'TIMER',
-            }:
-                self.hud.set_pinned(False)
+                self.hud.pin_for(0.5)
+            elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+                self.hud.pin_for(0.3)
+            elif event.type == 'TRACKPADPAN':
+                self.hud.pin_for(0.3)
         # Keep HUD item states in sync with operator state every frame
         self._sync_hud_state()
         # Handle timer events
@@ -2151,13 +2146,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Part 14: Final Methods and Registration
     def draw_distance_text_callback(self, context):
-        # Distance info now renders as the HUD header (set in _sync_hud_header).
-        # Inset input feedback stays near the cursor as a separate prompt.
-        mr = getattr(self, "_modal_region", None)
-        if mr is not None and context.region.as_pointer() != mr:
-            return
-        if self.inset_active:
-            self.draw_inset_input_text(context)
+        # Distance and inset info both live inside the HUD header now —
+        # no separate cursor-anchored text drawing.
+        return
 
     def mouse_raycast(self, context, event):
         """Perform raycast from mouse position - filter to selected objects only"""
