@@ -510,14 +510,22 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def modal(self, context, event):
         # Track latest event for HUD positioning
         self._last_event = event
-        # Pin HUD during viewport navigation — MMB pan/rotate warps the cursor,
-        # making cursor-follow positioning jitter.
+        # Pin HUD during viewport navigation. MMB pan/rotate warps the cursor
+        # so cursor-follow jitters. Pin on MMB press; unpin on RELEASE or on
+        # any non-MMB event that signals nav is over (the view-nav operator
+        # often consumes the RELEASE, so we also unpin on the next keystroke
+        # or LMB/RMB action).
         if getattr(self, "hud", None) is not None:
             if event.type == 'MIDDLEMOUSE':
                 if event.value == 'PRESS':
                     self.hud.set_pinned(True)
                 elif event.value == 'RELEASE':
                     self.hud.set_pinned(False)
+            elif self.hud._pinned and event.type not in {
+                'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 'WHEELUPMOUSE',
+                'WHEELDOWNMOUSE', 'TIMER',
+            }:
+                self.hud.set_pinned(False)
         # Keep HUD item states in sync with operator state every frame
         self._sync_hud_state()
         # Handle timer events
@@ -1959,7 +1967,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("World Align",      "W",          ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Preview",          "P",          ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Distance Info",    "I",          ItemState.ON if self.show_distance_info else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Toggle HUD",       "/",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Toggle HUD",       "/",          ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Bisect",           "LMB",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
