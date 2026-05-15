@@ -11,7 +11,7 @@ import gpu
 
 _POINT_DISC_VS = """
 void main() {
-    gl_Position = ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
+    gl_Position = ModelViewProjectionMatrix * vec4(pos, 1.0);
     gl_PointSize = pointSize;
 }
 """
@@ -57,7 +57,7 @@ def _build_point_disc():
     info.push_constant("FLOAT", "pointSize")
     info.push_constant("VEC4", "color")
     info.push_constant("VEC4", "ringColor")
-    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_in(0, "VEC3", "pos")
     info.fragment_out(0, "VEC4", "fragColor")
     info.vertex_source(_POINT_DISC_VS)
     info.fragment_source(_POINT_DISC_FS)
