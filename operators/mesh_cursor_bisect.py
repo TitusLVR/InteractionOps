@@ -1106,9 +1106,27 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         for vert in face.verts:
             snap_points.append(('vertex', vert.co.copy()))
 
-        # Face center
-        face_center = face.calc_center_median()
-        snap_points.append(('center', face_center))
+        # Face center — area-weighted centroid of the polygon (triangulate
+        # via fan from vertex 0). Better matches the visual center for
+        # irregular n-gons than calc_center_median() (which is just the
+        # average of vertex coordinates).
+        verts = [v.co for v in face.verts]
+        if len(verts) >= 3:
+            v0 = verts[0]
+            total_area = 0.0
+            sum_centroid = Vector((0.0, 0.0, 0.0))
+            for i in range(1, len(verts) - 1):
+                a = verts[i] - v0
+                b = verts[i + 1] - v0
+                area = a.cross(b).length * 0.5
+                centroid = (v0 + verts[i] + verts[i + 1]) / 3.0
+                sum_centroid += centroid * area
+                total_area += area
+            if total_area > 0.0:
+                face_center = sum_centroid / total_area
+            else:
+                face_center = face.calc_center_median()
+            snap_points.append(('center', face_center))
 
         # Edge points with subdivisions (only if subdivisions > 0)
         if self.edge_subdivisions > 0:
