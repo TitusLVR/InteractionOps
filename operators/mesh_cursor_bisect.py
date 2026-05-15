@@ -71,6 +71,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     normal_axis = 'X'
     lock_orientation = False
     locked_rotation = None
+    locked_edge_world = None  # tuple(Vector, Vector) snapshot when lock_orientation toggles on
     world_axis = 'X'  # Track current world axis alignment: 'X', 'Y', or 'Z'
 
     # Add timer for better modal handling
@@ -371,6 +372,27 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Format a distance value: strip unnecessary trailing zeros"""
         return f"{value:.2f}".rstrip('0').rstrip('.')
 
+    def _snapshot_active_edge_world(self):
+        """Capture the currently-highlighted edge as a pair of world-space
+        Vectors. Used when locking orientation so the highlight stays put
+        regardless of subsequent mouse movement."""
+        if not (self.hit_obj and self.face_edges and
+                0 <= self.edge_index < len(self.face_edges)):
+            return None
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return None
+            bm = bmesh.from_edit_mesh(self.hit_obj.data)
+            bm.edges.ensure_lookup_table()
+            edge_idx = self.face_edges[self.edge_index]
+            if edge_idx >= len(bm.edges):
+                return None
+            v1, v2 = bm.edges[edge_idx].verts
+            mw = self.hit_obj.matrix_world
+            return (mw @ v1.co.copy(), mw @ v2.co.copy())
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return None
+
     def get_edge_split_distances(self, context):
         """Calculate the edge length and split distance (cursor to nearest vertex)"""
         if not (self.hit_obj and self.face_edges and 0 <= self.edge_index < len(self.face_edges)):
@@ -632,31 +654,36 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.hit_face_index = face_index
                 self.last_face_index = face_index
 
-                # Only reset edge cache if face changed AND not holding snap points
-                if face_changed and not self.hold_snap_points:
-                    self.face_edges.clear()  # Reset edge cache
-                    self.edge_index = 0  # Reset edge index
+                # When orientation is locked, freeze the highlighted edge:
+                # do not touch face_edges/edge_index regardless of where the
+                # mouse moves. The locked alignment must remain stable until
+                # the user unlocks.
+                if not self.lock_orientation:
+                    # Only reset edge cache if face changed AND not holding snap points
+                    if face_changed and not self.hold_snap_points:
+                        self.face_edges.clear()  # Reset edge cache
+                        self.edge_index = 0  # Reset edge index
 
-                # Update edge selection based on mouse position
-                try:
-                    mesh = obj.data
-                    bm = bmesh.from_edit_mesh(mesh)
-                    bm.faces.ensure_lookup_table()
+                    # Update edge selection based on mouse position
+                    try:
+                        mesh = obj.data
+                        bm = bmesh.from_edit_mesh(mesh)
+                        bm.faces.ensure_lookup_table()
 
-                    if face_index < len(bm.faces):
-                        face = bm.faces[face_index]
-                        if face.edges:
-                            # Update face edges if needed
-                            if not self.face_edges or face_changed:
-                                self.face_edges = [e.index for e in face.edges]
+                        if face_index < len(bm.faces):
+                            face = bm.faces[face_index]
+                            if face.edges:
+                                # Update face edges if needed
+                                if not self.face_edges or face_changed:
+                                    self.face_edges = [e.index for e in face.edges]
 
-                            # Find closest edge to mouse cursor
-                            closest_edge = self.find_closest_edge_to_mouse(context, event, face)
-                            if closest_edge != self.edge_index:
-                                self.edge_index = closest_edge
+                                # Find closest edge to mouse cursor
+                                closest_edge = self.find_closest_edge_to_mouse(context, event, face)
+                                if closest_edge != self.edge_index:
+                                    self.edge_index = closest_edge
 
-                except (IndexError, AttributeError):
-                    pass
+                    except (IndexError, AttributeError):
+                        pass
 
                 # Update snapping (now with screen-space support)
                 self.update_snapping(context, loc)
@@ -699,6 +726,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             if self.lock_orientation and self.hit_obj:
                 self.align_cursor_orientation()
+                # Snapshot the currently-highlighted edge in world space so
+                # we keep showing it regardless of where the mouse roams.
+                self.locked_edge_world = self._snapshot_active_edge_world()
+            else:
+                self.locked_edge_world = None
 
             self.update_status_bar(context)
             context.area.tag_redraw()
@@ -2147,34 +2179,31 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
 
-            # Draw highlighted edge
-            if self.hit_obj and self.face_edges and 0 <= self.edge_index < len(self.face_edges):
+            # Draw highlighted edge — use snapshot when locked so the
+            # highlight doesn't follow the mouse to other faces/edges.
+            world_coords = None
+            if self.lock_orientation and self.locked_edge_world is not None:
+                world_coords = list(self.locked_edge_world)
+            elif (self.hit_obj and self.face_edges
+                  and 0 <= self.edge_index < len(self.face_edges)):
                 try:
-                    if self.hit_obj.mode != 'EDIT':
-                        return
-
-                    mesh = self.hit_obj.data
-                    bm = bmesh.from_edit_mesh(mesh)
-                    bm.edges.ensure_lookup_table()
-
-                    edge_idx = self.face_edges[self.edge_index]
-                    if edge_idx < len(bm.edges):
-                        edge = bm.edges[edge_idx]
-                        v1, v2 = edge.verts
-
-                        world_coords = [
-                            self.hit_obj.matrix_world @ v1.co.copy(),
-                            self.hit_obj.matrix_world @ v2.co.copy()
-                        ]
-
-                        edge_role = (Role.LOCKED if self.lock_orientation
-                                     else Role.PRIMARY)
-                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.edges_3d(world_coords, role=edge_role,
-                                          width="thick", context=context)
-
+                    if self.hit_obj.mode == 'EDIT':
+                        bm = bmesh.from_edit_mesh(self.hit_obj.data)
+                        bm.edges.ensure_lookup_table()
+                        edge_idx = self.face_edges[self.edge_index]
+                        if edge_idx < len(bm.edges):
+                            v1, v2 = bm.edges[edge_idx].verts
+                            mw = self.hit_obj.matrix_world
+                            world_coords = [mw @ v1.co.copy(), mw @ v2.co.copy()]
                 except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
-                    pass
+                    world_coords = None
+
+            if world_coords:
+                edge_role = (Role.LOCKED if self.lock_orientation
+                             else Role.PRIMARY)
+                with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                    draw.edges_3d(world_coords, role=edge_role,
+                                  width="thick", context=context)
 
             # Snap / inset points are drawn LAST so they sit on top of edges.
             if self.snapping_enabled and self.snap_points and self.hit_obj:
