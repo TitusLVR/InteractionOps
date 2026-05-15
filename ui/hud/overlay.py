@@ -58,8 +58,12 @@ class HUDOverlay:
             self._items_by_key[it.key] = it
 
     def bind_region(self, region) -> None:
-        """Restrict drawing to one region (the one the operator was invoked in)."""
-        self._bound_region = region
+        """Restrict drawing to one region (the one the operator was invoked in).
+
+        We store the C-pointer because Blender wraps the same region struct in
+        a fresh Python object on every access, so identity (`is`) checks fail.
+        """
+        self._bound_region = region.as_pointer() if region is not None else None
 
     def set_state(self, key: str, state: ItemState | str) -> None:
         if key not in self._items_by_key:
@@ -132,7 +136,8 @@ class HUDOverlay:
 
     # --- draw ---
     def draw(self, context, event=None) -> None:
-        if self._bound_region is not None and context.region is not self._bound_region:
+        if (self._bound_region is not None
+                and context.region.as_pointer() != self._bound_region):
             return
         sections = self._visible_sections()
         if not sections and not self._header:

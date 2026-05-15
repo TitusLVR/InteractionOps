@@ -2003,7 +2003,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return
 
         # Multi-viewport guard: only draw in the region where the modal was invoked.
-        if getattr(self, "_modal_region", None) is not None and context.region is not self._modal_region:
+        mr = getattr(self, "_modal_region", None)
+        if mr is not None and context.region.as_pointer() != mr:
             return
 
         try:
@@ -2128,7 +2129,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def draw_distance_text_callback(self, context):
         # Distance info now renders as the HUD header (set in _sync_hud_header).
         # Inset input feedback stays near the cursor as a separate prompt.
-        if getattr(self, "_modal_region", None) is not None and context.region is not self._modal_region:
+        mr = getattr(self, "_modal_region", None)
+        if mr is not None and context.region.as_pointer() != mr:
             return
         if self.inset_active:
             self.draw_inset_input_text(context)
@@ -2351,7 +2353,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Build unified HUD overlay
         self._last_event = event
-        self._modal_region = context.region
+        self._modal_region = context.region.as_pointer()
         self.hud = self._build_hud(context)
 
         # Add draw handler
