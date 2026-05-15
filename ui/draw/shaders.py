@@ -10,9 +10,6 @@ import gpu
 
 
 _POINT_DISC_VS = """
-in vec2 pos;
-uniform mat4 ModelViewProjectionMatrix;
-uniform float pointSize;
 void main() {
     gl_Position = ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
     gl_PointSize = pointSize;
@@ -20,10 +17,6 @@ void main() {
 """
 
 _POINT_DISC_FS = """
-out vec4 fragColor;
-uniform vec4 color;
-uniform vec4 ringColor;
-uniform float pointSize;
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
     float d = length(uv);
@@ -58,10 +51,23 @@ def polyline_uniform_color():
     return s
 
 
+def _build_point_disc():
+    info = gpu.types.GPUShaderCreateInfo()
+    info.push_constant("MAT4", "ModelViewProjectionMatrix")
+    info.push_constant("FLOAT", "pointSize")
+    info.push_constant("VEC4", "color")
+    info.push_constant("VEC4", "ringColor")
+    info.vertex_in(0, "VEC2", "pos")
+    info.fragment_out(0, "VEC4", "fragColor")
+    info.vertex_source(_POINT_DISC_VS)
+    info.fragment_source(_POINT_DISC_FS)
+    return gpu.shader.create_from_info(info)
+
+
 def point_disc():
     s = _cache.get("POINT_DISC")
     if s is None:
-        s = gpu.types.GPUShader(_POINT_DISC_VS, _POINT_DISC_FS)
+        s = _build_point_disc()
         _cache["POINT_DISC"] = s
     return s
 
