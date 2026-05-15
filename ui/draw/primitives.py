@@ -59,9 +59,13 @@ def points(coords: Sequence, *, role: Role, size: str = "normal",
     shader = shaders.point_disc()
     batch = batch_for_shader(shader, "POINTS", {"pos": list(coords)})
     fill = th.color_for(role)
-    ring = th.color_for(ring_role) if ring_role is not None else (
-        max(1.0 - fill[0], 0.0), max(1.0 - fill[1], 0.0),
-        max(1.0 - fill[2], 0.0), fill[3])
+    # Default ring: contrasting neutral by luminance — avoids the complement
+    # case where ring color ends up close to fill and swallows the disc visually.
+    if ring_role is not None:
+        ring = th.color_for(ring_role)
+    else:
+        lum = 0.2126 * fill[0] + 0.7152 * fill[1] + 0.0722 * fill[2]
+        ring = (0.0, 0.0, 0.0, fill[3]) if lum > 0.5 else (1.0, 1.0, 1.0, fill[3])
     px = th.point_size(size)
     shader.bind()
     shader.uniform_float("color", fill)
