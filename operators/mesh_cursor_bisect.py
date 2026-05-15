@@ -2161,19 +2161,23 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             # Snap / inset points are drawn LAST so they sit on top of edges.
             if self.snapping_enabled and self.snap_points and self.hit_obj:
                 try:
-                    snap_coords = [self.hit_obj.matrix_world @ p
-                                   for _, p in self.snap_points]
-                    if snap_coords:
-                        snap_role = Role.HINT if self.hold_snap_points else Role.SNAP
-                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.points(snap_coords, role=snap_role,
+                    mw = self.hit_obj.matrix_world
+                    regular = [mw @ p for kind, p in self.snap_points if kind != 'center']
+                    centers = [mw @ p for kind, p in self.snap_points if kind == 'center']
+                    snap_role = Role.HINT if self.hold_snap_points else Role.SNAP
+                    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                        if regular:
+                            draw.points(regular, role=snap_role,
                                         size="normal", context=context)
-                            if self.closest_snap_point:
-                                _, _, closest_world = self.closest_snap_point
-                                closest_role = (Role.PRIMARY if self.hold_snap_points
-                                                else Role.SNAP_CLOSEST)
-                                draw.points([closest_world], role=closest_role,
-                                            size="large", context=context)
+                        if centers:
+                            draw.points(centers, role=Role.PRIMARY,
+                                        size="normal", context=context)
+                        if self.closest_snap_point:
+                            _, _, closest_world = self.closest_snap_point
+                            closest_role = (Role.PRIMARY if self.hold_snap_points
+                                            else Role.SNAP_CLOSEST)
+                            draw.points([closest_world], role=closest_role,
+                                        size="large", context=context)
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 
