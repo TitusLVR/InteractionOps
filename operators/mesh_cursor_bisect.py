@@ -510,6 +510,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def modal(self, context, event):
         # Track latest event for HUD positioning
         self._last_event = event
+        # Pin HUD during viewport navigation — MMB pan/rotate warps the cursor,
+        # making cursor-follow positioning jitter.
+        if getattr(self, "hud", None) is not None:
+            if event.type == 'MIDDLEMOUSE':
+                if event.value == 'PRESS':
+                    self.hud.set_pinned(True)
+                elif event.value == 'RELEASE':
+                    self.hud.set_pinned(False)
         # Keep HUD item states in sync with operator state every frame
         self._sync_hud_state()
         # Handle timer events

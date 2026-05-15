@@ -49,6 +49,7 @@ class HUDOverlay:
         self._last_size = (0, 0)
         self._bound_region = None
         self._header_lines: list[str] = []
+        self._pinned = False
         self.verbosity: str = verbosity  # "compact" | "full"
 
     # --- setup ---
@@ -80,6 +81,12 @@ class HUDOverlay:
     def toggle_verbosity(self) -> str:
         self.verbosity = "full" if self.verbosity == "compact" else "compact"
         return self.verbosity
+
+    def set_pinned(self, pinned: bool) -> None:
+        """Freeze the HUD at its last computed origin. Use during viewport
+        navigation (MMB pan/rotate) where Blender warps the cursor and makes
+        cursor-follow positioning jitter."""
+        self._pinned = bool(pinned)
 
     # --- visible item selection ---
     def _visible_sections(self) -> list[HUDSection]:
@@ -160,11 +167,14 @@ class HUDOverlay:
             free = (int(new[0]), int(new[1]))
         else:
             free = (theme.hud.free_x, theme.hud.free_y)
-        origin = compute_origin(
-            theme.hud.mode, region=region, mouse=mouse,
-            content_size=size, padding=theme.hud.padding,
-            offset=(theme.hud.offset_x, theme.hud.offset_y), free=free)
-        self._last_origin = origin
+        if self._pinned and self._last_origin != (0, 0):
+            origin = self._last_origin
+        else:
+            origin = compute_origin(
+                theme.hud.mode, region=region, mouse=mouse,
+                content_size=size, padding=theme.hud.padding,
+                offset=(theme.hud.offset_x, theme.hud.offset_y), free=free)
+            self._last_origin = origin
         self._render(theme, origin, size, sections)
 
     def _render(self, theme, origin, size, sections) -> None:
