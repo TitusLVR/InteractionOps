@@ -782,6 +782,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         elif event.type == 'V' and event.value == 'PRESS' and not event.shift and not event.ctrl:
             self.inset_active = not self.inset_active
             if self.inset_active:
+                # Force-enable snap: inset points are meaningless without
+                # snapping to them.
+                self.snapping_enabled = True
                 scale, _ = self._bu_to_display_units(context)
                 display_val = self.inset_distance_bu * scale
                 self.inset_input_string = self._fmt(display_val)
