@@ -1444,7 +1444,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
             draw_text(v_text, int(text_x), int(text_y),
-                      theme=theme, role=Role.PRIMARY, size_token="small")
+                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError):
             pass
@@ -2072,7 +2072,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
             draw_text(distance_text, int(text_x), int(text_y),
-                      theme=theme, role=Role.PRIMARY, size_token="small")
+                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError) as e:
             print(f"Error in draw_mouse_distance_text: {e}")
@@ -2131,8 +2131,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Plane outline (LINE_STRIP closed)
                 outline_coords = corners + [corners[0]]
                 with draw_scope(blend="ALPHA", depth="LESS"):
-                    draw.polyline(outline_coords, role=Role.OUTLINE,
-                                  width="normal", context=context)
+                    draw.polyline(outline_coords, role=Role.ACTIVE_LINE,
+                                  context=context)
 
             # Draw cut preview lines (when in LINES mode)
             if self.cut_preview_mode == 'LINES' and self.cut_preview_lines:
@@ -2158,8 +2158,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             depth_test_mode = 'LESS_EQUAL'
 
                         with draw_scope(blend="ALPHA", depth=depth_test_mode):
-                            draw.edges_3d(preview_coords, role=Role.PREVIEW,
-                                          width="preview", context=context)
+                            draw.edges_3d(preview_coords, role=Role.PREVIEW_LINE,
+                                          context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
@@ -2173,8 +2173,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                     if fill_coords:
                         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.edges_3d(fill_coords, role=Role.PREVIEW,
-                                          width="preview", context=context)
+                            draw.edges_3d(fill_coords, role=Role.PREVIEW_LINE,
+                                          context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
@@ -2199,11 +2199,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     world_coords = None
 
             if world_coords:
-                edge_role = (Role.LOCKED if self.lock_orientation
-                             else Role.PRIMARY)
+                edge_role = (Role.LOCKED_LINE if self.lock_orientation
+                             else Role.ACTIVE_LINE)
                 with draw_scope(blend="ALPHA", depth="ALWAYS"):
                     draw.edges_3d(world_coords, role=edge_role,
-                                  width="thick", context=context)
+                                  context=context)
 
             # Snap / inset points are drawn LAST so they sit on top of edges.
             if self.snapping_enabled and self.snap_points and self.hit_obj:
@@ -2211,20 +2211,19 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     mw = self.hit_obj.matrix_world
                     regular = [mw @ p for kind, p in self.snap_points if kind != 'center']
                     centers = [mw @ p for kind, p in self.snap_points if kind == 'center']
-                    snap_role = Role.HINT if self.hold_snap_points else Role.SNAP
+                    snap_role = Role.PREVIEW_POINT if self.hold_snap_points else Role.POINT
                     with draw_scope(blend="ALPHA", depth="ALWAYS"):
                         if regular:
-                            draw.points(regular, role=snap_role,
-                                        size="normal", context=context)
+                            draw.points(regular, role=snap_role, context=context)
                         if centers:
-                            draw.points(centers, role=Role.PRIMARY,
-                                        size="normal", context=context)
+                            draw.points(centers, role=Role.ACTIVE_POINT,
+                                        context=context)
                         if self.closest_snap_point:
                             _, _, closest_world = self.closest_snap_point
-                            closest_role = (Role.PRIMARY if self.hold_snap_points
-                                            else Role.SNAP_CLOSEST)
+                            closest_role = (Role.ACTIVE_POINT if self.hold_snap_points
+                                            else Role.CLOSEST_POINT)
                             draw.points([closest_world], role=closest_role,
-                                        size="large", context=context)
+                                        context=context)
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 
@@ -2234,8 +2233,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                 for _, pt in self.inset_points]
                     if v_coords:
                         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.points(v_coords, role=Role.PREVIEW,
-                                        size="large", context=context)
+                            draw.points(v_coords, role=Role.PREVIEW_POINT,
+                                        context=context)
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
 

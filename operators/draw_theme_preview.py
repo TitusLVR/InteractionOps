@@ -66,10 +66,10 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
 
     def _draw_view(self, context):
         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-            draw.edges_3d(self.edges,   role=Role.LOCKED, width="thick")
-            draw.polyline(self.preview, role=Role.PREVIEW, width="preview")
-            draw.points(self.snaps,     role=Role.SNAP)
-            draw.points([self.closest], role=Role.SNAP_CLOSEST, size="large")
+            draw.edges_3d(self.edges,   role=Role.LOCKED_LINE)
+            draw.polyline(self.preview, role=Role.PREVIEW_LINE)
+            draw.points(self.snaps,     role=Role.POINT)
+            draw.points([self.closest], role=Role.CLOSEST_POINT)
 
     def _draw_px(self, context):
         self.hud.draw(context, self._last_event)

@@ -210,7 +210,7 @@ class HUDOverlay:
         for line in self._header_lines:
             y -= title_h
             hud_text.draw(line, x0, y, theme=theme,
-                          role=Role.PRIMARY, size_token="title")
+                          role=Role.ACTIVE_TEXT, size_token="title")
             y -= theme.hud.row_spacing
 
         # estimate per-column block width (only matters for "full" 2-col mode)
@@ -229,7 +229,7 @@ class HUDOverlay:
             if sec.title:
                 y -= title_h
                 hud_text.draw(sec.title, x0, y, theme=theme,
-                              role=Role.PRIMARY, size_token="title")
+                              role=Role.ACTIVE_TEXT, size_token="title")
                 y -= theme.hud.row_spacing
             for row in self._rows_for_layout(sec.items):
                 y -= row_h
