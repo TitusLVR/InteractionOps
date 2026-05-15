@@ -661,6 +661,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
+
+        # Toggle HUD verbosity (compact ↔ full)
+        elif event.type == 'SLASH' and event.value == 'PRESS' and not event.shift and not event.ctrl:
+            if getattr(self, "hud", None) is not None:
+                self.hud.toggle_verbosity()
+                context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
     # Part 5: Modal Method (Second Half)
 
         # Toggle orientation lock
@@ -1895,29 +1902,53 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         s("A", ItemState.ON if self.lock_orientation else ItemState.OFF)
         s("P", ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF)
         s("I", ItemState.ON if self.show_distance_info else ItemState.OFF)
+        self._sync_hud_header()
 
-    def _build_hud(self):
-        hud = HUDOverlay("cursor_bisect")
+    def _sync_hud_header(self):
+        """Render distance info as the first HUD line when toggled on."""
+        if getattr(self, "hud", None) is None:
+            return
+        if not self.show_distance_info:
+            self.hud.set_header(None)
+            return
+        try:
+            info = self.get_edge_split_distances(bpy.context)
+        except Exception:
+            info = None
+        if not info:
+            self.hud.set_header(None)
+            return
+        unit = info.get("unit", "")
+        total = self._fmt(info["total"])
+        split = self._fmt(info["split"])
+        self.hud.set_header(f"Edge {total}{unit}  Split {split}{unit}")
+
+    def _build_hud(self, context):
+        from ..ui.draw.theme import get_theme
+        verbosity = get_theme(context).hud.verbosity
+        hud = HUDOverlay("cursor_bisect", verbosity=verbosity)
         hud.add_section(HUDSection("Bisect", [
-            HUDItem("Snap",             "S",         ItemState.ON if self.snapping_enabled else ItemState.OFF),
-            HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF),
-            HUDItem("Hold Points",      "D",         ItemState.ON if self.hold_snap_points else ItemState.OFF),
-            HUDItem("Fill Cut",         "F",         ItemState.ON if self.fill_cut_mode else ItemState.OFF),
-            HUDItem("Inset Points",     "V",         ItemState.ON if self.inset_active else ItemState.OFF),
-            HUDItem("Mark Cut Edges",   "M",         ItemState.ON if self.mark_edges_active else ItemState.OFF),
-            HUDItem("Mark Type",        "N",         ItemState.OFF),
-            HUDItem("Select Face",      "RMB",       ItemState.OFF),
-            HUDItem("Coplanar Select",  "Shift+RMB", ItemState.OFF),
-            HUDItem("Rotate",           "Alt+Wheel", ItemState.OFF),
-            HUDItem("Lock Orientation", "A",         ItemState.ON if self.lock_orientation else ItemState.OFF),
-            HUDItem("Select Direction", "X",         ItemState.OFF),
-            HUDItem("World Align",      "W",         ItemState.OFF),
-            HUDItem("Preview",          "P",         ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF),
-            HUDItem("Distance Info",    "I",         ItemState.ON if self.show_distance_info else ItemState.OFF),
-            HUDItem("Bisect",           "LMB",       ItemState.OFF),
-            HUDItem("Finish",           "Space",     ItemState.OFF),
-            HUDItem("Cancel",           "Esc",       ItemState.OFF),
+            HUDItem("Snap",             "S",          ItemState.ON if self.snapping_enabled else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Fill Cut",         "F",          ItemState.ON if self.fill_cut_mode else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Inset Points",     "V",          ItemState.ON if self.inset_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Mark Cut Edges",   "M",          ItemState.ON if self.mark_edges_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Mark Type",        "N",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Select Face",      "RMB",        ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Coplanar Select",  "Shift+RMB",  ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Rotate",           "Alt+Wheel",  ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Lock Orientation", "A",          ItemState.ON if self.lock_orientation else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Select Direction", "X",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("World Align",      "W",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Preview",          "P",          ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Distance Info",    "I",          ItemState.ON if self.show_distance_info else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Toggle HUD",       "/",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Bisect",           "LMB",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
         ]))
+        hud.bind_region(context.region)
         return hud
 
     # Part 11: Distance Text Drawing
@@ -1971,6 +2002,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if not context or not context.scene:
             return
 
+        # Multi-viewport guard: only draw in the region where the modal was invoked.
+        if getattr(self, "_modal_region", None) is not None and context.region is not self._modal_region:
+            return
+
         try:
             # Get preferences for all colors and sizes
             prefs = self.get_preferences(context)
@@ -2010,42 +2045,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 with draw_scope(blend="ALPHA", depth="LESS"):
                     draw.polyline(outline_coords, role=Role.OUTLINE,
                                   width="normal", context=context)
-
-            # Draw snap points if snapping is enabled
-            if self.snapping_enabled and self.snap_points and self.hit_obj:
-                try:
-                    snap_coords = []
-                    for snap_type, point_local in self.snap_points:
-                        point_world = self.hit_obj.matrix_world @ point_local
-                        snap_coords.append(point_world)
-
-                    if snap_coords:
-                        snap_role = Role.HINT if self.hold_snap_points else Role.SNAP
-                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.points(snap_coords, role=snap_role,
-                                        size="normal", context=context)
-
-                            # Draw closest snap point
-                            if self.closest_snap_point:
-                                _, _, closest_world = self.closest_snap_point
-                                closest_role = (Role.PRIMARY if self.hold_snap_points
-                                                else Role.SNAP_CLOSEST)
-                                draw.points([closest_world], role=closest_role,
-                                            size="large", context=context)
-
-                except (IndexError, AttributeError, ReferenceError, ValueError):
-                    pass
-
-            # Draw inset points as distinctive markers
-            if self.inset_active and self.inset_points and self.hit_obj:
-                try:
-                    v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.inset_points]
-                    if v_coords:
-                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                            draw.points(v_coords, role=Role.PREVIEW,
-                                        size="large", context=context)
-                except (IndexError, AttributeError, ReferenceError, ValueError):
-                    pass
 
             # Draw cut preview lines (when in LINES mode)
             if self.cut_preview_mode == 'LINES' and self.cut_preview_lines:
@@ -2127,8 +2126,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Part 14: Final Methods and Registration
     def draw_distance_text_callback(self, context):
-        if self.show_distance_info:
-            self.draw_mouse_distance_text(context)
+        # Distance info now renders as the HUD header (set in _sync_hud_header).
+        # Inset input feedback stays near the cursor as a separate prompt.
+        if getattr(self, "_modal_region", None) is not None and context.region is not self._modal_region:
+            return
         if self.inset_active:
             self.draw_inset_input_text(context)
 
@@ -2350,7 +2351,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Build unified HUD overlay
         self._last_event = event
-        self.hud = self._build_hud()
+        self._modal_region = context.region
+        self.hud = self._build_hud(context)
 
         # Add draw handler
         self._handle = bpy.types.SpaceView3D.draw_handler_add(

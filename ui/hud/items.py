@@ -14,6 +14,11 @@ class HUDItem:
     label: str
     key: str
     state: ItemState = ItemState.OFF
+    default_state: ItemState = ItemState.OFF
+    always_show: bool = False
+
+    def is_modified(self) -> bool:
+        return self.state is not self.default_state
 
 
 @dataclass

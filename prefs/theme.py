@@ -57,6 +57,14 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     hud_section_spacing: IntProperty(name="Section spacing", default=8, min=0, max=64)
     hud_row_spacing: IntProperty(name="Row spacing", default=2, min=0, max=16)
     hud_key_column_width: IntProperty(name="Key column width", default=60, min=20, max=240)
+    hud_verbosity: EnumProperty(
+        name="HUD verbosity",
+        items=[
+            ("compact", "Compact", "Only show items in non-default state, plus essential anchors"),
+            ("full",    "Full",    "Show all items in two columns"),
+        ],
+        default="compact",
+    )
 
     depth_test_default: EnumProperty(
         name="Depth test",
@@ -127,6 +135,7 @@ def draw_theme_tab(layout, theme):
     col.prop(theme, "hud_section_spacing")
     col.prop(theme, "hud_row_spacing")
     col.prop(theme, "hud_key_column_width")
+    col.prop(theme, "hud_verbosity")
 
     box = layout.box()
     box.label(text="Behaviour")
