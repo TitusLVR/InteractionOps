@@ -148,7 +148,12 @@ class HUDOverlay:
         self._last_size = size
         mouse = (0, 0)
         if event is not None:
-            mouse = (event.mouse_region_x, event.mouse_region_y)
+            # Use window-absolute coords and subtract the current draw region's
+            # origin. event.mouse_region_x/y is relative to whichever region
+            # the event was generated in — that can differ from the region we
+            # are drawing into (especially during viewport navigation that
+            # passes through to us), which makes the HUD jump.
+            mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
         if self._drag.active and event is not None:
             new = self._drag.update(mouse)
             free = (int(new[0]), int(new[1]))
