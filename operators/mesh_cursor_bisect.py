@@ -71,6 +71,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     normal_axis = 'X'
     lock_orientation = False
     locked_rotation = None
+    locked_edge_world = None  # (Vector, Vector) world-space snapshot of the edge that defined the lock
     world_axis = 'X'  # Track current world axis alignment: 'X', 'Y', or 'Z'
 
     # Add timer for better modal handling
@@ -370,6 +371,25 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def _fmt(value):
         """Format a distance value: strip unnecessary trailing zeros"""
         return f"{value:.2f}".rstrip('0').rstrip('.')
+
+    def _snapshot_active_edge_world(self):
+        """Capture the currently-highlighted edge endpoints in world space."""
+        if not (self.hit_obj and self.face_edges and
+                0 <= self.edge_index < len(self.face_edges)):
+            return None
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return None
+            bm = bmesh.from_edit_mesh(self.hit_obj.data)
+            bm.edges.ensure_lookup_table()
+            edge_idx = self.face_edges[self.edge_index]
+            if edge_idx >= len(bm.edges):
+                return None
+            v1, v2 = bm.edges[edge_idx].verts
+            mw = self.hit_obj.matrix_world
+            return (mw @ v1.co.copy(), mw @ v2.co.copy())
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return None
 
     def get_edge_split_distances(self, context):
         """Calculate the edge length and split distance (cursor to nearest vertex)"""
@@ -696,6 +716,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             if self.lock_orientation and self.hit_obj:
                 self.align_cursor_orientation()
+                self.locked_edge_world = self._snapshot_active_edge_world()
+            else:
+                self.locked_edge_world = None
 
             self.update_status_bar(context)
             context.area.tag_redraw()
@@ -2144,7 +2167,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
 
-            # Draw highlighted edge — live from current edge_index.
+            # Draw the lock-anchor edge (snapshot) in LOCKED color first…
+            if self.lock_orientation and self.locked_edge_world is not None:
+                try:
+                    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                        draw.edges_3d(list(self.locked_edge_world),
+                                      role=Role.LOCKED_LINE, context=context)
+                except (AttributeError, ValueError, ReferenceError, TypeError):
+                    pass
+
+            # …then the live mouse-hover edge in ACTIVE color.
             if (self.hit_obj and self.face_edges
                     and 0 <= self.edge_index < len(self.face_edges)):
                 try:
@@ -2156,10 +2188,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             v1, v2 = bm.edges[edge_idx].verts
                             mw = self.hit_obj.matrix_world
                             world_coords = [mw @ v1.co.copy(), mw @ v2.co.copy()]
-                            edge_role = (Role.LOCKED_LINE if self.lock_orientation
-                                         else Role.ACTIVE_LINE)
                             with draw_scope(blend="ALPHA", depth="ALWAYS"):
-                                draw.edges_3d(world_coords, role=edge_role,
+                                draw.edges_3d(world_coords,
+                                              role=Role.ACTIVE_LINE,
                                               context=context)
                 except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
                     pass
