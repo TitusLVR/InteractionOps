@@ -23,13 +23,30 @@ _POINT_DISC_FS = """
 void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
     float d = length(uv);
-    if (d > 1.0) discard;
-    float aa = fwidth(d) * 1.5;
-    float ring_inner = max(0.0, 1.0 - max(2.0 / max(pointSize, 2.0), aa * 1.5));
-    float fill_a = 1.0 - smoothstep(ring_inner - aa, ring_inner, d);
-    float ring_a = smoothstep(ring_inner - aa, ring_inner, d) *
-                   (1.0 - smoothstep(1.0 - aa, 1.0, d));
-    fragColor = color * fill_a + ringColor * ring_a;
+
+    // Width of the antialias band in disc-radius units. Use the larger of
+    // the screen-space derivative and a small floor so tiny points still
+    // smooth visibly.
+    float aa = max(fwidth(d), 0.5 / max(pointSize, 2.0));
+
+    // Outer edge soft fade: alpha=1 inside, alpha=0 just outside radius=1.
+    float outer = 1.0 - smoothstep(1.0 - aa, 1.0, d);
+    if (outer <= 0.0) discard;
+
+    // Ring thickness: ~1 px relative to point size, clamped so it never
+    // collapses below the AA band.
+    float ring_thickness = max(1.5 / max(pointSize, 2.0), aa);
+    float ring_inner = 1.0 - ring_thickness;
+
+    // Smooth transition between fill and ring zones.
+    float in_ring = smoothstep(ring_inner - aa, ring_inner, d);
+    float fill_a = (1.0 - in_ring) * outer;
+    float ring_a = in_ring * outer;
+
+    vec4 c = color * fill_a + ringColor * ring_a;
+    // Premultiplied-style accumulation kept simple: rely on caller's ALPHA blend.
+    c.a = color.a * fill_a + ringColor.a * ring_a;
+    fragColor = c;
 }
 """
 
