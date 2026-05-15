@@ -532,25 +532,22 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             if self._handle_inset_input(context, event):
                 return {'RUNNING_MODAL'}
 
-        # Handle Ctrl+Wheel for edge subdivision control
+        # Handle Ctrl+Wheel for edge subdivision control.
+        # Always consume so Blender's default mesh.select_more (also bound to
+        # Ctrl+Wheel in edit mode) doesn't fire underneath this modal.
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and not event.shift:
             if self.snapping_enabled:
                 if event.type == 'WHEELUPMOUSE':
                     self.edge_subdivisions = min(self.edge_subdivisions + 1, 100)
                 else:
                     self.edge_subdivisions = max(self.edge_subdivisions - 1, 0)
-
-                # Update snap points with new subdivision
                 if self.hit_obj and self.hit_face_index != -1 and not self.hold_snap_points:
                     self.update_snapping(context, context.scene.cursor.location)
-
                 if self.fill_cut_mode:
                     self.calculate_fill_cut_preview(context)
-
                 self.update_status_bar(context)
                 context.area.tag_redraw()
-                return {'RUNNING_MODAL'}  # Consume the event
-            return {'PASS_THROUGH'}
+            return {'RUNNING_MODAL'}
 
         # Handle Alt+Wheel for Z-axis rotation
         elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt and not event.shift and not event.ctrl:
