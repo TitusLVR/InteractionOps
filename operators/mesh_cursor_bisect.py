@@ -4,10 +4,12 @@ import mathutils
 import bmesh
 import math
 from mathutils import Vector, Matrix
-import gpu
-from gpu_extras.batch import batch_for_shader
 import bpy_extras
-import blf
+
+from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw.theme import get_theme
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
 DEFAULT_ANGLE_THRESHOLD = 5.0
@@ -506,6 +508,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     # Part 4: Modal Method (First Half)
 
     def modal(self, context, event):
+        # Track latest event for HUD positioning
+        self._last_event = event
+        # Keep HUD item states in sync with operator state every frame
+        self._sync_hud_state()
         # Handle timer events
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
@@ -1344,20 +1350,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             text_y = mouse_y + self.distance_text_offset_y - (self.distance_text_size + 6)
 
             region = context.region
-            font_id = 0
-            blf.size(font_id, self.distance_text_size)
-            text_width, text_height = blf.dimensions(font_id, v_text)
+            theme = get_theme(context)
+            text_width, text_height = measure_text(v_text, theme=theme,
+                                                   size_token="small")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, 5, 0, 0, 0, 1)
-            blf.shadow_offset(font_id, 1, -1)
-
-            blf.color(font_id, 0.4, 1.0, 1.0, 1.0)
-            blf.position(font_id, text_x, text_y, 0)
-            blf.draw(font_id, v_text)
+            draw_text(v_text, int(text_x), int(text_y),
+                      theme=theme, role=Role.PRIMARY, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError):
             pass
@@ -1875,90 +1876,49 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         return {'FINISHED'}
 
-    # Draw Help text
+    # Draw Help text — unified HUD overlay
     def draw_iops_text(self, context):
-        preferences = context.preferences
-        uifactor = preferences.system.ui_scale
-        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-        
-        # Text appearance settings
-        tColor = prefs.text_color
-        tKColor = prefs.text_color_key
-        tCSize = prefs.text_size
-        tCPosX = prefs.text_pos_x
-        tCPosY = prefs.text_pos_y
-        
-        # Shadow settings
-        tShadow = prefs.text_shadow_toggle
-        tSColor = prefs.text_shadow_color
-        tSBlur = prefs.text_shadow_blur
-        tSPosX = prefs.text_shadow_pos_x
-        tSPosY = prefs.text_shadow_pos_y
-        
-        # Instructions text (action, key)
-        iops_text = (
-            ("Snap", "S"),
-            ("Subdivide", "Ctrl+Wheel"),
-            ("Hold Points", "D"),
-            ("Fill Cut", "F"),
-            ("Inset Points", "V + value"),
-            ("Mark Cut Edges", "M"),
-            ("Mark Type", "N"),
-            ("Select Face", "RMB"),
-            ("Coplanar Select", "Shift+RMB"),
-            ("Rotate", "Alt+Wheel"),
-            ("Lock Orientation", "A"),
-            ("Select Direction", "X"),
-            ("World Align", "W"),
-            ("Preview", "P"),
-            ("Distance Info", "I"),
-            ("Bisect", "LMB"),
-            ("Finish", "Space"),
-            ("Cancel", "Esc"),
-        )
-        
-        # Font setup
-        font_id = 0
-        blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-        blf.size(font_id, tCSize)
-        
-        # Configure shadow
-        if tShadow:
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-            blf.shadow_offset(font_id, tSPosX, tSPosY)
-        else:
-            blf.disable(font_id, blf.SHADOW)
-        
-        # Calculate layout - find the widest action text to avoid overlap
-        max_action_width = 0
-        for line in iops_text:
-            action_width = blf.dimensions(font_id, line[0])[0]
-            max_action_width = max(max_action_width, action_width)
-        
-        # Calculate the right edge position for key alignment
-        action_start_x = tCPosX * uifactor
-        padding = (tCSize * 2) * uifactor
-        keys_right_edge = action_start_x + max_action_width + padding + (tCSize * 15) * uifactor
-        
-        offset = tCPosY
-        
-        # Draw text lines (reversed order for bottom-up display)
-        for line in reversed(iops_text):
-            # Draw action description
-            blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-            blf.position(font_id, action_start_x, offset, 0)
-            blf.draw(font_id, line[0])
-            
-            # Draw key binding (right-aligned to the keys_right_edge)
-            blf.color(font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-            key_width = blf.dimensions(font_id, line[1])[0]
-            key_x_pos = keys_right_edge - key_width
-            blf.position(font_id, key_x_pos, offset, 0)
-            blf.draw(font_id, line[1])
-            
-            # Move to next line
-            offset += (tCSize + 5) * uifactor
+        if getattr(self, "hud", None) is None:
+            return
+        self.hud.draw(context, getattr(self, "_last_event", None))
+
+    def _sync_hud_state(self):
+        """Reflect current operator state in the HUD overlay items."""
+        if getattr(self, "hud", None) is None:
+            return
+        s = self.hud.set_state
+        s("S", ItemState.ON if self.snapping_enabled else ItemState.OFF)
+        s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
+        s("F", ItemState.ON if self.fill_cut_mode else ItemState.OFF)
+        s("V", ItemState.ON if self.inset_active else ItemState.OFF)
+        s("M", ItemState.ON if self.mark_edges_active else ItemState.OFF)
+        s("A", ItemState.ON if self.lock_orientation else ItemState.OFF)
+        s("P", ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF)
+        s("I", ItemState.ON if self.show_distance_info else ItemState.OFF)
+
+    def _build_hud(self):
+        hud = HUDOverlay("cursor_bisect")
+        hud.add_section(HUDSection("Bisect", [
+            HUDItem("Snap",             "S",         ItemState.ON if self.snapping_enabled else ItemState.OFF),
+            HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF),
+            HUDItem("Hold Points",      "D",         ItemState.ON if self.hold_snap_points else ItemState.OFF),
+            HUDItem("Fill Cut",         "F",         ItemState.ON if self.fill_cut_mode else ItemState.OFF),
+            HUDItem("Inset Points",     "V",         ItemState.ON if self.inset_active else ItemState.OFF),
+            HUDItem("Mark Cut Edges",   "M",         ItemState.ON if self.mark_edges_active else ItemState.OFF),
+            HUDItem("Mark Type",        "N",         ItemState.OFF),
+            HUDItem("Select Face",      "RMB",       ItemState.OFF),
+            HUDItem("Coplanar Select",  "Shift+RMB", ItemState.OFF),
+            HUDItem("Rotate",           "Alt+Wheel", ItemState.OFF),
+            HUDItem("Lock Orientation", "A",         ItemState.ON if self.lock_orientation else ItemState.OFF),
+            HUDItem("Select Direction", "X",         ItemState.OFF),
+            HUDItem("World Align",      "W",         ItemState.OFF),
+            HUDItem("Preview",          "P",         ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF),
+            HUDItem("Distance Info",    "I",         ItemState.ON if self.show_distance_info else ItemState.OFF),
+            HUDItem("Bisect",           "LMB",       ItemState.OFF),
+            HUDItem("Finish",           "Space",     ItemState.OFF),
+            HUDItem("Cancel",           "Esc",       ItemState.OFF),
+        ]))
+        return hud
 
     # Part 11: Distance Text Drawing
 
@@ -1986,27 +1946,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             # Ensure text stays within screen bounds
             region = context.region
-            font_id = 0
-            blf.size(font_id, self.distance_text_size)
-            text_width, text_height = blf.dimensions(font_id, distance_text)
+            theme = get_theme(context)
+            text_width, text_height = measure_text(distance_text, theme=theme,
+                                                    size_token="small")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
-            # Enable shadow for readability
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, 5, 0, 0, 0, 1)
-            blf.shadow_offset(font_id, 1, -1)
-
-            # Set text color
-            if hasattr(prefs, 'cursor_bisect_distance_text_color'):
-                text_color = prefs.cursor_bisect_distance_text_color
-            else:
-                text_color = (1.0, 1.0, 0.0, 1.0)  # Default yellow
-            blf.color(font_id, *text_color)
-            # Draw the text
-            blf.position(font_id, text_x, text_y, 0)
-            blf.draw(font_id, distance_text)
+            draw_text(distance_text, int(text_x), int(text_y),
+                      theme=theme, role=Role.PRIMARY, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError) as e:
             print(f"Error in draw_mouse_distance_text: {e}")
@@ -2047,36 +1995,23 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 origin + (-u + v) * size,
             ]
 
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            shader.bind()
-
-            # Draw the plane fill - FROM PREFERENCES (when in PLANE mode)
+            # Draw the plane fill (when in PLANE mode)
             if self.cut_preview_mode == 'PLANE':
-                batch = batch_for_shader(shader, 'TRI_FAN', {"pos": corners})
-                if prefs and hasattr(prefs, 'cursor_bisect_plane_color'):
-                    plane_color = prefs.cursor_bisect_plane_color
-                else:
-                    plane_color = (0.5, 0.5, 1.0, 0.3)
-                shader.uniform_float("color", (plane_color[0], plane_color[1], plane_color[2], plane_color[3]))
-                gpu.state.blend_set('ALPHA')
-                gpu.state.depth_test_set('LESS')
-                batch.draw(shader)
+                # Expand TRI_FAN(corners[0..3]) into two triangles
+                fill_tris = [
+                    corners[0], corners[1], corners[2],
+                    corners[0], corners[2], corners[3],
+                ]
+                with draw_scope(blend="ALPHA", depth="LESS"):
+                    draw.tris(fill_tris, role=Role.FILL, context=context)
 
-            # Draw plane outline - FROM PREFERENCES (when in PLANE mode)
-            if self.cut_preview_mode == 'PLANE':
+                # Plane outline (LINE_STRIP closed)
                 outline_coords = corners + [corners[0]]
-                batch_outline = batch_for_shader(shader, 'LINE_STRIP', {"pos": outline_coords})
-                if prefs and hasattr(prefs, 'cursor_bisect_plane_outline_color'):
-                    outline_color = prefs.cursor_bisect_plane_outline_color
-                    outline_thickness = getattr(prefs, 'cursor_bisect_plane_outline_thickness', 2.0)
-                else:
-                    outline_color = (0.5, 0.5, 1.0, 1.0)
-                    outline_thickness = 2.0
-                shader.uniform_float("color", (outline_color[0], outline_color[1], outline_color[2], outline_color[3]))
-                gpu.state.line_width_set(outline_thickness)
-                batch_outline.draw(shader)
+                with draw_scope(blend="ALPHA", depth="LESS"):
+                    draw.polyline(outline_coords, role=Role.OUTLINE,
+                                  width="normal", context=context)
 
-            # Draw snap points if snapping is enabled - FROM PREFERENCES
+            # Draw snap points if snapping is enabled
             if self.snapping_enabled and self.snap_points and self.hit_obj:
                 try:
                     snap_coords = []
@@ -2085,49 +2020,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         snap_coords.append(point_world)
 
                     if snap_coords:
-                        # Choose snap points color based on hold state
-                        if self.hold_snap_points:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_hold_color'):
-                                snap_color = prefs.cursor_bisect_snap_hold_color
-                            else:
-                                snap_color = (1.0, 0.5, 0.0, 1.0)
-                        else:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_color'):
-                                snap_color = prefs.cursor_bisect_snap_color
-                            else:
-                                snap_color = (1.0, 1.0, 0.0, 1.0)
+                        snap_role = Role.HINT if self.hold_snap_points else Role.SNAP
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.points(snap_coords, role=snap_role,
+                                        size="normal", context=context)
 
-                        batch_points = batch_for_shader(shader, 'POINTS', {"pos": snap_coords})
-                        shader.uniform_float("color", (snap_color[0], snap_color[1], snap_color[2], snap_color[3]))
-                        if prefs and hasattr(prefs, 'cursor_bisect_snap_size'):
-                            snap_size = prefs.cursor_bisect_snap_size
-                        else:
-                            snap_size = 8.0
-                        gpu.state.point_size_set(snap_size)
-                        gpu.state.depth_test_set('ALWAYS')
-                        batch_points.draw(shader)
-
-                        # Draw closest snap point
-                        if self.closest_snap_point:
-                            _, _, closest_world = self.closest_snap_point
-                            batch_closest = batch_for_shader(shader, 'POINTS', {"pos": [closest_world]})
-                            if self.hold_snap_points:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_hold_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_hold_color
-                                else:
-                                    closest_color = (1.0, 0.0, 0.0, 1.0)
-                            else:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_color
-                                else:
-                                    closest_color = (0.0, 1.0, 0.0, 1.0)
-                            shader.uniform_float("color", (closest_color[0], closest_color[1], closest_color[2], closest_color[3]))
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_size'):
-                                closest_size = prefs.cursor_bisect_snap_closest_size
-                            else:
-                                closest_size = 12.0
-                            gpu.state.point_size_set(closest_size)
-                            batch_closest.draw(shader)
+                            # Draw closest snap point
+                            if self.closest_snap_point:
+                                _, _, closest_world = self.closest_snap_point
+                                closest_role = (Role.PRIMARY if self.hold_snap_points
+                                                else Role.SNAP_CLOSEST)
+                                draw.points([closest_world], role=closest_role,
+                                            size="large", context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
@@ -2137,21 +2041,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 try:
                     v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.inset_points]
                     if v_coords:
-                        v_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        v_shader.bind()
-                        v_shader.uniform_float("color", (1.0, 0.3, 0.8, 1.0))
-                        gpu.state.point_size_set(10.0)
-                        gpu.state.depth_test_set('ALWAYS')
-                        v_batch = batch_for_shader(v_shader, 'POINTS', {"pos": v_coords})
-                        v_batch.draw(v_shader)
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.points(v_coords, role=Role.PREVIEW,
+                                        size="large", context=context)
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
-
-            # Reset GPU state
-            gpu.state.point_size_set(1.0)
-            gpu.state.line_width_set(1.0)
-            gpu.state.depth_test_set('LESS')
-            gpu.state.blend_set('NONE')
 
             # Draw cut preview lines (when in LINES mode)
             if self.cut_preview_mode == 'LINES' and self.cut_preview_lines:
@@ -2161,19 +2055,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         preview_coords.extend([line_start, line_end])
 
                     if preview_coords:
-                        preview_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        preview_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_cut_preview_color'):
-                            preview_color = prefs.cursor_bisect_cut_preview_color
-                        else:
-                            preview_color = (1.0, 0.5, 0.0, 1.0)
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_cut_preview_thickness'):
-                            preview_thickness = prefs.cursor_bisect_cut_preview_thickness
-                        else:
-                            preview_thickness = 3.0
-
                         # Calculate viewport distance to determine depth test mode
                         rv3d = context.space_data.region_3d
                         if rv3d and rv3d.view_perspective != 'ORTHO':
@@ -2183,23 +2064,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             viewport_distance = (cursor_location - camera_location).length
                         else:
                             viewport_distance = rv3d.view_distance if rv3d else 10.0
-                        
-                        # Use ALWAYS depth test when very close to ensure visibility
-                        # Otherwise use LESS_EQUAL for proper depth sorting
+
                         if viewport_distance < 0.5:
                             depth_test_mode = 'ALWAYS'
                         else:
                             depth_test_mode = 'LESS_EQUAL'
 
-                        preview_shader.uniform_float("color", preview_color)
-                        gpu.state.line_width_set(preview_thickness)
-                        gpu.state.depth_test_set(depth_test_mode)
-
-                        preview_batch = batch_for_shader(preview_shader, 'LINES', {"pos": preview_coords})
-                        preview_batch.draw(preview_shader)
-
-                        gpu.state.line_width_set(1.0)
-                        gpu.state.depth_test_set('LESS')
+                        with draw_scope(blend="ALPHA", depth=depth_test_mode):
+                            draw.edges_3d(preview_coords, role=Role.PREVIEW,
+                                          width="preview", context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
@@ -2212,28 +2085,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         fill_coords.extend([line_start, line_end])
 
                     if fill_coords:
-                        fill_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        fill_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_color'):
-                            fill_color = prefs.cursor_bisect_fill_cut_color
-                        else:
-                            fill_color = (0.0, 1.0, 0.5, 0.9)
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_thickness'):
-                            fill_thickness = prefs.cursor_bisect_fill_cut_thickness
-                        else:
-                            fill_thickness = 2.5
-
-                        fill_shader.uniform_float("color", fill_color)
-                        gpu.state.line_width_set(fill_thickness)
-                        gpu.state.depth_test_set('ALWAYS')
-
-                        fill_batch = batch_for_shader(fill_shader, 'LINES', {"pos": fill_coords})
-                        fill_batch.draw(fill_shader)
-
-                        gpu.state.line_width_set(1.0)
-                        gpu.state.depth_test_set('LESS')
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.edges_3d(fill_coords, role=Role.PREVIEW,
+                                          width="preview", context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
@@ -2258,28 +2112,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             self.hit_obj.matrix_world @ v2.co.copy()
                         ]
 
-                        gpu.state.blend_set('NONE')
-                        gpu.state.depth_test_set('ALWAYS')
-                        gpu.state.line_width_set(1.0)
-
-                        fresh_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        fresh_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_edge_color'):
-                            edge_color = prefs.cursor_bisect_edge_color
-                            edge_thickness = getattr(prefs, 'cursor_bisect_edge_thickness', 3.0)
-                        else:
-                            edge_color = (0.0, 1.0, 1.0, 1.0)
-                            edge_thickness = 3.0
-
-                        fresh_shader.uniform_float("color", (edge_color[0], edge_color[1], edge_color[2], edge_color[3]))
-                        gpu.state.line_width_set(edge_thickness)
-                        gpu.state.depth_test_set('ALWAYS')
-
-                        fresh_batch = batch_for_shader(fresh_shader, 'LINES', {"pos": world_coords})
-                        fresh_batch.draw(fresh_shader)
-
-                        gpu.state.line_width_set(1.0)
+                        edge_role = (Role.LOCKED if self.lock_orientation
+                                     else Role.PRIMARY)
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.edges_3d(world_coords, role=edge_role,
+                                          width="thick", context=context)
 
                 except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
                     pass
@@ -2510,6 +2347,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.fill_cut_preview_lines = []
         self.inset_points = []
         self._current_mouse_coord = (0, 0)
+
+        # Build unified HUD overlay
+        self._last_event = event
+        self.hud = self._build_hud()
 
         # Add draw handler
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
