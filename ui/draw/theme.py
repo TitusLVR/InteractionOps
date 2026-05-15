@@ -85,4 +85,61 @@ class Theme:
         return self.text_sizes[token]
 
 
+def get_theme(context) -> "Theme":
+    try:
+        t = context.preferences.addons["InteractionOps"].preferences.iops_theme
+    except (KeyError, AttributeError):
+        return DEFAULT_THEME
+
+    return Theme(
+        colors={
+            Role.PRIMARY:      tuple(t.color_primary),
+            Role.SECONDARY:    tuple(t.color_secondary),
+            Role.LOCKED:       tuple(t.color_locked),
+            Role.SNAP:         tuple(t.color_snap),
+            Role.SNAP_CLOSEST: tuple(t.color_snap_closest),
+            Role.PREVIEW:      tuple(t.color_preview),
+            Role.FILL:         tuple(t.color_fill),
+            Role.OUTLINE:      tuple(t.color_outline),
+            Role.HINT:         tuple(t.color_hint),
+            Role.ERROR:        tuple(t.color_error),
+            Role.SUCCESS:      tuple(t.color_success),
+        },
+        widths={
+            "normal":  t.line_width_normal,
+            "thick":   t.line_width_thick,
+            "preview": t.line_width_preview,
+        },
+        point_sizes={
+            "small":  t.point_size_small,
+            "normal": t.point_size_normal,
+            "large":  t.point_size_large,
+        },
+        text_sizes={
+            "small":  t.text_size_small,
+            "normal": t.text_size_normal,
+            "title":  t.text_size_title,
+        },
+        shadow=ShadowSettings(
+            enabled=bool(t.shadow_enabled),
+            color=tuple(t.shadow_color),
+            blur=int(t.shadow_blur),
+            offset_x=int(t.shadow_offset_x),
+            offset_y=int(t.shadow_offset_y),
+        ),
+        hud=HUDSettings(
+            mode=str(t.hud_mode),
+            offset_x=int(t.hud_offset_x),
+            offset_y=int(t.hud_offset_y),
+            free_x=int(t.hud_free_x),
+            free_y=int(t.hud_free_y),
+            padding=int(t.hud_padding),
+            section_spacing=int(t.hud_section_spacing),
+            row_spacing=int(t.hud_row_spacing),
+            key_column_width=int(t.hud_key_column_width),
+        ),
+        depth_test_default=str(t.depth_test_default),
+    )
+
+
 DEFAULT_THEME = Theme()
