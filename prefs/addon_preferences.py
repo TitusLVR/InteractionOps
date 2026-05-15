@@ -14,6 +14,7 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
+from .theme import IOPS_Theme, draw_theme_tab
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -62,9 +63,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # Area.type, Area.ui_type, Icon, PrefText
     tabs: bpy.props.EnumProperty(
         name="Preferences",
-        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", "")],
+        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", ""), ("THEME", "Theme", "Unified UI theme")],
         default="PREFS",
     )
+
+    iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
+
     # Operator text properties
     text_color: FloatVectorProperty(
         name="Color",
@@ -1438,3 +1442,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row = box.row(align=True)
             row.alignment = "LEFT"
             row.prop(self, "IOPS_DEBUG")
+
+        if self.tabs == "THEME":
+            draw_theme_tab(layout, self.iops_theme)

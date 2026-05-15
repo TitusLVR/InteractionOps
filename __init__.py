@@ -84,6 +84,7 @@ from .operators.mesh_quick_snap import IOPS_OT_Mesh_QuickSnap
 from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveSpaceData
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
+from .prefs.theme import classes as _theme_classes
 from .prefs.addon_properties import IOPS_AddonProperties
 from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem
 
@@ -283,6 +284,7 @@ bl_info = {
 
 # Classes for reg and unreg
 classes = (
+    *_theme_classes,
     IOPS_AddonPreferences,
     IOPS_CollectionItem,
     IOPS_ExecutorScriptItem,
