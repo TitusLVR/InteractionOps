@@ -236,7 +236,7 @@ class HUDOverlay:
                 for col_idx, it in enumerate(row):
                     col_x = x0 + col_idx * col_w
                     hud_text.draw(it.key, col_x, y, theme=theme,
-                                  role=Role.PRIMARY, size_token="normal")
+                                  role=Role.HUD_KEY, size_token="normal")
                     label_role = _STATE_ROLE[it.state]
                     label_alpha = _STATE_ALPHA[it.state]
                     hud_text.draw(it.label, col_x + key_col_w, y, theme=theme,

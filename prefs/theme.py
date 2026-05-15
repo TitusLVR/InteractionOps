@@ -21,6 +21,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_error:        _color((1.000, 0.353, 0.353, 1.00), "Error")
     color_success:      _color((0.302, 1.000, 0.620, 1.00), "Success")
     color_point_outline:_color((0.000, 0.000, 0.000, 1.00), "Point outline")
+    color_hud_key:      _color((1.000, 0.722, 0.302, 1.00), "HUD key glyph")
 
     line_width_normal:  FloatProperty(name="Line normal",  default=1.5, min=0.5, max=8.0)
     line_width_thick:   FloatProperty(name="Line thick",   default=3.0, min=0.5, max=12.0)
@@ -97,7 +98,8 @@ def draw_theme_tab(layout, theme):
     for prop in ("color_primary", "color_secondary", "color_locked",
                  "color_snap", "color_snap_closest", "color_preview",
                  "color_fill", "color_outline", "color_hint",
-                 "color_error", "color_success", "color_point_outline"):
+                 "color_error", "color_success", "color_point_outline",
+                 "color_hud_key"):
         grid.prop(theme, prop)
 
     box = layout.box()
