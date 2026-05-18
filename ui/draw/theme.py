@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
+import bpy
 
 
 class Role(Enum):
@@ -257,3 +258,25 @@ def get_theme(context) -> "Theme":
 
 
 DEFAULT_THEME = Theme()
+
+
+_AXIS_FALLBACK = {
+    "X": (1.0, 0.27, 0.27, 1.0),
+    "Y": (0.27, 0.75, 0.27, 1.0),
+    "Z": (0.27, 0.27, 1.00, 1.0),
+}
+
+
+def axis_color(axis: str) -> tuple[float, float, float, float]:
+    """Return Blender's built-in axis_x/y/z color with alpha=1.0.
+
+    Falls back to canonical red/green/blue if user_interface theme is
+    unavailable (e.g. headless contexts where themes[0] is missing the
+    axis attrs).
+    """
+    try:
+        ui = bpy.context.preferences.themes[0].user_interface
+        src = {"X": ui.axis_x, "Y": ui.axis_y, "Z": ui.axis_z}[axis]
+        return (src[0], src[1], src[2], 1.0)
+    except (KeyError, AttributeError, IndexError):
+        return _AXIS_FALLBACK[axis]
