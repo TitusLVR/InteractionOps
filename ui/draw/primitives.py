@@ -85,7 +85,7 @@ def edges_3d(coord_pairs: Sequence, *, role: Role | None = None,
 
 def points(coords: Sequence, *, role: Role | None = None,
            color: tuple[float, float, float, float] | None = None,
-           size: str | None = None,
+           size: str | float | int | None = None,
            ring_role: Role | None = None,
            theme: Theme | None = None, context=None) -> None:
     th = _resolve_theme(theme, context)
@@ -93,7 +93,9 @@ def points(coords: Sequence, *, role: Role | None = None,
     batch = batch_for_shader(shader, "POINTS", {"pos": list(coords)})
     fill = _resolve_color(role, color, th)
     ring = th.color_for(ring_role if ring_role is not None else Role.POINT_OUTLINE)
-    if size is not None:
+    if isinstance(size, (int, float)):
+        px = float(size)
+    elif size is not None:
         px = th.point_size(size)
     elif role is not None:
         px = th.point_size_for(role)
