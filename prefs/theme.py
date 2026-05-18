@@ -139,6 +139,18 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default=220, min=0, max=4000,
     )
 
+    # --- Theme tab fold state (UI only) ---
+    show_point: BoolProperty(default=True)
+    show_line: BoolProperty(default=False)
+    show_text: BoolProperty(default=False)
+    show_surfaces: BoolProperty(default=False)
+    show_widgets: BoolProperty(default=False)
+    show_islands: BoolProperty(default=False)
+    show_font: BoolProperty(default=False)
+    show_hud: BoolProperty(default=False)
+    show_stats: BoolProperty(default=False)
+    show_behaviour: BoolProperty(default=False)
+
 
 class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
     bl_idname = "iops.theme_reset_defaults"
@@ -168,111 +180,123 @@ def _state_float_row(parent, theme, prefix):
         row.prop(theme, f"{prefix}_{s}", text=s.capitalize()[:3])
 
 
+def _theme_section(layout, theme, prop_name, title, *, icon="NONE"):
+    """Collapsible section header for the Theme tab. Returns the body
+    column to draw into, or None when collapsed."""
+    box = layout.box()
+    row = box.row(align=True)
+    is_open = getattr(theme, prop_name)
+    row.prop(theme, prop_name, text="",
+             icon="TRIA_DOWN" if is_open else "TRIA_RIGHT",
+             emboss=False)
+    row.label(text=title, icon=icon)
+    if not is_open:
+        return None
+    return box.column(align=True)
+
+
 def draw_theme_tab(layout, theme):
     # POINT
-    box = layout.box()
-    box.label(text="Point", icon="VERTEXSEL")
-    sub = box.column(align=True)
-    sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-    _state_color_row(sub, theme, "point")
-    sub.prop(theme, "color_point_outline")
-    sub.separator()
-    sub.label(text="Sizes (px):")
-    _state_float_row(sub, theme, "point_size")
+    sub = _theme_section(layout, theme, "show_point", "Point", icon="VERTEXSEL")
+    if sub is not None:
+        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
+        _state_color_row(sub, theme, "point")
+        sub.prop(theme, "color_point_outline")
+        sub.separator()
+        sub.label(text="Sizes (px):")
+        _state_float_row(sub, theme, "point_size")
 
     # LINE
-    box = layout.box()
-    box.label(text="Line", icon="EDGESEL")
-    sub = box.column(align=True)
-    sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-    _state_color_row(sub, theme, "line")
-    sub.separator()
-    sub.label(text="Widths (px):")
-    _state_float_row(sub, theme, "line_width")
+    sub = _theme_section(layout, theme, "show_line", "Line", icon="EDGESEL")
+    if sub is not None:
+        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
+        _state_color_row(sub, theme, "line")
+        sub.separator()
+        sub.label(text="Widths (px):")
+        _state_float_row(sub, theme, "line_width")
 
     # TEXT
-    box = layout.box()
-    box.label(text="Text", icon="FONT_DATA")
-    sub = box.column(align=True)
-    sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-    _state_color_row(sub, theme, "text")
-    sub.separator()
-    sub.label(text="Sizes (px):")
-    _state_float_row(sub, theme, "text_size")
+    sub = _theme_section(layout, theme, "show_text", "Text", icon="FONT_DATA")
+    if sub is not None:
+        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
+        _state_color_row(sub, theme, "text")
+        sub.separator()
+        sub.label(text="Sizes (px):")
+        _state_float_row(sub, theme, "text_size")
 
     # Surfaces / status
-    box = layout.box()
-    box.label(text="Surfaces & status")
-    sub = box.column(align=True)
-    sub.prop(theme, "color_fill")
-    sub.prop(theme, "color_error")
-    sub.prop(theme, "color_success")
+    sub = _theme_section(layout, theme, "show_surfaces",
+                         "Surfaces & status", icon="MATERIAL")
+    if sub is not None:
+        sub.prop(theme, "color_fill")
+        sub.prop(theme, "color_error")
+        sub.prop(theme, "color_success")
 
     # Widgets
-    box = layout.box()
-    box.label(text="Widgets", icon="MOD_HUE_SATURATION")
-    sub = box.column(align=True)
-    sub.prop(theme, "color_handle")
-    sub.prop(theme, "color_handle_hover")
-    sub.prop(theme, "color_pivot")
-    sub.prop(theme, "color_bbox")
-    sub.prop(theme, "color_cursor")
+    sub = _theme_section(layout, theme, "show_widgets",
+                         "Widgets", icon="MOD_HUE_SATURATION")
+    if sub is not None:
+        sub.prop(theme, "color_handle")
+        sub.prop(theme, "color_handle_hover")
+        sub.prop(theme, "color_pivot")
+        sub.prop(theme, "color_bbox")
+        sub.prop(theme, "color_cursor")
 
     # Island palette
-    box = layout.box()
-    box.label(text="Island palette (UV)", icon="COLOR")
-    row = box.row(align=True)
-    for i in range(8):
-        row.prop(theme, f"island_palette_{i}", text="")
+    sub = _theme_section(layout, theme, "show_islands",
+                         "Island palette (UV)", icon="COLOR")
+    if sub is not None:
+        row = sub.row(align=True)
+        for i in range(8):
+            row.prop(theme, f"island_palette_{i}", text="")
 
     # Font
-    box = layout.box()
-    box.label(text="Font", icon="FONT_DATA")
-    sub = box.column(align=True)
-    sub.prop(theme, "font_path", text="")
-    sub.label(
-        text="Empty = Blender default. Used by HUD and overlay text.",
-        icon="INFO",
-    )
+    sub = _theme_section(layout, theme, "show_font", "Font", icon="FONT_DATA")
+    if sub is not None:
+        sub.prop(theme, "font_path", text="")
+        sub.label(
+            text="Empty = Blender default. Used by HUD and overlay text.",
+            icon="INFO",
+        )
 
     # HUD
-    box = layout.box()
-    box.label(text="HUD", icon="WINDOW")
-    sub = box.column(align=True)
-    sub.prop(theme, "color_hud_key")
-    sub.prop(theme, "color_hud_label_on")
-    sub.prop(theme, "color_hud_label_off")
-    sub.prop(theme, "color_hud_label_disabled")
-    sub.separator()
-    sub.prop(theme, "shadow_enabled")
-    sh = sub.column(align=True)
-    sh.active = theme.shadow_enabled
-    sh.prop(theme, "shadow_color")
-    sh.prop(theme, "shadow_blur")
-    sh.prop(theme, "shadow_offset_x")
-    sh.prop(theme, "shadow_offset_y")
-    sub.separator()
-    sub.prop(theme, "hud_mode")
-    sub.prop(theme, "hud_offset_x")
-    sub.prop(theme, "hud_offset_y")
-    sub.prop(theme, "hud_padding")
-    sub.prop(theme, "hud_section_spacing")
-    sub.prop(theme, "hud_row_spacing")
-    sub.prop(theme, "hud_key_column_width")
-    sub.prop(theme, "hud_verbosity")
+    sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
+    if sub is not None:
+        sub.prop(theme, "color_hud_key")
+        sub.prop(theme, "color_hud_label_on")
+        sub.prop(theme, "color_hud_label_off")
+        sub.prop(theme, "color_hud_label_disabled")
+        sub.separator()
+        sub.prop(theme, "shadow_enabled")
+        sh = sub.column(align=True)
+        sh.active = theme.shadow_enabled
+        sh.prop(theme, "shadow_color")
+        sh.prop(theme, "shadow_blur")
+        sh.prop(theme, "shadow_offset_x")
+        sh.prop(theme, "shadow_offset_y")
+        sub.separator()
+        sub.prop(theme, "hud_mode")
+        sub.prop(theme, "hud_offset_x")
+        sub.prop(theme, "hud_offset_y")
+        sub.prop(theme, "hud_padding")
+        sub.prop(theme, "hud_section_spacing")
+        sub.prop(theme, "hud_row_spacing")
+        sub.prop(theme, "hud_key_column_width")
+        sub.prop(theme, "hud_verbosity")
 
     # Statistics overlay positioning
-    box = layout.box()
-    box.label(text="Statistics overlay", icon="INFO")
-    sub = box.column(align=True)
-    row = sub.row(align=True)
-    row.prop(theme, "stats_offset_x")
-    row.prop(theme, "stats_offset_y")
+    sub = _theme_section(layout, theme, "show_stats",
+                         "Statistics overlay", icon="INFO")
+    if sub is not None:
+        row = sub.row(align=True)
+        row.prop(theme, "stats_offset_x")
+        row.prop(theme, "stats_offset_y")
 
     # Behaviour
-    box = layout.box()
-    box.label(text="Behaviour")
-    box.prop(theme, "depth_test_default")
+    sub = _theme_section(layout, theme, "show_behaviour",
+                         "Behaviour", icon="MODIFIER")
+    if sub is not None:
+        sub.prop(theme, "depth_test_default")
 
     layout.separator()
     row = layout.row()
