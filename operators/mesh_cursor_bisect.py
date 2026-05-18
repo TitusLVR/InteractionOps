@@ -8,7 +8,7 @@ import bpy_extras
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
@@ -545,6 +545,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def modal(self, context, event):
         # Track latest event for HUD positioning
         self._last_event = event
+        # Unified HUD toggle (key from AddonPreferences.hud_toggle_key,
+        # default "H"; Shift+key flips verbosity).
+        if handle_hud_toggle(getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         # Pin HUD during viewport navigation. Rolling timer is refreshed on
         # every nav-related event; once events stop coming, the HUD resumes
         # cursor-follow automatically. Warp detection inside HUDOverlay
@@ -702,20 +706,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle HUD visibility — single keybind shared by every modal
-        # operator. The key itself is configurable in addon preferences
-        # (default "H"). Falls back to verbosity-toggle on Shift+<same key>.
-        if getattr(self, "hud", None) is not None:
-            prefs = self.get_preferences(context)
-            if event.value == 'PRESS' and event.type == getattr(prefs, "hud_toggle_key", "H"):
-                if event.shift and not event.ctrl and not event.alt:
-                    self.hud.toggle_verbosity()
-                    context.area.tag_redraw()
-                    return {'RUNNING_MODAL'}
-                if not event.shift and not event.ctrl and not event.alt:
-                    self.hud.toggle_visibility()
-                    context.area.tag_redraw()
-                    return {'RUNNING_MODAL'}
     # Part 5: Modal Method (Second Half)
 
         # Toggle orientation lock
