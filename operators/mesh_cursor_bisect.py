@@ -702,12 +702,20 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
-        # Toggle HUD verbosity (compact ↔ full)
-        elif event.type == 'SLASH' and event.value == 'PRESS' and not event.shift and not event.ctrl:
-            if getattr(self, "hud", None) is not None:
-                self.hud.toggle_verbosity()
-                context.area.tag_redraw()
-            return {'RUNNING_MODAL'}
+        # Toggle HUD visibility — single keybind shared by every modal
+        # operator. The key itself is configurable in addon preferences
+        # (default "H"). Falls back to verbosity-toggle on Shift+<same key>.
+        if getattr(self, "hud", None) is not None:
+            prefs = self.get_preferences(context)
+            if event.value == 'PRESS' and event.type == getattr(prefs, "hud_toggle_key", "H"):
+                if event.shift and not event.ctrl and not event.alt:
+                    self.hud.toggle_verbosity()
+                    context.area.tag_redraw()
+                    return {'RUNNING_MODAL'}
+                if not event.shift and not event.ctrl and not event.alt:
+                    self.hud.toggle_visibility()
+                    context.area.tag_redraw()
+                    return {'RUNNING_MODAL'}
     # Part 5: Modal Method (Second Half)
 
         # Toggle orientation lock
@@ -1882,7 +1890,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("World Align",      "W",          ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Preview",          "P",          ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Distance Info",    "I",          ItemState.ON if self.show_distance_info else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Toggle HUD",       "/",          ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD","H",          ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Bisect",           "LMB",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),

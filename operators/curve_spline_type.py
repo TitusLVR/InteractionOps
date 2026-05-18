@@ -2,7 +2,7 @@ import bpy
 from bpy.props import BoolProperty
 
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 class IOPS_OT_CurveSplineType(bpy.types.Operator):
@@ -43,6 +43,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             HUDItem("Spline BEZIER",  "F2",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Spline NURBS",   "F3",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -58,6 +59,8 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
 
         if event.type in {"MIDDLEMOUSE", "WHEELDOWNMOUSE", "WHEELUPMOUSE"}:
             return {"PASS_THROUGH"}

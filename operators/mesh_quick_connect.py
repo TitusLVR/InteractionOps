@@ -6,7 +6,7 @@ from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
@@ -60,6 +60,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             HUDItem("Screen space",   "W",            ItemState.ON if self.use_screen_space else ItemState.OFF),
             HUDItem("Finish",         "Space",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         self._hud.bind_region(context.region)
         self._last_event = event
@@ -97,6 +98,8 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
 
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} or event.type.startswith('NDOF'):
             return {'PASS_THROUGH'}

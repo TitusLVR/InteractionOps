@@ -132,7 +132,7 @@ class HUDSettings:
     padding: int = 12
     section_spacing: int = 8
     row_spacing: int = 2
-    key_column_width: int = 70
+    key_label_spacing: int = 16
     verbosity: str = "compact"
 
 
@@ -261,7 +261,7 @@ def get_theme(context) -> "Theme":
             padding=int(t.hud_padding),
             section_spacing=int(t.hud_section_spacing),
             row_spacing=int(t.hud_row_spacing),
-            key_column_width=int(t.hud_key_column_width),
+            key_label_spacing=int(getattr(t, "hud_key_label_spacing", 16)),
             verbosity=str(getattr(t, "hud_verbosity", "compact")),
         ),
         depth_test_default=str(t.depth_test_default),

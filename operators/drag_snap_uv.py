@@ -5,7 +5,7 @@ from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..utils.picking import build_uv_kdtree
 
 
@@ -51,6 +51,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             HUDItem("Constrain X",                        "X",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Constrain Y",                        "Y",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",                             "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -156,6 +157,8 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
 

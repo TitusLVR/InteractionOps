@@ -101,7 +101,11 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     hud_padding: IntProperty(name="Padding", default=12, min=0, max=64)
     hud_section_spacing: IntProperty(name="Section spacing", default=8, min=0, max=64)
     hud_row_spacing: IntProperty(name="Row spacing", default=3, min=0, max=16)
-    hud_key_column_width: IntProperty(name="Key column width", default=70, min=20, max=240)
+    hud_key_label_spacing: IntProperty(
+        name="Key→label spacing",
+        description="Gap between the widest key glyph and the label column",
+        default=16, min=0, max=240,
+    )
     hud_verbosity: EnumProperty(
         name="HUD verbosity",
         items=[
@@ -281,7 +285,7 @@ def draw_theme_tab(layout, theme):
         sub.prop(theme, "hud_padding")
         sub.prop(theme, "hud_section_spacing")
         sub.prop(theme, "hud_row_spacing")
-        sub.prop(theme, "hud_key_column_width")
+        sub.prop(theme, "hud_key_label_spacing")
         sub.prop(theme, "hud_verbosity")
 
     # Statistics overlay positioning

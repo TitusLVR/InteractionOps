@@ -10,7 +10,7 @@ from mathutils import Vector, Matrix
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
@@ -47,6 +47,7 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
             HUDItem("Move (Shift)",  "Shift + X/Y/Z",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",       "LMB / Space",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",        "RMB / Esc",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -148,6 +149,8 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE"}:
             return {"PASS_THROUGH"}
         if event.shift:

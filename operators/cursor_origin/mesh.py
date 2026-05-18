@@ -4,7 +4,7 @@ from ..iops import IOPS_OT_Main
 
 from ...ui.draw import primitives as draw, draw_scope, Role
 from ...ui.draw.theme import get_theme
-from ...ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ...ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
@@ -73,6 +73,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             HUDItem("Axis Z",                   "Z",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",                  "LMB / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",                   "Esc / RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -97,6 +98,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         objs = context.selected_objects
 
         if event.type in {"MIDDLEMOUSE"}:

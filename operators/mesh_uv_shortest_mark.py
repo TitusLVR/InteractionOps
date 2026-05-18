@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import math
 import gpu
+from ..ui.hud import handle_hud_toggle
 from gpu_extras.batch import batch_for_shader
 import bpy_extras
 import blf
@@ -1911,6 +1912,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             HUDItem("Undo",           "Ctrl+Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Finish",         "Space",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         hud.add_section(HUDSection("UV Shortest Mark", items))
         hud.bind_region(context.region)
@@ -2000,6 +2002,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
     def modal(self, context, event):
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 

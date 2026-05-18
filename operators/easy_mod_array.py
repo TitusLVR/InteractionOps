@@ -7,7 +7,7 @@ from bpy.props import (
 )
 
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 def _build_easy_array_hud(context):
@@ -22,6 +22,7 @@ def _build_easy_array_hud(context):
         HUDItem("Duplicates count",    "+ / -",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Add Curve modifier",  "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",               "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
     hud.bind_region(context.region)
     return hud
@@ -44,6 +45,8 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         cursor = self.cursor
         mid_obj = self.mid_obj
         mid_obj_loc = self.mid_obj_loc

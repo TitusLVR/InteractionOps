@@ -27,7 +27,7 @@ import gpu
 
 from ..ui.draw import primitives as draw_prim, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from bpy_extras import view3d_utils
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
@@ -776,6 +776,7 @@ cancels. LMB clicks only pick widget handles."""
         items.extend([
             HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ])
         self._hud.add_section(HUDSection("Shear", items))
         self._hud.bind_region(context.region)
@@ -1508,6 +1509,8 @@ cancels. LMB clicks only pick widget handles."""
         if context.area:
             context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):

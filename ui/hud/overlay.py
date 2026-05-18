@@ -67,6 +67,28 @@ class HUDOverlay:
         self._pin_until: float = 0.0
         self._prev_mouse: tuple[int, int] | None = None
         self.verbosity: str = verbosity  # "compact" | "full"
+        self.visible: bool = True
+
+    # --- visibility ---
+    def toggle_visibility(self) -> bool:
+        self.visible = not self.visible
+        return self.visible
+
+    def handle_toggle_event(self, event, prefs) -> bool:
+        """Operator-side helper: if `event` matches the configured HUD
+        toggle key, flip visibility and return True. Operators should call
+        this near the top of modal() and return RUNNING_MODAL on True.
+        `prefs` is the InteractionOps AddonPreferences."""
+        if event.value != "PRESS":
+            return False
+        key = getattr(prefs, "hud_toggle_key", "SLASH")
+        if event.type != key:
+            return False
+        # No modifier combinations — keep this dead simple.
+        if event.shift or event.ctrl or event.alt or event.oskey:
+            return False
+        self.toggle_visibility()
+        return True
 
     # --- setup ---
     def add_section(self, section: HUDSection) -> None:
@@ -122,11 +144,16 @@ class HUDOverlay:
         return out
 
     # --- measurement ---
-    def _measure(self, theme, sections) -> tuple[int, int]:
+    def _measure(self, theme, sections):
+        """Return (size_w, size_h, key_col_w).
+        `key_col_w` is the widest visible key glyph + spacing — used by
+        `_render` so every label aligns to the same x within a column."""
         title_h = theme.text_size("title")
         row_h = theme.text_size("normal")
+        gap = theme.hud.key_label_spacing
         h = 0
         max_w = 0
+        widest_key = 0
         for line in self._header_lines:
             hw, _ = hud_text.measure(line, theme=theme, size_token="title")
             max_w = max(max_w, int(hw))
@@ -139,15 +166,22 @@ class HUDOverlay:
                                          size_token="title")
                 max_w = max(max_w, int(tw))
                 h += title_h + theme.hud.row_spacing
+            for it in sec.items:
+                kw, _ = hud_text.measure(it.key, theme=theme,
+                                         size_token="normal")
+                widest_key = max(widest_key, int(kw))
+        key_col_w = widest_key + gap
+        for sec in sections:
             rows = self._rows_for_layout(sec.items)
             for row in rows:
+                row_w = 0
                 for it in row:
-                    label_w, _ = hud_text.measure(
-                        f"{it.key}    {it.label}",
-                        theme=theme, size_token="normal")
-                    max_w = max(max_w, int(label_w) * len(row))
+                    lw, _ = hud_text.measure(it.label, theme=theme,
+                                             size_token="normal")
+                    row_w += key_col_w + int(lw)
+                max_w = max(max_w, row_w)
                 h += row_h + theme.hud.row_spacing
-        return max_w, h
+        return max_w, h, key_col_w
 
     def _rows_for_layout(self, items: list[HUDItem]) -> list[list[HUDItem]]:
         """Pair items into rows: 1 col in compact, 2 cols in full."""
@@ -166,6 +200,8 @@ class HUDOverlay:
 
     # --- draw ---
     def draw(self, context, event=None) -> None:
+        if not self.visible:
+            return
         if (self._bound_region is not None
                 and context.region.as_pointer() != self._bound_region):
             return
@@ -174,8 +210,10 @@ class HUDOverlay:
             return
         theme = get_theme(context)
         region = context.region
-        size = self._measure(theme, sections)
+        w, h, key_col_w = self._measure(theme, sections)
+        size = (w, h)
         self._last_size = size
+        self._last_key_col_w = key_col_w
         mouse = (0, 0)
         if event is not None:
             mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
@@ -208,8 +246,7 @@ class HUDOverlay:
         y = y0 + h
         title_h = theme.text_size("title")
         row_h = theme.text_size("normal")
-        key_col_w = theme.hud.key_column_width
-        col_gap = max(theme.hud.key_column_width, 24)
+        key_col_w = getattr(self, "_last_key_col_w", 0)
 
         for line in self._header_lines:
             y -= title_h
@@ -217,15 +254,17 @@ class HUDOverlay:
                           role=Role.ACTIVE_TEXT, size_token="title")
             y -= theme.hud.row_spacing
 
-        # estimate per-column block width (only matters for "full" 2-col mode)
-        col_w = 0
+        # For "full" two-column mode, total column block width is the
+        # key column + the widest label across all visible items.
+        col_w = key_col_w
         if self.verbosity == "full":
+            widest_label = 0
             for sec in sections:
                 for it in sec.items:
-                    w, _ = hud_text.measure(f"{it.key}    {it.label}",
-                                            theme=theme, size_token="normal")
-                    col_w = max(col_w, int(w))
-            col_w += col_gap
+                    lw, _ = hud_text.measure(it.label, theme=theme,
+                                             size_token="normal")
+                    widest_label = max(widest_label, int(lw))
+            col_w = key_col_w + widest_label + theme.hud.key_label_spacing
 
         for i, sec in enumerate(sections):
             if i > 0 or self._header_lines:

@@ -104,6 +104,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    # Modal HUD toggle keybind. Stored as a Blender event-type string
+    # (matches what `event.type` returns: "H", "SLASH", "F1", etc.).
+    # Operators check this in modal() and flip hud.visible.
+    hud_toggle_key: StringProperty(
+        name="HUD Toggle Key",
+        description="Event type that toggles the modal HUD on/off "
+                    "(e.g. 'H', 'SLASH', 'F1'). Used by every modal "
+                    "operator that shows a HUD.",
+        default="H",
+    )
+
     # --- Collapsible section toggles (UI only) ---
     show_section_general: BoolProperty(default=True)
     show_section_stats: BoolProperty(default=False)
@@ -705,6 +716,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_general", "General", icon="PREFERENCES")
             if body is not None:
                 body.prop(self, "category")
+                body.prop(self, "hud_toggle_key")
 
             # Stats overlay
             body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")

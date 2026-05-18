@@ -10,7 +10,7 @@ from bpy.props import BoolProperty
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 _BBOX_EDGES_8 = (
@@ -91,6 +91,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             HUDItem("Offset instances",          "I",         ItemState.ON if self.offset_instances else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Confirm",                   "LMB/Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",                    "Esc/RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -440,6 +441,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
         elif event.shift:

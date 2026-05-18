@@ -5,7 +5,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..utils.picking import (
     raycast_from_mouse,
     nearest_vertex_screen,
@@ -49,6 +49,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             HUDItem("Pick source / snap target", "LMB",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Copy distance to clipboard","Ctrl + LMB",ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",                    "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         hud.bind_region(context.region)
         return hud
@@ -117,6 +118,8 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
 

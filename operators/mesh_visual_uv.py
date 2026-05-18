@@ -7,7 +7,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw.theme import get_theme, Role, axis_color
 from ..ui.draw import primitives as draw_prim, draw_scope
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
@@ -525,6 +525,7 @@ def _build_visual_uv_hud(context):
         HUDItem("Undo / Redo",          "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Confirm",              "Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",               "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
     return hud
 
@@ -909,6 +910,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.mouse_x = event.mouse_region_x
         self.mouse_y = event.mouse_region_y
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
 
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE):

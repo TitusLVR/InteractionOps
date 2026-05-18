@@ -8,7 +8,7 @@ from mathutils.geometry import intersect_line_line
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
 
 EPS = 1e-5
@@ -268,6 +268,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",       "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",        "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         self._hud.bind_region(context.region)
         self._last_event = event
@@ -286,6 +287,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if context.area:
             context.area.tag_redraw()
         self._last_event = event
+        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
+            return {'RUNNING_MODAL'}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
                 and self._pct_active and event.value == "PRESS":
