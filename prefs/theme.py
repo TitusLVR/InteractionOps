@@ -61,6 +61,16 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_bbox:            _color((0.650, 0.650, 0.650, 0.30), "Selection bbox")
     color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
 
+    # --- Island palette (per-island identification, indexed by island_id % 8) ---
+    island_palette_0:      _color((0.40, 0.65, 1.00, 0.50), "Island 1")
+    island_palette_1:      _color((1.00, 0.50, 0.30, 0.50), "Island 2")
+    island_palette_2:      _color((0.35, 0.85, 0.45, 0.50), "Island 3")
+    island_palette_3:      _color((0.95, 0.80, 0.25, 0.50), "Island 4")
+    island_palette_4:      _color((0.70, 0.40, 0.90, 0.50), "Island 5")
+    island_palette_5:      _color((0.20, 0.80, 0.75, 0.50), "Island 6")
+    island_palette_6:      _color((0.90, 0.35, 0.60, 0.50), "Island 7")
+    island_palette_7:      _color((0.60, 0.80, 0.20, 0.50), "Island 8")
+
     # --- HUD ---
     color_hud_key:         _color((0.344, 1.000, 0.653, 1.00), "Key glyph")
     color_hud_label_on:    _color((0.844, 0.844, 0.844, 0.819), "Label (active)")
