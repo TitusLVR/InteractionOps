@@ -119,7 +119,6 @@ def get_iops_prefs():
 
     iops_prefs = {
         "IOPS_DEBUG": {"IOPS_DEBUG": safe("IOPS_DEBUG", False)},
-        "ALIGN_TO_EDGE": {"align_edge_color": safelist("align_edge_color", (1.0, 1.0, 1.0, 1.0))},
         "EXECUTOR": {
             "executor_column_count": safe("executor_column_count", 20),
             "executor_scripts_folder": safe("executor_scripts_folder", bpy.utils.script_path_user()),
@@ -162,23 +161,12 @@ def get_iops_prefs():
             "text_column_offset_stat": safe("text_column_offset_stat", 30),
             "text_column_width_stat": safe("text_column_width_stat", 4)
         },
-        "VISUAL_ORIGIN": {
-            "vo_cage_ap_color": safelist("vo_cage_ap_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_ap_size": safe("vo_cage_ap_size", 4),
-            "vo_cage_color": safelist("vo_cage_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_p_size": safe("vo_cage_p_size", 2),
-            "vo_cage_points_color": safelist("vo_cage_points_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_line_thickness": safe("vo_cage_line_thickness", 0.25)
-        },
         "TEXTURE_TO_MATERIAL": {
             "texture_to_material_prefixes": safe("texture_to_material_prefixes", "env_"),
             "texture_to_material_suffixes": safe("texture_to_material_suffixes", "_df,_dfa,_mk,_emk,_nm")
         },
         "SNAP_COMBOS": {
             f"snap_combo_{i}": snap_combo_dict[f"snap_combo_{i}"] for i in range(1, 9)
-        },
-        "DRAG_SNAP": {
-            "drag_snap_line_thickness": safe("drag_snap_line_thickness", 0.25)
         },
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")

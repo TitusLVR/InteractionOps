@@ -69,8 +69,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
 
-    theme_migrated_v1: bpy.props.BoolProperty(default=False)
-
     # Operator text properties
     text_color: FloatVectorProperty(
         name="Color",
@@ -257,74 +255,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=10000,
     )
 
-    # Cage Props
-    vo_cage_color: FloatVectorProperty(
-        name="Cage color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25))
-        - Vector((0.3, 0.3, 0.3, 0)),
-    )
-
-    vo_cage_points_color: FloatVectorProperty(
-        name="Cage points color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7),
-    )
-
-    vo_cage_ap_color: FloatVectorProperty(
-        name="Active point color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5))
-        - Vector((0.2, 0.2, 0.2, 0)),
-    )
-
-    vo_cage_p_size: IntProperty(
-        name="Cage point size",
-        description="Visual origin cage point size",
-        default=2,
-        soft_min=2,
-        soft_max=20,
-    )
-
-    vo_cage_ap_size: IntProperty(
-        name="Active point size",
-        description="Visual origin active point size",
-        default=4,
-        soft_min=2,
-        soft_max=20,
-    )
-    vo_cage_line_thickness: FloatProperty(
-        name="Cage Line thickness",
-        description="Thickness of the cage lines",
-        default=0.25,
-        min=0.0,
-        max=1000.0,
-    )
-    drag_snap_line_thickness: FloatProperty(
-        name="Drag Snap Line thickness",
-        description="Thickness of the drag snap lines",
-        default=0.25,
-        min=0.0,
-        max=1000.0,
-    )
-
-    align_edge_color: FloatVectorProperty(
-        name="Edge color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)),
-    )
+    # Legacy cage/snap/align color and size props removed.
+    # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
     # 1 - BOTTOM - LEFT
     split_area_pie_1_ui: EnumProperty(
         name="",
@@ -1151,50 +1083,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             row.prop(self, "text_shadow_pos_y_stat")
             col.separator()
 
-            # Align to edge
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Align to edge:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "align_edge_color")
-            col.separator()
-            # Visual origin
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Visual origin:")
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_ap = split.column(align=True)
-            col_p = split.column(align=True)
-            col.separator()
-            # Active point column
-            col = col_p.column(align=True)
-            col.label(text="Cage points:")
-            col.prop(self, "vo_cage_p_size", text="Size")
-            col.prop(self, "vo_cage_points_color", text="")
-
-            # Cage points column
-            col = col_ap.column(align=True)
-            col.label(text="Active point:")
-            col.prop(self, "vo_cage_ap_size", text="Size")
-            col.prop(self, "vo_cage_ap_color", text="")
-
-            # Cage color
-            col = box.column(align=True)
-            col.prop(self, "vo_cage_color")
-            col.prop(self, "vo_cage_line_thickness")
-            col.separator()
-
-            # Drag snap line thickness
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Drag Snap:")
-            row = col.row(align=True)
-            row.prop(self, "drag_snap_line_thickness")
+            # Align-to-edge, Visual Origin cage, and Drag Snap colors/widths
+            # now live in IOPS_Theme — see the "Theme" tab above.
 
             # Visual UV
             col = column_main.column(align=False)

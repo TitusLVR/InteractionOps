@@ -1888,109 +1888,59 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         except (ReferenceError, AttributeError, ValueError):
             pass
 
-    def _draw_text(self, context):
-        try:
-            prefs = context.preferences.addons[
-                "InteractionOps"
-            ].preferences
-            tColor = prefs.text_color
-            tKColor = prefs.text_color_key
-            tCSize = prefs.text_size
-            tCPosX = prefs.text_pos_x
-            tCPosY = prefs.text_pos_y
-            tShadow = prefs.text_shadow_toggle
-            tSColor = prefs.text_shadow_color
-            tSBlur = prefs.text_shadow_blur
-            tSPosX = prefs.text_shadow_pos_x
-            tSPosY = prefs.text_shadow_pos_y
-        except (KeyError, AttributeError):
-            return
+    def _build_hud(self, context):
+        from ..ui.draw.theme import get_theme as _gt
+        from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+        verbosity = _gt(context).hud.verbosity
+        hud = HUDOverlay("uv_shortest_mark", verbosity=verbosity)
+        items = [
+            HUDItem("Barrier",        "E",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Mark type",      "R",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Algorithm",      "A",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flow",           "Ctrl+Wheel",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Smooth",         "Shift+Wheel",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Curvature",      "Ctrl+Shift+Wheel",ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Arch",           "Ctrl+Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Mark angle",     "Alt+Wheel",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Mark by angle",  "S",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Smooth marked",  "F",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Path mode",      "Ctrl+Q",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("New mark",       "Q",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Apply / Pick",   "LMB",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Clear path",     "D",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Undo",           "Ctrl+Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Finish",         "Space",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",         "Esc",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]
+        hud.add_section(HUDSection("UV Shortest Mark", items))
+        hud.bind_region(context.region)
+        return hud
 
+    def _draw_text(self, context):
+        hud = getattr(self, "_hud", None)
+        if hud is None:
+            return
         bl = BARRIER_LABELS[self.barrier_type]
         ml = BARRIER_LABELS[self.mark_type]
         al = ALGORITHM_LABELS[self.algorithm]
         pm = PATH_MODE_LABELS[self.path_mode]
         n = len(self.path_edge_indices)
-        anchor_set = self.anchor_vert_index >= 0
-
         if self._smooth_mode:
             n_prop = len(self._smooth_preview_edges)
             n_orig = len(self._smooth_original_marks)
-            lines = (
-                (f"Smooth Marked: {ml}", ""),
-                (f"Magnet: {self._smooth_magnet:+d}", "Alt+Wheel"),
-                (f"Iterations: {self._smooth_iterations}", "Shift+Wheel"),
-                (f"Proposal: {n_prop} / Orig: {n_orig}", ""),
-                ("Accept", "Space"),
-                ("Cancel sub-mode", "F / Esc"),
+            hud.set_header(
+                f"Smooth: {ml}  Magnet {self._smooth_magnet:+d}  "
+                f"Iter {self._smooth_iterations}  "
+                f"Prop {n_prop} / Orig {n_orig}"
             )
         else:
-            apply_label = (
-                "Click Start/End" if self.path_mode == 'BUILD' else "Apply"
+            hud.set_header(
+                f"{bl} \u2192 {ml}  Algo {al}  Mode {pm}  "
+                f"Flow {self.flow_angle}\u00b0  Smooth {self.smooth_level}  "
+                f"Curv {self.curvature}  Arch {self.arch_strength:+d}  "
+                f"Angle {self.sharp_angle}\u00b0  Edges {n}"
             )
-            clear_anchor_label = (
-                "New Mark (anchor set)" if anchor_set else "New Mark"
-            )
-
-            lines = (
-                (f"Barrier: {bl}", "E"),
-                (f"Mark: {ml}", "R"),
-                (f"Algorithm: {al}", "A"),
-                (f"Flow: {self.flow_angle}\u00b0", "Ctrl+Wheel"),
-                (f"Smooth: {self.smooth_level}", "Shift+Wheel"),
-                (f"Curvature: {self.curvature}", "Ctrl+Shift+Wheel"),
-                (f"Arch: {self.arch_strength:+d}", "Ctrl+Alt+Wheel"),
-                (f"Mark Angle: {self.sharp_angle}\u00b0", "Alt+Wheel"),
-                ("Mark by Angle", "S"),
-                ("Smooth Marked", "F"),
-                (f"Mode: {pm}", "Ctrl+Q"),
-                (clear_anchor_label, "Q"),
-                (f"{apply_label} ({n} edges)", "LMB"),
-                ("Clear Path", "D"),
-                ("Undo", "Ctrl+Z"),
-                ("Finish", "Space"),
-                ("Cancel", "Esc"),
-            )
-
-        uifactor = context.preferences.system.ui_scale
-        font_id = 0
-        blf.size(font_id, tCSize)
-
-        if tShadow:
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(
-                font_id,
-                int(tSBlur),
-                tSColor[0],
-                tSColor[1],
-                tSColor[2],
-                tSColor[3],
-            )
-            blf.shadow_offset(font_id, tSPosX, tSPosY)
-        else:
-            blf.disable(font_id, blf.SHADOW)
-
-        max_w = max(blf.dimensions(font_id, l[0])[0] for l in lines)
-        x0 = tCPosX * uifactor
-        padding = (tCSize * 2) * uifactor
-        right = x0 + max_w + padding + (tCSize * 15) * uifactor
-        y = tCPosY
-
-        for action, key in reversed(lines):
-            blf.color(
-                font_id, tColor[0], tColor[1], tColor[2], tColor[3]
-            )
-            blf.position(font_id, x0, y, 0)
-            blf.draw(font_id, action)
-
-            blf.color(
-                font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3]
-            )
-            kw = blf.dimensions(font_id, key)[0]
-            blf.position(font_id, right - kw, y, 0)
-            blf.draw(font_id, key)
-
-            y += (tCSize + 5) * uifactor
+        hud.draw(context, getattr(self, "_last_event", None))
 
     # ─── Invoke / Modal / Cleanup ────────────────────────────────────
 
@@ -2030,6 +1980,9 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 mod.show_viewport = False
                 break
 
+        self._hud = self._build_hud(context)
+        self._last_event = event
+
         self._handle = bpy.types.SpaceView3D.draw_handler_add(
             self._draw_3d, (context,), 'WINDOW', 'POST_VIEW'
         )
@@ -2046,6 +1999,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
+        self._last_event = event
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 

@@ -540,9 +540,6 @@ def register():
     load_iops_preferences()
     keymap_registration()
 
-    from .prefs.theme_migration import run_if_needed as _migrate_theme_v1
-    _migrate_theme_v1()
-
     print("IOPS Registered!")
 
 

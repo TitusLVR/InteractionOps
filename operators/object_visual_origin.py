@@ -129,18 +129,14 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def _draw_cage_points(self, context):
         if not self.pos_batch_3d:
             return
-        prefs = context.preferences.addons["InteractionOps"].preferences
         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-            draw.points(list(self.pos_batch_3d), role=Role.POINT,
-                        size=float(prefs.vo_cage_p_size), context=context)
+            draw.points(list(self.pos_batch_3d), role=Role.POINT, context=context)
 
     def _draw_active_point(self, context):
         if self.target_3d is None:
             return
-        prefs = context.preferences.addons["InteractionOps"].preferences
         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-            draw.points([self.target_3d], role=Role.ACTIVE_POINT,
-                        size=float(prefs.vo_cage_ap_size), context=context)
+            draw.points([self.target_3d], role=Role.CLOSEST_POINT, context=context)
 
     def get_mesh_instances(self, context, selected_objs):
         selected_set = set(selected_objs)

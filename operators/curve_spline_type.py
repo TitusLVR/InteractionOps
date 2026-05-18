@@ -1,56 +1,8 @@
 import bpy
-import blf
 from bpy.props import BoolProperty
 
-
-def draw_iops_curve_spline_types_text_px(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    tColor = prefs.text_color
-    tKColor = prefs.text_color_key
-    tCSize = prefs.text_size
-    tCPosX = prefs.text_pos_x
-    tCPosY = prefs.text_pos_y
-    tShadow = prefs.text_shadow_toggle
-    tSColor = prefs.text_shadow_color
-    tSBlur = prefs.text_shadow_blur
-    tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
-
-    iops_text = (
-        ("Present type is", str(self.curv_spline_type)),
-        ("Handles state", str(self.handles)),
-        ("Enable/Disable handles", "H"),
-        ("Spline type POLY", "F1"),
-        ("Spline type BEZIER", "F2"),
-        ("Spline type NURBS", "F3"),
-    )
-
-    # FontID
-    font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
-    if tShadow:
-        blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset(font, tSPosX, tSPosY)
-    else:
-        blf.disable(0, blf.SHADOW)
-
-    textsize = tCSize
-    # get leftbottom corner
-    offset = tCPosY
-    columnoffs = (textsize * 13) * _uifactor
-    for line in reversed(iops_text):
-        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-        blf.position(font, tCPosX * _uifactor, offset, 0)
-        blf.draw(font, line[0])
-
-        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-        textdim = blf.dimensions(0, line[1])
-        coloffset = columnoffs - textdim[0] + tCPosX
-        blf.position(0, coloffset, offset, 0)
-        blf.draw(font, line[1])
-        offset += (tCSize + 5) * _uifactor
+from ..ui.draw.theme import get_theme
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
 
 
 class IOPS_OT_CurveSplineType(bpy.types.Operator):
@@ -82,11 +34,32 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
         bpy.ops.curve.spline_type_set(type=self.spl_type, use_handles=self.handles)
         return {"FINISHED"}
 
+    def _build_hud(self, context):
+        hud = HUDOverlay("curve_spline_type",
+                         verbosity=get_theme(context).hud.verbosity)
+        hud.add_section(HUDSection("Curve Spline Type", [
+            HUDItem("Use handles",    "H",   ItemState.ON if self.handles else ItemState.OFF),
+            HUDItem("Spline POLY",    "F1",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Spline BEZIER",  "F2",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Spline NURBS",   "F3",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",         "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        hud.bind_region(context.region)
+        return hud
+
+    def _draw_hud(self, context):
+        hud = getattr(self, "_hud", None)
+        if hud is None:
+            return
+        hud.set_state("H", ItemState.ON if self.handles else ItemState.OFF)
+        hud.set_header(f"Current type: {self.curv_spline_type}")
+        hud.draw(context, getattr(self, "_last_event", None))
+
     def modal(self, context, event):
         context.area.tag_redraw()
+        self._last_event = event
 
         if event.type in {"MIDDLEMOUSE", "WHEELDOWNMOUSE", "WHEELUPMOUSE"}:
-            # Allow navigation
             return {"PASS_THROUGH"}
 
         elif event.type in {"F1"} and event.value == "PRESS":
@@ -108,11 +81,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             return {"FINISHED"}
 
         elif event.type in {"H"} and event.value == "PRESS":
-            hnd = self.handles
-            if hnd:
-                self.handles = False
-            else:
-                self.handles = True
+            self.handles = not self.handles
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
@@ -120,23 +89,21 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
-        preferences = context.preferences
-        if context.object and context.area.type == "VIEW_3D":
-            self.handles = False
-            self.spl_type = "POLY"
-            self.curv_spline_type = self.get_curve_active_spline_type(context)
-            # Add drawing handler for text overlay rendering
-            uidpi = int((72 * preferences.system.ui_scale))
-            args = (self, context, uidpi, preferences.system.ui_scale)
-            self._handle_text = bpy.types.SpaceView3D.draw_handler_add(
-                draw_iops_curve_spline_types_text_px, args, "WINDOW", "POST_PIXEL"
-            )
-            # Add modal handler to enter modal mode
-            context.window_manager.modal_handler_add(self)
-            return {"RUNNING_MODAL"}
-        else:
+        if not (context.object and context.area.type == "VIEW_3D"):
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
+
+        self.handles = False
+        self.spl_type = "POLY"
+        self.curv_spline_type = self.get_curve_active_spline_type(context)
+
+        self._hud = self._build_hud(context)
+        self._last_event = event
+        self._handle_text = bpy.types.SpaceView3D.draw_handler_add(
+            self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
+        )
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
 
 
 def register():

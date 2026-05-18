@@ -1,11 +1,12 @@
 import bpy
 import bmesh
-import gpu
-from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
 import mathutils
 from mathutils import Vector
-import blf
+
+from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw.theme import get_theme
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
@@ -50,11 +51,23 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self.undo_steps = 0
         bpy.ops.ed.undo_push(message="Start Quick Connect")
         
-        self.shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        self._hud = HUDOverlay("quick_connect",
+                               verbosity=get_theme(context).hud.verbosity)
+        self._hud.add_section(HUDSection("Quick Connect", [
+            HUDItem("Connect",        "LMB Drag",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Split edge",     "Hold A",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Snap midpoint",  "S",            ItemState.ON if self.use_midpoint_snap else ItemState.OFF),
+            HUDItem("Screen space",   "W",            ItemState.ON if self.use_screen_space else ItemState.OFF),
+            HUDItem("Finish",         "Space",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",         "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._hud.bind_region(context.region)
+        self._last_event = event
+
         args = (context,)
         self._handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
         self._handle_text = bpy.types.SpaceView3D.draw_handler_add(self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
-        
+
         context.window_manager.modal_handler_add(self)
         
         # If invoked by a click, start immediately
@@ -74,79 +87,16 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         context.workspace.status_text_set(status_text)
 
     def draw_shortcuts_callback(self, context):
-        try:
-            font_id = 0
-            blf.size(font_id, 16)
-            blf.disable(font_id, blf.SHADOW)
-            
-            # Use hardcoded defaults first to ensure visibility
-            tColor = (1.0, 1.0, 1.0, 1.0)
-            tKColor = (1.0, 0.8, 0.2, 1.0)
-            tCSize = 16
-            tCPosX = 20
-            tCPosY = 60
-            
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-                # Ensure we actually get values, otherwise stick to defaults
-                if hasattr(prefs, "text_color"): tColor = prefs.text_color
-                if hasattr(prefs, "text_color_key"): tKColor = prefs.text_color_key
-                if hasattr(prefs, "text_size"): tCSize = prefs.text_size
-                if hasattr(prefs, "text_pos_x"): tCPosX = prefs.text_pos_x
-                if hasattr(prefs, "text_pos_y"): tCPosY = prefs.text_pos_y
-            except (KeyError, AttributeError):
-                pass
-                
-            uifactor = context.preferences.system.ui_scale
-            
-            shortcuts = [
-                ("Connect", "LMB Drag"),
-                ("Split Edge (Hold)", "A"),
-                ("Snap Midpoint", "S" + (" [ON]" if self.use_midpoint_snap else " [OFF]")),
-                ("Screen Space", "W" + (" [ON]" if self.use_screen_space else " [OFF]")),
-                ("Navigation", "MMB"),
-                ("Finish", "SPACE"),
-                ("Cancel", "ESC / RMB"),
-            ]
-            
-            blf.size(font_id, int(tCSize * uifactor))
-            
-            # Calculate layout
-            max_action_width = 0
-            for line in shortcuts:
-                action_width = blf.dimensions(font_id, line[0])[0]
-                max_action_width = max(max_action_width, action_width)
-            
-            action_start_x = tCPosX * uifactor
-            padding = (tCSize * 2) * uifactor
-            keys_right_edge = action_start_x + max_action_width + padding + (tCSize * 8) * uifactor
-            
-            offset = tCPosY * uifactor
-            
-            # Draw text lines (reversed order for bottom-up display)
-            for line in reversed(shortcuts):
-                # Draw action description
-                blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-                blf.position(font_id, action_start_x, offset, 0)
-                blf.draw(font_id, line[0])
-                
-                # Draw key binding
-                blf.color(font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-                key_width = blf.dimensions(font_id, line[1])[0]
-                key_x_pos = keys_right_edge - key_width
-                blf.position(font_id, key_x_pos, offset, 0)
-                blf.draw(font_id, line[1])
-                
-                offset += (tCSize + 5) * uifactor
-                
-        except ReferenceError:
-            pass
-        except Exception as e:
-            print(f"Error in draw_shortcuts_callback: {e}")
-            pass
+        hud = getattr(self, "_hud", None)
+        if hud is None:
+            return
+        hud.set_state("S", ItemState.ON if self.use_midpoint_snap else ItemState.OFF)
+        hud.set_state("W", ItemState.ON if self.use_screen_space else ItemState.OFF)
+        hud.draw(context, getattr(self, "_last_event", None))
 
     def modal(self, context, event):
         context.area.tag_redraw()
+        self._last_event = event
 
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} or event.type.startswith('NDOF'):
             return {'PASS_THROUGH'}
@@ -246,58 +196,38 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def draw_callback_px(self, context):
         try:
-            # Draw hover highlight if not dragging
-            if self.start_vert_index == -1 and self.hover_point_2d:
-                gpu.state.point_size_set(10.0)
-                self.shader.bind()
-                self.shader.uniform_float("color", (0.0, 1.0, 0.0, 1.0)) # Green for hover
-                batch_hover = batch_for_shader(self.shader, 'POINTS', {"pos": [self.hover_point_2d]})
-                batch_hover.draw(self.shader)
-                gpu.state.point_size_set(1.0)
+            def _v3(p):
+                return Vector((p[0], p[1], 0.0))
 
-            if not self.start_point_2d:
-                return
+            with draw_scope(blend="ALPHA"):
+                if self.start_vert_index == -1 and self.hover_point_2d:
+                    draw.points([_v3(self.hover_point_2d)],
+                                role=Role.CLOSEST_POINT, context=context)
 
-            coords_line = [self.start_point_2d]
-            coords_points = [self.start_point_2d]
-            
-            if self.end_point_2d:
-                coords_line.append(self.end_point_2d)
-                coords_points.append(self.end_point_2d)
-            else:
-                coords_line.append(Vector(self.mouse_pos))
+                if not self.start_point_2d:
+                    return
 
-            # Draw line
-            gpu.state.line_width_set(2.0)
-            self.shader.bind()
-            self.shader.uniform_float("color", (1.0, 1.0, 0.0, 1.0)) # Yellow
-            
-            batch_line = batch_for_shader(self.shader, 'LINES', {"pos": coords_line})
-            batch_line.draw(self.shader)
-            
-            # Draw points
-            gpu.state.point_size_set(8.0)
-            self.shader.uniform_float("color", (1.0, 0.0, 0.0, 1.0)) # Red for points
-            batch_points = batch_for_shader(self.shader, 'POINTS', {"pos": coords_points})
-            batch_points.draw(self.shader)
-            
-            # Draw edge preview point if A is held
-            if self.is_a_held and self.preview_edge_point_3d:
-                region = context.region
-                rv3d = context.region_data
-                preview_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, self.preview_edge_point_3d)
-                
-                if preview_2d:
-                    self.shader.uniform_float("color", (0.0, 1.0, 1.0, 1.0)) # Cyan for preview
-                    batch_preview = batch_for_shader(self.shader, 'POINTS', {"pos": [preview_2d]})
-                    batch_preview.draw(self.shader)
-            
-            # Restore state
-            gpu.state.line_width_set(1.0)
-            gpu.state.point_size_set(1.0)
-            
+                coords_line = [_v3(self.start_point_2d)]
+                coords_points = [_v3(self.start_point_2d)]
+
+                if self.end_point_2d:
+                    coords_line.append(_v3(self.end_point_2d))
+                    coords_points.append(_v3(self.end_point_2d))
+                else:
+                    coords_line.append(_v3(self.mouse_pos))
+
+                draw.edges_3d(coords_line, role=Role.ACTIVE_LINE, context=context)
+                draw.points(coords_points, role=Role.ACTIVE_POINT, context=context)
+
+                if self.is_a_held and self.preview_edge_point_3d:
+                    region = context.region
+                    rv3d = context.region_data
+                    preview_2d = view3d_utils.location_3d_to_region_2d(
+                        region, rv3d, self.preview_edge_point_3d)
+                    if preview_2d:
+                        draw.points([_v3(preview_2d)],
+                                    role=Role.PREVIEW_POINT, context=context)
         except ReferenceError:
-            # Operator might be finished/dead
             pass
         except Exception:
             pass

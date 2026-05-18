@@ -110,11 +110,6 @@ def load_iops_preferences():
                             prefs.IOPS_DEBUG = safe_get(value, "IOPS_DEBUG", 
                                 default_prefs.get("IOPS_DEBUG", {}).get("IOPS_DEBUG", False))
                     
-                    case "ALIGN_TO_EDGE":
-                        if isinstance(value, dict):
-                            prefs.align_edge_color = safe_get(value, "align_edge_color",
-                                default_prefs.get("ALIGN_TO_EDGE", {}).get("align_edge_color", (1.0, 1.0, 1.0, 1.0)))
-                    
                     case "EXECUTOR":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("EXECUTOR", {})
@@ -253,16 +248,6 @@ def load_iops_preferences():
                             prefs.text_column_offset_stat = safe_get(value, "text_column_offset_stat", defaults.get("text_column_offset_stat", 30))
                             prefs.text_column_width_stat = safe_get(value, "text_column_width_stat", defaults.get("text_column_width_stat", 4))
                     
-                    case "VISUAL_ORIGIN":
-                        if isinstance(value, dict):
-                            defaults = default_prefs.get("VISUAL_ORIGIN", {})
-                            prefs.vo_cage_ap_color = safe_get(value, "vo_cage_ap_color", defaults.get("vo_cage_ap_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_ap_size = safe_get(value, "vo_cage_ap_size", defaults.get("vo_cage_ap_size", 4))
-                            prefs.vo_cage_color = safe_get(value, "vo_cage_color", defaults.get("vo_cage_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_p_size = safe_get(value, "vo_cage_p_size", defaults.get("vo_cage_p_size", 2))
-                            prefs.vo_cage_points_color = safe_get(value, "vo_cage_points_color", defaults.get("vo_cage_points_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_line_thickness = safe_get(value, "vo_cage_line_thickness", defaults.get("vo_cage_line_thickness", 0.25))
-                    
                     case "TEXTURE_TO_MATERIAL":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("TEXTURE_TO_MATERIAL", {})
@@ -277,12 +262,6 @@ def load_iops_preferences():
                         # This case is kept for compatibility but snap combos are handled
                         # directly in snap_combos.py via JSON file
                         pass
-                    
-                    case "DRAG_SNAP":
-                        if isinstance(value, dict):
-                            defaults = default_prefs.get("DRAG_SNAP", {})
-                            prefs.drag_snap_line_thickness = safe_get(value, "drag_snap_line_thickness",
-                                defaults.get("drag_snap_line_thickness", 0.25))
                     
                     case "MODIFIER_WINDOW":
                         if isinstance(value, dict):

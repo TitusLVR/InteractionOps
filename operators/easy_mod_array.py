@@ -1,5 +1,4 @@
 import bpy
-import blf
 
 from bpy.props import (
     BoolProperty,
@@ -7,57 +6,32 @@ from bpy.props import (
     FloatProperty
 )
 
+from ..ui.draw.theme import get_theme
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
 
-def draw_iops_array_text(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    tColor = prefs.text_color
-    tKColor = prefs.text_color_key
-    tCSize = prefs.text_size
-    tCPosX = prefs.text_pos_x
-    tCPosY = prefs.text_pos_y
-    tShadow = prefs.text_shadow_toggle
-    tSColor = prefs.text_shadow_color
-    tSBlur = prefs.text_shadow_blur
-    tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
 
-    iops_text = (
-        ("Flip Start/End", "F"),
-        ("X-Axis", "X"),
-        ("Y-Axis", "Y"),
-        ("Z-Axis", "Z"),
-        ("Add Array modifier", "A"),
-        ("Array duplicates count", "+/-"),
-        ("Add Curve modifier", "C"),
-        ("Apply", "LMB, Enter, Space"),
-    )
+def _build_easy_array_hud(context):
+    hud = HUDOverlay("easy_mod_array",
+                     verbosity=get_theme(context).hud.verbosity)
+    hud.add_section(HUDSection("Easy Array", [
+        HUDItem("Flip Start/End",      "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("X-Axis",              "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Y-Axis",              "Y",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Z-Axis",              "Z",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Add Array modifier",  "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Duplicates count",    "+ / -",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Add Curve modifier",  "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Apply",               "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+    ]))
+    hud.bind_region(context.region)
+    return hud
 
-    # FontID
-    font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
-    if tShadow:
-        blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset(font, tSPosX, tSPosY)
-    else:
-        blf.disable(0, blf.SHADOW)
 
-    textsize = tCSize
-    # get leftbottom corner
-    offset = tCPosY
-    columnoffs = (textsize * 21) * _uifactor
-    for line in reversed(iops_text):
-        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-        blf.position(font, tCPosX * _uifactor, offset, 0)
-        blf.draw(font, line[0])
-
-        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-        textdim = blf.dimensions(0, line[1])
-        coloffset = columnoffs - textdim[0] + tCPosX
-        blf.position(0, coloffset, offset, 0)
-        blf.draw(font, line[1])
-        offset += (tCSize + 5) * _uifactor
+def _draw_easy_array_hud(op, context):
+    hud = getattr(op, "_hud", None)
+    if hud is None:
+        return
+    hud.draw(context, getattr(op, "_last_event", None))
 
 
 class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
@@ -69,6 +43,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
+        self._last_event = event
         cursor = self.cursor
         mid_obj = self.mid_obj
         mid_obj_loc = self.mid_obj_loc
@@ -276,13 +251,11 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                 else:
                     self.curve = None
 
-                uidpi = int((72 * preferences.system.ui_scale))
-                args_text = (self, context, uidpi, preferences.system.ui_scale)
-                # Add draw handlers
+                self._hud = _build_easy_array_hud(context)
+                self._last_event = event
                 self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
-                    draw_iops_array_text, args_text, "WINDOW", "POST_PIXEL"
+                    _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL"
                 )
-                # Add modal handler to enter modal mode
                 context.window_manager.modal_handler_add(self)
                 return {"RUNNING_MODAL"}
             else:
