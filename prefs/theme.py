@@ -186,6 +186,23 @@ def draw_theme_tab(layout, theme):
     sub.prop(theme, "color_error")
     sub.prop(theme, "color_success")
 
+    # Widgets
+    box = layout.box()
+    box.label(text="Widgets", icon="MOD_HUE_SATURATION")
+    sub = box.column(align=True)
+    sub.prop(theme, "color_handle")
+    sub.prop(theme, "color_handle_hover")
+    sub.prop(theme, "color_pivot")
+    sub.prop(theme, "color_bbox")
+    sub.prop(theme, "color_cursor")
+
+    # Island palette
+    box = layout.box()
+    box.label(text="Island palette (UV)", icon="COLOR")
+    row = box.row(align=True)
+    for i in range(8):
+        row.prop(theme, f"island_palette_{i}", text="")
+
     # HUD
     box = layout.box()
     box.label(text="HUD", icon="WINDOW")
