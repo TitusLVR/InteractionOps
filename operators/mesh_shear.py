@@ -1705,7 +1705,15 @@ cancels. LMB clicks only pick widget handles."""
 
     def _draw_dot(self, p, *, color, context, radius=6.0):
         """Draw a filled disc at screen point *p* using the theme primitives."""
-        draw_prim.points([p], color=color, context=context)
+        if radius <= 4.0:
+            size_token = "preview"
+        elif radius <= 6.0:
+            size_token = "default"
+        elif radius <= 9.0:
+            size_token = "active"
+        else:
+            size_token = "closest"
+        draw_prim.points([p], color=color, size=size_token, context=context)
 
     def _draw_callback(self, context):
         region = context.region
@@ -1938,7 +1946,7 @@ cancels. LMB clicks only pick widget handles."""
                 draw_prim.edges_3d(normal_segs, role=Role.ACTIVE_LINE, context=context)
             if pivot_segs:
                 # Pivot edges (on-pivot boundary) — brighter amber via LOCKED_POINT role.
-                draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_POINT, context=context)
+                draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_LINE, context=context)
 
         # ----- Bbox-anchored direction widget -------------------------
         # Anchored to the *orig* face bounding box (the perpendicular /
@@ -1982,7 +1990,7 @@ cancels. LMB clicks only pick widget handles."""
                     # Saw-entry tick at the pivot end (perp to axis_dir
                     # in the face plane, spanning the bbox extent).
                     draw_prim.edges_3d([p_tick_a, p_tick_b],
-                                       role=Role.LOCKED_POINT, context=context)
+                                       role=Role.LOCKED_LINE, context=context)
 
                 locked = theme.color_for(Role.LOCKED_POINT)
                 # Four cross-end orange dots aligned to the current
