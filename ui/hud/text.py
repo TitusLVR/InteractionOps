@@ -6,6 +6,11 @@ size, shadow, and color stay consistent.
 Custom font is loaded once per unique `theme.font_path` and cached. Pass
 `font_id=None` (the default) to use whatever the theme has configured;
 pass an explicit integer to override.
+
+Performance note: `measure()` results are cached by (text, font_id, size).
+`blf.dimensions` rasterizes glyphs which is comparatively expensive,
+and HUD items usually keep their text identical between frames. The
+cache is bounded to keep memory in check.
 """
 from __future__ import annotations
 import os
@@ -17,6 +22,10 @@ from ..draw.theme import Theme, Role
 # Cache: { font_path: font_id }. Blender's default font is id 0; we keep
 # a sentinel for the "no custom font" case to avoid reloading every draw.
 _FONT_CACHE: dict[str, int] = {"": 0}
+
+# Cache: { (text, font_id, size_px) -> (width_px, height_px) }
+_MEASURE_CACHE: dict[tuple, tuple[float, float]] = {}
+_MEASURE_CACHE_MAX = 2048
 
 
 def _resolve_font(theme: Theme) -> int:
@@ -76,6 +85,32 @@ def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
 
 
 def measure(text: str, *, theme: Theme, size_token: str = "normal",
-            font_id: int | None = None):
-    font_id = configure(theme, size_token, font_id)
-    return blf.dimensions(font_id, text)
+            font_id: int | None = None) -> tuple[float, float]:
+    """Cached `blf.dimensions(text)`. Same (text, font, size_px) returns the
+    same value across the operator's lifetime without re-rasterizing glyphs.
+    """
+    if font_id is None:
+        font_id = _resolve_font(theme)
+    size_px = theme.text_size(size_token)
+    key = (text, font_id, size_px)
+    hit = _MEASURE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    # Cache miss — size the font and measure. `configure` would also touch
+    # shadow state, but blf.dimensions doesn't depend on shadow, so we
+    # skip the shadow blf calls here.
+    blf.size(font_id, size_px)
+    dim = blf.dimensions(font_id, text)
+    if len(_MEASURE_CACHE) >= _MEASURE_CACHE_MAX:
+        # Evict ~10% oldest entries (insertion order in dict).
+        evict = _MEASURE_CACHE_MAX // 10
+        for k in list(_MEASURE_CACHE)[:evict]:
+            del _MEASURE_CACHE[k]
+    _MEASURE_CACHE[key] = dim
+    return dim
+
+
+def invalidate_caches() -> None:
+    """Drop measurement cache. Call when theme settings that affect
+    glyph metrics change (font_path, text sizes)."""
+    _MEASURE_CACHE.clear()

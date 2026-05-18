@@ -34,8 +34,12 @@ from .items import HUDItem, HUDSection, ItemState
 from .layout import (compute_origin, DragState, is_inside)
 
 
-_WARP_PX = 40       # any single-frame mouse jump >= this is treated as a warp
-_WARP_PIN_SEC = 0.2 # how long the warp-detected pin lasts
+# Cursor-warp detection: Blender warps the cursor across screen edges
+# during MMB navigation (jumps of hundreds of pixels in a single frame).
+# Threshold must be high enough that *normal* fast mouse movement doesn't
+# trip it — at 60–144Hz a flick spans 30–80 px/frame; warps are 400+ px.
+_WARP_PX = 250
+_WARP_PIN_SEC = 0.08
 
 
 _STATE_ALPHA = {

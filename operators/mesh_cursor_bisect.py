@@ -441,7 +441,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def select_coplanar_faces(self, context, event):
         """Select faces that are coplanar with the clicked face within angle threshold"""
-        result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+        result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event, full=True)
         if not result or not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
             return
 
@@ -757,7 +757,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.select_coplanar_faces(context, event)
             else:
                 # Regular RMB: Toggle face selection
-                result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+                result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event, full=True)
                 if result and obj and obj.type == 'MESH' and obj.mode == 'EDIT':
                     try:
                         bm = bmesh.from_edit_mesh(obj.data)
@@ -2102,16 +2102,29 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # no separate cursor-anchored text drawing.
         return
 
-    def mouse_raycast(self, context, event):
-        """Raycast filtered to selected mesh objects with corner fallback.
-        Delegates to utils.picking.raycast_with_corner_fallback."""
-        from ..utils.picking import raycast_with_corner_fallback
+    def mouse_raycast(self, context, event, *, full=False):
+        """Raycast filtered to selected mesh objects.
+
+        `full=False` (default, used for MOUSEMOVE hover tracking): one ray
+        from the cursor; if it misses, return miss immediately. Keeps the
+        modal handler fast so the HUD/redraw stays responsive when the
+        cursor leaves the mesh.
+
+        `full=True` (used by commit actions like LMB / fill-cut): adds the
+        8-corner viewport fallback so a click on a very large face whose
+        center is occluded still resolves."""
+        from ..utils.picking import (
+            raycast_from_mouse, raycast_with_corner_fallback,
+        )
         selected_mesh_objects = {o for o in context.selected_objects if o.type == 'MESH'}
         if not selected_mesh_objects:
             return False, None, None, None, None, None
         coord = (event.mouse_region_x, event.mouse_region_y)
-        return raycast_with_corner_fallback(context, coord,
-                                            restrict_to=selected_mesh_objects)
+        if full:
+            return raycast_with_corner_fallback(
+                context, coord, restrict_to=selected_mesh_objects)
+        return raycast_from_mouse(
+            context, coord, restrict_to=selected_mesh_objects)
 
     def align_cursor_orientation(self):
         """Align cursor to selected edge and face normal"""
