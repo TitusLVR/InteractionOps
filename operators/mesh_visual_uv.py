@@ -1,11 +1,9 @@
 import bpy
 import blf
-import gpu
 import bmesh
 import math
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
-from gpu_extras.batch import batch_for_shader
 
 from ..ui.draw.theme import get_theme, Role, axis_color
 from ..ui.draw import primitives as draw_prim, draw_scope
@@ -72,17 +70,9 @@ HANDLE_OPPOSITE = {
     'B': 'T', 'T': 'B', 'L': 'R', 'R': 'L',
 }
 
-# Per-island identification colors and widget palette now live in
-# the unified IOPS_Theme. State-like edge colors are sourced from
-# the existing 5-state Line/Point/Text roles. See
-# docs/superpowers/specs/2026-05-18-theme-palette-unification-design.md.
-
-# Temporary shim -- removed in Task 11 once all callsites migrate to roles.
-ISLAND_COLORS = []
-COL_EDGE = COL_EDGE_SELECTED = COL_EDGE_ACTIVE = COL_EDGE_HOVER = \
-    COL_EDGE_ALIGN = COL_CENTER = COL_ROT_HANDLE = COL_ROT_LINE = \
-    COL_HANDLE = COL_HANDLE_HOVER = COL_BBOX = COL_CURSOR = \
-    COL_FEEDBACK = COL_AXIS_X = COL_AXIS_Y = (1.0, 1.0, 1.0, 1.0)
+# Per-island identification colors and widget palette live in the
+# unified IOPS_Theme (theme.island_palette). State-like edge colors
+# are sourced from the 5-state Line/Point/Text roles via Role.*.
 
 def _v3(p):
     """Lift a 2D pixel-space point into a Vector for primitives.*"""
@@ -346,18 +336,15 @@ def draw_3d_callback(op, context):
         return
     if op._clean_view:
         return
+    import gpu
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
     fill_base = getattr(prefs, 'visual_uv_fill_alpha', 0.10)
-    edge_w = getattr(prefs, 'visual_uv_edge_width', 1.5)
+    theme = get_theme(context)
 
     gpu.state.blend_set('ALPHA')
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(False)
-
-    shader_flat = gpu.shader.from_builtin("UNIFORM_COLOR")
-    shader_line = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
-    region = context.region
 
     for idx, idata in enumerate(op.islands_data):
         geo = idata.get('geo3d')
@@ -365,49 +352,31 @@ def draw_3d_callback(op, context):
             continue
         is_active = (idx == op.active_island_idx)
         is_selected = idx in op.selected_islands
-        island_col = ISLAND_COLORS[idx % len(ISLAND_COLORS)]
+        island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
 
         fa = fill_base * (1.8 if is_active else 1.4 if is_selected else 1.0)
-        tv, ti = [], []
+        tv = []
         for v0, v1, v2 in geo['face_tris']:
-            base = len(tv)
             tv.extend([_off(v0, nrm, nrm_off), _off(v1, nrm, nrm_off),
-                        _off(v2, nrm, nrm_off)])
-            ti.append((base, base + 1, base + 2))
+                       _off(v2, nrm, nrm_off)])
         if tv:
-            batch = batch_for_shader(shader_flat, 'TRIS',
-                                     {"pos": tv}, indices=ti)
-            shader_flat.bind()
-            shader_flat.uniform_float("color", (*island_col[:3], fa))
-            batch.draw(shader_flat)
+            draw_prim.tris(tv, color=(*island_col[:3], fa), context=context)
 
-        ecol = (COL_EDGE_ACTIVE if is_active
-                else COL_EDGE_SELECTED if is_selected else COL_EDGE)
+        edge_role = (Role.ACTIVE_LINE if is_active
+                     else Role.CLOSEST_LINE if is_selected else Role.LINE)
         ep = []
         for pa, pb in geo['edges_3d']:
             ep.extend([_off(pa, nrm, nrm_off * 1.5),
-                        _off(pb, nrm, nrm_off * 1.5)])
+                       _off(pb, nrm, nrm_off * 1.5)])
         if ep:
-            batch = batch_for_shader(shader_line, 'LINES', {"pos": ep})
-            shader_line.bind()
-            shader_line.uniform_float("viewportSize",
-                                      (region.width, region.height))
-            shader_line.uniform_float("lineWidth", edge_w)
-            shader_line.uniform_float("color", ecol)
-            batch.draw(shader_line)
+            draw_prim.edges_3d(ep, role=edge_role, context=context)
 
     if op.hover_edge_3d is not None:
-        col = (COL_EDGE_ALIGN if op.state == STATE_PICK_ALIGN_EDGE
-               else COL_EDGE_HOVER)
-        batch = batch_for_shader(shader_line, 'LINES',
-                                 {"pos": list(op.hover_edge_3d)})
-        shader_line.bind()
-        shader_line.uniform_float("viewportSize",
-                                  (region.width, region.height))
-        shader_line.uniform_float("lineWidth", 3.0)
-        shader_line.uniform_float("color", col)
-        batch.draw(shader_line)
+        hover_role = (Role.PREVIEW_LINE if op.state == STATE_PICK_ALIGN_EDGE
+                      else Role.LOCKED_LINE)
+        draw_prim.edges_3d(list(op.hover_edge_3d), role=hover_role,
+                           width="active", context=context)
 
     gpu.state.depth_test_set('NONE')
     gpu.state.depth_mask_set(True)
@@ -417,10 +386,12 @@ def draw_3d_callback(op, context):
 def draw_pixel_callback(op, context):
     if context.area != op._area:
         return
+    import gpu
     region = context.region
     rv3d = context.region_data
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
+    theme = get_theme(context)
     gpu.state.blend_set('ALPHA')
 
     for idx, idata in enumerate(op.islands_data):
@@ -428,22 +399,25 @@ def draw_pixel_callback(op, context):
         if not geo:
             continue
         is_active = (idx == op.active_island_idx)
-        island_col = ISLAND_COLORS[idx % len(ISLAND_COLORS)]
+        island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
         center_off = geo['center_3d'] + nrm * nrm_off
 
         csp = location_3d_to_region_2d(region, rv3d, center_off)
         if csp and is_active:
-            _draw_ring(csp.x, csp.y, 8, COL_CENTER, 2.0)
-            _draw_circle(csp.x, csp.y, 3, COL_CENTER)
+            _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
+            _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
 
             rot_pos = center_off + nrm * ROTATION_HANDLE_DISTANCE
             rsp = location_3d_to_region_2d(region, rv3d, rot_pos)
             if rsp:
-                _draw_polyline([csp, rsp], COL_ROT_LINE, 1.5)
-                rc = (COL_HANDLE_HOVER if op.hover_rotate_handle
-                      else COL_ROT_HANDLE)
-                _draw_circle(rsp.x, rsp.y, 6, rc)
+                pivot = theme.color_for(Role.PIVOT)
+                _draw_polyline([csp, rsp],
+                               color=(pivot[0], pivot[1], pivot[2], 0.35),
+                               width="default")
+                rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
+                           else Role.PIVOT)
+                _draw_circle(rsp.x, rsp.y, 6, role=rc_role)
 
         if not op._clean_view:
             td = idata.get('texel_density')
@@ -460,32 +434,34 @@ def draw_pixel_callback(op, context):
         if all(n in handles for n in HANDLE_CORNERS):
             box = [(handles[n].x, handles[n].y)
                    for n in ('BL', 'BR', 'TR', 'TL', 'BL')]
-            _draw_polyline(box, COL_BBOX, 1.0)
+            _draw_polyline(box, role=Role.BBOX, width="default")
 
         for name in HANDLE_CORNERS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc = COL_HANDLE_HOVER if op.hover_handle == name else COL_HANDLE
-            _draw_circle(h.x, h.y, CORNER_SIZE, hc)
+            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
+            _draw_circle(h.x, h.y, CORNER_SIZE, role=hc_role)
 
         for name in HANDLE_MIDS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc = COL_HANDLE_HOVER if op.hover_handle == name else COL_HANDLE
-            _draw_diamond(h.x, h.y, MID_SIZE, hc)
+            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
+            _draw_diamond(h.x, h.y, MID_SIZE, role=hc_role)
 
     # UV Cursor
     if op.cursor_3d is not None:
         csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
         if csp:
             arm = 14
-            _draw_polyline(
-                [(csp.x - arm, csp.y), (csp.x + arm, csp.y),
-                 (csp.x, csp.y - arm), (csp.x, csp.y + arm)],
-                COL_CURSOR, 2.0, mode='LINES')
-            _draw_circle(csp.x, csp.y, 3, COL_CURSOR)
+            coords = [_v3(p) for p in [
+                (csp.x - arm, csp.y), (csp.x + arm, csp.y),
+                (csp.x, csp.y - arm), (csp.x, csp.y + arm),
+            ]]
+            draw_prim.edges_3d(coords, role=Role.CURSOR, width="active",
+                               context=bpy.context)
+            _draw_circle(csp.x, csp.y, 3, role=Role.CURSOR)
 
     _draw_transform_feedback(op)
     gpu.state.blend_set('NONE')
@@ -495,34 +471,34 @@ def _draw_transform_feedback(op):
     mx, my = op.mouse_x, op.mouse_y
     theme = get_theme(bpy.context)
 
-    def _t(text, role):
+    def _t(text, *, role=None, color=None):
         hud_text_draw(text, mx + 18, my + 10, theme=theme,
-                      role=role, size_token="active")
+                      role=role, color=color, size_token="active")
 
     if (op.state in (STATE_ROTATE, STATE_HANDLE_ROTATE)
             and op.drag_center_screen):
         deg = math.degrees(op.current_angle_delta)
         step_deg = ROTATION_STEPS[op.rotation_step_idx]
-        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", Role.ACTIVE_TEXT)
+        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", role=Role.ACTIVE_TEXT)
 
     elif (op.state in (STATE_SCALE, STATE_HANDLE_SCALE)
           and op.drag_center_screen):
         sx, sy = op.current_scale_x, op.current_scale_y
         if op.grab_axis == 'X':
-            _t(f"S X {sx:.3f}", Role.ERROR)
+            _t(f"S X {sx:.3f}", color=axis_color('X'))
         elif op.grab_axis == 'Y':
-            _t(f"S Y {sy:.3f}", Role.SUCCESS)
+            _t(f"S Y {sy:.3f}", color=axis_color('Y'))
         else:
-            _t(f"S {sx:.3f} x {sy:.3f}", Role.ACTIVE_TEXT)
+            _t(f"S {sx:.3f} x {sy:.3f}", role=Role.ACTIVE_TEXT)
 
     elif op.state == STATE_GRAB:
         sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
         if op.grab_axis == 'X':
-            _t(f"G along X  [{sens_pct}%]", Role.ERROR)
+            _t(f"G along X  [{sens_pct}%]", color=axis_color('X'))
         elif op.grab_axis == 'Y':
-            _t(f"G along Y  [{sens_pct}%]", Role.SUCCESS)
+            _t(f"G along Y  [{sens_pct}%]", color=axis_color('Y'))
         else:
-            _t(f"G Move  [{sens_pct}%]", Role.ACTIVE_TEXT)
+            _t(f"G Move  [{sens_pct}%]", role=Role.ACTIVE_TEXT)
 
 
 def _build_visual_uv_hud(context):
