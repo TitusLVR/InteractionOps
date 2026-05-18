@@ -69,190 +69,18 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
 
-    # Operator text properties
-    text_color: FloatVectorProperty(
-        name="Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
+    # Statistics overlay toggles (the only stat-related prefs that aren't
+    # cosmetic — colors / sizes / positions all live in IOPS_Theme).
+    iops_stat: BoolProperty(
+        name="Statistics ON/OFF",
+        description="Shows UVmaps and Non Uniform Scale",
+        default=True,
     )
 
-    text_color_key: FloatVectorProperty(
-        name="Color key",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
-    )
-
-    text_size: IntProperty(
-        name="Size",
-        description="Modal operators text size",
-        default=20,
-        soft_min=1,
-        soft_max=100,
-    )
-
-    text_pos_x: IntProperty(
-        name="Position X",
-        description="Modal operators Text pos X",
-        default=60,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_pos_y: IntProperty(
-        name="Position Y",
-        description="Modal operators Text pos Y",
-        default=60,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_shadow_color: FloatVectorProperty(
-        name="Shadow",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 0.0, 0.0, 1.0),
-    )
-
-    text_shadow_toggle: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
-
-    text_shadow_blur: EnumProperty(
-        name="Blur",
-        description="Could be 0,3,5",
-        items=[
-            ("0", "None", "", "", 0),
-            ("3", "Mid", "", "", 3),
-            ("5", "High", "", "", 5)
-        ],
-        default="0",
-    )
-
-    text_shadow_pos_x: IntProperty(
-        name="Shadow pos X",
-        description="Modal operators Text pos X",
-        default=2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_shadow_pos_y: IntProperty(
-        name="Shadow pos Y",
-        description="Modal operators Text pos Y",
-        default=-2,
-        soft_min=-50,
-        soft_max=50,
-    )
-
-    # Statistics text properties
-    iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
-    
-    show_filename_stat: BoolProperty(name="Show Filename", description="Show/Hide filename in statistics", default=True)
-
-    text_color_stat: FloatVectorProperty(
-        name="Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
-    )
-
-    text_color_key_stat: FloatVectorProperty(
-        name="Color key",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
-    )
-    text_color_error_stat: FloatVectorProperty(
-        name="Color error",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7)),
-    )
-
-    text_size_stat: FloatProperty(
-        name="Size",
-        description="Modal operators text size",
-        default=20,
-        soft_min=1,
-        soft_max=100,
-    )
-
-    text_pos_x_stat: IntProperty(
-        name="Position X",
-        description="Modal operators Text pos X",
-        default=9,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_pos_y_stat: IntProperty(
-        name="Position Y",
-        description="Modal operators Text pos Y",
-        default=220,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_shadow_color_stat: FloatVectorProperty(
-        name="Shadow",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 0.0, 0.0, 1.0),
-    )
-
-    text_shadow_toggle_stat: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
-
-    text_shadow_blur_stat: EnumProperty(
-        name="Blur",
-        description="Could be 0,3,5",
-        items=[
-            ("0", "None", "", "", 0),
-            ("3", "Mid", "", "", 3),
-            ("5", "High", "", "", 5)
-        ],
-        default="0",
-    )
-
-    text_shadow_pos_x_stat: IntProperty(
-        name="Shadow pos X",
-        description="Modal operators Text pos X",
-        default=2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_shadow_pos_y_stat: IntProperty(
-        name="Shadow pos Y",
-        description="Modal operators Text pos Y",
-        default=-2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_column_offset_stat: FloatProperty(
-        name="Column Offset",
-        description="Column Offset",
-        default=30,
-        min=0,
-        max=10000,
-    )
-    text_column_width_stat: FloatProperty(
-        name="Column Width",
-        description="Column Width",
-        default=4,
-        min=0,
-        max=10000,
+    show_filename_stat: BoolProperty(
+        name="Show Filename",
+        description="Show/Hide filename in statistics",
+        default=True,
     )
 
     # Legacy cage/snap/align color and size props removed.
@@ -581,135 +409,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=4,
     )
 
-    # Cursor Bisect Drawing Properties
-    cursor_bisect_plane_color: FloatVectorProperty(
-        name="Plane color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 0.15),
-    )
-
-    cursor_bisect_plane_outline_color: FloatVectorProperty(
-        name="Plane outline color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 0.8),
-    )
-
-    cursor_bisect_plane_outline_thickness: FloatProperty(
-        name="Plane outline thickness",
-        description="Thickness of the bisect plane outline",
-        default=2.0,
-        min=0.1,
-        max=10.0,
-    )
-
-    cursor_bisect_edge_color: FloatVectorProperty(
-        name="Edge color (unlocked)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_edge_locked_color: FloatVectorProperty(
-        name="Edge color (locked)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_edge_thickness: FloatProperty(
-        name="Edge thickness (unlocked)",
-        description="Thickness of the edge highlight when unlocked",
-        default=4.0,
-        min=0.1,
-        max=20.0,
-    )
-
-    cursor_bisect_edge_locked_thickness: FloatProperty(
-        name="Edge thickness (locked)",
-        description="Thickness of the edge highlight when locked",
-        default=8.0,
-        min=0.1,
-        max=20.0,
-    )
-
-    cursor_bisect_snap_color: FloatVectorProperty(
-        name="Snap points color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_hold_color: FloatVectorProperty(
-        name="Snap points color (hold)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.5, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_closest_color: FloatVectorProperty(
-        name="Closest snap point color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_closest_hold_color: FloatVectorProperty(
-        name="Closest snap point color (hold)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.2, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_size: FloatProperty(
-        name="Snap point size",
-        description="Size of snap points",
-        default=6.0,
-        min=1.0,
-        max=20.0,
-    )
-
-    cursor_bisect_snap_closest_size: FloatProperty(
-        name="Closest snap point size",
-        description="Size of the closest snap point",
-        default=9.0,
-        min=1.0,
-        max=20.0,
-    )
-
-    # Cut preview visual properties
-    cursor_bisect_cut_preview_color: bpy.props.FloatVectorProperty(
-        name="Cut Preview Color",
-        description="Color for cut preview lines",
-        subtype='COLOR_GAMMA',
-        size=4,
-        min=0.0, max=1.0,
-        default=(1.0, 0.5, 0.0, 1.0)
-    )
-
-    cursor_bisect_cut_preview_thickness: bpy.props.FloatProperty(
-        name="Cut Preview Thickness",
-        description="Thickness of cut preview lines",
-        min=1.0, max=10.0,
-        default=3.0
-    )
+    # Cursor Bisect Drawing Properties — colors and sizes moved to IOPS_Theme.
+    # Only operational params (face depth, subdivisions, snap threshold,
+    # merge distance, rotation step, etc.) remain on AddonPreferences.
 
     # Face connectivity settings
     cursor_bisect_face_depth: bpy.props.IntProperty(
@@ -790,22 +492,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="RENDER"
     )
     
-    # Distance text settings
-    cursor_bisect_distance_text_color: FloatVectorProperty(
-        name="Distance Text Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0), # Yellow color       
-    )    
-    cursor_bisect_distance_text_size:IntProperty(
-        name="Distance Text Size",
-        description="Size of the distance text displayed during bisect operation",
-        default=12,
-        min=5,
-        max=100,
-    )
+    # Distance text positioning (color/size live in IOPS_Theme)
     cursor_bisect_distance_offset_x:IntProperty(
         name="Distance Text Offset X",
         description="X offset for the distance text position",
@@ -1026,61 +713,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
-            col.label(text="3D View Overlay Text Settings:")
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_text = split.column(align=True)
-            col_shadow = split.column(align=True)
-            row = col_text.row(align=True)
-            row.prop(self, "text_color")
-            row.prop(self, "text_color_key")
-            row = col_text.row(align=True)
-            row.prop(self, "text_size")
-            row = col_text.row(align=True)
-            row.prop(self, "text_pos_x")
-            row.prop(self, "text_pos_y")
-            # TextShadow column
-            row = col_shadow.row(align=False)
-            row.prop(self, "text_shadow_color")
-            row.prop(self, "text_shadow_blur")
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_toggle", toggle=True)
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_pos_x")
-            row.prop(self, "text_shadow_pos_y")
-            col.separator()
-
-            #Statistics TextProps
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="3D View Overlay Statistics Text Settings:")
+            col.label(text="3D View Statistics Overlay:")
             col.prop(self, "iops_stat", toggle=True)
             col.prop(self, "show_filename_stat", toggle=True)
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_text = split.column(align=True)
-            col_shadow = split.column(align=True)
-            row = col_text.row(align=True)
-            row.prop(self, "text_color_stat")
-            row.prop(self, "text_color_key_stat")
-            row.prop(self, "text_color_error_stat")
-            row = col_text.row(align=True)
-            row.prop(self, "text_size_stat")
-            row.prop(self, "text_column_offset_stat")
-            row.prop(self, "text_column_width_stat")
-            row = col_text.row(align=True)
-            row.prop(self, "text_pos_x_stat")
-            row.prop(self, "text_pos_y_stat")
-            # ShadowStatistics TextProps
-            row = col_shadow.row(align=False)
-            row.prop(self, "text_shadow_color_stat")
-            row.prop(self, "text_shadow_blur_stat")
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_toggle_stat", toggle=True)
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_pos_x_stat")
-            row.prop(self, "text_shadow_pos_y_stat")
+            col.separator()
+            col.label(text="Colors, sizes, text positioning live in the Theme tab.")
             col.separator()
 
             # Align-to-edge, Visual Origin cage, and Drag Snap colors/widths
@@ -1219,80 +856,36 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col.prop(self, "texture_to_material_suffixes")
             col.separator()
 
-           # Cursor Bisect preferences
+           # Cursor Bisect — operational params only (colors/sizes in Theme tab)
             col = column_main.column(align=False)
             box = col.box()
             col = box.column(align=True)
             col.label(text="Cursor Bisect:")
+            col.label(text="Colors and sizes live in the Theme tab.", icon="INFO")
 
-            # Plane settings
-            col.separator()
-            col.label(text="Bisect Plane:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_plane_color")
-            row.prop(self, "cursor_bisect_plane_outline_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_plane_outline_thickness")
-
-            # Edge settings
-            col.separator()
-            col.label(text="Edge Highlight:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_color")
-            row.prop(self, "cursor_bisect_edge_locked_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_thickness")
-            row.prop(self, "cursor_bisect_edge_locked_thickness")
-
-            # Snap point settings
-            col.separator()
-            col.label(text="Snap Points:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_color")
-            row.prop(self, "cursor_bisect_snap_hold_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_closest_color")
-            row.prop(self, "cursor_bisect_snap_closest_hold_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_size")
-            row.prop(self, "cursor_bisect_snap_closest_size")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_subdivisions")
-
-            # Cut preview settings
-            col.separator()
-            col.label(text="Cut Preview:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_cut_preview_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_cut_preview_thickness")
-
-            # Face connectivity settings
             col.separator()
             col.label(text="Preview Scope:")
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_face_depth")
             row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
-            # Coplanar angle
+
             col.separator()
-            col.label(text="Coplanar Angle:")
+            col.label(text="Edge Snapping:")
             row = col.row(align=True)
-            row.prop(self, "cursor_bisect_coplanar_angle")
+            row.prop(self, "cursor_bisect_edge_subdivisions")
+            row.prop(self, "cursor_bisect_snap_threshold")
+            row.prop(self, "cursor_bisect_snap_use_modifiers")
+
             col.separator()
-            # Bisect operation settings
-            col.separator()
-            col.label(text="Operation Settings:")
+            col.label(text="Operation:")
             row = col.row(align=True)
             row.prop(self, "cursor_bisect_merge_distance")
             row.prop(self, "cursor_bisect_rotation_step")
-            row.prop(self, "cursor_bisect_snap_threshold")
-            row.prop(self, "cursor_bisect_snap_use_modifiers")
-            # Distance text settings
+            row.prop(self, "cursor_bisect_coplanar_angle")
+
             col.separator()
-            col.label(text="Bisect Info Text Settings:")
+            col.label(text="Distance Label Offset:")
             row = col.row(align=True)
-            row.prop(self, "cursor_bisect_distance_text_color", text="Text Color")            
-            row.prop(self, "cursor_bisect_distance_text_size", text="Text Size")
             row.prop(self, "cursor_bisect_distance_offset_x", text="Offset X")
             row.prop(self, "cursor_bisect_distance_offset_y", text="Offset Y")
             col.separator()

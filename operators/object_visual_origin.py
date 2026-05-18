@@ -209,6 +209,10 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             self.compensate_instances(instances, ref_positions)
 
     def calc_distance(self, context):
+        # Re-project bbox to 2D each call. Without this, viewport navigation
+        # leaves pos_batch stale and the highlighted point drifts from where
+        # the cursor actually is.
+        self.object_bbox(context)
         mouse_pos = self.mouse_pos
         pos_batch = self.pos_batch
         if len(pos_batch) != 0:

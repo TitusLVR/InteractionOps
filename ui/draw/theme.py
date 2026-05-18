@@ -160,6 +160,8 @@ class Theme:
     depth_test_default: str = "LESS"
     island_palette: tuple[tuple[float, float, float, float], ...] = field(
         default_factory=lambda: _DEFAULT_ISLAND_PALETTE)
+    # Custom font file path (TTF/OTF). Empty string = Blender's default font.
+    font_path: str = ""
 
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
@@ -264,6 +266,7 @@ def get_theme(context) -> "Theme":
             tuple(getattr(t, f"island_palette_{i}", _DEFAULT_ISLAND_PALETTE[i]))
             for i in range(8)
         ),
+        font_path=str(getattr(t, "font_path", "")),
     )
 
 

@@ -117,6 +117,14 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default="ALWAYS",
     )
 
+    font_path: bpy.props.StringProperty(
+        name="Font file",
+        description=("Path to a TTF/OTF font used by HUD and overlay text. "
+                     "Empty = Blender's default font"),
+        subtype="FILE_PATH",
+        default="",
+    )
+
 
 class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
     bl_idname = "iops.theme_reset_defaults"
@@ -202,6 +210,16 @@ def draw_theme_tab(layout, theme):
     row = box.row(align=True)
     for i in range(8):
         row.prop(theme, f"island_palette_{i}", text="")
+
+    # Font
+    box = layout.box()
+    box.label(text="Font", icon="FONT_DATA")
+    sub = box.column(align=True)
+    sub.prop(theme, "font_path", text="")
+    sub.label(
+        text="Empty = Blender default. Used by HUD and overlay text.",
+        icon="INFO",
+    )
 
     # HUD
     box = layout.box()
