@@ -201,8 +201,6 @@ def load_iops_preferences():
                                 ("cursor_bisect_coplanar_angle", 5.0),
                                 ("cursor_bisect_snap_threshold", 30.0),
                                 ("cursor_bisect_snap_use_modifiers", True),
-                                ("cursor_bisect_distance_offset_x", -25),
-                                ("cursor_bisect_distance_offset_y", 25),
                             ):
                                 if hasattr(prefs, key_):
                                     setattr(prefs, key_,

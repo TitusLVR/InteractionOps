@@ -157,8 +157,6 @@ def get_iops_prefs():
             "cursor_bisect_coplanar_angle": safe("cursor_bisect_coplanar_angle", 5.0),
             "cursor_bisect_snap_threshold": safe("cursor_bisect_snap_threshold", 30.0),
             "cursor_bisect_snap_use_modifiers": safe("cursor_bisect_snap_use_modifiers", True),
-            "cursor_bisect_distance_offset_x": safe("cursor_bisect_distance_offset_x", -25),
-            "cursor_bisect_distance_offset_y": safe("cursor_bisect_distance_offset_y", 25),
         },
     }
 

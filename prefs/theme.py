@@ -125,6 +125,20 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default="",
     )
 
+    # Statistics overlay position (general UI, top-left of 3D view).
+    stats_offset_x: IntProperty(
+        name="Stats X",
+        description="Horizontal offset of the statistics overlay from the "
+                    "left edge of the 3D view (after the toolbar)",
+        default=12, min=0, max=4000,
+    )
+    stats_offset_y: IntProperty(
+        name="Stats Y",
+        description="Vertical offset of the statistics overlay from the "
+                    "top edge of the 3D view",
+        default=12, min=0, max=4000,
+    )
+
 
 class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
     bl_idname = "iops.theme_reset_defaults"
@@ -246,6 +260,14 @@ def draw_theme_tab(layout, theme):
     sub.prop(theme, "hud_row_spacing")
     sub.prop(theme, "hud_key_column_width")
     sub.prop(theme, "hud_verbosity")
+
+    # Statistics overlay positioning
+    box = layout.box()
+    box.label(text="Statistics overlay", icon="INFO")
+    sub = box.column(align=True)
+    row = sub.row(align=True)
+    row.prop(theme, "stats_offset_x")
+    row.prop(theme, "stats_offset_y")
 
     # Behaviour
     box = layout.box()

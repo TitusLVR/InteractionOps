@@ -33,10 +33,9 @@ def draw_iops_statistics():
             t_offset = region.width
             break
 
-    pad = theme.hud.padding
-    offset_x = t_offset + pad
+    offset_x = t_offset + theme.stats_offset_x
     line_h = theme.text_size("default")
-    offset_y = area_3d.height - pad - line_h
+    offset_y = area_3d.height - theme.stats_offset_y - line_h
 
     base_column_x = offset_x + line_h * 9
 

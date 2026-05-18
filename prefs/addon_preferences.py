@@ -410,30 +410,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
 
     # Visual UV On-Mesh Properties
-    visual_uv_point_size: IntProperty(
-        name="Point size",
-        description="Size of UV corner points drawn on the mesh",
-        default=7,
-        min=2,
-        max=20,
-    )
-
-    visual_uv_edge_width: FloatProperty(
-        name="Edge width",
-        description="Width of UV edges drawn on the mesh",
-        default=2.0,
-        min=0.5,
-        max=5.0,
-    )
-
-    visual_uv_fill_alpha: FloatProperty(
-        name="Fill opacity",
-        description="Opacity of island face fill on the mesh",
-        default=0.10,
-        min=0.0,
-        max=0.5,
-    )
-
     visual_uv_normal_offset: FloatProperty(
         name="Normal offset",
         description="How far to offset the overlay from the mesh surface",
@@ -526,21 +502,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="RENDER"
     )
     
-    # Distance text positioning (color/size live in IOPS_Theme)
-    cursor_bisect_distance_offset_x:IntProperty(
-        name="Distance Text Offset X",
-        description="X offset for the distance text position",
-        default=25,
-        min=-1000,
-        max=1000,
-    )
-    cursor_bisect_distance_offset_y:IntProperty(
-        name="Distance Text Offset Y",
-        description="Y offset for the distance text position",
-        default=-25,
-        min=-1000,
-        max=1000,
-    )
+    # (Distance text is now rendered through the HUD header — no separate
+    # position offsets needed.)
 
 
     def draw(self, context):
@@ -754,12 +717,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             # Visual UV
             body = _section(column_main, self, "show_section_visual_uv", "Visual UV (on-mesh)", icon="UV")
             if body is not None:
-                row = body.row(align=True)
-                row.prop(self, "visual_uv_point_size")
-                row.prop(self, "visual_uv_edge_width")
-                row = body.row(align=True)
-                row.prop(self, "visual_uv_fill_alpha")
-                row.prop(self, "visual_uv_normal_offset")
+                body.label(text="Point size, edge width and fill opacity live in the Theme tab.", icon="INFO")
+                body.prop(self, "visual_uv_normal_offset")
 
             # Cursor Bisect (operational only — colors/sizes in Theme)
             body = _section(column_main, self, "show_section_bisect", "Cursor Bisect", icon="MOD_BEVEL")
@@ -782,11 +741,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_bisect_merge_distance")
                 row.prop(self, "cursor_bisect_rotation_step")
                 row.prop(self, "cursor_bisect_coplanar_angle")
-                body.separator()
-                body.label(text="Distance Label Offset:")
-                row = body.row(align=True)
-                row.prop(self, "cursor_bisect_distance_offset_x", text="X")
-                row.prop(self, "cursor_bisect_distance_offset_y", text="Y")
 
             # Snap Combos
             body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")

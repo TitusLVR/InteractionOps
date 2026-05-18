@@ -162,6 +162,9 @@ class Theme:
         default_factory=lambda: _DEFAULT_ISLAND_PALETTE)
     # Custom font file path (TTF/OTF). Empty string = Blender's default font.
     font_path: str = ""
+    # Statistics overlay anchor (top-left of the 3D view, in pixels).
+    stats_offset_x: int = 12
+    stats_offset_y: int = 12
 
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
@@ -267,6 +270,8 @@ def get_theme(context) -> "Theme":
             for i in range(8)
         ),
         font_path=str(getattr(t, "font_path", "")),
+        stats_offset_x=int(getattr(t, "stats_offset_x", 12)),
+        stats_offset_y=int(getattr(t, "stats_offset_y", 12)),
     )
 
 
