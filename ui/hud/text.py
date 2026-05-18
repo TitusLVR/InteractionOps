@@ -20,10 +20,20 @@ def configure(theme: Theme, size_token: str = "normal", font_id: int = 0):
         blf.disable(font_id, blf.SHADOW)
 
 
-def draw(text: str, x: int, y: int, *, theme: Theme, role: Role,
+def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
+         color: tuple[float, float, float, float] | None = None,
          size_token: str = "normal", font_id: int = 0, alpha_mul: float = 1.0):
+    """Draw text. Exactly one of `role` or `color` must be provided.
+    `color` lets callers pass a fully-resolved RGBA (e.g. axis colors
+    from Blender's user_interface theme) instead of routing through
+    a theme Role."""
+    if color is None and role is None:
+        raise ValueError("hud_text.draw requires either role= or color=")
     configure(theme, size_token, font_id)
-    r, g, b, a = theme.color_for(role)
+    if color is not None:
+        r, g, b, a = color
+    else:
+        r, g, b, a = theme.color_for(role)
     blf.color(font_id, r, g, b, a * alpha_mul)
     blf.position(font_id, x, y, 0)
     blf.draw(font_id, text)
