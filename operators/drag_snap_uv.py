@@ -2,11 +2,11 @@ import bpy
 import bmesh
 import numpy as np
 from mathutils import Vector
-from mathutils.kdtree import KDTree
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..utils.picking import build_uv_kdtree
 
 
 class IOPS_OT_DragSnapUV(bpy.types.Operator):
@@ -90,45 +90,19 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         return np.linalg.norm(vector)
 
     def build_tree(self, context, type):
+        """Build a UV KDTree via utils.picking.build_uv_kdtree.
+        `type` is 'all' (include UV cursor as a snap target) or 'selected'."""
+        cursor = None
         for area in bpy.context.screen.areas:
             if area.type == "IMAGE_EDITOR":
                 cursor = area.spaces.active.cursor_location
+                break
         bm = bmesh.from_edit_mesh(bpy.context.active_object.data)
         uv_layer = bm.loops.layers.uv.verify()
-
-        selected_faces = set()
-        all_faces = set()
-        uvs = []
-
-        for face in bm.faces:
-            for loop in face.loops:
-                all_faces.add(face)
-                if hasattr(loop, "uv_select_vert"):
-                    if loop.uv_select_vert:
-                        selected_faces.add(face)
-                elif loop[uv_layer].select:
-                    selected_faces.add(face)
-
-        if type == "all":
-            for face in all_faces:
-                for loop in face.loops:
-                    loop_uv = loop[uv_layer]
-                    uvs.append(loop_uv.uv)
-                    uvs.append(cursor)
-
-        elif type == "selected":
-            for face in selected_faces:
-                for loop in face.loops:
-                    loop_uv = loop[uv_layer]
-                    uvs.append(loop_uv.uv)
-
-        coordinates = [(uv.x, uv.y, 0) for uv in uvs]
-        kd = KDTree(len(coordinates))
-        for i, v in enumerate(coordinates):
-            kd.insert(v, i)
-        kd.balance()
-
-        return kd
+        extras = ((cursor.x, cursor.y),) if (type == "all" and cursor is not None) else ()
+        return build_uv_kdtree(bm, uv_layer,
+                               only_selected=(type == "selected"),
+                               extras=extras)
 
     def execute(self, context):
         bpy.ops.transform.translate(

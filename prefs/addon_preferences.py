@@ -25,6 +25,27 @@ from ..utils.split_areas_dict import (
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
 
+
+def _section(parent, prefs, prop_name, title, *, icon="NONE"):
+    """Draw a collapsible section header. Returns the body column to draw
+    contents into, or `None` if the section is collapsed.
+
+    `prop_name` is the BoolProperty on `prefs` storing the open/closed state.
+    """
+    box = parent.box()
+    row = box.row(align=True)
+    is_open = getattr(prefs, prop_name)
+    row.prop(prefs, prop_name,
+             text="",
+             icon="TRIA_DOWN" if is_open else "TRIA_RIGHT",
+             emboss=False)
+    row.label(text=title, icon=icon)
+    if not is_open:
+        return None
+    body = box.column(align=True)
+    return body
+
+
 def update_category(self, context):
     message = "Panel Update Failed"
     try:
@@ -82,6 +103,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Show/Hide filename in statistics",
         default=True,
     )
+
+    # --- Collapsible section toggles (UI only) ---
+    show_section_general: BoolProperty(default=True)
+    show_section_stats: BoolProperty(default=False)
+    show_section_visual_uv: BoolProperty(default=False)
+    show_section_executor: BoolProperty(default=False)
+    show_section_textures: BoolProperty(default=False)
+    show_section_bisect: BoolProperty(default=False)
+    show_section_snap_combo: BoolProperty(default=False)
+    show_section_modifier_window: BoolProperty(default=False)
+    show_section_io: BoolProperty(default=False)
+    show_section_debug: BoolProperty(default=False)
+    show_section_pies: BoolProperty(default=False)
 
     # Legacy cage/snap/align color and size props removed.
     # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
@@ -704,229 +738,134 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
 
         if self.tabs == "PREFS":
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Category:")
-            col.prop(self, "category")
-            # TextProps
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="3D View Statistics Overlay:")
-            col.prop(self, "iops_stat", toggle=True)
-            col.prop(self, "show_filename_stat", toggle=True)
-            col.separator()
-            col.label(text="Colors, sizes, text positioning live in the Theme tab.")
-            col.separator()
+            # General
+            body = _section(column_main, self, "show_section_general", "General", icon="PREFERENCES")
+            if body is not None:
+                body.prop(self, "category")
 
-            # Align-to-edge, Visual Origin cage, and Drag Snap colors/widths
-            # now live in IOPS_Theme — see the "Theme" tab above.
+            # Stats overlay
+            body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")
+            if body is not None:
+                body.prop(self, "iops_stat", toggle=True)
+                body.prop(self, "show_filename_stat", toggle=True)
+                body.separator()
+                body.label(text="Colors, sizes and text positioning live in the Theme tab.")
 
             # Visual UV
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Visual UV (on-mesh):")
-            row = col.row(align=True)
-            row.prop(self, "visual_uv_point_size")
-            row.prop(self, "visual_uv_edge_width")
-            row = col.row(align=True)
-            row.prop(self, "visual_uv_fill_alpha")
-            row.prop(self, "visual_uv_normal_offset")
-            col.separator()
+            body = _section(column_main, self, "show_section_visual_uv", "Visual UV (on-mesh)", icon="UV")
+            if body is not None:
+                row = body.row(align=True)
+                row.prop(self, "visual_uv_point_size")
+                row.prop(self, "visual_uv_edge_width")
+                row = body.row(align=True)
+                row.prop(self, "visual_uv_fill_alpha")
+                row.prop(self, "visual_uv_normal_offset")
 
-            # Split Pie preferences
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="IOPS Split Pie Setup:")
-            row = col.row(align=True)
-
-            # TOP LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_7_ui")
-            col.prop(self, "split_area_pie_7_alt_ui")
-            col.prop(self, "split_area_pie_7_pos")
-            col.prop(self, "split_area_pie_7_factor")
-            row.separator()
-            # TOP
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.prop(self, "split_area_pie_8_ui")
-            col.prop(self, "split_area_pie_8_alt_ui")
-            col.prop(self, "split_area_pie_8_pos")
-            col.prop(self, "split_area_pie_8_factor")
-            row.separator()
-            # TOP RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_9_ui")
-            col.prop(self, "split_area_pie_9_alt_ui")
-            col.prop(self, "split_area_pie_9_pos")
-            col.prop(self, "split_area_pie_9_factor")
-
-            col = box.column(align=True)
-            row = col.row(align=True)
-            # LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_4_ui")
-            col.prop(self, "split_area_pie_4_alt_ui")
-            col.prop(self, "split_area_pie_4_pos")
-            col.prop(self, "split_area_pie_4_factor")
-            row.separator()
-            # CENTER
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.label(text=" ")
-            col.label(text=" ")
-            col.label(text=" ")
-            row.separator()
-            # RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_6_ui")
-            col.prop(self, "split_area_pie_6_alt_ui")
-            col.prop(self, "split_area_pie_6_pos")
-            col.prop(self, "split_area_pie_6_factor")
-
-            col = box.column(align=True)
-            row = col.row(align=True)
-
-            # BOTTOM LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_1_ui")
-            col.prop(self, "split_area_pie_1_alt_ui")
-            col.prop(self, "split_area_pie_1_pos")
-            col.prop(self, "split_area_pie_1_factor")
-            row.separator()
-            # BOTTOM
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.prop(self, "split_area_pie_2_ui")
-            col.prop(self, "split_area_pie_2_alt_ui")
-            col.prop(self, "split_area_pie_2_pos")
-            col.prop(self, "split_area_pie_2_factor")
-            row.separator()
-            # BOTTOM RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_3_ui")
-            col.prop(self, "split_area_pie_3_alt_ui")
-            col.prop(self, "split_area_pie_3_pos")
-            col.prop(self, "split_area_pie_3_factor")
-
-            # Executor
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Script Executor:")
-            col.separator()
-            col.separator()
-            col.separator()
-            col.prop(self, "executor_use_script_path_user")
-            row = col.row(align=True)
-            if self.executor_use_script_path_user:
-                row.label(text=bpy.utils.script_path_user())
-                col.prop(self, "executor_scripts_subfolder")
-                if len(self.executor_scripts_subfolder) > 0:
-                    self.executor_scripts_folder = os.path.join(
-                        bpy.utils.script_path_user(), self.executor_scripts_subfolder
-                    )
-                else:
-                    self.executor_scripts_folder = bpy.utils.script_path_user()
-            else:
-                col.prop(self, "executor_scripts_folder")
-            col.separator()
-            col.separator()
-            col.separator()
-            col.prop(self, "executor_column_count")
-            col.prop(self, "executor_name_length")
-            col.separator()
-            # Textures to materials
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Textures to Materials:")
-            col = box.column(align=True)
-            col.prop(self, "texture_to_material_prefixes")
-            col.prop(self, "texture_to_material_suffixes")
-            col.separator()
-
-           # Cursor Bisect — operational params only (colors/sizes in Theme tab)
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Cursor Bisect:")
-            col.label(text="Colors and sizes live in the Theme tab.", icon="INFO")
-
-            col.separator()
-            col.label(text="Preview Scope:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_face_depth")
-            row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
-
-            col.separator()
-            col.label(text="Edge Snapping:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_subdivisions")
-            row.prop(self, "cursor_bisect_snap_threshold")
-            row.prop(self, "cursor_bisect_snap_use_modifiers")
-
-            col.separator()
-            col.label(text="Operation:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_merge_distance")
-            row.prop(self, "cursor_bisect_rotation_step")
-            row.prop(self, "cursor_bisect_coplanar_angle")
-
-            col.separator()
-            col.label(text="Distance Label Offset:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_distance_offset_x", text="Offset X")
-            row.prop(self, "cursor_bisect_distance_offset_y", text="Offset Y")
-            col.separator()
+            # Cursor Bisect (operational only — colors/sizes in Theme)
+            body = _section(column_main, self, "show_section_bisect", "Cursor Bisect", icon="MOD_BEVEL")
+            if body is not None:
+                body.label(text="Colors and sizes live in the Theme tab.", icon="INFO")
+                body.separator()
+                body.label(text="Preview Scope:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_face_depth")
+                row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
+                body.separator()
+                body.label(text="Edge Snapping:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_edge_subdivisions")
+                row.prop(self, "cursor_bisect_snap_threshold")
+                row.prop(self, "cursor_bisect_snap_use_modifiers")
+                body.separator()
+                body.label(text="Operation:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_merge_distance")
+                row.prop(self, "cursor_bisect_rotation_step")
+                row.prop(self, "cursor_bisect_coplanar_angle")
+                body.separator()
+                body.label(text="Distance Label Offset:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_distance_offset_x", text="X")
+                row.prop(self, "cursor_bisect_distance_offset_y", text="Y")
 
             # Snap Combos
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Snap Combo:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "snap_combo_mod")
-
-            # Preferences
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Addon preferences")
-            row = col.row(align=True)
-            row.operator("iops.save_addon_preferences", text="Save preferences")
-            row.operator("iops.load_addon_preferences", text="Load preferences")
-            col.separator()
+            body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")
+            if body is not None:
+                body.prop(self, "snap_combo_mod")
 
             # Modifier Window
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Modifier Window:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "modifier_window_method", expand=True)
-            col.separator()
+            body = _section(column_main, self, "show_section_modifier_window", "Modifier Window", icon="WINDOW")
+            if body is not None:
+                row = body.row(align=True)
+                row.alignment = "LEFT"
+                row.prop(self, "modifier_window_method", expand=True)
+
+            # Split Pie
+            body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
+            if body is not None:
+                row = body.row(align=True)
+                for n in (7, 8, 9):
+                    sub = row.box().column(align=True)
+                    sub.prop(self, f"split_area_pie_{n}_ui")
+                    sub.prop(self, f"split_area_pie_{n}_alt_ui")
+                    sub.prop(self, f"split_area_pie_{n}_pos")
+                    sub.prop(self, f"split_area_pie_{n}_factor")
+                row = body.row(align=True)
+                sub = row.box().column(align=True)
+                sub.prop(self, "split_area_pie_4_ui")
+                sub.prop(self, "split_area_pie_4_alt_ui")
+                sub.prop(self, "split_area_pie_4_pos")
+                sub.prop(self, "split_area_pie_4_factor")
+                row.box().column(align=True).label(text=" ")
+                sub = row.box().column(align=True)
+                sub.prop(self, "split_area_pie_6_ui")
+                sub.prop(self, "split_area_pie_6_alt_ui")
+                sub.prop(self, "split_area_pie_6_pos")
+                sub.prop(self, "split_area_pie_6_factor")
+                row = body.row(align=True)
+                for n in (1, 2, 3):
+                    sub = row.box().column(align=True)
+                    sub.prop(self, f"split_area_pie_{n}_ui")
+                    sub.prop(self, f"split_area_pie_{n}_alt_ui")
+                    sub.prop(self, f"split_area_pie_{n}_pos")
+                    sub.prop(self, f"split_area_pie_{n}_factor")
+
+            # Executor
+            body = _section(column_main, self, "show_section_executor", "Script Executor", icon="SCRIPT")
+            if body is not None:
+                body.prop(self, "executor_use_script_path_user")
+                if self.executor_use_script_path_user:
+                    body.label(text=bpy.utils.script_path_user())
+                    body.prop(self, "executor_scripts_subfolder")
+                    if len(self.executor_scripts_subfolder) > 0:
+                        self.executor_scripts_folder = os.path.join(
+                            bpy.utils.script_path_user(), self.executor_scripts_subfolder
+                        )
+                    else:
+                        self.executor_scripts_folder = bpy.utils.script_path_user()
+                else:
+                    body.prop(self, "executor_scripts_folder")
+                body.separator()
+                body.prop(self, "executor_column_count")
+                body.prop(self, "executor_name_length")
+
+            # Textures
+            body = _section(column_main, self, "show_section_textures", "Textures to Materials", icon="TEXTURE")
+            if body is not None:
+                body.prop(self, "texture_to_material_prefixes")
+                body.prop(self, "texture_to_material_suffixes")
+
+            # Save / Load
+            body = _section(column_main, self, "show_section_io", "Save / Load Preferences", icon="FILE_TICK")
+            if body is not None:
+                row = body.row(align=True)
+                row.operator("iops.save_addon_preferences", text="Save preferences")
+                row.operator("iops.load_addon_preferences", text="Load preferences")
 
             # Debug
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Debug:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "IOPS_DEBUG")
+            body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")
+            if body is not None:
+                body.prop(self, "IOPS_DEBUG")
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)

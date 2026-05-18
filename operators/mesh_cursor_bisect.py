@@ -1116,174 +1116,38 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 row.prop(prefs, "cursor_bisect_merge_distance", text="Merge Distance")
 
     def calculate_snap_points(self, face):
-        """Calculate snap points for a face: vertices, center, and edge midpoints with subdivisions"""
-        if not face:
-            return []
-
-        snap_points = []
-
-        # Face vertices
-        for vert in face.verts:
-            snap_points.append(('vertex', vert.co.copy()))
-
-        # Face center — area-weighted centroid of the polygon (triangulate
-        # via fan from vertex 0). Better matches the visual center for
-        # irregular n-gons than calc_center_median() (which is just the
-        # average of vertex coordinates).
-        verts = [v.co for v in face.verts]
-        if len(verts) >= 3:
-            v0 = verts[0]
-            total_area = 0.0
-            sum_centroid = Vector((0.0, 0.0, 0.0))
-            for i in range(1, len(verts) - 1):
-                a = verts[i] - v0
-                b = verts[i + 1] - v0
-                area = a.cross(b).length * 0.5
-                centroid = (v0 + verts[i] + verts[i + 1]) / 3.0
-                sum_centroid += centroid * area
-                total_area += area
-            if total_area > 0.0:
-                face_center = sum_centroid / total_area
-            else:
-                face_center = face.calc_center_median()
-            snap_points.append(('center', face_center))
-
-        # Edge points with subdivisions (only if subdivisions > 0)
-        if self.edge_subdivisions > 0:
-            for edge in face.edges:
-                v1, v2 = edge.verts
-                # Add subdivided points along edge
-                for i in range(1, self.edge_subdivisions + 1):
-                    t = i / (self.edge_subdivisions + 1)
-                    point = v1.co.lerp(v2.co, t)
-                    snap_points.append(('edge', point))
-
-        return snap_points
+        """Delegates to utils.picking.face_snap_points (the canonical
+        implementation lifted from this operator). Subdivisions come from
+        the operator's local state."""
+        from ..utils.picking import face_snap_points
+        return face_snap_points(face, subdivisions=self.edge_subdivisions)
     
     # Part 8: Snap Point Methods
 
     def find_closest_snap_point(self, context, mouse_coord, mouse_pos_world):
-        """Find closest snap point using weighted screen + world distance"""
-        if not self.snap_points or not context:
+        """Find the snap point closest to the mouse using weighted screen +
+        world distance. Delegates to utils.picking."""
+        from ..utils.picking import closest_snap_point
+        if not self.snap_points or not context or self.hit_obj is None:
             return None
-
+        prefs = self.get_preferences(context)
+        threshold_px = (prefs.cursor_bisect_snap_threshold
+                        if prefs and hasattr(prefs, "cursor_bisect_snap_threshold")
+                        else DEFAULT_SNAP_THRESHOLD)
         try:
-            region = context.region
-            rv3d = context.space_data.region_3d
-
-            # Get thresholds
-            prefs = self.get_preferences(context)
-            if prefs and hasattr(prefs, 'cursor_bisect_snap_threshold'):
-                screen_threshold = prefs.cursor_bisect_snap_threshold
-            else:
-                screen_threshold = DEFAULT_SNAP_THRESHOLD
-
-            closest_point = None
-            best_weighted_score = float('inf')
-
-            # Calculate adaptive world threshold
-            obj_scale = self.hit_obj.matrix_world.to_scale()
-            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-            world_threshold = max(0.1, min(max_scale * 0.02, 10.0))
-
-            for snap_type, point_local in self.snap_points:
-                point_world = self.hit_obj.matrix_world @ point_local
-
-                # Calculate world distance (always available)
-                world_distance = (point_world - mouse_pos_world).length
-                world_score = world_distance / world_threshold  # Normalize to 0-1+ range
-
-                # Try screen distance
-                point_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, point_world)
-
-                if point_screen and 0 <= point_screen[0] <= region.width and 0 <= point_screen[1] <= region.height:
-                    # Screen projection successful
-                    screen_distance = (Vector(mouse_coord) - Vector(point_screen)).length
-                    screen_score = screen_distance / screen_threshold  # Normalize to 0-1+ range
-
-                    # Weighted combination: prefer screen distance but include world as backup
-                    weighted_score = (screen_score * 0.7) + (world_score * 0.3)
-                else:
-                    # No screen projection - use world distance only
-                    weighted_score = world_score
-
-                # Only consider points within reasonable range
-                if weighted_score < 1.5 and weighted_score < best_weighted_score:
-                    best_weighted_score = weighted_score
-                    closest_point = (snap_type, point_local, point_world)
-
-            return closest_point if best_weighted_score < 1.0 else None
-
+            return closest_snap_point(context, self.snap_points,
+                                      self.hit_obj.matrix_world,
+                                      mouse_coord, mouse_pos_world,
+                                      screen_threshold_px=threshold_px)
         except Exception:
-            return self.find_closest_snap_point_fallback(mouse_pos_world)
-
-    def find_closest_snap_point_fallback(self, mouse_pos_world):
-        """Fallback method using world-space distance with adaptive threshold"""
-        if not self.snap_points:
             return None
-
-        closest_point = None
-        closest_distance = float('inf')
-
-        for snap_type, point_local in self.snap_points:
-            point_world = self.hit_obj.matrix_world @ point_local
-            distance = (point_world - mouse_pos_world).length
-
-            if distance < closest_distance:
-                closest_distance = distance
-                closest_point = (snap_type, point_local, point_world)
-
-        # Use adaptive threshold based on object scale
-        if self.hit_obj and closest_point:
-            obj_scale = self.hit_obj.matrix_world.to_scale()
-            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-            adaptive_threshold = 0.5 * max_scale
-            adaptive_threshold = max(0.1, min(adaptive_threshold, 50.0))
-
-            if closest_distance < adaptive_threshold:
-                return closest_point
-
-        return None
 
     def find_closest_edge_to_mouse(self, context, event, face):
-        """Find the closest edge in the face to the mouse cursor"""
-        if not face or not face.edges:
-            return 0
-
-        region = context.region
-        rv3d = context.space_data.region_3d
+        """Find the closest edge in the face to the mouse cursor."""
+        from ..utils.picking import closest_face_edge
         mouse_coord = (event.mouse_region_x, event.mouse_region_y)
-
-        closest_edge_index = 0
-        closest_distance = float('inf')
-
-        for i, edge in enumerate(face.edges):
-            v1, v2 = edge.verts
-
-            # Transform vertices to world space
-            v1_world = self.hit_obj.matrix_world @ v1.co
-            v2_world = self.hit_obj.matrix_world @ v2.co
-
-            # Project to screen space
-            v1_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v1_world)
-            v2_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v2_world)
-
-            if v1_screen and v2_screen:
-                # Calculate distance from mouse to edge in screen space
-                edge_vec = Vector((v2_screen[0] - v1_screen[0], v2_screen[1] - v1_screen[1]))
-                mouse_vec = Vector((mouse_coord[0] - v1_screen[0], mouse_coord[1] - v1_screen[1]))
-
-                if edge_vec.length > 0:
-                    # Project mouse vector onto edge vector
-                    t = max(0, min(1, mouse_vec.dot(edge_vec) / edge_vec.length_squared))
-                    projection = Vector(v1_screen) + t * edge_vec
-                    distance = (Vector(mouse_coord) - projection).length
-
-                    if distance < closest_distance:
-                        closest_distance = distance
-                        closest_edge_index = i
-
-        return closest_edge_index
+        return closest_face_edge(context, face,
+                                 self.hit_obj.matrix_world, mouse_coord)
 
     def update_snapping(self, context, mouse_pos_world):
         """Update snap points and find closest snap point"""
@@ -2239,80 +2103,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         return
 
     def mouse_raycast(self, context, event):
-        """Perform raycast from mouse position - filter to selected objects only"""
-        region = context.region
-        rv3d = context.space_data.region_3d
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        depsgraph = context.evaluated_depsgraph_get()
-        
-        # Get selected mesh objects for filtering
-        selected_mesh_objects = set(obj for obj in context.selected_objects if obj.type == 'MESH')
-        
+        """Raycast filtered to selected mesh objects with corner fallback.
+        Delegates to utils.picking.raycast_with_corner_fallback."""
+        from ..utils.picking import raycast_with_corner_fallback
+        selected_mesh_objects = {o for o in context.selected_objects if o.type == 'MESH'}
         if not selected_mesh_objects:
-            # If no mesh objects selected, return no hit
             return False, None, None, None, None, None
-        
-        # Perform multiple raycasts to find the first hit on a selected object
-        current_ray_origin = ray_origin
-        
-        for _ in range(MAX_RAYCAST_ITERATIONS):
-            result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
-                depsgraph, current_ray_origin, view_vector
-            )
-            
-            if not result:
-                # No more hits found - try fallback strategy for large occluded faces
-                break
-            
-            if obj and obj in selected_mesh_objects:
-                # Hit a selected object - this is what we want
-                return True, location, normal, face_index, obj, matrix
-            
-            # Hit an unselected object, continue raycast from slightly beyond this point
-            if location:
-                # Move ray origin slightly past the hit point to continue raycast
-                view_vec_norm = view_vector.normalized()
-                current_ray_origin = location + (view_vec_norm * RAYCAST_OFFSET_DISTANCE)
-        
-        # Fallback: Try casting from viewport corners/edges to find large faces
-        # This helps when a face covers the viewport but its center is occluded
-        fallback_coords = [
-            (region.width * 0.1, region.height * 0.1),  # Bottom-left
-            (region.width * 0.9, region.height * 0.1),  # Bottom-right
-            (region.width * 0.1, region.height * 0.9),  # Top-left
-            (region.width * 0.9, region.height * 0.9),  # Top-right
-            (region.width * 0.5, region.height * 0.1),  # Bottom-center
-            (region.width * 0.5, region.height * 0.9),  # Top-center
-            (region.width * 0.1, region.height * 0.5),  # Left-center
-            (region.width * 0.9, region.height * 0.5),  # Right-center
-        ]
-        
-        for fallback_coord in fallback_coords:
-            fallback_view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, fallback_coord)
-            fallback_ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, fallback_coord)
-            fallback_view_vec_norm = fallback_view_vector.normalized()
-            fallback_current_origin = fallback_ray_origin
-            
-            for _ in range(MAX_RAYCAST_ITERATIONS):
-                result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
-                    depsgraph, fallback_current_origin, fallback_view_vector
-                )
-                
-                if not result:
-                    break
-                
-                if obj and obj in selected_mesh_objects:
-                    # Found a selected object from fallback position
-                    return True, location, normal, face_index, obj, matrix
-                
-                # Continue through unselected objects
-                if location:
-                    fallback_current_origin = location + (fallback_view_vec_norm * RAYCAST_OFFSET_DISTANCE)
-        
-        # Exhausted all attempts without finding a selected object
-        return False, None, None, None, None, None
+        coord = (event.mouse_region_x, event.mouse_region_y)
+        return raycast_with_corner_fallback(context, coord,
+                                            restrict_to=selected_mesh_objects)
 
     def align_cursor_orientation(self):
         """Align cursor to selected edge and face normal"""

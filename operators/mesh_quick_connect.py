@@ -233,104 +233,43 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             pass
 
     def find_closest_vertex(self, context, event):
-        if self.use_screen_space:
-            return self.find_closest_vertex_screen_space(context, event)
-
-        # First, find the object under the mouse
-        region = context.region
-        rv3d = context.region_data
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        depsgraph = context.evaluated_depsgraph_get()
-
-        # Raycast to find the object
-        result, location, normal, index, obj, matrix = context.scene.ray_cast(
-            depsgraph, ray_origin, view_vector
+        """Picks the active mesh's vertex under the mouse. If `use_screen_space`
+        is on, runs the canonical screen-space-with-occlusion path; otherwise
+        raycasts and finds the closest mesh vertex to the hit point."""
+        from ..utils.picking import (
+            raycast_from_mouse, nearest_vertex_screen,
         )
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        obj = context.active_object
+        if obj is None:
+            return -1
 
-        if not result or obj != context.active_object:
-            # Fallback: if raycast fails (e.g. on wireframe or close to vert but off face), 
-            # use the screen space projection method but only for the active object.
-            return self.find_closest_vertex_screen_space(context, event)
-        
-        # If we hit the object, we have a 3D location. Find the closest vertex to this location.
-        # We need to transform the hit location to object space
-        mw = obj.matrix_world
-        mwi = mw.inverted()
-        hit_pos_local = mwi @ location
-        
+        if self.use_screen_space:
+            idx, _co = nearest_vertex_screen(
+                context, obj, mouse_coord, check_occlusion=True)
+            return -1 if idx is None else idx
+
+        # Raycast first; if the cursor hovers our active mesh, snap to the
+        # vertex closest to the hit point in OBJECT space (cheaper, picks
+        # behind-face vertices the screen-space scan would miss).
+        hit, location, _normal, _idx, hit_obj, _mat = raycast_from_mouse(
+            context, mouse_coord, restrict_to={obj})
+        if not hit:
+            idx, _co = nearest_vertex_screen(
+                context, obj, mouse_coord, check_occlusion=True)
+            return -1 if idx is None else idx
+
         bm = bmesh.from_edit_mesh(obj.data)
         bm.verts.ensure_lookup_table()
-        
-        # Find closest vertex to hit_pos_local
+        hit_pos_local = obj.matrix_world.inverted() @ location
         closest_index = -1
-        min_dist_sq = float('inf')
-        
+        min_dist_sq = float("inf")
         for v in bm.verts:
-            dist_sq = (v.co - hit_pos_local).length_squared
-            if dist_sq < min_dist_sq:
-                min_dist_sq = dist_sq
+            d = (v.co - hit_pos_local).length_squared
+            if d < min_dist_sq:
+                min_dist_sq = d
                 closest_index = v.index
-                
         return closest_index
-
-    def find_closest_vertex_screen_space(self, context, event):
-        obj = context.active_object
-        if not obj: return -1
-        
-        region = context.region
-        rv3d = context.region_data
-        
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
-        bm.verts.ensure_lookup_table()
-        
-        closest_index = -1
-        min_dist = 30.0 # Threshold in pixels
-        
-        mouse_co = Vector((event.mouse_region_x, event.mouse_region_y))
-        mw = obj.matrix_world
-        
-        # Prepare for occlusion check
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, (event.mouse_region_x, event.mouse_region_y))
-        depsgraph = context.evaluated_depsgraph_get()
-        
-        candidates = []
-
-        for v in bm.verts:
-            co_world = mw @ v.co
-            co_screen = view3d_utils.location_3d_to_region_2d(region, rv3d, co_world)
-            
-            if co_screen:
-                dist = (co_screen - mouse_co).length
-                if dist < min_dist:
-                    candidates.append((dist, v.index, co_world))
-        
-        # Sort by 2D distance
-        candidates.sort(key=lambda x: x[0])
-        
-        for dist, index, co_world in candidates:
-            # Check occlusion
-            # Raycast from camera to vertex
-            direction = (co_world - ray_origin).normalized()
-            dist_to_vert = (co_world - ray_origin).length
-            
-            result, location, normal, hit_index, hit_obj, matrix = context.scene.ray_cast(
-                depsgraph, ray_origin, direction, distance=dist_to_vert - 0.001
-            )
-            
-            # If we hit something closer, it's occluded
-            if result:
-                 # Check if we hit the same object (self-occlusion check)
-                 # If we hit the same object, we need to be careful. 
-                 # But generally if we hit a face of the same object closer than the vertex, it is occluded.
-                 continue
-            
-            # If not occluded, this is the closest visible vertex
-            return index
-                    
-        return -1
 
     def connect_verts(self, context):
         obj = context.active_object
@@ -445,64 +384,44 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         pass
 
     def find_closest_edge(self, context, event):
+        """Raycast to the active mesh's face, then pick the edge of that face
+        whose closest-point-on-segment (or midpoint, if `use_midpoint_snap`)
+        is nearest to the hit point. Returns `(edge_index, world_point)`."""
+        from ..utils.picking import raycast_from_mouse, closest_point_on_segment
         obj = context.active_object
-        region = context.region
-        rv3d = context.region_data
-        
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        
-        # Raycast to find face
-        depsgraph = context.evaluated_depsgraph_get()
-        result, location, normal, index, hit_obj, matrix = context.scene.ray_cast(
-            depsgraph, ray_origin, view_vector
-        )
-        
-        if not result or hit_obj != obj:
+        if obj is None:
             return -1, None
-            
-        # We hit a face. Find the closest edge of this face to the hit location.
+
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        hit, location, _normal, face_idx, hit_obj, _mat = raycast_from_mouse(
+            context, mouse_coord, restrict_to={obj})
+        if not hit:
+            return -1, None
+
         mw = obj.matrix_world
-        mwi = mw.inverted()
-        local_hit = mwi @ location
-        
+        local_hit = mw.inverted() @ location
+
         bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
-        
-        if index >= len(bm.faces):
+        if face_idx >= len(bm.faces):
             return -1, None
-            
-        face = bm.faces[index]
-        
+        face = bm.faces[face_idx]
+
         closest_edge_index = -1
-        min_dist_sq = float('inf')
+        min_dist_sq = float("inf")
         closest_point_on_edge = None
-        
         for edge in face.edges:
-            # Project local_hit onto edge
-            v1 = edge.verts[0].co
-            v2 = edge.verts[1].co
-            
+            v1, v2 = edge.verts[0].co, edge.verts[1].co
             if self.use_midpoint_snap:
                 closest_pt = (v1 + v2) / 2
             else:
-                # Point on segment
-                closest_pt, percent = mathutils.geometry.intersect_point_line(local_hit, v1, v2)
-                
-                # Clamp percent 0-1
-                if percent < 0:
-                    closest_pt = v1
-                elif percent > 1:
-                    closest_pt = v2
-                
-            dist_sq = (closest_pt - local_hit).length_squared
-            
-            if dist_sq < min_dist_sq:
-                min_dist_sq = dist_sq
+                closest_pt, _t = closest_point_on_segment(local_hit, v1, v2)
+            d = (closest_pt - local_hit).length_squared
+            if d < min_dist_sq:
+                min_dist_sq = d
                 closest_edge_index = edge.index
                 closest_point_on_edge = closest_pt
-                
+
         world_point = mw @ closest_point_on_edge
         
         return closest_edge_index, world_point

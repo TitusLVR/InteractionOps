@@ -1,15 +1,16 @@
 import bpy
 import numpy as np
 from mathutils import Vector
-from bpy_extras import view3d_utils
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
-
-
-SNAP_DIST_SQ = 30**2  # Pixels Squared Tolerance
+from ..utils.picking import (
+    raycast_from_mouse,
+    nearest_vertex_screen,
+    SNAP_THRESHOLD_PX,
+)
 
 
 class IOPS_OT_DragSnap(bpy.types.Operator):
@@ -96,34 +97,21 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         return self.target[0] - self.source[0]
 
     def update_distances(self, context, event):
-        scene = context.scene
-        region = context.region
-        mouse_pos = Vector((event.mouse_region_x, event.mouse_region_y))
-        rv3d = context.region_data
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse_pos)
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse_pos)
-        depsgraph = context.evaluated_depsgraph_get()
-
-        hit, _, _, _, hit_obj, _ = scene.ray_cast(
-            depsgraph, ray_origin, view_vector, distance=1.70141e38
-        )
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        hit, _location, _normal, _face_idx, hit_obj, _matrix = raycast_from_mouse(
+            context, mouse_coord)
 
         self.nearest = None, None
-        min_dist = float("inf")
+        if not hit or hit_obj is None or hit_obj.type != "MESH":
+            return self.nearest
 
-        if hit and hit_obj.type is not None:
-            for v in hit_obj.data.vertices:
-                v_co3d = hit_obj.matrix_world @ v.co
-                v_co2d = location_3d_to_region_2d(context.region, rv3d, v_co3d)
+        idx, v_co3d = nearest_vertex_screen(
+            context, hit_obj, mouse_coord, threshold_px=SNAP_THRESHOLD_PX)
+        if idx is None or v_co3d is None:
+            return self.nearest
 
-                if v_co2d is not None:
-                    d_squared = (mouse_pos - v_co2d).length_squared
-                    if d_squared > SNAP_DIST_SQ:
-                        continue
-                    if d_squared < min_dist:
-                        min_dist = d_squared
-                        self.nearest = v_co3d, v_co2d
-
+        v_co2d = location_3d_to_region_2d(context.region, context.region_data, v_co3d)
+        self.nearest = v_co3d, v_co2d
         return self.nearest
 
     def modal(self, context, event):
