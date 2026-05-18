@@ -109,6 +109,17 @@ _DEFAULT_TEXT_SIZES = {
     "locked": 14, "preview": 12,
 }
 
+_DEFAULT_ISLAND_PALETTE = (
+    (0.40, 0.65, 1.00, 0.50),
+    (1.00, 0.50, 0.30, 0.50),
+    (0.35, 0.85, 0.45, 0.50),
+    (0.95, 0.80, 0.25, 0.50),
+    (0.70, 0.40, 0.90, 0.50),
+    (0.20, 0.80, 0.75, 0.50),
+    (0.90, 0.35, 0.60, 0.50),
+    (0.60, 0.80, 0.20, 0.50),
+)
+
 
 @dataclass(frozen=True)
 class HUDSettings:
@@ -146,6 +157,8 @@ class Theme:
     shadow: ShadowSettings = field(default_factory=ShadowSettings)
     hud: HUDSettings = field(default_factory=HUDSettings)
     depth_test_default: str = "LESS"
+    island_palette: tuple[tuple[float, float, float, float], ...] = field(
+        default_factory=lambda: _DEFAULT_ISLAND_PALETTE)
 
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
