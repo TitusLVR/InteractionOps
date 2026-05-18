@@ -226,6 +226,12 @@ def get_theme(context) -> "Theme":
             Role.ERROR:              c("color_error",          _DEFAULT_COLORS[Role.ERROR]),
             Role.SUCCESS:            c("color_success",        _DEFAULT_COLORS[Role.SUCCESS]),
 
+            Role.HANDLE:             c("color_handle",         _DEFAULT_COLORS[Role.HANDLE]),
+            Role.HANDLE_HOVER:       c("color_handle_hover",   _DEFAULT_COLORS[Role.HANDLE_HOVER]),
+            Role.PIVOT:              c("color_pivot",          _DEFAULT_COLORS[Role.PIVOT]),
+            Role.BBOX:               c("color_bbox",           _DEFAULT_COLORS[Role.BBOX]),
+            Role.CURSOR:             c("color_cursor",         _DEFAULT_COLORS[Role.CURSOR]),
+
             Role.HUD_KEY:            c("color_hud_key",         _DEFAULT_COLORS[Role.HUD_KEY]),
             Role.HUD_LABEL_ON:       c("color_hud_label_on",    _DEFAULT_COLORS[Role.HUD_LABEL_ON]),
             Role.HUD_LABEL_OFF:      c("color_hud_label_off",   _DEFAULT_COLORS[Role.HUD_LABEL_OFF]),
@@ -254,6 +260,10 @@ def get_theme(context) -> "Theme":
             verbosity=str(getattr(t, "hud_verbosity", "compact")),
         ),
         depth_test_default=str(t.depth_test_default),
+        island_palette=tuple(
+            tuple(getattr(t, f"island_palette_{i}", _DEFAULT_ISLAND_PALETTE[i]))
+            for i in range(8)
+        ),
     )
 
 
