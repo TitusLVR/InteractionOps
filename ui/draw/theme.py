@@ -132,7 +132,7 @@ class HUDSettings:
     padding: int = 12
     section_spacing: int = 8
     row_spacing: int = 2
-    key_column_width: int = 60
+    key_column_width: int = 70
     verbosity: str = "compact"
 
 
