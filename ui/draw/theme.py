@@ -29,6 +29,13 @@ class Role(Enum):
     ERROR = "error"
     SUCCESS = "success"
 
+    # Widgets (no per-state variants).
+    HANDLE = "handle"
+    HANDLE_HOVER = "handle_hover"
+    PIVOT = "pivot"
+    BBOX = "bbox"
+    CURSOR = "cursor"
+
     # HUD-specific.
     HUD_KEY = "hud_key"
     HUD_LABEL_ON = "hud_label_on"
@@ -76,6 +83,12 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.POINT_OUTLINE:  (0.000, 0.000, 0.000, 1.00),
     Role.ERROR:          (*_C_RED,   1.00),
     Role.SUCCESS:        (*_C_GREEN, 1.00),
+
+    Role.HANDLE:        (1.000, 1.000, 1.000, 0.85),
+    Role.HANDLE_HOVER:  (1.000, 0.850, 0.000, 1.00),
+    Role.PIVOT:         (1.000, 1.000, 1.000, 0.80),
+    Role.BBOX:          (0.650, 0.650, 0.650, 0.30),
+    Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
 
     Role.HUD_KEY:        (*_C_AMBER, 1.00),
     Role.HUD_LABEL_ON:   (1.000, 1.000, 1.000, 1.00),
