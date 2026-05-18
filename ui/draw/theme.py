@@ -163,8 +163,8 @@ class Theme:
     # Custom font file path (TTF/OTF). Empty string = Blender's default font.
     font_path: str = ""
     # Statistics overlay anchor (top-left of the 3D view, in pixels).
-    stats_offset_x: int = 12
-    stats_offset_y: int = 12
+    stats_offset_x: int = 8
+    stats_offset_y: int = 220
 
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]

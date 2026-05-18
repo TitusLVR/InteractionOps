@@ -130,13 +130,13 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         name="Stats X",
         description="Horizontal offset of the statistics overlay from the "
                     "left edge of the 3D view (after the toolbar)",
-        default=12, min=0, max=4000,
+        default=8, min=0, max=4000,
     )
     stats_offset_y: IntProperty(
         name="Stats Y",
         description="Vertical offset of the statistics overlay from the "
                     "top edge of the 3D view",
-        default=12, min=0, max=4000,
+        default=220, min=0, max=4000,
     )
 
 
