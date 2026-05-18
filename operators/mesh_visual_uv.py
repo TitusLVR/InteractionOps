@@ -7,6 +7,11 @@ from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
 
+from ..ui.draw.theme import get_theme, Role, axis_color
+from ..ui.draw import primitives as draw_prim, draw_scope
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
+from ..ui.hud.text import draw as hud_text_draw
+
 from ..utils.uv_utils import (
     get_uv_layer,
     get_selected_face_islands,
@@ -67,82 +72,64 @@ HANDLE_OPPOSITE = {
     'B': 'T', 'T': 'B', 'L': 'R', 'R': 'L',
 }
 
-# Colors -- clean, UV-editor style palette
-ISLAND_COLORS = [
-    (0.40, 0.65, 1.00, 0.50),
-    (1.00, 0.50, 0.30, 0.50),
-    (0.35, 0.85, 0.45, 0.50),
-    (0.95, 0.80, 0.25, 0.50),
-    (0.70, 0.40, 0.90, 0.50),
-    (0.20, 0.80, 0.75, 0.50),
-    (0.90, 0.35, 0.60, 0.50),
-    (0.60, 0.80, 0.20, 0.50),
-]
+# Per-island identification colors and widget palette now live in
+# the unified IOPS_Theme. State-like edge colors are sourced from
+# the existing 5-state Line/Point/Text roles. See
+# docs/superpowers/specs/2026-05-18-theme-palette-unification-design.md.
 
-COL_EDGE = (0.85, 0.85, 0.85, 0.45)
-COL_EDGE_SELECTED = (0.95, 0.85, 0.55, 0.55)
-COL_EDGE_ACTIVE = (0.95, 0.95, 0.95, 0.65)
-COL_EDGE_HOVER = (1.0, 1.0, 0.4, 1.0)
-COL_EDGE_ALIGN = (0.0, 1.0, 0.5, 1.0)
-COL_CENTER = (1.0, 1.0, 1.0, 0.8)
-COL_ROT_HANDLE = (0.3, 0.9, 0.3, 0.9)
-COL_ROT_LINE = (0.3, 0.9, 0.3, 0.35)
-COL_HANDLE = (1.0, 1.0, 1.0, 0.85)
-COL_HANDLE_HOVER = (1.0, 0.85, 0.0, 1.0)
-COL_BBOX = (0.65, 0.65, 0.65, 0.30)
-COL_CURSOR = (1.0, 0.2, 0.6, 1.0)
-COL_FEEDBACK = (1.0, 0.95, 0.8, 0.9)
-COL_AXIS_X = (0.9, 0.25, 0.25, 0.9)
-COL_AXIS_Y = (0.25, 0.75, 0.25, 0.9)
+# Temporary shim -- removed in Task 11 once all callsites migrate to roles.
+ISLAND_COLORS = []
+COL_EDGE = COL_EDGE_SELECTED = COL_EDGE_ACTIVE = COL_EDGE_HOVER = \
+    COL_EDGE_ALIGN = COL_CENTER = COL_ROT_HANDLE = COL_ROT_LINE = \
+    COL_HANDLE = COL_HANDLE_HOVER = COL_BBOX = COL_CURSOR = \
+    COL_FEEDBACK = COL_AXIS_X = COL_AXIS_Y = (1.0, 1.0, 1.0, 1.0)
+
+def _v3(p):
+    """Lift a 2D pixel-space point into a Vector for primitives.*"""
+    return Vector((p[0], p[1], 0.0))
 
 
-# ---------------------------------------------------------------------------
-# 2D drawing helpers
-# ---------------------------------------------------------------------------
+def _draw_polyline(pts, *, role=None, color=None, width="default"):
+    """Pixel-space polyline through unified primitives."""
+    if len(pts) < 2:
+        return
+    coords = [_v3(p) for p in pts]
+    draw_prim.polyline(coords, role=role, color=color, width=width,
+                       context=bpy.context)
 
-def _draw_circle(cx, cy, radius, color, segs=16):
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    verts = [(cx, cy)]
+
+def _draw_circle(cx, cy, radius, *, role=None, color=None, segs=16):
+    """Filled disc in pixel space. Uses primitives.tris with a fan."""
+    verts = [_v3((cx, cy))]
     for i in range(segs + 1):
         a = 2 * math.pi * i / segs
-        verts.append((cx + math.cos(a) * radius, cy + math.sin(a) * radius))
-    idx = [(0, i, i + 1 if i + 1 <= segs else 1) for i in range(1, segs + 1)]
-    b = batch_for_shader(shader, 'TRIS', {"pos": verts}, indices=idx)
-    shader.bind()
-    shader.uniform_float("color", color)
-    b.draw(shader)
+        verts.append(_v3((cx + math.cos(a) * radius,
+                          cy + math.sin(a) * radius)))
+    tris_flat = []
+    for i in range(1, segs + 1):
+        nxt = i + 1 if i + 1 <= segs else 1
+        tris_flat.extend([verts[0], verts[i], verts[nxt]])
+    draw_prim.tris(tris_flat, role=role, color=color, context=bpy.context)
 
 
-def _draw_ring(cx, cy, radius, color, width=2.0, segs=32):
+def _draw_ring(cx, cy, radius, *, role=None, color=None,
+               width="default", segs=32):
+    """Open ring in pixel space."""
     pts = [(cx + math.cos(2 * math.pi * i / segs) * radius,
             cy + math.sin(2 * math.pi * i / segs) * radius)
            for i in range(segs + 1)]
-    _draw_polyline(pts, color, width)
+    _draw_polyline(pts, role=role, color=color, width=width)
 
 
-def _draw_polyline(pts, color, width=1.0, mode='LINE_STRIP'):
-    if len(pts) < 2:
-        return
-    shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
-    b = batch_for_shader(shader, mode, {"pos": pts})
-    shader.bind()
-    region = bpy.context.region
-    shader.uniform_float("viewportSize", (region.width, region.height))
-    shader.uniform_float("lineWidth", width)
-    shader.uniform_float("color", color)
-    b.draw(shader)
-
-
-def _draw_diamond(cx, cy, half, color):
-    """Filled diamond handle."""
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    verts = [(cx, cy - half), (cx + half, cy),
-             (cx, cy + half), (cx - half, cy)]
-    b = batch_for_shader(shader, 'TRIS', {"pos": verts},
-                         indices=[(0, 1, 2), (0, 2, 3)])
-    shader.bind()
-    shader.uniform_float("color", color)
-    b.draw(shader)
+def _draw_diamond(cx, cy, half, *, role=None, color=None):
+    """Filled diamond handle (4-vert quad as 2 triangles)."""
+    verts = [_v3((cx, cy - half)),
+             _v3((cx + half, cy)),
+             _v3((cx, cy + half)),
+             _v3((cx - half, cy))]
+    coords = [verts[0], verts[1], verts[2],
+              verts[0], verts[2], verts[3]]
+    draw_prim.tris(coords, role=role, color=color, context=bpy.context)
 
 
 # ---------------------------------------------------------------------------
@@ -506,107 +493,80 @@ def draw_pixel_callback(op, context):
 
 def _draw_transform_feedback(op):
     mx, my = op.mouse_x, op.mouse_y
+    theme = get_theme(bpy.context)
+
+    def _t(text, role):
+        hud_text_draw(text, mx + 18, my + 10, theme=theme,
+                      role=role, size_token="active")
 
     if (op.state in (STATE_ROTATE, STATE_HANDLE_ROTATE)
             and op.drag_center_screen):
         deg = math.degrees(op.current_angle_delta)
         step_deg = ROTATION_STEPS[op.rotation_step_idx]
-        blf.size(0, 14)
-        blf.color(0, *COL_FEEDBACK)
-        blf.position(0, mx + 18, my + 10, 0)
-        blf.draw(0, f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]")
+        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", Role.ACTIVE_TEXT)
 
     elif (op.state in (STATE_SCALE, STATE_HANDLE_SCALE)
           and op.drag_center_screen):
-        blf.size(0, 14)
-        blf.position(0, mx + 18, my + 10, 0)
         sx, sy = op.current_scale_x, op.current_scale_y
         if op.grab_axis == 'X':
-            blf.color(0, *COL_AXIS_X)
-            blf.draw(0, f"S X {sx:.3f}")
+            _t(f"S X {sx:.3f}", Role.ERROR)
         elif op.grab_axis == 'Y':
-            blf.color(0, *COL_AXIS_Y)
-            blf.draw(0, f"S Y {sy:.3f}")
+            _t(f"S Y {sy:.3f}", Role.SUCCESS)
         else:
-            blf.color(0, *COL_FEEDBACK)
-            blf.draw(0, f"S {sx:.3f} x {sy:.3f}")
+            _t(f"S {sx:.3f} x {sy:.3f}", Role.ACTIVE_TEXT)
 
     elif op.state == STATE_GRAB:
-        blf.size(0, 14)
-        if op.grab_axis == 'X':
-            blf.color(0, *COL_AXIS_X)
-            label = "G along X"
-        elif op.grab_axis == 'Y':
-            blf.color(0, *COL_AXIS_Y)
-            label = "G along Y"
-        else:
-            blf.color(0, *COL_FEEDBACK)
-            label = "G Move"
         sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
-        blf.position(0, mx + 18, my + 10, 0)
-        blf.draw(0, f"{label}  [{sens_pct}%]")
+        if op.grab_axis == 'X':
+            _t(f"G along X  [{sens_pct}%]", Role.ERROR)
+        elif op.grab_axis == 'Y':
+            _t(f"G along Y  [{sens_pct}%]", Role.SUCCESS)
+        else:
+            _t(f"G Move  [{sens_pct}%]", Role.ACTIVE_TEXT)
+
+
+def _build_visual_uv_hud(context):
+    verbosity = get_theme(context).hud.verbosity
+    hud = HUDOverlay("visual_uv", verbosity=verbosity)
+    hud.add_section(HUDSection("Visual UV", [
+        HUDItem("Grab / Move",          "G",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Rotate",               "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Scale",                "S",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Axis lock",            "X / Y",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Sensitivity",          "Alt+Scroll",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Rotation step",        "Ctrl+Scroll",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Place UV cursor",      "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Active island",        "LMB / Tab",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Align",                "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match dimensions",     "D",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Flip H / V",           "F / Shift+F",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Randomize UV / U / V", "N / Sh+N / Ct+N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Unwrap (seams)",       "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Straighten chain",     "T",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle overlays",      "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pivot",                "P",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Undo / Redo",          "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Confirm",              "Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Cancel",               "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+    ]))
+    return hud
 
 
 def draw_shortcuts_callback(op, context):
     if context.area != op._area:
         return
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    tColor, tKColor = prefs.text_color, prefs.text_color_key
-    tCSize = prefs.text_size
-    tCPosX, tCPosY = prefs.text_pos_x, prefs.text_pos_y
-    tShadow, tSColor = prefs.text_shadow_toggle, prefs.text_shadow_color
-    tSBlur = prefs.text_shadow_blur
-    tSPosX, tSPosY = prefs.text_shadow_pos_x, prefs.text_shadow_pos_y
-
-    uf = context.preferences.system.ui_scale
-    blf.size(0, tCSize)
-    if tShadow:
-        blf.enable(0, blf.SHADOW)
-        blf.shadow(0, int(tSBlur), *tSColor)
-        blf.shadow_offset(0, tSPosX, tSPosY)
-    else:
-        blf.disable(0, blf.SHADOW)
-
+    hud = getattr(op, "_hud", None)
+    if hud is None:
+        return
     st = op.state.replace('_', ' ').title()
     pv = op.pivot_mode
-    uc, rc = len(op.undo_stack), len(op.redo_stack)
     sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
     rot_step = ROTATION_STEPS[op.rotation_step_idx]
-    lines = [
-        (f"Visual UV  [{st}]  Pivot: {pv}  Sens: {sens_pct}%  "
-         f"Islands: {len(op.islands_data)}", ""),
-        ("Grab / Move", "G  (X / Y axis lock)"),
-        ("Rotate", "R  (Ctrl snap, Ctrl+Scroll step)"),
-        ("Rotation step", f"Ctrl+Scroll ({rot_step}\u00b0)"),
-        ("Scale", "S  (X / Y axis lock)"),
-        ("Handle drag scale", "LMB on corner / mid"),
-        ("Sensitivity", f"Alt+Scroll ({sens_pct}%)"),
-        ("Place UV cursor", "C (at mouse)"),
-        ("Active island", "LMB on face / Tab"),
-        ("Align (hover handle / edge)", "A"),
-        ("Match dimensions", "D"),
-        ("Flip H / V", "F / Shift+F"),
-        ("Randomize UV / U / V", "N / Shift+N / Ctrl+N"),
-        ("Unwrap (seams)", "U"),
-        ("Straighten chain", "T"),
-        ("Toggle overlays", "Q"),
-        ("Pivot", "P"),
-        ("Undo / Redo", f"Ctrl+Z ({uc}) / Ctrl+Shift+Z ({rc})"),
-        ("Confirm / Cancel", "Enter / Space / Esc"),
-    ]
-
-    off = tCPosY
-    coffs = (tCSize * 22) * uf
-    for line in reversed(lines):
-        blf.color(0, *tColor)
-        blf.position(0, tCPosX * uf, off, 0)
-        blf.draw(0, line[0])
-        if line[1]:
-            blf.color(0, *tKColor)
-            td = blf.dimensions(0, line[1])
-            blf.position(0, coffs - td[0] + tCPosX, off, 0)
-            blf.draw(0, line[1])
-        off += (tCSize + 5) * uf
+    hud.set_header(
+        f"Visual UV  [{st}]  Pivot: {pv}  Sens: {sens_pct}%  "
+        f"Islands: {len(op.islands_data)}  RotStep: {rot_step}\u00b0"
+    )
+    hud.draw(context, getattr(op, "_last_event", None))
 
 
 # ---------------------------------------------------------------------------
@@ -934,6 +894,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._overlay_was_on = context.space_data.overlay.show_overlays
         self._clean_view = False
 
+        self._hud = _build_visual_uv_hud(context)
+        self._hud.bind_region(context.region)
+        self._last_event = event
+
         self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
             draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
         self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
@@ -967,6 +931,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         self.mouse_x = event.mouse_region_x
         self.mouse_y = event.mouse_region_y
+        self._last_event = event
 
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE):
