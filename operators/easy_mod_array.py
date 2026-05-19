@@ -6,6 +6,7 @@ from bpy.props import (
     FloatProperty
 )
 
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -211,14 +212,14 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
             bpy.ops.object.select_all(action="DESELECT")
             bpy.data.objects[mid_obj.name].select_set(True)
             bpy.context.view_layer.objects.active = mid_obj
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, "WINDOW")
+            safe_handler_remove(self._handle_iops_text, bpy.types.SpaceView3D, "WINDOW")
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             bpy.ops.object.select_all(action="DESELECT")
             bpy.data.objects[mid_obj.name].select_set(True)
             bpy.context.view_layer.objects.active = mid_obj
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, "WINDOW")
+            safe_handler_remove(self._handle_iops_text, bpy.types.SpaceView3D, "WINDOW")
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
@@ -256,7 +257,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
                 self._hud = _build_easy_array_hud(context)
                 self._last_event = event
-                self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+                self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
                     _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL"
                 )
                 context.window_manager.modal_handler_add(self)

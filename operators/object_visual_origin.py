@@ -9,6 +9,7 @@ from bpy_extras.view3d_utils import (
 from bpy.props import BoolProperty
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -422,7 +423,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     def clear_draw_handlers(self):
         for handler in self.vp_handlers:
-            bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+            safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
 
     def execute(self, context):
         self.place_origin(context)
@@ -561,16 +562,16 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         self.hud = self._build_hud(context)
         self._last_event = event
 
-        self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
-        self._handle_bbox_lines = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_bbox_lines = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_cage_lines, (context,), "WINDOW", "POST_VIEW"
         )
-        self._handle_bbox_points = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_bbox_points = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_cage_points, (context,), "WINDOW", "POST_VIEW"
         )
-        self._handle_bbox_act_point = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_bbox_act_point = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_active_point, (context,), "WINDOW", "POST_VIEW"
         )
         self.vp_handlers = [

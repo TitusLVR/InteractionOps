@@ -1,5 +1,6 @@
 import bpy
 
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -21,7 +22,7 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
 
     def clear_draw_handlers(self):
         for handler in self.vp_handlers:
-            bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+            safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
 
     @classmethod
     def poll(cls, context):
@@ -109,8 +110,8 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
 
         self.hud = self._build_hud(context)
         self._last_event = event
-        self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
+        self._handle_iops_text = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
         self.vp_handlers = [self._handle_iops_text]
         self.report({"INFO"}, "Step 1: Q to place cursor at point A")

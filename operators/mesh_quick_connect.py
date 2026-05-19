@@ -5,6 +5,7 @@ import mathutils
 from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -66,8 +67,8 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self._last_event = event
 
         args = (context,)
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
-        self._handle_text = bpy.types.SpaceView3D.draw_handler_add(self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
+        self._handle = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
+        self._handle_text = safe_handler_add(bpy.types.SpaceView3D, self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
 
         context.window_manager.modal_handler_add(self)
         
@@ -190,10 +191,10 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def remove_handler(self, context):
         if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, 'WINDOW')
             self._handle = None
         if self._handle_text:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, 'WINDOW')
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, 'WINDOW')
             self._handle_text = None
         context.area.tag_redraw()
 

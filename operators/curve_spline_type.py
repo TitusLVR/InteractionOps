@@ -1,6 +1,7 @@
 import bpy
 from bpy.props import BoolProperty
 
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -67,19 +68,19 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
 
         elif event.type in {"F1"} and event.value == "PRESS":
             self.spl_type = "POLY"
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, "WINDOW")
             self.execute(context)
             return {"FINISHED"}
 
         elif event.type in {"F2"} and event.value == "PRESS":
             self.spl_type = "BEZIER"
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, "WINDOW")
             self.execute(context)
             return {"FINISHED"}
 
         elif event.type in {"F3"} and event.value == "PRESS":
             self.spl_type = "NURBS"
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, "WINDOW")
             self.execute(context)
             return {"FINISHED"}
 
@@ -87,7 +88,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             self.handles = not self.handles
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, "WINDOW")
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, "WINDOW")
             return {"CANCELLED"}
         return {"RUNNING_MODAL"}
 
@@ -102,7 +103,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
 
         self._hud = self._build_hud(context)
         self._last_event = event
-        self._handle_text = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_text = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
         context.window_manager.modal_handler_add(self)

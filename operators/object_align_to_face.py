@@ -9,6 +9,7 @@ import bmesh
 from mathutils import Vector, Matrix
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -180,13 +181,13 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
             self.align_update(event)
 
         elif event.type in {"LEFTMOUSE", "SPACE"}:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_edge, bpy.types.SpaceView3D, "WINDOW")
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_edge, "WINDOW")
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_edge, bpy.types.SpaceView3D, "WINDOW")
             active = context.view_layer.objects.active
             active.matrix_world = self.orig_mx
             self.orig_mx = []
@@ -213,11 +214,11 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
         self._last_event = event
         self._sync_hud_header()
 
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
-        self._handle_edge = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_edge, (context,), "WINDOW", "POST_VIEW"
+        self._handle_edge = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_edge, (context,), "WINDOW", "POST_VIEW"
         )
 
         context.window_manager.modal_handler_add(self)

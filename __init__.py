@@ -530,8 +530,10 @@ def register():
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
         global draw_handler
-        draw_handler = bpy.types.SpaceView3D.draw_handler_add(
-            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL"
+        from .ui.draw import safe_handler_add
+        draw_handler = safe_handler_add(
+            bpy.types.SpaceView3D,
+            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL",
         )
         print("IOPS Statistics Registered!")
     else:
@@ -564,7 +566,8 @@ def unregister():
     # Unregister the draw handler
     global draw_handler
     if draw_handler is not None:
-        bpy.types.SpaceView3D.draw_handler_remove(draw_handler, "WINDOW")
+        from .ui.draw import safe_handler_remove
+        safe_handler_remove(draw_handler, bpy.types.SpaceView3D, "WINDOW")
     draw_handler = None
 
     print("IOPS Unregistered!")

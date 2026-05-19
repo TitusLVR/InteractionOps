@@ -7,6 +7,7 @@ from mathutils import Vector, Matrix
 import bpy_extras
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..ui.hud.text import draw as draw_text, measure as measure_text
@@ -39,7 +40,7 @@ _ACTIVE_HANDLES: set = set()
 def _drop_stale_handles():
     for kind, h in list(_ACTIVE_HANDLES):
         try:
-            bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+            safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
         except (ValueError, RuntimeError):
             pass
         _ACTIVE_HANDLES.discard((kind, h))
@@ -1078,17 +1079,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.restore_modifier_states(context)
         
         if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, 'WINDOW')
             _ACTIVE_HANDLES.discard(('POST_VIEW', self._handle))
             self._handle = None
 
         if self._handle_pixel:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_pixel, 'WINDOW')
+            safe_handler_remove(self._handle_pixel, bpy.types.SpaceView3D, 'WINDOW')
             _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_pixel))
             self._handle_pixel = None
 
         if self._handle_iops_text:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, 'WINDOW')
+            safe_handler_remove(self._handle_iops_text, bpy.types.SpaceView3D, 'WINDOW')
             _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_iops_text))
             self._handle_iops_text = None
 
@@ -2277,14 +2278,14 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         _drop_stale_handles()
 
         # Add draw handler
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
         )
-        self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
+        self._handle_pixel = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
         )
-        self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
+        self._handle_iops_text = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
             )
         _ACTIVE_HANDLES.update({
             ('POST_VIEW',  self._handle),

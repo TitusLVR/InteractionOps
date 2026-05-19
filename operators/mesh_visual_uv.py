@@ -7,6 +7,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw.theme import get_theme, Role, axis_color
 from ..ui.draw import primitives as draw_prim, draw_scope
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..ui.hud.text import draw as hud_text_draw
 
@@ -876,12 +877,12 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._hud.bind_region(context.region)
         self._last_event = event
 
-        self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
-            draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
-        self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
-            draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL')
-        self._handle_shortcuts = bpy.types.SpaceView3D.draw_handler_add(
-            draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+        self._handle_3d = safe_handler_add(
+            bpy.types.SpaceView3D, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
+        self._handle_pixel = safe_handler_add(
+            bpy.types.SpaceView3D, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+        self._handle_shortcuts = safe_handler_add(
+            bpy.types.SpaceView3D, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL')
         self._timer = context.window_manager.event_timer_add(
             0.05, window=context.window)
 
@@ -1017,7 +1018,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                   self._handle_shortcuts):
             if h:
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+                    safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
                 except ValueError:
                     pass
         if self._timer:

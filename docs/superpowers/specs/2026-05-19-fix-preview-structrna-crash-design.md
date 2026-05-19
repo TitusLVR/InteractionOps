@@ -1,4 +1,4 @@
-# Fix: `StructRNA has been removed` in Theme Preview operator
+# Fix: `StructRNA has been removed` — addon-wide draw-handler safeguard
 
 ## Problem
 
@@ -12,25 +12,79 @@ unexpected modal exit) the Python wrapper survives but the underlying
 ReferenceError: StructRNA of type IOPS_OT_DrawThemePreview has been removed
 ```
 
-`_cleanup()` only runs on the ESC / RIGHTMOUSE happy path. All other exits
-(reload, crash mid-invoke, modal returning `CANCELLED` from elsewhere) leak the
-handlers, and Blender keeps firing them every redraw.
+This is **not specific to the preview operator** — every modal operator in
+the addon registers draw handlers bound to `self` (20 files, ~40 registration
+sites). Every one of them can spam the console on abnormal exit. We fix them
+all in one pass.
+
+`_cleanup()` only runs on the happy path. All other exits (reload, crash
+mid-invoke, modal returning `CANCELLED` from a place that forgot cleanup)
+leak the handlers, and Blender keeps firing them every redraw.
 
 ## Goals
 
-- No `ReferenceError` spam in console regardless of how the operator exits.
-- Theme preview still works correctly on the happy path.
-- Pattern is reusable for other operators that register draw handlers.
+- No `ReferenceError` spam in console regardless of how any operator exits.
+- All current modal operators benefit (preview + 19 others).
+- One central helper, so future operators get safety by default.
+- Happy paths unchanged.
 
 ## Non-goals
 
-- Refactoring the preview operator's geometry / HUD construction.
-- Generalising into a base class right now (do it if/when a second operator
-  needs the same guard — YAGNI).
+- Refactoring operators' internals beyond the registration call.
+- Removing handler leaks on abnormal exit (silent no-op is enough; the next
+  reload cleans them up).
 
 ## Design
 
-Two layers of defence:
+### Central helper
+
+`ui/draw/handlers.py`:
+
+```python
+def safe_handler_add(space_type, callback, args, region, draw_type):
+    """Drop-in for `space_type.draw_handler_add` that swallows
+    `ReferenceError` raised when the owning operator's StructRNA has been
+    destroyed. On first occurrence the handler removes itself so Blender
+    stops calling it. Returns the original handle for symmetry with
+    `draw_handler_add` (use `safe_handler_remove` to remove)."""
+
+def safe_handler_remove(handle, space_type, region):
+    """Drop-in for `draw_handler_remove` that swallows ValueError /
+    RuntimeError / ReferenceError so cleanup is idempotent."""
+```
+
+Implementation uses a small callable proxy that holds the original
+callback + its own handle, so on `ReferenceError` it can call
+`safe_handler_remove` on itself.
+
+### Migration
+
+Every operator that today does:
+
+```python
+self._handle = bpy.types.SpaceView3D.draw_handler_add(
+    self.draw_cb, args, 'WINDOW', 'POST_PIXEL')
+```
+
+becomes:
+
+```python
+from ..ui.draw import safe_handler_add, safe_handler_remove
+self._handle = safe_handler_add(
+    bpy.types.SpaceView3D, self.draw_cb, args, 'WINDOW', 'POST_PIXEL')
+```
+
+and removal becomes `safe_handler_remove(self._handle, ..., 'WINDOW')`.
+
+### Preview operator specifically
+
+The theme-preview operator gets an extra layer: it stores its draw state in
+a plain dict (`{"dead": False, "hud": ..., "edges": ...}`) and the draw
+handlers receive that dict, not `self`. This way even if the operator dies
+mid-invoke before the safeguard wires up, the handlers degrade to a no-op
+read of `state["dead"]`.
+
+Two layers of defence overall:
 
 **1. Self-guard inside each draw callback.** Wrap the body in a small helper
 that swallows `ReferenceError` and removes the handler on first sight of a

@@ -4,6 +4,7 @@ import numpy as np
 from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..utils.picking import build_uv_kdtree
@@ -38,7 +39,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
     def clear_draw_handlers(self):
         for handler in self.sd_handlers:
-            bpy.types.SpaceImageEditor.draw_handler_remove(handler, "WINDOW")
+            safe_handler_remove(handler, bpy.types.SpaceImageEditor, "WINDOW")
 
     def _build_hud(self, context):
         verbosity = get_theme(context).hud.verbosity
@@ -276,13 +277,13 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         self.hud = self._build_hud(context)
         self._last_event = event
 
-        self.handle_snap_line = bpy.types.SpaceImageEditor.draw_handler_add(
+        self.handle_snap_line = safe_handler_add(bpy.types.SpaceImageEditor,
             self._draw_snap_line, (context,), "WINDOW", "POST_PIXEL"
         )
-        self.handle_snap_points = bpy.types.SpaceImageEditor.draw_handler_add(
+        self.handle_snap_points = safe_handler_add(bpy.types.SpaceImageEditor,
             self._draw_snap_points, (context,), "WINDOW", "POST_PIXEL"
         )
-        self.handle_iops_text = bpy.types.SpaceImageEditor.draw_handler_add(
+        self.handle_iops_text = safe_handler_add(bpy.types.SpaceImageEditor,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
         self.sd_handlers = [

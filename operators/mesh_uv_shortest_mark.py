@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import math
 import gpu
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import handle_hud_toggle
 from gpu_extras.batch import batch_for_shader
 import bpy_extras
@@ -1985,11 +1986,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         self._hud = self._build_hud(context)
         self._last_event = event
 
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_3d, (context,), 'WINDOW', 'POST_VIEW'
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_3d, (context,), 'WINDOW', 'POST_VIEW'
         )
-        self._handle_text = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_text, (context,), 'WINDOW', 'POST_PIXEL'
+        self._handle_text = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_text, (context,), 'WINDOW', 'POST_PIXEL'
         )
         self._timer = context.window_manager.event_timer_add(
             0.1, window=context.window
@@ -2298,13 +2299,13 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             self._tri_mod_show_viewport = None
 
         if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(
-                self._handle, 'WINDOW'
+            safe_handler_remove(
+                self._handle, bpy.types.SpaceView3D, 'WINDOW'
             )
             self._handle = None
         if self._handle_text:
-            bpy.types.SpaceView3D.draw_handler_remove(
-                self._handle_text, 'WINDOW'
+            safe_handler_remove(
+                self._handle_text, bpy.types.SpaceView3D, 'WINDOW'
             )
             self._handle_text = None
         if self._timer:

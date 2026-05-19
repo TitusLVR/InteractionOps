@@ -7,6 +7,7 @@ from bpy.props import FloatProperty
 from mathutils.geometry import intersect_line_line
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -22,7 +23,7 @@ def _purge_handles():
     while _ACTIVE_HANDLES:
         h = _ACTIVE_HANDLES.pop()
         try:
-            bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+            safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
         except (ValueError, RuntimeError):
             pass
 
@@ -273,8 +274,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._hud.bind_region(context.region)
         self._last_event = event
 
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
         _ACTIVE_HANDLES.add(self._handle)
 
         context.workspace.status_text_set(self._status_text())
@@ -419,7 +420,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if h is not None:
             _ACTIVE_HANDLES.discard(h)
             try:
-                bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
             except (ValueError, RuntimeError):
                 pass
             self._handle = None
@@ -703,7 +704,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             if h is not None:
                 _ACTIVE_HANDLES.discard(h)
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
             return

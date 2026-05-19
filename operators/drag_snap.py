@@ -4,6 +4,7 @@ from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from ..utils.picking import (
@@ -40,7 +41,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
     def clear_draw_handlers(self):
         for handler in self.sd_handlers:
-            bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+            safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
 
     def _build_hud(self, context):
         verbosity = get_theme(context).hud.verbosity
@@ -184,13 +185,13 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         self.hud = self._build_hud(context)
         self._last_event = event
 
-        self.handle_snap_line = bpy.types.SpaceView3D.draw_handler_add(
+        self.handle_snap_line = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_snap_line, (context,), "WINDOW", "POST_VIEW"
         )
-        self.handle_snap_points = bpy.types.SpaceView3D.draw_handler_add(
+        self.handle_snap_points = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_snap_points, (context,), "WINDOW", "POST_VIEW"
         )
-        self.handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
+        self.handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
         self.sd_handlers = [

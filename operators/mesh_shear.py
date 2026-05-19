@@ -26,6 +26,7 @@ import math
 import gpu
 
 from ..ui.draw import primitives as draw_prim, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 from bpy_extras import view3d_utils
@@ -782,7 +783,7 @@ cancels. LMB clicks only pick widget handles."""
         self._hud.bind_region(context.region)
         self._last_event = event
 
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
 
         self._apply()
@@ -1681,7 +1682,7 @@ cancels. LMB clicks only pick widget handles."""
 
     def _finish(self, context):
         if getattr(self, "_handle", None):
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
             self._handle = None
         context.workspace.status_text_set(None)
         if context.area:
@@ -1733,7 +1734,7 @@ cancels. LMB clicks only pick widget handles."""
             h = getattr(self, "_handle", None)
             if h is not None:
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
             return

@@ -3,6 +3,7 @@ from mathutils import Vector
 from ..iops import IOPS_OT_Main
 
 from ...ui.draw import primitives as draw, draw_scope, Role
+from ...ui.draw import safe_handler_add, safe_handler_remove
 from ...ui.draw.theme import get_theme
 from ...ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -107,8 +108,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
 
         elif event.type == "F4" and event.value == "PRESS":
             bpy.ops.iops.object_visual_origin("INVOKE_DEFAULT")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+            safe_handler_remove(self._handle_cursor, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_ui, bpy.types.SpaceView3D, "WINDOW")
             return {"FINISHED"}
 
         elif event.type == "F1" and event.value == "PRESS":
@@ -143,8 +144,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             self.move_to_cursor(self.rotate)
 
         elif event.type in {"LEFTMOUSE", "SPACE"} and event.value == "PRESS":
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+            safe_handler_remove(self._handle_cursor, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_ui, bpy.types.SpaceView3D, "WINDOW")
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -152,8 +153,8 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
                 o.matrix_world = m
             self.orig_mxs = []
 
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_cursor, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+            safe_handler_remove(self._handle_cursor, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_ui, bpy.types.SpaceView3D, "WINDOW")
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
@@ -173,10 +174,10 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
 
         self._hud = self._build_hud(context)
         self._last_event = event
-        self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
-        self._handle_cursor = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_cursor = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_line, (context,), "WINDOW", "POST_VIEW"
         )
         context.window_manager.modal_handler_add(self)

@@ -4,6 +4,7 @@ from bpy.props import (
 )
 
 from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
 
@@ -107,13 +108,13 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
 
         elif event.type in {"LEFTMOUSE", "SPACE"} and event.value == "PRESS":
             self.execute(context)
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_curve, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
+            safe_handler_remove(self._handle_curve, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_ui, bpy.types.SpaceView3D, "WINDOW")
             return {"FINISHED"}
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_ui, "WINDOW")
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_curve, "WINDOW")
+            safe_handler_remove(self._handle_ui, bpy.types.SpaceView3D, "WINDOW")
+            safe_handler_remove(self._handle_curve, bpy.types.SpaceView3D, "WINDOW")
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
@@ -126,10 +127,10 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         self.points_num = 1
         self._hud = self._build_hud(context)
         self._last_event = event
-        self._handle_ui = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
         )
-        self._handle_curve = bpy.types.SpaceView3D.draw_handler_add(
+        self._handle_curve = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_curve_pts, (context,), "WINDOW", "POST_VIEW"
         )
         self.pairs = self.get_curve_pts()
