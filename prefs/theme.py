@@ -221,6 +221,9 @@ class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
         return {"FINISHED"}
 
 
+_STATE_LABELS = ("Default", "Closest", "Active", "Locked", "Preview")
+
+
 def _state_color_row(parent, theme, prefix):
     row = parent.row(align=True)
     for s in _STATES:
@@ -231,6 +234,35 @@ def _state_float_row(parent, theme, prefix):
     row = parent.row(align=True)
     for s in _STATES:
         row.prop(theme, f"{prefix}_{s}", text=s.capitalize()[:3])
+
+
+def _state_table(parent, theme, color_prefix, size_prefix=None):
+    """Render a vertical state-table: one row per state, columns
+    [Name | Size | Color]. Pass `size_prefix=None` to render a single
+    em-dash placeholder in the size column (used for primitives that
+    don't have per-state sizes)."""
+    header = parent.row(align=True)
+    header.label(text="State")
+    header.label(text="Size" if size_prefix else "")
+    header.label(text="Color")
+    body = parent.column(align=True)
+    for state, label in zip(_STATES, _STATE_LABELS):
+        row = body.row(align=True)
+        row.label(text=label)
+        if size_prefix:
+            row.prop(theme, f"{size_prefix}_{state}", text="")
+        else:
+            row.label(text="—")
+        color_attr = (f"color_{color_prefix}" if state == "default"
+                      else f"color_{state}_{color_prefix}")
+        row.prop(theme, color_attr, text="")
+
+
+def _name_color_row(parent, theme, attr, label):
+    row = parent.row(align=True)
+    row.label(text=label)
+    row.label(text="—")
+    row.prop(theme, attr, text="")
 
 
 def _theme_section(layout, theme, prop_name, title, *, icon="NONE"):
@@ -252,48 +284,52 @@ def draw_theme_tab(layout, theme):
     # POINT
     sub = _theme_section(layout, theme, "show_point", "Point", icon="VERTEXSEL")
     if sub is not None:
-        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-        _state_color_row(sub, theme, "point")
-        sub.prop(theme, "color_point_outline")
+        _state_table(sub, theme, "point", size_prefix="point_size")
         sub.separator()
-        sub.label(text="Sizes (px):")
-        _state_float_row(sub, theme, "point_size")
+        row = sub.row(align=True)
+        row.label(text="Outline")
+        row.label(text="—")
+        row.prop(theme, "color_point_outline", text="")
 
     # LINE
     sub = _theme_section(layout, theme, "show_line", "Line", icon="EDGESEL")
     if sub is not None:
-        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-        _state_color_row(sub, theme, "line")
-        sub.separator()
-        sub.label(text="Widths (px):")
-        _state_float_row(sub, theme, "line_width")
+        _state_table(sub, theme, "line", size_prefix="line_width")
 
-    # TEXT
-    sub = _theme_section(layout, theme, "show_text", "Text", icon="FONT_DATA")
+    # TEXT & FONT
+    sub = _theme_section(layout, theme, "show_text", "Text & Font",
+                         icon="FONT_DATA")
     if sub is not None:
-        sub.label(text="Colors  (Default · Closest · Active · Locked · Preview):")
-        _state_color_row(sub, theme, "text")
+        _state_table(sub, theme, "text", size_prefix="text_size")
         sub.separator()
-        sub.label(text="Sizes (px):")
-        _state_float_row(sub, theme, "text_size")
+        sub.label(text="Font file:")
+        sub.prop(theme, "font_path", text="")
+        sub.label(
+            text="Empty = Blender default. Used by HUD and overlay text.",
+            icon="INFO",
+        )
 
-    # Surfaces / status
+    # Status colors (renamed from "Surfaces & status")
     sub = _theme_section(layout, theme, "show_surfaces",
-                         "Surfaces & status", icon="MATERIAL")
+                         "Status colors", icon="MATERIAL")
     if sub is not None:
-        sub.prop(theme, "color_fill")
-        sub.prop(theme, "color_error")
-        sub.prop(theme, "color_success")
+        sub.label(
+            text="Operator feedback colors (status flashes and generic fills).",
+            icon="INFO",
+        )
+        _name_color_row(sub, theme, "color_fill",    "Fill")
+        _name_color_row(sub, theme, "color_error",   "Error")
+        _name_color_row(sub, theme, "color_success", "Success")
 
-    # Widgets
+    # Widgets (vertical, name + color)
     sub = _theme_section(layout, theme, "show_widgets",
                          "Widgets", icon="MOD_HUE_SATURATION")
     if sub is not None:
-        sub.prop(theme, "color_handle")
-        sub.prop(theme, "color_handle_hover")
-        sub.prop(theme, "color_pivot")
-        sub.prop(theme, "color_bbox")
-        sub.prop(theme, "color_cursor")
+        _name_color_row(sub, theme, "color_handle",       "Handle")
+        _name_color_row(sub, theme, "color_handle_hover", "Handle (hover)")
+        _name_color_row(sub, theme, "color_pivot",        "Pivot")
+        _name_color_row(sub, theme, "color_bbox",         "Selection bbox")
+        _name_color_row(sub, theme, "color_cursor",       "2D cursor")
 
     # Island palette
     sub = _theme_section(layout, theme, "show_islands",
@@ -303,22 +339,13 @@ def draw_theme_tab(layout, theme):
         for i in range(8):
             row.prop(theme, f"island_palette_{i}", text="")
 
-    # Font
-    sub = _theme_section(layout, theme, "show_font", "Font", icon="FONT_DATA")
-    if sub is not None:
-        sub.prop(theme, "font_path", text="")
-        sub.label(
-            text="Empty = Blender default. Used by HUD and overlay text.",
-            icon="INFO",
-        )
-
     # HUD
     sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
     if sub is not None:
-        sub.prop(theme, "color_hud_key")
-        sub.prop(theme, "color_hud_label_on")
-        sub.prop(theme, "color_hud_label_off")
-        sub.prop(theme, "color_hud_label_disabled")
+        _name_color_row(sub, theme, "color_hud_key",            "Key glyph")
+        _name_color_row(sub, theme, "color_hud_label_on",       "Label (active)")
+        _name_color_row(sub, theme, "color_hud_label_off",      "Label (inactive)")
+        _name_color_row(sub, theme, "color_hud_label_disabled", "Label (disabled)")
         sub.separator()
         sub.prop(theme, "shadow_enabled")
         sh = sub.column(align=True)
