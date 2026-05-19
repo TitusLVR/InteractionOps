@@ -5,7 +5,9 @@ from ..iops import IOPS_OT_Main
 from ...ui.draw import primitives as draw, draw_scope, Role
 from ...ui.draw import safe_handler_add, safe_handler_remove
 from ...ui.draw.theme import get_theme
-from ...ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ...ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                        HUDParam, ItemState,
+                        handle_hud_toggle, handle_help_toggle)
 
 
 class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
@@ -62,9 +64,11 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
         return "?"
 
     def _build_hud(self, context):
-        hud = HUDOverlay("cursor_origin_mesh",
-                         verbosity=get_theme(context).hud.verbosity)
-        hud.add_section(HUDSection("Cursor / Origin", [
+        hud = HUDOverlay("cursor_origin_mesh")
+        hud.title = "Cursor / Origin"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("cursor_origin_mesh")
+        helpo.add_section(HUDSection("Cursor / Origin", [
             HUDItem("Look at: Cursor",          "F1", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Look at: Active object",   "F2", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align to cursor pos",      "F3", ItemState.ON if self.rotate else ItemState.OFF),
@@ -76,18 +80,22 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             HUDItem("Cancel",                   "Esc / RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.set_state("F3", ItemState.ON if self.rotate else ItemState.OFF)
+            helpo.draw(context, last_event)
         if hud is None:
             return
-        hud.set_state("F3", ItemState.ON if self.rotate else ItemState.OFF)
         hud.set_header(
             f"Target: {self._target_name(context)}  Axis: {self.look_axis[0]}"
         )
-        hud.draw(context, getattr(self, "_last_event", None))
+        hud.draw(context, last_event)
 
     def _draw_line(self, context):
         if not self.gpu_verts:
@@ -99,8 +107,17 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         objs = context.selected_objects
 
         if event.type in {"MIDDLEMOUSE"}:
@@ -172,7 +189,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
 
-        self._hud = self._build_hud(context)
+        self._hud, self._help = self._build_hud(context)
         self._last_event = event
         self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"

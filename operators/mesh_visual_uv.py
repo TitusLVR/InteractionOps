@@ -8,7 +8,9 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 from ..ui.draw.theme import get_theme, Role, axis_color
 from ..ui.draw import primitives as draw_prim, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
@@ -504,9 +506,10 @@ def _draw_transform_feedback(op):
 
 
 def _build_visual_uv_hud(context):
-    verbosity = get_theme(context).hud.verbosity
-    hud = HUDOverlay("visual_uv", verbosity=verbosity)
-    hud.add_section(HUDSection("Visual UV", [
+    hud = HUDOverlay("visual_uv")
+    hud.title = "Visual UV"
+    helpo = HelpOverlay("visual_uv")
+    helpo.add_section(HUDSection("Visual UV", [
         HUDItem("Grab / Move",          "G",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Rotate",               "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Scale",                "S",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -528,13 +531,16 @@ def _build_visual_uv_hud(context):
         HUDItem("Cancel",               "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
-    return hud
+    return hud, helpo
 
 
 def draw_shortcuts_callback(op, context):
     if context.area != op._area:
         return
     hud = getattr(op, "_hud", None)
+    helpo = getattr(op, "_help", None)
+    if helpo is not None:
+        helpo.draw(context, getattr(op, "_last_event", None))
     if hud is None:
         return
     st = op.state.replace('_', ' ').title()
@@ -873,8 +879,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._overlay_was_on = context.space_data.overlay.show_overlays
         self._clean_view = False
 
-        self._hud = _build_visual_uv_hud(context)
+        self._hud, self._help = _build_visual_uv_hud(context)
         self._hud.bind_region(context.region)
+        self._help.bind_region(context.region)
         self._last_event = event
 
         self._handle_3d = safe_handler_add(
@@ -911,8 +918,18 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.mouse_x = event.mouse_region_x
         self.mouse_y = event.mouse_region_y
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
+            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE):

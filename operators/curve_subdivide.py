@@ -6,7 +6,9 @@ from bpy.props import (
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
@@ -65,23 +67,29 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
         return sequence
 
     def _build_hud(self, context):
-        hud = HUDOverlay("curve_subdivide",
-                         verbosity=get_theme(context).hud.verbosity)
-        hud.add_section(HUDSection("Curve Subdivide", [
+        hud = HUDOverlay("curve_subdivide")
+        hud.title = "Curve Subdivide"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("curve_subdivide")
+        helpo.add_section(HUDSection("Curve Subdivide", [
             HUDItem("Cuts",     "Wheel",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",  "LMB / Space",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",   "Esc / RMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
         if hud is None:
             return
         hud.set_header(f"Cuts: {self.points_num}")
-        hud.draw(context, getattr(self, "_last_event", None))
+        hud.draw(context, last_event)
 
     def _draw_curve_pts(self, context):
         coords = self.get_curve_pts()
@@ -93,8 +101,17 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if event.type in {"MIDDLEMOUSE"}:
             return {"PASS_THROUGH"}
@@ -125,7 +142,7 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
             return {"CANCELLED"}
 
         self.points_num = 1
-        self._hud = self._build_hud(context)
+        self._hud, self._help = self._build_hud(context)
         self._last_event = event
         self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL"

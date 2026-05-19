@@ -11,7 +11,9 @@ from bpy.props import BoolProperty
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 _BBOX_EDGES_8 = (
@@ -80,9 +82,11 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         )
 
     def _build_hud(self, context):
-        verbosity = get_theme(context).hud.verbosity
-        hud = HUDOverlay("visual_origin", verbosity=verbosity)
-        hud.add_section(HUDSection("Visual Origin", [
+        hud = HUDOverlay("visual_origin")
+        hud.title = "Visual Origin"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("visual_origin")
+        helpo.add_section(HUDSection("Visual Origin", [
             HUDItem("World space group",         "F1",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Local space for active",    "F2",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("World space for active",    "F3",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -94,15 +98,19 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             HUDItem("Cancel",                    "Esc/RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     def _sync_hud(self):
-        if getattr(self, "hud", None) is None:
+        helpo = getattr(self, "help", None)
+        if helpo is None:
             return
-        self.hud.set_state("I", ItemState.ON if self.offset_instances else ItemState.OFF)
+        helpo.set_state("I", ItemState.ON if self.offset_instances else ItemState.OFF)
 
     def _draw_hud(self, context):
+        helpo = getattr(self, "help", None)
+        if helpo is not None:
+            helpo.draw(context, getattr(self, "_last_event", None))
         if getattr(self, "hud", None) is None:
             return
         self.hud.draw(context, getattr(self, "_last_event", None))
@@ -442,8 +450,18 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
+            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
         elif event.shift:
@@ -559,7 +577,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         self.object_bbox(context)
         self.calc_distance(context)
 
-        self.hud = self._build_hud(context)
+        self.hud, self.help = self._build_hud(context)
         self._last_event = event
 
         self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,

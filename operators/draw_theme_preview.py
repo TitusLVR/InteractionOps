@@ -139,6 +139,15 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
     def _build_hud(self, state):
         hud = HUDOverlay("theme_preview")
         hud.title = "Theme preview"
+
+        def _mouse_xy() -> str:
+            ev = state.get("event")
+            if ev is None:
+                return "—"
+            return f"{ev.mouse_region_x}, {ev.mouse_region_y}"
+
+        hud.add_param(HUDParam(
+            "Mouse", _mouse_xy, kind="str"))
         hud.add_param(HUDParam(
             "Snap", lambda: state["snap_on"], kind="bool"))
         hud.add_param(HUDParam(

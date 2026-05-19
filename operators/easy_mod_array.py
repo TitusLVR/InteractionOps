@@ -8,13 +8,21 @@ from bpy.props import (
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 def _build_easy_array_hud(context):
-    hud = HUDOverlay("easy_mod_array",
-                     verbosity=get_theme(context).hud.verbosity)
-    hud.add_section(HUDSection("Easy Array", [
+    hud = HUDOverlay("easy_mod_array")
+    hud.title = "Easy Array"
+    hud.bind_region(context.region)
+    return hud
+
+
+def _build_easy_array_help(context):
+    helpo = HelpOverlay("easy_mod_array")
+    helpo.add_section(HUDSection("Easy Array", [
         HUDItem("Flip Start/End",      "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("X-Axis",              "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Y-Axis",              "Y",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -25,15 +33,18 @@ def _build_easy_array_hud(context):
         HUDItem("Apply",               "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
-    hud.bind_region(context.region)
-    return hud
+    helpo.bind_region(context.region)
+    return helpo
 
 
 def _draw_easy_array_hud(op, context):
+    helpo = getattr(op, "_help", None)
     hud = getattr(op, "_hud", None)
-    if hud is None:
-        return
-    hud.draw(context, getattr(op, "_last_event", None))
+    last_event = getattr(op, "_last_event", None)
+    if helpo is not None:
+        helpo.draw(context, last_event)
+    if hud is not None:
+        hud.draw(context, last_event)
 
 
 class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
@@ -46,8 +57,18 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         cursor = self.cursor
         mid_obj = self.mid_obj
         mid_obj_loc = self.mid_obj_loc
@@ -256,6 +277,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                     self.curve = None
 
                 self._hud = _build_easy_array_hud(context)
+                self._help = _build_easy_array_help(context)
                 self._last_event = event
                 self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
                     _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL"

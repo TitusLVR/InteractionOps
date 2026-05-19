@@ -28,7 +28,9 @@ import gpu
 from ..ui.draw import primitives as draw_prim, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 from bpy_extras import view3d_utils
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
@@ -759,8 +761,10 @@ cancels. LMB clicks only pick widget handles."""
         # AFTER the shear changes, so they land in their own step.
         # (shader managed by draw_prim — no inline shader needed)
 
-        self._hud = HUDOverlay("mesh_shear",
-                               verbosity=get_theme(context).hud.verbosity)
+        self._hud = HUDOverlay("mesh_shear")
+        self._hud.title = "Shear"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("mesh_shear")
         face_label = ("Cycle axis edge" if self.mode == "face"
                       else "Flip active vert")
         items = [
@@ -779,8 +783,8 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ])
-        self._hud.add_section(HUDSection("Shear", items))
-        self._hud.bind_region(context.region)
+        self._help.add_section(HUDSection("Shear", items))
+        self._help.bind_region(context.region)
         self._last_event = event
 
         self._handle = safe_handler_add(bpy.types.SpaceView3D,
@@ -1510,8 +1514,17 @@ cancels. LMB clicks only pick widget handles."""
         if context.area:
             context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
@@ -2035,10 +2048,14 @@ cancels. LMB clicks only pick widget handles."""
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
         if hud is None:
             return
         label = f"Shear ({self.mode}): {self._effective_angle():.2f}°"
         if self.input_str:
             label += f"  (typing: {self.input_str})"
         hud.set_header(label)
-        hud.draw(context, getattr(self, "_last_event", None))
+        hud.draw(context, last_event)

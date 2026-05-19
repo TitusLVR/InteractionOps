@@ -2,7 +2,9 @@ import bpy
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
@@ -36,9 +38,14 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
 
     def _build_hud(self, context):
-        verbosity = get_theme(context).hud.verbosity
-        hud = HUDOverlay("three_point_rotation", verbosity=verbosity)
-        hud.add_section(HUDSection("3 Point Rotation", [
+        hud = HUDOverlay("three_point_rotation")
+        hud.title = "3 Point Rotation"
+        hud.bind_region(context.region)
+        return hud
+
+    def _build_help(self, context):
+        helpo = HelpOverlay("three_point_rotation")
+        helpo.add_section(HUDSection("3 Point Rotation", [
             HUDItem("Reset transforms",   "0",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Toggle lock",        "1",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Toggle 2 point",     "2",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -53,13 +60,16 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             HUDItem("Cancel",             "Esc",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return helpo
 
     def _draw_hud(self, context):
-        if getattr(self, "hud", None) is None:
-            return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if getattr(self, "hud", None) is not None:
+            self.hud.draw(context, last_event)
 
     def store_snaps(self, context):
         self.snaps = {
@@ -233,8 +243,18 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             # Allow only dummies selection
             ao = bpy.context.view_layer.objects.active
@@ -491,6 +511,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
         if context.object and context.space_data.type == "VIEW_3D":
             self.hud = self._build_hud(context)
+            self._help = self._build_help(context)
             self._last_event = event
             self._handle_iops_text = safe_handler_add(
                 bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL"

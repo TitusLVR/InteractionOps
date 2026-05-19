@@ -3,7 +3,7 @@ import bmesh
 import math
 import gpu
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import handle_hud_toggle
+from ..ui.hud import handle_hud_toggle, handle_help_toggle
 from gpu_extras.batch import batch_for_shader
 import bpy_extras
 import blf
@@ -1891,10 +1891,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             pass
 
     def _build_hud(self, context):
-        from ..ui.draw.theme import get_theme as _gt
-        from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState
-        verbosity = _gt(context).hud.verbosity
-        hud = HUDOverlay("uv_shortest_mark", verbosity=verbosity)
+        from ..ui.hud import HUDOverlay, HelpOverlay, HUDSection, HUDItem, ItemState
+        hud = HUDOverlay("uv_shortest_mark")
+        hud.title = "UV Shortest Mark"
+        hud.bind_region(context.region)
         items = [
             HUDItem("Barrier",        "E",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Mark type",      "R",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1915,12 +1915,16 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             HUDItem("Cancel",         "Esc",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
-        hud.add_section(HUDSection("UV Shortest Mark", items))
-        hud.bind_region(context.region)
-        return hud
+        helpo = HelpOverlay("uv_shortest_mark")
+        helpo.add_section(HUDSection("UV Shortest Mark", items))
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     def _draw_text(self, context):
         hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        if helpo is not None:
+            helpo.draw(context, getattr(self, "_last_event", None))
         if hud is None:
             return
         bl = BARRIER_LABELS[self.barrier_type]
@@ -1983,7 +1987,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 mod.show_viewport = False
                 break
 
-        self._hud = self._build_hud(context)
+        self._hud, self._help = self._build_hud(context)
         self._last_event = event
 
         self._handle = safe_handler_add(
@@ -2003,8 +2007,18 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
 
     def modal(self, context, event):
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
+            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 

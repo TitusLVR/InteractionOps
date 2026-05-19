@@ -9,7 +9,9 @@ import bpy_extras
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
@@ -548,8 +550,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._last_event = event
         # Unified HUD toggle (key from AddonPreferences.hud_toggle_key,
         # default "H"; Shift+key flips verbosity).
-        if handle_hud_toggle(getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "help", None)
+            hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         # Pin HUD during viewport navigation. Rolling timer is refreshed on
         # every nav-related event; once events stop coming, the HUD resumes
         # cursor-follow automatically. Warp detection inside HUDOverlay
@@ -1815,15 +1826,19 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Draw Help text — unified HUD overlay
     def draw_iops_text(self, context):
-        if getattr(self, "hud", None) is None:
-            return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        helpo = getattr(self, "help", None)
+        hud = getattr(self, "hud", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if hud is not None:
+            hud.draw(context, last_event)
 
     def _sync_hud_state(self):
         """Reflect current operator state in the HUD overlay items."""
-        if getattr(self, "hud", None) is None:
+        if getattr(self, "help", None) is None:
             return
-        s = self.hud.set_state
+        s = self.help.set_state
         s("S", ItemState.ON if self.snapping_enabled else ItemState.OFF)
         s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
         s("F", ItemState.ON if self.fill_cut_mode else ItemState.OFF)
@@ -1863,9 +1878,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def _build_hud(self, context):
         from ..ui.draw.theme import get_theme
-        verbosity = get_theme(context).hud.verbosity
-        hud = HUDOverlay("cursor_bisect", verbosity=verbosity)
-        hud.add_section(HUDSection("Bisect", [
+        hud = HUDOverlay("cursor_bisect")
+        hud.title = "Bisect"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("cursor_bisect")
+        helpo.add_section(HUDSection("Bisect", [
             HUDItem("Snap",             "S",          ItemState.ON if self.snapping_enabled else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
@@ -1886,8 +1903,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     # Part 11: Distance Text Drawing
 
@@ -2268,7 +2285,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Build unified HUD overlay
         self._last_event = event
         self._modal_region = context.region.as_pointer()
-        self.hud = self._build_hud(context)
+        self.hud, self.help = self._build_hud(context)
 
         # Drop any leftover draw handlers from prior invocations whose Python
         # operator was destroyed before invoke->modal cleanup ran (e.g. when

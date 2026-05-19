@@ -7,7 +7,9 @@ from mathutils import Vector
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
@@ -52,18 +54,27 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self.undo_steps = 0
         bpy.ops.ed.undo_push(message="Start Quick Connect")
         
-        self._hud = HUDOverlay("quick_connect",
-                               verbosity=get_theme(context).hud.verbosity)
-        self._hud.add_section(HUDSection("Quick Connect", [
-            HUDItem("Connect",        "LMB Drag",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Split edge",     "Hold A",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Snap midpoint",  "S",            ItemState.ON if self.use_midpoint_snap else ItemState.OFF),
-            HUDItem("Screen space",   "W",            ItemState.ON if self.use_screen_space else ItemState.OFF),
-            HUDItem("Finish",         "Space",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
+        # HUD (cursor-following): operator title + live param values.
+        self._hud = HUDOverlay("quick_connect")
+        self._hud.title = "Quick Connect"
+        self._hud.add_param(HUDParam(
+            "Snap midpoint", lambda: self.use_midpoint_snap, kind="bool"))
+        self._hud.add_param(HUDParam(
+            "Screen space",  lambda: self.use_screen_space, kind="bool"))
         self._hud.bind_region(context.region)
+        # Help overlay (corner): hotkey legend.
+        self._help = HelpOverlay("quick_connect")
+        self._help.add_section(HUDSection("Quick Connect", [
+            HUDItem("Connect",         "LMB Drag",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Split edge",      "Hold A",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Snap midpoint",   "S",         ItemState.ON if self.use_midpoint_snap else ItemState.OFF),
+            HUDItem("Screen space",    "W",         ItemState.ON if self.use_screen_space else ItemState.OFF),
+            HUDItem("Finish",          "Space",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",          "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Hide params",     "/",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle help",     "H",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._help.bind_region(context.region)
         self._last_event = event
 
         args = (context,)
@@ -90,17 +101,30 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def draw_shortcuts_callback(self, context):
         hud = getattr(self, "_hud", None)
-        if hud is None:
-            return
-        hud.set_state("S", ItemState.ON if self.use_midpoint_snap else ItemState.OFF)
-        hud.set_state("W", ItemState.ON if self.use_screen_space else ItemState.OFF)
-        hud.draw(context, getattr(self, "_last_event", None))
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.set_state("S", ItemState.ON if self.use_midpoint_snap else ItemState.OFF)
+            helpo.set_state("W", ItemState.ON if self.use_screen_space else ItemState.OFF)
+            helpo.draw(context, last_event)
+        if hud is not None:
+            hud.draw(context, last_event)
 
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} or event.type.startswith('NDOF'):
             return {'PASS_THROUGH'}

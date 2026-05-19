@@ -9,7 +9,9 @@ from mathutils.geometry import intersect_line_line
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 EPS = 1e-5
@@ -261,9 +263,11 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
         _purge_handles()
 
-        self._hud = HUDOverlay("straight_bevel",
-                               verbosity=get_theme(context).hud.verbosity)
-        self._hud.add_section(HUDSection("Straight Bevel", [
+        self._hud = HUDOverlay("straight_bevel")
+        self._hud.title = "Straight Bevel"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("straight_bevel")
+        self._help.add_section(HUDSection("Straight Bevel", [
             HUDItem("Adjust offset", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Percent bevel", "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -271,7 +275,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             HUDItem("Cancel",        "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        self._hud.bind_region(context.region)
+        self._help.bind_region(context.region)
         self._last_event = event
 
         self._handle = safe_handler_add(
@@ -288,8 +292,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if context.area:
             context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
                 and self._pct_active and event.value == "PRESS":
@@ -731,12 +744,16 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             self._draw_pct_overlay(region, rv3d, mw)
 
         hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
         if hud is not None:
             label = f"Straight Bevel: {self.offset:.4f}"
             if self._input_str:
                 label += f"  (typing: {self._input_str})"
             hud.set_header(label)
-            hud.draw(context, getattr(self, "_last_event", None))
+            hud.draw(context, last_event)
 
     # ------------------------------------------------------------------
     # Execute (topology change)

@@ -6,7 +6,9 @@ from mathutils import Vector
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import HUDOverlay, HUDSection, HUDItem, ItemState, handle_hud_toggle
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 from ..utils.picking import build_uv_kdtree
 
 
@@ -42,9 +44,11 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             safe_handler_remove(handler, bpy.types.SpaceImageEditor, "WINDOW")
 
     def _build_hud(self, context):
-        verbosity = get_theme(context).hud.verbosity
-        hud = HUDOverlay("drag_snap_uv", verbosity=verbosity)
-        hud.add_section(HUDSection("Drag Snap UV", [
+        hud = HUDOverlay("drag_snap_uv")
+        hud.title = "Drag Snap UV"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("drag_snap_uv")
+        helpo.add_section(HUDSection("Drag Snap UV", [
             HUDItem("Move sel → 2D Cursor (highlighted)", "1",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Move sel → 2D Cursor (nearest)",     "2",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("2D Cursor → Highlighted",            "4",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -54,10 +58,13 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
             HUDItem("Cancel",                             "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
-        hud.bind_region(context.region)
-        return hud
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     def _draw_hud(self, context):
+        helpo = getattr(self, "help", None)
+        if helpo is not None:
+            helpo.draw(context, getattr(self, "_last_event", None))
         if getattr(self, "hud", None) is None:
             return
         self.hud.draw(context, getattr(self, "_last_event", None))
@@ -158,8 +165,18 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = event
-        if handle_hud_toggle(getattr(self, "_hud", None) or getattr(self, "hud", None), context, event):
-            return {'RUNNING_MODAL'}
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
+            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
 
@@ -274,7 +291,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         self.update_distances(context, event, self.kd)
         self.lmb = False
 
-        self.hud = self._build_hud(context)
+        self.hud, self.help = self._build_hud(context)
         self._last_event = event
 
         self.handle_snap_line = safe_handler_add(bpy.types.SpaceImageEditor,
