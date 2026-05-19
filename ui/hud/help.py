@@ -39,6 +39,7 @@ class HelpOverlay:
     def __init__(self, operator_name: str):
         self.operator_name = operator_name
         self.sections: list[HUDSection] = []
+        self._items_by_key: dict[str, HUDItem] = {}
         self.visible: bool = True
         self.expanded: bool = True
         # Animation: alpha 0..1 + horizontal slide offset (px). Updated on
@@ -51,6 +52,17 @@ class HelpOverlay:
     # --- setup ---
     def add_section(self, section: HUDSection) -> None:
         self.sections.append(section)
+        for it in section.items:
+            self._items_by_key[it.key] = it
+
+    def set_state(self, key: str, state) -> None:
+        """Update the state of an item by its key. No-op if missing."""
+        it = self._items_by_key.get(key)
+        if it is None:
+            return
+        if isinstance(state, str):
+            state = ItemState(state)
+        it.state = state
 
     def bind_region(self, region) -> None:
         self._bound_region = region.as_pointer() if region is not None else None

@@ -395,7 +395,12 @@ def draw_theme_tab(layout, theme):
     layout.separator()
     row = layout.row()
     row.operator("iops.theme_reset_defaults", icon="LOOP_BACK")
-    row.operator("iops.draw_theme_preview",  icon="HIDE_OFF")
+    # Toggle: show "Stop" when preview is running, otherwise "Preview".
+    from ..operators.draw_theme_preview import IOPS_OT_DrawThemePreview
+    if IOPS_OT_DrawThemePreview.is_running:
+        row.operator("iops.stop_theme_preview", icon="CANCEL")
+    else:
+        row.operator("iops.draw_theme_preview", icon="HIDE_OFF")
 
 
 classes = (IOPS_Theme, IOPS_OT_ThemeResetDefaults)

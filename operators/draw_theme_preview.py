@@ -41,6 +41,12 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
     bl_description = "Modal preview of all unified UI primitives"
     bl_options = {"REGISTER"}
 
+    # Class-level coordination with IOPS_OT_StopThemePreview so the
+    # Theme tab can flip the button between "Preview" and "Stop" and
+    # request an exit from outside the modal.
+    is_running: bool = False
+    _stop_requested: bool = False
+
     def invoke(self, context, event):
         self._state = {
             "dead": False,
@@ -61,6 +67,8 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
                 _draw_px, (self._state, context), "WINDOW", "POST_PIXEL")
             context.window_manager.modal_handler_add(self)
             context.area.tag_redraw()
+            type(self).is_running = True
+            type(self)._stop_requested = False
         except Exception:
             self._cleanup()
             raise
@@ -75,7 +83,8 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
 
-        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+        if (event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS"
+                or type(self)._stop_requested):
             self._cleanup()
             return {"FINISHED"}
 
@@ -112,6 +121,8 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
                             bpy.types.SpaceView3D, "WINDOW")
         self._h_view = None
         self._h_px = None
+        type(self).is_running = False
+        type(self)._stop_requested = False
 
     def _build_geometry(self, context, state):
         from mathutils import Vector
@@ -156,4 +167,24 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
         return helpo
 
 
-classes = (IOPS_OT_DrawThemePreview,)
+class IOPS_OT_StopThemePreview(bpy.types.Operator):
+    bl_idname = "iops.stop_theme_preview"
+    bl_label = "Stop Preview"
+    bl_description = "Stop the running theme preview"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return IOPS_OT_DrawThemePreview.is_running
+
+    def execute(self, context):
+        IOPS_OT_DrawThemePreview._stop_requested = True
+        # Nudge the viewport so the preview's modal wakes up.
+        for win in context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+        return {"FINISHED"}
+
+
+classes = (IOPS_OT_DrawThemePreview, IOPS_OT_StopThemePreview)
