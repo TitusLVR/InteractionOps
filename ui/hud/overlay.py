@@ -1,10 +1,34 @@
-"""HUDOverlay — composes sections and items, computes layout, draws via blf.
+"""HUDOverlay — cursor-following parameter dashboard.
+
+Two content layers coexist:
+
+- `title` (str) + `_header_lines` (list[str]) — always rendered when the
+  overlay is visible, regardless of `params_visible`. The operator name /
+  live distance info / etc. lives here.
+- Sections of `HUDItem` (legacy hotkey list) AND `HUDParamSection` of
+  `HUDParam` (live operator-parameter rows). Both are hidden by `/` (the
+  HUD-param toggle key) but the title stays.
+
+Operator wiring:
+
+    self.hud = HUDOverlay("loop_cut")
+    self.hud.title = "Loop cut"
+    self.hud.add_param(HUDParam("Cuts", lambda: self.cuts, "int"))
+    ...
+
+    # in modal():
+    if self.hud.handle_param_toggle_event(event, prefs):
+        return {"RUNNING_MODAL"}
+    if self.hud.handle_toggle_event(event, prefs):  # kill-switch (old API)
+        return {"RUNNING_MODAL"}
+
+The legacy `HUDSection`/`HUDItem` API still works — used by operators that
+have not yet migrated to a separate HelpOverlay.
 
 Cursor-follow positioning auto-freezes during viewport navigation:
 - explicit pin via pin_for(seconds) (used by operators for MMB/wheel)
 - warp detection: any single-frame mouse jump >= WARP_PX triggers a brief
   pin so the HUD doesn't chase Blender's cursor-warp during MMB pan/rotate.
-
 
 State color rules (from spec):
 - ItemState.ON       → primary
@@ -13,12 +37,11 @@ State color rules (from spec):
 
 Key glyph is always rendered in `primary` for legibility.
 
-Verbosity modes:
-- "compact": only items with state != default_state, plus items flagged always_show.
+Verbosity modes (applies to HUDItem sections only — HUDParam sections
+always render every param):
+- "compact": only items with state != default_state, plus items flagged
+  always_show.
 - "full": every item, laid out in two columns.
-
-A single optional `header` line (e.g. live distance info) renders above the
-sections, in `primary` at `title` size.
 
 Multi-viewport safety: draw_handlers fire for every 3D viewport. Bind the
 overlay to the region where the operator was invoked via `bind_region()`;
@@ -26,11 +49,11 @@ the overlay no-ops in any other region.
 """
 from __future__ import annotations
 import time
-from typing import Iterable
 
 from ..draw.theme import Role, get_theme
 from . import text as hud_text
-from .items import HUDItem, HUDSection, ItemState
+from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
+                    ItemState)
 from .layout import (compute_origin, DragState, is_inside)
 
 
@@ -57,7 +80,9 @@ _STATE_ROLE = {
 class HUDOverlay:
     def __init__(self, operator_name: str, verbosity: str = "compact"):
         self.operator_name = operator_name
+        self.title: str | None = None
         self.sections: list[HUDSection] = []
+        self.param_sections: list[HUDParamSection] = []
         self._items_by_key: dict[str, HUDItem] = {}
         self._drag = DragState()
         self._last_origin = (0, 0)
@@ -68,26 +93,41 @@ class HUDOverlay:
         self._prev_mouse: tuple[int, int] | None = None
         self.verbosity: str = verbosity  # "compact" | "full"
         self.visible: bool = True
+        self.params_visible: bool = True
 
     # --- visibility ---
     def toggle_visibility(self) -> bool:
         self.visible = not self.visible
         return self.visible
 
+    def toggle_params_visible(self) -> bool:
+        self.params_visible = not self.params_visible
+        return self.params_visible
+
     def handle_toggle_event(self, event, prefs) -> bool:
-        """Operator-side helper: if `event` matches the configured HUD
-        toggle key, flip visibility and return True. Operators should call
-        this near the top of modal() and return RUNNING_MODAL on True.
-        `prefs` is the InteractionOps AddonPreferences."""
+        """Kill-switch toggle (whole HUD on/off). Default key from
+        `prefs.hud_toggle_key` (default "H")."""
         if event.value != "PRESS":
             return False
-        key = getattr(prefs, "hud_toggle_key", "SLASH")
+        key = getattr(prefs, "hud_toggle_key", "H")
         if event.type != key:
             return False
-        # No modifier combinations — keep this dead simple.
         if event.shift or event.ctrl or event.alt or event.oskey:
             return False
         self.toggle_visibility()
+        return True
+
+    def handle_param_toggle_event(self, event, prefs) -> bool:
+        """Params-only toggle (title stays visible). Default key from
+        `prefs.hud_param_toggle_key` (default "SLASH")."""
+        if event.value != "PRESS":
+            return False
+        key = getattr(prefs, "hud_param_toggle_key", "SLASH")
+        if event.type != key:
+            return False
+        if event.shift or event.ctrl or event.alt or event.oskey:
+            return False
+        self.toggle_params_visible()
         return True
 
     # --- setup ---
@@ -95,6 +135,24 @@ class HUDOverlay:
         self.sections.append(section)
         for it in section.items:
             self._items_by_key[it.key] = it
+
+    def add_param(self, param: HUDParam, *, title: str = "") -> None:
+        """Append a HUDParam. If `title` is given and no matching section
+        exists, create one; otherwise append to the last param section
+        (creating an untitled one on demand)."""
+        if title:
+            for sec in self.param_sections:
+                if sec.title == title:
+                    sec.params.append(param)
+                    return
+            self.param_sections.append(HUDParamSection(title, [param]))
+            return
+        if not self.param_sections:
+            self.param_sections.append(HUDParamSection("", []))
+        self.param_sections[-1].params.append(param)
+
+    def add_param_section(self, section: HUDParamSection) -> None:
+        self.param_sections.append(section)
 
     def bind_region(self, region) -> None:
         """Restrict drawing to one region (the one the operator was invoked in).
@@ -144,22 +202,37 @@ class HUDOverlay:
         return out
 
     # --- measurement ---
-    def _measure(self, theme, sections):
-        """Return (size_w, size_h, key_col_w).
-        `key_col_w` is the widest visible key glyph + spacing — used by
-        `_render` so every label aligns to the same x within a column."""
+    def _measure(self, theme, sections, param_sections, draw_params: bool):
+        """Return (size_w, size_h, key_col_w, param_name_col_w).
+
+        `key_col_w` aligns labels in HUDItem sections.
+        `param_name_col_w` aligns values in HUDParam sections.
+        """
         title_h = theme.text_size("title")
         row_h = theme.text_size("normal")
         gap = theme.hud.key_label_spacing
         h = 0
         max_w = 0
         widest_key = 0
+        widest_param_name = 0
+
+        # Title row (operator name).
+        if self.title:
+            tw, _ = hud_text.measure(self.title, theme=theme, size_token="title")
+            max_w = max(max_w, int(tw))
+            h += title_h + theme.hud.row_spacing
+
         for line in self._header_lines:
             hw, _ = hud_text.measure(line, theme=theme, size_token="title")
             max_w = max(max_w, int(hw))
             h += title_h + theme.hud.row_spacing
+
+        if not draw_params:
+            return max_w, h, 0, 0
+
+        # Sections (HUDItem).
         for i, sec in enumerate(sections):
-            if i > 0 or self._header_lines:
+            if i > 0 or self._header_lines or self.title:
                 h += theme.hud.section_spacing
             if sec.title:
                 tw, _ = hud_text.measure(sec.title, theme=theme,
@@ -181,7 +254,33 @@ class HUDOverlay:
                     row_w += key_col_w + int(lw)
                 max_w = max(max_w, row_w)
                 h += row_h + theme.hud.row_spacing
-        return max_w, h, key_col_w
+
+        # Param sections.
+        # Measure widest param name across all visible params for alignment.
+        for sec in param_sections:
+            for p in sec.params:
+                nw, _ = hud_text.measure(p.name + ":", theme=theme,
+                                         size_token="normal")
+                widest_param_name = max(widest_param_name, int(nw))
+        param_name_col_w = widest_param_name + gap
+
+        for i, sec in enumerate(param_sections):
+            if (i > 0 or self._header_lines or self.title
+                    or sections):
+                h += theme.hud.section_spacing
+            if sec.title:
+                tw, _ = hud_text.measure(sec.title, theme=theme,
+                                         size_token="title")
+                max_w = max(max_w, int(tw))
+                h += title_h + theme.hud.row_spacing
+            for p in sec.params:
+                vw, _ = hud_text.measure(p.value_text(), theme=theme,
+                                         size_token="normal")
+                row_w = param_name_col_w + int(vw)
+                max_w = max(max_w, row_w)
+                h += row_h + theme.hud.row_spacing
+
+        return max_w, h, key_col_w, param_name_col_w
 
     def _rows_for_layout(self, items: list[HUDItem]) -> list[list[HUDItem]]:
         """Pair items into rows: 1 col in compact, 2 cols in full."""
@@ -205,15 +304,20 @@ class HUDOverlay:
         if (self._bound_region is not None
                 and context.region.as_pointer() != self._bound_region):
             return
-        sections = self._visible_sections()
-        if not sections and not self._header_lines:
+        sections = self._visible_sections() if self.params_visible else []
+        param_sections = (self.param_sections
+                          if self.params_visible else [])
+        if (not sections and not param_sections and not self._header_lines
+                and not self.title):
             return
         theme = get_theme(context)
         region = context.region
-        w, h, key_col_w = self._measure(theme, sections)
+        w, h, key_col_w, param_name_col_w = self._measure(
+            theme, sections, param_sections, self.params_visible)
         size = (w, h)
         self._last_size = size
         self._last_key_col_w = key_col_w
+        self._last_param_name_col_w = param_name_col_w
         mouse = (0, 0)
         if event is not None:
             mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
@@ -238,15 +342,23 @@ class HUDOverlay:
                 content_size=size, padding=theme.hud.padding,
                 offset=(theme.hud.offset_x, theme.hud.offset_y), free=free)
             self._last_origin = origin
-        self._render(theme, origin, size, sections)
+        self._render(theme, origin, size, sections, param_sections)
 
-    def _render(self, theme, origin, size, sections) -> None:
+    def _render(self, theme, origin, size, sections, param_sections) -> None:
         x0, y0 = origin
         _, h = size
         y = y0 + h
         title_h = theme.text_size("title")
         row_h = theme.text_size("normal")
         key_col_w = getattr(self, "_last_key_col_w", 0)
+        param_name_col_w = getattr(self, "_last_param_name_col_w", 0)
+
+        # Operator title — always visible when overlay is visible.
+        if self.title:
+            y -= title_h
+            hud_text.draw(self.title, x0, y, theme=theme,
+                          role=Role.ACTIVE_TEXT, size_token="title")
+            y -= theme.hud.row_spacing
 
         for line in self._header_lines:
             y -= title_h
@@ -267,7 +379,7 @@ class HUDOverlay:
             col_w = key_col_w + widest_label + theme.hud.key_label_spacing
 
         for i, sec in enumerate(sections):
-            if i > 0 or self._header_lines:
+            if i > 0 or self._header_lines or self.title:
                 y -= theme.hud.section_spacing
             if sec.title:
                 y -= title_h
@@ -285,6 +397,28 @@ class HUDOverlay:
                     hud_text.draw(it.label, col_x + key_col_w, y, theme=theme,
                                   role=label_role, size_token="normal",
                                   alpha_mul=label_alpha)
+                y -= theme.hud.row_spacing
+
+        # Param sections.
+        prev_block = bool(self.title or self._header_lines or sections)
+        for i, sec in enumerate(param_sections):
+            if i > 0 or prev_block:
+                y -= theme.hud.section_spacing
+            if sec.title:
+                y -= title_h
+                hud_text.draw(sec.title, x0, y, theme=theme,
+                              role=Role.ACTIVE_TEXT, size_token="title")
+                y -= theme.hud.row_spacing
+            for p in sec.params:
+                y -= row_h
+                active = p.is_active()
+                name_role = Role.HUD_LABEL_ON if active else Role.HUD_LABEL_DISABLED
+                value_role = Role.HUD_KEY if active else Role.HUD_LABEL_DISABLED
+                hud_text.draw(p.name + ":", x0, y, theme=theme,
+                              role=name_role, size_token="normal")
+                hud_text.draw(p.value_text(), x0 + param_name_col_w, y,
+                              theme=theme, role=value_role,
+                              size_token="normal")
                 y -= theme.hud.row_spacing
 
     # --- drag (free-mode) ---

@@ -1,5 +1,7 @@
-from .items import HUDItem, HUDSection, ItemState
+from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
+                    ItemState)
 from .overlay import HUDOverlay
+from .help import HelpOverlay
 
 
 def handle_hud_toggle(hud, context, event) -> bool:
@@ -30,5 +32,23 @@ def handle_hud_toggle(hud, context, event) -> bool:
     return True
 
 
-__all__ = ["HUDItem", "HUDSection", "ItemState", "HUDOverlay",
-           "handle_hud_toggle"]
+def handle_help_toggle(help_overlay, context, event) -> bool:
+    """Convenience: toggle a HelpOverlay's expanded/collapsed state on
+    the configured key (default "H")."""
+    if help_overlay is None:
+        return False
+    try:
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        theme_prefs = prefs.iops_theme
+    except (KeyError, AttributeError):
+        return False
+    if not help_overlay.handle_toggle_event(event, theme_prefs):
+        return False
+    if context.area is not None:
+        context.area.tag_redraw()
+    return True
+
+
+__all__ = ["HUDItem", "HUDSection", "HUDParam", "HUDParamSection",
+           "ItemState", "HUDOverlay", "HelpOverlay",
+           "handle_hud_toggle", "handle_help_toggle"]

@@ -115,6 +115,54 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default="compact",
     )
 
+    # Params-only toggle (hides parameter rows, keeps operator title).
+    hud_param_toggle_key: bpy.props.StringProperty(
+        name="HUD params toggle",
+        description="Event type that hides HUD parameter rows while keeping "
+                    "the operator title visible (e.g. 'SLASH', 'P')",
+        default="SLASH",
+    )
+
+    # --- Help overlay ---
+    help_toggle_key: bpy.props.StringProperty(
+        name="Help toggle",
+        description="Event type that toggles the corner Help overlay "
+                    "between expanded and collapsed states",
+        default="H",
+    )
+    help_corner: EnumProperty(
+        name="Help corner",
+        items=[
+            ("top_left",     "Top left",     ""),
+            ("top_right",    "Top right",    ""),
+            ("bottom_left",  "Bottom left",  ""),
+            ("bottom_right", "Bottom right", ""),
+        ],
+        default="top_left",
+    )
+    help_offset_x: IntProperty(name="Help X offset", default=12, min=0, max=4000)
+    help_offset_y: IntProperty(name="Help Y offset", default=12, min=0, max=4000)
+    help_anim_preset: EnumProperty(
+        name="Help animation",
+        items=[
+            ("none",       "None",        "Instant toggle"),
+            ("fade",       "Fade",        "Cross-fade between states"),
+            ("slide-fade", "Slide + fade", "Slide in from the anchored edge"),
+        ],
+        default="fade",
+    )
+    help_anim_duration: FloatProperty(
+        name="Help animation duration",
+        default=0.18, min=0.0, max=1.0,
+        description="Seconds for the help overlay to cross-fade",
+    )
+    help_hint_text: bpy.props.StringProperty(
+        name="Help hint text",
+        description="Text shown when Help is collapsed. {key} is replaced "
+                    "with the configured toggle key.",
+        default="Press {key} for help",
+    )
+
     depth_test_default: EnumProperty(
         name="Depth test",
         items=[("LESS", "Less", ""), ("ALWAYS", "Always", "")],
@@ -152,6 +200,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     show_islands: BoolProperty(default=False)
     show_font: BoolProperty(default=False)
     show_hud: BoolProperty(default=False)
+    show_help: BoolProperty(default=False)
     show_stats: BoolProperty(default=False)
     show_behaviour: BoolProperty(default=False)
 
@@ -287,6 +336,20 @@ def draw_theme_tab(layout, theme):
         sub.prop(theme, "hud_row_spacing")
         sub.prop(theme, "hud_key_label_spacing")
         sub.prop(theme, "hud_verbosity")
+        sub.prop(theme, "hud_param_toggle_key")
+
+    # Help overlay
+    sub = _theme_section(layout, theme, "show_help", "Help overlay", icon="QUESTION")
+    if sub is not None:
+        sub.prop(theme, "help_toggle_key")
+        sub.prop(theme, "help_corner")
+        row = sub.row(align=True)
+        row.prop(theme, "help_offset_x")
+        row.prop(theme, "help_offset_y")
+        sub.prop(theme, "help_hint_text")
+        sub.separator()
+        sub.prop(theme, "help_anim_preset")
+        sub.prop(theme, "help_anim_duration")
 
     # Statistics overlay positioning
     sub = _theme_section(layout, theme, "show_stats",
