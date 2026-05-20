@@ -14,6 +14,7 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
+from .theme import IOPS_Theme, draw_theme_tab
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -23,6 +24,27 @@ from ..utils.split_areas_dict import (
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
+
+
+def _section(parent, prefs, prop_name, title, *, icon="NONE"):
+    """Draw a collapsible section header. Returns the body column to draw
+    contents into, or `None` if the section is collapsed.
+
+    `prop_name` is the BoolProperty on `prefs` storing the open/closed state.
+    """
+    box = parent.box()
+    row = box.row(align=True)
+    is_open = getattr(prefs, prop_name)
+    row.prop(prefs, prop_name,
+             text="",
+             icon="TRIA_DOWN" if is_open else "TRIA_RIGHT",
+             emboss=False)
+    row.label(text=title, icon=icon)
+    if not is_open:
+        return None
+    body = box.column(align=True)
+    return body
+
 
 def update_category(self, context):
     message = "Panel Update Failed"
@@ -62,263 +84,41 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # Area.type, Area.ui_type, Icon, PrefText
     tabs: bpy.props.EnumProperty(
         name="Preferences",
-        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", "")],
+        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", ""), ("THEME", "Theme", "Unified UI theme")],
         default="PREFS",
     )
-    # Operator text properties
-    text_color: FloatVectorProperty(
-        name="Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
+
+    iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
+
+    # Statistics overlay toggles (the only stat-related prefs that aren't
+    # cosmetic — colors / sizes / positions all live in IOPS_Theme).
+    iops_stat: BoolProperty(
+        name="Statistics ON/OFF",
+        description="Shows UVmaps and Non Uniform Scale",
+        default=True,
     )
 
-    text_color_key: FloatVectorProperty(
-        name="Color key",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
+    show_filename_stat: BoolProperty(
+        name="Show Filename",
+        description="Show/Hide filename in statistics",
+        default=True,
     )
 
-    text_size: IntProperty(
-        name="Size",
-        description="Modal operators text size",
-        default=20,
-        soft_min=1,
-        soft_max=100,
-    )
+    # --- Collapsible section toggles (UI only) ---
+    show_section_general: BoolProperty(default=True)
+    show_section_stats: BoolProperty(default=False)
+    show_section_visual_uv: BoolProperty(default=False)
+    show_section_executor: BoolProperty(default=False)
+    show_section_textures: BoolProperty(default=False)
+    show_section_bisect: BoolProperty(default=False)
+    show_section_snap_combo: BoolProperty(default=False)
+    show_section_modifier_window: BoolProperty(default=False)
+    show_section_io: BoolProperty(default=False)
+    show_section_debug: BoolProperty(default=False)
+    show_section_pies: BoolProperty(default=False)
 
-    text_pos_x: IntProperty(
-        name="Position X",
-        description="Modal operators Text pos X",
-        default=60,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_pos_y: IntProperty(
-        name="Position Y",
-        description="Modal operators Text pos Y",
-        default=60,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_shadow_color: FloatVectorProperty(
-        name="Shadow",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 0.0, 0.0, 1.0),
-    )
-
-    text_shadow_toggle: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
-
-    text_shadow_blur: EnumProperty(
-        name="Blur",
-        description="Could be 0,3,5",
-        items=[
-            ("0", "None", "", "", 0),
-            ("3", "Mid", "", "", 3),
-            ("5", "High", "", "", 5)
-        ],
-        default="0",
-    )
-
-    text_shadow_pos_x: IntProperty(
-        name="Shadow pos X",
-        description="Modal operators Text pos X",
-        default=2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_shadow_pos_y: IntProperty(
-        name="Shadow pos Y",
-        description="Modal operators Text pos Y",
-        default=-2,
-        soft_min=-50,
-        soft_max=50,
-    )
-
-    # Statistics text properties
-    iops_stat: BoolProperty(name="Statistics ON/OFF", description=" Shows UVmaps and Non Uniform Scale", default=True)
-    
-    show_filename_stat: BoolProperty(name="Show Filename", description="Show/Hide filename in statistics", default=True)
-
-    text_color_stat: FloatVectorProperty(
-        name="Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_numbers, 0.75)),
-    )
-
-    text_color_key_stat: FloatVectorProperty(
-        name="Color key",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].text_editor.syntax_builtin, 0.75)),
-    )
-    text_color_error_stat: FloatVectorProperty(
-        name="Color error",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7)),
-    )
-
-    text_size_stat: FloatProperty(
-        name="Size",
-        description="Modal operators text size",
-        default=20,
-        soft_min=1,
-        soft_max=100,
-    )
-
-    text_pos_x_stat: IntProperty(
-        name="Position X",
-        description="Modal operators Text pos X",
-        default=9,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_pos_y_stat: IntProperty(
-        name="Position Y",
-        description="Modal operators Text pos Y",
-        default=220,
-        soft_min=1,
-        soft_max=10000,
-    )
-
-    text_shadow_color_stat: FloatVectorProperty(
-        name="Shadow",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 0.0, 0.0, 1.0),
-    )
-
-    text_shadow_toggle_stat: BoolProperty(name="ON/OFF", description="ON/Off", default=False)
-
-    text_shadow_blur_stat: EnumProperty(
-        name="Blur",
-        description="Could be 0,3,5",
-        items=[
-            ("0", "None", "", "", 0),
-            ("3", "Mid", "", "", 3),
-            ("5", "High", "", "", 5)
-        ],
-        default="0",
-    )
-
-    text_shadow_pos_x_stat: IntProperty(
-        name="Shadow pos X",
-        description="Modal operators Text pos X",
-        default=2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_shadow_pos_y_stat: IntProperty(
-        name="Shadow pos Y",
-        description="Modal operators Text pos Y",
-        default=-2,
-        soft_min=-50,
-        soft_max=50,
-    )
-    text_column_offset_stat: FloatProperty(
-        name="Column Offset",
-        description="Column Offset",
-        default=30,
-        min=0,
-        max=10000,
-    )
-    text_column_width_stat: FloatProperty(
-        name="Column Width",
-        description="Column Width",
-        default=4,
-        min=0,
-        max=10000,
-    )
-
-    # Cage Props
-    vo_cage_color: FloatVectorProperty(
-        name="Cage color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.25))
-        - Vector((0.3, 0.3, 0.3, 0)),
-    )
-
-    vo_cage_points_color: FloatVectorProperty(
-        name="Cage points color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(*bpy.context.preferences.themes[0].view_3d.wire_edit, 0.7),
-    )
-
-    vo_cage_ap_color: FloatVectorProperty(
-        name="Active point color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=Vector((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5))
-        - Vector((0.2, 0.2, 0.2, 0)),
-    )
-
-    vo_cage_p_size: IntProperty(
-        name="Cage point size",
-        description="Visual origin cage point size",
-        default=2,
-        soft_min=2,
-        soft_max=20,
-    )
-
-    vo_cage_ap_size: IntProperty(
-        name="Active point size",
-        description="Visual origin active point size",
-        default=4,
-        soft_min=2,
-        soft_max=20,
-    )
-    vo_cage_line_thickness: FloatProperty(
-        name="Cage Line thickness",
-        description="Thickness of the cage lines",
-        default=0.25,
-        min=0.0,
-        max=1000.0,
-    )
-    drag_snap_line_thickness: FloatProperty(
-        name="Drag Snap Line thickness",
-        description="Thickness of the drag snap lines",
-        default=0.25,
-        min=0.0,
-        max=1000.0,
-    )
-
-    align_edge_color: FloatVectorProperty(
-        name="Edge color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=((*bpy.context.preferences.themes[0].view_3d.object_active, 0.5)),
-    )
+    # Legacy cage/snap/align color and size props removed.
+    # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
     # 1 - BOTTOM - LEFT
     split_area_pie_1_ui: EnumProperty(
         name="",
@@ -610,30 +410,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
 
     # Visual UV On-Mesh Properties
-    visual_uv_point_size: IntProperty(
-        name="Point size",
-        description="Size of UV corner points drawn on the mesh",
-        default=7,
-        min=2,
-        max=20,
-    )
-
-    visual_uv_edge_width: FloatProperty(
-        name="Edge width",
-        description="Width of UV edges drawn on the mesh",
-        default=2.0,
-        min=0.5,
-        max=5.0,
-    )
-
-    visual_uv_fill_alpha: FloatProperty(
-        name="Fill opacity",
-        description="Opacity of island face fill on the mesh",
-        default=0.10,
-        min=0.0,
-        max=0.5,
-    )
-
     visual_uv_normal_offset: FloatProperty(
         name="Normal offset",
         description="How far to offset the overlay from the mesh surface",
@@ -643,135 +419,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=4,
     )
 
-    # Cursor Bisect Drawing Properties
-    cursor_bisect_plane_color: FloatVectorProperty(
-        name="Plane color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 0.15),
-    )
-
-    cursor_bisect_plane_outline_color: FloatVectorProperty(
-        name="Plane outline color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 0.8),
-    )
-
-    cursor_bisect_plane_outline_thickness: FloatProperty(
-        name="Plane outline thickness",
-        description="Thickness of the bisect plane outline",
-        default=2.0,
-        min=0.1,
-        max=10.0,
-    )
-
-    cursor_bisect_edge_color: FloatVectorProperty(
-        name="Edge color (unlocked)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_edge_locked_color: FloatVectorProperty(
-        name="Edge color (locked)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_edge_thickness: FloatProperty(
-        name="Edge thickness (unlocked)",
-        description="Thickness of the edge highlight when unlocked",
-        default=4.0,
-        min=0.1,
-        max=20.0,
-    )
-
-    cursor_bisect_edge_locked_thickness: FloatProperty(
-        name="Edge thickness (locked)",
-        description="Thickness of the edge highlight when locked",
-        default=8.0,
-        min=0.1,
-        max=20.0,
-    )
-
-    cursor_bisect_snap_color: FloatVectorProperty(
-        name="Snap points color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_hold_color: FloatVectorProperty(
-        name="Snap points color (hold)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.5, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_closest_color: FloatVectorProperty(
-        name="Closest snap point color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(0.0, 1.0, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_closest_hold_color: FloatVectorProperty(
-        name="Closest snap point color (hold)",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 0.2, 0.0, 1.0),
-    )
-
-    cursor_bisect_snap_size: FloatProperty(
-        name="Snap point size",
-        description="Size of snap points",
-        default=6.0,
-        min=1.0,
-        max=20.0,
-    )
-
-    cursor_bisect_snap_closest_size: FloatProperty(
-        name="Closest snap point size",
-        description="Size of the closest snap point",
-        default=9.0,
-        min=1.0,
-        max=20.0,
-    )
-
-    # Cut preview visual properties
-    cursor_bisect_cut_preview_color: bpy.props.FloatVectorProperty(
-        name="Cut Preview Color",
-        description="Color for cut preview lines",
-        subtype='COLOR_GAMMA',
-        size=4,
-        min=0.0, max=1.0,
-        default=(1.0, 0.5, 0.0, 1.0)
-    )
-
-    cursor_bisect_cut_preview_thickness: bpy.props.FloatProperty(
-        name="Cut Preview Thickness",
-        description="Thickness of cut preview lines",
-        min=1.0, max=10.0,
-        default=3.0
-    )
+    # Cursor Bisect Drawing Properties — colors and sizes moved to IOPS_Theme.
+    # Only operational params (face depth, subdivisions, snap threshold,
+    # merge distance, rotation step, etc.) remain on AddonPreferences.
 
     # Face connectivity settings
     cursor_bisect_face_depth: bpy.props.IntProperty(
@@ -852,36 +502,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="RENDER"
     )
     
-    # Distance text settings
-    cursor_bisect_distance_text_color: FloatVectorProperty(
-        name="Distance Text Color",
-        subtype="COLOR_GAMMA",
-        size=4,
-        min=0,
-        max=1,
-        default=(1.0, 1.0, 0.0, 1.0), # Yellow color       
-    )    
-    cursor_bisect_distance_text_size:IntProperty(
-        name="Distance Text Size",
-        description="Size of the distance text displayed during bisect operation",
-        default=12,
-        min=5,
-        max=100,
-    )
-    cursor_bisect_distance_offset_x:IntProperty(
-        name="Distance Text Offset X",
-        description="X offset for the distance text position",
-        default=25,
-        min=-1000,
-        max=1000,
-    )
-    cursor_bisect_distance_offset_y:IntProperty(
-        name="Distance Text Offset Y",
-        description="Y offset for the distance text position",
-        default=-25,
-        min=-1000,
-        max=1000,
-    )
+    # (Distance text is now rendered through the HUD header — no separate
+    # position offsets needed.)
 
 
     def draw(self, context):
@@ -962,6 +584,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col_scripts = box_scripts.column(align=True)
             km_scripts_row = col_scripts.row(align=True)
             km_scripts_col = km_scripts_row.column(align=True)
+            # UI toggles (HUD / Help)
+            box_ui = col.box()
+            box_ui.label(text="UI Toggles:")
+            col_ui = box_ui.column(align=True)
+            km_ui_col = col_ui.row(align=True).column(align=True)
 
 
             """
@@ -1065,6 +692,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
+                    elif kmi.idname in {"iops.ui_help_toggle",
+                                        "iops.ui_hud_params_toggle"}:
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_ui_col, 0
+                            )
+                        except AttributeError:
+                            km_ui_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
                     elif kmi.idname.startswith("iops.window"):
                         try:
                             rna_keymap_ui.draw_kmi(
@@ -1079,362 +717,125 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
 
         if self.tabs == "PREFS":
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Category:")
-            col.prop(self, "category")
-            # TextProps
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="3D View Overlay Text Settings:")
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_text = split.column(align=True)
-            col_shadow = split.column(align=True)
-            row = col_text.row(align=True)
-            row.prop(self, "text_color")
-            row.prop(self, "text_color_key")
-            row = col_text.row(align=True)
-            row.prop(self, "text_size")
-            row = col_text.row(align=True)
-            row.prop(self, "text_pos_x")
-            row.prop(self, "text_pos_y")
-            # TextShadow column
-            row = col_shadow.row(align=False)
-            row.prop(self, "text_shadow_color")
-            row.prop(self, "text_shadow_blur")
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_toggle", toggle=True)
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_pos_x")
-            row.prop(self, "text_shadow_pos_y")
-            col.separator()
+            # General
+            body = _section(column_main, self, "show_section_general", "General", icon="PREFERENCES")
+            if body is not None:
+                body.prop(self, "category")
 
-            #Statistics TextProps
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="3D View Overlay Statistics Text Settings:")
-            col.prop(self, "iops_stat", toggle=True)
-            col.prop(self, "show_filename_stat", toggle=True)
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_text = split.column(align=True)
-            col_shadow = split.column(align=True)
-            row = col_text.row(align=True)
-            row.prop(self, "text_color_stat")
-            row.prop(self, "text_color_key_stat")
-            row.prop(self, "text_color_error_stat")
-            row = col_text.row(align=True)
-            row.prop(self, "text_size_stat")
-            row.prop(self, "text_column_offset_stat")
-            row.prop(self, "text_column_width_stat")
-            row = col_text.row(align=True)
-            row.prop(self, "text_pos_x_stat")
-            row.prop(self, "text_pos_y_stat")
-            # ShadowStatistics TextProps
-            row = col_shadow.row(align=False)
-            row.prop(self, "text_shadow_color_stat")
-            row.prop(self, "text_shadow_blur_stat")
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_toggle_stat", toggle=True)
-            row = col_shadow.row(align=True)
-            row.prop(self, "text_shadow_pos_x_stat")
-            row.prop(self, "text_shadow_pos_y_stat")
-            col.separator()
-
-            # Align to edge
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Align to edge:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "align_edge_color")
-            col.separator()
-            # Visual origin
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Visual origin:")
-            row = box.row(align=True)
-            split = row.split(factor=0.5, align=False)
-            col_ap = split.column(align=True)
-            col_p = split.column(align=True)
-            col.separator()
-            # Active point column
-            col = col_p.column(align=True)
-            col.label(text="Cage points:")
-            col.prop(self, "vo_cage_p_size", text="Size")
-            col.prop(self, "vo_cage_points_color", text="")
-
-            # Cage points column
-            col = col_ap.column(align=True)
-            col.label(text="Active point:")
-            col.prop(self, "vo_cage_ap_size", text="Size")
-            col.prop(self, "vo_cage_ap_color", text="")
-
-            # Cage color
-            col = box.column(align=True)
-            col.prop(self, "vo_cage_color")
-            col.prop(self, "vo_cage_line_thickness")
-            col.separator()
-
-            # Drag snap line thickness
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Drag Snap:")
-            row = col.row(align=True)
-            row.prop(self, "drag_snap_line_thickness")
+            # Stats overlay
+            body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")
+            if body is not None:
+                body.prop(self, "iops_stat", toggle=True)
+                body.prop(self, "show_filename_stat", toggle=True)
+                body.separator()
+                body.label(text="Colors, sizes and text positioning live in the Theme tab.")
 
             # Visual UV
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Visual UV (on-mesh):")
-            row = col.row(align=True)
-            row.prop(self, "visual_uv_point_size")
-            row.prop(self, "visual_uv_edge_width")
-            row = col.row(align=True)
-            row.prop(self, "visual_uv_fill_alpha")
-            row.prop(self, "visual_uv_normal_offset")
-            col.separator()
+            body = _section(column_main, self, "show_section_visual_uv", "Visual UV (on-mesh)", icon="UV")
+            if body is not None:
+                body.label(text="Point size, edge width and fill opacity live in the Theme tab.", icon="INFO")
+                body.prop(self, "visual_uv_normal_offset")
 
-            # Split Pie preferences
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="IOPS Split Pie Setup:")
-            row = col.row(align=True)
-
-            # TOP LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_7_ui")
-            col.prop(self, "split_area_pie_7_alt_ui")
-            col.prop(self, "split_area_pie_7_pos")
-            col.prop(self, "split_area_pie_7_factor")
-            row.separator()
-            # TOP
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.prop(self, "split_area_pie_8_ui")
-            col.prop(self, "split_area_pie_8_alt_ui")
-            col.prop(self, "split_area_pie_8_pos")
-            col.prop(self, "split_area_pie_8_factor")
-            row.separator()
-            # TOP RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_9_ui")
-            col.prop(self, "split_area_pie_9_alt_ui")
-            col.prop(self, "split_area_pie_9_pos")
-            col.prop(self, "split_area_pie_9_factor")
-
-            col = box.column(align=True)
-            row = col.row(align=True)
-            # LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_4_ui")
-            col.prop(self, "split_area_pie_4_alt_ui")
-            col.prop(self, "split_area_pie_4_pos")
-            col.prop(self, "split_area_pie_4_factor")
-            row.separator()
-            # CENTER
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.label(text=" ")
-            col.label(text=" ")
-            col.label(text=" ")
-            row.separator()
-            # RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_6_ui")
-            col.prop(self, "split_area_pie_6_alt_ui")
-            col.prop(self, "split_area_pie_6_pos")
-            col.prop(self, "split_area_pie_6_factor")
-
-            col = box.column(align=True)
-            row = col.row(align=True)
-
-            # BOTTOM LEFT
-            box_1 = row.box()
-            col = box_1.column(align=True)
-            col.prop(self, "split_area_pie_1_ui")
-            col.prop(self, "split_area_pie_1_alt_ui")
-            col.prop(self, "split_area_pie_1_pos")
-            col.prop(self, "split_area_pie_1_factor")
-            row.separator()
-            # BOTTOM
-            box_2 = row.box()
-            col = box_2.column(align=True)
-            col.prop(self, "split_area_pie_2_ui")
-            col.prop(self, "split_area_pie_2_alt_ui")
-            col.prop(self, "split_area_pie_2_pos")
-            col.prop(self, "split_area_pie_2_factor")
-            row.separator()
-            # BOTTOM RIGHT
-            box_3 = row.box()
-            col = box_3.column(align=True)
-            col.prop(self, "split_area_pie_3_ui")
-            col.prop(self, "split_area_pie_3_alt_ui")
-            col.prop(self, "split_area_pie_3_pos")
-            col.prop(self, "split_area_pie_3_factor")
-
-            # Executor
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Script Executor:")
-            col.separator()
-            col.separator()
-            col.separator()
-            col.prop(self, "executor_use_script_path_user")
-            row = col.row(align=True)
-            if self.executor_use_script_path_user:
-                row.label(text=bpy.utils.script_path_user())
-                col.prop(self, "executor_scripts_subfolder")
-                if len(self.executor_scripts_subfolder) > 0:
-                    self.executor_scripts_folder = os.path.join(
-                        bpy.utils.script_path_user(), self.executor_scripts_subfolder
-                    )
-                else:
-                    self.executor_scripts_folder = bpy.utils.script_path_user()
-            else:
-                col.prop(self, "executor_scripts_folder")
-            col.separator()
-            col.separator()
-            col.separator()
-            col.prop(self, "executor_column_count")
-            col.prop(self, "executor_name_length")
-            col.separator()
-            # Textures to materials
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Textures to Materials:")
-            col = box.column(align=True)
-            col.prop(self, "texture_to_material_prefixes")
-            col.prop(self, "texture_to_material_suffixes")
-            col.separator()
-
-           # Cursor Bisect preferences
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Cursor Bisect:")
-
-            # Plane settings
-            col.separator()
-            col.label(text="Bisect Plane:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_plane_color")
-            row.prop(self, "cursor_bisect_plane_outline_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_plane_outline_thickness")
-
-            # Edge settings
-            col.separator()
-            col.label(text="Edge Highlight:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_color")
-            row.prop(self, "cursor_bisect_edge_locked_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_thickness")
-            row.prop(self, "cursor_bisect_edge_locked_thickness")
-
-            # Snap point settings
-            col.separator()
-            col.label(text="Snap Points:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_color")
-            row.prop(self, "cursor_bisect_snap_hold_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_closest_color")
-            row.prop(self, "cursor_bisect_snap_closest_hold_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_snap_size")
-            row.prop(self, "cursor_bisect_snap_closest_size")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_edge_subdivisions")
-
-            # Cut preview settings
-            col.separator()
-            col.label(text="Cut Preview:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_cut_preview_color")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_cut_preview_thickness")
-
-            # Face connectivity settings
-            col.separator()
-            col.label(text="Preview Scope:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_face_depth")
-            row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
-            # Coplanar angle
-            col.separator()
-            col.label(text="Coplanar Angle:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_coplanar_angle")
-            col.separator()
-            # Bisect operation settings
-            col.separator()
-            col.label(text="Operation Settings:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_merge_distance")
-            row.prop(self, "cursor_bisect_rotation_step")
-            row.prop(self, "cursor_bisect_snap_threshold")
-            row.prop(self, "cursor_bisect_snap_use_modifiers")
-            # Distance text settings
-            col.separator()
-            col.label(text="Bisect Info Text Settings:")
-            row = col.row(align=True)
-            row.prop(self, "cursor_bisect_distance_text_color", text="Text Color")            
-            row.prop(self, "cursor_bisect_distance_text_size", text="Text Size")
-            row.prop(self, "cursor_bisect_distance_offset_x", text="Offset X")
-            row.prop(self, "cursor_bisect_distance_offset_y", text="Offset Y")
-            col.separator()
+            # Cursor Bisect (operational only — colors/sizes in Theme)
+            body = _section(column_main, self, "show_section_bisect", "Cursor Bisect", icon="MOD_BEVEL")
+            if body is not None:
+                body.label(text="Colors and sizes live in the Theme tab.", icon="INFO")
+                body.separator()
+                body.label(text="Preview Scope:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_face_depth")
+                row.prop(self, "cursor_bisect_max_faces", text="Fallback Limit")
+                body.separator()
+                body.label(text="Edge Snapping:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_edge_subdivisions")
+                row.prop(self, "cursor_bisect_snap_threshold")
+                row.prop(self, "cursor_bisect_snap_use_modifiers")
+                body.separator()
+                body.label(text="Operation:")
+                row = body.row(align=True)
+                row.prop(self, "cursor_bisect_merge_distance")
+                row.prop(self, "cursor_bisect_rotation_step")
+                row.prop(self, "cursor_bisect_coplanar_angle")
 
             # Snap Combos
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Snap Combo:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "snap_combo_mod")
-
-            # Preferences
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Addon preferences")
-            row = col.row(align=True)
-            row.operator("iops.save_addon_preferences", text="Save preferences")
-            row.operator("iops.load_addon_preferences", text="Load preferences")
-            col.separator()
+            body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")
+            if body is not None:
+                body.prop(self, "snap_combo_mod")
 
             # Modifier Window
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Modifier Window:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "modifier_window_method", expand=True)
-            col.separator()
+            body = _section(column_main, self, "show_section_modifier_window", "Modifier Window", icon="WINDOW")
+            if body is not None:
+                row = body.row(align=True)
+                row.alignment = "LEFT"
+                row.prop(self, "modifier_window_method", expand=True)
+
+            # Split Pie
+            body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
+            if body is not None:
+                row = body.row(align=True)
+                for n in (7, 8, 9):
+                    sub = row.box().column(align=True)
+                    sub.prop(self, f"split_area_pie_{n}_ui")
+                    sub.prop(self, f"split_area_pie_{n}_alt_ui")
+                    sub.prop(self, f"split_area_pie_{n}_pos")
+                    sub.prop(self, f"split_area_pie_{n}_factor")
+                row = body.row(align=True)
+                sub = row.box().column(align=True)
+                sub.prop(self, "split_area_pie_4_ui")
+                sub.prop(self, "split_area_pie_4_alt_ui")
+                sub.prop(self, "split_area_pie_4_pos")
+                sub.prop(self, "split_area_pie_4_factor")
+                row.box().column(align=True).label(text=" ")
+                sub = row.box().column(align=True)
+                sub.prop(self, "split_area_pie_6_ui")
+                sub.prop(self, "split_area_pie_6_alt_ui")
+                sub.prop(self, "split_area_pie_6_pos")
+                sub.prop(self, "split_area_pie_6_factor")
+                row = body.row(align=True)
+                for n in (1, 2, 3):
+                    sub = row.box().column(align=True)
+                    sub.prop(self, f"split_area_pie_{n}_ui")
+                    sub.prop(self, f"split_area_pie_{n}_alt_ui")
+                    sub.prop(self, f"split_area_pie_{n}_pos")
+                    sub.prop(self, f"split_area_pie_{n}_factor")
+
+            # Executor
+            body = _section(column_main, self, "show_section_executor", "Script Executor", icon="SCRIPT")
+            if body is not None:
+                body.prop(self, "executor_use_script_path_user")
+                if self.executor_use_script_path_user:
+                    body.label(text=bpy.utils.script_path_user())
+                    body.prop(self, "executor_scripts_subfolder")
+                    if len(self.executor_scripts_subfolder) > 0:
+                        self.executor_scripts_folder = os.path.join(
+                            bpy.utils.script_path_user(), self.executor_scripts_subfolder
+                        )
+                    else:
+                        self.executor_scripts_folder = bpy.utils.script_path_user()
+                else:
+                    body.prop(self, "executor_scripts_folder")
+                body.separator()
+                body.prop(self, "executor_column_count")
+                body.prop(self, "executor_name_length")
+
+            # Textures
+            body = _section(column_main, self, "show_section_textures", "Textures to Materials", icon="TEXTURE")
+            if body is not None:
+                body.prop(self, "texture_to_material_prefixes")
+                body.prop(self, "texture_to_material_suffixes")
+
+            # Save / Load
+            body = _section(column_main, self, "show_section_io", "Save / Load Preferences", icon="FILE_TICK")
+            if body is not None:
+                row = body.row(align=True)
+                row.operator("iops.save_addon_preferences", text="Save preferences")
+                row.operator("iops.load_addon_preferences", text="Load preferences")
 
             # Debug
-            col = column_main.column(align=False)
-            box = col.box()
-            col = box.column(align=True)
-            col.label(text="Debug:")
-            row = box.row(align=True)
-            row.alignment = "LEFT"
-            row.prop(self, "IOPS_DEBUG")
+            body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")
+            if body is not None:
+                body.prop(self, "IOPS_DEBUG")
+
+        if self.tabs == "THEME":
+            draw_theme_tab(layout, self.iops_theme)

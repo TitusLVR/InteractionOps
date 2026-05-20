@@ -1,59 +1,10 @@
-import blf
 import bpy
 
-
-def draw_iops_text(self, context, _uidpi, _uifactor):
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    tColor = prefs.text_color
-    tKColor = prefs.text_color_key
-    tCSize = prefs.text_size
-    tCPosX = prefs.text_pos_x
-    tCPosY = prefs.text_pos_y
-    tShadow = prefs.text_shadow_toggle
-    tSColor = prefs.text_shadow_color
-    tSBlur = prefs.text_shadow_blur
-    tSPosX = prefs.text_shadow_pos_x
-    tSPosY = prefs.text_shadow_pos_y
-
-    iops_text = (
-        ("Reset object's transforms", "0"),
-        ("Toggle lock", "1"),
-        ("Toggle 2 point", "2"),
-        ("Toggle 3 point", "3"),
-        ("Select all dummies", "A"),
-        ("Flip Y and Z", "F"),
-        ("Toggle snaps", "S"),
-        ("Translate/Rotate", "G/R"),
-        ("Select dummy O,Y,Z", "F1, F2, F3"),
-        ("Scale dummies", "=/-"),
-    )
-
-    # FontID
-    font = 0
-    blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-    blf.size(font, tCSize)
-    if tShadow:
-        blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset(font, tSPosX, tSPosY)
-    else:
-        blf.disable(0, blf.SHADOW)
-
-    textsize = tCSize
-    # get leftbottom corner
-    offset = tCPosY
-    columnoffs = (textsize * 21) * _uifactor
-    for line in reversed(iops_text):
-        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-        blf.position(font, tCPosX * _uifactor, offset, 0)
-        blf.draw(font, line[0])
-
-        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-        textdim = blf.dimensions(0, line[1])
-        coloffset = columnoffs - textdim[0] + tCPosX
-        blf.position(0, coloffset, offset, 0)
-        blf.draw(font, line[1])
-        offset += (tCSize + 5) * _uifactor
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw.theme import get_theme
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
@@ -84,7 +35,41 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
     def clear_draw_handlers(self):
         for handler in self.ui_handlers:
-            bpy.types.SpaceView3D.draw_handler_remove(handler, "WINDOW")
+            safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
+
+    def _build_hud(self, context):
+        hud = HUDOverlay("three_point_rotation")
+        hud.title = "3 Point Rotation"
+        hud.bind_region(context.region)
+        return hud
+
+    def _build_help(self, context):
+        helpo = HelpOverlay("three_point_rotation")
+        helpo.add_section(HUDSection("3 Point Rotation", [
+            HUDItem("Reset transforms",   "0",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle lock",        "1",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle 2 point",     "2",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle 3 point",     "3",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Select all dummies", "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip Y and Z",       "F",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle snaps",       "S",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Translate/Rotate",   "G / R",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Select O/Y/Z dummy", "F1 / F2 / F3", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Scale dummies",      "= / -",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Finish",             "Space",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",             "Esc",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        helpo.bind_region(context.region)
+        return helpo
+
+    def _draw_hud(self, context):
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if getattr(self, "hud", None) is not None:
+            self.hud.draw(context, last_event)
 
     def store_snaps(self, context):
         self.snaps = {
@@ -256,6 +241,20 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             )
 
     def modal(self, context, event):
+        context.area.tag_redraw()
+        self._last_event = event
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             # Allow only dummies selection
             ao = bpy.context.view_layer.objects.active
@@ -511,14 +510,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self.select_target(context, "O_Dummy", active=True, deselect=True)
 
         if context.object and context.space_data.type == "VIEW_3D":
-            uidpi = int((72 * preferences.system.ui_scale))
-            args_text = (self, context, uidpi, preferences.system.ui_scale)
-            # Add draw handlers
-            self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
-                draw_iops_text, args_text, "WINDOW", "POST_PIXEL"
+            self.hud = self._build_hud(context)
+            self._help = self._build_help(context)
+            self._last_event = event
+            self._handle_iops_text = safe_handler_add(
+                bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
             )
             self.ui_handlers = [self._handle_iops_text]
-            # Modal handler
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
         else:

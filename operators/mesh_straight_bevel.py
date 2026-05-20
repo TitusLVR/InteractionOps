@@ -1,12 +1,17 @@
 import bpy
 import bmesh
 import math
-import blf
-import gpu
-from gpu_extras.batch import batch_for_shader
+from mathutils import Vector
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty
 from mathutils.geometry import intersect_line_line
+
+from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw.theme import get_theme
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 
 EPS = 1e-5
@@ -20,7 +25,7 @@ def _purge_handles():
     while _ACTIVE_HANDLES:
         h = _ACTIVE_HANDLES.pop()
         try:
-            bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+            safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
         except (ValueError, RuntimeError):
             pass
 
@@ -258,9 +263,23 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
         _purge_handles()
 
-        self._shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
+        self._hud = HUDOverlay("straight_bevel")
+        self._hud.title = "Straight Bevel"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("straight_bevel")
+        self._help.add_section(HUDSection("Straight Bevel", [
+            HUDItem("Adjust offset", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Percent bevel", "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm",       "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",        "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._help.bind_region(context.region)
+        self._last_event = event
+
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
         _ACTIVE_HANDLES.add(self._handle)
 
         context.workspace.status_text_set(self._status_text())
@@ -272,6 +291,18 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
+        self._last_event = event
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
                 and self._pct_active and event.value == "PRESS":
@@ -402,7 +433,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if h is not None:
             _ACTIVE_HANDLES.discard(h)
             try:
-                bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
             except (ValueError, RuntimeError):
                 pass
             self._handle = None
@@ -665,16 +696,9 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
         if not line_pts:
             return
-        gpu.state.blend_set("ALPHA")
-        gpu.state.line_width_set(2.0)
-        self._shader.bind()
-        # Distinct hue from the perpendicular preview (1.0, 0.7, 0.2)
-        # so the two layers read separately.
-        self._shader.uniform_float("color", (1.0, 0.4, 0.05, 0.85))
-        batch = batch_for_shader(self._shader, "LINES", {"pos": line_pts})
-        batch.draw(self._shader)
-        gpu.state.line_width_set(1.0)
-        gpu.state.blend_set("NONE")
+        coords3 = [Vector((p[0], p[1], 0.0)) for p in line_pts]
+        with draw_scope(blend="ALPHA"):
+            draw.edges_3d(coords3, role=Role.LOCKED_LINE, context=bpy.context)
 
     def _draw_callback(self, context):
         region = context.region
@@ -693,7 +717,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             if h is not None:
                 _ACTIVE_HANDLES.discard(h)
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
             return
@@ -709,54 +733,27 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             endpoints_2d.append(pb)
 
         if segs_2d:
-            gpu.state.blend_set("ALPHA")
-            gpu.state.line_width_set(2.0)
-            self._shader.bind()
-            self._shader.uniform_float("color", (1.0, 0.7, 0.2, 1.0))
-            batch = batch_for_shader(self._shader, "LINES", {"pos": segs_2d})
-            batch.draw(self._shader)
-
-            segs = 24
-            radius = 6.0
-            tris = []
-            for ep in endpoints_2d:
-                cx, cy = ep
-                ring = [
-                    (cx + math.cos(2 * math.pi * i / segs) * radius,
-                     cy + math.sin(2 * math.pi * i / segs) * radius)
-                    for i in range(segs)
-                ]
-                for i in range(segs):
-                    j = (i + 1) % segs
-                    tris.extend([(cx, cy), ring[i], ring[j]])
-            if tris:
-                batch = batch_for_shader(self._shader, "TRIS", {"pos": tris})
-                batch.draw(self._shader)
-
-            gpu.state.line_width_set(1.0)
-            gpu.state.blend_set("NONE")
+            coords3 = [Vector((p[0], p[1], 0.0)) for p in segs_2d]
+            with draw_scope(blend="ALPHA"):
+                draw.edges_3d(coords3, role=Role.PREVIEW_LINE, context=context)
+                if endpoints_2d:
+                    pts3 = [Vector((p[0], p[1], 0.0)) for p in endpoints_2d]
+                    draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
 
         if self._pct_active:
             self._draw_pct_overlay(region, rv3d, mw)
 
-        font_id = 0
-        try:
-            prefs = context.preferences.addons["InteractionOps"].preferences
-            tCSize = getattr(prefs, "text_size", 18)
-            tCPosX = getattr(prefs, "text_pos_x", 30)
-            tCPosY = getattr(prefs, "text_pos_y", 90)
-            tColor = getattr(prefs, "text_color", (1.0, 1.0, 1.0, 1.0))
-        except (KeyError, AttributeError):
-            tCSize, tCPosX, tCPosY = 18, 30, 90
-            tColor = (1.0, 1.0, 1.0, 1.0)
-        ui = context.preferences.system.ui_scale
-        blf.size(font_id, int(tCSize * ui))
-        blf.color(font_id, *tColor)
-        blf.position(font_id, tCPosX * ui, tCPosY * ui, 0)
-        label = f"Straight Bevel: {self.offset:.4f}"
-        if self._input_str:
-            label += f"  (typing: {self._input_str})"
-        blf.draw(font_id, label)
+        hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if hud is not None:
+            label = f"Straight Bevel: {self.offset:.4f}"
+            if self._input_str:
+                label += f"  (typing: {self._input_str})"
+            hud.set_header(label)
+            hud.draw(context, last_event)
 
     # ------------------------------------------------------------------
     # Execute (topology change)

@@ -4,10 +4,15 @@ import mathutils
 import bmesh
 import math
 from mathutils import Vector, Matrix
-import gpu
-from gpu_extras.batch import batch_for_shader
 import bpy_extras
-import blf
+
+from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw.theme import get_theme
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
+from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
 DEFAULT_ANGLE_THRESHOLD = 5.0
@@ -26,6 +31,21 @@ MAX_RAYCAST_ITERATIONS = 100
 RAYCAST_OFFSET_DISTANCE = 0.0001
 EPSILON = 1e-6
 DEFAULT_INSET_DISTANCE_CM = 10.0
+
+
+# Set of (post_kind, handle) tuples for SpaceView3D draw handlers owned by
+# this operator. Survives addon reloads and orphaned exits so a fresh invoke
+# can clean up after dead instances.
+_ACTIVE_HANDLES: set = set()
+
+
+def _drop_stale_handles():
+    for kind, h in list(_ACTIVE_HANDLES):
+        try:
+            safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
+        except (ValueError, RuntimeError):
+            pass
+        _ACTIVE_HANDLES.discard((kind, h))
 
 NUMERIC_KEYS = {
     'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
@@ -54,6 +74,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     normal_axis = 'X'
     lock_orientation = False
     locked_rotation = None
+    locked_edge_world = None  # (Vector, Vector) world-space snapshot of the edge that defined the lock
     world_axis = 'X'  # Track current world axis alignment: 'X', 'Y', or 'Z'
 
     # Add timer for better modal handling
@@ -83,6 +104,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     inset_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
     inset_input_string = ""
     inset_points = []
+    # Bevel mode: when active, the operator produces TWO parallel cuts
+    # offset ±inset_distance_bu perpendicular to the would-be cut line, in
+    # the hit face plane. Affects both the live preview lines and the
+    # execute step. Distance is shared with Inset.
+    bevel_active = False
 
     # Edge marking system (M toggles, N cycles type)
     mark_edges_active = False
@@ -311,11 +337,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             inset_info = f"ON:{self._fmt(v_display)}{suffix}"
         else:
             inset_info = "OFF"
+        if self.bevel_active:
+            scale, suffix = self._bu_to_display_units(context)
+            v_display = self.inset_distance_bu * scale
+            bevel_info = f"ON:{self._fmt(v_display)}{suffix}"
+        else:
+            bevel_info = "OFF"
         mark_status = f"ON:{self._current_mark_type()}" if self.mark_edges_active else f"OFF:{self._current_mark_type()}"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [M] Mark({mark_status}) | [N] Mark Type | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [B] Bevel({bevel_info}) | [M] Mark({mark_status}) | [N] Mark Type | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -353,6 +385,25 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def _fmt(value):
         """Format a distance value: strip unnecessary trailing zeros"""
         return f"{value:.2f}".rstrip('0').rstrip('.')
+
+    def _snapshot_active_edge_world(self):
+        """Capture the currently-highlighted edge endpoints in world space."""
+        if not (self.hit_obj and self.face_edges and
+                0 <= self.edge_index < len(self.face_edges)):
+            return None
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return None
+            bm = bmesh.from_edit_mesh(self.hit_obj.data)
+            bm.edges.ensure_lookup_table()
+            edge_idx = self.face_edges[self.edge_index]
+            if edge_idx >= len(bm.edges):
+                return None
+            v1, v2 = bm.edges[edge_idx].verts
+            mw = self.hit_obj.matrix_world
+            return (mw @ v1.co.copy(), mw @ v2.co.copy())
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return None
 
     def get_edge_split_distances(self, context):
         """Calculate the edge length and split distance (cursor to nearest vertex)"""
@@ -404,7 +455,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def select_coplanar_faces(self, context, event):
         """Select faces that are coplanar with the clicked face within angle threshold"""
-        result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+        result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event, full=True)
         if not result or not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
             return
 
@@ -506,34 +557,60 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     # Part 4: Modal Method (First Half)
 
     def modal(self, context, event):
+        # Track latest event for HUD positioning
+        self._last_event = event
+        # HUD/Help toggles. Keys come from keymap items
+        # (iops.ui_help_toggle, iops.ui_hud_params_toggle), editable in
+        # the addon's Keymaps tab.
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "help", None)
+            hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+        # Pin HUD during viewport navigation. Rolling timer is refreshed on
+        # every nav-related event; once events stop coming, the HUD resumes
+        # cursor-follow automatically. Warp detection inside HUDOverlay
+        # handles drift between explicit pin events.
+        if getattr(self, "hud", None) is not None:
+            if event.type == 'MIDDLEMOUSE':
+                self.hud.pin_for(0.5)
+            elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+                self.hud.pin_for(0.3)
+            elif event.type == 'TRACKPADPAN':
+                self.hud.pin_for(0.3)
+        # Keep HUD item states in sync with operator state every frame
+        self._sync_hud_state()
         # Handle timer events
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 
-        # Inset points numeric input: intercept keys when inset input is active
-        if self.inset_active and event.value == 'PRESS':
+        # Inset/Bevel numeric input: intercept digits when either mode is on.
+        if (self.inset_active or self.bevel_active) and event.value == 'PRESS':
             if self._handle_inset_input(context, event):
                 return {'RUNNING_MODAL'}
 
-        # Handle Ctrl+Wheel for edge subdivision control
+        # Handle Ctrl+Wheel for edge subdivision control.
+        # Always consume so Blender's default mesh.select_more (also bound to
+        # Ctrl+Wheel in edit mode) doesn't fire underneath this modal.
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.ctrl and not event.shift:
             if self.snapping_enabled:
                 if event.type == 'WHEELUPMOUSE':
                     self.edge_subdivisions = min(self.edge_subdivisions + 1, 100)
                 else:
                     self.edge_subdivisions = max(self.edge_subdivisions - 1, 0)
-
-                # Update snap points with new subdivision
                 if self.hit_obj and self.hit_face_index != -1 and not self.hold_snap_points:
                     self.update_snapping(context, context.scene.cursor.location)
-
                 if self.fill_cut_mode:
                     self.calculate_fill_cut_preview(context)
-
                 self.update_status_bar(context)
                 context.area.tag_redraw()
-                return {'RUNNING_MODAL'}  # Consume the event
-            return {'PASS_THROUGH'}
+            return {'RUNNING_MODAL'}
 
         # Handle Alt+Wheel for Z-axis rotation
         elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt and not event.shift and not event.ctrl:
@@ -605,8 +682,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                 # Only reset edge cache if face changed AND not holding snap points
                 if face_changed and not self.hold_snap_points:
-                    self.face_edges.clear()  # Reset edge cache
-                    self.edge_index = 0  # Reset edge index
+                    self.face_edges.clear()
+                    self.edge_index = 0
 
                 # Update edge selection based on mouse position
                 try:
@@ -617,11 +694,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     if face_index < len(bm.faces):
                         face = bm.faces[face_index]
                         if face.edges:
-                            # Update face edges if needed
                             if not self.face_edges or face_changed:
                                 self.face_edges = [e.index for e in face.edges]
-
-                            # Find closest edge to mouse cursor
                             closest_edge = self.find_closest_edge_to_mouse(context, event, face)
                             if closest_edge != self.edge_index:
                                 self.edge_index = closest_edge
@@ -655,6 +729,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
+
     # Part 5: Modal Method (Second Half)
 
         # Toggle orientation lock
@@ -663,6 +738,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             if self.lock_orientation and self.hit_obj:
                 self.align_cursor_orientation()
+                self.locked_edge_world = self._snapshot_active_edge_world()
+            else:
+                self.locked_edge_world = None
 
             self.update_status_bar(context)
             context.area.tag_redraw()
@@ -701,7 +779,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.select_coplanar_faces(context, event)
             else:
                 # Regular RMB: Toggle face selection
-                result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event)
+                result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event, full=True)
                 if result and obj and obj.type == 'MESH' and obj.mode == 'EDIT':
                     try:
                         bm = bmesh.from_edit_mesh(obj.data)
@@ -746,15 +824,36 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         elif event.type == 'V' and event.value == 'PRESS' and not event.shift and not event.ctrl:
             self.inset_active = not self.inset_active
             if self.inset_active:
+                # Force-enable snap: inset points are meaningless without
+                # snapping to them.
+                self.snapping_enabled = True
                 scale, _ = self._bu_to_display_units(context)
                 display_val = self.inset_distance_bu * scale
                 self.inset_input_string = self._fmt(display_val)
                 self.calculate_inset_points()
             else:
                 self.inset_points = []
-                self.inset_input_string = ""
+                if not self.bevel_active:
+                    self.inset_input_string = ""
             if self.hit_obj and self.hit_face_index != -1:
                 self.update_snapping(context, context.scene.cursor.location)
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Toggle bevel mode — two parallel cuts offset perpendicular to
+        # the cut line in the face plane (distance shared with Inset).
+        elif event.type == 'B' and event.value == 'PRESS' and not event.shift and not event.ctrl and not event.alt:
+            self.bevel_active = not self.bevel_active
+            if self.bevel_active:
+                if not self.inset_input_string:
+                    scale, _ = self._bu_to_display_units(context)
+                    self.inset_input_string = self._fmt(self.inset_distance_bu * scale)
+            else:
+                if not self.inset_active:
+                    self.inset_input_string = ""
+            # Refresh preview so the second line appears/disappears now.
+            self.calculate_cut_preview(context)
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -882,6 +981,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
         axis_world = rotation @ axis
 
+        # Bevel mode → two parallel planes offset ±perp*d; else one plane.
+        plane_origins_world = self._plane_origins_world(context)
+
         success_count = 0
 
         # Execute bisect on each object
@@ -900,46 +1002,53 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # afterward without leaning on select-flush heuristics.
                 sel_layer = self._snapshot_face_selection(bm, is_vis)
 
-                # Build geom for bisect: selected visible faces if any, else all visible
-                selected_faces = [f for f in bm.faces if f[sel_layer] == 1]
-                if selected_faces:
-                    source_faces = selected_faces
-                else:
-                    source_faces = [f for f in bm.faces if is_vis(f)]
-
-                if not source_faces:
-                    self._remove_layer_safe(bm, sel_layer)
-                    continue
-
-                geom = list({v for f in source_faces for v in f.verts} |
-                            {e for f in source_faces for e in f.edges} |
-                            set(source_faces))
-
                 # Transform plane to object space
                 obj_matrix = obj.matrix_world
                 plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
                 plane_no.normalize()
-                plane_co = obj_matrix.inverted() @ cursor.location
 
-                result = bmesh.ops.bisect_plane(
-                    bm,
-                    geom=geom,
-                    plane_co=plane_co,
-                    plane_no=plane_no,
-                    dist=BISECT_PLANE_EPSILON,
-                )
+                all_cut_edges = []
+                for origin_world in plane_origins_world:
+                    # Rebuild source geom each pass — the prior bisect added
+                    # new verts/edges to bm and we want the second cut to
+                    # see them so it slices the freshly-split faces too.
+                    selected_faces = [f for f in bm.faces if f[sel_layer] == 1]
+                    if selected_faces:
+                        source_faces = selected_faces
+                    else:
+                        source_faces = [f for f in bm.faces if is_vis(f)]
+                    if not source_faces:
+                        continue
 
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
+                    geom = list({v for f in source_faces for v in f.verts} |
+                                {e for f in source_faces for e in f.edges} |
+                                set(source_faces))
 
-                # Collect cut edges for optional marking. geom_cut holds only
-                # BMVert + BMEdge — no faces ever lie on the plane.
-                cut_edges = [e for e in result.get('geom_cut', ())
-                             if isinstance(e, bmesh.types.BMEdge) and e.is_valid]
+                    plane_co = obj_matrix.inverted() @ origin_world
 
-                if self.mark_edges_active and cut_edges:
-                    self._apply_edge_mark(bm, cut_edges)
+                    result = bmesh.ops.bisect_plane(
+                        bm,
+                        geom=geom,
+                        plane_co=plane_co,
+                        plane_no=plane_no,
+                        dist=BISECT_PLANE_EPSILON,
+                    )
+
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+
+                    all_cut_edges.extend(
+                        e for e in result.get('geom_cut', ())
+                        if isinstance(e, bmesh.types.BMEdge) and e.is_valid
+                    )
+
+                if not plane_origins_world:
+                    self._remove_layer_safe(bm, sel_layer)
+                    continue
+
+                if self.mark_edges_active and all_cut_edges:
+                    self._apply_edge_mark(bm, all_cut_edges)
 
                 # Merge doubles if requested
                 if self.merge_doubles:
@@ -995,6 +1104,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         props.cursor_bisect_inset_active = self.inset_active
         props.cursor_bisect_inset_distance = self.inset_distance_bu
         props.cursor_bisect_inset_input = self.inset_input_string
+        props.cursor_bisect_bevel_active = self.bevel_active
         props.cursor_bisect_mark_active = self.mark_edges_active
         props.cursor_bisect_mark_type_idx = self.mark_type_idx
 
@@ -1010,6 +1120,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.inset_active = props.cursor_bisect_inset_active
         self.inset_distance_bu = props.cursor_bisect_inset_distance
         self.inset_input_string = props.cursor_bisect_inset_input
+        self.bevel_active = props.cursor_bisect_bevel_active
         self.mark_edges_active = props.cursor_bisect_mark_active
         self.mark_type_idx = props.cursor_bisect_mark_type_idx
 
@@ -1021,15 +1132,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.restore_modifier_states(context)
         
         if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_VIEW', self._handle))
             self._handle = None
 
         if self._handle_pixel:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_pixel, 'WINDOW')
+            safe_handler_remove(self._handle_pixel, bpy.types.SpaceView3D, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_pixel))
             self._handle_pixel = None
 
         if self._handle_iops_text:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_iops_text, 'WINDOW')
+            safe_handler_remove(self._handle_iops_text, bpy.types.SpaceView3D, 'WINDOW')
+            _ACTIVE_HANDLES.discard(('POST_PIXEL', self._handle_iops_text))
             self._handle_iops_text = None
 
         if self._timer:
@@ -1054,156 +1168,38 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 row.prop(prefs, "cursor_bisect_merge_distance", text="Merge Distance")
 
     def calculate_snap_points(self, face):
-        """Calculate snap points for a face: vertices, center, and edge midpoints with subdivisions"""
-        if not face:
-            return []
-
-        snap_points = []
-
-        # Face vertices
-        for vert in face.verts:
-            snap_points.append(('vertex', vert.co.copy()))
-
-        # Face center
-        face_center = face.calc_center_median()
-        snap_points.append(('center', face_center))
-
-        # Edge points with subdivisions (only if subdivisions > 0)
-        if self.edge_subdivisions > 0:
-            for edge in face.edges:
-                v1, v2 = edge.verts
-                # Add subdivided points along edge
-                for i in range(1, self.edge_subdivisions + 1):
-                    t = i / (self.edge_subdivisions + 1)
-                    point = v1.co.lerp(v2.co, t)
-                    snap_points.append(('edge', point))
-
-        return snap_points
+        """Delegates to utils.picking.face_snap_points (the canonical
+        implementation lifted from this operator). Subdivisions come from
+        the operator's local state."""
+        from ..utils.picking import face_snap_points
+        return face_snap_points(face, subdivisions=self.edge_subdivisions)
     
     # Part 8: Snap Point Methods
 
     def find_closest_snap_point(self, context, mouse_coord, mouse_pos_world):
-        """Find closest snap point using weighted screen + world distance"""
-        if not self.snap_points or not context:
+        """Find the snap point closest to the mouse using weighted screen +
+        world distance. Delegates to utils.picking."""
+        from ..utils.picking import closest_snap_point
+        if not self.snap_points or not context or self.hit_obj is None:
             return None
-
+        prefs = self.get_preferences(context)
+        threshold_px = (prefs.cursor_bisect_snap_threshold
+                        if prefs and hasattr(prefs, "cursor_bisect_snap_threshold")
+                        else DEFAULT_SNAP_THRESHOLD)
         try:
-            region = context.region
-            rv3d = context.space_data.region_3d
-
-            # Get thresholds
-            prefs = self.get_preferences(context)
-            if prefs and hasattr(prefs, 'cursor_bisect_snap_threshold'):
-                screen_threshold = prefs.cursor_bisect_snap_threshold
-            else:
-                screen_threshold = DEFAULT_SNAP_THRESHOLD
-
-            closest_point = None
-            best_weighted_score = float('inf')
-
-            # Calculate adaptive world threshold
-            obj_scale = self.hit_obj.matrix_world.to_scale()
-            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-            world_threshold = max(0.1, min(max_scale * 0.02, 10.0))
-
-            for snap_type, point_local in self.snap_points:
-                point_world = self.hit_obj.matrix_world @ point_local
-
-                # Calculate world distance (always available)
-                world_distance = (point_world - mouse_pos_world).length
-                world_score = world_distance / world_threshold  # Normalize to 0-1+ range
-
-                # Try screen distance
-                point_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, point_world)
-
-                if point_screen and 0 <= point_screen[0] <= region.width and 0 <= point_screen[1] <= region.height:
-                    # Screen projection successful
-                    screen_distance = (Vector(mouse_coord) - Vector(point_screen)).length
-                    screen_score = screen_distance / screen_threshold  # Normalize to 0-1+ range
-
-                    # Weighted combination: prefer screen distance but include world as backup
-                    weighted_score = (screen_score * 0.7) + (world_score * 0.3)
-                else:
-                    # No screen projection - use world distance only
-                    weighted_score = world_score
-
-                # Only consider points within reasonable range
-                if weighted_score < 1.5 and weighted_score < best_weighted_score:
-                    best_weighted_score = weighted_score
-                    closest_point = (snap_type, point_local, point_world)
-
-            return closest_point if best_weighted_score < 1.0 else None
-
+            return closest_snap_point(context, self.snap_points,
+                                      self.hit_obj.matrix_world,
+                                      mouse_coord, mouse_pos_world,
+                                      screen_threshold_px=threshold_px)
         except Exception:
-            return self.find_closest_snap_point_fallback(mouse_pos_world)
-
-    def find_closest_snap_point_fallback(self, mouse_pos_world):
-        """Fallback method using world-space distance with adaptive threshold"""
-        if not self.snap_points:
             return None
-
-        closest_point = None
-        closest_distance = float('inf')
-
-        for snap_type, point_local in self.snap_points:
-            point_world = self.hit_obj.matrix_world @ point_local
-            distance = (point_world - mouse_pos_world).length
-
-            if distance < closest_distance:
-                closest_distance = distance
-                closest_point = (snap_type, point_local, point_world)
-
-        # Use adaptive threshold based on object scale
-        if self.hit_obj and closest_point:
-            obj_scale = self.hit_obj.matrix_world.to_scale()
-            max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-            adaptive_threshold = 0.5 * max_scale
-            adaptive_threshold = max(0.1, min(adaptive_threshold, 50.0))
-
-            if closest_distance < adaptive_threshold:
-                return closest_point
-
-        return None
 
     def find_closest_edge_to_mouse(self, context, event, face):
-        """Find the closest edge in the face to the mouse cursor"""
-        if not face or not face.edges:
-            return 0
-
-        region = context.region
-        rv3d = context.space_data.region_3d
+        """Find the closest edge in the face to the mouse cursor."""
+        from ..utils.picking import closest_face_edge
         mouse_coord = (event.mouse_region_x, event.mouse_region_y)
-
-        closest_edge_index = 0
-        closest_distance = float('inf')
-
-        for i, edge in enumerate(face.edges):
-            v1, v2 = edge.verts
-
-            # Transform vertices to world space
-            v1_world = self.hit_obj.matrix_world @ v1.co
-            v2_world = self.hit_obj.matrix_world @ v2.co
-
-            # Project to screen space
-            v1_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v1_world)
-            v2_screen = bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, v2_world)
-
-            if v1_screen and v2_screen:
-                # Calculate distance from mouse to edge in screen space
-                edge_vec = Vector((v2_screen[0] - v1_screen[0], v2_screen[1] - v1_screen[1]))
-                mouse_vec = Vector((mouse_coord[0] - v1_screen[0], mouse_coord[1] - v1_screen[1]))
-
-                if edge_vec.length > 0:
-                    # Project mouse vector onto edge vector
-                    t = max(0, min(1, mouse_vec.dot(edge_vec) / edge_vec.length_squared))
-                    projection = Vector(v1_screen) + t * edge_vec
-                    distance = (Vector(mouse_coord) - projection).length
-
-                    if distance < closest_distance:
-                        closest_distance = distance
-                        closest_edge_index = i
-
-        return closest_edge_index
+        return closest_face_edge(context, face,
+                                 self.hit_obj.matrix_world, mouse_coord)
 
     def update_snapping(self, context, mouse_pos_world):
         """Update snap points and find closest snap point"""
@@ -1270,7 +1266,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return False
 
         self._update_inset_distance(context)
-        self.calculate_inset_points()
+        if self.inset_active:
+            self.calculate_inset_points()
+        if self.bevel_active:
+            self.calculate_cut_preview(context)
         if self.hit_obj and self.hit_face_index != -1:
             self.update_snapping(context, context.scene.cursor.location)
         self.update_status_bar(context)
@@ -1329,6 +1328,61 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         except (IndexError, AttributeError, ValueError, ReferenceError):
             pass
 
+    def _bevel_offset_world(self, context):
+        """World-space offset vector for bevel mode: perp_world * d, where
+        perp is the in-face direction perpendicular to the cut line and d
+        is `inset_distance_bu`. Returns None if bevel can't be computed
+        (no hit face, degenerate geometry, zero distance)."""
+        if not self.bevel_active:
+            return None
+        if not self.hit_obj or self.hit_face_index < 0:
+            return None
+        if self.inset_distance_bu <= EPSILON:
+            return None
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return None
+            bm = bmesh.from_edit_mesh(self.hit_obj.data)
+            bm.faces.ensure_lookup_table()
+            if self.hit_face_index >= len(bm.faces):
+                return None
+            face = bm.faces[self.hit_face_index]
+            obj_mat = self.hit_obj.matrix_world
+            face_normal_world = (obj_mat.to_3x3() @ face.normal)
+            if face_normal_world.length < EPSILON:
+                return None
+            face_normal_world.normalize()
+
+            cursor = context.scene.cursor
+            rotation = (self.locked_rotation if self.lock_orientation
+                        else cursor.matrix.to_quaternion())
+            axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
+            plane_no_world = rotation @ axis
+            plane_no_world.normalize()
+
+            # In-face direction perpendicular to the cut line: strip the
+            # face-normal component out of plane_no_world.
+            perp = plane_no_world - face_normal_world * plane_no_world.dot(face_normal_world)
+            if perp.length < EPSILON:
+                return None
+            perp.normalize()
+            # `inset_distance_bu` is the FULL gap between the two bevel
+            # planes — each plane sits at ±d/2 from the cursor.
+            return perp * (self.inset_distance_bu * 0.5)
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return None
+
+    def _plane_origins_world(self, context):
+        """Return the list of world-space origins for cut planes this
+        frame: a single cursor position normally, or two offset positions
+        in bevel mode."""
+        cursor = context.scene.cursor.location
+        if self.bevel_active:
+            off = self._bevel_offset_world(context)
+            if off is not None:
+                return [cursor + off, cursor - off]
+        return [cursor]
+
     def draw_inset_input_text(self, context):
         """Draw the inset distance input text near the mouse cursor."""
         if not self.inset_active:
@@ -1344,20 +1398,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             text_y = mouse_y + self.distance_text_offset_y - (self.distance_text_size + 6)
 
             region = context.region
-            font_id = 0
-            blf.size(font_id, self.distance_text_size)
-            text_width, text_height = blf.dimensions(font_id, v_text)
+            theme = get_theme(context)
+            text_width, text_height = measure_text(v_text, theme=theme,
+                                                   size_token="small")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, 5, 0, 0, 0, 1)
-            blf.shadow_offset(font_id, 1, -1)
-
-            blf.color(font_id, 0.4, 1.0, 1.0, 1.0)
-            blf.position(font_id, text_x, text_y, 0)
-            blf.draw(font_id, v_text)
+            draw_text(v_text, int(text_x), int(text_y),
+                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError):
             pass
@@ -1483,29 +1532,38 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Line elevation is not a preference property, use default
         line_elevation = DEFAULT_LINE_ELEVATION
 
+        # In bevel mode there are two parallel cut planes offset along the
+        # in-face perpendicular by ±d; otherwise a single plane through
+        # the cursor.
+        plane_origins_world = self._plane_origins_world(context)
+
         # Calculate cut preview for each object
         for obj in edit_objects:
+          try:
+            # Check if object is still in edit mode
+            if obj.mode != 'EDIT':
+                continue
+
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+
+            obj_matrix = obj.matrix_world
+            plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
+            plane_no.normalize()
+
+            # Get faces to process with improved selection and visibility checking
+            faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
+
+            if not faces_to_process:
+                continue
+          except (IndexError, AttributeError, ValueError):
+            continue
+
+          for origin_world in plane_origins_world:
             try:
-                # Check if object is still in edit mode
-                if obj.mode != 'EDIT':
-                    continue
-
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-
-                # Transform plane to object space
-                obj_matrix = obj.matrix_world
-                plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
-                plane_no.normalize()
-                plane_co = obj_matrix.inverted() @ cursor.location
-
-                # Get faces to process with improved selection and visibility checking
-                faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
-
-                if not faces_to_process:
-                    continue
+                plane_co = obj_matrix.inverted() @ origin_world
 
                 # Collect intersection points per face to create connected lines
                 face_intersections = {}
@@ -1875,90 +1933,100 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         return {'FINISHED'}
 
-    # Draw Help text
+    # Draw Help text — unified HUD overlay
     def draw_iops_text(self, context):
-        preferences = context.preferences
-        uifactor = preferences.system.ui_scale
-        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-        
-        # Text appearance settings
-        tColor = prefs.text_color
-        tKColor = prefs.text_color_key
-        tCSize = prefs.text_size
-        tCPosX = prefs.text_pos_x
-        tCPosY = prefs.text_pos_y
-        
-        # Shadow settings
-        tShadow = prefs.text_shadow_toggle
-        tSColor = prefs.text_shadow_color
-        tSBlur = prefs.text_shadow_blur
-        tSPosX = prefs.text_shadow_pos_x
-        tSPosY = prefs.text_shadow_pos_y
-        
-        # Instructions text (action, key)
-        iops_text = (
-            ("Snap", "S"),
-            ("Subdivide", "Ctrl+Wheel"),
-            ("Hold Points", "D"),
-            ("Fill Cut", "F"),
-            ("Inset Points", "V + value"),
-            ("Mark Cut Edges", "M"),
-            ("Mark Type", "N"),
-            ("Select Face", "RMB"),
-            ("Coplanar Select", "Shift+RMB"),
-            ("Rotate", "Alt+Wheel"),
-            ("Lock Orientation", "A"),
-            ("Select Direction", "X"),
-            ("World Align", "W"),
-            ("Preview", "P"),
-            ("Distance Info", "I"),
-            ("Bisect", "LMB"),
-            ("Finish", "Space"),
-            ("Cancel", "Esc"),
-        )
-        
-        # Font setup
-        font_id = 0
-        blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-        blf.size(font_id, tCSize)
-        
-        # Configure shadow
-        if tShadow:
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-            blf.shadow_offset(font_id, tSPosX, tSPosY)
-        else:
-            blf.disable(font_id, blf.SHADOW)
-        
-        # Calculate layout - find the widest action text to avoid overlap
-        max_action_width = 0
-        for line in iops_text:
-            action_width = blf.dimensions(font_id, line[0])[0]
-            max_action_width = max(max_action_width, action_width)
-        
-        # Calculate the right edge position for key alignment
-        action_start_x = tCPosX * uifactor
-        padding = (tCSize * 2) * uifactor
-        keys_right_edge = action_start_x + max_action_width + padding + (tCSize * 15) * uifactor
-        
-        offset = tCPosY
-        
-        # Draw text lines (reversed order for bottom-up display)
-        for line in reversed(iops_text):
-            # Draw action description
-            blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-            blf.position(font_id, action_start_x, offset, 0)
-            blf.draw(font_id, line[0])
-            
-            # Draw key binding (right-aligned to the keys_right_edge)
-            blf.color(font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-            key_width = blf.dimensions(font_id, line[1])[0]
-            key_x_pos = keys_right_edge - key_width
-            blf.position(font_id, key_x_pos, offset, 0)
-            blf.draw(font_id, line[1])
-            
-            # Move to next line
-            offset += (tCSize + 5) * uifactor
+        # Resync HUD state at draw time so handlers that mutate state and
+        # only call tag_redraw (e.g. _handle_inset_input typing digits)
+        # don't leave the header showing stale values until the next
+        # mouse-move modal tick. Why: in modal() _sync_hud_state runs
+        # BEFORE the input handlers, so a same-frame state change isn't
+        # reflected without this draw-time refresh.
+        self._sync_hud_state()
+        helpo = getattr(self, "help", None)
+        hud = getattr(self, "hud", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if hud is not None:
+            hud.draw(context, last_event)
+
+    def _sync_hud_state(self):
+        """Reflect current operator state in the HUD overlay items."""
+        if getattr(self, "help", None) is None:
+            return
+        s = self.help.set_state
+        s("S", ItemState.ON if self.snapping_enabled else ItemState.OFF)
+        s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
+        s("F", ItemState.ON if self.fill_cut_mode else ItemState.OFF)
+        s("V", ItemState.ON if self.inset_active else ItemState.OFF)
+        s("B", ItemState.ON if self.bevel_active else ItemState.OFF)
+        s("M", ItemState.ON if self.mark_edges_active else ItemState.OFF)
+        s("A", ItemState.ON if self.lock_orientation else ItemState.OFF)
+        s("P", ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF)
+        s("I", ItemState.ON if self.show_distance_info else ItemState.OFF)
+        self._sync_hud_header()
+
+    def _sync_hud_header(self):
+        """Update HUD header lines: distance info (first), inset prompt (second)."""
+        if getattr(self, "hud", None) is None:
+            return
+        distance_line = None
+        if self.show_distance_info:
+            try:
+                info = self.get_edge_split_distances(bpy.context)
+            except Exception:
+                info = None
+            if info:
+                unit = info.get("unit", "")
+                total = self._fmt(info["total"])
+                split = self._fmt(info["split"])
+                distance_line = f"Edge {total}{unit}  Split {split}{unit}"
+
+        inset_line = None
+        bevel_line = None
+        if self.inset_active or self.bevel_active:
+            scale = bpy.context.scene.unit_settings.scale_length or 1.0
+            if self.inset_input_string:
+                val = self.inset_input_string
+            else:
+                val = self._fmt(self.inset_distance_bu * scale)
+            if self.inset_active:
+                inset_line = f"Inset {val}"
+            if self.bevel_active:
+                bevel_line = f"Bevel {val}"
+
+        self.hud.set_header(distance_line, inset_line, bevel_line)
+
+    def _build_hud(self, context):
+        from ..ui.draw.theme import get_theme
+        hud = HUDOverlay("cursor_bisect")
+        hud.title = "Bisect"
+        hud.bind_region(context.region)
+        helpo = HelpOverlay("cursor_bisect")
+        helpo.add_section(HUDSection("Bisect", [
+            HUDItem("Snap",             "S",          ItemState.ON if self.snapping_enabled else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Fill Cut",         "F",          ItemState.ON if self.fill_cut_mode else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Inset Points",     "V",          ItemState.ON if self.inset_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Bevel Points",     "B",          ItemState.ON if self.bevel_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Mark Cut Edges",   "M",          ItemState.ON if self.mark_edges_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Mark Type",        "N",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Select Face",      "RMB",        ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Coplanar Select",  "Shift+RMB",  ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Rotate",           "Alt+Wheel",  ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Lock Orientation", "A",          ItemState.ON if self.lock_orientation else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Select Direction", "X",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("World Align",      "W",          ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Preview",          "P",          ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Distance Info",    "I",          ItemState.ON if self.show_distance_info else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Help / Toggle HUD","H",          ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bisect",           "LMB",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
+        ]))
+        helpo.bind_region(context.region)
+        return hud, helpo
 
     # Part 11: Distance Text Drawing
 
@@ -1986,27 +2054,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             # Ensure text stays within screen bounds
             region = context.region
-            font_id = 0
-            blf.size(font_id, self.distance_text_size)
-            text_width, text_height = blf.dimensions(font_id, distance_text)
+            theme = get_theme(context)
+            text_width, text_height = measure_text(distance_text, theme=theme,
+                                                    size_token="small")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
-            # Enable shadow for readability
-            blf.enable(font_id, blf.SHADOW)
-            blf.shadow(font_id, 5, 0, 0, 0, 1)
-            blf.shadow_offset(font_id, 1, -1)
-
-            # Set text color
-            if hasattr(prefs, 'cursor_bisect_distance_text_color'):
-                text_color = prefs.cursor_bisect_distance_text_color
-            else:
-                text_color = (1.0, 1.0, 0.0, 1.0)  # Default yellow
-            blf.color(font_id, *text_color)
-            # Draw the text
-            blf.position(font_id, text_x, text_y, 0)
-            blf.draw(font_id, distance_text)
+            draw_text(distance_text, int(text_x), int(text_y),
+                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
 
         except (AttributeError, KeyError, ValueError, TypeError) as e:
             print(f"Error in draw_mouse_distance_text: {e}")
@@ -2021,6 +2077,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return
 
         if not context or not context.scene:
+            return
+
+        # Multi-viewport guard: only draw in the region where the modal was invoked.
+        mr = getattr(self, "_modal_region", None)
+        if mr is not None and context.region.as_pointer() != mr:
             return
 
         try:
@@ -2047,111 +2108,21 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 origin + (-u + v) * size,
             ]
 
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            shader.bind()
-
-            # Draw the plane fill - FROM PREFERENCES (when in PLANE mode)
+            # Draw the plane fill (when in PLANE mode)
             if self.cut_preview_mode == 'PLANE':
-                batch = batch_for_shader(shader, 'TRI_FAN', {"pos": corners})
-                if prefs and hasattr(prefs, 'cursor_bisect_plane_color'):
-                    plane_color = prefs.cursor_bisect_plane_color
-                else:
-                    plane_color = (0.5, 0.5, 1.0, 0.3)
-                shader.uniform_float("color", (plane_color[0], plane_color[1], plane_color[2], plane_color[3]))
-                gpu.state.blend_set('ALPHA')
-                gpu.state.depth_test_set('LESS')
-                batch.draw(shader)
+                # Expand TRI_FAN(corners[0..3]) into two triangles
+                fill_tris = [
+                    corners[0], corners[1], corners[2],
+                    corners[0], corners[2], corners[3],
+                ]
+                with draw_scope(blend="ALPHA", depth="LESS"):
+                    draw.tris(fill_tris, role=Role.PREVIEW_LINE, context=context)
 
-            # Draw plane outline - FROM PREFERENCES (when in PLANE mode)
-            if self.cut_preview_mode == 'PLANE':
+                # Plane outline (LINE_STRIP closed)
                 outline_coords = corners + [corners[0]]
-                batch_outline = batch_for_shader(shader, 'LINE_STRIP', {"pos": outline_coords})
-                if prefs and hasattr(prefs, 'cursor_bisect_plane_outline_color'):
-                    outline_color = prefs.cursor_bisect_plane_outline_color
-                    outline_thickness = getattr(prefs, 'cursor_bisect_plane_outline_thickness', 2.0)
-                else:
-                    outline_color = (0.5, 0.5, 1.0, 1.0)
-                    outline_thickness = 2.0
-                shader.uniform_float("color", (outline_color[0], outline_color[1], outline_color[2], outline_color[3]))
-                gpu.state.line_width_set(outline_thickness)
-                batch_outline.draw(shader)
-
-            # Draw snap points if snapping is enabled - FROM PREFERENCES
-            if self.snapping_enabled and self.snap_points and self.hit_obj:
-                try:
-                    snap_coords = []
-                    for snap_type, point_local in self.snap_points:
-                        point_world = self.hit_obj.matrix_world @ point_local
-                        snap_coords.append(point_world)
-
-                    if snap_coords:
-                        # Choose snap points color based on hold state
-                        if self.hold_snap_points:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_hold_color'):
-                                snap_color = prefs.cursor_bisect_snap_hold_color
-                            else:
-                                snap_color = (1.0, 0.5, 0.0, 1.0)
-                        else:
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_color'):
-                                snap_color = prefs.cursor_bisect_snap_color
-                            else:
-                                snap_color = (1.0, 1.0, 0.0, 1.0)
-
-                        batch_points = batch_for_shader(shader, 'POINTS', {"pos": snap_coords})
-                        shader.uniform_float("color", (snap_color[0], snap_color[1], snap_color[2], snap_color[3]))
-                        if prefs and hasattr(prefs, 'cursor_bisect_snap_size'):
-                            snap_size = prefs.cursor_bisect_snap_size
-                        else:
-                            snap_size = 8.0
-                        gpu.state.point_size_set(snap_size)
-                        gpu.state.depth_test_set('ALWAYS')
-                        batch_points.draw(shader)
-
-                        # Draw closest snap point
-                        if self.closest_snap_point:
-                            _, _, closest_world = self.closest_snap_point
-                            batch_closest = batch_for_shader(shader, 'POINTS', {"pos": [closest_world]})
-                            if self.hold_snap_points:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_hold_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_hold_color
-                                else:
-                                    closest_color = (1.0, 0.0, 0.0, 1.0)
-                            else:
-                                if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_color'):
-                                    closest_color = prefs.cursor_bisect_snap_closest_color
-                                else:
-                                    closest_color = (0.0, 1.0, 0.0, 1.0)
-                            shader.uniform_float("color", (closest_color[0], closest_color[1], closest_color[2], closest_color[3]))
-                            if prefs and hasattr(prefs, 'cursor_bisect_snap_closest_size'):
-                                closest_size = prefs.cursor_bisect_snap_closest_size
-                            else:
-                                closest_size = 12.0
-                            gpu.state.point_size_set(closest_size)
-                            batch_closest.draw(shader)
-
-                except (IndexError, AttributeError, ReferenceError, ValueError):
-                    pass
-
-            # Draw inset points as distinctive markers
-            if self.inset_active and self.inset_points and self.hit_obj:
-                try:
-                    v_coords = [self.hit_obj.matrix_world @ pt for _, pt in self.inset_points]
-                    if v_coords:
-                        v_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        v_shader.bind()
-                        v_shader.uniform_float("color", (1.0, 0.3, 0.8, 1.0))
-                        gpu.state.point_size_set(10.0)
-                        gpu.state.depth_test_set('ALWAYS')
-                        v_batch = batch_for_shader(v_shader, 'POINTS', {"pos": v_coords})
-                        v_batch.draw(v_shader)
-                except (IndexError, AttributeError, ReferenceError, ValueError):
-                    pass
-
-            # Reset GPU state
-            gpu.state.point_size_set(1.0)
-            gpu.state.line_width_set(1.0)
-            gpu.state.depth_test_set('LESS')
-            gpu.state.blend_set('NONE')
+                with draw_scope(blend="ALPHA", depth="LESS"):
+                    draw.polyline(outline_coords, role=Role.ACTIVE_LINE,
+                                  context=context)
 
             # Draw cut preview lines (when in LINES mode)
             if self.cut_preview_mode == 'LINES' and self.cut_preview_lines:
@@ -2161,19 +2132,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         preview_coords.extend([line_start, line_end])
 
                     if preview_coords:
-                        preview_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        preview_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_cut_preview_color'):
-                            preview_color = prefs.cursor_bisect_cut_preview_color
-                        else:
-                            preview_color = (1.0, 0.5, 0.0, 1.0)
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_cut_preview_thickness'):
-                            preview_thickness = prefs.cursor_bisect_cut_preview_thickness
-                        else:
-                            preview_thickness = 3.0
-
                         # Calculate viewport distance to determine depth test mode
                         rv3d = context.space_data.region_3d
                         if rv3d and rv3d.view_perspective != 'ORTHO':
@@ -2183,23 +2141,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             viewport_distance = (cursor_location - camera_location).length
                         else:
                             viewport_distance = rv3d.view_distance if rv3d else 10.0
-                        
-                        # Use ALWAYS depth test when very close to ensure visibility
-                        # Otherwise use LESS_EQUAL for proper depth sorting
+
                         if viewport_distance < 0.5:
                             depth_test_mode = 'ALWAYS'
                         else:
                             depth_test_mode = 'LESS_EQUAL'
 
-                        preview_shader.uniform_float("color", preview_color)
-                        gpu.state.line_width_set(preview_thickness)
-                        gpu.state.depth_test_set(depth_test_mode)
-
-                        preview_batch = batch_for_shader(preview_shader, 'LINES', {"pos": preview_coords})
-                        preview_batch.draw(preview_shader)
-
-                        gpu.state.line_width_set(1.0)
-                        gpu.state.depth_test_set('LESS')
+                        with draw_scope(blend="ALPHA", depth=depth_test_mode):
+                            draw.edges_3d(preview_coords, role=Role.PREVIEW_LINE,
+                                          context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
@@ -2212,77 +2162,74 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         fill_coords.extend([line_start, line_end])
 
                     if fill_coords:
-                        fill_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        fill_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_color'):
-                            fill_color = prefs.cursor_bisect_fill_cut_color
-                        else:
-                            fill_color = (0.0, 1.0, 0.5, 0.9)
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_fill_cut_thickness'):
-                            fill_thickness = prefs.cursor_bisect_fill_cut_thickness
-                        else:
-                            fill_thickness = 2.5
-
-                        fill_shader.uniform_float("color", fill_color)
-                        gpu.state.line_width_set(fill_thickness)
-                        gpu.state.depth_test_set('ALWAYS')
-
-                        fill_batch = batch_for_shader(fill_shader, 'LINES', {"pos": fill_coords})
-                        fill_batch.draw(fill_shader)
-
-                        gpu.state.line_width_set(1.0)
-                        gpu.state.depth_test_set('LESS')
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.edges_3d(fill_coords, role=Role.PREVIEW_LINE,
+                                          context=context)
 
                 except (IndexError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
 
-            # Draw highlighted edge
-            if self.hit_obj and self.face_edges and 0 <= self.edge_index < len(self.face_edges):
+            # Draw the lock-anchor edge (snapshot) in LOCKED color first…
+            if self.lock_orientation and self.locked_edge_world is not None:
                 try:
-                    if self.hit_obj.mode != 'EDIT':
-                        return
+                    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                        draw.edges_3d(list(self.locked_edge_world),
+                                      role=Role.LOCKED_LINE, context=context)
+                except (AttributeError, ValueError, ReferenceError, TypeError):
+                    pass
 
-                    mesh = self.hit_obj.data
-                    bm = bmesh.from_edit_mesh(mesh)
-                    bm.edges.ensure_lookup_table()
-
-                    edge_idx = self.face_edges[self.edge_index]
-                    if edge_idx < len(bm.edges):
-                        edge = bm.edges[edge_idx]
-                        v1, v2 = edge.verts
-
-                        world_coords = [
-                            self.hit_obj.matrix_world @ v1.co.copy(),
-                            self.hit_obj.matrix_world @ v2.co.copy()
-                        ]
-
-                        gpu.state.blend_set('NONE')
-                        gpu.state.depth_test_set('ALWAYS')
-                        gpu.state.line_width_set(1.0)
-
-                        fresh_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-                        fresh_shader.bind()
-
-                        if prefs and hasattr(prefs, 'cursor_bisect_edge_color'):
-                            edge_color = prefs.cursor_bisect_edge_color
-                            edge_thickness = getattr(prefs, 'cursor_bisect_edge_thickness', 3.0)
-                        else:
-                            edge_color = (0.0, 1.0, 1.0, 1.0)
-                            edge_thickness = 3.0
-
-                        fresh_shader.uniform_float("color", (edge_color[0], edge_color[1], edge_color[2], edge_color[3]))
-                        gpu.state.line_width_set(edge_thickness)
-                        gpu.state.depth_test_set('ALWAYS')
-
-                        fresh_batch = batch_for_shader(fresh_shader, 'LINES', {"pos": world_coords})
-                        fresh_batch.draw(fresh_shader)
-
-                        gpu.state.line_width_set(1.0)
-
+            # …then the live mouse-hover edge in ACTIVE color.
+            if (self.hit_obj and self.face_edges
+                    and 0 <= self.edge_index < len(self.face_edges)):
+                try:
+                    if self.hit_obj.mode == 'EDIT':
+                        bm = bmesh.from_edit_mesh(self.hit_obj.data)
+                        bm.edges.ensure_lookup_table()
+                        edge_idx = self.face_edges[self.edge_index]
+                        if edge_idx < len(bm.edges):
+                            v1, v2 = bm.edges[edge_idx].verts
+                            mw = self.hit_obj.matrix_world
+                            world_coords = [mw @ v1.co.copy(), mw @ v2.co.copy()]
+                            with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                                draw.edges_3d(world_coords,
+                                              role=Role.ACTIVE_LINE,
+                                              context=context)
                 except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
                     pass
+
+            # Snap / inset points are drawn LAST so they sit on top of edges.
+            if self.snapping_enabled and self.snap_points and self.hit_obj:
+                try:
+                    mw = self.hit_obj.matrix_world
+                    regular = [mw @ p for kind, p in self.snap_points if kind != 'center']
+                    centers = [mw @ p for kind, p in self.snap_points if kind == 'center']
+                    snap_role = Role.PREVIEW_POINT if self.hold_snap_points else Role.POINT
+                    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                        if regular:
+                            draw.points(regular, role=snap_role, context=context)
+                        if centers:
+                            draw.points(centers, role=Role.ACTIVE_POINT,
+                                        context=context)
+                        if self.closest_snap_point:
+                            _, _, closest_world = self.closest_snap_point
+                            closest_role = (Role.ACTIVE_POINT if self.hold_snap_points
+                                            else Role.CLOSEST_POINT)
+                            draw.points([closest_world], role=closest_role,
+                                        context=context)
+                except (IndexError, AttributeError, ReferenceError, ValueError):
+                    pass
+
+            if self.inset_active and self.inset_points and self.hit_obj:
+                try:
+                    v_coords = [self.hit_obj.matrix_world @ pt
+                                for _, pt in self.inset_points]
+                    if v_coords:
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.points(v_coords, role=Role.PREVIEW_POINT,
+                                        context=context)
+                except (IndexError, AttributeError, ReferenceError, ValueError):
+                    pass
+
 
         except (ReferenceError, AttributeError, ValueError) as e:
             print(f"DEBUG: Exception in draw_callback: {e}")
@@ -2290,86 +2237,33 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Part 14: Final Methods and Registration
     def draw_distance_text_callback(self, context):
-        if self.show_distance_info:
-            self.draw_mouse_distance_text(context)
-        if self.inset_active:
-            self.draw_inset_input_text(context)
+        # Distance and inset info both live inside the HUD header now —
+        # no separate cursor-anchored text drawing.
+        return
 
-    def mouse_raycast(self, context, event):
-        """Perform raycast from mouse position - filter to selected objects only"""
-        region = context.region
-        rv3d = context.space_data.region_3d
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        depsgraph = context.evaluated_depsgraph_get()
-        
-        # Get selected mesh objects for filtering
-        selected_mesh_objects = set(obj for obj in context.selected_objects if obj.type == 'MESH')
-        
+    def mouse_raycast(self, context, event, *, full=False):
+        """Raycast filtered to selected mesh objects.
+
+        `full=False` (default, used for MOUSEMOVE hover tracking): one ray
+        from the cursor; if it misses, return miss immediately. Keeps the
+        modal handler fast so the HUD/redraw stays responsive when the
+        cursor leaves the mesh.
+
+        `full=True` (used by commit actions like LMB / fill-cut): adds the
+        8-corner viewport fallback so a click on a very large face whose
+        center is occluded still resolves."""
+        from ..utils.picking import (
+            raycast_from_mouse, raycast_with_corner_fallback,
+        )
+        selected_mesh_objects = {o for o in context.selected_objects if o.type == 'MESH'}
         if not selected_mesh_objects:
-            # If no mesh objects selected, return no hit
             return False, None, None, None, None, None
-        
-        # Perform multiple raycasts to find the first hit on a selected object
-        current_ray_origin = ray_origin
-        
-        for _ in range(MAX_RAYCAST_ITERATIONS):
-            result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
-                depsgraph, current_ray_origin, view_vector
-            )
-            
-            if not result:
-                # No more hits found - try fallback strategy for large occluded faces
-                break
-            
-            if obj and obj in selected_mesh_objects:
-                # Hit a selected object - this is what we want
-                return True, location, normal, face_index, obj, matrix
-            
-            # Hit an unselected object, continue raycast from slightly beyond this point
-            if location:
-                # Move ray origin slightly past the hit point to continue raycast
-                view_vec_norm = view_vector.normalized()
-                current_ray_origin = location + (view_vec_norm * RAYCAST_OFFSET_DISTANCE)
-        
-        # Fallback: Try casting from viewport corners/edges to find large faces
-        # This helps when a face covers the viewport but its center is occluded
-        fallback_coords = [
-            (region.width * 0.1, region.height * 0.1),  # Bottom-left
-            (region.width * 0.9, region.height * 0.1),  # Bottom-right
-            (region.width * 0.1, region.height * 0.9),  # Top-left
-            (region.width * 0.9, region.height * 0.9),  # Top-right
-            (region.width * 0.5, region.height * 0.1),  # Bottom-center
-            (region.width * 0.5, region.height * 0.9),  # Top-center
-            (region.width * 0.1, region.height * 0.5),  # Left-center
-            (region.width * 0.9, region.height * 0.5),  # Right-center
-        ]
-        
-        for fallback_coord in fallback_coords:
-            fallback_view_vector = bpy_extras.view3d_utils.region_2d_to_vector_3d(region, rv3d, fallback_coord)
-            fallback_ray_origin = bpy_extras.view3d_utils.region_2d_to_origin_3d(region, rv3d, fallback_coord)
-            fallback_view_vec_norm = fallback_view_vector.normalized()
-            fallback_current_origin = fallback_ray_origin
-            
-            for _ in range(MAX_RAYCAST_ITERATIONS):
-                result, location, normal, face_index, obj, matrix = context.scene.ray_cast(
-                    depsgraph, fallback_current_origin, fallback_view_vector
-                )
-                
-                if not result:
-                    break
-                
-                if obj and obj in selected_mesh_objects:
-                    # Found a selected object from fallback position
-                    return True, location, normal, face_index, obj, matrix
-                
-                # Continue through unselected objects
-                if location:
-                    fallback_current_origin = location + (fallback_view_vec_norm * RAYCAST_OFFSET_DISTANCE)
-        
-        # Exhausted all attempts without finding a selected object
-        return False, None, None, None, None, None
+        coord = (event.mouse_region_x, event.mouse_region_y)
+        if full:
+            return raycast_with_corner_fallback(
+                context, coord, restrict_to=selected_mesh_objects)
+        return raycast_from_mouse(
+            context, coord, restrict_to=selected_mesh_objects)
 
     def align_cursor_orientation(self):
         """Align cursor to selected edge and face normal"""
@@ -2511,16 +2405,33 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.inset_points = []
         self._current_mouse_coord = (0, 0)
 
+        # Build unified HUD overlay
+        self._last_event = event
+        self._modal_region = context.region.as_pointer()
+        self.hud, self.help = self._build_hud(context)
+
+        # Drop any leftover draw handlers from prior invocations whose Python
+        # operator was destroyed before invoke->modal cleanup ran (e.g. when
+        # the addon was reloaded mid-operation, or a previous exit path
+        # skipped _remove_handles). Without this they keep firing with a dead
+        # self and overdraw the current modal.
+        _drop_stale_handles()
+
         # Add draw handler
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
         )
-        self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
+        self._handle_pixel = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
         )
-        self._handle_iops_text = bpy.types.SpaceView3D.draw_handler_add(
-            self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
+        self._handle_iops_text = safe_handler_add(
+            bpy.types.SpaceView3D, self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
             )
+        _ACTIVE_HANDLES.update({
+            ('POST_VIEW',  self._handle),
+            ('POST_PIXEL', self._handle_pixel),
+            ('POST_PIXEL', self._handle_iops_text),
+        })
         # Add timer for smoother updates
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
 

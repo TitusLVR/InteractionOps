@@ -24,8 +24,13 @@ import bpy
 import bmesh
 import math
 import gpu
-import blf
-from gpu_extras.batch import batch_for_shader
+
+from ..ui.draw import primitives as draw_prim, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw.theme import get_theme
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 from bpy_extras import view3d_utils
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
@@ -754,8 +759,35 @@ cancels. LMB clicks only pick widget handles."""
         # into the bevel's step, so a single Ctrl-Z undoes both ops
         # at once. Pushing post-_apply at confirm puts the boundary
         # AFTER the shear changes, so they land in their own step.
-        self.shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+        # (shader managed by draw_prim — no inline shader needed)
+
+        self._hud = HUDOverlay("mesh_shear")
+        self._hud.title = "Shear"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("mesh_shear")
+        face_label = ("Cycle axis edge" if self.mode == "face"
+                      else "Flip active vert")
+        items = [
+            HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem(face_label,           "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Extrude perp",       "E",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]
+        if self.mode == "face":
+            items.append(HUDItem("Align axis to face", "A",   ItemState.ON, default_state=ItemState.OFF, always_show=True))
+            items.append(HUDItem("Axis to min OBB",    "B",   ItemState.ON, default_state=ItemState.OFF, always_show=True))
+        items.extend([
+            HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ])
+        self._help.add_section(HUDSection("Shear", items))
+        self._help.bind_region(context.region)
+        self._last_event = event
+
+        self._handle = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
 
         self._apply()
@@ -1481,6 +1513,18 @@ cancels. LMB clicks only pick widget handles."""
     def _modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
+        self._last_event = event
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
@@ -1651,7 +1695,7 @@ cancels. LMB clicks only pick widget handles."""
 
     def _finish(self, context):
         if getattr(self, "_handle", None):
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
             self._handle = None
         context.workspace.status_text_set(None)
         if context.area:
@@ -1676,20 +1720,17 @@ cancels. LMB clicks only pick widget handles."""
     # Draw
     # ----------------------------------------------------------------------
 
-    def _draw_dot(self, p, radius=6.0):
-        cx, cy = p
-        segs = 24
-        ring = [
-            (cx + math.cos(2 * math.pi * i / segs) * radius,
-             cy + math.sin(2 * math.pi * i / segs) * radius)
-            for i in range(segs)
-        ]
-        tris = []
-        for i in range(segs):
-            j = (i + 1) % segs
-            tris.extend([(cx, cy), ring[i], ring[j]])
-        batch = batch_for_shader(self.shader, "TRIS", {"pos": tris})
-        batch.draw(self.shader)
+    def _draw_dot(self, p, *, color, context, radius=6.0):
+        """Draw a filled disc at screen point *p* using the theme primitives."""
+        if radius <= 4.0:
+            size_token = "preview"
+        elif radius <= 6.0:
+            size_token = "default"
+        elif radius <= 9.0:
+            size_token = "active"
+        else:
+            size_token = "closest"
+        draw_prim.points([p], color=color, size=size_token, context=context)
 
     def _draw_callback(self, context):
         region = context.region
@@ -1706,43 +1747,43 @@ cancels. LMB clicks only pick widget handles."""
             h = getattr(self, "_handle", None)
             if h is not None:
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
             return
 
+        theme = get_theme(context)
+
         gpu.state.blend_set("ALPHA")
-        gpu.state.line_width_set(2.0)
-        self.shader.bind()
 
         # Rebuild hotspot list each draw — view changes & axis edits
         # invalidate prior screen positions.
         self._hotspots = []
         for ri, r in enumerate(self.records):
             if r["type"] == "edge":
-                self._draw_edge_record(region, rv3d, mw, r, ri)
+                self._draw_edge_record(region, rv3d, mw, r, ri, context=context, theme=theme)
             else:
-                self._draw_face_record(region, rv3d, mw, r, ri)
+                self._draw_face_record(region, rv3d, mw, r, ri, context=context, theme=theme)
         self._update_hover()
         # Draw hover highlight on top.
         if self._hover_idx is not None and self._hover_idx < len(self._hotspots):
             rp = self._hotspots[self._hover_idx].get("region_pt")
             if rp is not None:
-                self.shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
-                self._draw_dot(rp, radius=8.0)
+                # White dot — hover highlight has no specific role; draw as active point.
+                self._draw_dot(rp, radius=8.0,
+                               color=(1.0, 1.0, 1.0, 1.0), context=context)
 
         if self._extrude_active:
-            self._draw_extrude_arrows(region, rv3d, mw)
+            self._draw_extrude_arrows(region, rv3d, mw, context=context, theme=theme)
 
         if self._align_active:
-            self._draw_align_highlight(region, rv3d, mw)
+            self._draw_align_highlight(region, rv3d, mw, context=context, theme=theme)
 
-        gpu.state.line_width_set(1.0)
         gpu.state.blend_set("NONE")
 
         self._draw_hud(context)
 
-    def _draw_align_highlight(self, region, rv3d, mw):
+    def _draw_align_highlight(self, region, rv3d, mw, *, context, theme):
         f = self._align_face
         if f is None or not f.is_valid:
             return
@@ -1759,11 +1800,10 @@ cancels. LMB clicks only pick widget handles."""
         tris = []
         for i in range(1, len(screen_pts) - 1):
             tris.extend([screen_pts[0], screen_pts[i], screen_pts[i + 1]])
-        self.shader.uniform_float("color", (1.0, 0.0, 0.0, 0.35))
-        batch = batch_for_shader(self.shader, "TRIS", {"pos": tris})
-        batch.draw(self.shader)
+        err = theme.color_for(Role.ERROR_LINE)
+        draw_prim.tris(tris, color=(err[0], err[1], err[2], 0.35), context=context)
 
-    def _draw_extrude_arrows(self, region, rv3d, mw):
+    def _draw_extrude_arrows(self, region, rv3d, mw, *, context, theme):
         """Single arrow during extrude: tail at the orig sheared edge
         midpoint, head along the average side direction. Length tracks
         the current drag distance (with a small floor so the direction
@@ -1790,16 +1830,14 @@ cancels. LMB clicks only pick widget handles."""
             region, rv3d, mw @ head_world)
         if p_t is None or p_h is None:
             return
-        self.shader.uniform_float("color", (1.0, 0.6, 0.1, 1.0))
-        batch = batch_for_shader(
-            self.shader, "LINES", {"pos": [p_t, p_h]})
-        batch.draw(self.shader)
+        draw_prim.edges_3d([p_t, p_h], role=Role.ACTIVE_LINE, context=context)
         hx, hy = p_h
         tx, ty = p_t
         dx, dy = hx - tx, hy - ty
         seg_len = math.hypot(dx, dy)
         if seg_len < 1e-3:
-            self._draw_dot(p_t, radius=4.0)
+            self._draw_dot(p_t, radius=4.0,
+                           color=theme.color_for(Role.ACTIVE_POINT), context=context)
             return
         ux, uy = dx / seg_len, dy / seg_len
         head_size = min(14.0, max(7.0, seg_len * 0.2))
@@ -1812,14 +1850,11 @@ cancels. LMB clicks only pick widget handles."""
             hx + (ux * ca + uy * sa) * head_size,
             hy + (-ux * sa + uy * ca) * head_size,
         )
-        batch = batch_for_shader(
-            self.shader, "LINES",
-            {"pos": [p_h, leg1, p_h, leg2]},
-        )
-        batch.draw(self.shader)
-        self._draw_dot(p_t, radius=4.0)
+        draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
+        self._draw_dot(p_t, radius=4.0,
+                       color=theme.color_for(Role.ACTIVE_POINT), context=context)
 
-    def _draw_edge_record(self, region, rv3d, mw, r, rec_idx=0):
+    def _draw_edge_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
         if not (r["active"].is_valid and r["fixed"].is_valid):
             return
 
@@ -1833,18 +1868,16 @@ cancels. LMB clicks only pick widget handles."""
         if p_active is None or p_fixed is None:
             return
 
-        # Ghost edge (orig position) and current sheared edge.
+        # Ghost edge (orig position) — subtle grey, no role match.
         if p_orig_active is not None and p_orig_fixed is not None:
-            self.shader.uniform_float("color", (0.45, 0.45, 0.45, 0.55))
-            batch = batch_for_shader(
-                self.shader, "LINES", {"pos": [p_orig_fixed, p_orig_active]})
-            batch.draw(self.shader)
-        self.shader.uniform_float("color", (1.0, 0.6, 0.1, 1.0))
-        batch = batch_for_shader(self.shader, "LINES", {"pos": [p_fixed, p_active]})
-        batch.draw(self.shader)
+            draw_prim.edges_3d([p_orig_fixed, p_orig_active],
+                               color=(0.45, 0.45, 0.45, 0.55), context=context)
+        # Current sheared edge — active.
+        draw_prim.edges_3d([p_fixed, p_active], role=Role.ACTIVE_LINE, context=context)
 
         # Endpoint hotspots — click either to make that vert the fixed
         # anchor (= F-action when clicking the currently active end).
+        locked = theme.color_for(Role.LOCKED_POINT)
         for target_vert, screen_pt in (
             (r["fixed"], p_orig_fixed),
             (r["active"], p_orig_active),
@@ -1857,8 +1890,8 @@ cancels. LMB clicks only pick widget handles."""
                 "target_vert": target_vert,
                 "rec_idx": rec_idx,
             })
-            self.shader.uniform_float("color", (1.0, 0.85, 0.3, 0.75))
-            self._draw_dot(screen_pt, radius=5.0)
+            self._draw_dot(screen_pt, radius=5.0,
+                           color=(*locked[:3], 0.75), context=context)
 
         # Blue center dot — click to reset (= R for edge: angle to 0
         # via the regression).
@@ -1871,10 +1904,11 @@ cancels. LMB clicks only pick widget handles."""
                     "region_pt": (p_mid[0], p_mid[1]),
                     "rec_idx": rec_idx,
                 })
-                self.shader.uniform_float("color", (0.3, 0.55, 1.0, 0.75))
-                self._draw_dot(p_mid, radius=5.0)
+                closest = theme.color_for(Role.CLOSEST_POINT)
+                self._draw_dot(p_mid, radius=5.0,
+                               color=(*closest[:3], 0.75), context=context)
 
-    def _draw_face_record(self, region, rv3d, mw, r, rec_idx=0):
+    def _draw_face_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
         verts = r["active_verts"]
         origs = r["orig_active_cos"]
         projs = r["projections"]
@@ -1898,12 +1932,11 @@ cancels. LMB clicks only pick widget handles."""
                 break
             ghost.append(p)
         if ghost:
-            self.shader.uniform_float("color", (0.45, 0.45, 0.45, 0.55))
             segs = []
             for i in range(n):
                 segs.extend([ghost[i], ghost[(i + 1) % n]])
-            batch = batch_for_shader(self.shader, "LINES", {"pos": segs})
-            batch.draw(self.shader)
+            # Muted ghost — no clean role match; keep as explicit color.
+            draw_prim.edges_3d(segs, color=(0.45, 0.45, 0.45, 0.55), context=context)
 
         # ----- Sheared face outline -----------------------------------
         curr = []
@@ -1927,17 +1960,10 @@ cancels. LMB clicks only pick widget handles."""
                 else:
                     normal_segs.extend([a, b])
             if normal_segs:
-                self.shader.uniform_float("color", (1.0, 0.6, 0.1, 1.0))
-                batch = batch_for_shader(
-                    self.shader, "LINES", {"pos": normal_segs})
-                batch.draw(self.shader)
+                draw_prim.edges_3d(normal_segs, role=Role.ACTIVE_LINE, context=context)
             if pivot_segs:
-                gpu.state.line_width_set(4.0)
-                self.shader.uniform_float("color", (1.0, 0.9, 0.4, 1.0))
-                batch = batch_for_shader(
-                    self.shader, "LINES", {"pos": pivot_segs})
-                batch.draw(self.shader)
-                gpu.state.line_width_set(2.0)
+                # Pivot edges (on-pivot boundary) — brighter amber via LOCKED_POINT role.
+                draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_LINE, context=context)
 
         # ----- Bbox-anchored direction widget -------------------------
         # Anchored to the *orig* face bounding box (the perpendicular /
@@ -1980,13 +2006,10 @@ cancels. LMB clicks only pick widget handles."""
                 if p_tick_a is not None and p_tick_b is not None:
                     # Saw-entry tick at the pivot end (perp to axis_dir
                     # in the face plane, spanning the bbox extent).
-                    gpu.state.line_width_set(3.0)
-                    self.shader.uniform_float("color", (1.0, 0.85, 0.3, 1.0))
-                    batch = batch_for_shader(
-                        self.shader, "LINES", {"pos": [p_tick_a, p_tick_b]})
-                    batch.draw(self.shader)
-                    gpu.state.line_width_set(2.0)
+                    draw_prim.edges_3d([p_tick_a, p_tick_b],
+                                       role=Role.LOCKED_LINE, context=context)
 
+                locked = theme.color_for(Role.LOCKED_POINT)
                 # Four cross-end orange dots aligned to the current
                 # axis_dir + in-plane perp. Clicking sets axis_dir
                 # such that the saw-off pivot sits at the clicked end:
@@ -2009,8 +2032,8 @@ cancels. LMB clicks only pick widget handles."""
                         "axis": axis_choice,
                         "rec_idx": rec_idx,
                     })
-                    self.shader.uniform_float("color", (1.0, 0.85, 0.3, 0.75))
-                    self._draw_dot(rp, radius=5.0)
+                    self._draw_dot(rp, radius=5.0,
+                                   color=(*locked[:3], 0.75), context=context)
 
                 if p_bbox_center is not None:
                     # Blue center dot is a click-to-reset handle (= R).
@@ -2019,58 +2042,20 @@ cancels. LMB clicks only pick widget handles."""
                         "region_pt": (p_bbox_center[0], p_bbox_center[1]),
                         "rec_idx": rec_idx,
                     })
-                    self.shader.uniform_float("color", (0.3, 0.55, 1.0, 0.75))
-                    self._draw_dot(p_bbox_center, radius=5.0)
+                    closest = theme.color_for(Role.CLOSEST_POINT)
+                    self._draw_dot(p_bbox_center, radius=5.0,
+                                   color=(*closest[:3], 0.75), context=context)
 
     def _draw_hud(self, context):
-        font_id = 0
-        try:
-            prefs = context.preferences.addons["InteractionOps"].preferences
-            tCSize = getattr(prefs, "text_size", 18)
-            tCPosX = getattr(prefs, "text_pos_x", 30)
-            tCPosY = getattr(prefs, "text_pos_y", 90)
-            tColor = getattr(prefs, "text_color", (1.0, 1.0, 1.0, 1.0))
-        except (KeyError, AttributeError):
-            tCSize, tCPosX, tCPosY = 18, 30, 90
-            tColor = (1.0, 1.0, 1.0, 1.0)
-        uifactor = context.preferences.system.ui_scale
-
+        hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.draw(context, last_event)
+        if hud is None:
+            return
         label = f"Shear ({self.mode}): {self._effective_angle():.2f}°"
         if self.input_str:
             label += f"  (typing: {self.input_str})"
-
-        main_px = int(tCSize * uifactor)
-        hint_px = max(int(tCSize * 0.75 * uifactor), 11)
-        x = tCPosX * uifactor
-        y_main = tCPosY * uifactor
-
-        f_label = (
-            "F                cycle axis edge" if self.mode == "face"
-            else "F                flip active vert"
-        )
-        hints = [
-            "Esc / RMB     cancel",
-            "Enter            confirm",
-            "E                extrude perpendicular",
-            "R                perpendicular to rails",
-            "D                flip direction",
-            f_label,
-            "Backspace       delete digit",
-            "0-9  .  -        type angle",
-        ]
-        if self.mode == "face":
-            hints.insert(2, "B                axis to min OBB")
-            hints.insert(2, "A                align axis to face under cursor")
-        hint_color = (tColor[0], tColor[1], tColor[2], tColor[3] * 0.7)
-        line_h = int(hint_px * 1.4)
-        blf.size(font_id, hint_px)
-        blf.color(font_id, *hint_color)
-        for i, hint in enumerate(hints):
-            y_hint = y_main + int(main_px * 1.6) + line_h * i
-            blf.position(font_id, x, y_hint, 0)
-            blf.draw(font_id, hint)
-
-        blf.size(font_id, main_px)
-        blf.color(font_id, *tColor)
-        blf.position(font_id, x, y_main, 0)
-        blf.draw(font_id, label)
+        hud.set_header(label)
+        hud.draw(context, last_event)

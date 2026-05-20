@@ -1,11 +1,15 @@
 import bpy
 import bmesh
-import gpu
-from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
 import mathutils
 from mathutils import Vector
-import blf
+
+from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw.theme import get_theme
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
@@ -50,11 +54,33 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self.undo_steps = 0
         bpy.ops.ed.undo_push(message="Start Quick Connect")
         
-        self.shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        # HUD (cursor-following): operator title + live param values.
+        self._hud = HUDOverlay("quick_connect")
+        self._hud.title = "Quick Connect"
+        self._hud.add_param(HUDParam(
+            "Snap midpoint", lambda: self.use_midpoint_snap, kind="bool"))
+        self._hud.add_param(HUDParam(
+            "Screen space",  lambda: self.use_screen_space, kind="bool"))
+        self._hud.bind_region(context.region)
+        # Help overlay (corner): hotkey legend.
+        self._help = HelpOverlay("quick_connect")
+        self._help.add_section(HUDSection("Quick Connect", [
+            HUDItem("Connect",         "LMB Drag",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Split edge",      "Hold A",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Snap midpoint",   "S",         ItemState.ON if self.use_midpoint_snap else ItemState.OFF),
+            HUDItem("Screen space",    "W",         ItemState.ON if self.use_screen_space else ItemState.OFF),
+            HUDItem("Finish",          "Space",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",          "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Hide params",     "/",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Toggle help",     "H",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._help.bind_region(context.region)
+        self._last_event = event
+
         args = (context,)
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
-        self._handle_text = bpy.types.SpaceView3D.draw_handler_add(self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
-        
+        self._handle = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
+        self._handle_text = safe_handler_add(bpy.types.SpaceView3D, self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
+
         context.window_manager.modal_handler_add(self)
         
         # If invoked by a click, start immediately
@@ -74,79 +100,31 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         context.workspace.status_text_set(status_text)
 
     def draw_shortcuts_callback(self, context):
-        try:
-            font_id = 0
-            blf.size(font_id, 16)
-            blf.disable(font_id, blf.SHADOW)
-            
-            # Use hardcoded defaults first to ensure visibility
-            tColor = (1.0, 1.0, 1.0, 1.0)
-            tKColor = (1.0, 0.8, 0.2, 1.0)
-            tCSize = 16
-            tCPosX = 20
-            tCPosY = 60
-            
-            try:
-                prefs = context.preferences.addons["InteractionOps"].preferences
-                # Ensure we actually get values, otherwise stick to defaults
-                if hasattr(prefs, "text_color"): tColor = prefs.text_color
-                if hasattr(prefs, "text_color_key"): tKColor = prefs.text_color_key
-                if hasattr(prefs, "text_size"): tCSize = prefs.text_size
-                if hasattr(prefs, "text_pos_x"): tCPosX = prefs.text_pos_x
-                if hasattr(prefs, "text_pos_y"): tCPosY = prefs.text_pos_y
-            except (KeyError, AttributeError):
-                pass
-                
-            uifactor = context.preferences.system.ui_scale
-            
-            shortcuts = [
-                ("Connect", "LMB Drag"),
-                ("Split Edge (Hold)", "A"),
-                ("Snap Midpoint", "S" + (" [ON]" if self.use_midpoint_snap else " [OFF]")),
-                ("Screen Space", "W" + (" [ON]" if self.use_screen_space else " [OFF]")),
-                ("Navigation", "MMB"),
-                ("Finish", "SPACE"),
-                ("Cancel", "ESC / RMB"),
-            ]
-            
-            blf.size(font_id, int(tCSize * uifactor))
-            
-            # Calculate layout
-            max_action_width = 0
-            for line in shortcuts:
-                action_width = blf.dimensions(font_id, line[0])[0]
-                max_action_width = max(max_action_width, action_width)
-            
-            action_start_x = tCPosX * uifactor
-            padding = (tCSize * 2) * uifactor
-            keys_right_edge = action_start_x + max_action_width + padding + (tCSize * 8) * uifactor
-            
-            offset = tCPosY * uifactor
-            
-            # Draw text lines (reversed order for bottom-up display)
-            for line in reversed(shortcuts):
-                # Draw action description
-                blf.color(font_id, tColor[0], tColor[1], tColor[2], tColor[3])
-                blf.position(font_id, action_start_x, offset, 0)
-                blf.draw(font_id, line[0])
-                
-                # Draw key binding
-                blf.color(font_id, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-                key_width = blf.dimensions(font_id, line[1])[0]
-                key_x_pos = keys_right_edge - key_width
-                blf.position(font_id, key_x_pos, offset, 0)
-                blf.draw(font_id, line[1])
-                
-                offset += (tCSize + 5) * uifactor
-                
-        except ReferenceError:
-            pass
-        except Exception as e:
-            print(f"Error in draw_shortcuts_callback: {e}")
-            pass
+        hud = getattr(self, "_hud", None)
+        helpo = getattr(self, "_help", None)
+        last_event = getattr(self, "_last_event", None)
+        if helpo is not None:
+            helpo.set_state("S", ItemState.ON if self.use_midpoint_snap else ItemState.OFF)
+            helpo.set_state("W", ItemState.ON if self.use_screen_space else ItemState.OFF)
+            helpo.draw(context, last_event)
+        if hud is not None:
+            hud.draw(context, last_event)
 
     def modal(self, context, event):
         context.area.tag_redraw()
+        self._last_event = event
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} or event.type.startswith('NDOF'):
             return {'PASS_THROUGH'}
@@ -237,170 +215,89 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def remove_handler(self, context):
         if self._handle:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+            safe_handler_remove(self._handle, bpy.types.SpaceView3D, 'WINDOW')
             self._handle = None
         if self._handle_text:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_text, 'WINDOW')
+            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, 'WINDOW')
             self._handle_text = None
         context.area.tag_redraw()
 
     def draw_callback_px(self, context):
         try:
-            # Draw hover highlight if not dragging
-            if self.start_vert_index == -1 and self.hover_point_2d:
-                gpu.state.point_size_set(10.0)
-                self.shader.bind()
-                self.shader.uniform_float("color", (0.0, 1.0, 0.0, 1.0)) # Green for hover
-                batch_hover = batch_for_shader(self.shader, 'POINTS', {"pos": [self.hover_point_2d]})
-                batch_hover.draw(self.shader)
-                gpu.state.point_size_set(1.0)
+            def _v3(p):
+                return Vector((p[0], p[1], 0.0))
 
-            if not self.start_point_2d:
-                return
+            with draw_scope(blend="ALPHA"):
+                if self.start_vert_index == -1 and self.hover_point_2d:
+                    draw.points([_v3(self.hover_point_2d)],
+                                role=Role.CLOSEST_POINT, context=context)
 
-            coords_line = [self.start_point_2d]
-            coords_points = [self.start_point_2d]
-            
-            if self.end_point_2d:
-                coords_line.append(self.end_point_2d)
-                coords_points.append(self.end_point_2d)
-            else:
-                coords_line.append(Vector(self.mouse_pos))
+                if not self.start_point_2d:
+                    return
 
-            # Draw line
-            gpu.state.line_width_set(2.0)
-            self.shader.bind()
-            self.shader.uniform_float("color", (1.0, 1.0, 0.0, 1.0)) # Yellow
-            
-            batch_line = batch_for_shader(self.shader, 'LINES', {"pos": coords_line})
-            batch_line.draw(self.shader)
-            
-            # Draw points
-            gpu.state.point_size_set(8.0)
-            self.shader.uniform_float("color", (1.0, 0.0, 0.0, 1.0)) # Red for points
-            batch_points = batch_for_shader(self.shader, 'POINTS', {"pos": coords_points})
-            batch_points.draw(self.shader)
-            
-            # Draw edge preview point if A is held
-            if self.is_a_held and self.preview_edge_point_3d:
-                region = context.region
-                rv3d = context.region_data
-                preview_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, self.preview_edge_point_3d)
-                
-                if preview_2d:
-                    self.shader.uniform_float("color", (0.0, 1.0, 1.0, 1.0)) # Cyan for preview
-                    batch_preview = batch_for_shader(self.shader, 'POINTS', {"pos": [preview_2d]})
-                    batch_preview.draw(self.shader)
-            
-            # Restore state
-            gpu.state.line_width_set(1.0)
-            gpu.state.point_size_set(1.0)
-            
+                coords_line = [_v3(self.start_point_2d)]
+                coords_points = [_v3(self.start_point_2d)]
+
+                if self.end_point_2d:
+                    coords_line.append(_v3(self.end_point_2d))
+                    coords_points.append(_v3(self.end_point_2d))
+                else:
+                    coords_line.append(_v3(self.mouse_pos))
+
+                draw.edges_3d(coords_line, role=Role.ACTIVE_LINE, context=context)
+                draw.points(coords_points, role=Role.ACTIVE_POINT, context=context)
+
+                if self.is_a_held and self.preview_edge_point_3d:
+                    region = context.region
+                    rv3d = context.region_data
+                    preview_2d = view3d_utils.location_3d_to_region_2d(
+                        region, rv3d, self.preview_edge_point_3d)
+                    if preview_2d:
+                        draw.points([_v3(preview_2d)],
+                                    role=Role.PREVIEW_POINT, context=context)
         except ReferenceError:
-            # Operator might be finished/dead
             pass
         except Exception:
             pass
 
     def find_closest_vertex(self, context, event):
-        if self.use_screen_space:
-            return self.find_closest_vertex_screen_space(context, event)
-
-        # First, find the object under the mouse
-        region = context.region
-        rv3d = context.region_data
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        depsgraph = context.evaluated_depsgraph_get()
-
-        # Raycast to find the object
-        result, location, normal, index, obj, matrix = context.scene.ray_cast(
-            depsgraph, ray_origin, view_vector
+        """Picks the active mesh's vertex under the mouse. If `use_screen_space`
+        is on, runs the canonical screen-space-with-occlusion path; otherwise
+        raycasts and finds the closest mesh vertex to the hit point."""
+        from ..utils.picking import (
+            raycast_from_mouse, nearest_vertex_screen,
         )
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        obj = context.active_object
+        if obj is None:
+            return -1
 
-        if not result or obj != context.active_object:
-            # Fallback: if raycast fails (e.g. on wireframe or close to vert but off face), 
-            # use the screen space projection method but only for the active object.
-            return self.find_closest_vertex_screen_space(context, event)
-        
-        # If we hit the object, we have a 3D location. Find the closest vertex to this location.
-        # We need to transform the hit location to object space
-        mw = obj.matrix_world
-        mwi = mw.inverted()
-        hit_pos_local = mwi @ location
-        
+        if self.use_screen_space:
+            idx, _co = nearest_vertex_screen(
+                context, obj, mouse_coord, check_occlusion=True)
+            return -1 if idx is None else idx
+
+        # Raycast first; if the cursor hovers our active mesh, snap to the
+        # vertex closest to the hit point in OBJECT space (cheaper, picks
+        # behind-face vertices the screen-space scan would miss).
+        hit, location, _normal, _idx, hit_obj, _mat = raycast_from_mouse(
+            context, mouse_coord, restrict_to={obj})
+        if not hit:
+            idx, _co = nearest_vertex_screen(
+                context, obj, mouse_coord, check_occlusion=True)
+            return -1 if idx is None else idx
+
         bm = bmesh.from_edit_mesh(obj.data)
         bm.verts.ensure_lookup_table()
-        
-        # Find closest vertex to hit_pos_local
+        hit_pos_local = obj.matrix_world.inverted() @ location
         closest_index = -1
-        min_dist_sq = float('inf')
-        
+        min_dist_sq = float("inf")
         for v in bm.verts:
-            dist_sq = (v.co - hit_pos_local).length_squared
-            if dist_sq < min_dist_sq:
-                min_dist_sq = dist_sq
+            d = (v.co - hit_pos_local).length_squared
+            if d < min_dist_sq:
+                min_dist_sq = d
                 closest_index = v.index
-                
         return closest_index
-
-    def find_closest_vertex_screen_space(self, context, event):
-        obj = context.active_object
-        if not obj: return -1
-        
-        region = context.region
-        rv3d = context.region_data
-        
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
-        bm.verts.ensure_lookup_table()
-        
-        closest_index = -1
-        min_dist = 30.0 # Threshold in pixels
-        
-        mouse_co = Vector((event.mouse_region_x, event.mouse_region_y))
-        mw = obj.matrix_world
-        
-        # Prepare for occlusion check
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, (event.mouse_region_x, event.mouse_region_y))
-        depsgraph = context.evaluated_depsgraph_get()
-        
-        candidates = []
-
-        for v in bm.verts:
-            co_world = mw @ v.co
-            co_screen = view3d_utils.location_3d_to_region_2d(region, rv3d, co_world)
-            
-            if co_screen:
-                dist = (co_screen - mouse_co).length
-                if dist < min_dist:
-                    candidates.append((dist, v.index, co_world))
-        
-        # Sort by 2D distance
-        candidates.sort(key=lambda x: x[0])
-        
-        for dist, index, co_world in candidates:
-            # Check occlusion
-            # Raycast from camera to vertex
-            direction = (co_world - ray_origin).normalized()
-            dist_to_vert = (co_world - ray_origin).length
-            
-            result, location, normal, hit_index, hit_obj, matrix = context.scene.ray_cast(
-                depsgraph, ray_origin, direction, distance=dist_to_vert - 0.001
-            )
-            
-            # If we hit something closer, it's occluded
-            if result:
-                 # Check if we hit the same object (self-occlusion check)
-                 # If we hit the same object, we need to be careful. 
-                 # But generally if we hit a face of the same object closer than the vertex, it is occluded.
-                 continue
-            
-            # If not occluded, this is the closest visible vertex
-            return index
-                    
-        return -1
 
     def connect_verts(self, context):
         obj = context.active_object
@@ -515,64 +412,44 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         pass
 
     def find_closest_edge(self, context, event):
+        """Raycast to the active mesh's face, then pick the edge of that face
+        whose closest-point-on-segment (or midpoint, if `use_midpoint_snap`)
+        is nearest to the hit point. Returns `(edge_index, world_point)`."""
+        from ..utils.picking import raycast_from_mouse, closest_point_on_segment
         obj = context.active_object
-        region = context.region
-        rv3d = context.region_data
-        
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
-        
-        # Raycast to find face
-        depsgraph = context.evaluated_depsgraph_get()
-        result, location, normal, index, hit_obj, matrix = context.scene.ray_cast(
-            depsgraph, ray_origin, view_vector
-        )
-        
-        if not result or hit_obj != obj:
+        if obj is None:
             return -1, None
-            
-        # We hit a face. Find the closest edge of this face to the hit location.
+
+        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
+        hit, location, _normal, face_idx, hit_obj, _mat = raycast_from_mouse(
+            context, mouse_coord, restrict_to={obj})
+        if not hit:
+            return -1, None
+
         mw = obj.matrix_world
-        mwi = mw.inverted()
-        local_hit = mwi @ location
-        
+        local_hit = mw.inverted() @ location
+
         bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
-        
-        if index >= len(bm.faces):
+        if face_idx >= len(bm.faces):
             return -1, None
-            
-        face = bm.faces[index]
-        
+        face = bm.faces[face_idx]
+
         closest_edge_index = -1
-        min_dist_sq = float('inf')
+        min_dist_sq = float("inf")
         closest_point_on_edge = None
-        
         for edge in face.edges:
-            # Project local_hit onto edge
-            v1 = edge.verts[0].co
-            v2 = edge.verts[1].co
-            
+            v1, v2 = edge.verts[0].co, edge.verts[1].co
             if self.use_midpoint_snap:
                 closest_pt = (v1 + v2) / 2
             else:
-                # Point on segment
-                closest_pt, percent = mathutils.geometry.intersect_point_line(local_hit, v1, v2)
-                
-                # Clamp percent 0-1
-                if percent < 0:
-                    closest_pt = v1
-                elif percent > 1:
-                    closest_pt = v2
-                
-            dist_sq = (closest_pt - local_hit).length_squared
-            
-            if dist_sq < min_dist_sq:
-                min_dist_sq = dist_sq
+                closest_pt, _t = closest_point_on_segment(local_hit, v1, v2)
+            d = (closest_pt - local_hit).length_squared
+            if d < min_dist_sq:
+                min_dist_sq = d
                 closest_edge_index = edge.index
                 closest_point_on_edge = closest_pt
-                
+
         world_point = mw @ closest_point_on_edge
         
         return closest_edge_index, world_point

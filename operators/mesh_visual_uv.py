@@ -1,11 +1,17 @@
 import bpy
 import blf
-import gpu
 import bmesh
 import math
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
-from gpu_extras.batch import batch_for_shader
+
+from ..ui.draw.theme import get_theme, Role, axis_color
+from ..ui.draw import primitives as draw_prim, draw_scope
+from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
+                      HUDParam, ItemState,
+                      handle_hud_toggle, handle_help_toggle)
+from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
     get_uv_layer,
@@ -67,82 +73,56 @@ HANDLE_OPPOSITE = {
     'B': 'T', 'T': 'B', 'L': 'R', 'R': 'L',
 }
 
-# Colors -- clean, UV-editor style palette
-ISLAND_COLORS = [
-    (0.40, 0.65, 1.00, 0.50),
-    (1.00, 0.50, 0.30, 0.50),
-    (0.35, 0.85, 0.45, 0.50),
-    (0.95, 0.80, 0.25, 0.50),
-    (0.70, 0.40, 0.90, 0.50),
-    (0.20, 0.80, 0.75, 0.50),
-    (0.90, 0.35, 0.60, 0.50),
-    (0.60, 0.80, 0.20, 0.50),
-]
+# Per-island identification colors and widget palette live in the
+# unified IOPS_Theme (theme.island_palette). State-like edge colors
+# are sourced from the 5-state Line/Point/Text roles via Role.*.
 
-COL_EDGE = (0.85, 0.85, 0.85, 0.45)
-COL_EDGE_SELECTED = (0.95, 0.85, 0.55, 0.55)
-COL_EDGE_ACTIVE = (0.95, 0.95, 0.95, 0.65)
-COL_EDGE_HOVER = (1.0, 1.0, 0.4, 1.0)
-COL_EDGE_ALIGN = (0.0, 1.0, 0.5, 1.0)
-COL_CENTER = (1.0, 1.0, 1.0, 0.8)
-COL_ROT_HANDLE = (0.3, 0.9, 0.3, 0.9)
-COL_ROT_LINE = (0.3, 0.9, 0.3, 0.35)
-COL_HANDLE = (1.0, 1.0, 1.0, 0.85)
-COL_HANDLE_HOVER = (1.0, 0.85, 0.0, 1.0)
-COL_BBOX = (0.65, 0.65, 0.65, 0.30)
-COL_CURSOR = (1.0, 0.2, 0.6, 1.0)
-COL_FEEDBACK = (1.0, 0.95, 0.8, 0.9)
-COL_AXIS_X = (0.9, 0.25, 0.25, 0.9)
-COL_AXIS_Y = (0.25, 0.75, 0.25, 0.9)
+def _v3(p):
+    """Lift a 2D pixel-space point into a Vector for primitives.*"""
+    return Vector((p[0], p[1], 0.0))
 
 
-# ---------------------------------------------------------------------------
-# 2D drawing helpers
-# ---------------------------------------------------------------------------
+def _draw_polyline(pts, *, role=None, color=None, width="default"):
+    """Pixel-space polyline through unified primitives."""
+    if len(pts) < 2:
+        return
+    coords = [_v3(p) for p in pts]
+    draw_prim.polyline(coords, role=role, color=color, width=width,
+                       context=bpy.context)
 
-def _draw_circle(cx, cy, radius, color, segs=16):
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    verts = [(cx, cy)]
+
+def _draw_circle(cx, cy, radius, *, role=None, color=None, segs=16):
+    """Filled disc in pixel space. Uses primitives.tris with a fan."""
+    verts = [_v3((cx, cy))]
     for i in range(segs + 1):
         a = 2 * math.pi * i / segs
-        verts.append((cx + math.cos(a) * radius, cy + math.sin(a) * radius))
-    idx = [(0, i, i + 1 if i + 1 <= segs else 1) for i in range(1, segs + 1)]
-    b = batch_for_shader(shader, 'TRIS', {"pos": verts}, indices=idx)
-    shader.bind()
-    shader.uniform_float("color", color)
-    b.draw(shader)
+        verts.append(_v3((cx + math.cos(a) * radius,
+                          cy + math.sin(a) * radius)))
+    tris_flat = []
+    for i in range(1, segs + 1):
+        nxt = i + 1 if i + 1 <= segs else 1
+        tris_flat.extend([verts[0], verts[i], verts[nxt]])
+    draw_prim.tris(tris_flat, role=role, color=color, context=bpy.context)
 
 
-def _draw_ring(cx, cy, radius, color, width=2.0, segs=32):
+def _draw_ring(cx, cy, radius, *, role=None, color=None,
+               width="default", segs=32):
+    """Open ring in pixel space."""
     pts = [(cx + math.cos(2 * math.pi * i / segs) * radius,
             cy + math.sin(2 * math.pi * i / segs) * radius)
            for i in range(segs + 1)]
-    _draw_polyline(pts, color, width)
+    _draw_polyline(pts, role=role, color=color, width=width)
 
 
-def _draw_polyline(pts, color, width=1.0, mode='LINE_STRIP'):
-    if len(pts) < 2:
-        return
-    shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
-    b = batch_for_shader(shader, mode, {"pos": pts})
-    shader.bind()
-    region = bpy.context.region
-    shader.uniform_float("viewportSize", (region.width, region.height))
-    shader.uniform_float("lineWidth", width)
-    shader.uniform_float("color", color)
-    b.draw(shader)
-
-
-def _draw_diamond(cx, cy, half, color):
-    """Filled diamond handle."""
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    verts = [(cx, cy - half), (cx + half, cy),
-             (cx, cy + half), (cx - half, cy)]
-    b = batch_for_shader(shader, 'TRIS', {"pos": verts},
-                         indices=[(0, 1, 2), (0, 2, 3)])
-    shader.bind()
-    shader.uniform_float("color", color)
-    b.draw(shader)
+def _draw_diamond(cx, cy, half, *, role=None, color=None):
+    """Filled diamond handle (4-vert quad as 2 triangles)."""
+    verts = [_v3((cx, cy - half)),
+             _v3((cx + half, cy)),
+             _v3((cx, cy + half)),
+             _v3((cx - half, cy))]
+    coords = [verts[0], verts[1], verts[2],
+              verts[0], verts[2], verts[3]]
+    draw_prim.tris(coords, role=role, color=color, context=bpy.context)
 
 
 # ---------------------------------------------------------------------------
@@ -359,18 +339,16 @@ def draw_3d_callback(op, context):
         return
     if op._clean_view:
         return
+    import gpu
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
-    fill_base = getattr(prefs, 'visual_uv_fill_alpha', 0.10)
-    edge_w = getattr(prefs, 'visual_uv_edge_width', 1.5)
+    theme = get_theme(context)
+    # Fill alpha comes from the Result-Preview line color's alpha channel.
+    fill_base = theme.color_for(Role.PREVIEW_LINE)[3]
 
     gpu.state.blend_set('ALPHA')
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(False)
-
-    shader_flat = gpu.shader.from_builtin("UNIFORM_COLOR")
-    shader_line = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
-    region = context.region
 
     for idx, idata in enumerate(op.islands_data):
         geo = idata.get('geo3d')
@@ -378,49 +356,31 @@ def draw_3d_callback(op, context):
             continue
         is_active = (idx == op.active_island_idx)
         is_selected = idx in op.selected_islands
-        island_col = ISLAND_COLORS[idx % len(ISLAND_COLORS)]
+        island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
 
         fa = fill_base * (1.8 if is_active else 1.4 if is_selected else 1.0)
-        tv, ti = [], []
+        tv = []
         for v0, v1, v2 in geo['face_tris']:
-            base = len(tv)
             tv.extend([_off(v0, nrm, nrm_off), _off(v1, nrm, nrm_off),
-                        _off(v2, nrm, nrm_off)])
-            ti.append((base, base + 1, base + 2))
+                       _off(v2, nrm, nrm_off)])
         if tv:
-            batch = batch_for_shader(shader_flat, 'TRIS',
-                                     {"pos": tv}, indices=ti)
-            shader_flat.bind()
-            shader_flat.uniform_float("color", (*island_col[:3], fa))
-            batch.draw(shader_flat)
+            draw_prim.tris(tv, color=(*island_col[:3], fa), context=context)
 
-        ecol = (COL_EDGE_ACTIVE if is_active
-                else COL_EDGE_SELECTED if is_selected else COL_EDGE)
+        edge_role = (Role.ACTIVE_LINE if is_active
+                     else Role.CLOSEST_LINE if is_selected else Role.LINE)
         ep = []
         for pa, pb in geo['edges_3d']:
             ep.extend([_off(pa, nrm, nrm_off * 1.5),
-                        _off(pb, nrm, nrm_off * 1.5)])
+                       _off(pb, nrm, nrm_off * 1.5)])
         if ep:
-            batch = batch_for_shader(shader_line, 'LINES', {"pos": ep})
-            shader_line.bind()
-            shader_line.uniform_float("viewportSize",
-                                      (region.width, region.height))
-            shader_line.uniform_float("lineWidth", edge_w)
-            shader_line.uniform_float("color", ecol)
-            batch.draw(shader_line)
+            draw_prim.edges_3d(ep, role=edge_role, context=context)
 
     if op.hover_edge_3d is not None:
-        col = (COL_EDGE_ALIGN if op.state == STATE_PICK_ALIGN_EDGE
-               else COL_EDGE_HOVER)
-        batch = batch_for_shader(shader_line, 'LINES',
-                                 {"pos": list(op.hover_edge_3d)})
-        shader_line.bind()
-        shader_line.uniform_float("viewportSize",
-                                  (region.width, region.height))
-        shader_line.uniform_float("lineWidth", 3.0)
-        shader_line.uniform_float("color", col)
-        batch.draw(shader_line)
+        hover_role = (Role.PREVIEW_LINE if op.state == STATE_PICK_ALIGN_EDGE
+                      else Role.LOCKED_LINE)
+        draw_prim.edges_3d(list(op.hover_edge_3d), role=hover_role,
+                           width="active", context=context)
 
     gpu.state.depth_test_set('NONE')
     gpu.state.depth_mask_set(True)
@@ -430,10 +390,12 @@ def draw_3d_callback(op, context):
 def draw_pixel_callback(op, context):
     if context.area != op._area:
         return
+    import gpu
     region = context.region
     rv3d = context.region_data
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
+    theme = get_theme(context)
     gpu.state.blend_set('ALPHA')
 
     for idx, idata in enumerate(op.islands_data):
@@ -441,22 +403,25 @@ def draw_pixel_callback(op, context):
         if not geo:
             continue
         is_active = (idx == op.active_island_idx)
-        island_col = ISLAND_COLORS[idx % len(ISLAND_COLORS)]
+        island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
         center_off = geo['center_3d'] + nrm * nrm_off
 
         csp = location_3d_to_region_2d(region, rv3d, center_off)
         if csp and is_active:
-            _draw_ring(csp.x, csp.y, 8, COL_CENTER, 2.0)
-            _draw_circle(csp.x, csp.y, 3, COL_CENTER)
+            _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
+            _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
 
             rot_pos = center_off + nrm * ROTATION_HANDLE_DISTANCE
             rsp = location_3d_to_region_2d(region, rv3d, rot_pos)
             if rsp:
-                _draw_polyline([csp, rsp], COL_ROT_LINE, 1.5)
-                rc = (COL_HANDLE_HOVER if op.hover_rotate_handle
-                      else COL_ROT_HANDLE)
-                _draw_circle(rsp.x, rsp.y, 6, rc)
+                pivot = theme.color_for(Role.PIVOT)
+                _draw_polyline([csp, rsp],
+                               color=(pivot[0], pivot[1], pivot[2], 0.35),
+                               width="default")
+                rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
+                           else Role.PIVOT)
+                _draw_circle(rsp.x, rsp.y, 6, role=rc_role)
 
         if not op._clean_view:
             td = idata.get('texel_density')
@@ -473,32 +438,34 @@ def draw_pixel_callback(op, context):
         if all(n in handles for n in HANDLE_CORNERS):
             box = [(handles[n].x, handles[n].y)
                    for n in ('BL', 'BR', 'TR', 'TL', 'BL')]
-            _draw_polyline(box, COL_BBOX, 1.0)
+            _draw_polyline(box, role=Role.BBOX, width="default")
 
         for name in HANDLE_CORNERS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc = COL_HANDLE_HOVER if op.hover_handle == name else COL_HANDLE
-            _draw_circle(h.x, h.y, CORNER_SIZE, hc)
+            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
+            _draw_circle(h.x, h.y, CORNER_SIZE, role=hc_role)
 
         for name in HANDLE_MIDS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc = COL_HANDLE_HOVER if op.hover_handle == name else COL_HANDLE
-            _draw_diamond(h.x, h.y, MID_SIZE, hc)
+            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
+            _draw_diamond(h.x, h.y, MID_SIZE, role=hc_role)
 
     # UV Cursor
     if op.cursor_3d is not None:
         csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
         if csp:
             arm = 14
-            _draw_polyline(
-                [(csp.x - arm, csp.y), (csp.x + arm, csp.y),
-                 (csp.x, csp.y - arm), (csp.x, csp.y + arm)],
-                COL_CURSOR, 2.0, mode='LINES')
-            _draw_circle(csp.x, csp.y, 3, COL_CURSOR)
+            coords = [_v3(p) for p in [
+                (csp.x - arm, csp.y), (csp.x + arm, csp.y),
+                (csp.x, csp.y - arm), (csp.x, csp.y + arm),
+            ]]
+            draw_prim.edges_3d(coords, role=Role.CURSOR, width="active",
+                               context=bpy.context)
+            _draw_circle(csp.x, csp.y, 3, role=Role.CURSOR)
 
     _draw_transform_feedback(op)
     gpu.state.blend_set('NONE')
@@ -506,107 +473,85 @@ def draw_pixel_callback(op, context):
 
 def _draw_transform_feedback(op):
     mx, my = op.mouse_x, op.mouse_y
+    theme = get_theme(bpy.context)
+
+    def _t(text, *, role=None, color=None):
+        hud_text_draw(text, mx + 18, my + 10, theme=theme,
+                      role=role, color=color, size_token="active")
 
     if (op.state in (STATE_ROTATE, STATE_HANDLE_ROTATE)
             and op.drag_center_screen):
         deg = math.degrees(op.current_angle_delta)
         step_deg = ROTATION_STEPS[op.rotation_step_idx]
-        blf.size(0, 14)
-        blf.color(0, *COL_FEEDBACK)
-        blf.position(0, mx + 18, my + 10, 0)
-        blf.draw(0, f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]")
+        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", role=Role.ACTIVE_TEXT)
 
     elif (op.state in (STATE_SCALE, STATE_HANDLE_SCALE)
           and op.drag_center_screen):
-        blf.size(0, 14)
-        blf.position(0, mx + 18, my + 10, 0)
         sx, sy = op.current_scale_x, op.current_scale_y
         if op.grab_axis == 'X':
-            blf.color(0, *COL_AXIS_X)
-            blf.draw(0, f"S X {sx:.3f}")
+            _t(f"S X {sx:.3f}", color=axis_color('X'))
         elif op.grab_axis == 'Y':
-            blf.color(0, *COL_AXIS_Y)
-            blf.draw(0, f"S Y {sy:.3f}")
+            _t(f"S Y {sy:.3f}", color=axis_color('Y'))
         else:
-            blf.color(0, *COL_FEEDBACK)
-            blf.draw(0, f"S {sx:.3f} x {sy:.3f}")
+            _t(f"S {sx:.3f} x {sy:.3f}", role=Role.ACTIVE_TEXT)
 
     elif op.state == STATE_GRAB:
-        blf.size(0, 14)
-        if op.grab_axis == 'X':
-            blf.color(0, *COL_AXIS_X)
-            label = "G along X"
-        elif op.grab_axis == 'Y':
-            blf.color(0, *COL_AXIS_Y)
-            label = "G along Y"
-        else:
-            blf.color(0, *COL_FEEDBACK)
-            label = "G Move"
         sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
-        blf.position(0, mx + 18, my + 10, 0)
-        blf.draw(0, f"{label}  [{sens_pct}%]")
+        if op.grab_axis == 'X':
+            _t(f"G along X  [{sens_pct}%]", color=axis_color('X'))
+        elif op.grab_axis == 'Y':
+            _t(f"G along Y  [{sens_pct}%]", color=axis_color('Y'))
+        else:
+            _t(f"G Move  [{sens_pct}%]", role=Role.ACTIVE_TEXT)
+
+
+def _build_visual_uv_hud(context):
+    hud = HUDOverlay("visual_uv")
+    hud.title = "Visual UV"
+    helpo = HelpOverlay("visual_uv")
+    helpo.add_section(HUDSection("Visual UV", [
+        HUDItem("Grab / Move",          "G",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Rotate",               "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Scale",                "S",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Axis lock",            "X / Y",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Sensitivity",          "Alt+Scroll",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Rotation step",        "Ctrl+Scroll",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Place UV cursor",      "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Active island",        "LMB / Tab",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Align",                "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match dimensions",     "D",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Flip H / V",           "F / Shift+F",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Randomize UV / U / V", "N / Sh+N / Ct+N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Unwrap (seams)",       "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Straighten chain",     "T",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle overlays",      "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pivot",                "P",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Undo / Redo",          "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Confirm",              "Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Cancel",               "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+    ]))
+    return hud, helpo
 
 
 def draw_shortcuts_callback(op, context):
     if context.area != op._area:
         return
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    tColor, tKColor = prefs.text_color, prefs.text_color_key
-    tCSize = prefs.text_size
-    tCPosX, tCPosY = prefs.text_pos_x, prefs.text_pos_y
-    tShadow, tSColor = prefs.text_shadow_toggle, prefs.text_shadow_color
-    tSBlur = prefs.text_shadow_blur
-    tSPosX, tSPosY = prefs.text_shadow_pos_x, prefs.text_shadow_pos_y
-
-    uf = context.preferences.system.ui_scale
-    blf.size(0, tCSize)
-    if tShadow:
-        blf.enable(0, blf.SHADOW)
-        blf.shadow(0, int(tSBlur), *tSColor)
-        blf.shadow_offset(0, tSPosX, tSPosY)
-    else:
-        blf.disable(0, blf.SHADOW)
-
+    hud = getattr(op, "_hud", None)
+    helpo = getattr(op, "_help", None)
+    if helpo is not None:
+        helpo.draw(context, getattr(op, "_last_event", None))
+    if hud is None:
+        return
     st = op.state.replace('_', ' ').title()
     pv = op.pivot_mode
-    uc, rc = len(op.undo_stack), len(op.redo_stack)
     sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
     rot_step = ROTATION_STEPS[op.rotation_step_idx]
-    lines = [
-        (f"Visual UV  [{st}]  Pivot: {pv}  Sens: {sens_pct}%  "
-         f"Islands: {len(op.islands_data)}", ""),
-        ("Grab / Move", "G  (X / Y axis lock)"),
-        ("Rotate", "R  (Ctrl snap, Ctrl+Scroll step)"),
-        ("Rotation step", f"Ctrl+Scroll ({rot_step}\u00b0)"),
-        ("Scale", "S  (X / Y axis lock)"),
-        ("Handle drag scale", "LMB on corner / mid"),
-        ("Sensitivity", f"Alt+Scroll ({sens_pct}%)"),
-        ("Place UV cursor", "C (at mouse)"),
-        ("Active island", "LMB on face / Tab"),
-        ("Align (hover handle / edge)", "A"),
-        ("Match dimensions", "D"),
-        ("Flip H / V", "F / Shift+F"),
-        ("Randomize UV / U / V", "N / Shift+N / Ctrl+N"),
-        ("Unwrap (seams)", "U"),
-        ("Straighten chain", "T"),
-        ("Toggle overlays", "Q"),
-        ("Pivot", "P"),
-        ("Undo / Redo", f"Ctrl+Z ({uc}) / Ctrl+Shift+Z ({rc})"),
-        ("Confirm / Cancel", "Enter / Space / Esc"),
-    ]
-
-    off = tCPosY
-    coffs = (tCSize * 22) * uf
-    for line in reversed(lines):
-        blf.color(0, *tColor)
-        blf.position(0, tCPosX * uf, off, 0)
-        blf.draw(0, line[0])
-        if line[1]:
-            blf.color(0, *tKColor)
-            td = blf.dimensions(0, line[1])
-            blf.position(0, coffs - td[0] + tCPosX, off, 0)
-            blf.draw(0, line[1])
-        off += (tCSize + 5) * uf
+    hud.set_header(
+        f"Visual UV  [{st}]  Pivot: {pv}  Sens: {sens_pct}%  "
+        f"Islands: {len(op.islands_data)}  RotStep: {rot_step}\u00b0"
+    )
+    hud.draw(context, getattr(op, "_last_event", None))
 
 
 # ---------------------------------------------------------------------------
@@ -934,12 +879,17 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._overlay_was_on = context.space_data.overlay.show_overlays
         self._clean_view = False
 
-        self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
-            draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
-        self._handle_pixel = bpy.types.SpaceView3D.draw_handler_add(
-            draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL')
-        self._handle_shortcuts = bpy.types.SpaceView3D.draw_handler_add(
-            draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+        self._hud, self._help = _build_visual_uv_hud(context)
+        self._hud.bind_region(context.region)
+        self._help.bind_region(context.region)
+        self._last_event = event
+
+        self._handle_3d = safe_handler_add(
+            bpy.types.SpaceView3D, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
+        self._handle_pixel = safe_handler_add(
+            bpy.types.SpaceView3D, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+        self._handle_shortcuts = safe_handler_add(
+            bpy.types.SpaceView3D, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL')
         self._timer = context.window_manager.event_timer_add(
             0.05, window=context.window)
 
@@ -967,6 +917,19 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         self.mouse_x = event.mouse_region_x
         self.mouse_y = event.mouse_region_y
+        self._last_event = event
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"]\
+                .preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
+            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
+                return {'RUNNING_MODAL'}
 
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE):
@@ -1072,7 +1035,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                   self._handle_shortcuts):
             if h:
                 try:
-                    bpy.types.SpaceView3D.draw_handler_remove(h, 'WINDOW')
+                    safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
                 except ValueError:
                     pass
         if self._timer:

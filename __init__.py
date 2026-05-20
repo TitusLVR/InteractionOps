@@ -56,6 +56,11 @@ from .operators.modes import (
     IOPS_OT_F5,
 )
 
+from .operators.ui_toggles import (
+    IOPS_OT_HelpToggleMarker,
+    IOPS_OT_HudParamsToggleMarker,
+)
+
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
@@ -84,6 +89,7 @@ from .operators.mesh_quick_snap import IOPS_OT_Mesh_QuickSnap
 from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveSpaceData
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
+from .prefs.theme import classes as _theme_classes
 from .prefs.addon_properties import IOPS_AddonProperties
 from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem
 
@@ -200,7 +206,9 @@ from .operators.ui_prop_switch import (
 from .operators.snap_combos import IOPS_OT_SetSnapCombo
 
 
-from .utils.functions import register_keymaps, unregister_keymaps, fix_old_keymaps
+from .utils.functions import (register_keymaps, unregister_keymaps,
+                               fix_old_keymaps,
+                               register_ui_toggle_keymaps)
 
 # Hotkeys
 from .prefs.hotkeys_default import keys_default as keys_default
@@ -228,6 +236,8 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
+from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
+                                            IOPS_OT_StopThemePreview)
 
 # Asset Management
 from .operators.assets_management import (
@@ -283,7 +293,10 @@ bl_info = {
 
 # Classes for reg and unreg
 classes = (
+    *_theme_classes,
     IOPS_AddonPreferences,
+    IOPS_OT_DrawThemePreview,
+    IOPS_OT_StopThemePreview,
     IOPS_CollectionItem,
     IOPS_ExecutorScriptItem,
     IOPS_AddonProperties,
@@ -297,6 +310,8 @@ classes = (
     IOPS_OT_F4,
     IOPS_OT_F5,
     IOPS_OT_ESC,
+    IOPS_OT_HelpToggleMarker,
+    IOPS_OT_HudParamsToggleMarker,
     IOPS_OT_CursorOrigin_Mesh,
     IOPS_OT_CurveSubdivide,
     IOPS_OT_CurveSplineType,
@@ -497,6 +512,7 @@ def keymap_registration():
     else:
         register_keymaps(keys_default)
 
+    register_ui_toggle_keymaps()
     bpy.context.window_manager.keyconfigs.update()
 
 
@@ -526,8 +542,10 @@ def register():
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
     if bpy.context.preferences.addons["InteractionOps"].preferences.iops_stat:
         global draw_handler
-        draw_handler = bpy.types.SpaceView3D.draw_handler_add(
-            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL"
+        from .ui.draw import safe_handler_add
+        draw_handler = safe_handler_add(
+            bpy.types.SpaceView3D,
+            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL",
         )
         print("IOPS Statistics Registered!")
     else:
@@ -540,6 +558,13 @@ def register():
 
 
 def unregister():
+    # Kill any running theme-preview install before classes go away, so
+    # the draw handlers + 60fps timer don't outlive the operator class.
+    try:
+        from .operators.draw_theme_preview import cleanup_live_installs
+        cleanup_live_installs()
+    except Exception as e:
+        print("IOPS: theme-preview cleanup failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
@@ -560,7 +585,8 @@ def unregister():
     # Unregister the draw handler
     global draw_handler
     if draw_handler is not None:
-        bpy.types.SpaceView3D.draw_handler_remove(draw_handler, "WINDOW")
+        from .ui.draw import safe_handler_remove
+        safe_handler_remove(draw_handler, bpy.types.SpaceView3D, "WINDOW")
     draw_handler = None
 
     print("IOPS Unregistered!")

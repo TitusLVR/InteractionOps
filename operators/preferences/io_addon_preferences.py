@@ -110,11 +110,6 @@ def load_iops_preferences():
                             prefs.IOPS_DEBUG = safe_get(value, "IOPS_DEBUG", 
                                 default_prefs.get("IOPS_DEBUG", {}).get("IOPS_DEBUG", False))
                     
-                    case "ALIGN_TO_EDGE":
-                        if isinstance(value, dict):
-                            prefs.align_edge_color = safe_get(value, "align_edge_color",
-                                default_prefs.get("ALIGN_TO_EDGE", {}).get("align_edge_color", (1.0, 1.0, 1.0, 1.0)))
-                    
                     case "EXECUTOR":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("EXECUTOR", {})
@@ -194,75 +189,29 @@ def load_iops_preferences():
                                     print(f"IOPS Prefs: Error loading split area pie {pie} - {e}")
                                     continue
                     
-                    case "UI_TEXT":
-                        if isinstance(value, dict):
-                            defaults = default_prefs.get("UI_TEXT", {})
-                            prefs.text_color = safe_get(value, "text_color", defaults.get("text_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.text_color_key = safe_get(value, "text_color_key", defaults.get("text_color_key", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.text_pos_x = safe_get(value, "text_pos_x", defaults.get("text_pos_x", 60))
-                            prefs.text_pos_y = safe_get(value, "text_pos_y", defaults.get("text_pos_y", 60))
-                            prefs.text_shadow_color = safe_get(value, "text_shadow_color", defaults.get("text_shadow_color", (0.0, 0.0, 0.0, 1.0)))
-                            prefs.text_shadow_pos_x = safe_get(value, "text_shadow_pos_x", defaults.get("text_shadow_pos_x", 2))
-                            prefs.text_shadow_pos_y = safe_get(value, "text_shadow_pos_y", defaults.get("text_shadow_pos_y", -2))
-                            prefs.text_shadow_toggle = safe_get(value, "text_shadow_toggle", defaults.get("text_shadow_toggle", False))
-                            prefs.text_size = safe_get(value, "text_size", defaults.get("text_size", 20))
-                    
                     case "CURSOR_BISECT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("CURSOR_BISECT", {})
-                            prefs.cursor_bisect_plane_color = safe_get(value, "cursor_bisect_plane_color", defaults.get("cursor_bisect_plane_color", (1.0, 0.0, 0.0, 0.15)))
-                            prefs.cursor_bisect_plane_outline_color = safe_get(value, "cursor_bisect_plane_outline_color", defaults.get("cursor_bisect_plane_outline_color", (1.0, 0.0, 0.0, 0.8)))
-                            prefs.cursor_bisect_plane_outline_thickness = safe_get(value, "cursor_bisect_plane_outline_thickness", defaults.get("cursor_bisect_plane_outline_thickness", 2.0))
-                            prefs.cursor_bisect_edge_color = safe_get(value, "cursor_bisect_edge_color", defaults.get("cursor_bisect_edge_color", (1.0, 1.0, 0.0, 1.0)))
-                            prefs.cursor_bisect_edge_locked_color = safe_get(value, "cursor_bisect_edge_locked_color", defaults.get("cursor_bisect_edge_locked_color", (1.0, 0.0, 0.0, 1.0)))
-                            prefs.cursor_bisect_edge_thickness = safe_get(value, "cursor_bisect_edge_thickness", defaults.get("cursor_bisect_edge_thickness", 4.0))
-                            prefs.cursor_bisect_edge_locked_thickness = safe_get(value, "cursor_bisect_edge_locked_thickness", defaults.get("cursor_bisect_edge_locked_thickness", 8.0))
-                            prefs.cursor_bisect_snap_color = safe_get(value, "cursor_bisect_snap_color", defaults.get("cursor_bisect_snap_color", (1.0, 1.0, 0.0, 1.0)))
-                            prefs.cursor_bisect_snap_hold_color = safe_get(value, "cursor_bisect_snap_hold_color", defaults.get("cursor_bisect_snap_hold_color", (1.0, 0.5, 0.0, 1.0)))
-                            prefs.cursor_bisect_snap_closest_color = safe_get(value, "cursor_bisect_snap_closest_color", defaults.get("cursor_bisect_snap_closest_color", (0.0, 1.0, 0.0, 1.0)))
-                            prefs.cursor_bisect_snap_closest_hold_color = safe_get(value, "cursor_bisect_snap_closest_hold_color", defaults.get("cursor_bisect_snap_closest_hold_color", (1.0, 0.2, 0.0, 1.0)))
-                            prefs.cursor_bisect_snap_size = safe_get(value, "cursor_bisect_snap_size", defaults.get("cursor_bisect_snap_size", 6.0))
-                            prefs.cursor_bisect_snap_closest_size = safe_get(value, "cursor_bisect_snap_closest_size", defaults.get("cursor_bisect_snap_closest_size", 9.0))
-                            prefs.cursor_bisect_edge_subdivisions = safe_get(value, "cursor_bisect_edge_subdivisions", defaults.get("cursor_bisect_edge_subdivisions", 1))
-                            prefs.cursor_bisect_cut_preview_color = safe_get(value, "cursor_bisect_cut_preview_color", defaults.get("cursor_bisect_cut_preview_color", (1.0, 0.5, 0.0, 1.0)))
-                            prefs.cursor_bisect_cut_preview_thickness = safe_get(value, "cursor_bisect_cut_preview_thickness", defaults.get("cursor_bisect_cut_preview_thickness", 3.0))
-                            prefs.cursor_bisect_face_depth = safe_get(value, "cursor_bisect_face_depth", defaults.get("cursor_bisect_face_depth", 5))
-                            prefs.cursor_bisect_max_faces = safe_get(value, "cursor_bisect_max_faces", defaults.get("cursor_bisect_max_faces", 1000))
-                            prefs.cursor_bisect_merge_distance = safe_get(value, "cursor_bisect_merge_distance", defaults.get("cursor_bisect_merge_distance", 0.005))
-                            prefs.cursor_bisect_rotation_step = safe_get(value, "cursor_bisect_rotation_step", defaults.get("cursor_bisect_rotation_step", 45.0))
-                            prefs.cursor_bisect_distance_text_color = safe_get(value, "cursor_bisect_distance_text_color", defaults.get("cursor_bisect_distance_text_color", (1.0, 1.0, 0.0, 1.0)))
-                            prefs.cursor_bisect_distance_text_size = safe_get(value, "cursor_bisect_distance_text_size", defaults.get("cursor_bisect_distance_text_size", 12.0))
-                            prefs.cursor_bisect_distance_offset_x = safe_get(value, "cursor_bisect_distance_offset_x", defaults.get("cursor_bisect_distance_offset_x", -25))
-                            prefs.cursor_bisect_distance_offset_y = safe_get(value, "cursor_bisect_distance_offset_y", defaults.get("cursor_bisect_distance_offset_y", 25))
+                            for key_, default_ in (
+                                ("cursor_bisect_edge_subdivisions", 1),
+                                ("cursor_bisect_face_depth", 5),
+                                ("cursor_bisect_max_faces", 1000),
+                                ("cursor_bisect_merge_distance", 0.005),
+                                ("cursor_bisect_rotation_step", 45.0),
+                                ("cursor_bisect_coplanar_angle", 5.0),
+                                ("cursor_bisect_snap_threshold", 30.0),
+                                ("cursor_bisect_snap_use_modifiers", True),
+                            ):
+                                if hasattr(prefs, key_):
+                                    setattr(prefs, key_,
+                                            safe_get(value, key_, defaults.get(key_, default_)))
                     
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})
                             prefs.iops_stat = safe_get(value, "iops_stat", defaults.get("iops_stat", True))
                             prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
-                            prefs.text_color_stat = safe_get(value, "text_color_stat", defaults.get("text_color_stat", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.text_color_key_stat = safe_get(value, "text_color_key_stat", defaults.get("text_color_key_stat", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.text_color_error_stat = safe_get(value, "text_color_error_stat", defaults.get("text_color_error_stat", (1.0, 0.0, 0.0, 1.0)))
-                            prefs.text_pos_x_stat = safe_get(value, "text_pos_x_stat", defaults.get("text_pos_x_stat", 9))
-                            prefs.text_pos_y_stat = safe_get(value, "text_pos_y_stat", defaults.get("text_pos_y_stat", 220))
-                            prefs.text_shadow_color_stat = safe_get(value, "text_shadow_color_stat", defaults.get("text_shadow_color_stat", (0.0, 0.0, 0.0, 1.0)))
-                            prefs.text_shadow_pos_x_stat = safe_get(value, "text_shadow_pos_x_stat", defaults.get("text_shadow_pos_x_stat", 2))
-                            prefs.text_shadow_pos_y_stat = safe_get(value, "text_shadow_pos_y_stat", defaults.get("text_shadow_pos_y_stat", -2))
-                            prefs.text_shadow_toggle_stat = safe_get(value, "text_shadow_toggle_stat", defaults.get("text_shadow_toggle_stat", False))
-                            prefs.text_size_stat = safe_get(value, "text_size_stat", defaults.get("text_size_stat", 20))
-                            prefs.text_column_offset_stat = safe_get(value, "text_column_offset_stat", defaults.get("text_column_offset_stat", 30))
-                            prefs.text_column_width_stat = safe_get(value, "text_column_width_stat", defaults.get("text_column_width_stat", 4))
-                    
-                    case "VISUAL_ORIGIN":
-                        if isinstance(value, dict):
-                            defaults = default_prefs.get("VISUAL_ORIGIN", {})
-                            prefs.vo_cage_ap_color = safe_get(value, "vo_cage_ap_color", defaults.get("vo_cage_ap_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_ap_size = safe_get(value, "vo_cage_ap_size", defaults.get("vo_cage_ap_size", 4))
-                            prefs.vo_cage_color = safe_get(value, "vo_cage_color", defaults.get("vo_cage_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_p_size = safe_get(value, "vo_cage_p_size", defaults.get("vo_cage_p_size", 2))
-                            prefs.vo_cage_points_color = safe_get(value, "vo_cage_points_color", defaults.get("vo_cage_points_color", (1.0, 1.0, 1.0, 1.0)))
-                            prefs.vo_cage_line_thickness = safe_get(value, "vo_cage_line_thickness", defaults.get("vo_cage_line_thickness", 0.25))
-                    
+
                     case "TEXTURE_TO_MATERIAL":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("TEXTURE_TO_MATERIAL", {})
@@ -277,12 +226,6 @@ def load_iops_preferences():
                         # This case is kept for compatibility but snap combos are handled
                         # directly in snap_combos.py via JSON file
                         pass
-                    
-                    case "DRAG_SNAP":
-                        if isinstance(value, dict):
-                            defaults = default_prefs.get("DRAG_SNAP", {})
-                            prefs.drag_snap_line_thickness = safe_get(value, "drag_snap_line_thickness",
-                                defaults.get("drag_snap_line_thickness", 0.25))
                     
                     case "MODIFIER_WINDOW":
                         if isinstance(value, dict):

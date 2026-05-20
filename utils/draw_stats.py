@@ -1,6 +1,9 @@
 import os
 import bpy
-import blf
+
+from ..ui.draw.theme import get_theme, Role
+from ..ui.hud.text import draw as hud_text_draw, measure as hud_text_measure
+
 
 def draw_iops_statistics():
     context = bpy.context
@@ -17,58 +20,44 @@ def draw_iops_statistics():
         return
 
     area_3d = context.area
-    # Single lookup for overlay (context.space_data is this View3D's space)
     space_3d = context.space_data
     show_overlays = space_3d.overlay.show_overlays if space_3d else True
 
-    # Cache prefs in locals
-    tColor = prefs.text_color_stat
-    tKColor = prefs.text_color_key_stat
-    tErrorColor = prefs.text_color_error_stat
-    tCSize = prefs.text_size_stat
-    tCPosX = prefs.text_pos_x_stat
-    tCPosY = prefs.text_pos_y_stat
-    tShadow = prefs.text_shadow_toggle_stat
-    tSColor = prefs.text_shadow_color_stat
-    tSBlur = prefs.text_shadow_blur_stat
-    tSPosX = prefs.text_shadow_pos_x_stat
-    tSPosY = prefs.text_shadow_pos_y_stat
-    tColumnOffset = prefs.text_column_offset_stat
-    tColumnWidth = prefs.text_column_width_stat
+    theme = get_theme(context)
 
-    tColor = (tColor[0], tColor[1], tColor[2], tColor[3] * show_overlays)
-    tKColor = (tKColor[0], tKColor[1], tKColor[2], tKColor[3] * show_overlays)
-    tErrorColor = (
-        tErrorColor[0], tErrorColor[1], tErrorColor[2],
-        tErrorColor[3] * show_overlays,
-    )
-
+    # Stat overlay sits in the top-left of the 3D view, offset from the
+    # toolbar (TOOLS region). Position uses the unified HUD padding.
     t_offset = 0
     for region in area_3d.regions:
         if region.type == "TOOLS":
             t_offset = region.width
             break
 
-    offset_x = tCPosX + t_offset
-    offset_y = area_3d.height - tCPosY
-    uidpi = context.preferences.system.ui_scale
-    size_multiplier = tCSize * uidpi
-    base_column_x = offset_x + size_multiplier + tColumnOffset
+    offset_x = t_offset + theme.stats_offset_x
+    line_h = theme.text_size("default")
+    offset_y = area_3d.height - theme.stats_offset_y - line_h
+    row_step = int(line_h * float(getattr(theme, "stats_row_spacing", 1.5)))
 
-    font = 0
-    blf.size(font, tCSize)
-    if tShadow:
-        blf.enable(font, blf.SHADOW)
-        blf.shadow(font, int(tSBlur), tSColor[0], tSColor[1], tSColor[2], tSColor[3])
-        blf.shadow_offset(font, tSPosX, tSPosY)
-    else:
-        blf.disable(font, blf.SHADOW)
+    base_column_x = offset_x + int(line_h
+                                   * float(getattr(theme, "stats_column_spacing", 9.0)))
 
-    textsize = tCSize
+    def _t(text, *, role=None, color=None, x=offset_x, y=None):
+        if y is None:
+            y = offset_y
+        eff_color = color
+        if eff_color is None and role is not None:
+            r, g, b, a = theme.color_for(role)
+            eff_color = (r, g, b, a * (1.0 if show_overlays else 0.0))
+        hud_text_draw(text, int(x), int(y), theme=theme,
+                      color=eff_color, role=role,
+                      alpha_mul=(1.0 if show_overlays else 0.0))
+
+    def _dim(text):
+        return hud_text_measure(text, theme=theme)
+
     active_object = context.active_object
 
     try:
-
         if prefs.show_filename_stat:
             file_saved = bpy.data.is_saved
             file_dirty = bpy.data.is_dirty
@@ -78,17 +67,10 @@ def draw_iops_statistics():
             else:
                 file_status = "Unsaved"
 
-            blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-            blf.position(font, offset_x, offset_y, 0)
-            blf.draw(font, "File:")
-            if file_saved and not file_dirty:
-                blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-            else:
-                blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
-            dim = blf.dimensions(font, file_status)
-            blf.position(font, base_column_x + dim[1], offset_y, 0)
-            blf.draw(font, file_status)
-            offset_y -= textsize * 1.5
+            _t("File:", role=Role.TEXT)
+            value_role = Role.ACTIVE_TEXT if (file_saved and not file_dirty) else Role.ERROR_TEXT
+            _t(file_status, role=value_role, x=base_column_x)
+            offset_y -= row_step
 
         if active_object and active_object.type == "MESH":
             scale_stat = []
@@ -100,7 +82,6 @@ def draw_iops_statistics():
             if scale[0] < 0 or scale[1] < 0 or scale[2] < 0:
                 scale_stat.append("Negative")
 
-            # Collect UV channels from all selected mesh objects
             all_uvmap_names = []
             active_uvmaps = set()
             render_uvmaps = set()
@@ -123,49 +104,32 @@ def draw_iops_statistics():
                     if uv.active_render:
                         render_uvmaps.add(uv.name)
 
-            # UVMaps line
-            blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-            blf.position(font, offset_x, offset_y, 0)
-            blf.draw(font, "UVMaps:")
+            _t("UVMaps:", role=Role.TEXT)
             col_x = base_column_x
             if all_uvmap_names:
                 for uvmap in all_uvmap_names:
                     is_render = uvmap in render_uvmaps
                     display = "[ " + uvmap + " ]" if is_render else uvmap
-                    if uvmap in active_uvmaps:
-                        blf.color(font, tKColor[0], tKColor[1], tKColor[2], tKColor[3])
-                    else:
-                        blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-                    dim = blf.dimensions(font, display)
-                    blf.position(font, col_x + dim[1], offset_y, 0)
-                    blf.draw(font, display)
-                    col_x += dim[0] + tColumnWidth
-                offset_y -= textsize * 1.5
+                    role = Role.ACTIVE_TEXT if uvmap in active_uvmaps else Role.TEXT
+                    _t(display, role=role, x=col_x)
+                    w, _h = _dim(display)
+                    col_x += w + 6
+                offset_y -= row_step
             else:
-                blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
-                blf.position(font, base_column_x + 9 + tColumnWidth, offset_y, 0)
-                blf.draw(font, "No UVMaps")
-                offset_y -= textsize * 1.5
+                _t("No UVMaps", role=Role.ERROR_TEXT, x=base_column_x)
+                offset_y -= row_step
 
-            # Scale line (only if any scale warnings)
             if scale_stat:
-                blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-                blf.position(font, offset_x, offset_y, 0)
-                blf.draw(font, "Scale:")
-                blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
+                _t("Scale:", role=Role.TEXT)
                 col_x = base_column_x
                 for s in scale_stat:
-                    dim = blf.dimensions(font, s)
-                    blf.position(font, col_x + dim[1] + 3, offset_y, 0)
-                    blf.draw(font, s)
-                    col_x += dim[0] + tColumnWidth
-                offset_y -= textsize * 1.5
+                    _t(s, role=Role.ERROR_TEXT, x=col_x)
+                    w, _h = _dim(s)
+                    col_x += w + 6
+                offset_y -= row_step
         else:
-            blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-            blf.position(font, offset_x, offset_y, 0)
-            blf.draw(font, "- - -")
+            _t("- - -", role=Role.TEXT)
 
-        # Selection scaled warning (only build list when there are selected objects)
         if context.selected_objects:
             scaled_objects = []
             for obj in context.selected_objects:
@@ -177,16 +141,9 @@ def draw_iops_statistics():
                 if s[0] != 1 or s[1] != 1 or s[2] != 1:
                     scaled_objects.append(obj)
             if scaled_objects:
-                blf.color(font, tColor[0], tColor[1], tColor[2], tColor[3])
-                blf.position(font, offset_x, offset_y, 0)
-                blf.draw(font, "Selection:")
-                blf.color(font, tErrorColor[0], tErrorColor[1], tErrorColor[2], tErrorColor[3])
-                col_x = base_column_x
-                msg = "There are scaled objects"
-                dim = blf.dimensions(font, msg)
-                blf.position(font, col_x + dim[1] + 3, offset_y, 0)
-                blf.draw(font, msg)
-                offset_y -= textsize * 1.5
+                _t("Selection:", role=Role.TEXT)
+                _t("There are scaled objects", role=Role.ERROR_TEXT, x=base_column_x)
+                offset_y -= row_step
 
     except Exception:
         pass

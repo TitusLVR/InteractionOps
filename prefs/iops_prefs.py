@@ -119,7 +119,6 @@ def get_iops_prefs():
 
     iops_prefs = {
         "IOPS_DEBUG": {"IOPS_DEBUG": safe("IOPS_DEBUG", False)},
-        "ALIGN_TO_EDGE": {"align_edge_color": safelist("align_edge_color", (1.0, 1.0, 1.0, 1.0))},
         "EXECUTOR": {
             "executor_column_count": safe("executor_column_count", 20),
             "executor_scripts_folder": safe("executor_scripts_folder", bpy.utils.script_path_user()),
@@ -135,40 +134,9 @@ def get_iops_prefs():
                 f"split_area_pie_{i}_alt_ui": safe(f"split_area_pie_{i}_alt_ui", "VIEW_3D")
             } for i in range(1, 10) if i != 5
         },
-        "UI_TEXT": {
-            "text_color": safelist("text_color", (1.0, 1.0, 1.0, 1.0)),
-            "text_color_key": safelist("text_color_key", (1.0, 1.0, 1.0, 1.0)),
-            "text_pos_x": safe("text_pos_x", 60),
-            "text_pos_y": safe("text_pos_y", 60),
-            "text_shadow_color": safelist("text_shadow_color", (0.0, 0.0, 0.0, 1.0)),
-            "text_shadow_pos_x": safe("text_shadow_pos_x", 2),
-            "text_shadow_pos_y": safe("text_shadow_pos_y", -2),
-            "text_shadow_toggle": safe("text_shadow_toggle", False),
-            "text_size": safe("text_size", 20)
-        },
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
-            "text_color_stat": safelist("text_color_stat", (1.0, 1.0, 1.0, 1.0)),
-            "text_color_key_stat": safelist("text_color_key_stat", (1.0, 1.0, 1.0, 1.0)),
-            "text_color_error_stat": safelist("text_color_error_stat", (1.0, 0.0, 0.0, 1.0)),
-            "text_pos_x_stat": safe("text_pos_x_stat", 9),
-            "text_pos_y_stat": safe("text_pos_y_stat", 220),
-            "text_shadow_color_stat": safelist("text_shadow_color_stat", (0.0, 0.0, 0.0, 1.0)),
-            "text_shadow_pos_x_stat": safe("text_shadow_pos_x_stat", 2),
-            "text_shadow_pos_y_stat": safe("text_shadow_pos_y_stat", -2),
-            "text_shadow_toggle_stat": safe("text_shadow_toggle_stat", False),
-            "text_size_stat": safe("text_size_stat", 20),
-            "text_column_offset_stat": safe("text_column_offset_stat", 30),
-            "text_column_width_stat": safe("text_column_width_stat", 4)
-        },
-        "VISUAL_ORIGIN": {
-            "vo_cage_ap_color": safelist("vo_cage_ap_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_ap_size": safe("vo_cage_ap_size", 4),
-            "vo_cage_color": safelist("vo_cage_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_p_size": safe("vo_cage_p_size", 2),
-            "vo_cage_points_color": safelist("vo_cage_points_color", (1.0, 1.0, 1.0, 1.0)),
-            "vo_cage_line_thickness": safe("vo_cage_line_thickness", 0.25)
         },
         "TEXTURE_TO_MATERIAL": {
             "texture_to_material_prefixes": safe("texture_to_material_prefixes", "env_"),
@@ -177,37 +145,18 @@ def get_iops_prefs():
         "SNAP_COMBOS": {
             f"snap_combo_{i}": snap_combo_dict[f"snap_combo_{i}"] for i in range(1, 9)
         },
-        "DRAG_SNAP": {
-            "drag_snap_line_thickness": safe("drag_snap_line_thickness", 0.25)
-        },
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")
         },
         "CURSOR_BISECT": {
-            "cursor_bisect_plane_color": safelist("cursor_bisect_plane_color", (1.0, 0.0, 0.0, 0.15)),
-            "cursor_bisect_plane_outline_color": safelist("cursor_bisect_plane_outline_color", (1.0, 0.0, 0.0, 0.8)),
-            "cursor_bisect_plane_outline_thickness": safe("cursor_bisect_plane_outline_thickness", 2.0),
-            "cursor_bisect_edge_color": safelist("cursor_bisect_edge_color", (1.0, 1.0, 0.0, 1.0)),
-            "cursor_bisect_edge_locked_color": safelist("cursor_bisect_edge_locked_color", (1.0, 0.0, 0.0, 1.0)),
-            "cursor_bisect_edge_thickness": safe("cursor_bisect_edge_thickness", 4.0),
-            "cursor_bisect_edge_locked_thickness": safe("cursor_bisect_edge_locked_thickness", 8.0),
-            "cursor_bisect_snap_color": safelist("cursor_bisect_snap_color", (1.0, 1.0, 0.0, 1.0)),
-            "cursor_bisect_snap_hold_color": safelist("cursor_bisect_snap_hold_color", (1.0, 0.5, 0.0, 1.0)),
-            "cursor_bisect_snap_closest_color": safelist("cursor_bisect_snap_closest_color", (0.0, 1.0, 0.0, 1.0)),
-            "cursor_bisect_snap_closest_hold_color": safelist("cursor_bisect_snap_closest_hold_color", (1.0, 0.2, 0.0, 1.0)),
-            "cursor_bisect_snap_size": safe("cursor_bisect_snap_size", 6.0),
-            "cursor_bisect_snap_closest_size": safe("cursor_bisect_snap_closest_size", 9.0),
             "cursor_bisect_edge_subdivisions": safe("cursor_bisect_edge_subdivisions", 1),
-            "cursor_bisect_cut_preview_color": safelist("cursor_bisect_cut_preview_color", (1.0, 0.5, 0.0, 1.0)),
-            "cursor_bisect_cut_preview_thickness": safe("cursor_bisect_cut_preview_thickness", 3.0),
             "cursor_bisect_face_depth": safe("cursor_bisect_face_depth", 5),
             "cursor_bisect_max_faces": safe("cursor_bisect_max_faces", 1000),
             "cursor_bisect_merge_distance": safe("cursor_bisect_merge_distance", 0.005),
             "cursor_bisect_rotation_step": safe("cursor_bisect_rotation_step", 45.0),
-            "cursor_bisect_distance_text_color": safelist("cursor_bisect_distance_text_color", (1.0, 1.0, 0.0, 1.0)),
-            "cursor_bisect_distance_text_size": safe("cursor_bisect_distance_text_size", 12.0),
-            "cursor_bisect_distance_offset_x": safe("cursor_bisect_distance_offset_x", -25),
-            "cursor_bisect_distance_offset_y": safe("cursor_bisect_distance_offset_y", 25),
+            "cursor_bisect_coplanar_angle": safe("cursor_bisect_coplanar_angle", 5.0),
+            "cursor_bisect_snap_threshold": safe("cursor_bisect_snap_threshold", 30.0),
+            "cursor_bisect_snap_use_modifiers": safe("cursor_bisect_snap_use_modifiers", True),
         },
     }
 
