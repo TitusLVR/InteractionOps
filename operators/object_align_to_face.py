@@ -13,7 +13,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 
 
 class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
@@ -159,7 +159,7 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme
@@ -232,15 +232,13 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
 
         self.hud = self._build_hud(context)
         self._help = self._build_help(context)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._sync_hud_header()
 
         self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
-        )
+            bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)
         self._handle_edge = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_edge, (context,), "WINDOW", "POST_VIEW"
-        )
+            bpy.types.SpaceView3D, self._draw_edge, (context,), "WINDOW", "POST_VIEW", tick=True)
 
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}

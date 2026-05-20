@@ -10,7 +10,7 @@ from ..ui.draw import primitives as draw_prim, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
@@ -343,9 +343,6 @@ def draw_3d_callback(op, context):
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
     theme = get_theme(context)
-    # Fill alpha comes from the Result-Preview line color's alpha channel.
-    fill_base = theme.color_for(Role.PREVIEW_LINE)[3]
-
     gpu.state.blend_set('ALPHA')
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(False)
@@ -359,7 +356,12 @@ def draw_3d_callback(op, context):
         island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
 
-        fa = fill_base * (1.8 if is_active else 1.4 if is_selected else 1.0)
+        # Fill alpha is driven by the palette swatch's own alpha. State
+        # only modulates it — and we clamp so even "active" stays clearly
+        # translucent (selected/active used to compound to fully opaque).
+        base_a = island_col[3]
+        fa = min(0.85, base_a * (1.4 if is_active
+                                 else 1.1 if is_selected else 0.8))
         tv = []
         for v0, v1, v2 in geo['face_tris']:
             tv.extend([_off(v0, nrm, nrm_off), _off(v1, nrm, nrm_off),
@@ -882,14 +884,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._hud, self._help = _build_visual_uv_hud(context)
         self._hud.bind_region(context.region)
         self._help.bind_region(context.region)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle_3d = safe_handler_add(
-            bpy.types.SpaceView3D, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW')
+            bpy.types.SpaceView3D, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW', tick=True)
         self._handle_pixel = safe_handler_add(
-            bpy.types.SpaceView3D, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+            bpy.types.SpaceView3D, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
         self._handle_shortcuts = safe_handler_add(
-            bpy.types.SpaceView3D, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL')
+            bpy.types.SpaceView3D, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
         self._timer = context.window_manager.event_timer_add(
             0.05, window=context.window)
 
@@ -917,7 +919,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         self.mouse_x = event.mouse_region_x
         self.mouse_y = event.mouse_region_y
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme

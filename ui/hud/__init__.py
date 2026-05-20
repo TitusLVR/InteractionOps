@@ -2,6 +2,7 @@ from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
                     ItemState)
 from .overlay import HUDOverlay
 from .help import HelpOverlay
+from .event_snap import EventSnapshot, capture_event
 
 
 def handle_hud_toggle(hud, context, event) -> bool:
@@ -32,4 +33,5 @@ def handle_help_toggle(help_overlay, context, event) -> bool:
 
 __all__ = ["HUDItem", "HUDSection", "HUDParam", "HUDParamSection",
            "ItemState", "HUDOverlay", "HelpOverlay",
+           "EventSnapshot", "capture_event",
            "handle_hud_toggle", "handle_help_toggle"]

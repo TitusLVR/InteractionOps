@@ -177,18 +177,33 @@ class HelpOverlay:
     # --- corner layout ---
     @staticmethod
     def _corner_origin(corner: str, region, size, offset_x, offset_y,
-                       slide_dx: int):
+                       slide: int):
+        """`slide` is signed displacement *away* from the anchored edge,
+        applied along the axis that the anchor pins (horizontal for
+        left/right anchors, vertical for top/bottom-center anchors)."""
         cw, ch = size
         rw, rh = region.width, region.height
+        cx = (rw - cw) // 2
+        cy = (rh - ch) // 2
         if corner == "top_left":
-            return (offset_x + slide_dx, rh - offset_y - ch)
+            return (offset_x + slide, rh - offset_y - ch)
         if corner == "top_right":
-            return (rw - cw - offset_x - slide_dx, rh - offset_y - ch)
+            return (rw - cw - offset_x - slide, rh - offset_y - ch)
         if corner == "bottom_left":
-            return (offset_x + slide_dx, offset_y)
+            return (offset_x + slide, offset_y)
         if corner == "bottom_right":
-            return (rw - cw - offset_x - slide_dx, offset_y)
-        return (offset_x + slide_dx, rh - offset_y - ch)
+            return (rw - cw - offset_x - slide, offset_y)
+        # For centered positions, the offset on the centered axis acts as
+        # a signed shift from the geometric center (positive = right/up).
+        if corner == "top_center":
+            return (cx + offset_x, rh - offset_y - ch + slide)
+        if corner == "bottom_center":
+            return (cx + offset_x, offset_y + slide)
+        if corner == "left_center":
+            return (offset_x + slide, cy + offset_y)
+        if corner == "right_center":
+            return (rw - cw - offset_x - slide, cy + offset_y)
+        return (offset_x + slide, rh - offset_y - ch)
 
     # --- measurement ---
     def _measure_expanded(self, theme):
@@ -308,7 +323,7 @@ class HelpOverlay:
         if w <= 0:
             return
 
-        corner = getattr(theme_prefs, "help_corner", "top_left")
+        corner = getattr(theme_prefs, "help_corner", "left_center")
         offx = int(getattr(theme_prefs, "help_offset_x", 12))
         offy = int(getattr(theme_prefs, "help_offset_y", 12))
         slide = 0

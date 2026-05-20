@@ -10,7 +10,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 
 
 def _build_easy_array_hud(context):
@@ -56,7 +56,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme
@@ -278,10 +278,9 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
                 self._hud = _build_easy_array_hud(context)
                 self._help = _build_easy_array_help(context)
-                self._last_event = event
+                self._last_event = capture_event(event, getattr(self, "_last_event", None))
                 self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
-                    _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL"
-                )
+                    _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL", tick=True)
                 context.window_manager.modal_handler_add(self)
                 return {"RUNNING_MODAL"}
             else:

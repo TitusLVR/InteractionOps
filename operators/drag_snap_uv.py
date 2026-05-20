@@ -8,7 +8,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 from ..utils.picking import build_uv_kdtree
 
 
@@ -164,7 +164,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme
@@ -292,17 +292,14 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         self.lmb = False
 
         self.hud, self.help = self._build_hud(context)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self.handle_snap_line = safe_handler_add(bpy.types.SpaceImageEditor,
-            self._draw_snap_line, (context,), "WINDOW", "POST_PIXEL"
-        )
+            self._draw_snap_line, (context,), "WINDOW", "POST_PIXEL", tick=True)
         self.handle_snap_points = safe_handler_add(bpy.types.SpaceImageEditor,
-            self._draw_snap_points, (context,), "WINDOW", "POST_PIXEL"
-        )
+            self._draw_snap_points, (context,), "WINDOW", "POST_PIXEL", tick=True)
         self.handle_iops_text = safe_handler_add(bpy.types.SpaceImageEditor,
-            self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
-        )
+            self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)
         self.sd_handlers = [
             self.handle_snap_line,
             self.handle_snap_points,

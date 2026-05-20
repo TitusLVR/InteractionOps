@@ -13,7 +13,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 
 
 _BBOX_EDGES_8 = (
@@ -449,7 +449,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme
@@ -578,20 +578,16 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         self.calc_distance(context)
 
         self.hud, self.help = self._build_hud(context)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_hud, (context,), "WINDOW", "POST_PIXEL"
-        )
+            self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)
         self._handle_bbox_lines = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_cage_lines, (context,), "WINDOW", "POST_VIEW"
-        )
+            self._draw_cage_lines, (context,), "WINDOW", "POST_VIEW", tick=True)
         self._handle_bbox_points = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_cage_points, (context,), "WINDOW", "POST_VIEW"
-        )
+            self._draw_cage_points, (context,), "WINDOW", "POST_VIEW", tick=True)
         self._handle_bbox_act_point = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_active_point, (context,), "WINDOW", "POST_VIEW"
-        )
+            self._draw_active_point, (context,), "WINDOW", "POST_VIEW", tick=True)
         self.vp_handlers = [
             self._handle_iops_text,
             self._handle_bbox_lines,

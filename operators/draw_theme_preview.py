@@ -88,52 +88,7 @@ def _draw_view(state):
             draw.tris(quad_tris, color=th.island_palette[i], theme=th)
 
 
-class _EventSnapshot:
-    """Minimal stand-in for `bpy.types.Event`. Blender invalidates the live
-    event object once `modal()` returns, so reading `event.mouse_x` from a
-    POST_PIXEL handler that fires later gives garbage (we've seen 1e6+).
-    The modal copies the few fields the HUD reads into one of these each
-    frame and the draw handler uses the snapshot instead."""
-    __slots__ = ("mouse_x", "mouse_y", "mouse_region_x", "mouse_region_y",
-                 "shift", "ctrl", "alt", "oskey", "type", "value")
-
-    def __init__(self):
-        self.mouse_x = 0
-        self.mouse_y = 0
-        self.mouse_region_x = 0
-        self.mouse_region_y = 0
-        self.shift = False
-        self.ctrl = False
-        self.alt = False
-        self.oskey = False
-        self.type = ""
-        self.value = ""
-
-    def update(self, event, *, modal_window, target_window, region):
-        # Modal events always arrive in the invoke window's coord system
-        # (here: the prefs popup). Translate through screen coords into
-        # the target viewport's window, then subtract region.x/y to get
-        # region-relative coords usable by the HUD's cursor-follow.
-        if modal_window is not None and target_window is not None:
-            screen_x = modal_window.x + event.mouse_x
-            screen_y = modal_window.y + event.mouse_y
-            tx = screen_x - target_window.x
-            ty = screen_y - target_window.y
-            self.mouse_x = tx
-            self.mouse_y = ty
-            self.mouse_region_x = tx - region.x
-            self.mouse_region_y = ty - region.y
-        else:
-            self.mouse_x = event.mouse_x
-            self.mouse_y = event.mouse_y
-            self.mouse_region_x = event.mouse_region_x
-            self.mouse_region_y = event.mouse_region_y
-        self.shift = bool(event.shift)
-        self.ctrl = bool(event.ctrl)
-        self.alt = bool(event.alt)
-        self.oskey = bool(event.oskey)
-        self.type = event.type
-        self.value = event.value
+from ..ui.hud import EventSnapshot as _EventSnapshot
 
 
 def _draw_px(state):
@@ -248,10 +203,10 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
             self._state["help"] = self._build_help(target_region)
             self._h_view = safe_handler_add(
                 bpy.types.SpaceView3D,
-                _draw_view, (self._state,), "WINDOW", "POST_VIEW")
+                _draw_view, (self._state,), "WINDOW", "POST_VIEW", tick=True)
             self._h_px = safe_handler_add(
                 bpy.types.SpaceView3D,
-                _draw_px, (self._state,), "WINDOW", "POST_PIXEL")
+                _draw_px, (self._state,), "WINDOW", "POST_PIXEL", tick=True)
             # ~60 fps timer keeps the modal alive even when the cursor is
             # idle — needed so HelpOverlay animations keep ticking and
             # don't stall between mouse events.
@@ -370,13 +325,18 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
             line_pairs.append(c + off + Vector((0, 0, -0.7)))
             line_pairs.append(c + off + Vector((0, 0, -1.5)))
         state["line_pairs"] = line_pairs
+        # Smooth horizontal sine S — one full period over x ∈ [-1.25, 1.25],
+        # vertically centred at z = 1.0, amplitude 0.3. Sampled with enough
+        # segments to look gapless under the addon's line shader.
+        import math
+        segs = 64
+        x0, x1 = -1.25, 1.25
+        z0 = 1.0
+        amp = 0.3
         state["preview_polyline"] = [
-            c + Vector((-1.25, 0, 0.9)),
-            c + Vector((-0.75, 0, 1.3)),
-            c + Vector((-0.25, 0, 0.7)),
-            c + Vector(( 0.25, 0, 1.3)),
-            c + Vector(( 0.75, 0, 0.9)),
-            c + Vector(( 1.25, 0, 1.1)),
+            c + Vector((x0 + (x1 - x0) * (i / segs), 0,
+                        z0 + amp * math.sin(2.0 * math.pi * (i / segs))))
+            for i in range(segs + 1)
         ]
         # --- "extras" row below the line column, demoing the remaining
         # roles so every theme color visibly maps to something on screen:

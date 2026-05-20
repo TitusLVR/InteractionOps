@@ -3,7 +3,7 @@ import bmesh
 import math
 import gpu
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import handle_hud_toggle, handle_help_toggle
+from ..ui.hud import handle_hud_toggle, handle_help_toggle, capture_event
 from gpu_extras.batch import batch_for_shader
 import bpy_extras
 import blf
@@ -1988,14 +1988,12 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 break
 
         self._hud, self._help = self._build_hud(context)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_3d, (context,), 'WINDOW', 'POST_VIEW'
-        )
+            bpy.types.SpaceView3D, self._draw_3d, (context,), 'WINDOW', 'POST_VIEW', tick=True)
         self._handle_text = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_text, (context,), 'WINDOW', 'POST_PIXEL'
-        )
+            bpy.types.SpaceView3D, self._draw_text, (context,), 'WINDOW', 'POST_PIXEL', tick=True)
         self._timer = context.window_manager.event_timer_add(
             0.1, window=context.window
         )
@@ -2006,7 +2004,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme

@@ -11,7 +11,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
@@ -558,7 +558,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def modal(self, context, event):
         # Track latest event for HUD positioning
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         # HUD/Help toggles. Keys come from keymap items
         # (iops.ui_help_toggle, iops.ui_hud_params_toggle), editable in
         # the addon's Keymaps tab.
@@ -2406,7 +2406,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._current_mouse_coord = (0, 0)
 
         # Build unified HUD overlay
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._modal_region = context.region.as_pointer()
         self.hud, self.help = self._build_hud(context)
 
@@ -2419,14 +2419,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         # Add draw handler
         self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self.draw_callback, (context,), 'WINDOW', 'POST_VIEW'
-        )
+            bpy.types.SpaceView3D, self.draw_callback, (context,), 'WINDOW', 'POST_VIEW', tick=True)
         self._handle_pixel = safe_handler_add(
-            bpy.types.SpaceView3D, self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL'
-        )
+            bpy.types.SpaceView3D, self.draw_distance_text_callback, (context,), 'WINDOW', 'POST_PIXEL', tick=True)
         self._handle_iops_text = safe_handler_add(
-            bpy.types.SpaceView3D, self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL"
-            )
+            bpy.types.SpaceView3D, self.draw_iops_text,(context,), "WINDOW", "POST_PIXEL", tick=True)
         _ACTIVE_HANDLES.update({
             ('POST_VIEW',  self._handle),
             ('POST_PIXEL', self._handle_pixel),

@@ -11,7 +11,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 
 
 EPS = 1e-5
@@ -276,10 +276,10 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         self._help.bind_region(context.region)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL")
+            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
         _ACTIVE_HANDLES.add(self._handle)
 
         context.workspace.status_text_set(self._status_text())
@@ -291,7 +291,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
         except (KeyError, AttributeError):

@@ -9,7 +9,7 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle)
+                      handle_hud_toggle, handle_help_toggle, capture_event)
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
@@ -75,11 +75,11 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             HUDItem("Toggle help",     "H",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         self._help.bind_region(context.region)
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         args = (context,)
-        self._handle = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL')
-        self._handle_text = safe_handler_add(bpy.types.SpaceView3D, self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL')
+        self._handle = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL', tick=True)
+        self._handle_text = safe_handler_add(bpy.types.SpaceView3D, self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL', tick=True)
 
         context.window_manager.modal_handler_add(self)
         
@@ -112,7 +112,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = event
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
                 .preferences.iops_theme
