@@ -104,6 +104,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     inset_distance_bu = 0.1  # In Blender Units (meters); 0.1 = 10 cm default
     inset_input_string = ""
     inset_points = []
+    # Bevel mode: when active, the operator produces TWO parallel cuts
+    # offset ±inset_distance_bu perpendicular to the would-be cut line, in
+    # the hit face plane. Affects both the live preview lines and the
+    # execute step. Distance is shared with Inset.
+    bevel_active = False
 
     # Edge marking system (M toggles, N cycles type)
     mark_edges_active = False
@@ -332,11 +337,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             inset_info = f"ON:{self._fmt(v_display)}{suffix}"
         else:
             inset_info = "OFF"
+        if self.bevel_active:
+            scale, suffix = self._bu_to_display_units(context)
+            v_display = self.inset_distance_bu * scale
+            bevel_info = f"ON:{self._fmt(v_display)}{suffix}"
+        else:
+            bevel_info = "OFF"
         mark_status = f"ON:{self._current_mark_type()}" if self.mark_edges_active else f"OFF:{self._current_mark_type()}"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
-                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [M] Mark({mark_status}) | [N] Mark Type | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
+                      f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [B] Bevel({bevel_info}) | [M] Mark({mark_status}) | [N] Mark Type | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
 
@@ -579,8 +590,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if event.type == 'TIMER':
             return {'PASS_THROUGH'}
 
-        # Inset points numeric input: intercept keys when inset input is active
-        if self.inset_active and event.value == 'PRESS':
+        # Inset/Bevel numeric input: intercept digits when either mode is on.
+        if (self.inset_active or self.bevel_active) and event.value == 'PRESS':
             if self._handle_inset_input(context, event):
                 return {'RUNNING_MODAL'}
 
@@ -822,9 +833,27 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.calculate_inset_points()
             else:
                 self.inset_points = []
-                self.inset_input_string = ""
+                if not self.bevel_active:
+                    self.inset_input_string = ""
             if self.hit_obj and self.hit_face_index != -1:
                 self.update_snapping(context, context.scene.cursor.location)
+            self.update_status_bar(context)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
+        # Toggle bevel mode — two parallel cuts offset perpendicular to
+        # the cut line in the face plane (distance shared with Inset).
+        elif event.type == 'B' and event.value == 'PRESS' and not event.shift and not event.ctrl and not event.alt:
+            self.bevel_active = not self.bevel_active
+            if self.bevel_active:
+                if not self.inset_input_string:
+                    scale, _ = self._bu_to_display_units(context)
+                    self.inset_input_string = self._fmt(self.inset_distance_bu * scale)
+            else:
+                if not self.inset_active:
+                    self.inset_input_string = ""
+            # Refresh preview so the second line appears/disappears now.
+            self.calculate_cut_preview(context)
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -952,6 +981,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
         axis_world = rotation @ axis
 
+        # Bevel mode → two parallel planes offset ±perp*d; else one plane.
+        plane_origins_world = self._plane_origins_world(context)
+
         success_count = 0
 
         # Execute bisect on each object
@@ -970,46 +1002,53 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # afterward without leaning on select-flush heuristics.
                 sel_layer = self._snapshot_face_selection(bm, is_vis)
 
-                # Build geom for bisect: selected visible faces if any, else all visible
-                selected_faces = [f for f in bm.faces if f[sel_layer] == 1]
-                if selected_faces:
-                    source_faces = selected_faces
-                else:
-                    source_faces = [f for f in bm.faces if is_vis(f)]
-
-                if not source_faces:
-                    self._remove_layer_safe(bm, sel_layer)
-                    continue
-
-                geom = list({v for f in source_faces for v in f.verts} |
-                            {e for f in source_faces for e in f.edges} |
-                            set(source_faces))
-
                 # Transform plane to object space
                 obj_matrix = obj.matrix_world
                 plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
                 plane_no.normalize()
-                plane_co = obj_matrix.inverted() @ cursor.location
 
-                result = bmesh.ops.bisect_plane(
-                    bm,
-                    geom=geom,
-                    plane_co=plane_co,
-                    plane_no=plane_no,
-                    dist=BISECT_PLANE_EPSILON,
-                )
+                all_cut_edges = []
+                for origin_world in plane_origins_world:
+                    # Rebuild source geom each pass — the prior bisect added
+                    # new verts/edges to bm and we want the second cut to
+                    # see them so it slices the freshly-split faces too.
+                    selected_faces = [f for f in bm.faces if f[sel_layer] == 1]
+                    if selected_faces:
+                        source_faces = selected_faces
+                    else:
+                        source_faces = [f for f in bm.faces if is_vis(f)]
+                    if not source_faces:
+                        continue
 
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
+                    geom = list({v for f in source_faces for v in f.verts} |
+                                {e for f in source_faces for e in f.edges} |
+                                set(source_faces))
 
-                # Collect cut edges for optional marking. geom_cut holds only
-                # BMVert + BMEdge — no faces ever lie on the plane.
-                cut_edges = [e for e in result.get('geom_cut', ())
-                             if isinstance(e, bmesh.types.BMEdge) and e.is_valid]
+                    plane_co = obj_matrix.inverted() @ origin_world
 
-                if self.mark_edges_active and cut_edges:
-                    self._apply_edge_mark(bm, cut_edges)
+                    result = bmesh.ops.bisect_plane(
+                        bm,
+                        geom=geom,
+                        plane_co=plane_co,
+                        plane_no=plane_no,
+                        dist=BISECT_PLANE_EPSILON,
+                    )
+
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
+                    bm.verts.ensure_lookup_table()
+
+                    all_cut_edges.extend(
+                        e for e in result.get('geom_cut', ())
+                        if isinstance(e, bmesh.types.BMEdge) and e.is_valid
+                    )
+
+                if not plane_origins_world:
+                    self._remove_layer_safe(bm, sel_layer)
+                    continue
+
+                if self.mark_edges_active and all_cut_edges:
+                    self._apply_edge_mark(bm, all_cut_edges)
 
                 # Merge doubles if requested
                 if self.merge_doubles:
@@ -1065,6 +1104,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         props.cursor_bisect_inset_active = self.inset_active
         props.cursor_bisect_inset_distance = self.inset_distance_bu
         props.cursor_bisect_inset_input = self.inset_input_string
+        props.cursor_bisect_bevel_active = self.bevel_active
         props.cursor_bisect_mark_active = self.mark_edges_active
         props.cursor_bisect_mark_type_idx = self.mark_type_idx
 
@@ -1080,6 +1120,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.inset_active = props.cursor_bisect_inset_active
         self.inset_distance_bu = props.cursor_bisect_inset_distance
         self.inset_input_string = props.cursor_bisect_inset_input
+        self.bevel_active = props.cursor_bisect_bevel_active
         self.mark_edges_active = props.cursor_bisect_mark_active
         self.mark_type_idx = props.cursor_bisect_mark_type_idx
 
@@ -1225,7 +1266,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return False
 
         self._update_inset_distance(context)
-        self.calculate_inset_points()
+        if self.inset_active:
+            self.calculate_inset_points()
+        if self.bevel_active:
+            self.calculate_cut_preview(context)
         if self.hit_obj and self.hit_face_index != -1:
             self.update_snapping(context, context.scene.cursor.location)
         self.update_status_bar(context)
@@ -1283,6 +1327,61 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
         except (IndexError, AttributeError, ValueError, ReferenceError):
             pass
+
+    def _bevel_offset_world(self, context):
+        """World-space offset vector for bevel mode: perp_world * d, where
+        perp is the in-face direction perpendicular to the cut line and d
+        is `inset_distance_bu`. Returns None if bevel can't be computed
+        (no hit face, degenerate geometry, zero distance)."""
+        if not self.bevel_active:
+            return None
+        if not self.hit_obj or self.hit_face_index < 0:
+            return None
+        if self.inset_distance_bu <= EPSILON:
+            return None
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return None
+            bm = bmesh.from_edit_mesh(self.hit_obj.data)
+            bm.faces.ensure_lookup_table()
+            if self.hit_face_index >= len(bm.faces):
+                return None
+            face = bm.faces[self.hit_face_index]
+            obj_mat = self.hit_obj.matrix_world
+            face_normal_world = (obj_mat.to_3x3() @ face.normal)
+            if face_normal_world.length < EPSILON:
+                return None
+            face_normal_world.normalize()
+
+            cursor = context.scene.cursor
+            rotation = (self.locked_rotation if self.lock_orientation
+                        else cursor.matrix.to_quaternion())
+            axis = Vector((1, 0, 0)) if self.normal_axis == 'X' else Vector((0, 1, 0))
+            plane_no_world = rotation @ axis
+            plane_no_world.normalize()
+
+            # In-face direction perpendicular to the cut line: strip the
+            # face-normal component out of plane_no_world.
+            perp = plane_no_world - face_normal_world * plane_no_world.dot(face_normal_world)
+            if perp.length < EPSILON:
+                return None
+            perp.normalize()
+            # `inset_distance_bu` is the FULL gap between the two bevel
+            # planes — each plane sits at ±d/2 from the cursor.
+            return perp * (self.inset_distance_bu * 0.5)
+        except (IndexError, AttributeError, ValueError, ReferenceError):
+            return None
+
+    def _plane_origins_world(self, context):
+        """Return the list of world-space origins for cut planes this
+        frame: a single cursor position normally, or two offset positions
+        in bevel mode."""
+        cursor = context.scene.cursor.location
+        if self.bevel_active:
+            off = self._bevel_offset_world(context)
+            if off is not None:
+                return [cursor + off, cursor - off]
+        return [cursor]
 
     def draw_inset_input_text(self, context):
         """Draw the inset distance input text near the mouse cursor."""
@@ -1433,29 +1532,38 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Line elevation is not a preference property, use default
         line_elevation = DEFAULT_LINE_ELEVATION
 
+        # In bevel mode there are two parallel cut planes offset along the
+        # in-face perpendicular by ±d; otherwise a single plane through
+        # the cursor.
+        plane_origins_world = self._plane_origins_world(context)
+
         # Calculate cut preview for each object
         for obj in edit_objects:
+          try:
+            # Check if object is still in edit mode
+            if obj.mode != 'EDIT':
+                continue
+
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+
+            obj_matrix = obj.matrix_world
+            plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
+            plane_no.normalize()
+
+            # Get faces to process with improved selection and visibility checking
+            faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
+
+            if not faces_to_process:
+                continue
+          except (IndexError, AttributeError, ValueError):
+            continue
+
+          for origin_world in plane_origins_world:
             try:
-                # Check if object is still in edit mode
-                if obj.mode != 'EDIT':
-                    continue
-
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-
-                # Transform plane to object space
-                obj_matrix = obj.matrix_world
-                plane_no = obj_matrix.to_3x3().inverted_safe() @ axis_world
-                plane_no.normalize()
-                plane_co = obj_matrix.inverted() @ cursor.location
-
-                # Get faces to process with improved selection and visibility checking
-                faces_to_process = self.get_faces_to_process(bm, obj, face_depth, context)
-
-                if not faces_to_process:
-                    continue
+                plane_co = obj_matrix.inverted() @ origin_world
 
                 # Collect intersection points per face to create connected lines
                 face_intersections = {}
@@ -1827,6 +1935,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     # Draw Help text — unified HUD overlay
     def draw_iops_text(self, context):
+        # Resync HUD state at draw time so handlers that mutate state and
+        # only call tag_redraw (e.g. _handle_inset_input typing digits)
+        # don't leave the header showing stale values until the next
+        # mouse-move modal tick. Why: in modal() _sync_hud_state runs
+        # BEFORE the input handlers, so a same-frame state change isn't
+        # reflected without this draw-time refresh.
+        self._sync_hud_state()
         helpo = getattr(self, "help", None)
         hud = getattr(self, "hud", None)
         last_event = getattr(self, "_last_event", None)
@@ -1844,6 +1959,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
         s("F", ItemState.ON if self.fill_cut_mode else ItemState.OFF)
         s("V", ItemState.ON if self.inset_active else ItemState.OFF)
+        s("B", ItemState.ON if self.bevel_active else ItemState.OFF)
         s("M", ItemState.ON if self.mark_edges_active else ItemState.OFF)
         s("A", ItemState.ON if self.lock_orientation else ItemState.OFF)
         s("P", ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF)
@@ -1867,15 +1983,19 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 distance_line = f"Edge {total}{unit}  Split {split}{unit}"
 
         inset_line = None
-        if self.inset_active:
+        bevel_line = None
+        if self.inset_active or self.bevel_active:
             scale = bpy.context.scene.unit_settings.scale_length or 1.0
             if self.inset_input_string:
                 val = self.inset_input_string
             else:
                 val = self._fmt(self.inset_distance_bu * scale)
-            inset_line = f"Inset {val}"
+            if self.inset_active:
+                inset_line = f"Inset {val}"
+            if self.bevel_active:
+                bevel_line = f"Bevel {val}"
 
-        self.hud.set_header(distance_line, inset_line)
+        self.hud.set_header(distance_line, inset_line, bevel_line)
 
     def _build_hud(self, context):
         from ..ui.draw.theme import get_theme
@@ -1889,6 +2009,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Fill Cut",         "F",          ItemState.ON if self.fill_cut_mode else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Inset Points",     "V",          ItemState.ON if self.inset_active else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Bevel Points",     "B",          ItemState.ON if self.bevel_active else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Mark Cut Edges",   "M",          ItemState.ON if self.mark_edges_active else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Mark Type",        "N",          ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Select Face",      "RMB",        ItemState.OFF, default_state=ItemState.OFF),
@@ -2108,6 +2229,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                         context=context)
                 except (IndexError, AttributeError, ReferenceError, ValueError):
                     pass
+
 
         except (ReferenceError, AttributeError, ValueError) as e:
             print(f"DEBUG: Exception in draw_callback: {e}")

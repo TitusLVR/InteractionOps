@@ -312,17 +312,25 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
 
         if event.value == "PRESS":
-            if event.type == "S":
+            # Consume S so it doesn't fall through to transform.scale.
+            if event.type == "S" and not (event.ctrl or event.alt or event.shift):
                 self._state["snap_on"] = not self._state["snap_on"]
                 hud.set_state(
                     "S",
                     ItemState.ON if self._state["snap_on"] else ItemState.OFF)
-            elif event.type in {"WHEELUPMOUSE", "EQUAL", "PLUS"}:
+                return {"RUNNING_MODAL"}
+            # Subdivisions on Ctrl+Wheel only; plain wheel passes through
+            # to Blender for viewport zoom.
+            if (event.type in {"WHEELUPMOUSE", "EQUAL", "PLUS"}
+                    and event.ctrl and not event.shift and not event.alt):
                 self._state["subdivisions"] = min(
                     20, self._state["subdivisions"] + 1)
-            elif event.type in {"WHEELDOWNMOUSE", "MINUS"}:
+                return {"RUNNING_MODAL"}
+            if (event.type in {"WHEELDOWNMOUSE", "MINUS"}
+                    and event.ctrl and not event.shift and not event.alt):
                 self._state["subdivisions"] = max(
                     0, self._state["subdivisions"] - 1)
+                return {"RUNNING_MODAL"}
 
         return {"PASS_THROUGH"}
 
@@ -447,8 +455,8 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
         helpo = HelpOverlay("theme_preview")
         helpo.bind_region(target_region)
         helpo.add_section(HUDSection("Theme preview", [
-            HUDItem("Toggle snap",      "S",       ItemState.ON),
-            HUDItem("More / fewer subs", "Wheel",  ItemState.ON),
+            HUDItem("Toggle snap",      "S",          ItemState.ON),
+            HUDItem("More / fewer subs", "Ctrl+Wheel", ItemState.ON),
             HUDItem("Hide params",      "/",       ItemState.ON),
             HUDItem("Toggle this help", "H",       ItemState.ON),
             HUDItem("Exit",             "ESC/RMB", ItemState.ON),

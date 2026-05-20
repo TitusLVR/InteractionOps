@@ -162,6 +162,13 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         description="Pixels of horizontal slide used by the 'slide+fade' preset",
         default=28, min=0, max=400,
     )
+    help_anim_wave_duration: FloatProperty(
+        name="Wave duration",
+        description="Seconds the 'wave' preset takes to fully reveal — "
+                    "overrides the shared help animation duration when "
+                    "the wave preset is active",
+        default=2.0, min=0.05, max=5.0, step=10, precision=2,
+    )
     help_anim_wave_spread: IntProperty(
         name="Wave spread",
         description="How far (in pixels) each letter starts from its final "
@@ -432,8 +439,11 @@ def draw_theme_tab(layout, theme):
         sub.prop(theme, "help_hint_text")
         sub.separator()
         sub.prop(theme, "help_anim_preset")
-        sub.prop(theme, "help_anim_duration")
         preset = theme.help_anim_preset
+        if preset == "wave":
+            sub.prop(theme, "help_anim_wave_duration")
+        else:
+            sub.prop(theme, "help_anim_duration")
         if preset == "slide-fade":
             sub.prop(theme, "help_anim_slide_amount")
         elif preset == "wave":

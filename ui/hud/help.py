@@ -61,6 +61,8 @@ class HelpOverlay:
         self._anim_from_expanded: bool = True
         self._anim_to_expanded: bool = True
         self._anim_start: float = 0.0
+        self._anim_duration: float = 0.18
+        self._anim_timer_active: bool = False
         self._bound_region = None
 
     # --- setup ---
@@ -98,7 +100,8 @@ class HelpOverlay:
         return None
 
     # --- visibility / toggle ---
-    def toggle_expanded(self, now: float | None = None) -> bool:
+    def toggle_expanded(self, now: float | None = None,
+                        duration: float | None = None) -> bool:
         now = now if now is not None else time.perf_counter()
         if self._anim_to_expanded != self.expanded:
             # mid-flight toggle — restart from current target
@@ -107,7 +110,37 @@ class HelpOverlay:
         self.expanded = not self.expanded
         self._anim_to_expanded = self.expanded
         self._anim_start = now
+        if duration is not None:
+            self._anim_duration = max(0.001, float(duration))
+        self._start_anim_timer()
         return self.expanded
+
+    def _start_anim_timer(self) -> None:
+        """Drive per-frame redraws while the toggle animation is running.
+
+        Operators only `tag_redraw` on incoming events (mouse move, key);
+        without this timer the eased progress would freeze whenever the
+        cursor is still. We piggy-back on `bpy.app.timers` so every
+        HelpOverlay self-paces regardless of the host operator's loop.
+        """
+        if self._anim_timer_active:
+            return
+        if self._bound_region is None:
+            return
+        import bpy
+        self._anim_timer_active = True
+        bpy.app.timers.register(self._anim_tick)
+
+    def _anim_tick(self):
+        # End condition: animation finished (progress would clamp to 1).
+        elapsed = time.perf_counter() - self._anim_start
+        rgn = self._find_bound_region()
+        if rgn is not None:
+            rgn.tag_redraw()
+        if elapsed >= self._anim_duration:
+            self._anim_timer_active = False
+            return None
+        return 1.0 / 60.0
 
     def handle_toggle_event(self, event, prefs) -> bool:
         if event.value != "PRESS":
@@ -118,15 +151,26 @@ class HelpOverlay:
             return False
         if event.shift or event.ctrl or event.alt or event.oskey:
             return False
-        self.toggle_expanded()
+        dur = self._effective_duration(prefs)
+        self.toggle_expanded(duration=dur)
         return True
 
     # --- animation ---
+    @staticmethod
+    def _effective_duration(prefs) -> float:
+        """Per-preset duration: wave has its own knob (defaults longer so
+        the letter-by-letter reveal is readable); everything else uses
+        the shared `help_anim_duration`."""
+        preset = getattr(prefs, "help_anim_preset", "fade")
+        if preset == "wave":
+            return float(getattr(prefs, "help_anim_wave_duration", 2.0))
+        return float(getattr(prefs, "help_anim_duration", 0.18))
+
     def _anim_progress(self, theme, prefs) -> float:
         preset = getattr(prefs, "help_anim_preset", "fade")
         if preset == "none":
             return 1.0
-        dur = max(0.001, float(getattr(prefs, "help_anim_duration", 0.18)))
+        dur = max(0.001, self._effective_duration(prefs))
         elapsed = time.perf_counter() - self._anim_start
         return _ease_out(elapsed / dur)
 
