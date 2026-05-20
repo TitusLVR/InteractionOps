@@ -5,30 +5,30 @@ import bpy
 
 
 class Role(Enum):
-    # Three primitives, each with 5 states.
+    # Three primitives, each with 6 states.
     POINT = "point"
     CLOSEST_POINT = "closest_point"
     ACTIVE_POINT = "active_point"
     LOCKED_POINT = "locked_point"
     PREVIEW_POINT = "preview_point"
+    ERROR_POINT = "error_point"
 
     LINE = "line"
     CLOSEST_LINE = "closest_line"
     ACTIVE_LINE = "active_line"
     LOCKED_LINE = "locked_line"
     PREVIEW_LINE = "preview_line"
+    ERROR_LINE = "error_line"
 
     TEXT = "text"
     CLOSEST_TEXT = "closest_text"
     ACTIVE_TEXT = "active_text"
     LOCKED_TEXT = "locked_text"
     PREVIEW_TEXT = "preview_text"
+    ERROR_TEXT = "error_text"
 
-    # Utility / surface (no per-state variants).
-    FILL = "fill"
+    # Utility (no per-state variants).
     POINT_OUTLINE = "point_outline"
-    ERROR = "error"
-    SUCCESS = "success"
 
     # Widgets (no per-state variants).
     HANDLE = "handle"
@@ -44,12 +44,12 @@ class Role(Enum):
     HUD_LABEL_DISABLED = "hud_label_disabled"
 
 
-STATES = ("default", "closest", "active", "locked", "preview")
+STATES = ("default", "closest", "active", "locked", "preview", "error")
 
 
 def state_from_role(role: Role) -> str:
     name = role.value
-    for s in ("closest", "active", "locked", "preview"):
+    for s in ("closest", "active", "locked", "preview", "error"):
         if name.startswith(s + "_") or name == s:
             return s
     return "default"
@@ -67,27 +67,27 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.ACTIVE_POINT:   (*_C_CYAN,  1.00),
     Role.LOCKED_POINT:   (*_C_AMBER, 1.00),
     Role.PREVIEW_POINT:  (*_C_CYAN,  0.50),
+    Role.ERROR_POINT:    (*_C_RED,   1.00),
 
-    Role.LINE:           (*_C_WHITE, 0.60),
-    Role.CLOSEST_LINE:   (*_C_GREEN, 1.00),
-    Role.ACTIVE_LINE:    (*_C_CYAN,  1.00),
-    Role.LOCKED_LINE:    (*_C_AMBER, 1.00),
+    Role.LINE:           (0.650, 0.650, 0.650, 0.30),
+    Role.CLOSEST_LINE:   (*_C_GREEN, 0.85),
+    Role.ACTIVE_LINE:    (*_C_CYAN,  0.90),
+    Role.LOCKED_LINE:    (*_C_AMBER, 0.95),
     Role.PREVIEW_LINE:   (*_C_CYAN,  0.50),
+    Role.ERROR_LINE:     (*_C_RED,   1.00),
 
     Role.TEXT:           (*_C_WHITE, 1.00),
-    Role.CLOSEST_TEXT:   (*_C_GREEN, 1.00),
-    Role.ACTIVE_TEXT:    (*_C_CYAN,  1.00),
-    Role.LOCKED_TEXT:    (*_C_AMBER, 1.00),
-    Role.PREVIEW_TEXT:   (*_C_CYAN,  0.85),
+    Role.CLOSEST_TEXT:   (*_C_GREEN, 0.90),
+    Role.ACTIVE_TEXT:    (*_C_CYAN,  0.90),
+    Role.LOCKED_TEXT:    (*_C_AMBER, 0.90),
+    Role.PREVIEW_TEXT:   (*_C_CYAN,  0.90),
+    Role.ERROR_TEXT:     (*_C_RED,   0.90),
 
-    Role.FILL:           (*_C_CYAN,  0.10),
     Role.POINT_OUTLINE:  (0.000, 0.000, 0.000, 1.00),
-    Role.ERROR:          (*_C_RED,   1.00),
-    Role.SUCCESS:        (*_C_GREEN, 1.00),
 
     Role.HANDLE:        (1.000, 1.000, 1.000, 0.85),
-    Role.HANDLE_HOVER:  (1.000, 0.850, 0.000, 1.00),
-    Role.PIVOT:         (1.000, 1.000, 1.000, 0.80),
+    Role.HANDLE_HOVER:  (0.302, 0.816, 1.000, 0.90),
+    Role.PIVOT:         (1.000, 0.872, 0.174, 0.90),
     Role.BBOX:          (0.650, 0.650, 0.650, 0.30),
     Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
 
@@ -98,16 +98,16 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
 }
 
 _DEFAULT_POINT_SIZES = {
-    "default": 7.0, "closest": 12.0, "active": 10.0,
-    "locked": 10.0, "preview": 8.0,
+    "default": 8.0, "closest": 11.0, "active": 12.0,
+    "locked": 13.0, "preview": 10.0, "error": 13.0,
 }
 _DEFAULT_LINE_WIDTHS = {
     "default": 1.5, "closest": 2.5, "active": 2.5,
-    "locked": 3.0, "preview": 2.0,
+    "locked": 3.0, "preview": 2.0, "error": 2.5,
 }
 _DEFAULT_TEXT_SIZES = {
     "default": 12, "closest": 13, "active": 14,
-    "locked": 14, "preview": 12,
+    "locked": 14, "preview": 12, "error": 12,
 }
 
 _DEFAULT_ISLAND_PALETTE = (
@@ -133,7 +133,7 @@ class HUDSettings:
     section_spacing: int = 8
     row_spacing: int = 2
     key_label_spacing: int = 16
-    verbosity: str = "compact"
+    smoothing: float = 0.70
 
 
 @dataclass(frozen=True)
@@ -165,14 +165,33 @@ class Theme:
     # Statistics overlay anchor (top-left of the 3D view, in pixels).
     stats_offset_x: int = 8
     stats_offset_y: int = 220
+    stats_row_spacing: float = 1.5
+    stats_column_spacing: float = 5.0
+    # Per-widget sizes (don't follow the 5-state default/closest/... split).
+    point_size_handle: float = 8.0
+    point_size_handle_hover: float = 10.0
+    point_size_pivot: float = 12.0
+    point_size_cursor: float = 8.0
+    line_width_bbox: float = 1.5
 
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
 
     def point_size_for(self, role: Role) -> float:
+        # Widget roles bypass the state map — each widget has its own size.
+        if role is Role.HANDLE:
+            return self.point_size_handle
+        if role is Role.HANDLE_HOVER:
+            return self.point_size_handle_hover
+        if role is Role.PIVOT:
+            return self.point_size_pivot
+        if role is Role.CURSOR:
+            return self.point_size_cursor
         return self.point_sizes[state_from_role(role)]
 
     def line_width_for(self, role: Role) -> float:
+        if role is Role.BBOX:
+            return self.line_width_bbox
         return self.line_widths[state_from_role(role)]
 
     def text_size_for(self, role: Role) -> int:
@@ -185,9 +204,16 @@ class Theme:
         return self.line_widths[token]
 
     def text_size(self, token: str) -> int:
-        # Back-compat aliases used by HUD/text helpers.
+        # Back-compat aliases used by HUD/text helpers. New HUD-specific
+        # tokens "hud_key" and "hud_label" pull from dedicated fields so
+        # the HUD's key glyph and label can be sized independently of the
+        # generic Default/Active text sizes.
         token = {"small": "default", "normal": "default",
                  "title": "active"}.get(token, token)
+        if token == "hud_key":
+            return self.text_sizes.get("hud_key", self.text_sizes["default"])
+        if token == "hud_label":
+            return self.text_sizes.get("hud_label", self.text_sizes["default"])
         return self.text_sizes[token]
 
 
@@ -213,23 +239,23 @@ def get_theme(context) -> "Theme":
             Role.ACTIVE_POINT:       c("color_active_point",   _DEFAULT_COLORS[Role.ACTIVE_POINT]),
             Role.LOCKED_POINT:       c("color_locked_point",   _DEFAULT_COLORS[Role.LOCKED_POINT]),
             Role.PREVIEW_POINT:      c("color_preview_point",  _DEFAULT_COLORS[Role.PREVIEW_POINT]),
+            Role.ERROR_POINT:        c("color_error_point",    _DEFAULT_COLORS[Role.ERROR_POINT]),
 
             Role.LINE:               c("color_line",           _DEFAULT_COLORS[Role.LINE]),
             Role.CLOSEST_LINE:       c("color_closest_line",   _DEFAULT_COLORS[Role.CLOSEST_LINE]),
             Role.ACTIVE_LINE:        c("color_active_line",    _DEFAULT_COLORS[Role.ACTIVE_LINE]),
             Role.LOCKED_LINE:        c("color_locked_line",    _DEFAULT_COLORS[Role.LOCKED_LINE]),
             Role.PREVIEW_LINE:       c("color_preview_line",   _DEFAULT_COLORS[Role.PREVIEW_LINE]),
+            Role.ERROR_LINE:         c("color_error_line",     _DEFAULT_COLORS[Role.ERROR_LINE]),
 
             Role.TEXT:               c("color_text",           _DEFAULT_COLORS[Role.TEXT]),
             Role.CLOSEST_TEXT:       c("color_closest_text",   _DEFAULT_COLORS[Role.CLOSEST_TEXT]),
             Role.ACTIVE_TEXT:        c("color_active_text",    _DEFAULT_COLORS[Role.ACTIVE_TEXT]),
             Role.LOCKED_TEXT:        c("color_locked_text",    _DEFAULT_COLORS[Role.LOCKED_TEXT]),
             Role.PREVIEW_TEXT:       c("color_preview_text",   _DEFAULT_COLORS[Role.PREVIEW_TEXT]),
+            Role.ERROR_TEXT:         c("color_error_text",     _DEFAULT_COLORS[Role.ERROR_TEXT]),
 
-            Role.FILL:               c("color_fill",           _DEFAULT_COLORS[Role.FILL]),
             Role.POINT_OUTLINE:      c("color_point_outline",  _DEFAULT_COLORS[Role.POINT_OUTLINE]),
-            Role.ERROR:              c("color_error",          _DEFAULT_COLORS[Role.ERROR]),
-            Role.SUCCESS:            c("color_success",        _DEFAULT_COLORS[Role.SUCCESS]),
 
             Role.HANDLE:             c("color_handle",         _DEFAULT_COLORS[Role.HANDLE]),
             Role.HANDLE_HOVER:       c("color_handle_hover",   _DEFAULT_COLORS[Role.HANDLE_HOVER]),
@@ -244,7 +270,11 @@ def get_theme(context) -> "Theme":
         },
         point_sizes={s: fl(f"point_size_{s}", _DEFAULT_POINT_SIZES[s]) for s in STATES},
         line_widths={s: fl(f"line_width_{s}", _DEFAULT_LINE_WIDTHS[s]) for s in STATES},
-        text_sizes={s: i(f"text_size_{s}", _DEFAULT_TEXT_SIZES[s]) for s in STATES},
+        text_sizes={
+            **{s: i(f"text_size_{s}", _DEFAULT_TEXT_SIZES[s]) for s in STATES},
+            "hud_key":   i("text_size_hud_key",   _DEFAULT_TEXT_SIZES["default"]),
+            "hud_label": i("text_size_hud_label", _DEFAULT_TEXT_SIZES["default"]),
+        },
         shadow=ShadowSettings(
             enabled=bool(t.shadow_enabled),
             color=tuple(t.shadow_color),
@@ -262,7 +292,7 @@ def get_theme(context) -> "Theme":
             section_spacing=int(t.hud_section_spacing),
             row_spacing=int(t.hud_row_spacing),
             key_label_spacing=int(getattr(t, "hud_key_label_spacing", 16)),
-            verbosity=str(getattr(t, "hud_verbosity", "compact")),
+            smoothing=float(getattr(t, "hud_smoothing", 0.70)),
         ),
         depth_test_default=str(t.depth_test_default),
         island_palette=tuple(
@@ -272,6 +302,13 @@ def get_theme(context) -> "Theme":
         font_path=str(getattr(t, "font_path", "")),
         stats_offset_x=int(getattr(t, "stats_offset_x", 12)),
         stats_offset_y=int(getattr(t, "stats_offset_y", 12)),
+        stats_row_spacing=float(getattr(t, "stats_row_spacing", 1.5)),
+        stats_column_spacing=float(getattr(t, "stats_column_spacing", 9.0)),
+        point_size_handle=fl("point_size_handle", 8.0),
+        point_size_handle_hover=fl("point_size_handle_hover", 10.0),
+        point_size_pivot=fl("point_size_pivot", 8.0),
+        point_size_cursor=fl("point_size_cursor", 8.0),
+        line_width_bbox=fl("line_width_bbox", 1.5),
     )
 
 

@@ -50,14 +50,16 @@ def _resolve_font(theme: Theme) -> int:
 
 
 def configure(theme: Theme, size_token: str = "normal",
-              font_id: int | None = None) -> int:
+              font_id: int | None = None,
+              shadow_alpha_mul: float = 1.0) -> int:
     if font_id is None:
         font_id = _resolve_font(theme)
     blf.size(font_id, theme.text_size(size_token))
-    if theme.shadow.enabled:
+    if theme.shadow.enabled and shadow_alpha_mul > 0.0:
         blf.enable(font_id, blf.SHADOW)
         sc = theme.shadow.color
-        blf.shadow(font_id, theme.shadow.blur, sc[0], sc[1], sc[2], sc[3])
+        blf.shadow(font_id, theme.shadow.blur,
+                   sc[0], sc[1], sc[2], sc[3] * shadow_alpha_mul)
         blf.shadow_offset(font_id, theme.shadow.offset_x, theme.shadow.offset_y)
     else:
         blf.disable(font_id, blf.SHADOW)
@@ -74,7 +76,11 @@ def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
     a theme Role."""
     if color is None and role is None:
         raise ValueError("hud_text.draw requires either role= or color=")
-    font_id = configure(theme, size_token, font_id)
+    # Fade the drop shadow alongside the glyph itself — otherwise low
+    # alpha_mul leaves an opaque dark shadow trailing behind, which is
+    # visible as black ghosts during fade-out animations (shockwave etc).
+    font_id = configure(theme, size_token, font_id,
+                        shadow_alpha_mul=alpha_mul)
     if color is not None:
         r, g, b, a = color
     else:

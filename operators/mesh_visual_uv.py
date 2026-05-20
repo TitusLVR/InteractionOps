@@ -343,8 +343,8 @@ def draw_3d_callback(op, context):
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
     theme = get_theme(context)
-    # Fill alpha comes from Role.FILL's alpha channel — single source of truth.
-    fill_base = theme.color_for(Role.FILL)[3]
+    # Fill alpha comes from the Result-Preview line color's alpha channel.
+    fill_base = theme.color_for(Role.PREVIEW_LINE)[3]
 
     gpu.state.blend_set('ALPHA')
     gpu.state.depth_test_set('LESS_EQUAL')

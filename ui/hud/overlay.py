@@ -19,8 +19,6 @@ Operator wiring:
     # in modal():
     if self.hud.handle_param_toggle_event(event, prefs):
         return {"RUNNING_MODAL"}
-    if self.hud.handle_toggle_event(event, prefs):  # kill-switch (old API)
-        return {"RUNNING_MODAL"}
 
 The legacy `HUDSection`/`HUDItem` API still works — used by operators that
 have not yet migrated to a separate HelpOverlay.
@@ -57,12 +55,25 @@ from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
 from .layout import (compute_origin, DragState, is_inside)
 
 
-# Cursor-warp detection: Blender warps the cursor across screen edges
-# during MMB navigation (jumps of hundreds of pixels in a single frame).
-# Threshold must be high enough that *normal* fast mouse movement doesn't
-# trip it — at 60–144Hz a flick spans 30–80 px/frame; warps are 400+ px.
-_WARP_PX = 250
-_WARP_PIN_SEC = 0.08
+# When the viewport navigates (view3d.rotate / view3d.dolly / view3d.move
+# / wheel-zoom / numpad / etc.) Blender warps the cursor — locks it to
+# the region centre or wraps it across screen edges — which would
+# otherwise yank a cursor-following HUD all over the screen. We can't
+# reliably detect those modals from our own (Blender consumes MMB
+# PRESS/RELEASE before our handler sees them), so instead we watch the
+# region's view_matrix and freeze the HUD whenever it changes between
+# successive draws — covers every form of view nav including keyboard /
+# wheel / scripted.
+def _view_matrix_fingerprint(region_data) -> tuple | None:
+    """Cheap fingerprint of the current view matrix. None when there's
+    no region_data (e.g. POST_PIXEL in a non-3D space)."""
+    if region_data is None:
+        return None
+    m = region_data.view_matrix
+    # 16 floats is enough; rounding keeps tiny FP wobble from triggering
+    # the freeze when the view is actually static.
+    return tuple(round(float(v), 5)
+                 for row in m for v in row)
 
 
 _STATE_ALPHA = {
@@ -78,7 +89,8 @@ _STATE_ROLE = {
 
 
 class HUDOverlay:
-    def __init__(self, operator_name: str, verbosity: str = "compact"):
+    def __init__(self, operator_name: str, verbosity: str | None = None):
+        # `verbosity` kwarg kept for back-compat with old callers — ignored.
         self.operator_name = operator_name
         self.title: str | None = None
         self.sections: list[HUDSection] = []
@@ -90,10 +102,28 @@ class HUDOverlay:
         self._bound_region = None
         self._header_lines: list[str] = []
         self._pin_until: float = 0.0
-        self._prev_mouse: tuple[int, int] | None = None
-        self.verbosity: str = verbosity  # "compact" | "full"
+        # Last frame's view-matrix fingerprint — when this frame's
+        # fingerprint differs the viewport is navigating and the HUD
+        # origin is held instead of recomputed.
+        self._last_view_fp: tuple | None = None
+        # Smoothed display origin — only diverges from the ideal origin
+        # during the recovery glide after a nav-freeze. Outside recovery
+        # the HUD tracks the cursor exactly, so normal mouse movement
+        # is never lagged.
+        self._smooth_origin: tuple[float, float] | None = None
+        # True between the end of a nav-freeze and the moment the smooth
+        # origin actually reaches the live target — the only window
+        # where `hud_smoothing` applies.
+        self._recovering: bool = False
+        self._was_nav_frozen: bool = False
         self.visible: bool = True
         self.params_visible: bool = True
+        # Optional per-overlay positioning override. When set, takes
+        # precedence over theme.hud.mode — used by callers (e.g. theme
+        # preview launched from prefs) where cursor-follow doesn't work
+        # because the modal event coordinates are in a different window
+        # than the bound viewport region.
+        self.mode_override: str | None = None
 
     # --- visibility ---
     def toggle_visibility(self) -> bool:
@@ -104,25 +134,14 @@ class HUDOverlay:
         self.params_visible = not self.params_visible
         return self.params_visible
 
-    def handle_toggle_event(self, event, prefs) -> bool:
-        """Kill-switch toggle (whole HUD on/off). Default key from
-        `prefs.hud_toggle_key` (default "H")."""
-        if event.value != "PRESS":
-            return False
-        key = getattr(prefs, "hud_toggle_key", "H")
-        if event.type != key:
-            return False
-        if event.shift or event.ctrl or event.alt or event.oskey:
-            return False
-        self.toggle_visibility()
-        return True
-
     def handle_param_toggle_event(self, event, prefs) -> bool:
-        """Params-only toggle (title stays visible). Default key from
-        `prefs.hud_param_toggle_key` (default "SLASH")."""
+        """Params-only toggle (title stays visible). Key comes from the
+        `iops.ui_hud_params_toggle` keymap item (default "SLASH"),
+        configurable in the addon's Keymaps tab."""
         if event.value != "PRESS":
             return False
-        key = getattr(prefs, "hud_param_toggle_key", "SLASH")
+        from ...utils.functions import get_ui_toggle_key
+        key = get_ui_toggle_key("iops.ui_hud_params_toggle", "SLASH")
         if event.type != key:
             return False
         if event.shift or event.ctrl or event.alt or event.oskey:
@@ -162,6 +181,23 @@ class HUDOverlay:
         """
         self._bound_region = region.as_pointer() if region is not None else None
 
+    def _find_bound_region(self):
+        """Look up the live region object matching `_bound_region` pointer.
+        Always finds the 3D viewport we bound at invoke-time — never the
+        prefs region — so measurements stay correct even if `context.region`
+        points elsewhere."""
+        if self._bound_region is None:
+            return None
+        import bpy
+        for win in bpy.context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type != "VIEW_3D":
+                    continue
+                for rgn in area.regions:
+                    if rgn.as_pointer() == self._bound_region:
+                        return rgn
+        return None
+
     def set_state(self, key: str, state: ItemState | str) -> None:
         if key not in self._items_by_key:
             return
@@ -173,10 +209,6 @@ class HUDOverlay:
         """Set 0+ header lines rendered above the section list, in primary
         at title size. Falsy entries are skipped."""
         self._header_lines = [ln for ln in lines if ln]
-
-    def toggle_verbosity(self) -> str:
-        self.verbosity = "full" if self.verbosity == "compact" else "compact"
-        return self.verbosity
 
     def pin_for(self, seconds: float) -> None:
         """Freeze the HUD origin for at least `seconds` more from now.
@@ -192,8 +224,7 @@ class HUDOverlay:
 
     # --- visible item selection ---
     def _visible_sections(self) -> list[HUDSection]:
-        if self.verbosity == "full":
-            return self.sections
+        # Compact-only: only items in non-default state, plus always_show.
         out: list[HUDSection] = []
         for sec in self.sections:
             items = [it for it in sec.items if it.always_show or it.is_modified()]
@@ -241,7 +272,7 @@ class HUDOverlay:
                 h += title_h + theme.hud.row_spacing
             for it in sec.items:
                 kw, _ = hud_text.measure(it.key, theme=theme,
-                                         size_token="normal")
+                                         size_token="hud_key")
                 widest_key = max(widest_key, int(kw))
         key_col_w = widest_key + gap
         for sec in sections:
@@ -250,7 +281,7 @@ class HUDOverlay:
                 row_w = 0
                 for it in row:
                     lw, _ = hud_text.measure(it.label, theme=theme,
-                                             size_token="normal")
+                                             size_token="hud_label")
                     row_w += key_col_w + int(lw)
                 max_w = max(max_w, row_w)
                 h += row_h + theme.hud.row_spacing
@@ -283,27 +314,19 @@ class HUDOverlay:
         return max_w, h, key_col_w, param_name_col_w
 
     def _rows_for_layout(self, items: list[HUDItem]) -> list[list[HUDItem]]:
-        """Pair items into rows: 1 col in compact, 2 cols in full."""
-        if self.verbosity == "compact":
-            return [[it] for it in items]
-        rows: list[list[HUDItem]] = []
-        half = (len(items) + 1) // 2
-        left = items[:half]
-        right = items[half:]
-        for i in range(half):
-            row = [left[i]]
-            if i < len(right):
-                row.append(right[i])
-            rows.append(row)
-        return rows
+        return [[it] for it in items]
 
     # --- draw ---
     def draw(self, context, event=None) -> None:
         if not self.visible:
             return
-        if (self._bound_region is not None
-                and context.region.as_pointer() != self._bound_region):
-            return
+        # Only draw in the region we were bound to. When invoked from the
+        # prefs popup, `context.region` can be None or point at the prefs
+        # region during draw — so do the gate by comparing pointers.
+        if self._bound_region is not None:
+            cur = getattr(context, "region", None)
+            if cur is None or cur.as_pointer() != self._bound_region:
+                return
         sections = self._visible_sections() if self.params_visible else []
         param_sections = (self.param_sections
                           if self.params_visible else [])
@@ -311,7 +334,12 @@ class HUDOverlay:
                 and not self.title):
             return
         theme = get_theme(context)
-        region = context.region
+        # Use the live bound 3D-viewport region for measurements (its width
+        # and height — never the prefs region's). Falls back to context if
+        # not bound.
+        region = self._find_bound_region() or context.region
+        if region is None:
+            return
         w, h, key_col_w, param_name_col_w = self._measure(
             theme, sections, param_sections, self.params_visible)
         size = (w, h)
@@ -321,27 +349,63 @@ class HUDOverlay:
         mouse = (0, 0)
         if event is not None:
             mouse = (event.mouse_x - region.x, event.mouse_y - region.y)
-            # Warp detection: if the cursor jumped a lot since last draw,
-            # Blender is probably warping it for MMB navigation. Pin briefly.
-            if self._prev_mouse is not None:
-                dx = mouse[0] - self._prev_mouse[0]
-                dy = mouse[1] - self._prev_mouse[1]
-                if abs(dx) >= _WARP_PX or abs(dy) >= _WARP_PX:
-                    self.pin_for(_WARP_PIN_SEC)
-            self._prev_mouse = mouse
+        # View-matrix change detection. The fingerprint changes any time
+        # the viewport is being navigated; we freeze only while the
+        # matrix is actively differing between successive draws — the
+        # moment it settles, the HUD picks up the cursor again.
+        fp = _view_matrix_fingerprint(getattr(context, "region_data", None))
+        nav_frozen = (fp is not None and self._last_view_fp is not None
+                      and fp != self._last_view_fp)
+        if fp is not None:
+            self._last_view_fp = fp
         if self._drag.active and event is not None:
             new = self._drag.update(mouse)
             free = (int(new[0]), int(new[1]))
         else:
             free = (theme.hud.free_x, theme.hud.free_y)
-        if self._pinned and self._last_origin != (0, 0):
-            origin = self._last_origin
+        held = ((self._pinned or nav_frozen)
+                and self._last_origin != (0, 0))
+        if held:
+            # Held in place during nav / external pins. Snap smooth_origin
+            # to the held position so when the freeze ends we start the
+            # glide from exactly where the HUD was, not from a stale lerp.
+            target = self._last_origin
+            self._smooth_origin = (float(target[0]), float(target[1]))
+            origin = target
+            self._recovering = False
         else:
-            origin = compute_origin(
-                theme.hud.mode, region=region, mouse=mouse,
+            mode = self.mode_override or theme.hud.mode
+            target = compute_origin(
+                mode, region=region, mouse=mouse,
                 content_size=size, padding=theme.hud.padding,
                 offset=(theme.hud.offset_x, theme.hud.offset_y), free=free)
+            # Freeze just ended → enter recovery glide. Smooth_origin is
+            # already pinned to the pre-freeze origin from the held
+            # branch above, so the lerp interpolates from there to the
+            # live target.
+            if self._was_nav_frozen and not nav_frozen:
+                self._recovering = True
+            if self._smooth_origin is None or not self._recovering:
+                # Normal cursor-follow: no smoothing, snap exactly. This
+                # makes mouse movement instant — `hud_smoothing` only
+                # affects the post-freeze return.
+                sx, sy = float(target[0]), float(target[1])
+                self._recovering = False
+            else:
+                alpha = max(0.0, min(1.0, 1.0 - theme.hud.smoothing))
+                if alpha >= 1.0:
+                    sx, sy = float(target[0]), float(target[1])
+                    self._recovering = False
+                else:
+                    sx = self._smooth_origin[0] + (target[0] - self._smooth_origin[0]) * alpha
+                    sy = self._smooth_origin[1] + (target[1] - self._smooth_origin[1]) * alpha
+                    if abs(target[0] - sx) < 0.5 and abs(target[1] - sy) < 0.5:
+                        sx, sy = float(target[0]), float(target[1])
+                        self._recovering = False
+            self._smooth_origin = (sx, sy)
+            origin = (int(sx), int(sy))
             self._last_origin = origin
+        self._was_nav_frozen = nav_frozen
         self._render(theme, origin, size, sections, param_sections)
 
     def _render(self, theme, origin, size, sections, param_sections) -> None:
@@ -366,17 +430,7 @@ class HUDOverlay:
                           role=Role.ACTIVE_TEXT, size_token="title")
             y -= theme.hud.row_spacing
 
-        # For "full" two-column mode, total column block width is the
-        # key column + the widest label across all visible items.
         col_w = key_col_w
-        if self.verbosity == "full":
-            widest_label = 0
-            for sec in sections:
-                for it in sec.items:
-                    lw, _ = hud_text.measure(it.label, theme=theme,
-                                             size_token="normal")
-                    widest_label = max(widest_label, int(lw))
-            col_w = key_col_w + widest_label + theme.hud.key_label_spacing
 
         for i, sec in enumerate(sections):
             if i > 0 or self._header_lines or self.title:
@@ -391,11 +445,11 @@ class HUDOverlay:
                 for col_idx, it in enumerate(row):
                     col_x = x0 + col_idx * col_w
                     hud_text.draw(it.key, col_x, y, theme=theme,
-                                  role=Role.HUD_KEY, size_token="normal")
+                                  role=Role.HUD_KEY, size_token="hud_key")
                     label_role = _STATE_ROLE[it.state]
                     label_alpha = _STATE_ALPHA[it.state]
                     hud_text.draw(it.label, col_x + key_col_w, y, theme=theme,
-                                  role=label_role, size_token="normal",
+                                  role=label_role, size_token="hud_label",
                                   alpha_mul=label_alpha)
                 y -= theme.hud.row_spacing
 

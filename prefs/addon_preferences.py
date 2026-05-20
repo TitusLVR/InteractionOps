@@ -104,17 +104,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
-    # Modal HUD toggle keybind. Stored as a Blender event-type string
-    # (matches what `event.type` returns: "H", "SLASH", "F1", etc.).
-    # Operators check this in modal() and flip hud.visible.
-    hud_toggle_key: StringProperty(
-        name="HUD Toggle Key",
-        description="Event type that toggles the modal HUD on/off "
-                    "(e.g. 'H', 'SLASH', 'F1'). Used by every modal "
-                    "operator that shows a HUD.",
-        default="H",
-    )
-
     # --- Collapsible section toggles (UI only) ---
     show_section_general: BoolProperty(default=True)
     show_section_stats: BoolProperty(default=False)
@@ -595,6 +584,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             col_scripts = box_scripts.column(align=True)
             km_scripts_row = col_scripts.row(align=True)
             km_scripts_col = km_scripts_row.column(align=True)
+            # UI toggles (HUD / Help)
+            box_ui = col.box()
+            box_ui.label(text="UI Toggles:")
+            col_ui = box_ui.column(align=True)
+            km_ui_col = col_ui.row(align=True).column(align=True)
 
 
             """
@@ -698,6 +692,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )
+                    elif kmi.idname in {"iops.ui_help_toggle",
+                                        "iops.ui_hud_params_toggle"}:
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_ui_col, 0
+                            )
+                        except AttributeError:
+                            km_ui_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
                     elif kmi.idname.startswith("iops.window"):
                         try:
                             rna_keymap_ui.draw_kmi(
@@ -716,7 +721,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_general", "General", icon="PREFERENCES")
             if body is not None:
                 body.prop(self, "category")
-                body.prop(self, "hud_toggle_key")
 
             # Stats overlay
             body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")

@@ -1800,7 +1800,7 @@ cancels. LMB clicks only pick widget handles."""
         tris = []
         for i in range(1, len(screen_pts) - 1):
             tris.extend([screen_pts[0], screen_pts[i], screen_pts[i + 1]])
-        err = theme.color_for(Role.ERROR)
+        err = theme.color_for(Role.ERROR_LINE)
         draw_prim.tris(tris, color=(err[0], err[1], err[2], 0.35), context=context)
 
     def _draw_extrude_arrows(self, region, rv3d, mw, *, context, theme):

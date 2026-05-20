@@ -8,7 +8,7 @@ def _color(default, name=""):
                                min=0.0, max=1.0, default=default)
 
 
-_STATES = ("default", "closest", "active", "locked", "preview")
+_STATES = ("default", "closest", "active", "locked", "preview", "error")
 
 
 class IOPS_Theme(bpy.types.PropertyGroup):
@@ -17,49 +17,55 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_closest_point:   _color((0.302, 0.816, 1.000, 1.00), "Closest")
     color_active_point:    _color((0.302, 1.000, 0.620, 1.00), "Active")
     color_locked_point:    _color((1.000, 0.098, 0.328, 1.00), "Locked")
-    color_preview_point:   _color((1.000, 0.872, 0.174, 1.00), "Preview")
+    color_preview_point:   _color((1.000, 0.872, 0.174, 1.00), "Result Preview")
+    color_error_point:     _color((1.000, 0.353, 0.353, 1.00), "Error")
     color_point_outline:   _color((0.100, 0.100, 0.100, 0.75), "Outline")
-    point_size_default:    FloatProperty(name="Default", default=7.0,  min=2.0, max=48.0)
-    point_size_closest:    FloatProperty(name="Closest", default=12.0, min=2.0, max=48.0)
-    point_size_active:     FloatProperty(name="Active",  default=10.0, min=2.0, max=48.0)
-    point_size_locked:     FloatProperty(name="Locked",  default=10.0, min=2.0, max=48.0)
-    point_size_preview:    FloatProperty(name="Preview", default=6.0,  min=2.0, max=48.0)
+    point_size_default:    FloatProperty(name="Default",        default=8.0,  min=2.0, max=48.0)
+    point_size_closest:    FloatProperty(name="Closest",        default=11.0, min=2.0, max=48.0)
+    point_size_active:     FloatProperty(name="Active",         default=12.0, min=2.0, max=48.0)
+    point_size_locked:     FloatProperty(name="Locked",         default=13.0, min=2.0, max=48.0)
+    point_size_preview:    FloatProperty(name="Result Preview", default=10.0, min=2.0, max=48.0)
+    point_size_error:      FloatProperty(name="Error",          default=13.0, min=2.0, max=48.0)
 
     # --- Line ---
-    color_line:            _color((1.000, 1.000, 1.000, 0.60), "Default")
-    color_closest_line:    _color((0.302, 0.816, 1.000, 1.00), "Closest")
-    color_active_line:     _color((0.302, 1.000, 0.620, 1.00), "Active")
-    color_locked_line:     _color((1.000, 0.098, 0.328, 1.00), "Locked")
-    color_preview_line:    _color((1.000, 0.872, 0.174, 1.00), "Preview")
-    line_width_default:    FloatProperty(name="Default", default=1.5, min=0.5, max=12.0)
-    line_width_closest:    FloatProperty(name="Closest", default=2.5, min=0.5, max=12.0)
-    line_width_active:     FloatProperty(name="Active",  default=3.0, min=0.5, max=12.0)
-    line_width_locked:     FloatProperty(name="Locked",  default=6.0, min=0.5, max=12.0)
-    line_width_preview:    FloatProperty(name="Preview", default=2.0, min=0.5, max=12.0)
+    color_line:            _color((0.650, 0.650, 0.650, 0.30), "Default")
+    color_closest_line:    _color((0.302, 0.816, 1.000, 0.85), "Closest")
+    color_active_line:     _color((0.302, 1.000, 0.620, 0.90), "Active")
+    color_locked_line:     _color((1.000, 0.098, 0.328, 0.95), "Locked")
+    color_preview_line:    _color((1.000, 0.872, 0.174, 1.00), "Result Preview")
+    color_error_line:      _color((1.000, 0.353, 0.353, 1.00), "Error")
+    line_width_default:    FloatProperty(name="Default",        default=1.5, min=0.5, max=12.0)
+    line_width_closest:    FloatProperty(name="Closest",        default=2.5, min=0.5, max=12.0)
+    line_width_active:     FloatProperty(name="Active",         default=3.0, min=0.5, max=12.0)
+    line_width_locked:     FloatProperty(name="Locked",         default=6.0, min=0.5, max=12.0)
+    line_width_preview:    FloatProperty(name="Result Preview", default=2.0, min=0.5, max=12.0)
+    line_width_error:      FloatProperty(name="Error",          default=2.5, min=0.5, max=12.0)
 
     # --- Text ---
     color_text:            _color((1.000, 1.000, 1.000, 0.60), "Default")
-    color_closest_text:    _color((0.302, 0.816, 1.000, 1.00), "Closest")
-    color_active_text:     _color((0.302, 1.000, 0.620, 1.00), "Active")
-    color_locked_text:     _color((1.000, 0.098, 0.328, 1.00), "Locked")
-    color_preview_text:    _color((1.000, 0.872, 0.174, 1.00), "Preview")
-    text_size_default:     IntProperty(name="Default", default=11, min=8, max=64)
-    text_size_closest:     IntProperty(name="Closest", default=12, min=8, max=64)
-    text_size_active:      IntProperty(name="Active",  default=12, min=8, max=64)
-    text_size_locked:      IntProperty(name="Locked",  default=12, min=8, max=64)
-    text_size_preview:     IntProperty(name="Preview", default=12, min=8, max=64)
-
-    # --- Surfaces / status ---
-    color_fill:            _color((1.000, 1.000, 1.000, 0.15), "Fill")
-    color_error:           _color((1.000, 0.353, 0.353, 1.00), "Error")
-    color_success:         _color((0.344, 1.000, 0.653, 1.00), "Success")
+    color_closest_text:    _color((0.302, 0.816, 1.000, 0.90), "Closest")
+    color_active_text:     _color((0.302, 1.000, 0.620, 0.90), "Active")
+    color_locked_text:     _color((1.000, 0.098, 0.328, 0.90), "Locked")
+    color_preview_text:    _color((1.000, 0.872, 0.174, 0.90), "Result Preview")
+    color_error_text:      _color((1.000, 0.353, 0.353, 0.90), "Error")
+    text_size_default:     IntProperty(name="Default",        default=11, min=8, max=64)
+    text_size_closest:     IntProperty(name="Closest",        default=12, min=8, max=64)
+    text_size_active:      IntProperty(name="Active",         default=12, min=8, max=64)
+    text_size_locked:      IntProperty(name="Locked",         default=12, min=8, max=64)
+    text_size_preview:     IntProperty(name="Result Preview", default=12, min=8, max=64)
+    text_size_error:       IntProperty(name="Error",          default=12, min=8, max=64)
 
     # --- Widgets ---
     color_handle:          _color((1.000, 1.000, 1.000, 0.85), "Handle")
-    color_handle_hover:    _color((1.000, 0.850, 0.000, 1.00), "Handle (hover)")
-    color_pivot:           _color((1.000, 1.000, 1.000, 0.80), "Pivot")
+    color_handle_hover:    _color((0.302, 0.816, 1.000, 0.90), "Handle (hover)")
+    color_pivot:           _color((1.000, 0.872, 0.174, 0.90), "Pivot")
     color_bbox:            _color((0.650, 0.650, 0.650, 0.30), "Selection bbox")
     color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
+    point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
+    point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
+    point_size_pivot:        FloatProperty(name="Pivot size",         default=12.0, min=1.0, max=64.0)
+    point_size_cursor:       FloatProperty(name="Cursor size",        default=8.0,  min=1.0, max=64.0)
+    line_width_bbox:         FloatProperty(name="Bbox width",         default=1.5,  min=0.5, max=12.0)
 
     # --- Island palette (per-island identification, indexed by island_id % 8) ---
     island_palette_0:      _color((0.40, 0.65, 1.00, 0.50), "Island 1")
@@ -71,11 +77,14 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     island_palette_6:      _color((0.90, 0.35, 0.60, 0.50), "Island 7")
     island_palette_7:      _color((0.60, 0.80, 0.20, 0.50), "Island 8")
 
-    # --- HUD ---
+    # --- HUD text (key glyph + label colors and sizes; UI lives under
+    # the "Text & Font" section since these are text style props).
     color_hud_key:         _color((0.344, 1.000, 0.653, 1.00), "Key glyph")
     color_hud_label_on:    _color((0.844, 0.844, 0.844, 0.819), "Label (active)")
     color_hud_label_off:   _color((0.466, 0.473, 0.487, 0.85), "Label (inactive)")
     color_hud_label_disabled:_color((0.179, 0.179, 0.191, 0.85), "Label (disabled)")
+    text_size_hud_key:     IntProperty(name="Key glyph size", default=11, min=8, max=64)
+    text_size_hud_label:   IntProperty(name="Label size",     default=11, min=8, max=64)
     shadow_enabled:        BoolProperty(name="Shadow", default=True)
     shadow_color:          _color((0.0, 0.0, 0.0, 1.0), "Shadow color")
     shadow_blur:           IntProperty(name="Shadow blur", default=0, min=0, max=10)
@@ -106,30 +115,20 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         description="Gap between the widest key glyph and the label column",
         default=16, min=0, max=240,
     )
-    hud_verbosity: EnumProperty(
-        name="HUD verbosity",
-        items=[
-            ("compact", "Compact", "Only show items in non-default state, plus essential anchors"),
-            ("full",    "Full",    "Show all items in two columns"),
-        ],
-        default="compact",
+    hud_smoothing: FloatProperty(
+        name="Cursor smoothing",
+        description="How smoothly the HUD glides toward its target "
+                    "position. 0 = snap instantly to the cursor. "
+                    "Higher = the HUD lags and slides in (most visible "
+                    "after a viewport rotate/zoom, when the cursor has "
+                    "drifted while the HUD was held still)",
+        default=0.70, min=0.0, max=0.98, step=5, precision=2,
     )
-
-    # Params-only toggle (hides parameter rows, keeps operator title).
-    hud_param_toggle_key: bpy.props.StringProperty(
-        name="HUD params toggle",
-        description="Event type that hides HUD parameter rows while keeping "
-                    "the operator title visible (e.g. 'SLASH', 'P')",
-        default="SLASH",
-    )
-
     # --- Help overlay ---
-    help_toggle_key: bpy.props.StringProperty(
-        name="Help toggle",
-        description="Event type that toggles the corner Help overlay "
-                    "between expanded and collapsed states",
-        default="H",
-    )
+    # NOTE: toggle keys (Help expand/collapse, HUD params show/hide) are
+    # registered as proper keymap items (`iops.ui_help_toggle`,
+    # `iops.ui_hud_params_toggle`) and edited in the Keymaps tab — not as
+    # StringProperty fields here.
     help_corner: EnumProperty(
         name="Help corner",
         items=[
@@ -138,23 +137,55 @@ class IOPS_Theme(bpy.types.PropertyGroup):
             ("bottom_left",  "Bottom left",  ""),
             ("bottom_right", "Bottom right", ""),
         ],
-        default="top_left",
+        default="bottom_left",
     )
-    help_offset_x: IntProperty(name="Help X offset", default=12, min=0, max=4000)
-    help_offset_y: IntProperty(name="Help Y offset", default=12, min=0, max=4000)
+    help_offset_x: IntProperty(name="Help X offset", default=8, min=0, max=4000)
+    help_offset_y: IntProperty(name="Help Y offset", default=500, min=0, max=4000)
     help_anim_preset: EnumProperty(
         name="Help animation",
         items=[
-            ("none",       "None",        "Instant toggle"),
-            ("fade",       "Fade",        "Cross-fade between states"),
+            ("none",       "None",         "Instant toggle"),
+            ("fade",       "Fade",         "Smooth cross-fade between states"),
             ("slide-fade", "Slide + fade", "Slide in from the anchored edge"),
+            ("wave",       "Wave",         "Per-letter staggered reveal from the anchored edge"),
+            ("shockwave",  "Shockwave",    "Outgoing letters explode radially outward; new content fades in beneath"),
         ],
         default="fade",
     )
     help_anim_duration: FloatProperty(
         name="Help animation duration",
-        default=0.18, min=0.0, max=1.0,
-        description="Seconds for the help overlay to cross-fade",
+        default=0.5, min=0.0, max=2.0,
+        description="Seconds for the help overlay transition",
+    )
+    help_anim_slide_amount: IntProperty(
+        name="Slide distance",
+        description="Pixels of horizontal slide used by the 'slide+fade' preset",
+        default=28, min=0, max=400,
+    )
+    help_anim_wave_spread: IntProperty(
+        name="Wave spread",
+        description="How far (in pixels) each letter starts from its final "
+                    "position during the 'wave' preset — bigger = letters "
+                    "fly in from further away",
+        default=128, min=0, max=400,
+    )
+    help_anim_wave_stagger_scale: FloatProperty(
+        name="Wave stagger",
+        description="Multiplier on the per-letter delay during 'wave'. "
+                    "1.0 fits the whole reveal into the animation duration; "
+                    ">1 makes neighbouring letters more clearly staggered",
+        default=1.0, min=0.1, max=10.0, step=10, precision=2,
+    )
+    help_anim_wave_fade_window: FloatProperty(
+        name="Wave letter fade",
+        description="Fraction of the animation each letter takes to fade in",
+        default=0.5, min=0.05, max=1.0, step=5, precision=2,
+    )
+    help_anim_shockwave_radius: IntProperty(
+        name="Shockwave radius",
+        description="Peak distance (px) each outgoing letter travels "
+                    "outward from the box centre",
+        default=160, min=20, max=800,
     )
     help_hint_text: bpy.props.StringProperty(
         name="Help hint text",
@@ -190,6 +221,19 @@ class IOPS_Theme(bpy.types.PropertyGroup):
                     "top edge of the 3D view",
         default=220, min=0, max=4000,
     )
+    stats_row_spacing: FloatProperty(
+        name="Stats row spacing",
+        description="Vertical spacing between rows of the statistics "
+                    "overlay, in multiples of the text line height",
+        default=1.5, min=0.5, max=4.0, step=10, precision=2,
+    )
+    stats_column_spacing: FloatProperty(
+        name="Stats column spacing",
+        description="Horizontal offset of the value column from the "
+                    "label column in the statistics overlay, in multiples "
+                    "of the text line height",
+        default=5.0, min=2.0, max=40.0, step=10, precision=2,
+    )
 
     # --- Theme tab fold state (UI only) ---
     show_point: BoolProperty(default=True)
@@ -221,7 +265,7 @@ class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
         return {"FINISHED"}
 
 
-_STATE_LABELS = ("Default", "Closest", "Active", "Locked", "Preview")
+_STATE_LABELS = ("Default", "Closest", "Active", "Locked", "Result Preview", "Error")
 
 
 def _state_color_row(parent, theme, prefix):
@@ -302,6 +346,22 @@ def draw_theme_tab(layout, theme):
     if sub is not None:
         _state_table(sub, theme, "text", size_prefix="text_size")
         sub.separator()
+        sub.label(text="HUD text:")
+        for attr, size_attr, label in (
+                ("color_hud_key",            "text_size_hud_key",
+                 "Key glyph"),
+                ("color_hud_label_on",       "text_size_hud_label",
+                 "Label (active)"),
+                ("color_hud_label_off",      "text_size_hud_label",
+                 "Label (inactive)"),
+                ("color_hud_label_disabled", "text_size_hud_label",
+                 "Label (disabled)"),
+        ):
+            row = sub.row(align=True)
+            row.label(text=label)
+            row.prop(theme, size_attr, text="")
+            row.prop(theme, attr, text="")
+        sub.separator()
         sub.label(text="Font file:")
         sub.prop(theme, "font_path", text="")
         sub.label(
@@ -309,27 +369,24 @@ def draw_theme_tab(layout, theme):
             icon="INFO",
         )
 
-    # Status colors (renamed from "Surfaces & status")
-    sub = _theme_section(layout, theme, "show_surfaces",
-                         "Status colors", icon="MATERIAL")
-    if sub is not None:
-        sub.label(
-            text="Operator feedback colors (status flashes and generic fills).",
-            icon="INFO",
-        )
-        _name_color_row(sub, theme, "color_fill",    "Fill")
-        _name_color_row(sub, theme, "color_error",   "Error")
-        _name_color_row(sub, theme, "color_success", "Success")
-
-    # Widgets (vertical, name + color)
+    # Widgets — each row: name | size | color. Handle has two color
+    # swatches (idle + hover) sharing one size — it's the same widget in
+    # two interaction states. Bbox uses line width, the rest use point
+    # size.
     sub = _theme_section(layout, theme, "show_widgets",
                          "Widgets", icon="MOD_HUE_SATURATION")
     if sub is not None:
-        _name_color_row(sub, theme, "color_handle",       "Handle")
-        _name_color_row(sub, theme, "color_handle_hover", "Handle (hover)")
-        _name_color_row(sub, theme, "color_pivot",        "Pivot")
-        _name_color_row(sub, theme, "color_bbox",         "Selection bbox")
-        _name_color_row(sub, theme, "color_cursor",       "2D cursor")
+        for color_attr, size_attr, label in (
+                ("color_handle",       "point_size_handle",       "Handle"),
+                ("color_handle_hover", "point_size_handle_hover", "Handle (hover)"),
+                ("color_pivot",        "point_size_pivot",        "Pivot"),
+                ("color_bbox",         "line_width_bbox",         "Selection bbox"),
+                ("color_cursor",       "point_size_cursor",       "2D cursor"),
+        ):
+            row = sub.row(align=True)
+            row.label(text=label)
+            row.prop(theme, size_attr,  text="")
+            row.prop(theme, color_attr, text="")
 
     # Island palette
     sub = _theme_section(layout, theme, "show_islands",
@@ -342,11 +399,8 @@ def draw_theme_tab(layout, theme):
     # HUD
     sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
     if sub is not None:
-        _name_color_row(sub, theme, "color_hud_key",            "Key glyph")
-        _name_color_row(sub, theme, "color_hud_label_on",       "Label (active)")
-        _name_color_row(sub, theme, "color_hud_label_off",      "Label (inactive)")
-        _name_color_row(sub, theme, "color_hud_label_disabled", "Label (disabled)")
-        sub.separator()
+        sub.label(text="Key glyph + label colors and sizes live in "
+                       "Text & Font.", icon="INFO")
         sub.prop(theme, "shadow_enabled")
         sh = sub.column(align=True)
         sh.active = theme.shadow_enabled
@@ -362,13 +416,15 @@ def draw_theme_tab(layout, theme):
         sub.prop(theme, "hud_section_spacing")
         sub.prop(theme, "hud_row_spacing")
         sub.prop(theme, "hud_key_label_spacing")
-        sub.prop(theme, "hud_verbosity")
-        sub.prop(theme, "hud_param_toggle_key")
+        sub.prop(theme, "hud_smoothing", slider=True)
+        sub.label(text="Toggle key: Keymaps tab → iops.ui_hud_params_toggle",
+                  icon="INFO")
 
     # Help overlay
     sub = _theme_section(layout, theme, "show_help", "Help overlay", icon="QUESTION")
     if sub is not None:
-        sub.prop(theme, "help_toggle_key")
+        sub.label(text="Toggle key: Keymaps tab → iops.ui_help_toggle",
+                  icon="INFO")
         sub.prop(theme, "help_corner")
         row = sub.row(align=True)
         row.prop(theme, "help_offset_x")
@@ -377,14 +433,24 @@ def draw_theme_tab(layout, theme):
         sub.separator()
         sub.prop(theme, "help_anim_preset")
         sub.prop(theme, "help_anim_duration")
+        preset = theme.help_anim_preset
+        if preset == "slide-fade":
+            sub.prop(theme, "help_anim_slide_amount")
+        elif preset == "wave":
+            sub.prop(theme, "help_anim_wave_spread")
+            sub.prop(theme, "help_anim_wave_stagger_scale")
+            sub.prop(theme, "help_anim_wave_fade_window")
+        elif preset == "shockwave":
+            sub.prop(theme, "help_anim_shockwave_radius")
 
     # Statistics overlay positioning
     sub = _theme_section(layout, theme, "show_stats",
                          "Statistics overlay", icon="INFO")
     if sub is not None:
-        row = sub.row(align=True)
-        row.prop(theme, "stats_offset_x")
-        row.prop(theme, "stats_offset_y")
+        sub.prop(theme, "stats_offset_x")
+        sub.prop(theme, "stats_offset_y")
+        sub.prop(theme, "stats_row_spacing")
+        sub.prop(theme, "stats_column_spacing")
 
     # Behaviour
     sub = _theme_section(layout, theme, "show_behaviour",

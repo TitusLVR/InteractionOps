@@ -56,6 +56,11 @@ from .operators.modes import (
     IOPS_OT_F5,
 )
 
+from .operators.ui_toggles import (
+    IOPS_OT_HelpToggleMarker,
+    IOPS_OT_HudParamsToggleMarker,
+)
+
 from .operators.object_align_to_face import IOPS_OT_AlignObjectToFace
 from .operators.object_match_transform_active import IOPS_OT_MatchTransformActive
 from .operators.mesh_to_grid import IOPS_OT_mesh_to_grid
@@ -201,7 +206,9 @@ from .operators.ui_prop_switch import (
 from .operators.snap_combos import IOPS_OT_SetSnapCombo
 
 
-from .utils.functions import register_keymaps, unregister_keymaps, fix_old_keymaps
+from .utils.functions import (register_keymaps, unregister_keymaps,
+                               fix_old_keymaps,
+                               register_ui_toggle_keymaps)
 
 # Hotkeys
 from .prefs.hotkeys_default import keys_default as keys_default
@@ -303,6 +310,8 @@ classes = (
     IOPS_OT_F4,
     IOPS_OT_F5,
     IOPS_OT_ESC,
+    IOPS_OT_HelpToggleMarker,
+    IOPS_OT_HudParamsToggleMarker,
     IOPS_OT_CursorOrigin_Mesh,
     IOPS_OT_CurveSubdivide,
     IOPS_OT_CurveSplineType,
@@ -503,6 +512,7 @@ def keymap_registration():
     else:
         register_keymaps(keys_default)
 
+    register_ui_toggle_keymaps()
     bpy.context.window_manager.keyconfigs.update()
 
 
@@ -548,6 +558,13 @@ def register():
 
 
 def unregister():
+    # Kill any running theme-preview install before classes go away, so
+    # the draw handlers + 60fps timer don't outlive the operator class.
+    try:
+        from .operators.draw_theme_preview import cleanup_live_installs
+        cleanup_live_installs()
+    except Exception as e:
+        print("IOPS: theme-preview cleanup failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)

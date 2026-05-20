@@ -548,8 +548,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def modal(self, context, event):
         # Track latest event for HUD positioning
         self._last_event = event
-        # Unified HUD toggle (key from AddonPreferences.hud_toggle_key,
-        # default "H"; Shift+key flips verbosity).
+        # HUD/Help toggles. Keys come from keymap items
+        # (iops.ui_help_toggle, iops.ui_hud_params_toggle), editable in
+        # the addon's Keymaps tab.
         try:
             theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
         except (KeyError, AttributeError):
@@ -1994,7 +1995,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     corners[0], corners[2], corners[3],
                 ]
                 with draw_scope(blend="ALPHA", depth="LESS"):
-                    draw.tris(fill_tris, role=Role.FILL, context=context)
+                    draw.tris(fill_tris, role=Role.PREVIEW_LINE, context=context)
 
                 # Plane outline (LINE_STRIP closed)
                 outline_coords = corners + [corners[0]]

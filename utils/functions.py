@@ -705,6 +705,45 @@ def register_keymaps(keys):
     print("IOPS Keymaps registered")
 
 
+# UI toggle keymaps — kept separate from `keys_default` so the user-hotkey
+# save/load flow can't drop them. These bind marker operators (do nothing
+# when fired directly); the modal operators that draw HUD/Help look up the
+# kmi by idname and compare `event.type` to `kmi.type`.
+ui_toggle_keys_default = [
+    ("iops.ui_help_toggle",        "H",     "PRESS", False, False, False, False),
+    ("iops.ui_hud_params_toggle",  "SLASH", "PRESS", False, False, False, False),
+]
+
+
+def register_ui_toggle_keymaps():
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps.new("Window")
+    items = km.keymap_items
+    existing = {it.idname for it in items}
+    for idname, key, value, ctrl, alt, shift, oskey in ui_toggle_keys_default:
+        if idname in existing:
+            continue
+        items.new(idname, key, value, ctrl=ctrl, alt=alt, shift=shift,
+                  oskey=oskey)
+    print("IOPS UI-toggle keymaps registered")
+
+
+def get_ui_toggle_key(idname: str, default: str) -> str:
+    """Return the event-type currently bound to a UI-toggle marker
+    operator, or `default` if the kmi can't be found. Reads the *user*
+    keyconfig so user rebindings are honored."""
+    try:
+        kc = bpy.context.window_manager.keyconfigs.user
+    except AttributeError:
+        return default
+    if kc is None:
+        return default
+    for km in kc.keymaps:
+        for kmi in km.keymap_items:
+            if kmi.idname == idname:
+                return kmi.type
+    return default
+
+
 def unregister_keymaps():
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:

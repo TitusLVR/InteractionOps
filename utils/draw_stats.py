@@ -36,8 +36,10 @@ def draw_iops_statistics():
     offset_x = t_offset + theme.stats_offset_x
     line_h = theme.text_size("default")
     offset_y = area_3d.height - theme.stats_offset_y - line_h
+    row_step = int(line_h * float(getattr(theme, "stats_row_spacing", 1.5)))
 
-    base_column_x = offset_x + line_h * 9
+    base_column_x = offset_x + int(line_h
+                                   * float(getattr(theme, "stats_column_spacing", 9.0)))
 
     def _t(text, *, role=None, color=None, x=offset_x, y=None):
         if y is None:
@@ -66,9 +68,9 @@ def draw_iops_statistics():
                 file_status = "Unsaved"
 
             _t("File:", role=Role.TEXT)
-            value_role = Role.CLOSEST_TEXT if (file_saved and not file_dirty) else Role.ERROR
+            value_role = Role.ACTIVE_TEXT if (file_saved and not file_dirty) else Role.ERROR_TEXT
             _t(file_status, role=value_role, x=base_column_x)
-            offset_y -= int(line_h * 1.5)
+            offset_y -= row_step
 
         if active_object and active_object.type == "MESH":
             scale_stat = []
@@ -108,23 +110,23 @@ def draw_iops_statistics():
                 for uvmap in all_uvmap_names:
                     is_render = uvmap in render_uvmaps
                     display = "[ " + uvmap + " ]" if is_render else uvmap
-                    role = Role.CLOSEST_TEXT if uvmap in active_uvmaps else Role.TEXT
+                    role = Role.ACTIVE_TEXT if uvmap in active_uvmaps else Role.TEXT
                     _t(display, role=role, x=col_x)
                     w, _h = _dim(display)
                     col_x += w + 6
-                offset_y -= int(line_h * 1.5)
+                offset_y -= row_step
             else:
-                _t("No UVMaps", role=Role.ERROR, x=base_column_x)
-                offset_y -= int(line_h * 1.5)
+                _t("No UVMaps", role=Role.ERROR_TEXT, x=base_column_x)
+                offset_y -= row_step
 
             if scale_stat:
                 _t("Scale:", role=Role.TEXT)
                 col_x = base_column_x
                 for s in scale_stat:
-                    _t(s, role=Role.ERROR, x=col_x)
+                    _t(s, role=Role.ERROR_TEXT, x=col_x)
                     w, _h = _dim(s)
                     col_x += w + 6
-                offset_y -= int(line_h * 1.5)
+                offset_y -= row_step
         else:
             _t("- - -", role=Role.TEXT)
 
@@ -140,8 +142,8 @@ def draw_iops_statistics():
                     scaled_objects.append(obj)
             if scaled_objects:
                 _t("Selection:", role=Role.TEXT)
-                _t("There are scaled objects", role=Role.ERROR, x=base_column_x)
-                offset_y -= int(line_h * 1.5)
+                _t("There are scaled objects", role=Role.ERROR_TEXT, x=base_column_x)
+                offset_y -= row_step
 
     except Exception:
         pass
