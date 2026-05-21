@@ -52,10 +52,10 @@ _POINT_ROLES = (Role.POINT, Role.CLOSEST_POINT, Role.ACTIVE_POINT,
                 Role.LOCKED_POINT, Role.PREVIEW_POINT, Role.ERROR_POINT)
 _LINE_ROLES = (Role.LINE, Role.CLOSEST_LINE, Role.ACTIVE_LINE,
                Role.LOCKED_LINE, Role.PREVIEW_LINE, Role.ERROR_LINE)
-_TEXT_ROLES = (Role.TEXT, Role.CLOSEST_TEXT, Role.ACTIVE_TEXT,
-               Role.LOCKED_TEXT, Role.PREVIEW_TEXT, Role.ERROR_TEXT)
-_TEXT_SIZE_TOKENS = ("default", "closest", "active", "locked",
-                     "preview", "error")
+# Preview labels above each point use the matching POINT color so the
+# state colors visible in the preview always match what operators render.
+_TEXT_ROLES = _POINT_ROLES
+_TEXT_SIZE_TOKENS = ("hud_label",) * 6
 
 
 def _draw_view(state):
@@ -261,6 +261,10 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
         helpo = self._state["help"]
 
         if theme_prefs is not None:
+            if helpo.handle_drag_event(context, event, theme_prefs):
+                return {"RUNNING_MODAL"}
+            if hud.handle_drag_event(context, event, theme_prefs):
+                return {"RUNNING_MODAL"}
             if hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
             if helpo.handle_toggle_event(event, theme_prefs):
@@ -381,7 +385,7 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
 
     def _build_hud(self, state):
         hud = HUDOverlay("theme_preview")
-        hud.title = "Theme preview"
+        hud.title = "Dynamic Overlay"
         # Honor the theme's hud_mode setting so the preview is a faithful
         # demo. Cursor-follow only produces sensible coords while the
         # mouse is actually over the bound viewport — when it isn't (e.g.
@@ -414,12 +418,13 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
     def _build_help(self, target_region):
         helpo = HelpOverlay("theme_preview")
         helpo.bind_region(target_region)
-        helpo.add_section(HUDSection("Theme preview", [
-            HUDItem("Toggle snap",      "S",          ItemState.ON),
-            HUDItem("More / fewer subs", "Ctrl+Wheel", ItemState.ON),
-            HUDItem("Hide params",      "/",       ItemState.ON),
-            HUDItem("Toggle this help", "H",       ItemState.ON),
-            HUDItem("Exit",             "ESC/RMB", ItemState.ON),
+        helpo.add_section(HUDSection("Help Overlay", [
+            HUDItem("Toggle snap",        "S",                  ItemState.ON),
+            HUDItem("More / fewer subs",  "Ctrl+Wheel",         ItemState.ON),
+            HUDItem("Hide params",        "/",                  ItemState.ON),
+            HUDItem("Toggle this help",   "H",                  ItemState.ON),
+            HUDItem("Drag overlay",       "Shift+Ctrl+Alt+LMB", ItemState.ON),
+            HUDItem("Exit",               "ESC/RMB",            ItemState.ON),
         ]))
         return helpo
 

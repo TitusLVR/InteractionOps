@@ -44,9 +44,15 @@ def _claim_ticker(window) -> None:
     if entry is not None:
         entry[1] += 1
         return
+    fps = 240
+    try:
+        fps = int(bpy.context.preferences.addons["InteractionOps"]
+                  .preferences.iops_theme.hud_anim_fps)
+    except (KeyError, AttributeError):
+        pass
     try:
         timer = bpy.context.window_manager.event_timer_add(
-            1.0 / 60.0, window=window)
+            1.0 / max(1, fps), window=window)
     except Exception:
         return
     _TICKERS[win_id] = [timer, 1]

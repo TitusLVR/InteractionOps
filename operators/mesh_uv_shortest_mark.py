@@ -1936,16 +1936,22 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             n_prop = len(self._smooth_preview_edges)
             n_orig = len(self._smooth_original_marks)
             hud.set_header(
-                f"Smooth: {ml}  Magnet {self._smooth_magnet:+d}  "
-                f"Iter {self._smooth_iterations}  "
-                f"Prop {n_prop} / Orig {n_orig}"
+                f"Smooth: {ml}",
+                f"Magnet: {self._smooth_magnet:+d}",
+                f"Iter: {self._smooth_iterations}",
+                f"Prop / Orig: {n_prop} / {n_orig}",
             )
         else:
             hud.set_header(
-                f"{bl} \u2192 {ml}  Algo {al}  Mode {pm}  "
-                f"Flow {self.flow_angle}\u00b0  Smooth {self.smooth_level}  "
-                f"Curv {self.curvature}  Arch {self.arch_strength:+d}  "
-                f"Angle {self.sharp_angle}\u00b0  Edges {n}"
+                f"Barrier \u2192 Mark: {bl} \u2192 {ml}",
+                f"Algo: {al}",
+                f"Mode: {pm}",
+                f"Flow: {self.flow_angle}\u00b0",
+                f"Smooth: {self.smooth_level}",
+                f"Curv: {self.curvature}",
+                f"Arch: {self.arch_strength:+d}",
+                f"Angle: {self.sharp_angle}\u00b0",
+                f"Edges: {n}",
             )
         hud.draw(context, getattr(self, "_last_event", None))
 
@@ -2013,6 +2019,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None) or getattr(self, "help", None)
             hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):

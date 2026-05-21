@@ -14,21 +14,34 @@ def handle_hud_toggle(hud, context, event) -> bool:
     return False
 
 
-def handle_help_toggle(help_overlay, context, event) -> bool:
-    """Convenience: toggle a HelpOverlay's expanded/collapsed state on
-    the configured key (default "H")."""
-    if help_overlay is None:
-        return False
+def handle_help_toggle(help_overlay, context, event, *, hud=None) -> bool:
+    """Forward modal events to the Help (and optionally HUD) overlay.
+
+    Handles:
+      * H-key toggle (expand/collapse)
+      * Shift+Ctrl+Alt+LMB drag → switches the overlay to Free placement
+        and writes Position X/Y back to prefs.
+
+    Returns True when the event was consumed (operator should
+    `return {'RUNNING_MODAL'}` instead of falling through to its own
+    handlers)."""
     try:
         prefs = context.preferences.addons["InteractionOps"].preferences
         theme_prefs = prefs.iops_theme
     except (KeyError, AttributeError):
         return False
-    if not help_overlay.handle_toggle_event(event, theme_prefs):
-        return False
-    if context.area is not None:
+    consumed = False
+    if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+        consumed = True
+    elif (help_overlay is not None
+          and help_overlay.handle_drag_event(context, event, theme_prefs)):
+        consumed = True
+    elif (help_overlay is not None
+          and help_overlay.handle_toggle_event(event, theme_prefs)):
+        consumed = True
+    if consumed and context.area is not None:
         context.area.tag_redraw()
-    return True
+    return consumed
 
 
 __all__ = ["HUDItem", "HUDSection", "HUDParam", "HUDParamSection",

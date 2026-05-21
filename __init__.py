@@ -12,6 +12,12 @@ from .operators.preferences.io_addon_preferences import (
     IOPS_OT_SaveAddonPreferences,
     IOPS_OT_LoadAddonPreferences,
 )
+from .operators.preferences.io_theme import (
+    IOPS_OT_ThemeSaveAs,
+    IOPS_OT_ThemeDelete,
+    IOPS_OT_ThemeOpenFolder,
+    ensure_default_presets as _ensure_default_theme_presets,
+)
 
 from .operators.align_origin_to_normal import IOPS_OT_AlignOriginToNormal
 from .operators.mouseover_fill_select import IOPS_MouseoverFillSelect
@@ -385,6 +391,9 @@ classes = (
     IOPS_OT_SaveUserHotkeys,
     IOPS_OT_SaveAddonPreferences,
     IOPS_OT_LoadAddonPreferences,
+    IOPS_OT_ThemeSaveAs,
+    IOPS_OT_ThemeDelete,
+    IOPS_OT_ThemeOpenFolder,
     IOPS_OT_RenderAssetThumbnail,
     IOPS_OT_RunText,
     IOPS_OT_MayaIsolate,
@@ -519,6 +528,10 @@ def keymap_registration():
 def register():
     reg_cls()
     register_pool_menus()
+    try:
+        _ensure_default_theme_presets()
+    except Exception as e:
+        print(f"IOPS: ensure_default_theme_presets failed: {e}")
 
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
         type=IOPS_AddonProperties

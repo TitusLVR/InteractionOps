@@ -479,13 +479,13 @@ def _draw_transform_feedback(op):
 
     def _t(text, *, role=None, color=None):
         hud_text_draw(text, mx + 18, my + 10, theme=theme,
-                      role=role, color=color, size_token="active")
+                      role=role, color=color, size_token="hud_label")
 
     if (op.state in (STATE_ROTATE, STATE_HANDLE_ROTATE)
             and op.drag_center_screen):
         deg = math.degrees(op.current_angle_delta)
         step_deg = ROTATION_STEPS[op.rotation_step_idx]
-        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", role=Role.ACTIVE_TEXT)
+        _t(f"R {deg:.1f}\u00b0  [Ctrl snap {step_deg}\u00b0]", role=Role.HUD_ACTIVE_VALUE)
 
     elif (op.state in (STATE_SCALE, STATE_HANDLE_SCALE)
           and op.drag_center_screen):
@@ -495,7 +495,7 @@ def _draw_transform_feedback(op):
         elif op.grab_axis == 'Y':
             _t(f"S Y {sy:.3f}", color=axis_color('Y'))
         else:
-            _t(f"S {sx:.3f} x {sy:.3f}", role=Role.ACTIVE_TEXT)
+            _t(f"S {sx:.3f} x {sy:.3f}", role=Role.HUD_ACTIVE_VALUE)
 
     elif op.state == STATE_GRAB:
         sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
@@ -504,7 +504,7 @@ def _draw_transform_feedback(op):
         elif op.grab_axis == 'Y':
             _t(f"G along Y  [{sens_pct}%]", color=axis_color('Y'))
         else:
-            _t(f"G Move  [{sens_pct}%]", role=Role.ACTIVE_TEXT)
+            _t(f"G Move  [{sens_pct}%]", role=Role.HUD_ACTIVE_VALUE)
 
 
 def _build_visual_uv_hud(context):
@@ -550,8 +550,11 @@ def draw_shortcuts_callback(op, context):
     sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
     rot_step = ROTATION_STEPS[op.rotation_step_idx]
     hud.set_header(
-        f"Visual UV  [{st}]  Pivot: {pv}  Sens: {sens_pct}%  "
-        f"Islands: {len(op.islands_data)}  RotStep: {rot_step}\u00b0"
+        f"Visual UV  [{st}]",
+        f"Pivot: {pv}",
+        f"Sens: {sens_pct}%",
+        f"Islands: {len(op.islands_data)}",
+        f"RotStep: {rot_step}\u00b0",
     )
     hud.draw(context, getattr(op, "_last_event", None))
 
@@ -928,6 +931,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None) or getattr(self, "help", None)
             hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):

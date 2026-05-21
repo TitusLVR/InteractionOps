@@ -1,0 +1,213 @@
+{
+  "name": "",
+  "color_point": [
+    1.0,
+    1.0,
+    1.0,
+    0.699999988079071
+  ],
+  "color_closest_point": [
+    0.3019999861717224,
+    0.8159999847412109,
+    1.0,
+    1.0
+  ],
+  "color_active_point": [
+    0.3019999861717224,
+    1.0,
+    0.6200000047683716,
+    1.0
+  ],
+  "color_locked_point": [
+    1.0,
+    0.09799999743700027,
+    0.328000009059906,
+    1.0
+  ],
+  "color_preview_point": [
+    1.0,
+    0.871999979019165,
+    0.17399999499320984,
+    1.0
+  ],
+  "color_error_point": [
+    1.0,
+    0.3529999852180481,
+    0.3529999852180481,
+    1.0
+  ],
+  "color_point_outline": [
+    0.10000000149011612,
+    0.10000000149011612,
+    0.10000000149011612,
+    0.75
+  ],
+  "point_size_default": 8.0,
+  "point_size_closest": 11.0,
+  "point_size_active": 12.0,
+  "point_size_locked": 13.0,
+  "point_size_preview": 10.0,
+  "point_size_error": 13.0,
+  "color_line": [
+    0.6499999761581421,
+    0.6499999761581421,
+    0.6499999761581421,
+    0.30000001192092896
+  ],
+  "color_closest_line": [
+    0.3019999861717224,
+    0.8159999847412109,
+    1.0,
+    0.8500000238418579
+  ],
+  "color_active_line": [
+    0.3019999861717224,
+    1.0,
+    0.6200000047683716,
+    0.8999999761581421
+  ],
+  "color_locked_line": [
+    1.0,
+    0.09799999743700027,
+    0.328000009059906,
+    0.949999988079071
+  ],
+  "color_preview_line": [
+    1.0,
+    0.871999979019165,
+    0.17399999499320984,
+    1.0
+  ],
+  "color_error_line": [
+    1.0,
+    0.3529999852180481,
+    0.3529999852180481,
+    1.0
+  ],
+  "line_width_default": 1.5,
+  "line_width_closest": 2.5,
+  "line_width_active": 3.0,
+  "line_width_locked": 6.0,
+  "line_width_preview": 2.0,
+  "line_width_error": 2.5,
+  "color_handle": [
+    1.0,
+    1.0,
+    1.0,
+    0.8500000238418579
+  ],
+  "color_handle_hover": [
+    0.3019999861717224,
+    0.8159999847412109,
+    1.0,
+    0.8999999761581421
+  ],
+  "color_pivot": [
+    1.0,
+    0.871999979019165,
+    0.17399999499320984,
+    0.8999999761581421
+  ],
+  "color_bbox": [
+    0.6499999761581421,
+    0.6499999761581421,
+    0.6499999761581421,
+    0.30000001192092896
+  ],
+  "color_cursor": [
+    1.0,
+    0.20000000298023224,
+    0.6000000238418579,
+    1.0
+  ],
+  "point_size_handle": 8.0,
+  "point_size_handle_hover": 10.0,
+  "point_size_pivot": 12.0,
+  "point_size_cursor": 8.0,
+  "line_width_bbox": 1.5,
+  "color_hud_header": [
+    0.149,
+    0.545,
+    0.824,
+    1.0
+  ],
+  "color_hud_key": [
+    0.71,
+    0.537,
+    0.0,
+    1.0
+  ],
+  "color_hud_label": [
+    0.514,
+    0.58,
+    0.588,
+    1.0
+  ],
+  "color_hud_label_inactive": [
+    0.345,
+    0.431,
+    0.459,
+    0.9
+  ],
+  "color_hud_stats_error": [
+    0.863,
+    0.196,
+    0.184,
+    1.0
+  ],
+  "text_size_hud_header": 14,
+  "text_size_hud_key": 12,
+  "text_size_hud_label": 11,
+  "shadow_enabled": true,
+  "shadow_color": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "shadow_blur": 0,
+  "shadow_offset_x": 1,
+  "shadow_offset_y": -1,
+  "hud_mode": "cursor",
+  "hud_offset_x": 20,
+  "hud_offset_y": -20,
+  "hud_anchor_offset_x": 0,
+  "hud_anchor_offset_y": 0,
+  "hud_free_x": 40,
+  "hud_free_y": 40,
+  "hud_padding": 12,
+  "hud_section_spacing": 8,
+  "hud_row_spacing": 3,
+  "hud_key_label_spacing": 16,
+  "hud_anim_fps": 240,
+  "panel_bg_enabled": true,
+  "panel_bg_color": [
+    0.0,
+    0.169,
+    0.212,
+    0.95
+  ],
+  "panel_bg_padding": 10,
+  "hud_smoothing": 0.699999988079071,
+  "help_corner": "left_center",
+  "help_offset_x": 8,
+  "help_offset_y": 0,
+  "help_free_x": 40,
+  "help_free_y": 40,
+  "help_anim_preset": "fade",
+  "help_anim_duration": 0.5,
+  "help_anim_slide_amount": 28,
+  "help_anim_wave_duration": 2.0,
+  "help_anim_wave_spread": 128,
+  "help_anim_wave_stagger_scale": 1.0,
+  "help_anim_wave_fade_window": 0.5,
+  "help_anim_shockwave_radius": 160,
+  "help_hint_text": "Press {key} for help",
+  "depth_test_default": "ALWAYS",
+  "font_path": "",
+  "stats_offset_x": 8,
+  "stats_offset_y": 220,
+  "stats_text_size": 11,
+  "stats_row_spacing": 1.5,
+  "stats_column_spacing": 5.0
+}

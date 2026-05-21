@@ -299,6 +299,10 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None)
             hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
@@ -749,10 +753,10 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if helpo is not None:
             helpo.draw(context, last_event)
         if hud is not None:
-            label = f"Straight Bevel: {self.offset:.4f}"
+            lines = [f"Offset: {self.offset:.4f}"]
             if self._input_str:
-                label += f"  (typing: {self._input_str})"
-            hud.set_header(label)
+                lines.append(f"Typing: {self._input_str}")
+            hud.set_header(*lines)
             hud.draw(context, last_event)
 
     # ------------------------------------------------------------------

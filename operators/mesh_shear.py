@@ -1521,6 +1521,10 @@ cancels. LMB clicks only pick widget handles."""
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None)
             hud = getattr(self, "_hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
@@ -2054,8 +2058,9 @@ cancels. LMB clicks only pick widget handles."""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        label = f"Shear ({self.mode}): {self._effective_angle():.2f}°"
+        lines = [f"Mode: {self.mode}",
+                 f"Angle: {self._effective_angle():.2f}°"]
         if self.input_str:
-            label += f"  (typing: {self.input_str})"
-        hud.set_header(label)
+            lines.append(f"Typing: {self.input_str}")
+        hud.set_header(*lines)
         hud.draw(context, last_event)

@@ -41,19 +41,9 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     line_width_preview:    FloatProperty(name="Result Preview", default=2.0, min=0.5, max=12.0)
     line_width_error:      FloatProperty(name="Error",          default=2.5, min=0.5, max=12.0)
 
-    # --- Text ---
-    color_text:            _color((1.000, 1.000, 1.000, 0.60), "Default")
-    color_closest_text:    _color((0.302, 0.816, 1.000, 0.90), "Closest")
-    color_active_text:     _color((0.302, 1.000, 0.620, 0.90), "Active")
-    color_locked_text:     _color((1.000, 0.098, 0.328, 0.90), "Locked")
-    color_preview_text:    _color((1.000, 0.872, 0.174, 0.90), "Result Preview")
-    color_error_text:      _color((1.000, 0.353, 0.353, 0.90), "Error")
-    text_size_default:     IntProperty(name="Default",        default=11, min=8, max=64)
-    text_size_closest:     IntProperty(name="Closest",        default=12, min=8, max=64)
-    text_size_active:      IntProperty(name="Active",         default=12, min=8, max=64)
-    text_size_locked:      IntProperty(name="Locked",         default=12, min=8, max=64)
-    text_size_preview:     IntProperty(name="Result Preview", default=12, min=8, max=64)
-    text_size_error:       IntProperty(name="Error",          default=12, min=8, max=64)
+    # (Old per-state text colors/sizes were unused by drawing code and
+    # have been removed. All HUD/stats text now flows through a small
+    # set of HUD-specific roles defined below.)
 
     # --- Widgets ---
     color_handle:          _color((1.000, 1.000, 1.000, 0.85), "Handle")
@@ -67,24 +57,24 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     point_size_cursor:       FloatProperty(name="Cursor size",        default=8.0,  min=1.0, max=64.0)
     line_width_bbox:         FloatProperty(name="Bbox width",         default=1.5,  min=0.5, max=12.0)
 
-    # --- Island palette (per-island identification, indexed by island_id % 8) ---
-    island_palette_0:      _color((0.40, 0.65, 1.00, 0.10), "Island 1")
-    island_palette_1:      _color((1.00, 0.50, 0.30, 0.10), "Island 2")
-    island_palette_2:      _color((0.35, 0.85, 0.45, 0.10), "Island 3")
-    island_palette_3:      _color((0.95, 0.80, 0.25, 0.10), "Island 4")
-    island_palette_4:      _color((0.70, 0.40, 0.90, 0.10), "Island 5")
-    island_palette_5:      _color((0.20, 0.80, 0.75, 0.10), "Island 6")
-    island_palette_6:      _color((0.90, 0.35, 0.60, 0.10), "Island 7")
-    island_palette_7:      _color((0.60, 0.80, 0.20, 0.10), "Island 8")
-
-    # --- HUD text (key glyph + label colors and sizes; UI lives under
-    # the "Text & Font" section since these are text style props).
-    color_hud_key:         _color((0.344, 1.000, 0.653, 1.00), "Key glyph")
-    color_hud_label_on:    _color((0.844, 0.844, 0.844, 0.819), "Label (active)")
-    color_hud_label_off:   _color((0.466, 0.473, 0.487, 0.85), "Label (inactive)")
-    color_hud_label_disabled:_color((0.179, 0.179, 0.191, 0.85), "Label (disabled)")
-    text_size_hud_key:     IntProperty(name="Key glyph size", default=11, min=8, max=64)
-    text_size_hud_label:   IntProperty(name="Label size",     default=11, min=8, max=64)
+    # --- HUD text roles (live under the "Dynamic Overlay" rollout in
+    # the Theme tab). These are the only text styles used anywhere in
+    # the addon. Sizes:
+    #   Header / Glyph / Label — three independent sliders.
+    # Colors:
+    #   Header, Glyph, Label, Label Active, Label Inactive,
+    #   Active Value, Stats Error/Warning.
+    # HUD Glyph and HUD Active Value share one color slider; HUD Header
+    # and HUD Label Active share another. Distinct roles in code (so
+    # future split is trivial) but a single pref drives each pair.
+    color_hud_header:        _color((0.302, 1.000, 0.620, 0.75), "HUD Header / Label Active")
+    color_hud_key:           _color((1.000, 0.872, 0.174, 0.75), "HUD Glyph / Active Value")
+    color_hud_label:         _color((0.844, 0.844, 0.844, 0.75), "HUD Label")
+    color_hud_label_inactive:_color((0.466, 0.473, 0.487, 0.85), "HUD Label Inactive")
+    color_hud_stats_error:   _color((1.000, 0.339, 0.382, 0.90), "HUD Stats Error/Warning")
+    text_size_hud_header:    IntProperty(name="Header Size", default=14, min=8, max=64)
+    text_size_hud_key:       IntProperty(name="Glyph Size",  default=12, min=8, max=64)
+    text_size_hud_label:     IntProperty(name="Label Size",  default=11, min=8, max=64)
     shadow_enabled:        BoolProperty(name="Shadow", default=True)
     shadow_color:          _color((0.0, 0.0, 0.0, 1.0), "Shadow color")
     shadow_blur:           IntProperty(name="Shadow blur", default=0, min=0, max=10)
@@ -92,21 +82,28 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     shadow_offset_y:       IntProperty(name="Shadow Y", default=-1, min=-8, max=8)
 
     hud_mode: EnumProperty(
-        name="HUD position",
+        name="HUD Placement",
         items=[
-            ("cursor",       "Cursor",       "Follow mouse cursor"),
-            ("top_left",     "Top left",     ""),
-            ("top_right",    "Top right",    ""),
-            ("bottom_left",  "Bottom left",  ""),
-            ("bottom_right", "Bottom right", ""),
-            ("free",         "Free",         "Fixed position"),
+            ("cursor",        "Mouse Cursor",  "Follow mouse cursor"),
+            ("top_left",      "Top Left",      ""),
+            ("top_center",    "Top Center",    ""),
+            ("top_right",     "Top Right",     ""),
+            ("left_center",   "Center Left",   ""),
+            ("center",        "Center",        ""),
+            ("right_center",  "Center Right",  ""),
+            ("bottom_left",   "Bottom Left",   ""),
+            ("bottom_center", "Bottom Center", ""),
+            ("bottom_right",  "Bottom Right",  ""),
+            ("free",          "Free",          "Fixed position (drag to move)"),
         ],
         default="cursor",
     )
-    hud_offset_x: IntProperty(name="Cursor offset X", default=20)
-    hud_offset_y: IntProperty(name="Cursor offset Y", default=-20)
-    hud_free_x: IntProperty(name="Free X", default=40, min=0)
-    hud_free_y: IntProperty(name="Free Y", default=40, min=0)
+    hud_offset_x: IntProperty(name="Mouse Cursor offset X", default=20)
+    hud_offset_y: IntProperty(name="Mouse Cursor offset Y", default=-20)
+    hud_anchor_offset_x: IntProperty(name="Offset X", default=0, min=-4000, max=4000)
+    hud_anchor_offset_y: IntProperty(name="Offset Y", default=0, min=-4000, max=4000)
+    hud_free_x: IntProperty(name="Position X", default=40, min=0)
+    hud_free_y: IntProperty(name="Position Y", default=40, min=0)
     hud_padding: IntProperty(name="Padding", default=12, min=0, max=64)
     hud_section_spacing: IntProperty(name="Section spacing", default=8, min=0, max=64)
     hud_row_spacing: IntProperty(name="Row spacing", default=3, min=0, max=16)
@@ -114,6 +111,28 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         name="Key→label spacing",
         description="Gap between the widest key glyph and the label column",
         default=16, min=0, max=240,
+    )
+    hud_anim_fps: IntProperty(
+        name="Animation FPS",
+        description="Internal redraw rate (Hz) for HUD animations and "
+                    "cursor-follow smoothing. Match your monitor's refresh "
+                    "rate for smoothest motion. Animation duration is "
+                    "time-based, so this only affects how many in-between "
+                    "frames are drawn",
+        default=240, min=30, max=1000,
+    )
+    # --- Background panel (HUD + Help) ---
+    panel_bg_enabled: BoolProperty(name="Background panel", default=True)
+    panel_bg_color: FloatVectorProperty(
+        name="Panel color", subtype="COLOR", size=4,
+        default=(0.0, 0.0, 0.0, 0.25),
+        soft_min=0.0, soft_max=1.0, min=0.0, max=1.0,
+    )
+    panel_bg_padding: IntProperty(
+        name="Panel padding",
+        description="Pixels added around the content rectangle for the "
+                    "background panel",
+        default=10, min=0, max=64,
     )
     hud_smoothing: FloatProperty(
         name="Cursor smoothing",
@@ -130,21 +149,24 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # `iops.ui_hud_params_toggle`) and edited in the Keymaps tab — not as
     # StringProperty fields here.
     help_corner: EnumProperty(
-        name="Help position",
+        name="Help Placement",
         items=[
-            ("top_left",      "Top left",      ""),
-            ("top_center",    "Top center",    ""),
-            ("top_right",     "Top right",     ""),
-            ("left_center",   "Left center",   ""),
-            ("right_center",  "Right center",  ""),
-            ("bottom_left",   "Bottom left",   ""),
-            ("bottom_center", "Bottom center", ""),
-            ("bottom_right",  "Bottom right",  ""),
+            ("top_left",      "Top Left",      ""),
+            ("top_center",    "Top Center",    ""),
+            ("top_right",     "Top Right",     ""),
+            ("left_center",   "Center Left",   ""),
+            ("right_center",  "Center Right",  ""),
+            ("bottom_left",   "Bottom Left",   ""),
+            ("bottom_center", "Bottom Center", ""),
+            ("bottom_right",  "Bottom Right",  ""),
+            ("free",          "Free",          "Fixed position"),
         ],
         default="left_center",
     )
-    help_offset_x: IntProperty(name="Help X offset", default=8, min=-4000, max=4000)
-    help_offset_y: IntProperty(name="Help Y offset", default=0, min=-4000, max=4000)
+    help_offset_x: IntProperty(name="Offset X", default=8, min=-4000, max=4000)
+    help_offset_y: IntProperty(name="Offset Y", default=0, min=-4000, max=4000)
+    help_free_x: IntProperty(name="Position X", default=40, min=0)
+    help_free_y: IntProperty(name="Position Y", default=40, min=0)
     help_anim_preset: EnumProperty(
         name="Help animation",
         items=[
@@ -232,6 +254,12 @@ class IOPS_Theme(bpy.types.PropertyGroup):
                     "top edge of the 3D view",
         default=220, min=0, max=4000,
     )
+    stats_text_size: IntProperty(
+        name="Text size",
+        description="Text size for the statistics overlay. Row spacing "
+                    "scales automatically with this value",
+        default=11, min=8, max=64,
+    )
     stats_row_spacing: FloatProperty(
         name="Stats row spacing",
         description="Vertical spacing between rows of the statistics "
@@ -246,6 +274,14 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default=5.0, min=2.0, max=40.0, step=10, precision=2,
     )
 
+    # --- Theme presets (file-backed list in scripts/presets/IOPS/themes/) ---
+    theme_preset: EnumProperty(
+        name="Preset",
+        description="Apply a saved theme preset",
+        items=lambda self, ctx: _theme_preset_items_proxy(self, ctx),
+        update=lambda self, ctx: _theme_preset_update_proxy(self, ctx),
+    )
+
     # --- Theme tab fold state (UI only) ---
     show_point: BoolProperty(default=True)
     show_line: BoolProperty(default=False)
@@ -255,9 +291,23 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     show_islands: BoolProperty(default=False)
     show_font: BoolProperty(default=False)
     show_hud: BoolProperty(default=False)
+    show_hud_placement: BoolProperty(default=True)
     show_help: BoolProperty(default=False)
     show_stats: BoolProperty(default=False)
     show_behaviour: BoolProperty(default=False)
+
+
+# Lazy bridge to io_theme module — keeps EnumProperty lambdas from
+# importing operators at module-load time (would cause a circular
+# dependency between prefs/ and operators/).
+def _theme_preset_items_proxy(self, context):
+    from ..operators.preferences import io_theme
+    return io_theme.theme_preset_items(self, context)
+
+
+def _theme_preset_update_proxy(self, context):
+    from ..operators.preferences import io_theme
+    io_theme.theme_preset_update(self, context)
 
 
 class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
@@ -336,6 +386,14 @@ def _theme_section(layout, theme, prop_name, title, *, icon="NONE"):
 
 
 def draw_theme_tab(layout, theme):
+    # Preset bar: dropdown + Save As + Delete + open folder.
+    bar = layout.row(align=True)
+    bar.prop(theme, "theme_preset", text="")
+    bar.operator("iops.theme_save_as", text="", icon="FILE_NEW")
+    bar.operator("iops.theme_delete", text="", icon="TRASH")
+    bar.operator("iops.theme_open_folder", text="", icon="FILE_FOLDER")
+    layout.separator()
+
     # POINT
     sub = _theme_section(layout, theme, "show_point", "Point", icon="VERTEXSEL")
     if sub is not None:
@@ -350,35 +408,6 @@ def draw_theme_tab(layout, theme):
     sub = _theme_section(layout, theme, "show_line", "Line", icon="EDGESEL")
     if sub is not None:
         _state_table(sub, theme, "line", size_prefix="line_width")
-
-    # TEXT & FONT
-    sub = _theme_section(layout, theme, "show_text", "Text & Font",
-                         icon="FONT_DATA")
-    if sub is not None:
-        _state_table(sub, theme, "text", size_prefix="text_size")
-        sub.separator()
-        sub.label(text="HUD text:")
-        for attr, size_attr, label in (
-                ("color_hud_key",            "text_size_hud_key",
-                 "Key glyph"),
-                ("color_hud_label_on",       "text_size_hud_label",
-                 "Label (active)"),
-                ("color_hud_label_off",      "text_size_hud_label",
-                 "Label (inactive)"),
-                ("color_hud_label_disabled", "text_size_hud_label",
-                 "Label (disabled)"),
-        ):
-            row = sub.row(align=True)
-            row.label(text=label)
-            row.prop(theme, size_attr, text="")
-            row.prop(theme, attr, text="")
-        sub.separator()
-        sub.label(text="Font file:")
-        sub.prop(theme, "font_path", text="")
-        sub.label(
-            text="Empty = Blender default. Used by HUD and overlay text.",
-            icon="INFO",
-        )
 
     # Widgets — each row: name | size | color. Handle has two color
     # swatches (idle + hover) sharing one size — it's the same widget in
@@ -399,19 +428,41 @@ def draw_theme_tab(layout, theme):
             row.prop(theme, size_attr,  text="")
             row.prop(theme, color_attr, text="")
 
-    # Island palette
-    sub = _theme_section(layout, theme, "show_islands",
-                         "Island palette (UV)", icon="COLOR")
-    if sub is not None:
-        row = sub.row(align=True)
-        for i in range(8):
-            row.prop(theme, f"island_palette_{i}", text="")
-
-    # HUD
+    # HUD — parent rollout. Contains all HUD-related text styles
+    # (colors + sizes), background panel, shadow and font shared by
+    # every overlay, plus three nested sub-sections for the specific
+    # overlays themselves.
     sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
     if sub is not None:
-        sub.label(text="Key glyph + label colors and sizes live in "
-                       "Text & Font.", icon="INFO")
+        # Text styles (color + optional size) shared by every HUD overlay.
+        # Header + Label Active share one color; Glyph + Active Value share
+        # another — single pref drives each pair.
+        for attr, size_attr, label in (
+                ("color_hud_header",         "text_size_hud_header",
+                 "HUD Header / Label Active"),
+                ("color_hud_key",            "text_size_hud_key",
+                 "HUD Glyph / Active Value"),
+                ("color_hud_label",          "text_size_hud_label",
+                 "HUD Label"),
+                ("color_hud_label_inactive", None,
+                 "HUD Label Inactive"),
+                ("color_hud_stats_error",    None,
+                 "HUD Stats Error/Warning"),
+        ):
+            row = sub.row(align=True)
+            row.label(text=label)
+            if size_attr is not None:
+                row.prop(theme, size_attr, text="")
+            else:
+                row.label(text="")
+            row.prop(theme, attr, text="")
+        sub.separator()
+        sub.prop(theme, "panel_bg_enabled")
+        bg = sub.column(align=True)
+        bg.active = theme.panel_bg_enabled
+        bg.prop(theme, "panel_bg_color")
+        bg.prop(theme, "panel_bg_padding")
+        sub.separator()
         sub.prop(theme, "shadow_enabled")
         sh = sub.column(align=True)
         sh.active = theme.shadow_enabled
@@ -420,51 +471,77 @@ def draw_theme_tab(layout, theme):
         sh.prop(theme, "shadow_offset_x")
         sh.prop(theme, "shadow_offset_y")
         sub.separator()
-        sub.prop(theme, "hud_mode")
-        sub.prop(theme, "hud_offset_x")
-        sub.prop(theme, "hud_offset_y")
-        sub.prop(theme, "hud_padding")
-        sub.prop(theme, "hud_section_spacing")
-        sub.prop(theme, "hud_row_spacing")
-        sub.prop(theme, "hud_key_label_spacing")
-        sub.prop(theme, "hud_smoothing", slider=True)
-        sub.label(text="Toggle key: Keymaps tab → iops.ui_hud_params_toggle",
-                  icon="INFO")
-
-    # Help overlay
-    sub = _theme_section(layout, theme, "show_help", "Help overlay", icon="QUESTION")
-    if sub is not None:
-        sub.label(text="Toggle key: Keymaps tab → iops.ui_help_toggle",
-                  icon="INFO")
-        sub.prop(theme, "help_corner")
-        row = sub.row(align=True)
-        row.prop(theme, "help_offset_x")
-        row.prop(theme, "help_offset_y")
-        sub.prop(theme, "help_hint_text")
+        sub.label(text="Font file:")
+        sub.prop(theme, "font_path", text="")
+        sub.label(
+            text="Empty = Blender default. Used by every HUD overlay.",
+            icon="INFO",
+        )
         sub.separator()
-        sub.prop(theme, "help_anim_preset")
-        preset = theme.help_anim_preset
-        if preset == "wave":
-            sub.prop(theme, "help_anim_wave_duration")
-        else:
-            sub.prop(theme, "help_anim_duration")
-        if preset == "slide-fade":
-            sub.prop(theme, "help_anim_slide_amount")
-        elif preset == "wave":
-            sub.prop(theme, "help_anim_wave_spread")
-            sub.prop(theme, "help_anim_wave_stagger_scale")
-            sub.prop(theme, "help_anim_wave_fade_window")
-        elif preset == "shockwave":
-            sub.prop(theme, "help_anim_shockwave_radius")
 
-    # Statistics overlay positioning
-    sub = _theme_section(layout, theme, "show_stats",
-                         "Statistics overlay", icon="INFO")
-    if sub is not None:
-        sub.prop(theme, "stats_offset_x")
-        sub.prop(theme, "stats_offset_y")
-        sub.prop(theme, "stats_row_spacing")
-        sub.prop(theme, "stats_column_spacing")
+        # --- Dynamic Overlay (per-operator HUD) -------------------------
+        body = _theme_section(sub, theme, "show_hud_placement",
+                              "Dynamic Overlay", icon="WINDOW")
+        if body is not None:
+            body.prop(theme, "hud_mode")
+            mode = theme.hud_mode
+            row = body.row(align=True)
+            if mode == "cursor":
+                row.prop(theme, "hud_offset_x")
+                row.prop(theme, "hud_offset_y")
+            elif mode == "free":
+                row.prop(theme, "hud_free_x")
+                row.prop(theme, "hud_free_y")
+            else:
+                row.prop(theme, "hud_anchor_offset_x")
+                row.prop(theme, "hud_anchor_offset_y")
+            body.prop(theme, "hud_padding")
+            body.prop(theme, "hud_key_label_spacing")
+            body.prop(theme, "hud_smoothing", slider=True)
+            body.prop(theme, "hud_anim_fps")
+            body.label(text="Toggle: Keymaps → iops.ui_hud_params_toggle",
+                       icon="INFO")
+
+        # --- Help Overlay -----------------------------------------------
+        body = _theme_section(sub, theme, "show_help",
+                              "Help Overlay", icon="QUESTION")
+        if body is not None:
+            body.label(text="Toggle: Keymaps → iops.ui_help_toggle",
+                       icon="INFO")
+            body.prop(theme, "help_corner")
+            row = body.row(align=True)
+            if theme.help_corner == "free":
+                row.prop(theme, "help_free_x")
+                row.prop(theme, "help_free_y")
+            else:
+                row.prop(theme, "help_offset_x")
+                row.prop(theme, "help_offset_y")
+            body.prop(theme, "help_hint_text")
+            body.separator()
+            body.prop(theme, "help_anim_preset")
+            preset = theme.help_anim_preset
+            if preset == "wave":
+                body.prop(theme, "help_anim_wave_duration")
+            else:
+                body.prop(theme, "help_anim_duration")
+            if preset == "slide-fade":
+                body.prop(theme, "help_anim_slide_amount")
+            elif preset == "wave":
+                body.prop(theme, "help_anim_wave_spread")
+                body.prop(theme, "help_anim_wave_stagger_scale")
+                body.prop(theme, "help_anim_wave_fade_window")
+            elif preset == "shockwave":
+                body.prop(theme, "help_anim_shockwave_radius")
+
+        # --- Statistics Overlay -----------------------------------------
+        body = _theme_section(sub, theme, "show_stats",
+                              "Statistics Overlay", icon="INFO")
+        if body is not None:
+            body.prop(theme, "stats_text_size")
+            body.prop(theme, "stats_offset_x")
+            body.prop(theme, "stats_offset_y")
+            body.prop(theme, "stats_row_spacing")
+            body.prop(theme, "stats_column_spacing")
 
     # Behaviour
     sub = _theme_section(layout, theme, "show_behaviour",

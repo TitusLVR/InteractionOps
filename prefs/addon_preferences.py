@@ -409,6 +409,27 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default="SHIFT"
     )
 
+    # Visual UV Island palette (per-island identification, indexed by
+    # island_id % 8). Lives here (not in IOPS_Theme) because it's a
+    # Visual-UV-specific preference, not a global text/HUD theme value,
+    # and is intentionally excluded from theme presets.
+    island_palette_0: FloatVectorProperty(name="Island 1", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.40, 0.65, 1.00, 0.10))
+    island_palette_1: FloatVectorProperty(name="Island 2", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(1.00, 0.50, 0.30, 0.10))
+    island_palette_2: FloatVectorProperty(name="Island 3", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.35, 0.85, 0.45, 0.10))
+    island_palette_3: FloatVectorProperty(name="Island 4", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.95, 0.80, 0.25, 0.10))
+    island_palette_4: FloatVectorProperty(name="Island 5", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.70, 0.40, 0.90, 0.10))
+    island_palette_5: FloatVectorProperty(name="Island 6", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.20, 0.80, 0.75, 0.10))
+    island_palette_6: FloatVectorProperty(name="Island 7", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.90, 0.35, 0.60, 0.10))
+    island_palette_7: FloatVectorProperty(name="Island 8", subtype="COLOR", size=4,
+        min=0.0, max=1.0, default=(0.60, 0.80, 0.20, 0.10))
+
     # Visual UV On-Mesh Properties
     visual_uv_normal_offset: FloatProperty(
         name="Normal offset",
@@ -508,8 +529,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        tabs_row = layout.row()
-        tabs_row.prop(self, "tabs", expand=True)
+        tabs_row = layout.row(align=True)
+        tabs_row.prop_enum(self, "tabs", "PREFS")
+        tabs_row.operator("iops.save_addon_preferences",
+                          text="", icon="FILE_TICK")
+        tabs_row.operator("iops.load_addon_preferences",
+                          text="", icon="FILE_FOLDER")
+        tabs_row.separator()
+        tabs_row.prop_enum(self, "tabs", "KM")
+        tabs_row.separator()
+        tabs_row.prop_enum(self, "tabs", "THEME")
         column_main = layout.column()
         if self.tabs == "KM":
 
@@ -735,6 +764,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.label(text="Point size, edge width and fill opacity live in the Theme tab.", icon="INFO")
                 body.prop(self, "visual_uv_normal_offset")
+                body.separator()
+                body.label(text="Island palette (per-island, indexed by island_id % 8):")
+                row = body.row(align=True)
+                for i in range(8):
+                    row.prop(self, f"island_palette_{i}", text="")
 
             # Cursor Bisect (operational only — colors/sizes in Theme)
             body = _section(column_main, self, "show_section_bisect", "Cursor Bisect", icon="MOD_BEVEL")
@@ -824,13 +858,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "texture_to_material_prefixes")
                 body.prop(self, "texture_to_material_suffixes")
-
-            # Save / Load
-            body = _section(column_main, self, "show_section_io", "Save / Load Preferences", icon="FILE_TICK")
-            if body is not None:
-                row = body.row(align=True)
-                row.operator("iops.save_addon_preferences", text="Save preferences")
-                row.operator("iops.load_addon_preferences", text="Load preferences")
 
             # Debug
             body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")

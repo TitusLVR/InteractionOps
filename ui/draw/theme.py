@@ -20,13 +20,6 @@ class Role(Enum):
     PREVIEW_LINE = "preview_line"
     ERROR_LINE = "error_line"
 
-    TEXT = "text"
-    CLOSEST_TEXT = "closest_text"
-    ACTIVE_TEXT = "active_text"
-    LOCKED_TEXT = "locked_text"
-    PREVIEW_TEXT = "preview_text"
-    ERROR_TEXT = "error_text"
-
     # Utility (no per-state variants).
     POINT_OUTLINE = "point_outline"
 
@@ -37,11 +30,14 @@ class Role(Enum):
     BBOX = "bbox"
     CURSOR = "cursor"
 
-    # HUD-specific.
+    # HUD text — the only text styles used anywhere in the addon.
+    HUD_HEADER = "hud_header"
     HUD_KEY = "hud_key"
-    HUD_LABEL_ON = "hud_label_on"
-    HUD_LABEL_OFF = "hud_label_off"
-    HUD_LABEL_DISABLED = "hud_label_disabled"
+    HUD_LABEL = "hud_label"
+    HUD_LABEL_ACTIVE = "hud_label_active"
+    HUD_LABEL_INACTIVE = "hud_label_inactive"
+    HUD_ACTIVE_VALUE = "hud_active_value"
+    HUD_STATS_ERROR = "hud_stats_error"
 
 
 STATES = ("default", "closest", "active", "locked", "preview", "error")
@@ -76,13 +72,6 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.PREVIEW_LINE:   (*_C_CYAN,  0.50),
     Role.ERROR_LINE:     (*_C_RED,   1.00),
 
-    Role.TEXT:           (*_C_WHITE, 1.00),
-    Role.CLOSEST_TEXT:   (*_C_GREEN, 0.90),
-    Role.ACTIVE_TEXT:    (*_C_CYAN,  0.90),
-    Role.LOCKED_TEXT:    (*_C_AMBER, 0.90),
-    Role.PREVIEW_TEXT:   (*_C_CYAN,  0.90),
-    Role.ERROR_TEXT:     (*_C_RED,   0.90),
-
     Role.POINT_OUTLINE:  (0.000, 0.000, 0.000, 1.00),
 
     Role.HANDLE:        (1.000, 1.000, 1.000, 0.85),
@@ -91,10 +80,13 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.BBOX:          (0.650, 0.650, 0.650, 0.30),
     Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
 
-    Role.HUD_KEY:        (*_C_AMBER, 1.00),
-    Role.HUD_LABEL_ON:   (1.000, 1.000, 1.000, 1.00),
-    Role.HUD_LABEL_OFF:  (0.533, 0.541, 0.557, 0.85),
-    Role.HUD_LABEL_DISABLED: (0.220, 0.220, 0.235, 0.85),
+    Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
+    Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),
+    Role.HUD_KEY:            (1.000, 0.872, 0.174, 0.75),
+    Role.HUD_ACTIVE_VALUE:   (1.000, 0.872, 0.174, 0.75),
+    Role.HUD_LABEL:          (0.844, 0.844, 0.844, 0.75),
+    Role.HUD_LABEL_INACTIVE: (0.466, 0.473, 0.487, 0.85),
+    Role.HUD_STATS_ERROR:    (1.000, 0.339, 0.382, 0.90),
 }
 
 _DEFAULT_POINT_SIZES = {
@@ -106,8 +98,10 @@ _DEFAULT_LINE_WIDTHS = {
     "locked": 3.0, "preview": 2.0, "error": 2.5,
 }
 _DEFAULT_TEXT_SIZES = {
-    "default": 12, "closest": 13, "active": 14,
-    "locked": 14, "preview": 12, "error": 12,
+    "hud_header": 13,
+    "hud_key":    11,
+    "hud_label":  11,
+    "stats":      11,
 }
 
 _DEFAULT_ISLAND_PALETTE = (
@@ -127,6 +121,8 @@ class HUDSettings:
     mode: str = "cursor"
     offset_x: int = 20
     offset_y: int = -20
+    anchor_offset_x: int = 0
+    anchor_offset_y: int = 0
     free_x: int = 40
     free_y: int = 40
     padding: int = 12
@@ -134,6 +130,9 @@ class HUDSettings:
     row_spacing: int = 2
     key_label_spacing: int = 16
     smoothing: float = 0.70
+    bg_enabled: bool = True
+    bg_color: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.25)
+    bg_padding: int = 10
 
 
 @dataclass(frozen=True)
@@ -195,7 +194,14 @@ class Theme:
         return self.line_widths[state_from_role(role)]
 
     def text_size_for(self, role: Role) -> int:
-        return self.text_sizes[state_from_role(role)]
+        # All HUD text styles map to one of three size sliders:
+        # Header for HUD_HEADER, Glyph for HUD_KEY, Label for everything
+        # else. Stats has its own dedicated size.
+        if role is Role.HUD_HEADER:
+            return self.text_sizes["hud_header"]
+        if role is Role.HUD_KEY:
+            return self.text_sizes["hud_key"]
+        return self.text_sizes["hud_label"]
 
     def point_size(self, token: str) -> float:
         return self.point_sizes[token]
@@ -204,22 +210,24 @@ class Theme:
         return self.line_widths[token]
 
     def text_size(self, token: str) -> int:
-        # Back-compat aliases used by HUD/text helpers. New HUD-specific
-        # tokens "hud_key" and "hud_label" pull from dedicated fields so
-        # the HUD's key glyph and label can be sized independently of the
-        # generic Default/Active text sizes.
-        token = {"small": "default", "normal": "default",
-                 "title": "active"}.get(token, token)
+        # Three HUD text-size sliders: Header, Glyph, Label. Stats has
+        # its own dedicated size. Any legacy/generic token collapses to
+        # the Label size so old call sites keep rendering.
+        if token == "hud_header" or token == "title":
+            return self.text_sizes["hud_header"]
         if token == "hud_key":
-            return self.text_sizes.get("hud_key", self.text_sizes["default"])
-        if token == "hud_label":
-            return self.text_sizes.get("hud_label", self.text_sizes["default"])
-        return self.text_sizes[token]
+            return self.text_sizes["hud_key"]
+        if token == "stats":
+            return self.text_sizes["stats"]
+        # "hud_label", "normal", "small", "default", and any other
+        # legacy token fall back to the Label slider.
+        return self.text_sizes["hud_label"]
 
 
 def get_theme(context) -> "Theme":
     try:
-        t = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        t = prefs.iops_theme
     except (KeyError, AttributeError):
         return DEFAULT_THEME
 
@@ -248,13 +256,6 @@ def get_theme(context) -> "Theme":
             Role.PREVIEW_LINE:       c("color_preview_line",   _DEFAULT_COLORS[Role.PREVIEW_LINE]),
             Role.ERROR_LINE:         c("color_error_line",     _DEFAULT_COLORS[Role.ERROR_LINE]),
 
-            Role.TEXT:               c("color_text",           _DEFAULT_COLORS[Role.TEXT]),
-            Role.CLOSEST_TEXT:       c("color_closest_text",   _DEFAULT_COLORS[Role.CLOSEST_TEXT]),
-            Role.ACTIVE_TEXT:        c("color_active_text",    _DEFAULT_COLORS[Role.ACTIVE_TEXT]),
-            Role.LOCKED_TEXT:        c("color_locked_text",    _DEFAULT_COLORS[Role.LOCKED_TEXT]),
-            Role.PREVIEW_TEXT:       c("color_preview_text",   _DEFAULT_COLORS[Role.PREVIEW_TEXT]),
-            Role.ERROR_TEXT:         c("color_error_text",     _DEFAULT_COLORS[Role.ERROR_TEXT]),
-
             Role.POINT_OUTLINE:      c("color_point_outline",  _DEFAULT_COLORS[Role.POINT_OUTLINE]),
 
             Role.HANDLE:             c("color_handle",         _DEFAULT_COLORS[Role.HANDLE]),
@@ -263,17 +264,23 @@ def get_theme(context) -> "Theme":
             Role.BBOX:               c("color_bbox",           _DEFAULT_COLORS[Role.BBOX]),
             Role.CURSOR:             c("color_cursor",         _DEFAULT_COLORS[Role.CURSOR]),
 
-            Role.HUD_KEY:            c("color_hud_key",         _DEFAULT_COLORS[Role.HUD_KEY]),
-            Role.HUD_LABEL_ON:       c("color_hud_label_on",    _DEFAULT_COLORS[Role.HUD_LABEL_ON]),
-            Role.HUD_LABEL_OFF:      c("color_hud_label_off",   _DEFAULT_COLORS[Role.HUD_LABEL_OFF]),
-            Role.HUD_LABEL_DISABLED: c("color_hud_label_disabled", _DEFAULT_COLORS[Role.HUD_LABEL_DISABLED]),
+            # HUD_HEADER + HUD_LABEL_ACTIVE share `color_hud_header`.
+            # HUD_KEY    + HUD_ACTIVE_VALUE share `color_hud_key`.
+            Role.HUD_HEADER:         c("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),
+            Role.HUD_LABEL_ACTIVE:   c("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),
+            Role.HUD_KEY:            c("color_hud_key",            _DEFAULT_COLORS[Role.HUD_KEY]),
+            Role.HUD_ACTIVE_VALUE:   c("color_hud_key",            _DEFAULT_COLORS[Role.HUD_KEY]),
+            Role.HUD_LABEL:          c("color_hud_label",          _DEFAULT_COLORS[Role.HUD_LABEL]),
+            Role.HUD_LABEL_INACTIVE: c("color_hud_label_inactive", _DEFAULT_COLORS[Role.HUD_LABEL_INACTIVE]),
+            Role.HUD_STATS_ERROR:    c("color_hud_stats_error",    _DEFAULT_COLORS[Role.HUD_STATS_ERROR]),
         },
         point_sizes={s: fl(f"point_size_{s}", _DEFAULT_POINT_SIZES[s]) for s in STATES},
         line_widths={s: fl(f"line_width_{s}", _DEFAULT_LINE_WIDTHS[s]) for s in STATES},
         text_sizes={
-            **{s: i(f"text_size_{s}", _DEFAULT_TEXT_SIZES[s]) for s in STATES},
-            "hud_key":   i("text_size_hud_key",   _DEFAULT_TEXT_SIZES["default"]),
-            "hud_label": i("text_size_hud_label", _DEFAULT_TEXT_SIZES["default"]),
+            "hud_header": i("text_size_hud_header", _DEFAULT_TEXT_SIZES["hud_header"]),
+            "hud_key":    i("text_size_hud_key",    _DEFAULT_TEXT_SIZES["hud_key"]),
+            "hud_label":  i("text_size_hud_label",  _DEFAULT_TEXT_SIZES["hud_label"]),
+            "stats":      i("stats_text_size",      _DEFAULT_TEXT_SIZES["stats"]),
         },
         shadow=ShadowSettings(
             enabled=bool(t.shadow_enabled),
@@ -286,17 +293,30 @@ def get_theme(context) -> "Theme":
             mode=str(t.hud_mode),
             offset_x=int(t.hud_offset_x),
             offset_y=int(t.hud_offset_y),
+            anchor_offset_x=int(t.hud_anchor_offset_x),
+            anchor_offset_y=int(t.hud_anchor_offset_y),
             free_x=int(t.hud_free_x),
             free_y=int(t.hud_free_y),
             padding=int(t.hud_padding),
-            section_spacing=int(t.hud_section_spacing),
-            row_spacing=int(t.hud_row_spacing),
+            # Auto row pitch: text never overlaps as Key/Label sizes
+            # grow. Section gap stays larger so titles still read as
+            # distinct blocks. Both scale off max(key, label).
+            section_spacing=max(4, int(max(i("text_size_hud_key", 11),
+                                           i("text_size_hud_label", 11)) * 0.6)),
+            row_spacing=max(2, int(max(i("text_size_hud_key", 11),
+                                       i("text_size_hud_label", 11)) * 0.25)),
             key_label_spacing=int(getattr(t, "hud_key_label_spacing", 16)),
             smoothing=float(getattr(t, "hud_smoothing", 0.70)),
+            bg_enabled=bool(getattr(t, "panel_bg_enabled", True)),
+            bg_color=tuple(getattr(t, "panel_bg_color",
+                                   (0.0, 0.0, 0.0, 0.25))),
+            bg_padding=int(getattr(t, "panel_bg_padding", 10)),
         ),
         depth_test_default=str(t.depth_test_default),
+        # Island palette lives on AddonPreferences (Visual UV-specific),
+        # not on iops_theme.
         island_palette=tuple(
-            tuple(getattr(t, f"island_palette_{i}", _DEFAULT_ISLAND_PALETTE[i]))
+            tuple(getattr(prefs, f"island_palette_{i}", _DEFAULT_ISLAND_PALETTE[i]))
             for i in range(8)
         ),
         font_path=str(getattr(t, "font_path", "")),

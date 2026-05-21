@@ -19,14 +19,17 @@ from __future__ import annotations
 import time
 
 from ..draw.theme import Role, get_theme
+from ..draw import primitives
+from ..draw.state import draw_scope
 from . import text as hud_text
 from .items import HUDItem, HUDSection, ItemState
+from .layout import area_for_region, region_side_insets, DragState, is_inside
 
 
 _STATE_ROLE = {
-    ItemState.ON: Role.HUD_LABEL_ON,
-    ItemState.OFF: Role.HUD_LABEL_OFF,
-    ItemState.DISABLED: Role.HUD_LABEL_DISABLED,
+    ItemState.ON: Role.HUD_LABEL,
+    ItemState.OFF: Role.HUD_LABEL_INACTIVE,
+    ItemState.DISABLED: Role.HUD_LABEL_INACTIVE,
 }
 
 
@@ -64,6 +67,10 @@ class HelpOverlay:
         self._anim_duration: float = 0.18
         self._anim_timer_active: bool = False
         self._bound_region = None
+        # Drag state (Shift+Ctrl+Alt+LMB → switch to Free + Position).
+        self._drag = DragState()
+        self._last_origin: tuple[int, int] = (0, 0)
+        self._last_size: tuple[int, int] = (0, 0)
 
     # --- setup ---
     def add_section(self, section: HUDSection) -> None:
@@ -140,7 +147,66 @@ class HelpOverlay:
         if elapsed >= self._anim_duration:
             self._anim_timer_active = False
             return None
-        return 1.0 / 60.0
+        # Tick rate from user pref (default 240 Hz). Animation is
+        # time-based (eased from perf_counter), so duration is
+        # unaffected; this only controls how many frames we render along
+        # the eased curve.
+        fps = 240
+        try:
+            import bpy
+            fps = int(bpy.context.preferences.addons["InteractionOps"]
+                      .preferences.iops_theme.hud_anim_fps)
+        except (KeyError, AttributeError):
+            pass
+        return 1.0 / max(1, fps)
+
+    def handle_drag_event(self, context, event, theme_prefs) -> bool:
+        """Shift+Ctrl+Alt+LMB drag → switch Help to Free placement and
+        store new Position X/Y. Returns True if the event was consumed."""
+        if not self.visible:
+            return False
+        all_mods = bool(event.shift and event.ctrl and event.alt)
+        region = self._find_bound_region()
+        if region is None:
+            region = getattr(context, "region", None)
+        if region is None:
+            return False
+        mxy = (event.mouse_x - region.x, event.mouse_y - region.y)
+        if (all_mods and event.type == 'LEFTMOUSE'
+                and event.value == 'PRESS'
+                and not self._drag.active):
+            # Only consume the click if the cursor is actually on top of
+            # Help; otherwise let HUD's drag handler take it.
+            if not is_inside(mxy[0], mxy[1],
+                             self._last_origin, self._last_size):
+                return False
+            self._drag.begin(mxy, self._last_origin)
+            try:
+                theme_prefs.help_corner = "free"
+                theme_prefs.help_free_x = int(self._last_origin[0])
+                theme_prefs.help_free_y = int(self._last_origin[1])
+            except AttributeError:
+                pass
+            return True
+        if self._drag.active:
+            if event.type == 'MOUSEMOVE':
+                new = self._drag.update(mxy)
+                try:
+                    theme_prefs.help_free_x = int(new[0])
+                    theme_prefs.help_free_y = int(new[1])
+                except AttributeError:
+                    pass
+                return True
+            if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+                self._drag.end()
+                try:
+                    theme_prefs.help_corner = "free"
+                    theme_prefs.help_free_x = int(self._last_origin[0])
+                    theme_prefs.help_free_y = int(self._last_origin[1])
+                except AttributeError:
+                    pass
+                return True
+        return False
 
     def handle_toggle_event(self, event, prefs) -> bool:
         if event.value != "PRESS":
@@ -177,22 +243,29 @@ class HelpOverlay:
     # --- corner layout ---
     @staticmethod
     def _corner_origin(corner: str, region, size, offset_x, offset_y,
-                       slide: int):
+                       slide: int, *, side_insets=(0, 0)):
         """`slide` is signed displacement *away* from the anchored edge,
         applied along the axis that the anchor pins (horizontal for
-        left/right anchors, vertical for top/bottom-center anchors)."""
+        left/right anchors, vertical for top/bottom-center anchors).
+
+        `side_insets` (left, right) shifts left-anchored items right by
+        the toolbar width and right-anchored items left by the N-panel
+        width so the overlay never hides behind the side regions.
+        """
         cw, ch = size
         rw, rh = region.width, region.height
-        cx = (rw - cw) // 2
+        li, ri = side_insets
+        avail_w = rw - li - ri
+        cx = li + (avail_w - cw) // 2
         cy = (rh - ch) // 2
         if corner == "top_left":
-            return (offset_x + slide, rh - offset_y - ch)
+            return (li + offset_x + slide, rh - offset_y - ch)
         if corner == "top_right":
-            return (rw - cw - offset_x - slide, rh - offset_y - ch)
+            return (rw - ri - cw - offset_x - slide, rh - offset_y - ch)
         if corner == "bottom_left":
-            return (offset_x + slide, offset_y)
+            return (li + offset_x + slide, offset_y)
         if corner == "bottom_right":
-            return (rw - cw - offset_x - slide, offset_y)
+            return (rw - ri - cw - offset_x - slide, offset_y)
         # For centered positions, the offset on the centered axis acts as
         # a signed shift from the geometric center (positive = right/up).
         if corner == "top_center":
@@ -200,15 +273,17 @@ class HelpOverlay:
         if corner == "bottom_center":
             return (cx + offset_x, offset_y + slide)
         if corner == "left_center":
-            return (offset_x + slide, cy + offset_y)
+            return (li + offset_x + slide, cy + offset_y)
         if corner == "right_center":
-            return (rw - cw - offset_x - slide, cy + offset_y)
-        return (offset_x + slide, rh - offset_y - ch)
+            return (rw - ri - cw - offset_x - slide, cy + offset_y)
+        return (li + offset_x + slide, rh - offset_y - ch)
 
     # --- measurement ---
     def _measure_expanded(self, theme):
-        title_h = theme.text_size("title")
-        row_h = theme.text_size("normal")
+        # Single row pitch from max(key, label) so rows never overlap.
+        title_h = theme.text_size("hud_header")
+        row_h = max(theme.text_size("hud_key"),
+                    theme.text_size("hud_label"))
         gap = theme.hud.key_label_spacing
         h = 0
         max_w = 0
@@ -338,8 +413,17 @@ class HelpOverlay:
                 eased = _ease_in_out((progress - 0.5) / 0.5)
                 slide = int(slide_amount * (1.0 - eased))
 
-        origin = self._corner_origin(
-            corner, region, (w, h), offx, offy, slide)
+        insets = region_side_insets(area_for_region(region))
+        if corner == "free":
+            fx = int(getattr(theme_prefs, "help_free_x", 40))
+            fy = int(getattr(theme_prefs, "help_free_y", 40))
+            origin = (fx, fy)
+        else:
+            origin = self._corner_origin(
+                corner, region, (w, h), offx, offy, slide,
+                side_insets=insets)
+        self._last_origin = origin
+        self._last_size = (w, h)
         self._render(theme, origin, (w, h), key_col_w,
                      show_expanded, theme_prefs, alpha,
                      wave_progress=wave_progress, flash_boost=flash_boost)
@@ -355,8 +439,13 @@ class HelpOverlay:
                 ow, oh = self._measure_collapsed(theme, theme_prefs)
                 okey = 0
             if ow > 0:
-                o_origin = self._corner_origin(
-                    corner, region, (ow, oh), offx, offy, 0)
+                if corner == "free":
+                    o_origin = (int(getattr(theme_prefs, "help_free_x", 40)),
+                                int(getattr(theme_prefs, "help_free_y", 40)))
+                else:
+                    o_origin = self._corner_origin(
+                        corner, region, (ow, oh), offx, offy, 0,
+                        side_insets=insets)
                 radius = int(getattr(theme_prefs,
                                      "help_anim_shockwave_radius", 160))
                 shock_state = {
@@ -468,10 +557,19 @@ class HelpOverlay:
                 prefs, alpha, *, wave_progress=None,
                 flash_boost: float = 0.0, shock_state=None) -> None:
         x0, y0 = origin
-        _, h = size
+        w, h = size
+        if theme.hud.bg_enabled and w > 0 and h > 0 and alpha > 0.0:
+            pad = theme.hud.bg_padding
+            bgc = theme.hud.bg_color
+            bgc = (bgc[0], bgc[1], bgc[2], bgc[3] * alpha)
+            with draw_scope(blend="ALPHA"):
+                primitives.rect_2d(x0 - pad, y0 - pad,
+                                   w + 2 * pad, h + 2 * pad,
+                                   color=bgc, theme=theme)
         y = y0 + h
-        title_h = theme.text_size("title")
-        row_h = theme.text_size("normal")
+        title_h = theme.text_size("hud_header")
+        row_h = max(theme.text_size("hud_key"),
+                    theme.text_size("hud_label"))
 
         # If wave is active, set up a shared char-index counter and a
         # stagger sized so every visible character lands by progress=1.
@@ -499,7 +597,7 @@ class HelpOverlay:
         if not show_expanded:
             y -= row_h
             self._draw_text(self._hint_text(prefs), x0, y, theme=theme,
-                            role=Role.HUD_LABEL_OFF, size_token="normal",
+                            role=Role.HUD_LABEL_INACTIVE, size_token="hud_label",
                             alpha_mul=alpha, wave_state=wave_state,
                             flash_boost=flash_boost, shock_state=shock_state)
             return
@@ -510,7 +608,7 @@ class HelpOverlay:
             if sec.title:
                 y -= title_h
                 self._draw_text(sec.title, x0, y, theme=theme,
-                                role=Role.ACTIVE_TEXT, size_token="title",
+                                role=Role.HUD_HEADER, size_token="hud_header",
                                 alpha_mul=alpha, wave_state=wave_state,
                                 flash_boost=flash_boost, shock_state=shock_state)
                 y -= theme.hud.row_spacing

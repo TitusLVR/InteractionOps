@@ -49,10 +49,13 @@ from __future__ import annotations
 import time
 
 from ..draw.theme import Role, get_theme
+from ..draw import primitives
+from ..draw.state import draw_scope
 from . import text as hud_text
 from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
                     ItemState)
-from .layout import (compute_origin, DragState, is_inside)
+from .layout import (compute_origin, DragState, is_inside,
+                     area_for_region, region_side_insets)
 
 
 # When the viewport navigates (view3d.rotate / view3d.dolly / view3d.move
@@ -82,9 +85,9 @@ _STATE_ALPHA = {
     ItemState.DISABLED: 1.0,
 }
 _STATE_ROLE = {
-    ItemState.ON: Role.HUD_LABEL_ON,
-    ItemState.OFF: Role.HUD_LABEL_OFF,
-    ItemState.DISABLED: Role.HUD_LABEL_DISABLED,
+    ItemState.ON: Role.HUD_LABEL,
+    ItemState.OFF: Role.HUD_LABEL_INACTIVE,
+    ItemState.DISABLED: Role.HUD_LABEL_INACTIVE,
 }
 
 
@@ -234,13 +237,15 @@ class HUDOverlay:
 
     # --- measurement ---
     def _measure(self, theme, sections, param_sections, draw_params: bool):
+        # Single row pitch from max(key, label) — see _render.
         """Return (size_w, size_h, key_col_w, param_name_col_w).
 
         `key_col_w` aligns labels in HUDItem sections.
         `param_name_col_w` aligns values in HUDParam sections.
         """
-        title_h = theme.text_size("title")
-        row_h = theme.text_size("normal")
+        title_h = theme.text_size("hud_header")
+        row_h = max(theme.text_size("hud_key"),
+                    theme.text_size("hud_label"))
         gap = theme.hud.key_label_spacing
         h = 0
         max_w = 0
@@ -254,9 +259,9 @@ class HUDOverlay:
             h += title_h + theme.hud.row_spacing
 
         for line in self._header_lines:
-            hw, _ = hud_text.measure(line, theme=theme, size_token="title")
+            hw, _ = hud_text.measure(line, theme=theme, size_token="hud_label")
             max_w = max(max_w, int(hw))
-            h += title_h + theme.hud.row_spacing
+            h += row_h + theme.hud.row_spacing
 
         if not draw_params:
             return max_w, h, 0, 0
@@ -375,10 +380,14 @@ class HUDOverlay:
             self._recovering = False
         else:
             mode = self.mode_override or theme.hud.mode
+            insets = region_side_insets(area_for_region(region))
             target = compute_origin(
                 mode, region=region, mouse=mouse,
                 content_size=size, padding=theme.hud.padding,
-                offset=(theme.hud.offset_x, theme.hud.offset_y), free=free)
+                offset=(theme.hud.offset_x, theme.hud.offset_y),
+                anchor_offset=(theme.hud.anchor_offset_x,
+                               theme.hud.anchor_offset_y),
+                free=free, side_insets=insets)
             # Freeze just ended → enter recovery glide. Smooth_origin is
             # already pinned to the pre-freeze origin from the held
             # branch above, so the lerp interpolates from there to the
@@ -410,10 +419,18 @@ class HUDOverlay:
 
     def _render(self, theme, origin, size, sections, param_sections) -> None:
         x0, y0 = origin
-        _, h = size
+        w, h = size
+        if theme.hud.bg_enabled and w > 0 and h > 0:
+            pad = theme.hud.bg_padding
+            with draw_scope(blend="ALPHA"):
+                primitives.rect_2d(x0 - pad, y0 - pad,
+                                   w + 2 * pad, h + 2 * pad,
+                                   color=theme.hud.bg_color, theme=theme)
         y = y0 + h
-        title_h = theme.text_size("title")
-        row_h = theme.text_size("normal")
+        # Header rows use the Header size; body rows track max(Key, Label).
+        title_h = theme.text_size("hud_header")
+        row_h = max(theme.text_size("hud_key"),
+                    theme.text_size("hud_label"))
         key_col_w = getattr(self, "_last_key_col_w", 0)
         param_name_col_w = getattr(self, "_last_param_name_col_w", 0)
 
@@ -421,13 +438,28 @@ class HUDOverlay:
         if self.title:
             y -= title_h
             hud_text.draw(self.title, x0, y, theme=theme,
-                          role=Role.ACTIVE_TEXT, size_token="title")
+                          role=Role.HUD_HEADER, size_token="hud_header")
             y -= theme.hud.row_spacing
 
+        # Header lines are live state ("Distance: 1.23m"). Split on the
+        # first colon so the label half reads as neutral text and the
+        # value half pops in the Active Value color. Lines without a
+        # colon render entirely as Label.
         for line in self._header_lines:
-            y -= title_h
-            hud_text.draw(line, x0, y, theme=theme,
-                          role=Role.ACTIVE_TEXT, size_token="title")
+            y -= row_h
+            label_part, sep, value_part = line.partition(":")
+            if sep and value_part:
+                lbl = label_part + sep
+                hud_text.draw(lbl, x0, y, theme=theme,
+                              role=Role.HUD_LABEL, size_token="hud_label")
+                lw, _ = hud_text.measure(lbl, theme=theme,
+                                         size_token="hud_label")
+                hud_text.draw(value_part, x0 + int(lw), y, theme=theme,
+                              role=Role.HUD_ACTIVE_VALUE,
+                              size_token="hud_label")
+            else:
+                hud_text.draw(line, x0, y, theme=theme,
+                              role=Role.HUD_LABEL, size_token="hud_label")
             y -= theme.hud.row_spacing
 
         col_w = key_col_w
@@ -438,7 +470,7 @@ class HUDOverlay:
             if sec.title:
                 y -= title_h
                 hud_text.draw(sec.title, x0, y, theme=theme,
-                              role=Role.ACTIVE_TEXT, size_token="title")
+                              role=Role.HUD_HEADER, size_token="hud_header")
                 y -= theme.hud.row_spacing
             for row in self._rows_for_layout(sec.items):
                 y -= row_h
@@ -461,13 +493,13 @@ class HUDOverlay:
             if sec.title:
                 y -= title_h
                 hud_text.draw(sec.title, x0, y, theme=theme,
-                              role=Role.ACTIVE_TEXT, size_token="title")
+                              role=Role.HUD_HEADER, size_token="hud_header")
                 y -= theme.hud.row_spacing
             for p in sec.params:
                 y -= row_h
                 active = p.is_active()
-                name_role = Role.HUD_LABEL_ON if active else Role.HUD_LABEL_DISABLED
-                value_role = Role.HUD_KEY if active else Role.HUD_LABEL_DISABLED
+                name_role = Role.HUD_LABEL if active else Role.HUD_LABEL_INACTIVE
+                value_role = Role.HUD_ACTIVE_VALUE if active else Role.HUD_LABEL_INACTIVE
                 hud_text.draw(p.name + ":", x0, y, theme=theme,
                               role=name_role, size_token="normal")
                 hud_text.draw(p.value_text(), x0 + param_name_col_w, y,
@@ -475,7 +507,55 @@ class HUDOverlay:
                               size_token="normal")
                 y -= theme.hud.row_spacing
 
-    # --- drag (free-mode) ---
+    # --- drag (Shift+Ctrl+Alt+LMB → switch to Free + Position X/Y) ---
+    def handle_drag_event(self, context, event, theme_prefs) -> bool:
+        """Drag the HUD around with Shift+Ctrl+Alt + LMB. Cursor-mode is
+        switched to Free at drag start so the HUD stops chasing the
+        mouse. The new position is written into Position X/Y on every
+        move (and confirmed on release). Returns True if the event was
+        consumed."""
+        all_mods = bool(event.shift and event.ctrl and event.alt)
+        region = self._find_bound_region() or context.region
+        if region is None:
+            return False
+        mxy = (event.mouse_x - region.x, event.mouse_y - region.y)
+        if (all_mods and event.type == 'LEFTMOUSE'
+                and event.value == 'PRESS'
+                and not self._drag.active):
+            # Anchor at mouse so HUD jumps to the click point. Switch to
+            # Free immediately so the cursor-follow path stops fighting
+            # the drag updates this frame.
+            target_origin = (mxy[0], mxy[1] - max(1, self._last_size[1]))
+            self._last_origin = target_origin
+            self._drag.begin(mxy, target_origin)
+            try:
+                theme_prefs.hud_mode = "free"
+                theme_prefs.hud_free_x = int(target_origin[0])
+                theme_prefs.hud_free_y = int(target_origin[1])
+            except AttributeError:
+                pass
+            return True
+        if self._drag.active:
+            if event.type == 'MOUSEMOVE':
+                new = self._drag.update(mxy)
+                try:
+                    theme_prefs.hud_free_x = int(new[0])
+                    theme_prefs.hud_free_y = int(new[1])
+                except AttributeError:
+                    pass
+                return True
+            if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+                self._drag.end()
+                try:
+                    theme_prefs.hud_mode = "free"
+                    theme_prefs.hud_free_x = int(self._last_origin[0])
+                    theme_prefs.hud_free_y = int(self._last_origin[1])
+                except AttributeError:
+                    pass
+                return True
+        return False
+
+    # --- legacy drag entry points (kept for compatibility) ---
     def try_begin_drag(self, mouse_xy) -> bool:
         if is_inside(mouse_xy[0], mouse_xy[1],
                      self._last_origin, self._last_size):

@@ -34,7 +34,7 @@ def draw_iops_statistics():
             break
 
     offset_x = t_offset + theme.stats_offset_x
-    line_h = theme.text_size("default")
+    line_h = theme.text_size("stats")
     offset_y = area_3d.height - theme.stats_offset_y - line_h
     row_step = int(line_h * float(getattr(theme, "stats_row_spacing", 1.5)))
 
@@ -49,11 +49,11 @@ def draw_iops_statistics():
             r, g, b, a = theme.color_for(role)
             eff_color = (r, g, b, a * (1.0 if show_overlays else 0.0))
         hud_text_draw(text, int(x), int(y), theme=theme,
-                      color=eff_color, role=role,
+                      color=eff_color, role=role, size_token="stats",
                       alpha_mul=(1.0 if show_overlays else 0.0))
 
     def _dim(text):
-        return hud_text_measure(text, theme=theme)
+        return hud_text_measure(text, theme=theme, size_token="stats")
 
     active_object = context.active_object
 
@@ -67,8 +67,8 @@ def draw_iops_statistics():
             else:
                 file_status = "Unsaved"
 
-            _t("File:", role=Role.TEXT)
-            value_role = Role.ACTIVE_TEXT if (file_saved and not file_dirty) else Role.ERROR_TEXT
+            _t("File:", role=Role.HUD_LABEL)
+            value_role = Role.HUD_LABEL_ACTIVE if (file_saved and not file_dirty) else Role.HUD_STATS_ERROR
             _t(file_status, role=value_role, x=base_column_x)
             offset_y -= row_step
 
@@ -104,31 +104,31 @@ def draw_iops_statistics():
                     if uv.active_render:
                         render_uvmaps.add(uv.name)
 
-            _t("UVMaps:", role=Role.TEXT)
+            _t("UVMaps:", role=Role.HUD_LABEL)
             col_x = base_column_x
             if all_uvmap_names:
                 for uvmap in all_uvmap_names:
                     is_render = uvmap in render_uvmaps
                     display = "[ " + uvmap + " ]" if is_render else uvmap
-                    role = Role.ACTIVE_TEXT if uvmap in active_uvmaps else Role.TEXT
+                    role = Role.HUD_LABEL_ACTIVE if uvmap in active_uvmaps else Role.HUD_LABEL
                     _t(display, role=role, x=col_x)
                     w, _h = _dim(display)
                     col_x += w + 6
                 offset_y -= row_step
             else:
-                _t("No UVMaps", role=Role.ERROR_TEXT, x=base_column_x)
+                _t("No UVMaps", role=Role.HUD_STATS_ERROR, x=base_column_x)
                 offset_y -= row_step
 
             if scale_stat:
-                _t("Scale:", role=Role.TEXT)
+                _t("Scale:", role=Role.HUD_LABEL)
                 col_x = base_column_x
                 for s in scale_stat:
-                    _t(s, role=Role.ERROR_TEXT, x=col_x)
+                    _t(s, role=Role.HUD_STATS_ERROR, x=col_x)
                     w, _h = _dim(s)
                     col_x += w + 6
                 offset_y -= row_step
         else:
-            _t("- - -", role=Role.TEXT)
+            _t("- - -", role=Role.HUD_LABEL)
 
         if context.selected_objects:
             scaled_objects = []
@@ -141,8 +141,8 @@ def draw_iops_statistics():
                 if s[0] != 1 or s[1] != 1 or s[2] != 1:
                     scaled_objects.append(obj)
             if scaled_objects:
-                _t("Selection:", role=Role.TEXT)
-                _t("There are scaled objects", role=Role.ERROR_TEXT, x=base_column_x)
+                _t("Selection:", role=Role.HUD_LABEL)
+                _t("There are scaled objects", role=Role.HUD_STATS_ERROR, x=base_column_x)
                 offset_y -= row_step
 
     except Exception:

@@ -569,6 +569,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if theme_prefs is not None:
             helpo = getattr(self, "help", None)
             hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
@@ -1400,13 +1404,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             region = context.region
             theme = get_theme(context)
             text_width, text_height = measure_text(v_text, theme=theme,
-                                                   size_token="small")
+                                                   size_token="hud_label")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
             draw_text(v_text, int(text_x), int(text_y),
-                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
+                      theme=theme, role=Role.HUD_ACTIVE_VALUE, size_token="hud_label")
 
         except (AttributeError, KeyError, ValueError, TypeError):
             pass
@@ -1970,7 +1974,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Update HUD header lines: distance info (first), inset prompt (second)."""
         if getattr(self, "hud", None) is None:
             return
-        distance_line = None
+        lines = []
         if self.show_distance_info:
             try:
                 info = self.get_edge_split_distances(bpy.context)
@@ -1980,10 +1984,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 unit = info.get("unit", "")
                 total = self._fmt(info["total"])
                 split = self._fmt(info["split"])
-                distance_line = f"Edge {total}{unit}  Split {split}{unit}"
+                lines.append(f"Edge: {total}{unit}")
+                lines.append(f"Split: {split}{unit}")
 
-        inset_line = None
-        bevel_line = None
         if self.inset_active or self.bevel_active:
             scale = bpy.context.scene.unit_settings.scale_length or 1.0
             if self.inset_input_string:
@@ -1991,11 +1994,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             else:
                 val = self._fmt(self.inset_distance_bu * scale)
             if self.inset_active:
-                inset_line = f"Inset {val}"
+                lines.append(f"Inset: {val}")
             if self.bevel_active:
-                bevel_line = f"Bevel {val}"
+                lines.append(f"Bevel: {val}")
 
-        self.hud.set_header(distance_line, inset_line, bevel_line)
+        self.hud.set_header(*lines)
 
     def _build_hud(self, context):
         from ..ui.draw.theme import get_theme
@@ -2056,13 +2059,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             region = context.region
             theme = get_theme(context)
             text_width, text_height = measure_text(distance_text, theme=theme,
-                                                    size_token="small")
+                                                    size_token="hud_label")
 
             text_x = min(max(text_x, 10), region.width - text_width - 10)
             text_y = min(max(text_y, 10), region.height - text_height - 10)
 
             draw_text(distance_text, int(text_x), int(text_y),
-                      theme=theme, role=Role.ACTIVE_TEXT, size_token="small")
+                      theme=theme, role=Role.HUD_ACTIVE_VALUE, size_token="hud_label")
 
         except (AttributeError, KeyError, ValueError, TypeError) as e:
             print(f"Error in draw_mouse_distance_text: {e}")

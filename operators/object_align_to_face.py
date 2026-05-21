@@ -67,7 +67,10 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
             edge_idx = self.get_edge_idx(self.counter)
         except Exception:
             edge_idx = "?"
-        self.hud.set_header(f"Edge {edge_idx} | Axis {self.axis_rotate}")
+        self.hud.set_header(
+            f"Edge: {edge_idx}",
+            f"Axis: {self.axis_rotate}",
+        )
 
     def _draw_hud(self, context):
         helpo = getattr(self, "_help", None)
@@ -168,6 +171,10 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None)
             hud = getattr(self, "hud", None)
+            if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
+            if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
+                return {'RUNNING_MODAL'}
             if helpo is not None and helpo.handle_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
