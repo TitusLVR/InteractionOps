@@ -431,55 +431,63 @@ def draw_theme_tab(layout, theme):
             row.prop(theme, size_attr,  text="")
             row.prop(theme, color_attr, text="")
 
-    # HUD — parent rollout. Contains all HUD-related text styles
-    # (colors + sizes), background panel, shadow and font shared by
-    # every overlay, plus three nested sub-sections for the specific
-    # overlays themselves.
+    # HUD — parent rollout. Contains three shared-style sub-sections
+    # (text, panel+shadow, font) used by every HUD overlay, followed by
+    # three per-overlay sub-sections (Dynamic, Help, Statistics).
     sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
     if sub is not None:
-        # Text styles (color + optional size) shared by every HUD overlay.
-        # Header + Label Active share one color; Glyph + Active Value share
-        # another — single pref drives each pair.
-        for attr, size_attr, label in (
-                ("color_hud_header",         "text_size_hud_header",
-                 "HUD Header / Label Active"),
-                ("color_hud_key",            "text_size_hud_key",
-                 "HUD Glyph / Active Value"),
-                ("color_hud_label",          "text_size_hud_label",
-                 "HUD Label"),
-                ("color_hud_label_inactive", None,
-                 "HUD Label Inactive"),
-                ("color_hud_stats_error",    None,
-                 "HUD Stats Error/Warning"),
-        ):
-            row = sub.row(align=True)
-            row.label(text=label)
-            if size_attr is not None:
-                row.prop(theme, size_attr, text="")
-            else:
-                row.label(text="")
-            row.prop(theme, attr, text="")
-        sub.separator()
-        sub.prop(theme, "panel_bg_enabled")
-        bg = sub.column(align=True)
-        bg.active = theme.panel_bg_enabled
-        bg.prop(theme, "panel_bg_color")
-        bg.prop(theme, "panel_bg_padding")
-        sub.separator()
-        sub.prop(theme, "shadow_enabled")
-        sh = sub.column(align=True)
-        sh.active = theme.shadow_enabled
-        sh.prop(theme, "shadow_color")
-        sh.prop(theme, "shadow_blur")
-        sh.prop(theme, "shadow_offset_x")
-        sh.prop(theme, "shadow_offset_y")
-        sub.separator()
-        sub.label(text="Font file:")
-        sub.prop(theme, "font_path", text="")
-        sub.label(
-            text="Empty = Blender default. Used by every HUD overlay.",
-            icon="INFO",
-        )
+        # --- Text Styles ----------------------------------------------
+        body = _theme_section(sub, theme, "show_hud_text",
+                              "Text Styles", icon="FONT_DATA")
+        if body is not None:
+            for attr, size_attr, label in (
+                    ("color_hud_header",         "text_size_hud_header",
+                     "HUD Header / Label Active"),
+                    ("color_hud_key",            "text_size_hud_key",
+                     "HUD Glyph / Active Value"),
+                    ("color_hud_label",          "text_size_hud_label",
+                     "HUD Label"),
+                    ("color_hud_label_inactive", None,
+                     "HUD Label Inactive"),
+                    ("color_hud_stats_error",    None,
+                     "HUD Stats Error/Warning"),
+            ):
+                row = body.row(align=True)
+                row.label(text=label)
+                if size_attr is not None:
+                    row.prop(theme, size_attr, text="")
+                else:
+                    row.label(text="")
+                row.prop(theme, attr, text="")
+
+        # --- Panel & Shadow -------------------------------------------
+        body = _theme_section(sub, theme, "show_hud_panel",
+                              "Panel & Shadow", icon="MESH_PLANE")
+        if body is not None:
+            body.prop(theme, "panel_bg_enabled")
+            bg = body.column(align=True)
+            bg.active = theme.panel_bg_enabled
+            bg.prop(theme, "panel_bg_color")
+            bg.prop(theme, "panel_bg_padding")
+            body.separator()
+            body.prop(theme, "shadow_enabled")
+            sh = body.column(align=True)
+            sh.active = theme.shadow_enabled
+            sh.prop(theme, "shadow_color")
+            sh.prop(theme, "shadow_blur")
+            sh.prop(theme, "shadow_offset_x")
+            sh.prop(theme, "shadow_offset_y")
+
+        # --- Font -----------------------------------------------------
+        body = _theme_section(sub, theme, "show_hud_font",
+                              "Font", icon="FILE_FONT")
+        if body is not None:
+            body.prop(theme, "font_path", text="")
+            body.label(
+                text="Empty = Blender default. Used by every HUD overlay.",
+                icon="INFO",
+            )
+
         sub.separator()
 
         # --- Dynamic Overlay (per-operator HUD) -------------------------
