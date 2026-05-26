@@ -26,7 +26,7 @@ def _build_help(context):
         HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc mode (360/180/90/45/Cursor)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Alignment cycle (Rigid/Original/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Alignment cycle (Rigid/Cursor/Original/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Local rot step (1°/5°/15°/45°/90°)", "1..5", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Nudge local X / Y / Z",  "← / → / ↑ (Shift = reverse)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset local rotation",   "↓",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -81,12 +81,13 @@ SOURCE_POOL        = "POOL"          # all selected; one per slot, random extras
 SOURCE_CYCLE       = (SOURCE_ACTIVE, SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
 
 ALIGN_RIGID        = "RIGID"         # rigid rotation around pivot (standard radial array)
+ALIGN_CURSOR       = "CURSOR"        # rigid + tilt source +Z onto axis_vec (clones lie in cursor's plane)
 ALIGN_NONE         = "ORIGINAL"      # keep clone orientation identical to source (no rotation)
 ALIGN_RANDOM_ALL   = "RANDOM_ALL"    # random rotation around all 3 local axes
 ALIGN_RANDOM_X     = "RANDOM_X"      # random rotation around local X
 ALIGN_RANDOM_Y     = "RANDOM_Y"      # random rotation around local Y
 ALIGN_RANDOM_Z     = "RANDOM_Z"      # random rotation around local Z
-ALIGN_CYCLE        = (ALIGN_RIGID, ALIGN_NONE,
+ALIGN_CYCLE        = (ALIGN_RIGID, ALIGN_CURSOR, ALIGN_NONE,
                       ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
 
 # Local-axis rotation step presets bound to number keys 1..5 (degrees).
@@ -298,6 +299,15 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
     T_from = Matrix.Translation(-clone_pos)
 
     # Stage 1: alignment-mode-driven rotation around clone position.
+    if align_mode == ALIGN_CURSOR:
+        # Tilt the clone's +Z onto axis_vec via the shortest rotation, so the
+        # whole array lies flat in the cursor's plane (when pivot is cursor).
+        src_z = base_mw.to_3x3() @ Vector((0, 0, 1))
+        if src_z.length > 1e-6 and axis_vec.length > 1e-6:
+            q = src_z.rotation_difference(axis_vec)
+            R = q.to_matrix().to_4x4()
+            base_mw = T_to @ R @ T_from @ base_mw
+
     if align_mode in (ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z):
         import random
         rng = random.Random(seed * 1000003 + slot_index + 7)
@@ -636,33 +646,16 @@ def _pool_fill_iter(op, axis_vec):
 
 
 def _build_anchor_matrix(op):
-    """Resolve the anchor matrix used as the base orientation for clones.
-    For SOURCE_GROUP we anchor on the active object's full matrix; otherwise we
-    use a pure translation at the group centroid. When the pivot is the 3D
-    cursor, the anchor's local +Z is tilted onto the rotation axis (= cursor's Z
-    in LOCAL_Z mode) using the SHORTEST rotation — so clones lie flat in the
-    cursor's plane without inheriting any spurious roll around the cursor's Z."""
+    """Anchor matrix used as the base orientation for clones — raw source frame.
+    For SOURCE_GROUP we anchor on the active object's full matrix; otherwise
+    we use a pure translation at the group centroid. Cursor-frame tilt is
+    handled by ALIGN_CURSOR in `_aligned_clone_mw`, not baked in here."""
     if op.anchor_obj is not None:
         try:
-            anchor = op.anchor_obj.matrix_world.copy()
+            return op.anchor_obj.matrix_world.copy()
         except ReferenceError:
-            anchor = Matrix.Translation(_group_anchor_co(op))
-    else:
-        anchor = Matrix.Translation(_group_anchor_co(op))
-    if op.pivot_mode == PIVOT_CURSOR and op.pivot_obj is None:
-        try:
-            axis_vec = _resolve_axis(op, bpy.context)
-        except (AttributeError, KeyError):
-            axis_vec = None
-        if axis_vec is not None and axis_vec.length > 1e-6:
-            source_z = anchor.to_3x3() @ Vector((0, 0, 1))
-            if source_z.length > 1e-6:
-                q = source_z.rotation_difference(axis_vec)
-                new_3x3 = q.to_matrix() @ anchor.to_3x3()
-                out = new_3x3.to_4x4()
-                out.translation = anchor.translation
-                anchor = out
-    return anchor
+            pass
+    return Matrix.Translation(_group_anchor_co(op))
 
 
 def _group_anchor_co(op):
