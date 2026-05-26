@@ -308,6 +308,27 @@ def _mesh_edge_segments_world(obj_mw, mesh):
     return [(verts_world[e.vertices[0]], verts_world[e.vertices[1]]) for e in mesh.edges]
 
 
+def _mesh_face_tris_world(obj_mw, mesh):
+    """Fan-triangulate every polygon (quads and n-gons) into world-space tris."""
+    verts_world = [obj_mw @ v.co for v in mesh.vertices]
+    loops = mesh.loops
+    tris = []
+    for poly in mesh.polygons:
+        start = poly.loop_start
+        total = poly.loop_total
+        if total < 3:
+            continue
+        i0 = loops[start].vertex_index
+        v0 = verts_world[i0]
+        for k in range(1, total - 1):
+            i1 = loops[start + k].vertex_index
+            i2 = loops[start + k + 1].vertex_index
+            tris.append(v0)
+            tris.append(verts_world[i1])
+            tris.append(verts_world[i2])
+    return tris
+
+
 def _arc_frame(axis_vec):
     """Return (right, fwd) orthonormal basis in the plane perpendicular to axis_vec."""
     up = axis_vec
@@ -367,6 +388,7 @@ def _build_ghost_segments(op, context):
     ang_total, step, n_clones = _compute_arc(op, axis_vec)
 
     segs = []
+    tris = []
     crosses = []
 
     if op.arc_mode == ARC_FULL and op.skip_first:
@@ -376,7 +398,7 @@ def _build_ghost_segments(op, context):
 
     subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
     if not subtrees:
-        return segs, crosses, axis_vec, ang_total
+        return segs, tris, crosses, axis_vec, ang_total
 
     # Treat all sources as one rigid group: centroid is the rotation anchor.
     anchor_raw = Matrix.Translation(_group_anchor_co(op))
@@ -391,27 +413,33 @@ def _build_ghost_segments(op, context):
                 if child_obj.type == "MESH" and child_obj.data is not None:
                     for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
                         segs.append((a, b))
+                    tris.extend(_mesh_face_tris_world(child_clone_mw, child_obj.data))
                 else:
                     crosses.append(child_clone_mw.translation.copy())
 
-    return segs, crosses, axis_vec, ang_total
+    return segs, tris, crosses, axis_vec, ang_total
 
 
 def _draw_preview_3d(op, context):
-    """POST_VIEW draw: ghost wires + axis line + arc/circle + pivot."""
+    """POST_VIEW draw: ghost faces + wires + axis line + arc/circle + pivot."""
     from ..ui.draw import primitives as iops_draw
+    from ..ui.draw import draw_scope
 
     if op._dirty or getattr(op, "_ghost_cache", None) is None:
         op._ghost_cache = _build_ghost_segments(op, context)
         op._dirty = False
-    segs, crosses, axis_vec, ang_total = op._ghost_cache
+    segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
 
-    if segs:
-        flat = []
-        for a, b in segs:
-            flat.append(a)
-            flat.append(b)
-        iops_draw.edges_3d(flat, role=Role.GHOST_EDGE, context=context)
+    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+        if tris:
+            iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
+
+        if segs:
+            flat = []
+            for a, b in segs:
+                flat.append(a)
+                flat.append(b)
+            iops_draw.edges_3d(flat, role=Role.GHOST_EDGE, context=context)
 
     if crosses:
         iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
