@@ -39,7 +39,8 @@ def _build_help(context):
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match from origins", "M",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match from origins", "M (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pool fill (random extras)", "J (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -357,6 +358,61 @@ def _arc_endpoint_world(op, axis_vec):
     return op.pivot_co + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * r
 
 
+def _pool_fill_iter(op, axis_vec):
+    """For pool_fill: yield (delta_matrix, subtree) per ring slot.
+    Slot i takes subtree[i] if i < N, else a deterministic random pick from the pool.
+    Subtree is rotated/translated so its root lands on the slot position at radius R."""
+    import random
+    N = len(op.subtree_data)
+    if N == 0:
+        return
+    n_slots = max(1, int(op.count))
+    if op.arc_mode == ARC_FULL:
+        if op.skip_first:
+            step = 2 * math.pi / n_slots
+        else:
+            step = 2 * math.pi / n_slots
+    else:
+        ang_total, _step_unused, _ = _compute_arc(op, axis_vec)
+        if n_slots > 1:
+            step = ang_total / (n_slots - 1) if op.end_inclusive else ang_total / n_slots
+        else:
+            step = 0.0
+    rng = random.Random(op._pool_seed)
+    radius = _effective_radius(op)
+    if radius < 1e-6:
+        radius = 1.0
+    right, fwd = _arc_frame(axis_vec)
+    for s in range(n_slots):
+        sub_idx = s if s < N else rng.randrange(N)
+        subtree = op.subtree_data[sub_idx]
+        try:
+            src_root = subtree[0][0]
+            src_mw = src_root.matrix_world.copy()
+        except ReferenceError:
+            continue
+        ang = op.start_offset + s * step
+        target_pos = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
+        new_mw = src_mw.copy()
+        new_mw.translation = target_pos
+        if op.align_to_radius:
+            radial = target_pos - op.pivot_co
+            radial = radial - axis_vec * radial.dot(axis_vec)
+            if radial.length > 1e-6:
+                radial.normalize()
+                src_x = src_mw.to_3x3() @ Vector((1, 0, 0))
+                src_x = src_x - axis_vec * src_x.dot(axis_vec)
+                if src_x.length > 1e-6:
+                    src_x.normalize()
+                    extra_ang = _signed_angle_around(src_x, radial, axis_vec)
+                    R = Matrix.Rotation(extra_ang, 4, axis_vec)
+                    T_to = Matrix.Translation(target_pos)
+                    T_from = Matrix.Translation(-target_pos)
+                    new_mw = T_to @ R @ T_from @ new_mw
+        delta = new_mw @ src_mw.inverted()
+        yield delta, subtree
+
+
 def _group_anchor_co(op):
     """Centroid of source root world positions — group rotates around pivot as one unit."""
     pts = []
@@ -398,6 +454,18 @@ def _build_ghost_segments(op, context):
 
     subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
     if not subtrees:
+        return segs, tris, crosses, axis_vec, ang_total
+
+    if op.pool_fill:
+        for delta, subtree in _pool_fill_iter(op, axis_vec):
+            for child_obj, _rel in subtree:
+                child_clone_mw = delta @ child_obj.matrix_world
+                if child_obj.type == "MESH" and child_obj.data is not None:
+                    for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
+                        segs.append((a, b))
+                    tris.extend(_mesh_face_tris_world(child_clone_mw, child_obj.data))
+                else:
+                    crosses.append(child_clone_mw.translation.copy())
         return segs, tris, crosses, axis_vec, ang_total
 
     # Treat all sources as one rigid group: centroid is the rotation anchor.
@@ -533,6 +601,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_override = None       # None = use natural source distance
         self.radius_drag_active = False
         self.arc_end_drag_active = False
+        self.match_active = False
+        self._match_saved = None          # snapshot used to un-apply Match
+        self.pool_fill = False            # J — place sources around the ring, random fill on count>N
+        self._pool_seed = 12345
         self._dirty = True
 
         pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
@@ -570,6 +642,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
         self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
                                      active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS)))
+        self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool"))
+        self._hud.add_param(HUDParam("Pool fill",   lambda: self.pool_fill, "bool"))
         self._help = _build_help(context)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
@@ -646,9 +720,20 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.report({"INFO"}, "Radial Array reset to defaults")
             return {"RUNNING_MODAL"}
 
-        # --- match radius / count (and arc) from current source origins ---
+        # --- match radius / count (and arc) from current source origins (toggle) ---
         if event.type == "M" and event.value == "PRESS":
-            self._match_from_sources(context)
+            self._toggle_match(context)
+            return {"RUNNING_MODAL"}
+
+        # --- pool fill: each ring slot = one source; extras random (toggle) ---
+        if event.type == "J" and event.value == "PRESS":
+            self.pool_fill = not self.pool_fill
+            if self.pool_fill:
+                # Reseed each enable so a fresh pattern is produced.
+                import time
+                self._pool_seed = int(time.time() * 1000) & 0xFFFFFF
+            self._dirty = True
+            self.report({"INFO"}, f"Pool fill {'ON' if self.pool_fill else 'OFF'}")
             return {"RUNNING_MODAL"}
 
         # --- axis ---
@@ -900,11 +985,25 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         return {"RUNNING_MODAL"}
 
-    def _match_from_sources(self, context):
-        """Infer pivot center, radius and count from the source origins themselves.
-        Origins → centroid = new pivot. Avg in-plane distance to centroid = radius.
-        Count = len(sources). In arc modes, also set start_offset / arc_angle from
-        the extreme source angles around the rotation axis."""
+    def _toggle_match(self, context):
+        """Toggle: apply Match (compute pivot/radius/count from source origins)
+        or restore the snapshot taken when Match was applied."""
+        if self.match_active and self._match_saved is not None:
+            s = self._match_saved
+            self.pivot_co = s["pivot_co"]
+            self.pivot_obj = s["pivot_obj"]
+            self.pivot_mode = s["pivot_mode"]
+            self.radius_override = s["radius_override"]
+            self.count = s["count"]
+            self.start_offset = s["start_offset"]
+            self.start_offset_enabled = s["start_offset_enabled"]
+            self.arc_angle = s["arc_angle"]
+            self._match_saved = None
+            self.match_active = False
+            self._dirty = True
+            self.report({"INFO"}, "Match undone")
+            return
+
         origins = []
         for sub in self.subtree_data:
             try:
@@ -914,6 +1013,18 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if not origins:
             self.report({"WARNING"}, "No live source origins")
             return
+
+        self._match_saved = {
+            "pivot_co": self.pivot_co.copy(),
+            "pivot_obj": self.pivot_obj,
+            "pivot_mode": self.pivot_mode,
+            "radius_override": self.radius_override,
+            "count": self.count,
+            "start_offset": self.start_offset,
+            "start_offset_enabled": self.start_offset_enabled,
+            "arc_angle": self.arc_angle,
+        }
+
         center = Vector((0.0, 0.0, 0.0))
         for o in origins:
             center += o
@@ -945,6 +1056,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 sweep += 2 * math.pi
             self.arc_angle = sweep
 
+        self.match_active = True
         self._dirty = True
         self.report({"INFO"},
                     f"Matched from {len(origins)} origins: r={avg_r:.3f}, count={self.count}")
@@ -969,6 +1081,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_override = None
         self.radius_drag_active = False
         self.arc_end_drag_active = False
+        self.match_active = False
+        self._match_saved = None
+        self.pool_fill = False
         self._cached_axis_vec = Vector((0, 0, 1))
         self._dirty = True
 
@@ -997,48 +1112,49 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if not subtrees:
             return
 
-        anchor_raw = Matrix.Translation(_group_anchor_co(self))
-        anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
-
         # one shared "_RadialArray_<groupName>" collection per apply, named after first source
         first_root_name = subtrees[0][0][0].name
         ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
         context.scene.collection.children.link(ra_coll)
 
-        for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
-            M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
-                                     self.align_to_radius, anchor_eff)
-            delta = M_anchor @ anchor_raw.inverted()
-
-            # First pass: duplicate every object in every subtree for this clone index.
+        def _clone_subtree(subtree, delta):
             clone_map = {}
-            for subtree in subtrees:
-                for child_obj, _rel in subtree:
-                    new = child_obj.copy()
-                    if self.clone_mode == CLONE_DUP and child_obj.data is not None:
-                        new.data = child_obj.data.copy()
-                    for c in child_obj.users_collection:
-                        try:
-                            c.objects.link(new)
-                        except RuntimeError:
-                            pass
+            for child_obj, _rel in subtree:
+                new = child_obj.copy()
+                if self.clone_mode == CLONE_DUP and child_obj.data is not None:
+                    new.data = child_obj.data.copy()
+                for c in child_obj.users_collection:
                     try:
-                        ra_coll.objects.link(new)
+                        c.objects.link(new)
                     except RuntimeError:
                         pass
-                    clone_map[child_obj] = new
+                try:
+                    ra_coll.objects.link(new)
+                except RuntimeError:
+                    pass
+                clone_map[child_obj] = new
+            for child_obj, _rel in subtree:
+                new = clone_map[child_obj]
+                if child_obj.parent is not None and child_obj.parent in clone_map:
+                    new.parent = clone_map[child_obj.parent]
+                    new.matrix_parent_inverse = child_obj.matrix_parent_inverse.copy()
+                else:
+                    new.parent = None
+                new.matrix_world = delta @ child_obj.matrix_world
+            created_roots.append(clone_map[subtree[0][0]])
 
-            # Second pass: rebuild parenting (within clone_map) and set world matrices.
-            for subtree in subtrees:
-                for child_obj, _rel in subtree:
-                    new = clone_map[child_obj]
-                    if child_obj.parent is not None and child_obj.parent in clone_map:
-                        new.parent = clone_map[child_obj.parent]
-                        new.matrix_parent_inverse = child_obj.matrix_parent_inverse.copy()
-                    else:
-                        new.parent = None
-                    new.matrix_world = delta @ child_obj.matrix_world
-                created_roots.append(clone_map[subtree[0][0]])
+        if self.pool_fill:
+            for delta, subtree in _pool_fill_iter(self, axis_vec):
+                _clone_subtree(subtree, delta)
+        else:
+            anchor_raw = Matrix.Translation(_group_anchor_co(self))
+            anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
+            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
+                M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
+                                         self.align_to_radius, anchor_eff)
+                delta = M_anchor @ anchor_raw.inverted()
+                for subtree in subtrees:
+                    _clone_subtree(subtree, delta)
 
         for obj in context.view_layer.objects:
             try:
