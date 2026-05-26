@@ -429,8 +429,9 @@ def _draw_preview_3d(op, context):
     segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
 
     # Explicit face_culling=NONE so back-faces of the ghost are visible,
-    # matching Blender's default solid view (two-sided).
-    with draw_scope(blend="ALPHA", depth="ALWAYS", face_culling="NONE"):
+    # matching Blender's default solid view (two-sided). depth=LESS_EQUAL
+    # so the ghost respects scene occlusion (no x-ray).
+    with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE"):
         if tris:
             iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
 
