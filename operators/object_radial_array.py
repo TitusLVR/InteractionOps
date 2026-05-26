@@ -1,4 +1,5 @@
 import bpy
+import math
 from mathutils import Vector, Matrix, Quaternion
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -123,6 +124,101 @@ def _resolve_selection(context, pivot_mode):
             break
 
     return pivot_co, pivot_obj, sources, end_target
+
+
+def _resolve_axis(self, context):
+    """Return a normalized world-space axis vector based on self.axis_mode."""
+    am = self.axis_mode
+    if am == AXIS_GLOBAL_X: return Vector((1, 0, 0))
+    if am == AXIS_GLOBAL_Y: return Vector((0, 1, 0))
+    if am == AXIS_GLOBAL_Z: return Vector((0, 0, 1))
+    if am in (AXIS_LOCAL_X, AXIS_LOCAL_Y, AXIS_LOCAL_Z):
+        if self.pivot_obj is None:
+            return Vector((0, 0, 1))  # cursor pivot fallback
+        rot = self.pivot_obj.matrix_world.to_3x3()
+        local = {AXIS_LOCAL_X: Vector((1,0,0)),
+                 AXIS_LOCAL_Y: Vector((0,1,0)),
+                 AXIS_LOCAL_Z: Vector((0,0,1))}[am]
+        return (rot @ local).normalized()
+    if am == AXIS_VIEW:
+        rv3d = context.region_data
+        if rv3d is None:
+            return Vector((0, 0, 1))
+        return (rv3d.view_rotation @ Vector((0, 0, -1))).normalized()
+    if am == AXIS_NORMAL:
+        return self._cached_axis_vec.copy() if self._cached_axis_vec.length > 0 else Vector((0,0,1))
+    return Vector((0, 0, 1))
+
+
+def _signed_angle_around(v_from, v_to, axis):
+    """Signed angle from v_from to v_to about axis (right-hand). Returns radians in (-pi, pi]."""
+    a = v_from.normalized()
+    b = v_to.normalized()
+    n = axis.normalized()
+    a = (a - n * a.dot(n)).normalized()
+    b = (b - n * b.dot(n)).normalized()
+    if a.length < 1e-8 or b.length < 1e-8:
+        return 0.0
+    dot = max(-1.0, min(1.0, a.dot(b)))
+    ang = math.acos(dot)
+    if a.cross(b).dot(n) < 0:
+        ang = -ang
+    return ang
+
+
+def _compute_arc(self, axis_vec):
+    """Return (arc_angle_radians, step_radians, n_clones) for the current mode."""
+    n = max(2, int(self.count))
+    if self.arc_mode == ARC_FULL:
+        step = 2 * math.pi / n
+        return 2 * math.pi, step, n - 1
+    if self.arc_mode == ARC_ANGLE:
+        ang = self.arc_angle
+        if abs(ang) < 1e-8:
+            return 0.0, 0.0, 0
+        step = ang / (n - 1) if self.end_inclusive else ang / n
+        return ang, step, n - 1
+    # ARC_TWO_POINTS
+    if not self.sources or self.end_target is None:
+        return 0.0, 0.0, 0
+    start_vec = self.sources[0].matrix_world.translation - self.pivot_co
+    end_vec   = self.end_target.matrix_world.translation - self.pivot_co
+    ang = _signed_angle_around(start_vec, end_vec, axis_vec)
+    if abs(ang) < 1e-6:
+        ang = 2 * math.pi
+    step = ang / (n - 1) if self.end_inclusive else ang / n
+    return ang, step, n - 1
+
+
+def _clone_matrix(pivot_co, axis_vec, angle, align_to_radius, source_mw):
+    """Compute world matrix for a clone of a source root at given angle around pivot."""
+    R = Matrix.Rotation(angle, 4, axis_vec)
+    T_to   = Matrix.Translation(pivot_co)
+    T_from = Matrix.Translation(-pivot_co)
+    M = T_to @ R @ T_from @ source_mw
+
+    if align_to_radius:
+        clone_pos = M.translation
+        radial = (clone_pos - pivot_co)
+        radial = radial - axis_vec * radial.dot(axis_vec)
+        if radial.length > 1e-6:
+            radial.normalize()
+            src_x = (source_mw.to_3x3() @ Vector((1, 0, 0)))
+            src_x = src_x - axis_vec * src_x.dot(axis_vec)
+            if src_x.length > 1e-6:
+                src_x.normalize()
+                extra_ang = _signed_angle_around(src_x, radial, axis_vec)
+                R_extra = Matrix.Rotation(extra_ang, 4, axis_vec)
+                T_cto   = Matrix.Translation(clone_pos)
+                T_cfrom = Matrix.Translation(-clone_pos)
+                M = T_cto @ R_extra @ T_cfrom @ M
+    return M
+
+
+def _iter_clone_angles(start_offset, step, n_clones):
+    """Yield (clone_index, angle) for each clone. Index 0 reserved for source position."""
+    for i in range(1, n_clones + 1):
+        yield i, start_offset + i * step
 
 
 class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
