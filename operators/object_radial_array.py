@@ -26,7 +26,7 @@ def _build_help(context):
         HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc mode",       "W",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Face outward",   "R",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Alignment cycle (Original/Outward/Inward/Follow/Follow-rev/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Skip first",     "F",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -77,6 +77,19 @@ SOURCE_HIERARCHY   = "HIERARCHY"     # active + its parented children (single su
 SOURCE_GROUP       = "GROUP"         # all selected, rigid group, anchor = active
 SOURCE_POOL        = "POOL"          # all selected; one per slot, random extras
 SOURCE_CYCLE       = (SOURCE_ACTIVE, SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
+
+ALIGN_NONE         = "ORIGINAL"      # keep clone orientation identical to source
+ALIGN_OUTWARD      = "OUTWARD"       # face away from pivot
+ALIGN_INWARD       = "INWARD"        # face toward pivot
+ALIGN_FOLLOW       = "FOLLOW"        # face along the tangent (direction of motion around ring)
+ALIGN_FOLLOW_REV   = "FOLLOW_REV"    # face along the opposite tangent
+ALIGN_RANDOM_ALL   = "RANDOM_ALL"    # random rotation around all 3 local axes
+ALIGN_RANDOM_X     = "RANDOM_X"      # random rotation around local X
+ALIGN_RANDOM_Y     = "RANDOM_Y"      # random rotation around local Y
+ALIGN_RANDOM_Z     = "RANDOM_Z"      # random rotation around local Z
+ALIGN_CYCLE        = (ALIGN_NONE, ALIGN_OUTWARD, ALIGN_INWARD,
+                      ALIGN_FOLLOW, ALIGN_FOLLOW_REV,
+                      ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
 
 ARC_FULL           = "FULL_360"
 ARC_ANGLE          = "ARC_ANGLE"
@@ -241,29 +254,70 @@ def _compute_arc(self, axis_vec):
     return ang, step, n - 1
 
 
-def _clone_matrix(pivot_co, axis_vec, angle, align_to_radius, source_mw):
-    """Compute world matrix for a clone of a source root at given angle around pivot."""
+def _clone_matrix(pivot_co, axis_vec, angle, source_mw):
+    """Position-only world matrix for a clone of a source root at the given angle
+    around pivot. Alignment is applied as a separate post-rotation via
+    `_alignment_extra_rot`."""
     R = Matrix.Rotation(angle, 4, axis_vec)
     T_to   = Matrix.Translation(pivot_co)
     T_from = Matrix.Translation(-pivot_co)
-    M = T_to @ R @ T_from @ source_mw
+    return T_to @ R @ T_from @ source_mw
 
-    if align_to_radius:
-        clone_pos = M.translation
-        radial = (clone_pos - pivot_co)
-        radial = radial - axis_vec * radial.dot(axis_vec)
-        if radial.length > 1e-6:
-            radial.normalize()
-            src_x = (source_mw.to_3x3() @ Vector((1, 0, 0)))
-            src_x = src_x - axis_vec * src_x.dot(axis_vec)
-            if src_x.length > 1e-6:
-                src_x.normalize()
-                extra_ang = _signed_angle_around(src_x, radial, axis_vec)
-                R_extra = Matrix.Rotation(extra_ang, 4, axis_vec)
-                T_cto   = Matrix.Translation(clone_pos)
-                T_cfrom = Matrix.Translation(-clone_pos)
-                M = T_cto @ R_extra @ T_cfrom @ M
-    return M
+
+def _alignment_extra_rot(align_mode, pivot_co, axis_vec, source_mw,
+                         clone_pos, seed, slot_index):
+    """Return a 4x4 rotation matrix that rotates a clone in-place at `clone_pos`
+    so its orientation matches the requested alignment mode. Identity for
+    ALIGN_NONE or when geometry would make the math ambiguous."""
+    if align_mode == ALIGN_NONE:
+        return Matrix.Identity(4)
+
+    T_to   = Matrix.Translation(clone_pos)
+    T_from = Matrix.Translation(-clone_pos)
+
+    if align_mode in (ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z):
+        import random
+        rng = random.Random(seed * 1000003 + slot_index + 7)
+        if align_mode == ALIGN_RANDOM_ALL:
+            rx = rng.uniform(-math.pi, math.pi)
+            ry = rng.uniform(-math.pi, math.pi)
+            rz = rng.uniform(-math.pi, math.pi)
+            R = (Matrix.Rotation(rx, 4, 'X') @
+                 Matrix.Rotation(ry, 4, 'Y') @
+                 Matrix.Rotation(rz, 4, 'Z'))
+        else:
+            axis_letter = {ALIGN_RANDOM_X: 'X',
+                           ALIGN_RANDOM_Y: 'Y',
+                           ALIGN_RANDOM_Z: 'Z'}[align_mode]
+            R = Matrix.Rotation(rng.uniform(-math.pi, math.pi), 4, axis_letter)
+        return T_to @ R @ T_from
+
+    # Direction-based modes: rotate around axis_vec so source's local +X aligns
+    # with the target direction (outward / inward / tangent).
+    radial = (clone_pos - pivot_co)
+    radial = radial - axis_vec * radial.dot(axis_vec)
+    if radial.length < 1e-6:
+        return Matrix.Identity(4)
+    radial.normalize()
+    tangent = axis_vec.cross(radial).normalized()
+
+    target = {
+        ALIGN_OUTWARD:    radial,
+        ALIGN_INWARD:    -radial,
+        ALIGN_FOLLOW:     tangent,
+        ALIGN_FOLLOW_REV:-tangent,
+    }.get(align_mode)
+    if target is None:
+        return Matrix.Identity(4)
+
+    src_x = source_mw.to_3x3() @ Vector((1, 0, 0))
+    src_x = src_x - axis_vec * src_x.dot(axis_vec)
+    if src_x.length < 1e-6:
+        return Matrix.Identity(4)
+    src_x.normalize()
+    ang = _signed_angle_around(src_x, target, axis_vec)
+    R = Matrix.Rotation(ang, 4, axis_vec)
+    return T_to @ R @ T_from
 
 
 def _clone_step_deg(op):
@@ -441,20 +495,9 @@ def _pool_fill_iter(op, axis_vec):
         target_pos = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
         new_mw = src_mw.copy()
         new_mw.translation = target_pos
-        if op.align_to_radius:
-            radial = target_pos - op.pivot_co
-            radial = radial - axis_vec * radial.dot(axis_vec)
-            if radial.length > 1e-6:
-                radial.normalize()
-                src_x = src_mw.to_3x3() @ Vector((1, 0, 0))
-                src_x = src_x - axis_vec * src_x.dot(axis_vec)
-                if src_x.length > 1e-6:
-                    src_x.normalize()
-                    extra_ang = _signed_angle_around(src_x, radial, axis_vec)
-                    R = Matrix.Rotation(extra_ang, 4, axis_vec)
-                    T_to = Matrix.Translation(target_pos)
-                    T_from = Matrix.Translation(-target_pos)
-                    new_mw = T_to @ R @ T_from @ new_mw
+        align_R = _alignment_extra_rot(op.align_mode, op.pivot_co, axis_vec,
+                                       src_mw, target_pos, op._pool_seed, s)
+        new_mw = align_R @ new_mw
         delta = new_mw @ src_mw.inverted()
         yield delta, subtree
 
@@ -527,8 +570,11 @@ def _build_ghost_segments(op, context):
     anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec, op.radius_override)
 
     for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
-        M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, anchor_eff)
-        delta = M_anchor @ anchor_raw.inverted()
+        M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, anchor_eff)
+        align_R = _alignment_extra_rot(op.align_mode, op.pivot_co, axis_vec,
+                                       anchor_eff, M_anchor.translation,
+                                       op._pool_seed, ci)
+        delta = align_R @ M_anchor @ anchor_raw.inverted()
         for subtree in subtrees:
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
@@ -641,7 +687,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_GLOBAL_Z
-        self.align_to_radius = False
+        self.align_mode  = ALIGN_NONE
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
@@ -684,7 +730,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                                      active_getter=lambda: self.arc_mode == ARC_ANGLE))
         self._hud.add_param(HUDParam("Offset",      lambda: math.degrees(self.start_offset), "float", fmt="{:.1f}°",
                                      active_getter=lambda: self.start_offset_enabled))
-        self._hud.add_param(HUDParam("Face outward", lambda: self.align_to_radius, "bool"))
+        self._hud.add_param(HUDParam("Alignment",   lambda: self.align_mode, "str"))
         self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
         self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
                                      active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS)))
@@ -828,8 +874,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         # --- toggles ---
         if event.type == "R" and event.value == "PRESS":
-            self.align_to_radius = not self.align_to_radius
+            self.align_mode = _cycle(self.align_mode, ALIGN_CYCLE)
             self._dirty = True
+            self.report({"INFO"}, f"Alignment: {self.align_mode}")
             return {"RUNNING_MODAL"}
 
         if event.type == "F" and event.value == "PRESS":
@@ -1120,7 +1167,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_GLOBAL_Z
-        self.align_to_radius = False
+        self.align_mode  = ALIGN_NONE
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
@@ -1236,9 +1283,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 # Treat the whole selection as one rigid group: move it to slot 0.
                 anchor_raw = Matrix.Translation(_group_anchor_co(self))
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
-                M_anchor = _clone_matrix(self.pivot_co, axis_vec, self.start_offset,
-                                         self.align_to_radius, anchor_eff)
-                delta = M_anchor @ anchor_raw.inverted()
+                M_anchor = _clone_matrix(self.pivot_co, axis_vec, self.start_offset, anchor_eff)
+                align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
+                                               anchor_eff, M_anchor.translation,
+                                               self._pool_seed, 0)
+                delta = align_R @ M_anchor @ anchor_raw.inverted()
                 for subtree in subtrees:
                     _replace_subtree(subtree, delta)
                 # Build the rest as instances around the ring.
@@ -1247,9 +1296,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
                     context.scene.collection.children.link(ra_coll)
                 for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
-                    M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
-                                             self.align_to_radius, anchor_eff)
-                    delta_i = M_anchor @ anchor_raw.inverted()
+                    M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
+                    align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
+                                                   anchor_eff, M_anchor.translation,
+                                                   self._pool_seed, ci)
+                    delta_i = align_R @ M_anchor @ anchor_raw.inverted()
                     for subtree in subtrees:
                         _clone_subtree(subtree, delta_i)
         elif self.source_mode == SOURCE_POOL:
@@ -1259,9 +1310,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             anchor_raw = Matrix.Translation(_group_anchor_co(self))
             anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
             for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
-                M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
-                                         self.align_to_radius, anchor_eff)
-                delta = M_anchor @ anchor_raw.inverted()
+                M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
+                align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
+                                               anchor_eff, M_anchor.translation,
+                                               self._pool_seed, ci)
+                delta = align_R @ M_anchor @ anchor_raw.inverted()
                 for subtree in subtrees:
                     _clone_subtree(subtree, delta)
 
