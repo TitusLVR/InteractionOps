@@ -648,8 +648,9 @@ def _build_anchor_matrix(op):
     """Resolve the anchor matrix used as the base orientation for clones.
     For SOURCE_GROUP we anchor on the active object's full matrix; otherwise we
     use a pure translation at the group centroid. When the pivot is the 3D
-    cursor we left-multiply the cursor's rotation onto the anchor so the whole
-    array lives in the cursor's frame (rotate the cursor → clones tilt with it)."""
+    cursor, the anchor's local +Z is tilted onto the rotation axis (= cursor's Z
+    in LOCAL_Z mode) using the SHORTEST rotation — so clones lie flat in the
+    cursor's plane without inheriting any spurious roll around the cursor's Z."""
     if op.anchor_obj is not None:
         try:
             anchor = op.anchor_obj.matrix_world.copy()
@@ -659,14 +660,17 @@ def _build_anchor_matrix(op):
         anchor = Matrix.Translation(_group_anchor_co(op))
     if op.pivot_mode == PIVOT_CURSOR and op.pivot_obj is None:
         try:
-            cursor_rot = bpy.context.scene.cursor.matrix.to_3x3()
-        except AttributeError:
-            cursor_rot = None
-        if cursor_rot is not None:
-            new_3x3 = cursor_rot @ anchor.to_3x3()
-            out = new_3x3.to_4x4()
-            out.translation = anchor.translation
-            anchor = out
+            axis_vec = _resolve_axis(op, bpy.context)
+        except (AttributeError, KeyError):
+            axis_vec = None
+        if axis_vec is not None and axis_vec.length > 1e-6:
+            source_z = anchor.to_3x3() @ Vector((0, 0, 1))
+            if source_z.length > 1e-6:
+                q = source_z.rotation_difference(axis_vec)
+                new_3x3 = q.to_matrix() @ anchor.to_3x3()
+                out = new_3x3.to_4x4()
+                out.translation = anchor.translation
+                anchor = out
     return anchor
 
 
