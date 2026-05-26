@@ -264,13 +264,20 @@ def _clone_matrix(pivot_co, axis_vec, angle, source_mw):
     return T_to @ R @ T_from @ source_mw
 
 
-def _alignment_extra_rot(align_mode, pivot_co, axis_vec, source_mw,
-                         clone_pos, seed, slot_index):
-    """Return a 4x4 rotation matrix that rotates a clone in-place at `clone_pos`
-    so its orientation matches the requested alignment mode. Identity for
-    ALIGN_NONE or when geometry would make the math ambiguous."""
+def _aligned_clone_mw(align_mode, pivot_co, axis_vec, source_mw, clone_pos,
+                      seed, slot_index, follow_target=None):
+    """Return the FINAL world matrix for a clone. Starts from `source_mw` with its
+    translation replaced by `clone_pos` (= ALIGN_NONE behaviour: keep source
+    orientation, only translate). Then layers an alignment rotation around
+    `clone_pos` according to `align_mode`.
+
+    `follow_target` is the position of the next clone (used by FOLLOW modes to
+    take the direction between consecutive ring slots, not the analytic tangent)."""
+    M = source_mw.copy()
+    M.translation = clone_pos
+
     if align_mode == ALIGN_NONE:
-        return Matrix.Identity(4)
+        return M
 
     T_to   = Matrix.Translation(clone_pos)
     T_from = Matrix.Translation(-clone_pos)
@@ -290,34 +297,34 @@ def _alignment_extra_rot(align_mode, pivot_co, axis_vec, source_mw,
                            ALIGN_RANDOM_Y: 'Y',
                            ALIGN_RANDOM_Z: 'Z'}[align_mode]
             R = Matrix.Rotation(rng.uniform(-math.pi, math.pi), 4, axis_letter)
-        return T_to @ R @ T_from
+        return T_to @ R @ T_from @ M
 
-    # Direction-based modes: rotate around axis_vec so source's local +X aligns
-    # with the target direction (outward / inward / tangent).
-    radial = (clone_pos - pivot_co)
-    radial = radial - axis_vec * radial.dot(axis_vec)
-    if radial.length < 1e-6:
-        return Matrix.Identity(4)
-    radial.normalize()
-    tangent = axis_vec.cross(radial).normalized()
+    # Direction-based: pick target direction.
+    if align_mode == ALIGN_OUTWARD:
+        target = clone_pos - pivot_co
+    elif align_mode == ALIGN_INWARD:
+        target = pivot_co - clone_pos
+    elif align_mode == ALIGN_FOLLOW and follow_target is not None:
+        target = follow_target - clone_pos
+    elif align_mode == ALIGN_FOLLOW_REV and follow_target is not None:
+        target = clone_pos - follow_target
+    else:
+        return M  # missing data — fall back to ORIGINAL
 
-    target = {
-        ALIGN_OUTWARD:    radial,
-        ALIGN_INWARD:    -radial,
-        ALIGN_FOLLOW:     tangent,
-        ALIGN_FOLLOW_REV:-tangent,
-    }.get(align_mode)
-    if target is None:
-        return Matrix.Identity(4)
+    target = target - axis_vec * target.dot(axis_vec)
+    if target.length < 1e-6:
+        return M
+    target.normalize()
 
     src_x = source_mw.to_3x3() @ Vector((1, 0, 0))
     src_x = src_x - axis_vec * src_x.dot(axis_vec)
     if src_x.length < 1e-6:
-        return Matrix.Identity(4)
+        return M
     src_x.normalize()
+
     ang = _signed_angle_around(src_x, target, axis_vec)
     R = Matrix.Rotation(ang, 4, axis_vec)
-    return T_to @ R @ T_from
+    return T_to @ R @ T_from @ M
 
 
 def _clone_step_deg(op):
@@ -459,7 +466,7 @@ def _arc_endpoint_world(op, axis_vec):
 
 
 def _pool_fill_iter(op, axis_vec):
-    """For pool_fill: yield (delta_matrix, subtree) per ring slot.
+    """For pool_fill: yield (delta_matrix, subtree, slot_pos) per ring slot.
     Slot i takes subtree[i] if i < N, else a deterministic random pick from the pool.
     Subtree is rotated/translated so its root lands on the slot position at radius R."""
     import random
@@ -468,10 +475,7 @@ def _pool_fill_iter(op, axis_vec):
         return
     n_slots = max(1, int(op.count))
     if op.arc_mode == ARC_FULL:
-        if op.skip_first:
-            step = 2 * math.pi / n_slots
-        else:
-            step = 2 * math.pi / n_slots
+        step = 2 * math.pi / n_slots
     else:
         ang_total, _step_unused, _ = _compute_arc(op, axis_vec)
         if n_slots > 1:
@@ -483,6 +487,22 @@ def _pool_fill_iter(op, axis_vec):
     if radius < 1e-6:
         radius = 1.0
     right, fwd = _arc_frame(axis_vec)
+
+    # First sweep — compute every slot's target position so FOLLOW knows neighbours.
+    slot_positions = []
+    for s in range(n_slots):
+        ang = op.start_offset + s * step
+        slot_positions.append(op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius)
+
+    def _follow_target(i):
+        if i + 1 < n_slots:
+            return slot_positions[i + 1]
+        if op.arc_mode == ARC_FULL:
+            return slot_positions[0]
+        if i - 1 >= 0:
+            return slot_positions[i] + (slot_positions[i] - slot_positions[i - 1])
+        return None
+
     for s in range(n_slots):
         sub_idx = s if s < N else rng.randrange(N)
         subtree = op.subtree_data[sub_idx]
@@ -491,15 +511,12 @@ def _pool_fill_iter(op, axis_vec):
             src_mw = src_root.matrix_world.copy()
         except ReferenceError:
             continue
-        ang = op.start_offset + s * step
-        target_pos = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
-        new_mw = src_mw.copy()
-        new_mw.translation = target_pos
-        align_R = _alignment_extra_rot(op.align_mode, op.pivot_co, axis_vec,
-                                       src_mw, target_pos, op._pool_seed, s)
-        new_mw = align_R @ new_mw
+        target_pos = slot_positions[s]
+        new_mw = _aligned_clone_mw(op.align_mode, op.pivot_co, axis_vec,
+                                   src_mw, target_pos, op._pool_seed, s,
+                                   follow_target=_follow_target(s))
         delta = new_mw @ src_mw.inverted()
-        yield delta, subtree
+        yield delta, subtree, target_pos
 
 
 def _group_anchor_co(op):
@@ -554,7 +571,8 @@ def _build_ghost_segments(op, context):
         return segs, tris, crosses, axis_vec, ang_total
 
     if op.source_mode == SOURCE_POOL:
-        for delta, subtree in _pool_fill_iter(op, axis_vec):
+        for delta, subtree, slot_pos in _pool_fill_iter(op, axis_vec):
+            crosses.append(slot_pos.copy())
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
                 if child_obj.type == "MESH" and child_obj.data is not None:
@@ -566,15 +584,38 @@ def _build_ghost_segments(op, context):
         return segs, tris, crosses, axis_vec, ang_total
 
     # Treat all sources as one rigid group: centroid is the rotation anchor.
+    # The anchor object's actual matrix_world (with rotation) is used for alignment,
+    # so the alignment math sees the group's true orientation.
     anchor_raw = Matrix.Translation(_group_anchor_co(op))
     anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec, op.radius_override)
+    anchor_actual = (op.anchor_obj.matrix_world.copy()
+                     if op.anchor_obj is not None else anchor_raw)
 
+    # First sweep — collect every slot's anchor position (needed for FOLLOW).
+    slot_positions = []
     for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
         M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, anchor_eff)
-        align_R = _alignment_extra_rot(op.align_mode, op.pivot_co, axis_vec,
-                                       anchor_eff, M_anchor.translation,
-                                       op._pool_seed, ci)
-        delta = align_R @ M_anchor @ anchor_raw.inverted()
+        slot_positions.append((ci, M_anchor.translation.copy()))
+
+    # FOLLOW target = next slot position. For FULL_360 wrap to first; arc modes use last delta.
+    def _follow_target(i):
+        if i + 1 < len(slot_positions):
+            return slot_positions[i + 1][1]
+        if op.arc_mode == ARC_FULL and slot_positions:
+            return slot_positions[0][1]
+        if i - 1 >= 0:
+            # mirror the last segment so the final clone keeps the same direction
+            prev_pos = slot_positions[i - 1][1]
+            cur = slot_positions[i][1]
+            return cur + (cur - prev_pos)
+        return None
+
+    for i, (ci, slot_pos) in enumerate(slot_positions):
+        M_anchor_final = _aligned_clone_mw(
+            op.align_mode, op.pivot_co, axis_vec, anchor_actual,
+            slot_pos, op._pool_seed, ci, follow_target=_follow_target(i))
+        delta = M_anchor_final @ anchor_actual.inverted()
+        crosses.append(slot_pos.copy())
         for subtree in subtrees:
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
@@ -1266,7 +1307,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             N = len(subtrees)
             used = set()
             if self.source_mode == SOURCE_POOL:
-                for i, (delta, subtree) in enumerate(_pool_fill_iter(self, axis_vec)):
+                for i, (delta, subtree, _slot_pos) in enumerate(_pool_fill_iter(self, axis_vec)):
                     sub_id = id(subtree)
                     if sub_id in used:
                         # extras (count > N): can't move the same source twice, so
@@ -1283,11 +1324,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 # Treat the whole selection as one rigid group: move it to slot 0.
                 anchor_raw = Matrix.Translation(_group_anchor_co(self))
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
-                M_anchor = _clone_matrix(self.pivot_co, axis_vec, self.start_offset, anchor_eff)
-                align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
-                                               anchor_eff, M_anchor.translation,
-                                               self._pool_seed, 0)
-                delta = align_R @ M_anchor @ anchor_raw.inverted()
+                anchor_actual = (self.anchor_obj.matrix_world.copy()
+                                 if self.anchor_obj is not None else anchor_raw)
+                M_slot0 = _clone_matrix(self.pivot_co, axis_vec, self.start_offset, anchor_eff)
+                M_final0 = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
+                                             anchor_actual, M_slot0.translation,
+                                             self._pool_seed, 0, follow_target=None)
+                delta = M_final0 @ anchor_actual.inverted()
                 for subtree in subtrees:
                     _replace_subtree(subtree, delta)
                 # Build the rest as instances around the ring.
@@ -1297,24 +1340,41 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     context.scene.collection.children.link(ra_coll)
                 for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
                     M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
-                    align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
-                                                   anchor_eff, M_anchor.translation,
-                                                   self._pool_seed, ci)
-                    delta_i = align_R @ M_anchor @ anchor_raw.inverted()
+                    M_final = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
+                                                anchor_actual, M_anchor.translation,
+                                                self._pool_seed, ci, follow_target=None)
+                    delta_i = M_final @ anchor_actual.inverted()
                     for subtree in subtrees:
                         _clone_subtree(subtree, delta_i)
         elif self.source_mode == SOURCE_POOL:
-            for delta, subtree in _pool_fill_iter(self, axis_vec):
+            for delta, subtree, _slot_pos in _pool_fill_iter(self, axis_vec):
                 _clone_subtree(subtree, delta)
         else:
             anchor_raw = Matrix.Translation(_group_anchor_co(self))
             anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
+            anchor_actual = (self.anchor_obj.matrix_world.copy()
+                             if self.anchor_obj is not None else anchor_raw)
+            slot_positions = []
             for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
                 M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
-                align_R = _alignment_extra_rot(self.align_mode, self.pivot_co, axis_vec,
-                                               anchor_eff, M_anchor.translation,
-                                               self._pool_seed, ci)
-                delta = align_R @ M_anchor @ anchor_raw.inverted()
+                slot_positions.append((ci, M_anchor.translation.copy()))
+
+            def _follow_target(i):
+                if i + 1 < len(slot_positions):
+                    return slot_positions[i + 1][1]
+                if self.arc_mode == ARC_FULL and slot_positions:
+                    return slot_positions[0][1]
+                if i - 1 >= 0:
+                    prev = slot_positions[i - 1][1]
+                    cur = slot_positions[i][1]
+                    return cur + (cur - prev)
+                return None
+
+            for i, (ci, slot_pos) in enumerate(slot_positions):
+                M_final = _aligned_clone_mw(
+                    self.align_mode, self.pivot_co, axis_vec, anchor_actual,
+                    slot_pos, self._pool_seed, ci, follow_target=_follow_target(i))
+                delta = M_final @ anchor_actual.inverted()
                 for subtree in subtrees:
                     _clone_subtree(subtree, delta)
 
