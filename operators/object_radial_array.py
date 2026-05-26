@@ -221,6 +221,98 @@ def _iter_clone_angles(start_offset, step, n_clones):
         yield i, start_offset + i * step
 
 
+# --- Preview (POST_VIEW) -------------------------------------------------
+
+def _mesh_edge_segments_world(obj_mw, mesh):
+    """Return list of (Vector, Vector) world-space edge segments for a mesh."""
+    verts_world = [obj_mw @ v.co for v in mesh.vertices]
+    return [(verts_world[e.vertices[0]], verts_world[e.vertices[1]]) for e in mesh.edges]
+
+
+def _build_ghost_segments(op, context):
+    """Build the list of edge segments (in world space) for every predicted clone."""
+    axis_vec = _resolve_axis(op, context)
+    ang_total, step, n_clones = _compute_arc(op, axis_vec)
+
+    segs = []
+    crosses = []
+
+    for subtree in op.subtree_data:
+        root_obj = subtree[0][0]
+        root_mw = root_obj.matrix_world.copy()
+
+        for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones):
+            if op.skip_first and ci == 0:
+                continue
+            M_root = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, root_mw)
+            delta = M_root @ root_mw.inverted()
+            for child_obj, rel in subtree:
+                child_clone_mw = delta @ child_obj.matrix_world
+                if child_obj.type == "MESH" and child_obj.data is not None:
+                    for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
+                        segs.append((a, b))
+                else:
+                    crosses.append(child_clone_mw.translation.copy())
+
+    return segs, crosses, axis_vec, ang_total
+
+
+def _draw_preview_3d(op, context):
+    """POST_VIEW draw: ghost wires + axis line + arc/circle + pivot."""
+    from ..ui import draw as iops_draw
+
+    if op._dirty or getattr(op, "_ghost_cache", None) is None:
+        op._ghost_cache = _build_ghost_segments(op, context)
+        op._dirty = False
+    segs, crosses, axis_vec, ang_total = op._ghost_cache
+
+    if segs:
+        flat = []
+        for a, b in segs:
+            flat.append(a)
+            flat.append(b)
+        iops_draw.edges_3d(flat, role=Role.PREVIEW_LINE, context=context)
+
+    if crosses:
+        iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
+
+    # axis line through pivot
+    max_r = 0.0
+    for sub in op.subtree_data:
+        root = sub[0][0]
+        r = (root.matrix_world.translation - op.pivot_co).length
+        if r > max_r:
+            max_r = r
+    if max_r < 1e-3:
+        max_r = 1.0
+    a_half = axis_vec * (max_r * 2.0)
+    iops_draw.edges_3d([op.pivot_co - a_half, op.pivot_co + a_half],
+                       role=Role.ACTIVE_LINE, context=context)
+
+    # circle/arc in plane perpendicular to axis
+    if max_r > 1e-3:
+        steps = 64
+        up = axis_vec
+        right = Vector((1, 0, 0)) if abs(up.x) < 0.9 else Vector((0, 1, 0))
+        right = (right - up * right.dot(up)).normalized()
+        fwd = up.cross(right)
+        sweep = ang_total if op.arc_mode != ARC_FULL else 2 * math.pi
+        ring = []
+        for i in range(steps + 1):
+            t = i / steps
+            ang = op.start_offset + t * sweep
+            p = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * max_r
+            ring.append(p)
+        pairs = []
+        for i in range(len(ring) - 1):
+            pairs.append(ring[i])
+            pairs.append(ring[i + 1])
+        iops_draw.edges_3d(pairs, role=Role.PREVIEW_LINE, context=context)
+
+    # pivot marker
+    iops_draw.points([op.pivot_co], role=Role.PIVOT, context=context)
+
+
 class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
     """Radially array selected object hierarchies around a pivot"""
 
@@ -288,6 +380,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             bpy.types.SpaceView3D, _draw_callback, (self, context),
             "WINDOW", "POST_PIXEL", tick=True,
         )
+        self._handle_3d = safe_handler_add(
+            bpy.types.SpaceView3D, _draw_preview_3d, (self, context),
+            "WINDOW", "POST_VIEW", tick=False,
+        )
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
@@ -327,3 +423,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if getattr(self, "_handle", None) is not None:
             safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
             self._handle = None
+        if getattr(self, "_handle_3d", None) is not None:
+            safe_handler_remove(self._handle_3d, bpy.types.SpaceView3D, "WINDOW")
+            self._handle_3d = None
