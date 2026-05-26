@@ -480,7 +480,12 @@ def _arc_two_point_geometry(op, axis_vec):
         A = A_obj.matrix_world.translation.copy()
     except ReferenceError:
         return None
-    B = bpy.context.scene.cursor.location.copy()
+    B_raw = bpy.context.scene.cursor.location.copy()
+    # Force the arc into the plane perpendicular to axis_vec that PASSES through
+    # the active object — so slot 0 is exactly at the active's origin. B is
+    # projected to that same plane (cursor's axial component is dropped).
+    A_axial_co = axis_vec * A.dot(axis_vec)
+    B = (B_raw - axis_vec * B_raw.dot(axis_vec)) + A_axial_co
 
     AB = B - A
     ab_planar = AB - axis_vec * AB.dot(axis_vec)
