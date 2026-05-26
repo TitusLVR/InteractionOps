@@ -374,6 +374,19 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.subtree_data.append(subtree)
 
         self._hud = _build_hud(context)
+        self._hud.add_param(HUDParam("Pivot",       lambda: self.pivot_mode, "str"))
+        self._hud.add_param(HUDParam("Clone",       lambda: self.clone_mode, "str"))
+        self._hud.add_param(HUDParam("Arc",         lambda: self.arc_mode, "str"))
+        self._hud.add_param(HUDParam("Axis",        lambda: self.axis_mode, "str"))
+        self._hud.add_param(HUDParam("Count",       lambda: self.count, "int"))
+        self._hud.add_param(HUDParam("Angle",       lambda: math.degrees(self.arc_angle), "float", fmt="{:.1f}°",
+                                     active_getter=lambda: self.arc_mode == ARC_ANGLE))
+        self._hud.add_param(HUDParam("Offset",      lambda: math.degrees(self.start_offset), "float", fmt="{:.1f}°",
+                                     active_getter=lambda: self.start_offset_enabled))
+        self._hud.add_param(HUDParam("Face outward", lambda: self.align_to_radius, "bool"))
+        self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
+        self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
+                                     active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS)))
         self._help = _build_help(context)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
