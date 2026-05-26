@@ -40,7 +40,8 @@ def _build_help(context):
         HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Match from origins", "M (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Pool fill (random extras)", "J (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Source mode (Active/Hier/Group/Pool)", "U", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reroll pool seed",   "K",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -71,6 +72,12 @@ CLONE_INST         = "INSTANCE"
 CLONE_REPLACE      = "REPLACE"
 CLONE_CYCLE        = (CLONE_DUP, CLONE_INST, CLONE_REPLACE)
 
+SOURCE_ACTIVE      = "ACTIVE"        # only the active object (no children)
+SOURCE_HIERARCHY   = "HIERARCHY"     # active + its parented children (single subtree)
+SOURCE_GROUP       = "GROUP"         # all selected, rigid group, anchor = active
+SOURCE_POOL        = "POOL"          # all selected; one per slot, random extras
+SOURCE_CYCLE       = (SOURCE_ACTIVE, SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
+
 ARC_FULL           = "FULL_360"
 ARC_ANGLE          = "ARC_ANGLE"
 ARC_TWO_POINTS     = "ARC_TWO_POINTS"
@@ -94,6 +101,44 @@ def _cycle(value, options):
 def _subtree_roots_and_descendants(obj):
     """Return [root, *children_recursive] in stable order."""
     return [obj, *obj.children_recursive]
+
+
+def _build_subtree_data(roots, include_children):
+    """Build subtree_data: list of [(obj, rel_matrix_to_root), ...] entries per root."""
+    out = []
+    for root in roots:
+        try:
+            inv = root.matrix_world.inverted()
+        except (ReferenceError, ValueError):
+            continue
+        sub = [(root, inv @ root.matrix_world)]
+        if include_children:
+            for child in root.children_recursive:
+                sub.append((child, inv @ child.matrix_world))
+        out.append(sub)
+    return out
+
+
+def _resolve_source_roots(context, source_mode):
+    """Return (roots, anchor_obj). anchor_obj is the active in GROUP mode (None otherwise)."""
+    sel = list(context.selected_objects)
+    active = context.active_object
+    if source_mode == SOURCE_ACTIVE:
+        return ([active] if active else []), None
+    if source_mode == SOURCE_HIERARCHY:
+        return ([active] if active else []), None
+    if source_mode == SOURCE_GROUP:
+        # active first so it owns slot 0 / acts as anchor; others keep selection order.
+        if active and active in sel:
+            others = [o for o in sel if o is not active]
+            return [active, *others], active
+        return list(sel), active
+    if source_mode == SOURCE_POOL:
+        if active and active in sel:
+            others = [o for o in sel if o is not active]
+            return [active, *others], None
+        return list(sel), None
+    return list(sel), None
 
 
 def _resolve_selection(context, pivot_mode):
@@ -415,7 +460,15 @@ def _pool_fill_iter(op, axis_vec):
 
 
 def _group_anchor_co(op):
-    """Centroid of source root world positions — group rotates around pivot as one unit."""
+    """Anchor for the rigid group rotation. In SOURCE_GROUP we anchor on the
+    active object so all other selected objects keep their offsets relative to
+    the active's copy. Otherwise fall back to the centroid of source origins."""
+    anchor = getattr(op, "anchor_obj", None)
+    if anchor is not None:
+        try:
+            return anchor.matrix_world.translation.copy()
+        except ReferenceError:
+            pass
     pts = []
     for sub in op.subtree_data:
         try:
@@ -457,7 +510,7 @@ def _build_ghost_segments(op, context):
     if not subtrees:
         return segs, tris, crosses, axis_vec, ang_total
 
-    if op.pool_fill:
+    if op.source_mode == SOURCE_POOL:
         for delta, subtree in _pool_fill_iter(op, axis_vec):
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
@@ -604,28 +657,20 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.arc_end_drag_active = False
         self.match_active = False
         self._match_saved = None          # snapshot used to un-apply Match
-        self.pool_fill = False            # J — place sources around the ring, random fill on count>N
+        self.source_mode = SOURCE_GROUP   # U cycles ACTIVE / HIERARCHY / GROUP / POOL
+        self.anchor_obj = None            # the active object when source_mode == GROUP
         self._pool_seed = 12345
         self._dirty = True
 
-        pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
-        if not sources:
-            self.report({"WARNING"}, "Select at least one source object besides the pivot")
-            return {"CANCELLED"}
-
+        pivot_co, pivot_obj, _legacy_sources, end_target = _resolve_selection(context, self.pivot_mode)
         self.pivot_co  = pivot_co
         self.pivot_obj = pivot_obj
-        self.sources   = sources
         self.end_target = end_target
 
-        # snapshot subtree matrices once (relative to source root)
-        self.subtree_data = []
-        for root in sources:
-            root_inv = root.matrix_world.inverted()
-            subtree = []
-            for child in _subtree_roots_and_descendants(root):
-                subtree.append((child, root_inv @ child.matrix_world))
-            self.subtree_data.append(subtree)
+        self._rebuild_sources(context)
+        if not self.subtree_data:
+            self.report({"WARNING"}, "Select at least one source object")
+            return {"CANCELLED"}
 
         self._hud = _build_hud(context)
         self._hud.add_param(HUDParam("Pivot",       lambda: self.pivot_mode, "str"))
@@ -644,7 +689,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
                                      active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS)))
         self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool"))
-        self._hud.add_param(HUDParam("Pool fill",   lambda: self.pool_fill, "bool"))
+        self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
         self._help = _build_help(context)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
@@ -689,20 +734,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         # --- mode cycles (QWER cluster) ---
         if event.type == "Q" and event.value == "PRESS":
             self.pivot_mode = _cycle(self.pivot_mode, PIVOT_CYCLE)
-            pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
-            if sources:
-                self.pivot_co = pivot_co
-                self.pivot_obj = pivot_obj
-                self.sources = sources
-                self.end_target = end_target
-                # rebuild subtree snapshots
-                self.subtree_data = []
-                for root in sources:
-                    root_inv = root.matrix_world.inverted()
-                    subtree = []
-                    for child in _subtree_roots_and_descendants(root):
-                        subtree.append((child, root_inv @ child.matrix_world))
-                    self.subtree_data.append(subtree)
+            pivot_co, pivot_obj, _legacy_sources, end_target = _resolve_selection(context, self.pivot_mode)
+            self.pivot_co = pivot_co
+            self.pivot_obj = pivot_obj
+            self.end_target = end_target
+            self._rebuild_sources(context)
             self._dirty = True
             return {"RUNNING_MODAL"}
 
@@ -726,15 +762,21 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._toggle_match(context)
             return {"RUNNING_MODAL"}
 
-        # --- pool fill: each ring slot = one source; extras random (toggle) ---
-        if event.type == "J" and event.value == "PRESS":
-            self.pool_fill = not self.pool_fill
-            if self.pool_fill:
-                # Reseed each enable so a fresh pattern is produced.
+        # --- source mode cycle (Active / Hierarchy / Group / Pool) ---
+        if event.type == "U" and event.value == "PRESS":
+            self.source_mode = _cycle(self.source_mode, SOURCE_CYCLE)
+            self._rebuild_sources(context)
+            self._dirty = True
+            self.report({"INFO"}, f"Source: {self.source_mode}")
+            return {"RUNNING_MODAL"}
+
+        # --- reroll random seed for SOURCE_POOL extras ---
+        if event.type == "K" and event.value == "PRESS":
+            if self.source_mode == SOURCE_POOL:
                 import time
                 self._pool_seed = int(time.time() * 1000) & 0xFFFFFF
-            self._dirty = True
-            self.report({"INFO"}, f"Pool fill {'ON' if self.pool_fill else 'OFF'}")
+                self._dirty = True
+                self.report({"INFO"}, "Pool seed re-rolled")
             return {"RUNNING_MODAL"}
 
         # --- axis ---
@@ -986,6 +1028,15 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         return {"RUNNING_MODAL"}
 
+    def _rebuild_sources(self, context):
+        """Resolve source roots + subtree snapshots according to current source_mode.
+        Updates self.subtree_data, self.sources, self.anchor_obj."""
+        roots, anchor = _resolve_source_roots(context, self.source_mode)
+        include_children = self.source_mode in (SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
+        self.subtree_data = _build_subtree_data(roots, include_children)
+        self.sources = roots
+        self.anchor_obj = anchor
+
     def _toggle_match(self, context):
         """Toggle: apply Match (compute pivot/radius/count from source origins)
         or restore the snapshot taken when Match was applied."""
@@ -1084,7 +1135,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.arc_end_drag_active = False
         self.match_active = False
         self._match_saved = None
-        self.pool_fill = False
+        self.source_mode = SOURCE_GROUP
         self._cached_axis_vec = Vector((0, 0, 1))
         self._dirty = True
 
@@ -1167,7 +1218,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             # there's nothing to "replace into" with the same source set.
             N = len(subtrees)
             used = set()
-            if self.pool_fill:
+            if self.source_mode == SOURCE_POOL:
                 for i, (delta, subtree) in enumerate(_pool_fill_iter(self, axis_vec)):
                     sub_id = id(subtree)
                     if sub_id in used:
@@ -1201,7 +1252,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     delta_i = M_anchor @ anchor_raw.inverted()
                     for subtree in subtrees:
                         _clone_subtree(subtree, delta_i)
-        elif self.pool_fill:
+        elif self.source_mode == SOURCE_POOL:
             for delta, subtree in _pool_fill_iter(self, axis_vec):
                 _clone_subtree(subtree, delta)
         else:
