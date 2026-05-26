@@ -428,12 +428,18 @@ def _draw_preview_3d(op, context):
         op._dirty = False
     segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
 
-    # Tris first with depth_mask ON so each ghost writes depth and occludes
-    # the next one behind it. Then edges on top (depth_mask OFF — keep
-    # wires crisp regardless of order). Both respect scene depth.
+    # Two-pass transparent fill to avoid alpha-stacking when clones overlap:
+    #   1. Depth pre-pass — write only the depth buffer, no color, so the
+    #      nearest front-face of every clone owns its pixels.
+    #   2. Color pass with depth=EQUAL — each pixel gets shaded exactly once
+    #      by the front-most clone; behind clones fail the equality test.
     if tris:
-        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                        face_culling="BACK", depth_mask=True):
+        with draw_scope(blend="NONE", depth="LESS_EQUAL",
+                        face_culling="BACK", depth_mask=True,
+                        color_mask=(False, False, False, False)):
+            iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
+        with draw_scope(blend="ALPHA", depth="EQUAL",
+                        face_culling="BACK", depth_mask=False):
             iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
     if segs:
         flat = []
