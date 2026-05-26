@@ -231,6 +231,16 @@ def _mesh_edge_segments_world(obj_mw, mesh):
 
 def _build_ghost_segments(op, context):
     """Build the list of edge segments (in world space) for every predicted clone."""
+    # Drop any subtrees whose objects have been removed since invoke().
+    valid = []
+    for sub in op.subtree_data:
+        try:
+            sub[0][0].matrix_world  # touch to detect dead StructRNA
+            valid.append(sub)
+        except ReferenceError:
+            continue
+    op.subtree_data = valid
+
     axis_vec = _resolve_axis(op, context)
     ang_total, step, n_clones = _compute_arc(op, axis_vec)
 
@@ -263,7 +273,7 @@ def _build_ghost_segments(op, context):
 
 def _draw_preview_3d(op, context):
     """POST_VIEW draw: ghost wires + axis line + arc/circle + pivot."""
-    from ..ui import draw as iops_draw
+    from ..ui.draw import primitives as iops_draw
 
     if op._dirty or getattr(op, "_ghost_cache", None) is None:
         op._ghost_cache = _build_ghost_segments(op, context)
@@ -653,7 +663,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         subtrees = (self.subtree_data[:1] if self.arc_mode == ARC_TWO_POINTS else self.subtree_data)
         for subtree in subtrees:
             root_obj = subtree[0][0]
-            root_mw = root_obj.matrix_world.copy()
+            try:
+                root_mw = root_obj.matrix_world.copy()
+            except ReferenceError:
+                continue  # source object was removed since invoke()
 
             ra_name = f"_RadialArray_{root_obj.name}"
             ra_coll = bpy.data.collections.new(ra_name)  # Blender uniquifies
