@@ -608,37 +608,40 @@ def _build_ghost_segments(op, context):
     anchor_actual = (op.anchor_obj.matrix_world.copy()
                      if op.anchor_obj is not None else anchor_raw)
 
-    # First sweep — collect every slot's anchor position (needed for FOLLOW).
-    slot_positions = []
+    # FULL slot table — every absolute slot index 0..n_total-1, regardless of
+    # whether we'll actually draw that slot. FOLLOW alignment reads neighbours
+    # from this table so direction math is correct even when slot 0 (source)
+    # or other slots are skipped.
     eff_start = _arc_effective_start(op, axis_vec)
-    for ci, angle in _iter_clone_angles(eff_start, step, n_clones, start_index=start_index):
+    n_total = max(2, int(op.count))
+    all_positions = []
+    for ci in range(n_total):
+        angle = eff_start + ci * step
         M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, anchor_eff)
-        slot_positions.append((ci, M_anchor.translation.copy()))
+        all_positions.append(M_anchor.translation.copy())
 
-    # FOLLOW target = next slot position. For FULL_360 wrap to first; arc modes use last delta.
+    wraps = (op.arc_mode == ARC_FULL)
+
     def _follow_target(i):
-        if i + 1 < len(slot_positions):
-            return slot_positions[i + 1][1]
-        if op.arc_mode == ARC_FULL and slot_positions:
-            return slot_positions[0][1]
+        if i + 1 < n_total:
+            return all_positions[i + 1]
+        if wraps:
+            return all_positions[0]
         if i - 1 >= 0:
-            # mirror the last segment so the final clone keeps the same direction
-            prev_pos = slot_positions[i - 1][1]
-            cur = slot_positions[i][1]
-            return cur + (cur - prev_pos)
+            return all_positions[i] + (all_positions[i] - all_positions[i - 1])
         return None
 
-    for i, (ci, slot_pos) in enumerate(slot_positions):
-        # Build the rigid-rotated anchor matrix: anchor's orientation rotated
-        # by ci*step around axis_vec, placed at slot_pos. This drives a true
-        # rigid rotation of the whole group around the pivot.
+    # Drawn indices: skip_first OFF leaves source visible at slot 0, so we draw
+    # clones from slot 1 onward. skip_first ON also clones slot 0.
+    for ci in range(start_index, n_total):
+        slot_pos = all_positions[ci]
         R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
         rotated_3x3 = R_step @ anchor_actual.to_3x3()
         base_mw = rotated_3x3.to_4x4()
         base_mw.translation = slot_pos
         M_anchor_final = _aligned_clone_mw(
             op.align_mode, op.pivot_co, axis_vec, base_mw,
-            op._pool_seed, ci, follow_target=_follow_target(i))
+            op._pool_seed, ci, follow_target=_follow_target(ci))
         delta = M_anchor_final @ anchor_actual.inverted()
         crosses.append(slot_pos.copy())
         for subtree in subtrees:
@@ -1384,30 +1387,33 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                                               self.radius_override if self.radius_override is not None else _effective_radius(self))
             anchor_actual = (self.anchor_obj.matrix_world.copy()
                              if self.anchor_obj is not None else anchor_raw)
-            slot_positions = []
             eff_start = _arc_effective_start(self, axis_vec)
-            for ci, angle in _iter_clone_angles(eff_start, step, n_clones, start_index=start_index):
+            n_total = max(2, int(self.count))
+            all_positions = []
+            for ci in range(n_total):
+                angle = eff_start + ci * step
                 M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
-                slot_positions.append((ci, M_anchor.translation.copy()))
+                all_positions.append(M_anchor.translation.copy())
+
+            wraps = (self.arc_mode == ARC_FULL)
 
             def _follow_target(i):
-                if i + 1 < len(slot_positions):
-                    return slot_positions[i + 1][1]
-                if self.arc_mode == ARC_FULL and slot_positions:
-                    return slot_positions[0][1]
+                if i + 1 < n_total:
+                    return all_positions[i + 1]
+                if wraps:
+                    return all_positions[0]
                 if i - 1 >= 0:
-                    prev = slot_positions[i - 1][1]
-                    cur = slot_positions[i][1]
-                    return cur + (cur - prev)
+                    return all_positions[i] + (all_positions[i] - all_positions[i - 1])
                 return None
 
-            for i, (ci, slot_pos) in enumerate(slot_positions):
+            for ci in range(start_index, n_total):
+                slot_pos = all_positions[ci]
                 R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
                 base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
                 base_mw.translation = slot_pos
                 M_final = _aligned_clone_mw(
                     self.align_mode, self.pivot_co, axis_vec, base_mw,
-                    self._pool_seed, ci, follow_target=_follow_target(i))
+                    self._pool_seed, ci, follow_target=_follow_target(ci))
                 delta = M_final @ anchor_actual.inverted()
                 for subtree in subtrees:
                     _clone_subtree(subtree, delta)
