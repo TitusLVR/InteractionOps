@@ -663,6 +663,11 @@ def _build_ghost_segments(op, context):
     tris = []
     crosses = []
 
+    # After Match, the sources sit on the arc themselves — no preview clones
+    # so they don't visually pile on top of the snapped objects.
+    if getattr(op, "match_active", False):
+        return segs, tris, crosses, axis_vec, ang_total
+
     if op.arc_mode == ARC_FULL and op.skip_first:
         start_index = 0
     else:
@@ -1356,6 +1361,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._handle_3d = None
 
     def _apply(self, context):
+        # When Match is active the source objects already sit on the arc and
+        # were moved in place — no clones to create. Just commit (the matrices
+        # are already on the scene; we drop the undo snapshot so they stay).
+        if self.match_active:
+            self._match_saved = None
+            self.match_active = False
+            return
         axis_vec = _resolve_axis(self, context)
         ang_total, step, n_clones = _compute_arc(self, axis_vec)
         if n_clones <= 0:
