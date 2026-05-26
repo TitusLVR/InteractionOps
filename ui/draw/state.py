@@ -18,11 +18,14 @@ def draw_scope(blend: str | None = None,
                depth: str | None = None,
                line_width: float | None = None,
                point_size: float | None = None,
-               face_culling: str | None = None):
+               face_culling: str | None = None,
+               depth_mask: bool | None = None):
     if blend is not None:
         gpu.state.blend_set(blend)
     if depth is not None:
         gpu.state.depth_test_set(depth)
+    if depth_mask is not None:
+        gpu.state.depth_mask_set(depth_mask)
     if line_width is not None:
         gpu.state.line_width_set(line_width)
     if point_size is not None:
@@ -38,6 +41,8 @@ def draw_scope(blend: str | None = None,
             gpu.state.line_width_set(1.0)
         if point_size is not None:
             gpu.state.point_size_set(1.0)
+        if depth_mask is not None:
+            gpu.state.depth_mask_set(False)
         if depth is not None:
             gpu.state.depth_test_set("LESS")
         if blend is not None:

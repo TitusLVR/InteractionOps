@@ -428,17 +428,19 @@ def _draw_preview_3d(op, context):
         op._dirty = False
     segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
 
-    # Backface culling on (BACK) so the ghost reads as a solid shape, not
-    # a translucent shell. depth=LESS_EQUAL so it respects scene occlusion.
-    with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="BACK"):
-        if tris:
+    # Tris first with depth_mask ON so each ghost writes depth and occludes
+    # the next one behind it. Then edges on top (depth_mask OFF — keep
+    # wires crisp regardless of order). Both respect scene depth.
+    if tris:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="BACK", depth_mask=True):
             iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
-
-        if segs:
-            flat = []
-            for a, b in segs:
-                flat.append(a)
-                flat.append(b)
+    if segs:
+        flat = []
+        for a, b in segs:
+            flat.append(a)
+            flat.append(b)
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
             iops_draw.edges_3d(flat, role=Role.GHOST_EDGE, context=context)
 
     if crosses:
