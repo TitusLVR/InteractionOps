@@ -307,13 +307,28 @@ def _mesh_edge_segments_world(obj_mw, mesh):
     return [(verts_world[e.vertices[0]], verts_world[e.vertices[1]]) for e in mesh.edges]
 
 
+def _group_anchor_co(op):
+    """Centroid of source root world positions — group rotates around pivot as one unit."""
+    pts = []
+    for sub in op.subtree_data:
+        try:
+            pts.append(sub[0][0].matrix_world.translation.copy())
+        except ReferenceError:
+            continue
+    if not pts:
+        return op.pivot_co.copy()
+    acc = Vector((0.0, 0.0, 0.0))
+    for p in pts:
+        acc += p
+    return acc / len(pts)
+
+
 def _build_ghost_segments(op, context):
     """Build the list of edge segments (in world space) for every predicted clone."""
-    # Drop any subtrees whose objects have been removed since invoke().
     valid = []
     for sub in op.subtree_data:
         try:
-            sub[0][0].matrix_world  # touch to detect dead StructRNA
+            sub[0][0].matrix_world
             valid.append(sub)
         except ReferenceError:
             continue
@@ -331,16 +346,18 @@ def _build_ghost_segments(op, context):
         start_index = 1
 
     subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
-    for subtree in subtrees:
-        root_obj = subtree[0][0]
-        root_mw_raw = root_obj.matrix_world.copy()
-        root_mw = _effective_source_mw(root_mw_raw, op.pivot_co, axis_vec, op.radius_override)
-        # delta is computed against the (possibly shifted) effective root so the whole
-        # subtree (children include the root itself at index 0) moves with the override.
-        for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
-            M_root = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, root_mw)
-            delta = M_root @ root_mw_raw.inverted()
-            for child_obj, rel in subtree:
+    if not subtrees:
+        return segs, crosses, axis_vec, ang_total
+
+    # Treat all sources as one rigid group: centroid is the rotation anchor.
+    anchor_raw = Matrix.Translation(_group_anchor_co(op))
+    anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec, op.radius_override)
+
+    for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
+        M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, anchor_eff)
+        delta = M_anchor @ anchor_raw.inverted()
+        for subtree in subtrees:
+            for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
                 if child_obj.type == "MESH" and child_obj.data is not None:
                     for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
@@ -772,24 +789,25 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             start_index = 1
 
         subtrees = (self.subtree_data[:1] if self.arc_mode == ARC_TWO_POINTS else self.subtree_data)
-        for subtree in subtrees:
-            root_obj = subtree[0][0]
-            try:
-                root_mw_raw = root_obj.matrix_world.copy()
-            except ReferenceError:
-                continue  # source object was removed since invoke()
-            root_mw = _effective_source_mw(root_mw_raw, self.pivot_co, axis_vec, self.radius_override)
+        if not subtrees:
+            return
 
-            ra_name = f"_RadialArray_{root_obj.name}"
-            ra_coll = bpy.data.collections.new(ra_name)  # Blender uniquifies
-            context.scene.collection.children.link(ra_coll)
+        anchor_raw = Matrix.Translation(_group_anchor_co(self))
+        anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
 
-            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
-                M_root = _clone_matrix(self.pivot_co, axis_vec, angle,
-                                       self.align_to_radius, root_mw)
-                delta = M_root @ root_mw_raw.inverted()
+        # one shared "_RadialArray_<groupName>" collection per apply, named after first source
+        first_root_name = subtrees[0][0][0].name
+        ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
+        context.scene.collection.children.link(ra_coll)
 
-                clone_map = {}
+        for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
+            M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
+                                     self.align_to_radius, anchor_eff)
+            delta = M_anchor @ anchor_raw.inverted()
+
+            # First pass: duplicate every object in every subtree for this clone index.
+            clone_map = {}
+            for subtree in subtrees:
                 for child_obj, _rel in subtree:
                     new = child_obj.copy()
                     if self.clone_mode == CLONE_DUP and child_obj.data is not None:
@@ -799,13 +817,14 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                             c.objects.link(new)
                         except RuntimeError:
                             pass
-                    if new.name not in ra_coll.objects:
-                        try:
-                            ra_coll.objects.link(new)
-                        except RuntimeError:
-                            pass
+                    try:
+                        ra_coll.objects.link(new)
+                    except RuntimeError:
+                        pass
                     clone_map[child_obj] = new
 
+            # Second pass: rebuild parenting (within clone_map) and set world matrices.
+            for subtree in subtrees:
                 for child_obj, _rel in subtree:
                     new = clone_map[child_obj]
                     if child_obj.parent is not None and child_obj.parent in clone_map:
@@ -814,8 +833,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     else:
                         new.parent = None
                     new.matrix_world = delta @ child_obj.matrix_world
-
-                created_roots.append(clone_map[root_obj])
+                created_roots.append(clone_map[subtree[0][0]])
 
         for obj in context.view_layer.objects:
             try:
