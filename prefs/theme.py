@@ -53,8 +53,8 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
 
     # --- Ghost / Surfaces ---
-    color_ghost_edge:      _color((0.302, 0.816, 1.000, 0.45), "Ghost Edge")
-    color_ghost_default:   _color((0.302, 0.816, 1.000, 0.12), "Ghost Default")
+    color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.451), "Ghost Edge")
+    color_ghost_default:   _color((1.000, 1.000, 1.000, 0.350), "Ghost Faces")
     point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
     point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
     point_size_pivot:        FloatProperty(name="Pivot size",         default=12.0, min=1.0, max=64.0)
@@ -416,6 +416,18 @@ def draw_theme_tab(layout, theme):
     if sub is not None:
         _state_table(sub, theme, "line", size_prefix="line_width")
 
+    # Ghost / Surfaces — highlight color for ghost-preview wires and the
+    # translucent fill behind them.
+    sub = _theme_section(layout, theme, "show_surfaces",
+                         "Ghost / Surfaces", icon="MOD_MASK")
+    if sub is not None:
+        row = sub.row(align=True)
+        row.label(text="Edges")
+        row.prop(theme, "color_ghost_edge", text="")
+        row = sub.row(align=True)
+        row.label(text="Faces")
+        row.prop(theme, "color_ghost_default", text="")
+
     # Widgets — each row: name | size | color. Handle has two color
     # swatches (idle + hover) sharing one size — it's the same widget in
     # two interaction states. Bbox uses line width, the rest use point
@@ -434,18 +446,6 @@ def draw_theme_tab(layout, theme):
             row.label(text=label)
             row.prop(theme, size_attr,  text="")
             row.prop(theme, color_attr, text="")
-
-    # Ghost / Surfaces — highlight color for ghost-preview wires and the
-    # translucent fill behind them.
-    sub = _theme_section(layout, theme, "show_surfaces",
-                         "Ghost / Surfaces", icon="MOD_MASK")
-    if sub is not None:
-        row = sub.row(align=True)
-        row.label(text="Edges")
-        row.prop(theme, "color_ghost_edge", text="")
-        row = sub.row(align=True)
-        row.label(text="Faces")
-        row.prop(theme, "color_ghost_default", text="")
 
     # HUD — parent rollout. Contains three shared-style sub-sections
     # (text, panel+shadow, font) used by every HUD overlay, followed by
