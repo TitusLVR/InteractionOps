@@ -77,7 +77,8 @@ SOURCE_GROUP       = "GROUP"         # all selected, rigid group, anchor = activ
 SOURCE_POOL        = "POOL"          # all selected; one per slot, random extras
 SOURCE_CYCLE       = (SOURCE_ACTIVE, SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
 
-ALIGN_NONE         = "ORIGINAL"      # keep clone orientation identical to source
+ALIGN_RIGID        = "RIGID"         # rigid rotation around pivot (standard radial array)
+ALIGN_NONE         = "ORIGINAL"      # keep clone orientation identical to source (no rotation)
 ALIGN_OUTWARD      = "OUTWARD"       # face away from pivot
 ALIGN_INWARD       = "INWARD"        # face toward pivot
 ALIGN_FOLLOW       = "FOLLOW"        # face along the tangent (direction of motion around ring)
@@ -86,7 +87,7 @@ ALIGN_RANDOM_ALL   = "RANDOM_ALL"    # random rotation around all 3 local axes
 ALIGN_RANDOM_X     = "RANDOM_X"      # random rotation around local X
 ALIGN_RANDOM_Y     = "RANDOM_Y"      # random rotation around local Y
 ALIGN_RANDOM_Z     = "RANDOM_Z"      # random rotation around local Z
-ALIGN_CYCLE        = (ALIGN_NONE, ALIGN_OUTWARD, ALIGN_INWARD,
+ALIGN_CYCLE        = (ALIGN_RIGID, ALIGN_NONE, ALIGN_OUTWARD, ALIGN_INWARD,
                       ALIGN_FOLLOW, ALIGN_FOLLOW_REV,
                       ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
 
@@ -283,7 +284,11 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
 
     `follow_target` = position of the next clone (used by FOLLOW modes to take
     the direction between consecutive ring slots, not the analytic tangent)."""
-    if align_mode == ALIGN_NONE:
+    if align_mode in (ALIGN_NONE, ALIGN_RIGID):
+        # ALIGN_NONE — base_mw was built without R_step (pure translate).
+        # ALIGN_RIGID — base_mw already includes R_step (rigid rotation around
+        # the rotation axis), which is exactly the "rotate around cursor by
+        # hand" gesture, so no further alignment is layered on top.
         return base_mw
 
     clone_pos = base_mw.translation
@@ -893,7 +898,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_GLOBAL_Z
-        self.align_mode  = ALIGN_NONE
+        self.align_mode  = ALIGN_RIGID
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
@@ -1397,7 +1402,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_GLOBAL_Z
-        self.align_mode  = ALIGN_NONE
+        self.align_mode  = ALIGN_RIGID
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
