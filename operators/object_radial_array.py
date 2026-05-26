@@ -23,21 +23,21 @@ def _build_hud(context):
 def _build_help(context):
     helpo = HelpOverlay("object_radial_array")
     helpo.add_section(HUDSection("Radial Array", [
-        HUDItem("Pivot mode",     "P",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Clone type",     "I",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Arc mode",       "A",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Axis X/Y/Z",     "X / Y / Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Local axis",     "L",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Normal pick",    "N + LMB",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Face outward",   "R",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Skip first",     "O",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Arc mode",       "W",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Face outward",   "R",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Skip first",     "F",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Axis X/Y/Z",     "X / Y / Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Local axis",     "C",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Normal pick",    "T + LMB",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Angle drag",     "G + mouse",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Angle drag",     "G + mouse",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -573,8 +573,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if event.type in {"TRACKPADPAN", "TRACKPADZOOM"}:
             return {"PASS_THROUGH"}
 
-        # --- mode cycles ---
-        if event.type == "P" and event.value == "PRESS":
+        # --- mode cycles (QWER cluster) ---
+        if event.type == "Q" and event.value == "PRESS":
             self.pivot_mode = _cycle(self.pivot_mode, PIVOT_CYCLE)
             pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
             if sources:
@@ -593,11 +593,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "I" and event.value == "PRESS":
+        if event.type == "D" and event.value == "PRESS":
             self.clone_mode = _cycle(self.clone_mode, CLONE_CYCLE)
             return {"RUNNING_MODAL"}
 
-        if event.type == "A" and event.value == "PRESS":
+        if event.type == "W" and event.value == "PRESS":
             self.arc_mode = _cycle(self.arc_mode, ARC_CYCLE)
             self._dirty = True
             return {"RUNNING_MODAL"}
@@ -609,7 +609,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "L" and event.value == "PRESS":
+        if event.type == "C" and event.value == "PRESS":
             mapping = {
                 AXIS_GLOBAL_X: AXIS_LOCAL_X, AXIS_GLOBAL_Y: AXIS_LOCAL_Y, AXIS_GLOBAL_Z: AXIS_LOCAL_Z,
                 AXIS_LOCAL_X:  AXIS_GLOBAL_X, AXIS_LOCAL_Y: AXIS_GLOBAL_Y, AXIS_LOCAL_Z: AXIS_GLOBAL_Z,
@@ -624,7 +624,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "N" and event.value == "PRESS":
+        if event.type == "T" and event.value == "PRESS":
             self.pending_normal_pick = True
             self.report({"INFO"}, "Click a face to set rotation axis from its normal")
             return {"RUNNING_MODAL"}
@@ -655,7 +655,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "O" and event.value == "PRESS":
+        if event.type == "F" and event.value == "PRESS":
             self.skip_first = not self.skip_first
             self._dirty = True
             return {"RUNNING_MODAL"}
@@ -766,8 +766,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if hit is not None and end_pt is not None:
                 if (hit - end_pt).length < max(0.18 * cur_r, 0.3):
                     self.arc_end_drag_active = True
+                    # Promote FULL_360 to ARC_ANGLE at full sweep so drag can shorten it.
                     if self.arc_mode == ARC_FULL:
-                        self.arc_mode = ARC_ANGLE  # convert to angle so drag is meaningful
+                        self.arc_mode = ARC_ANGLE
+                        self.arc_angle = 2 * math.pi
+                    right, fwd = _arc_frame(axis_vec)
+                    v = hit - self.pivot_co
+                    self._arc_drag_prev_angle = math.atan2(v.dot(fwd), v.dot(right))
                     return {"RUNNING_MODAL"}
             # ring hit (radius)?
             if hit is not None:
@@ -795,14 +800,15 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if hit is not None:
                 right, fwd = _arc_frame(axis_vec)
                 v = hit - self.pivot_co
-                mouse_angle = math.atan2(v.dot(fwd), v.dot(right))
-                new_arc = mouse_angle - self.start_offset
-                # normalize to (-pi, pi] but allow wide sweeps via Shift (no normalize)
-                if not event.shift:
-                    while new_arc > math.pi:
-                        new_arc -= 2 * math.pi
-                    while new_arc <= -math.pi:
-                        new_arc += 2 * math.pi
+                cur_mouse_angle = math.atan2(v.dot(fwd), v.dot(right))
+                # accumulate delta so drag is smooth across the +π/−π seam
+                delta = cur_mouse_angle - getattr(self, "_arc_drag_prev_angle", cur_mouse_angle)
+                while delta > math.pi:
+                    delta -= 2 * math.pi
+                while delta <= -math.pi:
+                    delta += 2 * math.pi
+                TWO_PI = 2 * math.pi
+                new_arc = max(-TWO_PI, min(TWO_PI, self.arc_angle + delta))
                 if event.ctrl and event.shift:
                     snap = math.radians(15.0)
                     new_arc = round(new_arc / snap) * snap
@@ -810,6 +816,12 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     snap = math.radians(5.0)
                     new_arc = round(new_arc / snap) * snap
                 self.arc_angle = new_arc
+                self._arc_drag_prev_angle = cur_mouse_angle
+                # snap visual to full circle when sweep saturates
+                if abs(self.arc_angle) >= TWO_PI - 1e-4:
+                    self.arc_mode = ARC_FULL
+                else:
+                    self.arc_mode = ARC_ANGLE
                 self._dirty = True
             return {"RUNNING_MODAL"}
 
