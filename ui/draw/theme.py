@@ -85,7 +85,7 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
 
     Role.GHOST_EDGE:    (0.000, 0.000, 0.000, 0.451),  # #00000073
-    Role.GHOST_DEFAULT: (1.000, 1.000, 1.000, 0.350),
+    Role.GHOST_DEFAULT: (0.851, 0.851, 0.851, 0.149),  # #D9D9D926
 
     Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
     Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),

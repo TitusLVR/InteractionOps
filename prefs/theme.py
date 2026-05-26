@@ -54,7 +54,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
 
     # --- Ghost / Surfaces ---
     color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.451), "Ghost Edge")
-    color_ghost_default:   _color((1.000, 1.000, 1.000, 0.350), "Ghost Faces")
+    color_ghost_default:   _color((0.851, 0.851, 0.851, 0.149), "Ghost Faces")
     point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
     point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
     point_size_pivot:        FloatProperty(name="Pivot size",         default=12.0, min=1.0, max=64.0)
