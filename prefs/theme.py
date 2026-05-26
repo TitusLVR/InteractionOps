@@ -441,10 +441,10 @@ def draw_theme_tab(layout, theme):
                          "Ghost / Surfaces", icon="MOD_MASK")
     if sub is not None:
         row = sub.row(align=True)
-        row.label(text="Ghost Edge")
+        row.label(text="Edges")
         row.prop(theme, "color_ghost_edge", text="")
         row = sub.row(align=True)
-        row.label(text="Ghost Default")
+        row.label(text="Faces")
         row.prop(theme, "color_ghost_default", text="")
 
     # HUD — parent rollout. Contains three shared-style sub-sections
