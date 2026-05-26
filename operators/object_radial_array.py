@@ -474,9 +474,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"CANCELLED"}
 
         # --- mode defaults ---
-        # With a single object selected, default to 3D-cursor pivot so the
-        # object can be arrayed around the cursor without needing a 2nd object.
-        self.pivot_mode  = PIVOT_CURSOR if len(sel) == 1 else PIVOT_ACTIVE
+        # Default to 3D-cursor pivot so every selected object (including active)
+        # is part of the rotated group and keeps its position relative to the rest.
+        # Press P during modal to cycle to ACTIVE-as-pivot or LAST_SELECTED-as-pivot.
+        self.pivot_mode  = PIVOT_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_GLOBAL_Z
