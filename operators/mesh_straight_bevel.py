@@ -3,7 +3,7 @@ import bmesh
 import math
 from mathutils import Vector
 from bpy_extras import view3d_utils
-from bpy.props import FloatProperty
+from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
 from mathutils.geometry import intersect_line_line
 
 from ..ui.draw import primitives as draw, draw_scope, Role
@@ -140,12 +140,18 @@ def _arc_through_cuts(v_co, cut_a, cut_b, segs):
     sin_th = math.sqrt(max(0.0, 1.0 - cos_th * cos_th))
     if sin_th < 1e-6:
         return None
-    # Circle tangent at both cuts. In (u_axis, w_axis) coords with
-    # origin at V: cut_a = (da, 0); cut_b = (db cosθ, db sinθ).
-    # Center is (da, (db − da cosθ)/sinθ) — solved from the tangent-
-    # perpendicular constraint at each cut.
+    # Circle tangent to (V→cut_a) at cut_a, passing through cut_b.
+    # In (u_axis, w_axis) coords with origin at V: cut_a = (da, 0);
+    # cut_b = (db cosθ, db sinθ). Tangent-perpendicular at cut_a puts
+    # the center on the line u=da, so center = (da, c_w). Requiring
+    # the circle to pass through cut_b gives:
+    #   c_w = (da² − 2·da·db·cosθ + db²) / (2·db·sinθ)
+    # The previous formula (db − da·cosθ)/sinθ was only correct when
+    # da == db; on asymmetric corners (different perpendicular offsets
+    # or rail angles) the resulting circle missed cut_b — visible as
+    # broken arcs whose endpoints didn't meet the cut points.
     c_u = da
-    c_w = (db - da * cos_th) / sin_th
+    c_w = (da * da - 2.0 * da * db * cos_th + db * db) / (2.0 * db * sin_th)
     center = v_co + u_axis * c_u + w_axis * c_w
     r = math.hypot(c_u - da, c_w - 0.0)  # |cut_a − center|
     if r < 1e-9:
@@ -187,13 +193,58 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
     offset: FloatProperty(
         name="Offset",
-        description="Distance along the neighbouring edge from the corner where the perpendicular cut starts",
+        description="Perpendicular distance from the ridge to the new cut",
         default=0.05,
         min=0.0,
         soft_max=10.0,
         step=1,
         precision=4,
         subtype="DISTANCE",
+    )
+    mode: EnumProperty(
+        name="Mode",
+        description="Which bevel variant to execute",
+        items=[
+            ("STRAIGHT", "Straight", "Perpendicular cuts across adjacent faces"),
+            ("PCT",      "Percent",  "Rounded edge bevel (mesh.bevel SUPERELLIPSE)"),
+            ("FAN",      "Flat Fan", "Flat in-face bevel aligned to picked face plane"),
+        ],
+        default="STRAIGHT",
+    )
+    pct_segments: IntProperty(
+        name="Pct Segments",
+        description="Bevel segments for Percent mode",
+        default=16, min=1, max=16,
+    )
+    fan_segments: IntProperty(
+        name="Fan Segments",
+        description="Bevel segments for Flat Fan mode",
+        default=4, min=1, max=16,
+    )
+    fan_align_mode: EnumProperty(
+        name="Fan Align",
+        description="How fan boundary verts are placed on the alignment face plane",
+        items=[
+            ("project",   "Project",   "Project bevel boundary verts onto picked face plane"),
+            ("recompute", "Recompute", "Resample arc evenly in picked face plane"),
+        ],
+        default="project",
+    )
+    cleanup_mode: BoolProperty(
+        name="Cleanup",
+        description="Post-bevel limited dissolve on geometry lying on alignment-face planes",
+        default=False,
+    )
+    snap_to_endpoint: BoolProperty(
+        name="Snap to Endpoint",
+        description=(
+            "Topologically join the cut endpoint to the boundary edge: "
+            "split the boundary at the projection point and weld the "
+            "cut endpoint into the new vert. Off by default — the cut "
+            "endpoint just moves geometrically to the boundary position "
+            "without subdividing it"
+        ),
+        default=False,
     )
 
     @classmethod
@@ -240,11 +291,22 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         base = getattr(self, "_vert_offset_base", {})
         face_pairs = getattr(self, "_face_pairs", {})
         for face, pair in face_pairs.items():
-            for v, oe, direction, _e in pair:
+            for v, oe, direction, ridge in pair:
                 L = direction.length
-                if L < 1e-9:
+                if L < 1e-9 or ridge is None or not ridge.is_valid:
                     continue
-                allowed = L - base.get(v, 0.0)
+                ridge_v = ridge.other_vert(v).co - v.co
+                rl = ridge_v.length
+                if rl < 1e-9:
+                    continue
+                sin_th = (direction / L).cross(ridge_v / rl).length
+                if sin_th < 1e-4:
+                    continue
+                # Cap is the max PERPENDICULAR offset that still keeps
+                # the along-rail cut within (L - base) — base is the
+                # along-rail propagation correction, so subtract before
+                # the sin scale.
+                allowed = max(0.0, (L * 0.99 - base.get(v, 0.0))) * sin_th
                 if allowed < cap:
                     cap = allowed
         self._max_user_offset = cap if cap != float("inf") else None
@@ -260,16 +322,59 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         # a nicely rounded preview right after pressing B.
         self._pct_active = False
         self._pct_segments = 16
+        # Flat-fan overlay: F toggles, wheel adjusts segments.
+        # Mutually exclusive with _pct_active. On confirm replaces the
+        # corner ngon with a fan of triangles from the corner vert to
+        # `segments+1` arc points lying in the corner-cut plane. Used
+        # when the user wants a flat in-face bevel instead of the
+        # rounded 3D surface that mesh.bevel produces.
+        self._fan_active = False
+        self._fan_segments = 4
+        # Fan alignment-face mode: 'project' moves boundary verts onto
+        # picked face plane (keeps bevel arc samples, may distort
+        # spacing); 'recompute' resamples the arc evenly in that plane
+        # (uniform spacing, replaces bevel's geometry). Toggled with M.
+        self._fan_align_mode = "project"
+        # Cleanup toggle: post-bevel limited dissolve on geometry that
+        # lies on the alignment-face planes. Single on/off — C toggles.
+        self._cleanup_mode = False
+        # Optional: after extending the cut endpoint onto a boundary
+        # edge, also weld that new vert into v_end (the chain corner),
+        # collapsing the offset at that endpoint. S toggles.
+        self._snap_to_endpoint = False
 
         _purge_handles()
 
         self._hud = HUDOverlay("straight_bevel")
         self._hud.title = "Straight Bevel"
         self._hud.bind_region(context.region)
+        # Live toggle params — show current state in dynamic HUD.
+        self._hud.add_param(HUDParam(
+            "Pct bevel (B)", lambda: self._pct_active, "bool"))
+        self._hud.add_param(HUDParam(
+            "Flat fan (F)", lambda: self._fan_active, "bool"))
+        self._hud.add_param(HUDParam(
+            "Pct segs", lambda: self._pct_segments, "int",
+            active_getter=lambda: self._pct_active))
+        self._hud.add_param(HUDParam(
+            "Fan segs", lambda: self._fan_segments, "int",
+            active_getter=lambda: self._fan_active))
+        self._hud.add_param(HUDParam(
+            "Align mode (W)", lambda: self._fan_align_mode, "str",
+            active_getter=lambda: self._fan_active))
+        self._hud.add_param(HUDParam(
+            "Cleanup (C)", lambda: self._cleanup_mode, "bool"))
+        self._hud.add_param(HUDParam(
+            "Snap to endpoint (S)", lambda: self._snap_to_endpoint, "bool"))
         self._help = HelpOverlay("straight_bevel")
         self._help.add_section(HUDSection("Straight Bevel", [
             HUDItem("Adjust offset", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Percent bevel", "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flat fan",      "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cycle align faces", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Align mode (proj/recomp)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cleanup (limited dissolve on align faces)", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Snap cut to chain endpoint vert", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",       "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",        "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -309,13 +414,15 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
-                and self._pct_active and event.value == "PRESS":
-            # Wheel intercepted while the percent-bevel overlay is on.
+                and (self._pct_active or self._fan_active) and event.value == "PRESS":
+            # Wheel intercepted while pct or fan overlay is on.
             # Up: more segments; down: fewer (clamped to 1..16).
+            attr = "_pct_segments" if self._pct_active else "_fan_segments"
+            cur = getattr(self, attr)
             if event.type == "WHEELUPMOUSE":
-                self._pct_segments = min(16, self._pct_segments + 1)
+                setattr(self, attr, min(16, cur + 1))
             else:
-                self._pct_segments = max(1, self._pct_segments - 1)
+                setattr(self, attr, max(1, cur - 1))
             context.workspace.status_text_set(self._status_text())
             return {"RUNNING_MODAL"}
 
@@ -360,61 +467,60 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
             if event.type == "B":
                 self._pct_active = not self._pct_active
+                if self._pct_active:
+                    self._fan_active = False
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "F":
+                self._fan_active = not self._fan_active
+                if self._fan_active:
+                    self._pct_active = False
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if self._fan_active and event.type == "Q":
+                # Raycast under mouse cursor → pick that face as the
+                # alignment face for the endpoint nearest the hit. If
+                # the face isn't already in that endpoint's candidates,
+                # prepend it (so pick_idx=0 selects it).
+                self._raycast_pick_face(context, event)
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if self._fan_active and event.type == "W":
+                self._fan_align_mode = (
+                    "recompute" if self._fan_align_mode == "project" else "project"
+                )
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "C":
+                self._cleanup_mode = not self._cleanup_mode
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "S":
+                self._snap_to_endpoint = not self._snap_to_endpoint
                 context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
-                if self._pct_active:
-                    # Two-step: (1) run execute() — perpendicular
-                    # straight bevel, so the orange cut points
-                    # become real verts. (2) re-select the same
-                    # originally-selected ridges by vert-pair
-                    # lookup and run mesh.bevel(PERCENT 100%) on
-                    # them, rounding the post-cut stubs into arcs
-                    # between the orange points.
-                    ridge_vert_pairs = set()
-                    for e in self._bm.edges:
-                        if e.select:
-                            ridge_vert_pairs.add(
-                                tuple(sorted(v.index for v in e.verts)))
-                    segments = self._pct_segments
-                    self._finish(context)
-                    result = self.execute(context)
-                    if result != {"FINISHED"}:
-                        return result
-                    obj = bpy.context.active_object
-                    if obj is None or obj.type != "MESH":
-                        return {"FINISHED"}
-                    me = obj.data
-                    bm = bmesh.from_edit_mesh(me)
-                    bm.edges.ensure_lookup_table()
-                    bm.verts.ensure_lookup_table()
-                    bpy.ops.mesh.select_all(action="DESELECT")
-                    selected_count = 0
-                    for e in bm.edges:
-                        pair = tuple(sorted(v.index for v in e.verts))
-                        if pair in ridge_vert_pairs:
-                            e.select = True
-                            selected_count += 1
-                    bmesh.update_edit_mesh(me)
-                    if selected_count == 0:
-                        return {"FINISHED"}
-                    bpy.ops.mesh.bevel(
-                        offset_type="PERCENT",
-                        offset=0,
-                        profile_type="SUPERELLIPSE",
-                        offset_pct=100,
-                        segments=segments,
-                        profile=0.5,
-                        affect="EDGES",
-                        clamp_overlap=True,
-                        loop_slide=True,
-                        release_confirm=False,
-                    )
-                    bpy.ops.mesh.select_all(action="SELECT")
-                    bpy.ops.mesh.remove_doubles(threshold=1e-5)
-                    bpy.ops.mesh.select_all(action="DESELECT")
-                    return {"FINISHED"}
+                # Sync modal-local state to operator properties so the
+                # redo panel reflects (and can re-drive) the same params.
+                # Manual Q-picked alignment faces are intentionally not
+                # persisted — redo falls back to the auto-best candidate.
+                if self._fan_active:
+                    self.mode = "FAN"
+                elif self._pct_active:
+                    self.mode = "PCT"
+                else:
+                    self.mode = "STRAIGHT"
+                self.pct_segments = self._pct_segments
+                self.fan_segments = self._fan_segments
+                self.fan_align_mode = self._fan_align_mode
+                self.cleanup_mode = self._cleanup_mode
+                self.snap_to_endpoint = self._snap_to_endpoint
                 self._finish(context)
                 return self.execute(context)
 
@@ -458,15 +564,22 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
     def _status_text(self):
         typed = f" | typing: {self._input_str}" if self._input_str else ""
-        pct = (
-            f" | pct preview: segs={self._pct_segments} (wheel)"
-            if self._pct_active else " | [B] pct preview"
-        )
+        if self._pct_active:
+            mode = f" | pct preview: segs={self._pct_segments} (wheel)"
+        elif self._fan_active:
+            n_eps = len(getattr(self, "_fan_endpoints", []))
+            mode = (
+                f" | fan: segs={self._fan_segments} (wheel) | "
+                f"align={self._fan_align_mode} (W) | endpoints={n_eps} (Q cycle)"
+            )
+        else:
+            mode = " | [B] pct preview | [F] flat fan"
+        cleanup = f" | cleanup={'on' if self._cleanup_mode else 'off'} (C)"
         return (
             f"Straight Bevel: offset = {self.offset:.4f}{typed} | "
             "[Mouse] drag | [Ctrl] snap 0.1 | [Shift] precise | "
             "[0-9 .] type | [Backspace] del | "
-            f"[Enter/LMB] confirm | [Esc/RMB] cancel{pct}"
+            f"[Enter/LMB] confirm | [Esc/RMB] cancel{mode}{cleanup}"
         )
 
     # ------------------------------------------------------------------
@@ -554,11 +667,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             comp_verts = set()
             for e in comp_edges:
                 comp_verts.update(e.verts)
-            start = None
-            for v in comp_verts:
-                if v not in shared_verts:
-                    start = v
-                    break
+            # Prefer a real endpoint (count=1 within the component) as
+            # the BFS root. Picking a random non-shared vert can land
+            # on a multi-edge corner, where the very first correction
+            # step uses a poorly-defined `oe` and pollutes propagation.
+            _ecount = {}
+            for e in comp_edges:
+                for v in e.verts:
+                    _ecount[v] = _ecount.get(v, 0) + 1
+            start = next((v for v in comp_verts if _ecount.get(v, 0) == 1), None)
+            if start is None:
+                start = next((v for v in comp_verts if v not in shared_verts), None)
             if start is None:
                 start = next(iter(comp_verts))
             comp_offsets = {start: 0.0}
@@ -567,24 +686,31 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             while queue:
                 current = queue.pop()
                 cur = comp_offsets[current]
+                # Correction only flows through collinear interior verts
+                # (shared_verts). Endpoints and L-corners stop the chain:
+                # on a distorted face the projection of the next-ridge
+                # direction onto -oe is geometrically meaningless once
+                # the rail isn't straight, and used to balloon vert_offset
+                # past the neighbour-edge cap.
                 for other, ridge in sel_adj.get(current, []):
                     if ridge not in comp_set or ridge in visited:
                         continue
                     visited.add(ridge)
                     correction = 0.0
-                    for face in ridge.link_faces:
-                        fe = [
-                            ee for ee in current.link_edges
-                            if face in ee.link_faces and ee is not ridge
-                            and ee not in selected_set
-                        ]
-                        if not fe:
-                            continue
-                        d = fe[0].other_vert(current).co - current.co
-                        if d.length < 1e-9:
-                            continue
-                        correction = (other.co - current.co).dot(-(d.normalized()))
-                        break
+                    if current in shared_verts:
+                        for face in ridge.link_faces:
+                            fe = [
+                                ee for ee in current.link_edges
+                                if face in ee.link_faces and ee is not ridge
+                                and ee not in selected_set
+                            ]
+                            if not fe:
+                                continue
+                            d = fe[0].other_vert(current).co - current.co
+                            if d.length < 1e-9:
+                                continue
+                            correction = (other.co - current.co).dot(-(d.normalized()))
+                            break
                     comp_offsets[other] = cur + correction
                     queue.append(other)
             if comp_offsets:
@@ -604,6 +730,92 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 })
         self._per_edge_cap = {}
 
+        # Open-chain endpoints for the fan-mode alignment face picker.
+        # An endpoint is a comp vert with count==1 (one selected ridge
+        # incident). Single-edge selections produce two endpoints.
+        # For each endpoint we precompute candidate alignment faces
+        # (incident to the vert but NOT on either side of the ridge)
+        # and auto-pick the one whose normal is most parallel to the
+        # ridge direction — that is the natural "cap" face the bevel
+        # tapers into. User cycles with 1/2 keys.
+        endpoints = []
+        for comp_edges in components.values():
+            comp_set = set(comp_edges)
+            _ecount = {}
+            for e in comp_edges:
+                for v in e.verts:
+                    _ecount[v] = _ecount.get(v, 0) + 1
+            for v, c in _ecount.items():
+                if c != 1:
+                    continue
+                ridge = next((e for e in v.link_edges if e in comp_set), None)
+                if ridge is None:
+                    continue
+                rdir = (ridge.other_vert(v).co - v.co)
+                if rdir.length < 1e-9:
+                    continue
+                rdir_n = rdir.normalized()
+                ridge_faces = set(ridge.link_faces)
+                cands = [f for f in v.link_faces if f not in ridge_faces and f.is_valid]
+                if not cands:
+                    continue
+                # Find the "tip extension" direction — the longest
+                # non-ridge edge from this endpoint. The natural cap
+                # plane is perpendicular to it (face whose normal is
+                # parallel to it). Falls back to ridge direction if no
+                # non-ridge edges exist.
+                tip_dir = None
+                tip_len = 0.0
+                for ee in v.link_edges:
+                    if ee is ridge or not ee.is_valid:
+                        continue
+                    dd = ee.other_vert(v).co - v.co
+                    L = dd.length
+                    if L > tip_len:
+                        tip_len = L
+                        tip_dir = dd / L
+                score_dir = tip_dir if tip_dir is not None else rdir_n
+                cands.sort(key=lambda f: -abs(f.normal.dot(score_dir)))
+                endpoints.append({
+                    "vert": v,
+                    "ridge": ridge,
+                    "ridge_dir": rdir_n.copy(),
+                    "candidates": cands,
+                    "pick_idx": 0,
+                })
+        # Order endpoints deterministically — by vert index — so "1"
+        # always cycles the same endpoint regardless of dict iteration.
+        endpoints.sort(key=lambda d: d["vert"].index)
+        self._fan_endpoints = endpoints
+
+    @staticmethod
+    def _cut_on_rail(v, oe, direction, ridge, offset_perp):
+        """Cut point on rail `oe` at perpendicular distance
+        `offset_perp` from `ridge`. Matches mesh.bevel(OFFSET,
+        loop_slide=False) semantics — bevel's OFFSET parameter is the
+        perpendicular distance from the new edge to the original
+        ridge, NOT the distance along the rail. For an angled rail the
+        cut sits further along the rail: s = offset_perp / sin(angle).
+        Returns the cut Vector or None on degenerate input."""
+        L = direction.length
+        if L < 1e-9 or ridge is None or not ridge.is_valid:
+            return None
+        rail_n = direction / L
+        ridge_v = ridge.other_vert(v).co - v.co
+        rl = ridge_v.length
+        if rl < 1e-9:
+            return None
+        ridge_n = ridge_v / rl
+        sin_th = rail_n.cross(ridge_n).length
+        if sin_th < 1e-4:
+            # Rail nearly parallel to ridge — bevel would degenerate;
+            # fall back to along-rail to avoid div-by-zero.
+            s = offset_perp
+        else:
+            s = offset_perp / sin_th
+        s = min(max(s, 0.0), L * 0.99)
+        return v.co + rail_n * s
+
     def _preview_segments(self):
         segments = []
         face_pairs = getattr(self, "_face_pairs", {})
@@ -622,17 +834,16 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     continue
                 cos = []
                 ok = True
-                for v, oe, direction, _e in ridge_entries:
+                for v, oe, direction, ridge in ridge_entries:
                     if not (v.is_valid and oe.is_valid):
                         ok = False
                         break
-                    L = direction.length
-                    if L < 1e-9:
+                    s_perp = user_o + base.get(v, 0.0)
+                    cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                    if cut is None:
                         ok = False
                         break
-                    s = user_o + base.get(v, 0.0)
-                    s = min(max(s, 0.0), L * 0.99)
-                    cos.append(v.co + (direction / L) * s)
+                    cos.append(cut)
                 if not ok or len(cos) != 2:
                     continue
                 segments.append((cos[0].copy(), cos[1].copy()))
@@ -668,16 +879,15 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     continue
                 if ridge is None or not ridge.is_valid:
                     continue
-                L = direction.length
-                if L < 1e-9:
+                s_perp = user_o + base.get(v, 0.0)
+                cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                if cut is None:
                     continue
-                s = user_o + base.get(v, 0.0)
-                s = min(max(s, 0.0), L * 0.99)
-                cut = v.co + (direction / L) * s
                 by_pair.setdefault((v, ridge), []).append(cut)
 
         segs = max(1, self._pct_segments)
         line_pts = []
+        point_pts = []
         for (v, _ridge), cuts in by_pair.items():
             if len(cuts) < 2:
                 continue
@@ -696,13 +906,622 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     continue
                 if prev_2d is not None:
                     line_pts.extend([prev_2d, p_2d])
+                point_pts.append(p_2d)
                 prev_2d = p_2d
 
         if not line_pts:
             return
         coords3 = [Vector((p[0], p[1], 0.0)) for p in line_pts]
         with draw_scope(blend="ALPHA"):
-            draw.edges_3d(coords3, role=Role.LOCKED_LINE, context=bpy.context)
+            draw.edges_3d(coords3, role=Role.PREVIEW_LINE, context=bpy.context)
+            if point_pts:
+                pts3 = [Vector((p[0], p[1], 0.0)) for p in point_pts]
+                draw.points(pts3, role=Role.PREVIEW_POINT, context=bpy.context)
+
+    def _raycast_pick_face(self, context, event):
+        """Q-handler: cast a ray from the mouse cursor into the active
+        bmesh, find the hit face, and bind it as the alignment-face
+        of the endpoint nearest to the hit point.
+
+        Lazy-builds a BVHTree from self._bm each call (cheap for the
+        sizes we typically deal with; rebuild keeps it in sync with any
+        mesh edits between presses)."""
+        bm = self._bm
+        obj = self._obj
+        if bm is None or obj is None:
+            return
+        region = context.region
+        rv3d = context.region_data
+        if region is None or rv3d is None:
+            return
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        origin_w = view3d_utils.region_2d_to_origin_3d(region, rv3d, (mx, my))
+        direction_w = view3d_utils.region_2d_to_vector_3d(region, rv3d, (mx, my))
+        mw = obj.matrix_world
+        mw_inv = mw.inverted()
+        ray_origin = mw_inv @ origin_w
+        ray_direction = (mw_inv.to_3x3() @ direction_w).normalized()
+
+        from mathutils.bvhtree import BVHTree
+        try:
+            bvh = BVHTree.FromBMesh(bm)
+        except (ReferenceError, RuntimeError):
+            return
+        loc, _nrm, face_idx, _dist = bvh.ray_cast(ray_origin, ray_direction)
+        if loc is None or face_idx is None:
+            return
+        bm.faces.ensure_lookup_table()
+        if face_idx < 0 or face_idx >= len(bm.faces):
+            return
+        picked = bm.faces[face_idx]
+        if not picked.is_valid:
+            return
+
+        eps = getattr(self, "_fan_endpoints", [])
+        if not eps:
+            return
+        # Find endpoint nearest to the hit point (world space).
+        hit_w = mw @ loc
+        best_ep = None
+        best_d = float("inf")
+        for ep in eps:
+            v = ep["vert"]
+            if not v.is_valid:
+                continue
+            d = ((mw @ v.co) - hit_w).length
+            if d < best_d:
+                best_d = d
+                best_ep = ep
+        if best_ep is None:
+            return
+        # Bind: ensure picked is first in candidates, set pick_idx=0.
+        cands = best_ep["candidates"]
+        if picked in cands:
+            cands.remove(picked)
+        cands.insert(0, picked)
+        best_ep["pick_idx"] = 0
+
+    def _endpoint_vert_idxs(self):
+        """Indices of open-chain endpoint verts (chain count==1).
+        Captured pre-finish so we can locate them in the post-bevel
+        mesh for cleanup-mode 2 (apex dissolve)."""
+        return [ep["vert"].index for ep in getattr(self, "_fan_endpoints", [])
+                if ep["vert"].is_valid]
+
+    def _collect_ridge_dirs(self):
+        """Snapshot normalized directions of all currently selected
+        ridges. Used post-bevel to tell boundary edges (parallel to a
+        ridge) from diagonal subdivisions (cross-ridge)."""
+        dirs = []
+        bm = self._bm
+        if bm is None:
+            return dirs
+        for e in bm.edges:
+            if not e.select or not e.is_valid:
+                continue
+            d = e.verts[1].co - e.verts[0].co
+            if d.length < 1e-9:
+                continue
+            dirs.append(d.normalized().copy())
+        return dirs
+
+    def _snap_apex_tips(self, me, endpoint_data, user_offset):
+        """Per-endpoint pipeline (spec from user):
+          1. Find apex (vert in region with MAX triangle-face count).
+          2. Identify arc verts (other-vert of each short edge of apex).
+          3. Project arc verts onto picked alignment face plane.
+          4. Determine apex action based on its position vs the
+             (post-projection) arc:
+             - outside arc (r_apex > r_arc * 1.15) → snap apex to the
+               original corner endpoint position.
+             - on/inside arc → leave apex alone.
+          5. Finally: remove_doubles on the whole mesh."""
+        if not endpoint_data:
+            return
+        bm = bmesh.from_edit_mesh(me)
+        bm.verts.ensure_lookup_table()
+        search_radius = max(user_offset * 2.5, 1e-3)
+        for orig, plane in endpoint_data:
+            region = [v for v in bm.verts
+                      if v.is_valid and (v.co - orig).length <= search_radius]
+            if len(region) < 2:
+                continue
+            # Apex = max triangle-face count, tiebreak by closest.
+            def _tri_count(v):
+                return sum(1 for f in v.link_faces
+                           if f.is_valid and len(f.verts) == 3)
+            region.sort(key=lambda v: (-_tri_count(v), (v.co - orig).length))
+            apex = region[0]
+
+            # Arc verts = other-vert of every SHORT edge of apex
+            # (every incident edge except the dominant long one).
+            edges = list(apex.link_edges)
+            lens = []
+            for e in edges:
+                d = e.other_vert(apex).co - apex.co
+                if d.length < 1e-9:
+                    continue
+                lens.append((d.length, e, d))
+            if len(lens) < 2:
+                continue
+            lens.sort(key=lambda x: x[0])
+            long_e = lens[-1]
+            shorts = lens[:-1]
+            has_long = long_e[0] >= shorts[-1][0] * 2.0
+            short_edges = shorts if has_long else lens
+            arc = [se[1].other_vert(apex) for se in short_edges
+                   if se[1].other_vert(apex).is_valid]
+            if not arc:
+                continue
+
+            # Project arc verts onto picked face plane (plane =
+            # (normal, point) snapshotted before bevel — BMFace refs
+            # are stale after mesh.bevel rebuild).
+            if plane is not None:
+                pn, pp = plane
+                if pn.length > 1e-9:
+                    pn = pn.normalized()
+                    for v in arc:
+                        d = (v.co - pp).dot(pn)
+                        v.co = v.co - pn * d
+
+            # Inside/outside test via arc-centroid: compute centroid
+            # of (post-projection) arc, max distance from centroid to
+            # any arc vert. If apex's distance to centroid exceeds the
+            # arc's max radius from centroid, apex is "outside" the
+            # arc curve (sticks past it). For v16 case ratio≈0.88
+            # (inside), for v22 ratio≈1.57 (outside).
+            from mathutils import Vector
+            centroid = Vector((0, 0, 0))
+            for v in arc:
+                centroid = centroid + v.co
+            centroid = centroid / len(arc)
+            max_arc_radius = max((v.co - centroid).length for v in arc)
+            apex_radius = (apex.co - centroid).length
+            if max_arc_radius < 1e-6:
+                continue
+            if apex_radius > max_arc_radius:
+                # Apex outside arc → snap to chain-endpoint orig position
+                # (= one of the bevel's source edge endpoint verts).
+                apex.co = orig.copy()
+            # Else apex on/inside arc → leave alone.
+
+        # Final pass: remove_doubles on everything (apex snap can
+        # collide with arc verts, projection can merge nearby verts).
+        merge_thresh = max(1e-5, user_offset * 0.1)
+        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=merge_thresh)
+        bmesh.update_edit_mesh(me)
+
+    def _post_bevel_cleanup(self, me, pre_n, mode, planes=None):
+        """Cleanup post-bevel: limited dissolve on geometry lying on
+        the alignment-face planes (used to project arc verts).
+        Single on/off — removes redundant subdivisions inside the
+        aligned cap region without touching unrelated mesh."""
+        if not mode or not planes:
+            return
+        bm = bmesh.from_edit_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        tol = 1e-4
+        # Find verts within tol distance of ANY align plane.
+        plane_verts = set()
+        for plane in planes:
+            if plane is None:
+                continue
+            pn, pp = plane
+            if pn.length < 1e-9:
+                continue
+            pn_n = pn.normalized()
+            for v in bm.verts:
+                if not v.is_valid:
+                    continue
+                if abs((v.co - pp).dot(pn_n)) <= tol:
+                    plane_verts.add(v)
+        if not plane_verts:
+            return
+        # Edges with BOTH ends on a plane.
+        plane_edges = [e for e in bm.edges
+                       if e.is_valid and e.verts[0] in plane_verts
+                       and e.verts[1] in plane_verts]
+        bmesh.ops.dissolve_limit(
+            bm,
+            angle_limit=0.087,  # ~5°
+            use_dissolve_boundaries=False,
+            verts=list(plane_verts),
+            edges=plane_edges,
+            delimit=set(),
+        )
+        bmesh.update_edit_mesh(me)
+        return
+
+    def _post_bevel_cleanup_OLD(self, me, pre_n, mode):
+        """Dissolve fan-apex artifacts the bevel produced.
+
+        A fan apex is a new vert (index >= pre_n) that has 3+ triangle
+        faces ALL meeting at it (= triangulated bevel cap). Dissolving
+        the apex merges those triangles into a single ngon, leaving
+        the bevel boundary (parallel-to-ridge quads) intact.
+
+        mode 0: no-op.
+        mode 1: dissolve fan apexes only.
+        mode 2: mode 1 + dissolve apex stubs that have a degenerate
+            (zero-length) edge — fixes the bevel-corner cleanly.
+        """
+        if mode == 0:
+            return
+        bm = bmesh.from_edit_mesh(me)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        # Find fan-triangle groups by TOPOLOGY (not by pre/post-bevel
+        # index) — 3+ triangle faces that share a common apex vert.
+        # Pre-bevel index gating used to miss apexes created by earlier
+        # ops; topology-only detection handles both fresh and stale
+        # fans the same way.
+        from collections import defaultdict
+        apex_to_tris = defaultdict(list)
+        for f in bm.faces:
+            if not f.is_valid or len(f.verts) != 3:
+                continue
+            for v in f.verts:
+                apex_to_tris[v].append(f)
+
+        fan_faces = []
+        for apex, tris in apex_to_tris.items():
+            if len(tris) < 3:
+                continue
+            fan_faces.extend(tris)
+        # De-dup faces (a tri could feed up to 3 apex buckets).
+        fan_faces = list({f for f in fan_faces if f.is_valid})
+
+        if fan_faces:
+            # dissolve_faces with use_verts=True merges the triangle
+            # cluster into one ngon AND drops the apex vert that becomes
+            # interior — leaving the arc boundary intact.
+            bmesh.ops.dissolve_faces(bm, faces=fan_faces, use_verts=True)
+
+        if mode == 2:
+            # Mode 2 extras:
+            # (a) zero-length-edge stragglers (bevel sometimes leaves a
+            #     collapsed-apex artifact).
+            # (b) "90° corner" verts inside the cleaned ngon — the
+            #     original ridge endpoint sometimes survives as a
+            #     right-angle corner between two boundary edges of the
+            #     merged fan-cap ngon (e.g. v42 between e55 and e50 in
+            #     this case). Dissolve it so the boundary becomes a
+            #     clean curve.
+            bm.verts.ensure_lookup_table()
+            extra_verts = []
+            for v in bm.verts:
+                if not v.is_valid:
+                    continue
+                # (a) zero-length edge
+                if any(e.is_valid and (e.verts[0].co - e.verts[1].co).length < 1e-6
+                       for e in v.link_edges):
+                    extra_verts.append(v)
+                    continue
+                # (b) exactly 2 boundary-ish edges at ~90° — a vert with
+                # degree 2 where the two outgoing directions are
+                # perpendicular. dissolve_faces left such verts as
+                # corners of the merged ngon.
+                if len(v.link_edges) == 2:
+                    a = v.link_edges[0].other_vert(v).co - v.co
+                    b = v.link_edges[1].other_vert(v).co - v.co
+                    if a.length > 1e-6 and b.length > 1e-6:
+                        cos = a.normalized().dot(b.normalized())
+                        if abs(cos) < 0.17:
+                            extra_verts.append(v)
+            if extra_verts:
+                bmesh.ops.dissolve_verts(bm, verts=extra_verts)
+            # (c) merge doubles near former apexes — v14/v16 case where
+            # bevel left two verts at perpendicular offset distance.
+            # Run remove_doubles with threshold = small fraction of the
+            # user offset.
+            try:
+                offset = float(self.offset)
+            except (AttributeError, TypeError, ValueError):
+                offset = 0.0
+            merge_thresh = max(1e-5, offset * 0.5)
+            bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=merge_thresh)
+        bmesh.update_edit_mesh(me)
+
+    def _pre_bevel_cleanup(self, mode, ridge_dirs):
+        """Dissolve triangle-fan structures in the SOURCE mesh near the
+        chain — apex vertices surrounded entirely by triangles (typical
+        leftover of an earlier vertex/edge bevel). Runs BEFORE
+        mesh.bevel so the bevel works on a clean quad-dominant area.
+        Operates on self._bm directly.
+
+        mode 0: no-op.
+        mode 1: dissolve fan apex verts (degree>=3, all-triangle
+            faces) found in 1-ring around chain verts.
+        mode 2: mode 1 + dissolve "diagonal" edges adjacent to former
+            fans — edges between two former-fan-boundary verts whose
+            two link_faces could merge into a planar quad.
+        """
+        if mode == 0:
+            return
+        bm = self._bm
+        if bm is None:
+            return
+        sel_set = set(e for e in bm.edges if e.select and e.is_valid)
+        chain_verts = set()
+        for e in sel_set:
+            for v in e.verts:
+                if v.is_valid:
+                    chain_verts.add(v)
+        # Expand to 1-ring — fan apex verts usually sit one hop off
+        # the chain (the corner the previous bevel rounded into).
+        ring = set(chain_verts)
+        for v in chain_verts:
+            for e in v.link_edges:
+                ov = e.other_vert(v)
+                if ov.is_valid:
+                    ring.add(ov)
+
+        # Fan apex = vert whose ALL incident faces are triangles and
+        # has degree >= 3. Skip verts that are themselves selected
+        # ridge endpoints — those are our bevel target.
+        sel_verts = set()
+        for e in sel_set:
+            for v in e.verts:
+                sel_verts.add(v)
+        fan_apexes = []
+        for v in ring:
+            if v in sel_verts:
+                continue
+            if not v.is_valid:
+                continue
+            faces = list(v.link_faces)
+            if len(faces) < 3:
+                continue
+            if all(len(f.verts) == 3 for f in faces if f.is_valid):
+                fan_apexes.append(v)
+
+        # Record boundary verts of each fan (the ring verts around an
+        # apex) — used in mode 2 to find adjacent diagonals.
+        fan_boundary = set()
+        for apex in fan_apexes:
+            for e in apex.link_edges:
+                ov = e.other_vert(apex)
+                if ov.is_valid:
+                    fan_boundary.add(ov)
+
+        if fan_apexes:
+            bmesh.ops.dissolve_verts(bm, verts=fan_apexes)
+
+        if mode == 2 and fan_boundary:
+            # After fan dissolve, edges between former-fan-boundary
+            # verts whose two faces are coplanar can be dissolved.
+            bm.edges.ensure_lookup_table()
+            # Refresh references — fan_boundary verts may have moved
+            # indices but BMVert refs survive dissolve_verts.
+            diag = []
+            seen = set()
+            for v in fan_boundary:
+                if not v.is_valid:
+                    continue
+                for e in v.link_edges:
+                    if e in seen or e in sel_set or not e.is_valid:
+                        continue
+                    seen.add(e)
+                    ov = e.other_vert(v)
+                    if ov not in fan_boundary or not ov.is_valid:
+                        continue
+                    if len(e.link_faces) != 2:
+                        continue
+                    fa, fb = e.link_faces
+                    if not (fa.is_valid and fb.is_valid):
+                        continue
+                    if abs(fa.normal.dot(fb.normal)) < 0.985:
+                        continue
+                    diag.append(e)
+            if diag:
+                bmesh.ops.dissolve_edges(
+                    bm, edges=diag, use_verts=False, use_face_split=False
+                )
+        bmesh.update_edit_mesh(self._obj.data)
+
+    def _draw_fan_overlay(self, region, rv3d, mw):
+        """Flat-fan preview: arc between the two cut points (same as
+        pct overlay) plus radial spokes from the corner V to every arc
+        sample. Confirming in this mode replaces the corner ngon with
+        a fan of triangles using these same sample points — so the
+        preview shows the exact final topology."""
+        face_pairs = getattr(self, "_face_pairs", {})
+        if not face_pairs:
+            return
+        base = getattr(self, "_vert_offset_base", {})
+        user_o = max(self.offset, 0.0)
+        by_pair = {}
+        for face, pair in face_pairs.items():
+            if not face.is_valid:
+                continue
+            for v, oe, direction, ridge in pair:
+                if not (v.is_valid and oe.is_valid):
+                    continue
+                if ridge is None or not ridge.is_valid:
+                    continue
+                s_perp = user_o + base.get(v, 0.0)
+                cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                if cut is None:
+                    continue
+                # Same per-corner grouping as in _draw_pct_overlay —
+                # L-corners merge cuts from multiple ridges into one arc.
+                by_pair.setdefault(v, []).append(cut)
+
+        # Index endpoints by vert for quick lookup of picked alignment
+        # face. When an endpoint vert has a picked face, project the
+        # arc into that face's plane so the preview matches the final
+        # geometry (projection or recompute mode).
+        ep_by_vert = {}
+        for ep in getattr(self, "_fan_endpoints", []):
+            cands = ep["candidates"]
+            if not cands:
+                continue
+            f = cands[ep["pick_idx"] % len(cands)]
+            if not f.is_valid:
+                continue
+            ep_by_vert[ep["vert"]] = f
+
+        segs = max(1, self._fan_segments)
+        align_mode = self._fan_align_mode
+        line_pts = []
+        spoke_pts = []
+        point_pts = []
+        for v, cuts in by_pair.items():
+            if len(cuts) < 2:
+                continue
+            face = ep_by_vert.get(v)
+            if face is not None:
+                # Project cuts and corner onto face plane → final geom.
+                pn = face.normal
+                if pn.length < 1e-9:
+                    arc = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
+                else:
+                    pn = pn.normalized()
+                    pp = face.calc_center_median()
+                    def _proj(p):
+                        return p - pn * (p - pp).dot(pn)
+                    c0p = _proj(cuts[0])
+                    c1p = _proj(cuts[1])
+                    vp = _proj(v.co)
+                    if align_mode == "recompute":
+                        arc = _arc_through_cuts(vp, c0p, c1p, segs)
+                    else:
+                        # Project the 3D arc samples onto plane — same
+                        # transform as confirm's project mode.
+                        arc3 = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
+                        arc = [_proj(p) for p in arc3] if arc3 else None
+            else:
+                arc = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
+            if arc is None:
+                continue
+            corner_2d = view3d_utils.location_3d_to_region_2d(
+                region, rv3d, mw @ v.co)
+            prev_2d = None
+            for p_world in arc:
+                p_2d = view3d_utils.location_3d_to_region_2d(
+                    region, rv3d, mw @ p_world)
+                if p_2d is None:
+                    prev_2d = None
+                    continue
+                if prev_2d is not None:
+                    line_pts.extend([prev_2d, p_2d])
+                if corner_2d is not None:
+                    spoke_pts.extend([corner_2d, p_2d])
+                point_pts.append(p_2d)
+                prev_2d = p_2d
+
+        # Outline currently picked alignment faces.
+        face_outline = []
+        for ep in getattr(self, "_fan_endpoints", []):
+            cands = ep["candidates"]
+            if not cands:
+                continue
+            f = cands[ep["pick_idx"] % len(cands)]
+            if not f.is_valid:
+                continue
+            fv = list(f.verts)
+            for i, vrt in enumerate(fv):
+                a = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ vrt.co)
+                b = view3d_utils.location_3d_to_region_2d(
+                    region, rv3d, mw @ fv[(i + 1) % len(fv)].co)
+                if a is not None and b is not None:
+                    face_outline.extend([a, b])
+
+        if not line_pts and not spoke_pts and not face_outline:
+            return
+        with draw_scope(blend="ALPHA"):
+            if line_pts:
+                coords = [Vector((p[0], p[1], 0.0)) for p in line_pts]
+                draw.edges_3d(coords, role=Role.PREVIEW_LINE, context=bpy.context)
+            if spoke_pts:
+                coords = [Vector((p[0], p[1], 0.0)) for p in spoke_pts]
+                draw.edges_3d(coords, role=Role.PREVIEW_LINE, context=bpy.context)
+            if face_outline:
+                coords = [Vector((p[0], p[1], 0.0)) for p in face_outline]
+                draw.edges_3d(coords, role=Role.ACTIVE_LINE, context=bpy.context)
+            if point_pts:
+                pts = [Vector((p[0], p[1], 0.0)) for p in point_pts]
+                draw.points(pts, role=Role.PREVIEW_POINT, context=bpy.context)
+
+    def _preview_snap_extensions(self):
+        """Returns list of (sv_co, target_co) pairs showing where each
+        chain-endpoint cut would be snapped if confirm with snap mode.
+        Mirrors the snap pass in `_exec_straight` geometrically (without
+        modifying mesh). Used by `_draw_callback` to draw extension
+        lines from the hanging cut endpoint to the boundary edge it
+        would land on."""
+        # Extension line is always computed/drawn so the user sees
+        # WHERE each endpoint would snap to. The actual weld only fires
+        # on confirm when `snap_endpoints` is on; the preview line just
+        # signals "if you toggle S, this is where the cut will land".
+        out = []
+        eps = getattr(self, "_fan_endpoints", [])
+        if not eps:
+            return out
+        base = getattr(self, "_vert_offset_base", {})
+        face_pairs = getattr(self, "_face_pairs", {})
+        user_o = max(self.offset, 0.0)
+        for ep in eps:
+            v_end = ep["vert"]
+            ridge = ep["ridge"]
+            if not (v_end.is_valid and ridge.is_valid):
+                continue
+            other = ridge.other_vert(v_end)
+            cast_dir = v_end.co - other.co
+            if cast_dir.length < 1e-9:
+                continue
+            cast_dir = cast_dir.normalized()
+            candidates = set()
+            for f in v_end.link_faces:
+                for ee in f.edges:
+                    if not ee.is_valid:
+                        continue
+                    if ee.select:
+                        continue
+                    candidates.add(ee)
+            # Collect svs at this endpoint from face_pairs entries.
+            for face, pair in face_pairs.items():
+                if not face.is_valid:
+                    continue
+                for v, oe, direction, sel_ridge in pair:
+                    if v is not v_end:
+                        continue
+                    if sel_ridge is not ridge:
+                        continue
+                    s_perp = user_o + base.get(v, 0.0)
+                    sv_co = self._cut_on_rail(v, oe, direction, sel_ridge, s_perp)
+                    if sv_co is None:
+                        continue
+                    best = None
+                    for ee in candidates:
+                        if oe is ee:
+                            continue
+                        a, b = ee.verts[0].co, ee.verts[1].co
+                        res = intersect_line_line(sv_co, sv_co + cast_dir, a, b)
+                        if res is None:
+                            continue
+                        p1, p2 = res
+                        if (p1 - p2).length > 1e-4:
+                            continue
+                        t = (p1 - sv_co).dot(cast_dir)
+                        if t <= EPS:
+                            continue
+                        seg = b - a
+                        l2 = seg.length_squared
+                        if l2 < 1e-12:
+                            continue
+                        u = (p1 - a).dot(seg) / l2
+                        if u < -EPS or u > 1 + EPS:
+                            continue
+                        if best is None or t < best[0]:
+                            best = (t, p1.copy())
+                    if best is not None:
+                        out.append((sv_co.copy(), best[1]))
+        return out
 
     def _draw_callback(self, context):
         region = context.region
@@ -725,6 +1544,9 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
             return
+        # Boundary preview lines parallel to each ridge in each face —
+        # always drawn (in B/F mode they ARE the bevel boundary; in
+        # straight mode they're the perpendicular cut lines).
         segs_2d = []
         endpoints_2d = []
         for a, b in self._preview_segments():
@@ -744,8 +1566,31 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     pts3 = [Vector((p[0], p[1], 0.0)) for p in endpoints_2d]
                     draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
 
+        # Snap-endpoint extension preview: dashed-ish line from the
+        # hanging cut endpoint to the boundary edge it'll snap to.
+        snap_ext = self._preview_snap_extensions()
+        if snap_ext:
+            ext_segs = []
+            ext_pts = []
+            for a, b in snap_ext:
+                pa = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ a)
+                pb = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ b)
+                if pa is None or pb is None:
+                    continue
+                ext_segs.extend([pa, pb])
+                ext_pts.append(pb)
+            if ext_segs:
+                coords3 = [Vector((p[0], p[1], 0.0)) for p in ext_segs]
+                with draw_scope(blend="ALPHA"):
+                    draw.edges_3d(coords3, role=Role.ACTIVE_LINE, context=context)
+                    if ext_pts:
+                        pts3 = [Vector((p[0], p[1], 0.0)) for p in ext_pts]
+                        draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
+
         if self._pct_active:
             self._draw_pct_overlay(region, rv3d, mw)
+        elif self._fan_active:
+            self._draw_fan_overlay(region, rv3d, mw)
 
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
@@ -764,6 +1609,182 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def execute(self, context):
+        """Dispatcher. Called both from modal confirm (with HUD/draw
+        handlers already torn down) and from the redo panel (no modal
+        state at all). PCT and FAN paths rebuild their endpoint data
+        from the current selection so they're safe to re-run."""
+        if self.mode == "PCT":
+            return self._exec_pct(context)
+        if self.mode == "FAN":
+            return self._exec_fan(context)
+        return self._exec_straight(context)
+
+    def _gather_endpoint_data(self, bm, selected):
+        """Re-collect _fan_endpoints from the current selection and
+        snapshot (orig_vert_pos, face_plane) per endpoint. Used by both
+        modal confirm and redo-panel re-execution of PCT/FAN modes.
+        Plane is captured as (normal, point) because BMFace refs don't
+        survive the mesh.bevel topology rebuild that follows."""
+        self._bm = bm
+        self._collect_jobs(bm, selected)
+        endpoint_data = []
+        for ep in getattr(self, "_fan_endpoints", []):
+            v = ep["vert"]
+            if not v.is_valid:
+                continue
+            cands = ep["candidates"]
+            face = cands[ep["pick_idx"] % len(cands)] if cands else None
+            if face is not None and face.is_valid:
+                plane = (face.normal.copy(), face.calc_center_median().copy())
+            else:
+                plane = None
+            endpoint_data.append((v.co.copy(), plane))
+        return endpoint_data
+
+    def _exec_pct(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != "MESH":
+            return {"CANCELLED"}
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        bm.normal_update()
+        selected = [e for e in bm.edges if e.select and len(e.link_faces) > 0]
+        if not selected:
+            self.report({"WARNING"}, "No edges selected")
+            return {"CANCELLED"}
+        endpoint_data = self._gather_endpoint_data(bm, selected)
+        user_offset = self.offset
+        segments = self.pct_segments
+        pre_n = len(bm.verts)
+        bpy.ops.mesh.bevel(
+            offset_type="OFFSET",
+            offset=user_offset,
+            profile_type="SUPERELLIPSE",
+            segments=segments,
+            profile=0.5,
+            affect="EDGES",
+            clamp_overlap=False,
+            loop_slide=False,
+            release_confirm=False,
+        )
+        self._snap_apex_tips(me, endpoint_data, user_offset)
+        planes = [p for _, p in endpoint_data]
+        self._post_bevel_cleanup(me, pre_n, self.cleanup_mode, planes)
+        return {"FINISHED"}
+
+    def _exec_fan(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != "MESH":
+            return {"CANCELLED"}
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        bm.normal_update()
+        selected = [e for e in bm.edges if e.select and len(e.link_faces) > 0]
+        if not selected:
+            self.report({"WARNING"}, "No edges selected")
+            return {"CANCELLED"}
+        endpoint_data = self._gather_endpoint_data(bm, selected)
+        # Build ep_specs for boundary alignment (vert pos + plane + ridge dir).
+        ep_specs = []
+        for ep in getattr(self, "_fan_endpoints", []):
+            cands = ep["candidates"]
+            if not cands:
+                continue
+            face = cands[ep["pick_idx"] % len(cands)]
+            if not face.is_valid:
+                continue
+            vert = ep["vert"]
+            ridge = ep["ridge"]
+            if not (vert.is_valid and ridge.is_valid):
+                continue
+            ep_specs.append({
+                "v_co": vert.co.copy(),
+                "plane_point": face.calc_center_median().copy(),
+                "plane_normal": face.normal.copy(),
+                "ridge_dir": ep["ridge_dir"].copy(),
+            })
+        user_offset = self.offset
+        segments = self.fan_segments
+        align_mode = self.fan_align_mode
+        pre_n = len(bm.verts)
+        bpy.ops.mesh.bevel(
+            offset_type="OFFSET",
+            offset=user_offset,
+            profile_type="SUPERELLIPSE",
+            segments=segments,
+            profile=0.5,
+            affect="EDGES",
+            clamp_overlap=False,
+            loop_slide=False,
+            release_confirm=False,
+        )
+        bm = bmesh.from_edit_mesh(me)
+        bm.verts.ensure_lookup_table()
+        new_verts = [v for v in bm.verts if v.index >= pre_n and v.is_valid]
+        for spec in ep_specs:
+            pn = spec["plane_normal"]
+            if pn.length < 1e-9:
+                continue
+            pn = pn.normalized()
+            pp = spec["plane_point"]
+            v_co = spec["v_co"]
+            radius = user_offset * 1.6
+            boundary = [v for v in new_verts if (v.co - v_co).length <= radius]
+            if not boundary:
+                continue
+            if align_mode == "project":
+                for v in boundary:
+                    d = (v.co - pp).dot(pn)
+                    v.co = v.co - pn * d
+            else:  # recompute
+                if len(boundary) < 2:
+                    continue
+                proj = []
+                for v in boundary:
+                    d = (v.co - pp).dot(pn)
+                    proj.append(v.co - pn * d)
+                far_i, far_j, far_d = 0, 1, -1.0
+                for i in range(len(proj)):
+                    for j in range(i + 1, len(proj)):
+                        d = (proj[i] - proj[j]).length
+                        if d > far_d:
+                            far_d = d
+                            far_i = i
+                            far_j = j
+                p_a = proj[far_i]
+                p_b = proj[far_j]
+                d_c = (v_co - pp).dot(pn)
+                center_ref = v_co - pn * d_c
+                arc = _arc_through_cuts(center_ref, p_a, p_b, len(boundary) - 1)
+                if arc is None:
+                    for v, p in zip(boundary, proj):
+                        v.co = p
+                    continue
+                u = (p_a - center_ref)
+                if u.length < 1e-9:
+                    for v, p in zip(boundary, proj):
+                        v.co = p
+                    continue
+                u.normalize()
+                w = pn.cross(u).normalized()
+                def _angle(p, _cr=center_ref, _u=u, _w=w):
+                    d = p - _cr
+                    return math.atan2(d.dot(_w), d.dot(_u))
+                order = sorted(range(len(boundary)), key=lambda i: _angle(proj[i]))
+                for k, idx in enumerate(order):
+                    if k < len(arc):
+                        boundary[idx].co = arc[k]
+        bmesh.update_edit_mesh(me)
+        self._snap_apex_tips(me, endpoint_data, user_offset)
+        planes = [p for _, p in endpoint_data]
+        self._post_bevel_cleanup(me, pre_n, self.cleanup_mode, planes)
+        return {"FINISHED"}
+
+    def _exec_straight(self, context):
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
@@ -834,11 +1855,16 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         # Find neighbour edge at each (vert, face) for each ridge edge.
         # Collect per-face pairs (v1, oe1, v2, oe2) so we can compute offsets
         # that yield perpendicular cuts.
+        # Don't exclude shared_verts here. A shared (collinear interior)
+        # vert sits between two ridges that live in DIFFERENT face sets;
+        # without a job entry on the shared side, Pass 1's by_ridge
+        # grouping never gets two jobs for those faces, so no cut is
+        # produced (cuts "vanish" past the shared corner). The collinear
+        # geometry guarantees the split point on the shared rail aligns
+        # naturally between the two adjacent ridge cuts.
         face_pairs = {}  # face -> [(v, oe), (v, oe)]
         for e in selected:
             for v in e.verts:
-                if v in shared_verts:
-                    continue
                 for face in e.link_faces:
                     face_edges_at_v = [
                         oe for oe in v.link_edges
@@ -873,11 +1899,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 comp_verts.update(e.verts)
 
             # Pick a starting vert (endpoint for open path; any for closed loop).
-            start = None
-            for v in comp_verts:
-                if v not in shared_verts:
-                    start = v
-                    break
+            # Prefer count=1 in the component so BFS roots at a real
+            # endpoint rather than an L-corner — see _collect_jobs for
+            # the full rationale on why corner-rooted propagation
+            # produces garbage corrections on deformed quads.
+            _ecount = {}
+            for e in comp_edges:
+                for v in e.verts:
+                    _ecount[v] = _ecount.get(v, 0) + 1
+            start = next((v for v in comp_verts if _ecount.get(v, 0) == 1), None)
+            if start is None:
+                start = next((v for v in comp_verts if v not in shared_verts), None)
             if start is None:
                 start = next(iter(comp_verts))
             comp_offsets = {start: 0.0}
@@ -892,21 +1924,22 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         continue
                     visited_edges.add(ridge)
                     correction = 0.0
-                    for face in ridge.link_faces:
-                        fe_at_cur = [
-                            oe for oe in current.link_edges
-                            if face in oe.link_faces and oe is not ridge
-                            and oe not in selected_set
-                        ]
-                        if not fe_at_cur:
-                            continue
-                        oe = fe_at_cur[0]
-                        d = oe.other_vert(current).co - current.co
-                        if d.length < 1e-9:
-                            continue
-                        d_n = d.normalized()
-                        correction = (other.co - current.co).dot(-d_n)
-                        break
+                    if current in shared_verts:
+                        for face in ridge.link_faces:
+                            fe_at_cur = [
+                                oe for oe in current.link_edges
+                                if face in oe.link_faces and oe is not ridge
+                                and oe not in selected_set
+                            ]
+                            if not fe_at_cur:
+                                continue
+                            oe = fe_at_cur[0]
+                            d = oe.other_vert(current).co - current.co
+                            if d.length < 1e-9:
+                                continue
+                            d_n = d.normalized()
+                            correction = (other.co - current.co).dot(-d_n)
+                            break
                     comp_offsets[other] = cur_off + correction
                     queue.append(other)
 
@@ -916,7 +1949,13 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 for v, o in comp_offsets.items():
                     vert_offset[v] = (o - min_off) + offset
 
-        # Build offsets_at per (v, oe).
+        # Build offsets_at per (v, oe). `s` from vert_offset is the
+        # PERPENDICULAR distance from the ridge (preview semantics).
+        # Convert to along-rail by /sin(θ) where θ is the angle between
+        # the rail and THIS face's ridge. Without this the cut at a
+        # non-90° rail lands closer to the corner than the preview, so
+        # the resulting connect_vert_pair line isn't parallel to the
+        # ridge — "straight bevel not straight" on trapezoidal faces.
         offsets_at = {}
         for v, s in vert_offset.items():
             if s <= EPS:
@@ -926,6 +1965,12 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                                  if e in selected_set and face in e.link_faces]
                 if not ridge_in_face:
                     continue
+                ridge = ridge_in_face[0]
+                ridge_v = ridge.other_vert(v).co - v.co
+                rl = ridge_v.length
+                if rl < 1e-9:
+                    continue
+                ridge_n = ridge_v / rl
                 fe_at_v = [
                     oe for oe in v.link_edges
                     if face in oe.link_faces and oe not in selected_set
@@ -933,13 +1978,19 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 if not fe_at_v:
                     continue
                 oe = fe_at_v[0]
-                L = (oe.other_vert(v).co - v.co).length
+                rail = oe.other_vert(v).co - v.co
+                L = rail.length
+                if L < 1e-9:
+                    continue
+                rail_n = rail / L
+                sin_th = rail_n.cross(ridge_n).length
+                s_along = s if sin_th < 1e-4 else s / sin_th
                 # Stop at the neighbour vertex if the offset would
                 # reach or exceed it: snap to L exactly so _get_start
                 # returns the existing vert instead of producing a
                 # near-zero-length split. This prevents the cut from
                 # crossing past an existing vertex.
-                clamped = min(max(s, 0.0), L)
+                clamped = min(max(s_along, 0.0), L)
                 key = (v, oe)
                 if key not in offsets_at or clamped > offsets_at[key]:
                     offsets_at[key] = clamped
@@ -1226,6 +2277,97 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     res = bmesh.ops.connect_vert_pair(bm, verts=[a, b])
                     new_edges.extend(res.get("edges", []))
                 handled_faces.update(strip)
+
+        # Endpoint extension pass. ALWAYS: cast the rail-split vert
+        # along -ridge_dir to the nearest face boundary edge and move
+        # its coordinates there (geometric extension — cut visually
+        # lands on the boundary).
+        # OPTIONAL (snap_endpoints=True): also split that boundary edge
+        # at the hit point and weld the cut endpoint into the new
+        # boundary vert (topological join — boundary becomes subdivided
+        # and shares the cut endpoint).
+        for comp_edges in _components_pre.values():
+            _ec = {}
+            for e in comp_edges:
+                for v in e.verts:
+                    _ec[v] = _ec.get(v, 0) + 1
+            endpoints_local = [v for v, c in _ec.items() if c == 1]
+            for v_end in endpoints_local:
+                if not v_end.is_valid:
+                    continue
+                ridge_e = next(
+                    (e for e in v_end.link_edges if e in selected_set),
+                    None,
+                )
+                if ridge_e is None or not ridge_e.is_valid:
+                    continue
+                other_end = ridge_e.other_vert(v_end)
+                cast_dir = v_end.co - other_end.co
+                if cast_dir.length < 1e-9:
+                    continue
+                cast_dir = cast_dir.normalized()
+                candidates = set()
+                for f in v_end.link_faces:
+                    for ee in f.edges:
+                        if ee in selected_set:
+                            continue
+                        candidates.add(ee)
+                for (vv, oe), sv in list(split_cache.items()):
+                    if vv is not v_end:
+                        continue
+                    if sv is None or not sv.is_valid or sv is v_end:
+                        continue
+                    best = None
+                    for ee in candidates:
+                        if not ee.is_valid or sv in ee.verts:
+                            continue
+                        a, b = ee.verts[0].co, ee.verts[1].co
+                        res = intersect_line_line(
+                            sv.co, sv.co + cast_dir, a, b
+                        )
+                        if res is None:
+                            continue
+                        p1, p2 = res
+                        if (p1 - p2).length > 1e-4:
+                            continue
+                        t = (p1 - sv.co).dot(cast_dir)
+                        if t <= EPS:
+                            continue
+                        seg = b - a
+                        l2 = seg.length_squared
+                        if l2 < 1e-12:
+                            continue
+                        u = (p1 - a).dot(seg) / l2
+                        if u < -EPS or u > 1 + EPS:
+                            continue
+                        u = max(0.0, min(1.0, u))
+                        if best is None or t < best[0]:
+                            best = (t, ee, p1.copy(), u)
+                    if best is None:
+                        continue
+                    _t, hit_edge, hit_pt, u = best
+                    # Always: geometric extension. Move sv onto the
+                    # boundary projection point — visually the cut now
+                    # lands on the boundary edge. No topology change.
+                    sv.co = hit_pt.copy()
+                    if self.snap_to_endpoint:
+                        # Optional: topological join. Split the boundary
+                        # edge at the projection (or reuse an existing
+                        # endpoint vert if u is ~0/1) and weld sv into
+                        # the resulting vert so the boundary becomes
+                        # subdivided and shares sv's identity.
+                        if u < EPS:
+                            target_v = hit_edge.verts[0]
+                        elif u > 1 - EPS:
+                            target_v = hit_edge.verts[1]
+                        else:
+                            _, target_v = bmesh.utils.edge_split(
+                                hit_edge, hit_edge.verts[0], u
+                            )
+                        if target_v is not sv and target_v.is_valid:
+                            bmesh.ops.weld_verts(
+                                bm, targetmap={sv: target_v}
+                            )
 
         # Continuity pass: weld cut endpoints that landed at (numerically)
         # the same position from independent splits on a shared edge.

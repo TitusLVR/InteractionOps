@@ -1,7 +1,6 @@
 import math
 import bpy
 import bmesh
-from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from bpy.props import BoolProperty, FloatProperty
 
@@ -37,85 +36,99 @@ class IOPS_OT_Mesh_QuickSnap(bpy.types.Operator):
     # def poll(cls, context):
     #     return (and context.area.type == "VIEW_3D")
 
+    def _build_edit_data(self, edit_objects):
+        """For each edit-mode object: live bmesh, selected coords, and a BVH
+        of geometry excluding selected verts (used as snap target when another
+        edit object snaps onto this one, or for self-snap)."""
+        edit_data = {}
+        for eo in edit_objects:
+            ebm = bmesh.from_edit_mesh(eo.data)
+            ebm.verts.ensure_lookup_table()
+            sel_co = {v.index: v.co.copy() for v in ebm.verts if v.select}
+
+            cbm = ebm.copy()
+            cbm.verts.ensure_lookup_table()
+            drop = [v for v in cbm.verts if v.select]
+            if drop:
+                bmesh.ops.delete(cbm, geom=drop, context="VERTS")
+            cbm.verts.ensure_lookup_table()
+            cbm.faces.ensure_lookup_table()
+            if len(cbm.faces) > 0:
+                bvh = BVHTree.FromBMesh(cbm)
+                face_verts = [[v.co.copy() for v in f.verts] for f in cbm.faces]
+            else:
+                bvh = None
+                face_verts = None
+            cbm.free()
+
+            edit_data[eo] = {
+                "ebm": ebm,
+                "sel_co": sel_co,
+                "bvh": bvh,
+                "face_verts": face_verts,
+            }
+        return edit_data
+
+    def _find_target(self, vert_co, ob, edit_data):
+        """Return (hit, loc, norm, face_index, face_verts_co) for snap query."""
+        ob_mw_i = ob.matrix_world.inverted()
+        local_pos = ob_mw_i @ vert_co
+        if ob in edit_data:
+            bvh = edit_data[ob]["bvh"]
+            if bvh is None:
+                return False, None, None, None, None
+            loc, norm, face_index, _ = bvh.find_nearest(local_pos)
+            if loc is None:
+                return False, None, None, None, None
+            return True, loc, norm, face_index, edit_data[ob]["face_verts"][face_index]
+        hit, loc, norm, face_index = ob.closest_point_on_mesh(local_pos)
+        return hit, loc, norm, face_index, None
+
     def execute(self, context):
-        if context.mode == "EDIT_MESH":
-            scene = context.scene
+        if context.mode != "EDIT_MESH":
+            self.report({"WARNING"}, "ENTER TO MESH EDIT MODE!!!")
+            return {"FINISHED"}
 
-            edit_obj = context.active_object
-            me = edit_obj.data
+        scene = context.scene
+        edit_objects = [o for o in context.objects_in_mode if o.type == "MESH"]
+        edit_data = self._build_edit_data(edit_objects)
+
+        external_objects = [
+            o
+            for o in scene.objects
+            if o.type == "MESH"
+            and o not in edit_objects
+            and o.data.polygons[:] != []
+            and o.visible_get()
+            and o.modifiers[:] == []
+        ]
+
+        for eo in edit_objects:
+            d = edit_data[eo]
+            if not d["sel_co"]:
+                continue
+
+            # Snap targets: all external meshes + other edit objects.
+            # Same-object only included when self-snap is on.
+            target_objects = list(external_objects)
+            for other in edit_objects:
+                if other is eo:
+                    if self.quick_snap_self and edit_data[other]["bvh"] is not None:
+                        target_objects.append(other)
+                else:
+                    target_objects.append(other)
+
             target_points = []
-            # GET INDEXES
-            bm = bmesh.from_edit_mesh(me)
-            selected_verts_index = []
-            for v in bm.verts:
-                if v.select:
-                    selected_verts_index.append(v.index)
-            bpy.ops.object.editmode_toggle()
-            bm.free()
-            bpy.ops.object.editmode_toggle()
+            eo_mw = eo.matrix_world
 
-            # GET SCENE OBJECTS
-            mesh_objects = [
-                o
-                for o in scene.objects
-                if o.type == "MESH"
-                and o.data.polygons[:] != []
-                and o.visible_get()
-                and o.modifiers[:] == []
-            ]
-            if self.quick_snap_self and edit_obj not in mesh_objects:
-                mesh_objects.append(edit_obj)
-
-            # Build a BVH of edit_obj geometry excluding selected verts/faces,
-            # so self-snap (both surface and vertex modes) ignores the moving
-            # selection itself.
-            self_bvh = None
-            self_face_verts = None
-            if self.quick_snap_self:
-                self_bm = bmesh.new()
-                self_bm.from_mesh(me)
-                self_bm.verts.ensure_lookup_table()
-                drop = [self_bm.verts[i] for i in selected_verts_index]
-                bmesh.ops.delete(self_bm, geom=drop, context="VERTS")
-                self_bm.verts.ensure_lookup_table()
-                self_bm.faces.ensure_lookup_table()
-                if len(self_bm.faces) > 0:
-                    self_bvh = BVHTree.FromBMesh(self_bm)
-                    self_face_verts = [
-                        [v.co.copy() for v in f.verts] for f in self_bm.faces
-                    ]
-                self_bm.free()
-
-            bm = bmesh.new()
-            for ob in mesh_objects:
-                is_self = ob == edit_obj
-                if is_self and not self.quick_snap_self:
-                    continue
-                if is_self and self_bvh is None:
-                    continue
-                ob_mw_i = ob.matrix_world.inverted()
-
-                bm.from_mesh(me)
-                bm.verts.ensure_lookup_table()
-                for ind in selected_verts_index:
-                    vert = bm.verts[ind]
-                    vert_co = edit_obj.matrix_world @ vert.co
-                    local_pos = ob_mw_i @ vert_co
-
-                    if is_self:
-                        loc, norm, face_index, _ = self_bvh.find_nearest(local_pos)
-                        hit = loc is not None
-                        face_verts_co = (
-                            self_face_verts[face_index] if hit else None
-                        )
-                    else:
-                        (hit, loc, norm, face_index) = ob.closest_point_on_mesh(
-                            local_pos
-                        )
-                        face_verts_co = None
+            for ob in target_objects:
+                for ind, co in d["sel_co"].items():
+                    vert_co = eo_mw @ co
+                    hit, loc, norm, face_index, face_verts_co = self._find_target(
+                        vert_co, ob, edit_data
+                    )
 
                     if hit and self.quick_snap_normal_check:
-                        # World-space face normal at hit and vector hit -> vertex.
                         world_norm = (
                             ob.matrix_world.to_3x3() @ norm
                         ).normalized()
@@ -126,57 +139,45 @@ class IOPS_OT_Mesh_QuickSnap(bpy.types.Operator):
                             if math.degrees(angle) > self.quick_snap_normal_angle:
                                 hit = False
 
-                    if hit:
-                        bm.verts.ensure_lookup_table()
-                        bm.faces.ensure_lookup_table()
-                        v_dists = {}
-                        if self.quick_snap_surface:
-                            target_co = ob.matrix_world @ loc
+                    if not hit:
+                        continue
+
+                    if self.quick_snap_surface:
+                        min_co = ob.matrix_world @ loc
+                        min_len = (min_co - vert_co).length
+                    else:
+                        if face_verts_co is not None:
+                            iter_co = enumerate(face_verts_co)
+                        else:
+                            iter_co = (
+                                (v, ob.data.vertices[v].co)
+                                for v in ob.data.polygons[face_index].vertices
+                            )
+                        best = None
+                        for _key, fco in iter_co:
+                            target_co = ob.matrix_world @ fco
                             v_dist = (target_co - vert_co).length
-                            min_co = target_co
-                            min_len = v_dist
-                        else:
-                            if is_self:
-                                iter_co = enumerate(face_verts_co)
-                            else:
-                                iter_co = (
-                                    (v, ob.data.vertices[v].co)
-                                    for v in ob.data.polygons[face_index].vertices
-                                )
-                            for key, co in iter_co:
-                                target_co = ob.matrix_world @ co
-                                v_dist = (target_co - vert_co).length
-                                v_dists[key] = {}
-                                v_dists[key]["co"] = (*target_co,)
-                                v_dists[key]["len"] = v_dist
+                            if best is None or v_dist < best[1]:
+                                best = (target_co, v_dist)
+                        if best is None:
+                            continue
+                        min_co, min_len = best
 
-                            if not v_dists:
-                                continue
-                            lens = [v_dists[idx]["len"] for idx in v_dists]
-                            for k in v_dists.values():
-                                if k["len"] == min(lens):
-                                    min_co = Vector((k["co"]))
-                                    min_len = k["len"]
+                    existing = next(
+                        (p for p in target_points if p[0] == ind), None
+                    )
+                    if existing is None:
+                        target_points.append([ind, min_co, min_len])
+                    elif min_len < existing[2]:
+                        existing[1] = min_co
+                        existing[2] = min_len
 
-                        if target_points:
-                            if len(target_points) != len(selected_verts_index):
-                                target_points.append([ind, min_co, min_len])
-                            else:
-                                for p in target_points:
-                                    if p[0] == ind and p[2] >= min_len:
-                                        p[1] = min_co
-                                        p[2] = min_len
-                        else:
-                            target_points.append([ind, min_co, min_len])
-                bm.clear()
-
-            bm = bmesh.from_edit_mesh(me)
-            bm.verts.ensure_lookup_table()
+            ebm = d["ebm"]
+            ebm.verts.ensure_lookup_table()
+            mw_i = eo_mw.inverted()
             for p in target_points:
-                bm.verts[p[0]].co = edit_obj.matrix_world.inverted() @ p[1]
-            bmesh.update_edit_mesh(me)
+                ebm.verts[p[0]].co = mw_i @ p[1]
+            bmesh.update_edit_mesh(eo.data)
 
-            self.report({"INFO"}, "POINTS ARE SNAPPED!!!")
-        else:
-            self.report({"WARNING"}, "ENTER TO MESH EDIT MODE!!!")
+        self.report({"INFO"}, "POINTS ARE SNAPPED!!!")
         return {"FINISHED"}
