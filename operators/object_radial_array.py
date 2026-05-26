@@ -409,6 +409,170 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.value != "PRESS":
             return {"PASS_THROUGH"}
 
+        # --- mode cycles ---
+        if event.type == "P" and event.value == "PRESS":
+            self.pivot_mode = _cycle(self.pivot_mode, PIVOT_CYCLE)
+            pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
+            if sources:
+                self.pivot_co = pivot_co
+                self.pivot_obj = pivot_obj
+                self.sources = sources
+                self.end_target = end_target
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "I" and event.value == "PRESS":
+            self.clone_mode = _cycle(self.clone_mode, CLONE_CYCLE)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "A" and event.value == "PRESS":
+            self.arc_mode = _cycle(self.arc_mode, ARC_CYCLE)
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        # --- axis ---
+        if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
+            self.axis_mode = {"X": AXIS_GLOBAL_X, "Y": AXIS_GLOBAL_Y, "Z": AXIS_GLOBAL_Z}[event.type]
+            self.pending_normal_pick = False
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "L" and event.value == "PRESS":
+            mapping = {
+                AXIS_GLOBAL_X: AXIS_LOCAL_X, AXIS_GLOBAL_Y: AXIS_LOCAL_Y, AXIS_GLOBAL_Z: AXIS_LOCAL_Z,
+                AXIS_LOCAL_X:  AXIS_GLOBAL_X, AXIS_LOCAL_Y: AXIS_GLOBAL_Y, AXIS_LOCAL_Z: AXIS_GLOBAL_Z,
+            }
+            self.axis_mode = mapping.get(self.axis_mode, AXIS_GLOBAL_Z)
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "V" and event.value == "PRESS":
+            self.axis_mode = AXIS_VIEW
+            self.pending_normal_pick = False
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "N" and event.value == "PRESS":
+            self.pending_normal_pick = True
+            self.report({"INFO"}, "Click a face to set rotation axis from its normal")
+            return {"RUNNING_MODAL"}
+
+        # --- normal pick via LMB while pending (MUST come before apply LMB) ---
+        if self.pending_normal_pick and event.type == "LEFTMOUSE" and event.value == "PRESS":
+            region = context.region
+            rv3d = context.region_data
+            mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+            from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+            origin = region_2d_to_origin_3d(region, rv3d, mouse)
+            direction = region_2d_to_vector_3d(region, rv3d, mouse)
+            depsgraph = context.evaluated_depsgraph_get()
+            hit, loc, normal, idx, obj, mat = context.scene.ray_cast(depsgraph, origin, direction)
+            if hit:
+                self._cached_axis_vec = (mat.to_3x3() @ normal).normalized()
+                self.axis_mode = AXIS_NORMAL
+                self._dirty = True
+                self.report({"INFO"}, "Axis set from face normal")
+            else:
+                self.report({"WARNING"}, "No face hit")
+            self.pending_normal_pick = False
+            return {"RUNNING_MODAL"}
+
+        # --- toggles ---
+        if event.type == "R" and event.value == "PRESS":
+            self.align_to_radius = not self.align_to_radius
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "O" and event.value == "PRESS":
+            self.skip_first = not self.skip_first
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "E" and event.value == "PRESS":
+            self.end_inclusive = not self.end_inclusive
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        # --- count ---
+        if event.type in {"NUMPAD_PLUS", "EQUAL", "WHEELUPMOUSE"} and event.value == "PRESS":
+            step = 10 if event.ctrl else 1
+            self.count = min(1024, self.count + step)
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+        if event.type in {"NUMPAD_MINUS", "MINUS", "WHEELDOWNMOUSE"} and event.value == "PRESS":
+            step = 10 if event.ctrl else 1
+            self.count = max(2, self.count - step)
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        # --- numeric channel selection ---
+        if event.type == "G" and event.value == "PRESS":
+            self.numeric_channel = "ANGLE"
+            self.numeric_string = ""
+            self._angle_drag_start_x = event.mouse_region_x
+            self._angle_drag_start_value = self.arc_angle
+            return {"RUNNING_MODAL"}
+        if event.type == "S" and event.value == "PRESS":
+            self.start_offset_enabled = True
+            self.numeric_channel = "OFFSET"
+            self.numeric_string = ""
+            return {"RUNNING_MODAL"}
+
+        # angle drag in ANGLE channel
+        if self.numeric_channel == "ANGLE" and event.type == "MOUSEMOVE":
+            dx = event.mouse_region_x - getattr(self, "_angle_drag_start_x", event.mouse_region_x)
+            ang = getattr(self, "_angle_drag_start_value", 0.0) + math.radians(dx * 0.5)
+            if event.ctrl and event.shift:
+                snap = math.radians(15.0)
+                ang = round(ang / snap) * snap
+            elif event.ctrl:
+                snap = math.radians(5.0)
+                ang = round(ang / snap) * snap
+            self.arc_angle = ang
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        # numeric digits
+        if self.numeric_channel is not None and event.value == "PRESS":
+            digit_map = {
+                "ZERO": "0", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4",
+                "FIVE": "5", "SIX": "6", "SEVEN": "7", "EIGHT": "8", "NINE": "9",
+                "NUMPAD_0": "0", "NUMPAD_1": "1", "NUMPAD_2": "2", "NUMPAD_3": "3",
+                "NUMPAD_4": "4", "NUMPAD_5": "5", "NUMPAD_6": "6", "NUMPAD_7": "7",
+                "NUMPAD_8": "8", "NUMPAD_9": "9",
+            }
+            if event.type in digit_map:
+                self.numeric_string += digit_map[event.type]
+            elif event.type in {"PERIOD", "NUMPAD_PERIOD"}:
+                if "." not in self.numeric_string:
+                    self.numeric_string += "."
+            elif event.type == "BACK_SPACE":
+                self.numeric_string = self.numeric_string[:-1]
+            elif event.type == "MINUS":
+                if self.numeric_string.startswith("-"):
+                    self.numeric_string = self.numeric_string[1:]
+                else:
+                    self.numeric_string = "-" + self.numeric_string
+            else:
+                # not a digit-input key — let it fall through to other handlers below
+                pass
+            try:
+                if self.numeric_string in ("", "-", ".", "-."):
+                    val_deg = 0.0
+                else:
+                    val_deg = float(self.numeric_string)
+                val_rad = math.radians(val_deg)
+                if self.numeric_channel == "ANGLE":
+                    self.arc_angle = val_rad
+                elif self.numeric_channel == "OFFSET":
+                    self.start_offset = val_rad
+                self._dirty = True
+            except ValueError:
+                pass
+            # Only consume if it was actually a numeric-input key
+            if event.type in digit_map or event.type in {"PERIOD", "NUMPAD_PERIOD", "BACK_SPACE", "MINUS"}:
+                return {"RUNNING_MODAL"}
+
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
             self._cleanup()
             return {"FINISHED"}
