@@ -574,6 +574,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
 
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
+            self._apply(context)
             self._cleanup()
             return {"FINISHED"}
 
@@ -590,3 +591,67 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if getattr(self, "_handle_3d", None) is not None:
             safe_handler_remove(self._handle_3d, bpy.types.SpaceView3D, "WINDOW")
             self._handle_3d = None
+
+    def _apply(self, context):
+        axis_vec = _resolve_axis(self, context)
+        ang_total, step, n_clones = _compute_arc(self, axis_vec)
+        if n_clones <= 0:
+            return
+
+        created_roots = []
+
+        for subtree in self.subtree_data:
+            root_obj = subtree[0][0]
+            root_mw = root_obj.matrix_world.copy()
+
+            try:
+                base_coll = root_obj.users_collection[0]
+            except IndexError:
+                base_coll = context.scene.collection
+            ra_name = f"_RadialArray_{root_obj.name}"
+            ra_coll = bpy.data.collections.get(ra_name) or bpy.data.collections.new(ra_name)
+            existing = {c.name for c in context.scene.collection.children_recursive}
+            if ra_name not in existing:
+                context.scene.collection.children.link(ra_coll)
+
+            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones):
+                if self.skip_first and ci == 0:
+                    continue
+
+                M_root = _clone_matrix(self.pivot_co, axis_vec, angle,
+                                       self.align_to_radius, root_mw)
+                delta = M_root @ root_mw.inverted()
+
+                clone_map = {}
+                for child_obj, _rel in subtree:
+                    new = child_obj.copy()
+                    if self.clone_mode == CLONE_DUP and child_obj.data is not None:
+                        new.data = child_obj.data.copy()
+                    for c in child_obj.users_collection:
+                        try:
+                            c.objects.link(new)
+                        except RuntimeError:
+                            pass
+                    if new.name not in ra_coll.objects:
+                        try:
+                            ra_coll.objects.link(new)
+                        except RuntimeError:
+                            pass
+                    clone_map[child_obj] = new
+
+                for child_obj, _rel in subtree:
+                    new = clone_map[child_obj]
+                    if child_obj.parent is not None and child_obj.parent in clone_map:
+                        new.parent = clone_map[child_obj.parent]
+                        new.matrix_parent_inverse = child_obj.matrix_parent_inverse.copy()
+                    else:
+                        new.parent = None
+                    new.matrix_world = delta @ child_obj.matrix_world
+
+                created_roots.append(clone_map[root_obj])
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for r in created_roots:
+            r.select_set(True)
+        if created_roots:
+            context.view_layer.objects.active = created_roots[0]
