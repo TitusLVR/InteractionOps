@@ -435,7 +435,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if self._hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
 
-        if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.value != "PRESS":
+        # Navigation: MMB drag, plain wheel, trackpad — always pass through.
+        # Ctrl+wheel is used for count (handled below).
+        if event.type == "MIDDLEMOUSE":
+            return {"PASS_THROUGH"}
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and not event.ctrl:
+            return {"PASS_THROUGH"}
+        if event.type in {"TRACKPADPAN", "TRACKPADZOOM"}:
             return {"PASS_THROUGH"}
 
         # --- mode cycles ---
@@ -530,16 +536,18 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        # --- count ---
+        # --- count (Ctrl+wheel, or NUMPAD_+/-, or EQUAL/MINUS when not typing) ---
         if event.type in {"NUMPAD_PLUS", "EQUAL", "WHEELUPMOUSE"} and event.value == "PRESS" \
-                and (event.type == "WHEELUPMOUSE" or self.numeric_channel is None):
-            step = 10 if event.ctrl else 1
+                and (event.type == "WHEELUPMOUSE" and event.ctrl or
+                     event.type in {"NUMPAD_PLUS", "EQUAL"} and self.numeric_channel is None):
+            step = 10 if (event.shift and event.type == "WHEELUPMOUSE") else 1
             self.count = min(1024, self.count + step)
             self._dirty = True
             return {"RUNNING_MODAL"}
         if event.type in {"NUMPAD_MINUS", "MINUS", "WHEELDOWNMOUSE"} and event.value == "PRESS" \
-                and (event.type == "WHEELDOWNMOUSE" or self.numeric_channel is None):
-            step = 10 if event.ctrl else 1
+                and (event.type == "WHEELDOWNMOUSE" and event.ctrl or
+                     event.type in {"NUMPAD_MINUS", "MINUS"} and self.numeric_channel is None):
+            step = 10 if (event.shift and event.type == "WHEELDOWNMOUSE") else 1
             self.count = max(2, self.count - step)
             self._dirty = True
             return {"RUNNING_MODAL"}
