@@ -1096,8 +1096,41 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
             axis_vec = _resolve_axis(self, context)
-            # Use the start-center snapshot so the live center recomputation
-            # doesn't feed back into the distance reading.
+            if self.arc_mode == ARC_CURSOR:
+                # Treat mouse position as the desired arc apex. Always picks the
+                # major arc (center on the same side of AB as the apex) so the
+                # arc visibly grows toward a full circle as the user pulls out.
+                active = getattr(self, "active_obj", None)
+                if active is None:
+                    return {"RUNNING_MODAL"}
+                try:
+                    A = active.matrix_world.translation.copy()
+                except ReferenceError:
+                    return {"RUNNING_MODAL"}
+                B = bpy.context.scene.cursor.location.copy()
+                AB = B - A
+                ab_planar = AB - axis_vec * AB.dot(axis_vec)
+                ab_len = ab_planar.length
+                if ab_len < 1e-6:
+                    return {"RUNNING_MODAL"}
+                midpoint = (A + B) * 0.5
+                perp = axis_vec.cross(ab_planar).normalized()
+                hit = _mouse_on_rot_plane(context, event, midpoint, axis_vec)
+                if hit is None:
+                    return {"RUNNING_MODAL"}
+                h_signed = (hit - midpoint).dot(perp)
+                r_min = ab_len * 0.5
+                h = max(r_min, abs(h_signed))  # clamp inside ⇒ semicircle minimum
+                R = (h * h + r_min * r_min) / (2.0 * h)
+                self.radius_override = R
+                # Ring drag treats mouse as the apex of a MINOR arc — the
+                # visible arc bulges to the side OPPOSITE the center. So put
+                # the center on the side AWAY from the mouse to make the arc
+                # follow the drag direction.
+                self.arc_flip = (h_signed > 0)
+                self._dirty = True
+                return {"RUNNING_MODAL"}
+            # Fixed-angle arcs: snapshot-center distance keeps R reading stable.
             ref = getattr(self, "_radius_drag_start_center", None)
             if ref is None:
                 params = _arc_params(self, axis_vec)
