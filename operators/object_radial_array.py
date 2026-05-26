@@ -66,8 +66,7 @@ def _draw_callback(op, context):
 
 PIVOT_ACTIVE       = "ACTIVE"
 PIVOT_CURSOR       = "CURSOR"
-PIVOT_LAST         = "LAST_SELECTED"
-PIVOT_CYCLE        = (PIVOT_ACTIVE, PIVOT_CURSOR, PIVOT_LAST)
+PIVOT_CYCLE        = (PIVOT_ACTIVE, PIVOT_CURSOR)
 
 CLONE_DUP          = "DUPLICATE"
 CLONE_INST         = "INSTANCE"
@@ -176,15 +175,10 @@ def _resolve_selection(context, pivot_mode):
         pivot_obj = active
         pivot_co = active.matrix_world.translation.copy() if active else None
         sources = [o for o in sel if o is not active]
-    elif pivot_mode == PIVOT_CURSOR:
+    else:  # PIVOT_CURSOR
         pivot_obj = None
         pivot_co = context.scene.cursor.location.copy()
         sources = list(sel)
-    else:  # PIVOT_LAST
-        non_active = [o for o in sel if o is not active]
-        pivot_obj = non_active[-1] if non_active else active
-        pivot_co = pivot_obj.matrix_world.translation.copy() if pivot_obj else None
-        sources = [o for o in sel if o is not pivot_obj]
 
     return pivot_co, pivot_obj, sources, None
 
