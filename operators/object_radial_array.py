@@ -113,6 +113,7 @@ AXIS_GLOBAL_Z      = "GZ"
 AXIS_LOCAL_X       = "LX"
 AXIS_LOCAL_Y       = "LY"
 AXIS_LOCAL_Z       = "LZ"
+AXIS_LZP           = "LZP"        # like LZ but center shifted to active's axial plane
 AXIS_VIEW          = "VIEW"
 AXIS_NORMAL        = "NORMAL"
 
@@ -189,10 +190,11 @@ def _resolve_axis(self, context):
     if am == AXIS_GLOBAL_X: return Vector((1, 0, 0))
     if am == AXIS_GLOBAL_Y: return Vector((0, 1, 0))
     if am == AXIS_GLOBAL_Z: return Vector((0, 0, 1))
-    if am in (AXIS_LOCAL_X, AXIS_LOCAL_Y, AXIS_LOCAL_Z):
+    if am in (AXIS_LOCAL_X, AXIS_LOCAL_Y, AXIS_LOCAL_Z, AXIS_LZP):
         local = {AXIS_LOCAL_X: Vector((1, 0, 0)),
                  AXIS_LOCAL_Y: Vector((0, 1, 0)),
-                 AXIS_LOCAL_Z: Vector((0, 0, 1))}[am]
+                 AXIS_LOCAL_Z: Vector((0, 0, 1)),
+                 AXIS_LZP:     Vector((0, 0, 1))}[am]
         # When pivot is the 3D cursor (or no pivot object), use the cursor's
         # own rotation matrix so "local" axes follow the cursor's orientation
         # instead of falling back to world.
@@ -552,10 +554,17 @@ def _arc_params(op, axis_vec):
       derived. None if A and B coincide."""
     if op.arc_mode == ARC_CURSOR:
         return _arc_two_point_geometry(op, axis_vec)
-    # Center stays at the user pivot (= cursor in default mode). The active's
-    # axial offset isn't propagated, so the ring sits at the pivot's height.
+    # Center is the user pivot. In AXIS_LZP mode the axial component is shifted
+    # to the active's plane so slot 0 lands exactly on active.translation.
     center = op.pivot_co.copy()
     active = getattr(op, "active_obj", None)
+    if op.axis_mode == AXIS_LZP and active is not None:
+        try:
+            a_axial = axis_vec * active.matrix_world.translation.dot(axis_vec)
+            c_axial = axis_vec * center.dot(axis_vec)
+            center = center - c_axial + a_axial
+        except ReferenceError:
+            pass
     # Radius: planar distance from pivot to active when no override.
     if op.radius_override is not None:
         R = op.radius_override
@@ -1071,12 +1080,18 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "C" and event.value == "PRESS":
+            # Z-axis cycle: Global Z → Local Z → LZP → Global Z. X / Y just
+            # toggle between Global and Local (no LZP equivalent).
             mapping = {
-                AXIS_GLOBAL_X: AXIS_LOCAL_X, AXIS_GLOBAL_Y: AXIS_LOCAL_Y, AXIS_GLOBAL_Z: AXIS_LOCAL_Z,
-                AXIS_LOCAL_X:  AXIS_GLOBAL_X, AXIS_LOCAL_Y: AXIS_GLOBAL_Y, AXIS_LOCAL_Z: AXIS_GLOBAL_Z,
+                AXIS_GLOBAL_X: AXIS_LOCAL_X, AXIS_LOCAL_X: AXIS_GLOBAL_X,
+                AXIS_GLOBAL_Y: AXIS_LOCAL_Y, AXIS_LOCAL_Y: AXIS_GLOBAL_Y,
+                AXIS_GLOBAL_Z: AXIS_LOCAL_Z,
+                AXIS_LOCAL_Z:  AXIS_LZP,
+                AXIS_LZP:      AXIS_GLOBAL_Z,
             }
             self.axis_mode = mapping.get(self.axis_mode, AXIS_GLOBAL_Z)
             self._dirty = True
+            self.report({"INFO"}, f"Axis: {self.axis_mode}")
             return {"RUNNING_MODAL"}
 
         if event.type == "V" and event.value == "PRESS":
