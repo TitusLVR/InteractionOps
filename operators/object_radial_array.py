@@ -463,11 +463,16 @@ def _arc_frame(axis_vec):
 
 
 def _arc_two_point_geometry(op, axis_vec):
-    """For ARC_CURSOR: derive the circle that actually passes through the
-    active object (start) and the 3D cursor (end), with user-controlled radius
-    (>= half the in-plane distance). Returns
-    (center_world, radius, start_angle, sweep) — angles in the global arc_frame
-    around `center_world`. None if degenerate (A and B coincide in-plane)."""
+    """For ARC_CURSOR: arc through active (A) and cursor (B), parameterized by
+    `op.arc_apex_h_signed` — signed distance along AB's perpendicular bisector
+    from the midpoint to the **arc apex** (deepest point on the curve).
+
+    * |h| < R_min ⇒ minor arc, center on the opposite side of AB from apex.
+    * |h| = R_min ⇒ semicircle (R = R_min, center at midpoint).
+    * |h| > R_min ⇒ major arc, center on the SAME side as apex; the arc keeps
+      growing toward a full circle as |h| → ∞.
+
+    Returns (center_world, radius, start_angle, sweep) or None if degenerate."""
     A_obj = getattr(op, "active_obj", None)
     if A_obj is None:
         return None
@@ -485,14 +490,25 @@ def _arc_two_point_geometry(op, axis_vec):
 
     midpoint = (A + B) * 0.5
     r_min = ab_len * 0.5
-    R = op.radius_override if op.radius_override is not None else r_min
-    if R < r_min:
-        R = r_min
-
     perp = axis_vec.cross(ab_planar).normalized()
-    d = math.sqrt(max(0.0, R * R - r_min * r_min))
-    sign = -1.0 if getattr(op, "arc_flip", False) else 1.0
-    center = midpoint + perp * (sign * d)
+
+    h_signed = getattr(op, "arc_apex_h_signed", None)
+    if h_signed is None:
+        h_signed = r_min   # default: semicircle bulging on +perp side
+    h = abs(h_signed)
+    if h < 1e-4:
+        h = 1e-4
+    asign = 1.0 if h_signed >= 0.0 else -1.0
+    is_major = h > r_min
+
+    if is_major:
+        R = (h * h + r_min * r_min) / (2.0 * h)
+        d = (h * h - r_min * r_min) / (2.0 * h)
+        center = midpoint + perp * (asign * d)
+    else:
+        d = (r_min * r_min - h * h) / (2.0 * h)
+        R = math.sqrt(d * d + r_min * r_min)
+        center = midpoint - perp * (asign * d)
 
     right, fwd = _arc_frame(axis_vec)
 
@@ -508,6 +524,9 @@ def _arc_two_point_geometry(op, axis_vec):
         sweep -= 2 * math.pi
     while sweep <= -math.pi:
         sweep += 2 * math.pi
+    if is_major:
+        # Major arc — go the long way around instead of the signed-shortest path.
+        sweep = sweep - math.copysign(2 * math.pi, sweep) if sweep != 0 else 2 * math.pi
     return center, R, start_angle, sweep
 
 
@@ -705,10 +724,15 @@ def _build_ghost_segments(op, context):
     # clones from slot 1 onward. skip_first ON also clones slot 0.
     for ci in range(start_index, n_total):
         slot_pos = all_positions[ci]
-        R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
-        rotated_3x3 = R_step @ anchor_actual.to_3x3()
-        base_mw = rotated_3x3.to_4x4()
-        base_mw.translation = slot_pos
+        if op.align_mode == ALIGN_NONE:
+            # ORIGINAL — spawn the source at the slot with NO rotation at all.
+            base_mw = anchor_actual.copy()
+            base_mw.translation = slot_pos
+        else:
+            R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
+            rotated_3x3 = R_step @ anchor_actual.to_3x3()
+            base_mw = rotated_3x3.to_4x4()
+            base_mw.translation = slot_pos
         M_anchor_final = _aligned_clone_mw(
             op.align_mode, op.pivot_co, axis_vec, base_mw,
             op._pool_seed, ci, follow_target=_follow_target(ci))
@@ -843,7 +867,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_override = None       # None = use natural source distance
         self.radius_drag_active = False
         self.arc_center_drag_active = False   # ARC_CURSOR: drag the derived center
-        self.arc_flip = False             # ARC_CURSOR: flip which side of A-B has the arc center
+        self.arc_apex_h_signed = None         # ARC_CURSOR: signed apex distance on AB's perpendicular bisector
         self.match_active = False
         self._match_saved = None          # snapshot used to un-apply Match
         self.source_mode = SOURCE_GROUP   # U cycles ACTIVE / HIERARCHY / GROUP / POOL
@@ -869,7 +893,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("Count",       lambda: self.count, "int"))
         self._hud.add_param(HUDParam("Radius",      lambda: _effective_radius(self), "float", fmt="{:.3f}"))
         self._hud.add_param(HUDParam("Step",        lambda: math.degrees(_clone_step_deg(self)), "float", fmt="{:.2f}°"))
-        self._hud.add_param(HUDParam("Flip arc",    lambda: self.arc_flip, "bool",
+        self._hud.add_param(HUDParam("Apex h",      lambda: (self.arc_apex_h_signed if self.arc_apex_h_signed is not None else 0.0),
+                                     "float", fmt="{:.3f}",
                                      active_getter=lambda: self.arc_mode == ARC_CURSOR))
         self._hud.add_param(HUDParam("Alignment",   lambda: self.align_mode, "str"))
         self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
@@ -1045,12 +1070,28 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        # --- flip arc center side (ARC_CURSOR only) ---
+        # --- flip arc apex side (ARC_CURSOR only) ---
         if event.type == "I" and event.value == "PRESS":
             if self.arc_mode == ARC_CURSOR:
-                self.arc_flip = not self.arc_flip
+                if self.arc_apex_h_signed is not None:
+                    self.arc_apex_h_signed = -self.arc_apex_h_signed
+                else:
+                    # default semicircle on +perp side; flipped → semicircle on −perp
+                    axis_vec = _resolve_axis(self, context)
+                    params = _arc_two_point_geometry(self, axis_vec)
+                    if params is not None:
+                        # Use r_min derived from A/B
+                        active = getattr(self, "active_obj", None)
+                        if active is not None:
+                            try:
+                                A = active.matrix_world.translation
+                                B = bpy.context.scene.cursor.location
+                                ab_planar = (B - A) - axis_vec * (B - A).dot(axis_vec)
+                                self.arc_apex_h_signed = -(ab_planar.length * 0.5)
+                            except ReferenceError:
+                                pass
                 self._dirty = True
-                self.report({"INFO"}, f"Arc flip: {'ON' if self.arc_flip else 'OFF'}")
+                self.report({"INFO"}, "Arc apex flipped")
             return {"RUNNING_MODAL"}
 
         # --- LMB PRESS: two controllers in ARC_CURSOR (center marker / arc curve)
@@ -1097,9 +1138,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if self.radius_drag_active and event.type == "MOUSEMOVE":
             axis_vec = _resolve_axis(self, context)
             if self.arc_mode == ARC_CURSOR:
-                # Treat mouse position as the desired arc apex. Always picks the
-                # major arc (center on the same side of AB as the apex) so the
-                # arc visibly grows toward a full circle as the user pulls out.
+                # Mouse = desired arc apex. arc_apex_h_signed captures it
+                # directly; the geometry function picks minor or major based
+                # on |h| vs R_min, so dragging through R_min grows the arc
+                # smoothly from minor → semicircle → major (toward full circle).
                 active = getattr(self, "active_obj", None)
                 if active is None:
                     return {"RUNNING_MODAL"}
@@ -1110,24 +1152,14 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 B = bpy.context.scene.cursor.location.copy()
                 AB = B - A
                 ab_planar = AB - axis_vec * AB.dot(axis_vec)
-                ab_len = ab_planar.length
-                if ab_len < 1e-6:
+                if ab_planar.length < 1e-6:
                     return {"RUNNING_MODAL"}
                 midpoint = (A + B) * 0.5
                 perp = axis_vec.cross(ab_planar).normalized()
                 hit = _mouse_on_rot_plane(context, event, midpoint, axis_vec)
                 if hit is None:
                     return {"RUNNING_MODAL"}
-                h_signed = (hit - midpoint).dot(perp)
-                r_min = ab_len * 0.5
-                h = max(r_min, abs(h_signed))  # clamp inside ⇒ semicircle minimum
-                R = (h * h + r_min * r_min) / (2.0 * h)
-                self.radius_override = R
-                # Ring drag treats mouse as the apex of a MINOR arc — the
-                # visible arc bulges to the side OPPOSITE the center. So put
-                # the center on the side AWAY from the mouse to make the arc
-                # follow the drag direction.
-                self.arc_flip = (h_signed > 0)
+                self.arc_apex_h_signed = (hit - midpoint).dot(perp)
                 self._dirty = True
                 return {"RUNNING_MODAL"}
             # Fixed-angle arcs: snapshot-center distance keeps R reading stable.
@@ -1163,12 +1195,20 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
             d_signed = (hit - midpoint).dot(perp)
             r_min = ab_len * 0.5
-            R = math.sqrt(d_signed * d_signed + r_min * r_min)
-            self.radius_override = R
-            # flip ↔ sign convention in _arc_two_point_geometry:
-            # center = midpoint + perp * (sign * d), sign = -1 if arc_flip else +1.
-            # So flip True puts center on the −perp side. Match d_signed sign.
-            self.arc_flip = (d_signed < 0)
+            d = abs(d_signed)
+            R = math.sqrt(d * d + r_min * r_min)
+            # Continuity: keep the arc on whichever side it was on, swap minor↔major as
+            # the center crosses AB so the arc keeps growing instead of flipping.
+            cur_asign = 1.0
+            if self.arc_apex_h_signed is not None and self.arc_apex_h_signed != 0.0:
+                cur_asign = 1.0 if self.arc_apex_h_signed > 0 else -1.0
+            csign = 1.0 if d_signed >= 0 else -1.0
+            if csign == cur_asign:
+                # center same side as arc apex → major arc, apex = R + d away.
+                self.arc_apex_h_signed = cur_asign * (R + d)
+            else:
+                # center opposite side from apex → minor arc, apex = R - d.
+                self.arc_apex_h_signed = cur_asign * (R - d)
             self._dirty = True
             return {"RUNNING_MODAL"}
 
@@ -1274,7 +1314,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_override = None
         self.radius_drag_active = False
         self.arc_center_drag_active = False
-        self.arc_flip = False
+        self.arc_apex_h_signed = None
         self.match_active = False
         self._match_saved = None
         self.source_mode = SOURCE_GROUP
@@ -1396,9 +1436,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     context.scene.collection.children.link(ra_coll)
                 for ci, angle in _iter_clone_angles(_arc_effective_start(self, axis_vec), step, n_clones, start_index=start_index):
                     M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
-                    R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
-                    base_i = (R_step @ anchor_actual.to_3x3()).to_4x4()
-                    base_i.translation = M_anchor.translation
+                    if self.align_mode == ALIGN_NONE:
+                        base_i = anchor_actual.copy()
+                        base_i.translation = M_anchor.translation
+                    else:
+                        R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
+                        base_i = (R_step @ anchor_actual.to_3x3()).to_4x4()
+                        base_i.translation = M_anchor.translation
                     M_final = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
                                                 base_i, self._pool_seed, ci, follow_target=None)
                     delta_i = M_final @ anchor_actual.inverted()
@@ -1439,9 +1483,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
             for ci in range(start_index, n_total):
                 slot_pos = all_positions[ci]
-                R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
-                base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
-                base_mw.translation = slot_pos
+                if self.align_mode == ALIGN_NONE:
+                    base_mw = anchor_actual.copy()
+                    base_mw.translation = slot_pos
+                else:
+                    R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
+                    base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
+                    base_mw.translation = slot_pos
                 M_final = _aligned_clone_mw(
                     self.align_mode, self.pivot_co, axis_vec, base_mw,
                     self._pool_seed, ci, follow_target=_follow_target(ci))
