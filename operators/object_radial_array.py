@@ -1053,7 +1053,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self.report({"INFO"}, f"Arc flip: {'ON' if self.arc_flip else 'OFF'}")
             return {"RUNNING_MODAL"}
 
-        # --- LMB PRESS: hit-test center (ARC_CURSOR) first, else ring ---
+        # --- LMB PRESS: two controllers in ARC_CURSOR (center marker / arc curve)
+        #               and one in fixed-angle arcs (ring = radius).
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             axis_vec = _resolve_axis(self, context)
             params = _arc_params(self, axis_vec)
@@ -1062,31 +1063,46 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             hit = _mouse_on_rot_plane(context, event, arc_center, axis_vec)
             if hit is None:
                 return {"RUNNING_MODAL"}
-            # ARC_CURSOR: drag the center marker to slide along AB's perpendicular
-            # bisector. Distance from AB midpoint sets the radius; sign sets flip.
+            radial_world = hit - arc_center
+            radial = radial_world - axis_vec * radial_world.dot(axis_vec)
+            r_mouse = radial.length
+            on_center = (hit - arc_center).length < max(0.18 * arc_R, 0.3)
+            on_ring = abs(r_mouse - arc_R) < max(0.25 * arc_R, 0.4)
+
             if self.arc_mode == ARC_CURSOR:
-                dist_to_center = (hit - arc_center).length
-                tol_c = max(0.15 * arc_R, 0.3)
-                if dist_to_center < tol_c:
+                if on_center:
+                    # Drag the center along AB's perpendicular bisector.
                     self.arc_center_drag_active = True
                     self._dirty = True
                     return {"RUNNING_MODAL"}
-            # Otherwise — radius drag on the ring.
-            radial = hit - arc_center
-            radial = radial - axis_vec * radial.dot(axis_vec)
-            r_mouse = radial.length
-            tol = max(0.25 * arc_R, 0.4)
-            if abs(r_mouse - arc_R) < tol:
+                if on_ring:
+                    # Drag the arc curve — radius changes, center is recomputed
+                    # from A, B and the new R. Snapshot the starting center so
+                    # distance measurement stays stable across frames.
+                    self.radius_drag_active = True
+                    self._radius_drag_start_center = arc_center.copy()
+                    self.radius_override = max(1e-4, r_mouse)
+                    self._dirty = True
+                    return {"RUNNING_MODAL"}
+                return {"RUNNING_MODAL"}
+
+            # Fixed-angle arcs (360/180/90/45): ring drag = direct radius change.
+            if on_ring:
                 self.radius_drag_active = True
+                self._radius_drag_start_center = arc_center.copy()
                 self.radius_override = max(1e-4, r_mouse)
                 self._dirty = True
             return {"RUNNING_MODAL"}
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
             axis_vec = _resolve_axis(self, context)
-            params = _arc_params(self, axis_vec)
-            arc_center = params[0] if params is not None else self.pivot_co
-            r_mouse = _mouse_radius_in_plane(context, event, arc_center, axis_vec)
+            # Use the start-center snapshot so the live center recomputation
+            # doesn't feed back into the distance reading.
+            ref = getattr(self, "_radius_drag_start_center", None)
+            if ref is None:
+                params = _arc_params(self, axis_vec)
+                ref = params[0] if params is not None else self.pivot_co
+            r_mouse = _mouse_radius_in_plane(context, event, ref, axis_vec)
             if r_mouse is not None:
                 self.radius_override = max(1e-4, r_mouse)
                 self._dirty = True
