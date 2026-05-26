@@ -230,6 +230,24 @@ def _signed_angle_around(v_from, v_to, axis):
     return ang
 
 
+def _arc_effective_start(op, axis_vec):
+    """Effective start offset (radians) for the active arc. In arc modes the start
+    sits at the active object's angle around the pivot, so the ring naturally
+    anchors to where the user has placed their reference object."""
+    if op.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS):
+        active = getattr(op, "active_obj", None)
+        if active is not None:
+            try:
+                v = active.matrix_world.translation - op.pivot_co
+            except ReferenceError:
+                return op.start_offset
+            right, fwd = _arc_frame(axis_vec)
+            v_planar = v - axis_vec * v.dot(axis_vec)
+            if v_planar.length > 1e-6:
+                return math.atan2(v_planar.dot(fwd), v_planar.dot(right))
+    return op.start_offset
+
+
 def _compute_arc(self, axis_vec):
     """Return (arc_angle_radians, step_radians, n_clones) for the current mode."""
     n = max(2, int(self.count))
@@ -242,11 +260,16 @@ def _compute_arc(self, axis_vec):
             return 0.0, 0.0, 0
         step = ang / (n - 1) if self.end_inclusive else ang / n
         return ang, step, n - 1
-    # ARC_TWO_POINTS
-    if not self.sources or self.end_target is None:
+    # ARC_TWO_POINTS — sweep from active object to 3D cursor.
+    active = getattr(self, "active_obj", None)
+    if active is None:
         return 0.0, 0.0, 0
-    start_vec = self.sources[0].matrix_world.translation - self.pivot_co
-    end_vec   = self.end_target.matrix_world.translation - self.pivot_co
+    try:
+        start_vec = active.matrix_world.translation - self.pivot_co
+    except ReferenceError:
+        return 0.0, 0.0, 0
+    cursor_co = bpy.context.scene.cursor.location
+    end_vec = cursor_co - self.pivot_co
     ang = _signed_angle_around(start_vec, end_vec, axis_vec)
     if abs(ang) < 1e-6:
         ang = 2 * math.pi
@@ -451,7 +474,7 @@ def _arc_endpoint_world(op, axis_vec):
     if op.arc_mode == ARC_FULL:
         return None
     if op.arc_mode == ARC_ANGLE:
-        end_angle = op.start_offset + op.arc_angle
+        end_angle = _arc_effective_start(op, axis_vec) + op.arc_angle
     else:  # ARC_TWO_POINTS — endpoint is the end_target's projected position
         if op.end_target is None:
             return None
@@ -490,8 +513,9 @@ def _pool_fill_iter(op, axis_vec):
 
     # First sweep — compute every slot's target position so FOLLOW knows neighbours.
     slot_positions = []
+    start = _arc_effective_start(op, axis_vec)
     for s in range(n_slots):
-        ang = op.start_offset + s * step
+        ang = start + s * step
         slot_positions.append(op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius)
 
     def _follow_target(i):
@@ -593,7 +617,8 @@ def _build_ghost_segments(op, context):
 
     # First sweep — collect every slot's anchor position (needed for FOLLOW).
     slot_positions = []
-    for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
+    eff_start = _arc_effective_start(op, axis_vec)
+    for ci, angle in _iter_clone_angles(eff_start, step, n_clones, start_index=start_index):
         M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, anchor_eff)
         slot_positions.append((ci, M_anchor.translation.copy()))
 
@@ -676,10 +701,11 @@ def _draw_preview_3d(op, context):
         steps = 64
         right, fwd = _arc_frame(axis_vec)
         sweep = ang_total if op.arc_mode != ARC_FULL else 2 * math.pi
+        eff_start = _arc_effective_start(op, axis_vec)
         ring = []
         for i in range(steps + 1):
             t = i / steps
-            ang = op.start_offset + t * sweep
+            ang = eff_start + t * sweep
             p = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * max_r
             ring.append(p)
         pairs = []
@@ -746,6 +772,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._match_saved = None          # snapshot used to un-apply Match
         self.source_mode = SOURCE_GROUP   # U cycles ACTIVE / HIERARCHY / GROUP / POOL
         self.anchor_obj = None            # the active object when source_mode == GROUP
+        self.active_obj = context.active_object  # always tracked; arc start sits at this object
         self._pool_seed = 12345
         self._dirty = True
 
@@ -1326,7 +1353,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
                 anchor_actual = (self.anchor_obj.matrix_world.copy()
                                  if self.anchor_obj is not None else anchor_raw)
-                M_slot0 = _clone_matrix(self.pivot_co, axis_vec, self.start_offset, anchor_eff)
+                M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
                 M_final0 = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
                                              anchor_actual, M_slot0.translation,
                                              self._pool_seed, 0, follow_target=None)
@@ -1338,7 +1365,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     first_root_name = subtrees[0][0][0].name
                     ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
                     context.scene.collection.children.link(ra_coll)
-                for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
+                for ci, angle in _iter_clone_angles(_arc_effective_start(self, axis_vec), step, n_clones, start_index=start_index):
                     M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
                     M_final = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
                                                 anchor_actual, M_anchor.translation,
@@ -1355,7 +1382,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             anchor_actual = (self.anchor_obj.matrix_world.copy()
                              if self.anchor_obj is not None else anchor_raw)
             slot_positions = []
-            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
+            eff_start = _arc_effective_start(self, axis_vec)
+            for ci, angle in _iter_clone_angles(eff_start, step, n_clones, start_index=start_index):
                 M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
                 slot_positions.append((ci, M_anchor.translation.copy()))
 
