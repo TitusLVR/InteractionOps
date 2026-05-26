@@ -33,10 +33,11 @@ def _build_help(context):
         HUDItem("Face outward",   "R",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Skip first",     "O",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Count +/-",      "+ / -  or  Wheel",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Angle drag",     "G + mouse",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply",          "LMB / Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
@@ -215,10 +216,87 @@ def _clone_matrix(pivot_co, axis_vec, angle, align_to_radius, source_mw):
     return M
 
 
+def _clone_step_deg(op):
+    """Angle (radians) between consecutive clones for the current mode."""
+    try:
+        axis_vec = _resolve_axis(op, bpy.context)
+    except AttributeError:
+        return 0.0
+    _, step, _ = _compute_arc(op, axis_vec)
+    return step
+
+
 def _iter_clone_angles(start_offset, step, n_clones, start_index=1):
     """Yield (clone_index, angle) for each clone. Index 0 reserved for source position."""
     for i in range(start_index, n_clones + 1):
         yield i, start_offset + i * step
+
+
+def _natural_radius(op):
+    """Max distance from pivot to any source root, in world space."""
+    max_r = 0.0
+    for sub in op.subtree_data:
+        root = sub[0][0]
+        try:
+            r = (root.matrix_world.translation - op.pivot_co).length
+        except ReferenceError:
+            continue
+        if r > max_r:
+            max_r = r
+    return max_r
+
+
+def _effective_radius(op):
+    """Active array radius: override if set, else the natural source distance."""
+    if op.radius_override is not None:
+        return op.radius_override
+    r = _natural_radius(op)
+    return r if r > 1e-6 else 1.0
+
+
+def _effective_source_mw(source_mw, pivot_co, axis_vec, radius_override):
+    """If radius_override is set, scale the source's radial offset (in the rotation plane)
+    so its in-plane distance from pivot equals the override. Axial component is preserved."""
+    if radius_override is None:
+        return source_mw
+    offset = source_mw.translation - pivot_co
+    axial = axis_vec * offset.dot(axis_vec)
+    radial = offset - axial
+    cur = radial.length
+    if cur < 1e-6:
+        return source_mw  # can't scale a zero vector
+    scaled = radial * (radius_override / cur)
+    new_translation = pivot_co + axial + scaled
+    M = source_mw.copy()
+    M.translation = new_translation
+    return M
+
+
+def _mouse_on_rot_plane(context, event, pivot_co, axis_vec):
+    """Project mouse onto the rotation plane (axis-perpendicular through pivot). None if parallel."""
+    from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+    region = context.region
+    rv3d = context.region_data
+    if region is None or rv3d is None:
+        return None
+    mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+    origin = region_2d_to_origin_3d(region, rv3d, mouse)
+    direction = region_2d_to_vector_3d(region, rv3d, mouse)
+    denom = direction.dot(axis_vec)
+    if abs(denom) < 1e-6:
+        return None
+    t = (pivot_co - origin).dot(axis_vec) / denom
+    return origin + direction * t
+
+
+def _mouse_radius_in_plane(context, event, pivot_co, axis_vec):
+    """In-plane distance from pivot to where the mouse-ray hits the rotation plane."""
+    hit = _mouse_on_rot_plane(context, event, pivot_co, axis_vec)
+    if hit is None:
+        return None
+    offset = hit - pivot_co
+    radial = offset - axis_vec * offset.dot(axis_vec)
+    return radial.length
 
 
 # --- Preview (POST_VIEW) -------------------------------------------------
@@ -255,11 +333,13 @@ def _build_ghost_segments(op, context):
     subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
     for subtree in subtrees:
         root_obj = subtree[0][0]
-        root_mw = root_obj.matrix_world.copy()
-
+        root_mw_raw = root_obj.matrix_world.copy()
+        root_mw = _effective_source_mw(root_mw_raw, op.pivot_co, axis_vec, op.radius_override)
+        # delta is computed against the (possibly shifted) effective root so the whole
+        # subtree (children include the root itself at index 0) moves with the override.
         for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
             M_root = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, root_mw)
-            delta = M_root @ root_mw.inverted()
+            delta = M_root @ root_mw_raw.inverted()
             for child_obj, rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
                 if child_obj.type == "MESH" and child_obj.data is not None:
@@ -290,13 +370,8 @@ def _draw_preview_3d(op, context):
     if crosses:
         iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
 
-    # axis line through pivot
-    max_r = 0.0
-    for sub in op.subtree_data:
-        root = sub[0][0]
-        r = (root.matrix_world.translation - op.pivot_co).length
-        if r > max_r:
-            max_r = r
+    # axis line through pivot; use effective radius so ring tracks override drag
+    max_r = _effective_radius(op)
     if max_r < 1e-3:
         max_r = 1.0
     a_half = axis_vec * (max_r * 2.0)
@@ -368,6 +443,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.numeric_string = ""
         self.pending_normal_pick = False
         self._cached_axis_vec = Vector((0, 0, 1))
+        self.radius_override = None       # None = use natural source distance
+        self.radius_drag_active = False
         self._dirty = True
 
         pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
@@ -395,6 +472,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("Arc",         lambda: self.arc_mode, "str"))
         self._hud.add_param(HUDParam("Axis",        lambda: self.axis_mode, "str"))
         self._hud.add_param(HUDParam("Count",       lambda: self.count, "int"))
+        self._hud.add_param(HUDParam("Radius",      lambda: _effective_radius(self), "float", fmt="{:.3f}"))
+        self._hud.add_param(HUDParam("Step",        lambda: math.degrees(_clone_step_deg(self)), "float", fmt="{:.2f}°"))
         self._hud.add_param(HUDParam("Angle",       lambda: math.degrees(self.arc_angle), "float", fmt="{:.1f}°",
                                      active_getter=lambda: self.arc_mode == ARC_ANGLE))
         self._hud.add_param(HUDParam("Offset",      lambda: math.degrees(self.start_offset), "float", fmt="{:.1f}°",
@@ -627,7 +706,31 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if event.type in digit_map or event.type in {"PERIOD", "NUMPAD_PERIOD", "BACK_SPACE", "MINUS"}:
                 return {"RUNNING_MODAL"}
 
-        if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
+        # --- radius drag (LMB on the preview ring) ---
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            axis_vec = _resolve_axis(self, context)
+            r_mouse = _mouse_radius_in_plane(context, event, self.pivot_co, axis_vec)
+            cur_r = _effective_radius(self)
+            tol = max(0.25 * cur_r, 0.4)
+            if r_mouse is not None and abs(r_mouse - cur_r) < tol:
+                self.radius_drag_active = True
+                self.radius_override = max(1e-4, r_mouse)
+                self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if self.radius_drag_active and event.type == "MOUSEMOVE":
+            axis_vec = _resolve_axis(self, context)
+            r_mouse = _mouse_radius_in_plane(context, event, self.pivot_co, axis_vec)
+            if r_mouse is not None:
+                self.radius_override = max(1e-4, r_mouse)
+                self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if self.radius_drag_active and event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self.radius_drag_active = False
+            return {"RUNNING_MODAL"}
+
+        if event.type in {"RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
             self._apply(context)
             self._cleanup()
             return {"FINISHED"}
@@ -672,9 +775,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         for subtree in subtrees:
             root_obj = subtree[0][0]
             try:
-                root_mw = root_obj.matrix_world.copy()
+                root_mw_raw = root_obj.matrix_world.copy()
             except ReferenceError:
                 continue  # source object was removed since invoke()
+            root_mw = _effective_source_mw(root_mw_raw, self.pivot_co, axis_vec, self.radius_override)
 
             ra_name = f"_RadialArray_{root_obj.name}"
             ra_coll = bpy.data.collections.new(ra_name)  # Blender uniquifies
@@ -683,7 +787,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
                 M_root = _clone_matrix(self.pivot_co, axis_vec, angle,
                                        self.align_to_radius, root_mw)
-                delta = M_root @ root_mw.inverted()
+                delta = M_root @ root_mw_raw.inverted()
 
                 clone_map = {}
                 for child_obj, _rel in subtree:
