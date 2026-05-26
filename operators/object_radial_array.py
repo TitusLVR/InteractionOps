@@ -93,8 +93,8 @@ ALIGN_CYCLE        = (ALIGN_NONE, ALIGN_OUTWARD, ALIGN_INWARD,
 
 ARC_FULL           = "FULL_360"
 ARC_ANGLE          = "ARC_ANGLE"
-ARC_TWO_POINTS     = "ARC_TWO_POINTS"
-ARC_CYCLE          = (ARC_FULL, ARC_ANGLE, ARC_TWO_POINTS)
+ARC_CURSOR         = "ARC_CURSOR"   # sweep from active object to the 3D cursor
+ARC_CYCLE          = (ARC_FULL, ARC_ANGLE, ARC_CURSOR)
 
 AXIS_GLOBAL_X      = "GX"
 AXIS_GLOBAL_Y      = "GY"
@@ -156,10 +156,7 @@ def _resolve_source_roots(context, source_mode):
 
 def _resolve_selection(context, pivot_mode):
     """Return (pivot_world_co, pivot_object_or_none, source_roots, end_target_or_none).
-
-    end_target is the last-selected object (for ARC_TWO_POINTS), distinct from pivot_object and
-    from source_roots[0]. May be None if not applicable.
-    """
+    end_target is legacy / unused — kept None for signature stability."""
     sel = list(context.selected_objects)
     active = context.active_object
 
@@ -177,17 +174,7 @@ def _resolve_selection(context, pivot_mode):
         pivot_co = pivot_obj.matrix_world.translation.copy() if pivot_obj else None
         sources = [o for o in sel if o is not pivot_obj]
 
-    end_target = None
-    if sources:
-        for o in reversed(sel):
-            if o is pivot_obj:
-                continue
-            if o is sources[0]:
-                continue
-            end_target = o
-            break
-
-    return pivot_co, pivot_obj, sources, end_target
+    return pivot_co, pivot_obj, sources, None
 
 
 def _resolve_axis(self, context):
@@ -234,7 +221,7 @@ def _arc_effective_start(op, axis_vec):
     """Effective start offset (radians) for the active arc. In arc modes the start
     sits at the active object's angle around the pivot, so the ring naturally
     anchors to where the user has placed their reference object."""
-    if op.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS):
+    if op.arc_mode in (ARC_ANGLE, ARC_CURSOR):
         active = getattr(op, "active_obj", None)
         if active is not None:
             try:
@@ -260,7 +247,7 @@ def _compute_arc(self, axis_vec):
             return 0.0, 0.0, 0
         step = ang / (n - 1) if self.end_inclusive else ang / n
         return ang, step, n - 1
-    # ARC_TWO_POINTS — sweep from active object to 3D cursor.
+    # ARC_CURSOR — sweep from active object to the 3D cursor
     active = getattr(self, "active_obj", None)
     if active is None:
         return 0.0, 0.0, 0
@@ -268,8 +255,7 @@ def _compute_arc(self, axis_vec):
         start_vec = active.matrix_world.translation - self.pivot_co
     except ReferenceError:
         return 0.0, 0.0, 0
-    cursor_co = bpy.context.scene.cursor.location
-    end_vec = cursor_co - self.pivot_co
+    end_vec = bpy.context.scene.cursor.location - self.pivot_co
     ang = _signed_angle_around(start_vec, end_vec, axis_vec)
     if abs(ang) < 1e-6:
         ang = 2 * math.pi
@@ -393,8 +379,11 @@ def _effective_radius(op):
 
 
 def _effective_source_mw(source_mw, pivot_co, axis_vec, radius_override):
-    """If radius_override is set, scale the source's radial offset (in the rotation plane)
-    so its in-plane distance from pivot equals the override. Axial component is preserved."""
+    """If radius_override is set, scale (or place) the source's radial offset in
+    the rotation plane so its in-plane distance from pivot equals the override.
+    Axial component is preserved. When the source coincides with the pivot the
+    direction is picked from the rotation frame's `right` so the slot has a
+    deterministic anchor and clones still appear."""
     if radius_override is None:
         return source_mw
     offset = source_mw.translation - pivot_co
@@ -402,8 +391,10 @@ def _effective_source_mw(source_mw, pivot_co, axis_vec, radius_override):
     radial = offset - axial
     cur = radial.length
     if cur < 1e-6:
-        return source_mw  # can't scale a zero vector
-    scaled = radial * (radius_override / cur)
+        right, _ = _arc_frame(axis_vec)
+        scaled = right * radius_override
+    else:
+        scaled = radial * (radius_override / cur)
     new_translation = pivot_co + axial + scaled
     M = source_mw.copy()
     M.translation = new_translation
@@ -474,19 +465,10 @@ def _arc_frame(axis_vec):
 
 
 def _arc_endpoint_world(op, axis_vec):
-    """World position of the arc-end marker. None if no meaningful endpoint (FULL_360 has no endpoint)."""
+    """World position of the arc-end marker. None for ARC_FULL (no endpoint)."""
     if op.arc_mode == ARC_FULL:
         return None
-    if op.arc_mode == ARC_ANGLE:
-        end_angle = _arc_effective_start(op, axis_vec) + op.arc_angle
-    else:  # ARC_TWO_POINTS — endpoint is the end_target's projected position
-        if op.end_target is None:
-            return None
-        try:
-            v = op.end_target.matrix_world.translation - op.pivot_co
-        except ReferenceError:
-            return None
-        end_angle = math.atan2(v.dot(_arc_frame(axis_vec)[1]), v.dot(_arc_frame(axis_vec)[0]))
+    end_angle = _arc_effective_start(op, axis_vec) + op.arc_angle
     right, fwd = _arc_frame(axis_vec)
     r = _effective_radius(op)
     return op.pivot_co + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * r
@@ -594,7 +576,7 @@ def _build_ghost_segments(op, context):
     else:
         start_index = 1
 
-    subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
+    subtrees = op.subtree_data
     if not subtrees:
         return segs, tris, crosses, axis_vec, ang_total
 
@@ -615,7 +597,8 @@ def _build_ghost_segments(op, context):
     # The anchor object's actual matrix_world (with rotation) is used for alignment,
     # so the alignment math sees the group's true orientation.
     anchor_raw = Matrix.Translation(_group_anchor_co(op))
-    anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec, op.radius_override)
+    anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec,
+                                       op.radius_override if op.radius_override is not None else _effective_radius(op))
     anchor_actual = (op.anchor_obj.matrix_world.copy()
                      if op.anchor_obj is not None else anchor_raw)
 
@@ -780,10 +763,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._pool_seed = 12345
         self._dirty = True
 
-        pivot_co, pivot_obj, _legacy_sources, end_target = _resolve_selection(context, self.pivot_mode)
+        pivot_co, pivot_obj, _legacy_sources, _et = _resolve_selection(context, self.pivot_mode)
         self.pivot_co  = pivot_co
         self.pivot_obj = pivot_obj
-        self.end_target = end_target
 
         self._rebuild_sources(context)
         if not self.subtree_data:
@@ -805,7 +787,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("Alignment",   lambda: self.align_mode, "str"))
         self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
         self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
-                                     active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_TWO_POINTS)))
+                                     active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_CURSOR)))
         self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool"))
         self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
         self._help = _build_help(context)
@@ -852,10 +834,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         # --- mode cycles (QWER cluster) ---
         if event.type == "Q" and event.value == "PRESS":
             self.pivot_mode = _cycle(self.pivot_mode, PIVOT_CYCLE)
-            pivot_co, pivot_obj, _legacy_sources, end_target = _resolve_selection(context, self.pivot_mode)
+            pivot_co, pivot_obj, _legacy_sources, _et = _resolve_selection(context, self.pivot_mode)
             self.pivot_co = pivot_co
             self.pivot_obj = pivot_obj
-            self.end_target = end_target
             self._rebuild_sources(context)
             self._dirty = True
             return {"RUNNING_MODAL"}
@@ -1279,7 +1260,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         else:
             start_index = 1
 
-        subtrees = (self.subtree_data[:1] if self.arc_mode == ARC_TWO_POINTS else self.subtree_data)
+        subtrees = self.subtree_data
         if not subtrees:
             return
 
@@ -1354,7 +1335,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             else:
                 # Treat the whole selection as one rigid group: move it to slot 0.
                 anchor_raw = Matrix.Translation(_group_anchor_co(self))
-                anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
+                anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
+                                                  self.radius_override if self.radius_override is not None else _effective_radius(self))
                 anchor_actual = (self.anchor_obj.matrix_world.copy()
                                  if self.anchor_obj is not None else anchor_raw)
                 M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
@@ -1382,7 +1364,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 _clone_subtree(subtree, delta)
         else:
             anchor_raw = Matrix.Translation(_group_anchor_co(self))
-            anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
+            anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
+                                              self.radius_override if self.radius_override is not None else _effective_radius(self))
             anchor_actual = (self.anchor_obj.matrix_world.copy()
                              if self.anchor_obj is not None else anchor_raw)
             slot_positions = []
