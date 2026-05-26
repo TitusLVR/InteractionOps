@@ -644,32 +644,6 @@ def _pool_fill_iter(op, axis_vec):
         yield delta, subtree, target_pos
 
 
-def _build_anchor_matrix(op):
-    """Resolve the anchor matrix used as the base orientation for clones.
-    For SOURCE_GROUP we anchor on the active object's full matrix; otherwise we
-    use a pure translation at the group centroid. When the pivot is the 3D
-    cursor we left-multiply the cursor's rotation onto the anchor so the whole
-    array lives in the cursor's frame (rotate the cursor → clones tilt with it)."""
-    if op.anchor_obj is not None:
-        try:
-            anchor = op.anchor_obj.matrix_world.copy()
-        except ReferenceError:
-            anchor = Matrix.Translation(_group_anchor_co(op))
-    else:
-        anchor = Matrix.Translation(_group_anchor_co(op))
-    if op.pivot_mode == PIVOT_CURSOR and op.pivot_obj is None:
-        try:
-            cursor_rot = bpy.context.scene.cursor.matrix.to_3x3()
-        except AttributeError:
-            cursor_rot = None
-        if cursor_rot is not None:
-            new_3x3 = cursor_rot @ anchor.to_3x3()
-            out = new_3x3.to_4x4()
-            out.translation = anchor.translation
-            anchor = out
-    return anchor
-
-
 def _group_anchor_co(op):
     """Anchor for the rigid group rotation. In SOURCE_GROUP we anchor on the
     active object so all other selected objects keep their offsets relative to
@@ -746,7 +720,8 @@ def _build_ghost_segments(op, context):
     if params is None:
         return segs, tris, crosses, axis_vec, ang_total
     arc_center, arc_R, arc_start, arc_sweep = params
-    anchor_actual = _build_anchor_matrix(op)
+    anchor_actual = (op.anchor_obj.matrix_world.copy()
+                     if op.anchor_obj is not None else Matrix.Translation(_group_anchor_co(op)))
 
     n_total = max(2, int(op.count))
     if op.arc_mode == ARC_FULL:
@@ -1562,7 +1537,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 anchor_raw = Matrix.Translation(_group_anchor_co(self))
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
                                                   self.radius_override if self.radius_override is not None else _effective_radius(self))
-                anchor_actual = _build_anchor_matrix(self)
+                anchor_actual = (self.anchor_obj.matrix_world.copy()
+                                 if self.anchor_obj is not None else anchor_raw)
                 _replace_params = _arc_params(self, axis_vec)
                 replace_center = _replace_params[0] if _replace_params is not None else self.pivot_co
                 M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
@@ -1602,7 +1578,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if params is None:
                 return
             arc_center, arc_R, arc_start, arc_sweep = params
-            anchor_actual = _build_anchor_matrix(self)
+            anchor_actual = (self.anchor_obj.matrix_world.copy()
+                             if self.anchor_obj is not None else Matrix.Translation(_group_anchor_co(self)))
             n_total = max(2, int(self.count))
             if self.arc_mode == ARC_FULL:
                 slot_step = (2 * math.pi) / n_total
