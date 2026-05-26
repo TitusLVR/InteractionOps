@@ -215,9 +215,9 @@ def _clone_matrix(pivot_co, axis_vec, angle, align_to_radius, source_mw):
     return M
 
 
-def _iter_clone_angles(start_offset, step, n_clones):
+def _iter_clone_angles(start_offset, step, n_clones, start_index=1):
     """Yield (clone_index, angle) for each clone. Index 0 reserved for source position."""
-    for i in range(1, n_clones + 1):
+    for i in range(start_index, n_clones + 1):
         yield i, start_offset + i * step
 
 
@@ -237,13 +237,17 @@ def _build_ghost_segments(op, context):
     segs = []
     crosses = []
 
-    for subtree in op.subtree_data:
+    if op.arc_mode == ARC_FULL and op.skip_first:
+        start_index = 0
+    else:
+        start_index = 1
+
+    subtrees = (op.subtree_data[:1] if op.arc_mode == ARC_TWO_POINTS else op.subtree_data)
+    for subtree in subtrees:
         root_obj = subtree[0][0]
         root_mw = root_obj.matrix_world.copy()
 
-        for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones):
-            if op.skip_first and ci == 0:
-                continue
+        for ci, angle in _iter_clone_angles(op.start_offset, step, n_clones, start_index=start_index):
             M_root = _clone_matrix(op.pivot_co, axis_vec, angle, op.align_to_radius, root_mw)
             delta = M_root @ root_mw.inverted()
             for child_obj, rel in subtree:
@@ -431,6 +435,14 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self.pivot_obj = pivot_obj
                 self.sources = sources
                 self.end_target = end_target
+                # rebuild subtree snapshots
+                self.subtree_data = []
+                for root in sources:
+                    root_inv = root.matrix_world.inverted()
+                    subtree = []
+                    for child in _subtree_roots_and_descendants(root):
+                        subtree.append((child, root_inv @ child.matrix_world))
+                    self.subtree_data.append(subtree)
             self._dirty = True
             return {"RUNNING_MODAL"}
 
@@ -481,7 +493,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             depsgraph = context.evaluated_depsgraph_get()
             hit, loc, normal, idx, obj, mat = context.scene.ray_cast(depsgraph, origin, direction)
             if hit:
-                self._cached_axis_vec = (mat.to_3x3() @ normal).normalized()
+                self._cached_axis_vec = normal.normalized()
                 self.axis_mode = AXIS_NORMAL
                 self._dirty = True
                 self.report({"INFO"}, "Axis set from face normal")
@@ -507,12 +519,14 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         # --- count ---
-        if event.type in {"NUMPAD_PLUS", "EQUAL", "WHEELUPMOUSE"} and event.value == "PRESS":
+        if event.type in {"NUMPAD_PLUS", "EQUAL", "WHEELUPMOUSE"} and event.value == "PRESS" \
+                and (event.type == "WHEELUPMOUSE" or self.numeric_channel is None):
             step = 10 if event.ctrl else 1
             self.count = min(1024, self.count + step)
             self._dirty = True
             return {"RUNNING_MODAL"}
-        if event.type in {"NUMPAD_MINUS", "MINUS", "WHEELDOWNMOUSE"} and event.value == "PRESS":
+        if event.type in {"NUMPAD_MINUS", "MINUS", "WHEELDOWNMOUSE"} and event.value == "PRESS" \
+                and (event.type == "WHEELDOWNMOUSE" or self.numeric_channel is None):
             step = 10 if event.ctrl else 1
             self.count = max(2, self.count - step)
             self._dirty = True
@@ -520,15 +534,22 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         # --- numeric channel selection ---
         if event.type == "G" and event.value == "PRESS":
-            self.numeric_channel = "ANGLE"
-            self.numeric_string = ""
-            self._angle_drag_start_x = event.mouse_region_x
-            self._angle_drag_start_value = self.arc_angle
+            if self.numeric_channel == "ANGLE":
+                self.numeric_channel = None
+            else:
+                self.numeric_channel = "ANGLE"
+                self.numeric_string = ""
+                self._angle_drag_start_x = event.mouse_region_x
+                self._angle_drag_start_value = self.arc_angle
             return {"RUNNING_MODAL"}
         if event.type == "S" and event.value == "PRESS":
-            self.start_offset_enabled = True
-            self.numeric_channel = "OFFSET"
-            self.numeric_string = ""
+            if self.numeric_channel == "OFFSET":
+                self.numeric_channel = None
+                self.start_offset_enabled = not self.start_offset_enabled
+            else:
+                self.start_offset_enabled = True
+                self.numeric_channel = "OFFSET"
+                self.numeric_string = ""
             return {"RUNNING_MODAL"}
 
         # angle drag in ANGLE channel
@@ -591,6 +612,15 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._cleanup()
             return {"FINISHED"}
 
+        if self.pending_normal_pick and event.type == "ESC" and event.value == "PRESS":
+            self.pending_normal_pick = False
+            self.report({"INFO"}, "Normal pick cancelled")
+            return {"RUNNING_MODAL"}
+
+        if event.type == "ESC" and event.value == "PRESS" and self.numeric_channel is not None:
+            self.numeric_channel = None
+            return {"RUNNING_MODAL"}
+
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
             self._cleanup()
             return {"CANCELLED"}
@@ -613,24 +643,21 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         created_roots = []
 
-        for subtree in self.subtree_data:
+        if self.arc_mode == ARC_FULL and self.skip_first:
+            start_index = 0
+        else:
+            start_index = 1
+
+        subtrees = (self.subtree_data[:1] if self.arc_mode == ARC_TWO_POINTS else self.subtree_data)
+        for subtree in subtrees:
             root_obj = subtree[0][0]
             root_mw = root_obj.matrix_world.copy()
 
-            try:
-                base_coll = root_obj.users_collection[0]
-            except IndexError:
-                base_coll = context.scene.collection
             ra_name = f"_RadialArray_{root_obj.name}"
-            ra_coll = bpy.data.collections.get(ra_name) or bpy.data.collections.new(ra_name)
-            existing = {c.name for c in context.scene.collection.children_recursive}
-            if ra_name not in existing:
-                context.scene.collection.children.link(ra_coll)
+            ra_coll = bpy.data.collections.new(ra_name)  # Blender uniquifies
+            context.scene.collection.children.link(ra_coll)
 
-            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones):
-                if self.skip_first and ci == 0:
-                    continue
-
+            for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
                 M_root = _clone_matrix(self.pivot_co, axis_vec, angle,
                                        self.align_to_radius, root_mw)
                 delta = M_root @ root_mw.inverted()
@@ -663,8 +690,18 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
                 created_roots.append(clone_map[root_obj])
 
-        bpy.ops.object.select_all(action="DESELECT")
+        for obj in context.view_layer.objects:
+            try:
+                obj.select_set(False)
+            except RuntimeError:
+                pass
         for r in created_roots:
-            r.select_set(True)
+            try:
+                r.select_set(True)
+            except RuntimeError:
+                pass
         if created_roots:
-            context.view_layer.objects.active = created_roots[0]
+            try:
+                context.view_layer.objects.active = created_roots[0]
+            except (AttributeError, RuntimeError):
+                pass
