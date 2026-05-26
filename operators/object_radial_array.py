@@ -68,7 +68,8 @@ PIVOT_CYCLE        = (PIVOT_ACTIVE, PIVOT_CURSOR, PIVOT_LAST)
 
 CLONE_DUP          = "DUPLICATE"
 CLONE_INST         = "INSTANCE"
-CLONE_CYCLE        = (CLONE_DUP, CLONE_INST)
+CLONE_REPLACE      = "REPLACE"
+CLONE_CYCLE        = (CLONE_DUP, CLONE_INST, CLONE_REPLACE)
 
 ARC_FULL           = "FULL_360"
 ARC_ANGLE          = "ARC_ANGLE"
@@ -1112,10 +1113,15 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if not subtrees:
             return
 
-        # one shared "_RadialArray_<groupName>" collection per apply, named after first source
-        first_root_name = subtrees[0][0][0].name
-        ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
-        context.scene.collection.children.link(ra_coll)
+        # Replace mode never creates objects for the first N slots — it moves the
+        # source objects themselves. Only the (count - N) overflow slots become
+        # linked instances. No working collection in pure Replace.
+        replace_mode = (self.clone_mode == CLONE_REPLACE)
+        ra_coll = None
+        if not replace_mode:
+            first_root_name = subtrees[0][0][0].name
+            ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
+            context.scene.collection.children.link(ra_coll)
 
         def _clone_subtree(subtree, delta):
             clone_map = {}
@@ -1128,10 +1134,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                         c.objects.link(new)
                     except RuntimeError:
                         pass
-                try:
-                    ra_coll.objects.link(new)
-                except RuntimeError:
-                    pass
+                if ra_coll is not None:
+                    try:
+                        ra_coll.objects.link(new)
+                    except RuntimeError:
+                        pass
                 clone_map[child_obj] = new
             for child_obj, _rel in subtree:
                 new = clone_map[child_obj]
@@ -1143,7 +1150,58 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 new.matrix_world = delta @ child_obj.matrix_world
             created_roots.append(clone_map[subtree[0][0]])
 
-        if self.pool_fill:
+        def _replace_subtree(subtree, delta):
+            for child_obj, _rel in subtree:
+                try:
+                    child_obj.matrix_world = delta @ child_obj.matrix_world
+                except ReferenceError:
+                    pass
+            try:
+                created_roots.append(subtree[0][0])
+            except (ReferenceError, IndexError):
+                pass
+
+        if replace_mode:
+            # Replace only makes sense with one source per slot — that's pool fill.
+            # In group-rigid mode, every "slot" multiplies the whole selection, so
+            # there's nothing to "replace into" with the same source set.
+            N = len(subtrees)
+            used = set()
+            if self.pool_fill:
+                for i, (delta, subtree) in enumerate(_pool_fill_iter(self, axis_vec)):
+                    sub_id = id(subtree)
+                    if sub_id in used:
+                        # extras (count > N): can't move the same source twice, so
+                        # fall back to a linked instance.
+                        first_root_name = subtrees[0][0][0].name
+                        if ra_coll is None:
+                            ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
+                            context.scene.collection.children.link(ra_coll)
+                        _clone_subtree(subtree, delta)
+                    else:
+                        used.add(sub_id)
+                        _replace_subtree(subtree, delta)
+            else:
+                # Treat the whole selection as one rigid group: move it to slot 0.
+                anchor_raw = Matrix.Translation(_group_anchor_co(self))
+                anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec, self.radius_override)
+                M_anchor = _clone_matrix(self.pivot_co, axis_vec, self.start_offset,
+                                         self.align_to_radius, anchor_eff)
+                delta = M_anchor @ anchor_raw.inverted()
+                for subtree in subtrees:
+                    _replace_subtree(subtree, delta)
+                # Build the rest as instances around the ring.
+                if ra_coll is None:
+                    first_root_name = subtrees[0][0][0].name
+                    ra_coll = bpy.data.collections.new(f"_RadialArray_{first_root_name}")
+                    context.scene.collection.children.link(ra_coll)
+                for ci, angle in _iter_clone_angles(self.start_offset, step, n_clones, start_index=start_index):
+                    M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle,
+                                             self.align_to_radius, anchor_eff)
+                    delta_i = M_anchor @ anchor_raw.inverted()
+                    for subtree in subtrees:
+                        _clone_subtree(subtree, delta_i)
+        elif self.pool_fill:
             for delta, subtree in _pool_fill_iter(self, axis_vec):
                 _clone_subtree(subtree, delta)
         else:
