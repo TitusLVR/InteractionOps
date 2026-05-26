@@ -177,6 +177,7 @@ from .operators.easy_mod_array import (
     IOPS_OT_Easy_Mod_Array_Caps,
     IOPS_OT_Easy_Mod_Array_Curve,
 )
+from .operators.object_radial_array import IOPS_OT_Object_Radial_Array
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
@@ -384,6 +385,7 @@ classes = (
     IOPS_OT_Call_MT_Executor,
     IOPS_OT_Easy_Mod_Array_Caps,
     IOPS_OT_Easy_Mod_Array_Curve,
+    IOPS_OT_Object_Radial_Array,
     IOPS_OT_Easy_Mod_Shwarp,
     IOPS_OT_Mesh_QuickSnap,
     IOPS_OT_LoadDefaultHotkeys,
