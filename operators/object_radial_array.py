@@ -367,17 +367,21 @@ def _iter_clone_angles(start_offset, step, n_clones, start_index=1):
 
 
 def _natural_radius(op):
-    """Max distance from pivot to any source root, in world space."""
-    max_r = 0.0
-    for sub in op.subtree_data:
-        root = sub[0][0]
+    """Distance from pivot to the anchor (active object). The preview ring uses
+    this so it visibly passes through the active — and through every clone slot,
+    since slots are produced by rotating the anchor around the pivot."""
+    target = getattr(op, "active_obj", None)
+    if target is None and op.subtree_data:
         try:
-            r = (root.matrix_world.translation - op.pivot_co).length
-        except ReferenceError:
-            continue
-        if r > max_r:
-            max_r = r
-    return max_r
+            target = op.subtree_data[0][0][0]
+        except IndexError:
+            target = None
+    if target is None:
+        return 0.0
+    try:
+        return (target.matrix_world.translation - op.pivot_co).length
+    except ReferenceError:
+        return 0.0
 
 
 def _effective_radius(op):
