@@ -293,20 +293,9 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
     T_from = Matrix.Translation(-clone_pos)
 
     # Stage 1: alignment-mode-driven rotation around clone position.
-    if align_mode == ALIGN_CURSOR:
-        # Tilt the clone's +Z onto the 3D cursor's +Z via the shortest
-        # rotation — independent of pivot mode and axis mode. Lets users align
-        # any radial array to the cursor's plane.
-        try:
-            cursor_z = bpy.context.scene.cursor.matrix.to_3x3() @ Vector((0, 0, 1))
-        except AttributeError:
-            cursor_z = None
-        if cursor_z is not None and cursor_z.length > 1e-6:
-            src_z = base_mw.to_3x3() @ Vector((0, 0, 1))
-            if src_z.length > 1e-6:
-                q = src_z.rotation_difference(cursor_z)
-                R = q.to_matrix().to_4x4()
-                base_mw = T_to @ R @ T_from @ base_mw
+    # NOTE: ALIGN_CURSOR is applied earlier by the caller (it tilts the anchor
+    # before R_step so the rigid rotation lives in cursor's plane). Nothing to
+    # do here for it.
 
     if align_mode in (ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z):
         import random
@@ -638,6 +627,8 @@ def _pool_fill_iter(op, axis_vec):
         target_pos = arc_center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
         base_mw = src_mw.copy()
         base_mw.translation = target_pos
+        if op.align_mode == ALIGN_CURSOR:
+            base_mw = _tilt_to_cursor_z(base_mw)
         new_mw = _aligned_clone_mw(op.align_mode, arc_center, axis_vec,
                                    base_mw, op._pool_seed, s,
                                    local_rot=tuple(op.local_rot))
@@ -645,11 +636,31 @@ def _pool_fill_iter(op, axis_vec):
         yield delta, subtree, target_pos
 
 
+def _tilt_to_cursor_z(mw):
+    """Pre-rotate a matrix so its +Z is aligned with the 3D cursor's +Z (shortest
+    rotation). Translation is preserved. Used by ALIGN_CURSOR before R_step so
+    the rigid rotation distributes clones cleanly in the cursor's plane."""
+    try:
+        cursor_z = bpy.context.scene.cursor.matrix.to_3x3() @ Vector((0, 0, 1))
+    except AttributeError:
+        return mw
+    if cursor_z.length < 1e-6:
+        return mw
+    src_z = mw.to_3x3() @ Vector((0, 0, 1))
+    if src_z.length < 1e-6:
+        return mw
+    q = src_z.rotation_difference(cursor_z)
+    new_3x3 = q.to_matrix() @ mw.to_3x3()
+    out = new_3x3.to_4x4()
+    out.translation = mw.translation
+    return out
+
+
 def _build_anchor_matrix(op):
     """Anchor matrix used as the base orientation for clones — raw source frame.
     For SOURCE_GROUP we anchor on the active object's full matrix; otherwise
-    we use a pure translation at the group centroid. Cursor-frame tilt is
-    handled by ALIGN_CURSOR in `_aligned_clone_mw`, not baked in here."""
+    we use a pure translation at the group centroid. ALIGN_CURSOR tilt is
+    layered by callers via `_tilt_to_cursor_z` before R_step is applied."""
     if op.anchor_obj is not None:
         try:
             return op.anchor_obj.matrix_world.copy()
@@ -735,6 +746,8 @@ def _build_ghost_segments(op, context):
         return segs, tris, crosses, axis_vec, ang_total
     arc_center, arc_R, arc_start, arc_sweep = params
     anchor_actual = _build_anchor_matrix(op)
+    if op.align_mode == ALIGN_CURSOR:
+        anchor_actual = _tilt_to_cursor_z(anchor_actual)
 
     n_total = max(2, int(op.count))
     if op.arc_mode == ARC_FULL:
@@ -1400,12 +1413,14 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             best_i = min(range(len(slot_positions)),
                          key=lambda i: (slot_positions[i] - original_root_mw.translation).length)
             slot_pos = slot_positions[best_i]
+            tilted_orig = (_tilt_to_cursor_z(original_root_mw)
+                           if self.align_mode == ALIGN_CURSOR else original_root_mw)
             if self.align_mode == ALIGN_NONE:
-                base_mw = original_root_mw.copy()
+                base_mw = tilted_orig.copy()
                 base_mw.translation = slot_pos
             else:
                 R_step = Matrix.Rotation(best_i * slot_step, 4, axis_vec).to_3x3()
-                base_mw = (R_step @ original_root_mw.to_3x3()).to_4x4()
+                base_mw = (R_step @ tilted_orig.to_3x3()).to_4x4()
                 base_mw.translation = slot_pos
             final_mw = _aligned_clone_mw(self.align_mode, arc_center, axis_vec,
                                          base_mw, self._pool_seed, best_i,
@@ -1551,6 +1566,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
                                                   self.radius_override if self.radius_override is not None else _effective_radius(self))
                 anchor_actual = _build_anchor_matrix(self)
+                if self.align_mode == ALIGN_CURSOR:
+                    anchor_actual = _tilt_to_cursor_z(anchor_actual)
                 _replace_params = _arc_params(self, axis_vec)
                 replace_center = _replace_params[0] if _replace_params is not None else self.pivot_co
                 M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
@@ -1591,6 +1608,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 return
             arc_center, arc_R, arc_start, arc_sweep = params
             anchor_actual = _build_anchor_matrix(self)
+            if self.align_mode == ALIGN_CURSOR:
+                anchor_actual = _tilt_to_cursor_z(anchor_actual)
             n_total = max(2, int(self.count))
             if self.arc_mode == ARC_FULL:
                 slot_step = (2 * math.pi) / n_total
