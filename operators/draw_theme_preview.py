@@ -86,6 +86,10 @@ def _draw_view(state):
         # Island palette: 8 translucent quads, one per slot.
         for i, quad_tris in enumerate(state["island_quads"]):
             draw.tris(quad_tris, color=th.island_palette[i], theme=th)
+        # Ghost sphere — filled tris (Ghost Default) under wireframe (Ghost Edge).
+        if "ghost_tris" in state and "ghost_edges" in state:
+            draw.tris(state["ghost_tris"], role=Role.GHOST_DEFAULT, theme=th)
+            draw.edges_3d(state["ghost_edges"], role=Role.GHOST_EDGE, theme=th)
 
 
 from ..ui.hud import EventSnapshot as _EventSnapshot
@@ -382,6 +386,37 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
             island_tris.append([c + a, c + b, c + e,
                                 c + a, c + e, c + d])
         state["island_quads"] = island_tris
+
+        # --- Ghost sphere preview: UV sphere wireframe + translucent fill.
+        # Placed on the left, mirroring the island palette on the right.
+        import math
+        sphere_center = c + Vector((-2.4, 0, 0.4))
+        sphere_radius = 0.55
+        segs = 18
+        rings = 10
+        grid = []
+        for r in range(rings + 1):
+            phi = math.pi * r / rings
+            z = math.cos(phi) * sphere_radius
+            rr = math.sin(phi) * sphere_radius
+            row = []
+            for s in range(segs):
+                th = 2.0 * math.pi * s / segs
+                v = sphere_center + Vector((rr * math.cos(th), rr * math.sin(th), z))
+                row.append(v)
+            grid.append(row)
+        ghost_edges = []
+        ghost_tris = []
+        for r in range(rings):
+            for s in range(segs):
+                a = grid[r][s]
+                b = grid[r][(s + 1) % segs]
+                d = grid[r + 1][s]
+                e = grid[r + 1][(s + 1) % segs]
+                ghost_edges.extend([a, b, a, d])
+                ghost_tris.extend([a, d, e, a, e, b])
+        state["ghost_edges"] = ghost_edges
+        state["ghost_tris"] = ghost_tris
 
     def _build_hud(self, state):
         hud = HUDOverlay("theme_preview")

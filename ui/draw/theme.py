@@ -30,6 +30,10 @@ class Role(Enum):
     BBOX = "bbox"
     CURSOR = "cursor"
 
+    # Ghost / Surfaces — highlighted faces and ghost-preview wireframes.
+    GHOST_EDGE = "ghost_edge"
+    GHOST_DEFAULT = "ghost_default"
+
     # HUD text — the only text styles used anywhere in the addon.
     HUD_HEADER = "hud_header"
     HUD_KEY = "hud_key"
@@ -79,6 +83,9 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.PIVOT:         (1.000, 0.872, 0.174, 0.90),
     Role.BBOX:          (0.650, 0.650, 0.650, 0.30),
     Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
+
+    Role.GHOST_EDGE:    (0.302, 0.816, 1.000, 0.45),
+    Role.GHOST_DEFAULT: (0.302, 0.816, 1.000, 0.12),
 
     Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
     Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),
@@ -263,6 +270,9 @@ def get_theme(context) -> "Theme":
             Role.PIVOT:              c("color_pivot",          _DEFAULT_COLORS[Role.PIVOT]),
             Role.BBOX:               c("color_bbox",           _DEFAULT_COLORS[Role.BBOX]),
             Role.CURSOR:             c("color_cursor",         _DEFAULT_COLORS[Role.CURSOR]),
+
+            Role.GHOST_EDGE:         c("color_ghost_edge",     _DEFAULT_COLORS[Role.GHOST_EDGE]),
+            Role.GHOST_DEFAULT:      c("color_ghost_default",  _DEFAULT_COLORS[Role.GHOST_DEFAULT]),
 
             # HUD_HEADER + HUD_LABEL_ACTIVE share `color_hud_header`.
             # HUD_KEY    + HUD_ACTIVE_VALUE share `color_hud_key`.

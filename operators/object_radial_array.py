@@ -411,7 +411,7 @@ def _draw_preview_3d(op, context):
         for a, b in segs:
             flat.append(a)
             flat.append(b)
-        iops_draw.edges_3d(flat, role=Role.PREVIEW_LINE, context=context)
+        iops_draw.edges_3d(flat, role=Role.GHOST_EDGE, context=context)
 
     if crosses:
         iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
