@@ -332,7 +332,7 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
 def _clone_step_deg(op):
     """Angle (radians) between consecutive clones for the current mode."""
     try:
-        axis_vec = _resolve_axis(op, bpy.context)
+        axis_vec = _effective_rotation_axis(op, bpy.context)
     except AttributeError:
         return 0.0
     _, step, _ = _compute_arc(op, axis_vec)
@@ -636,24 +636,38 @@ def _pool_fill_iter(op, axis_vec):
         yield delta, subtree, target_pos
 
 
-def _tilt_to_cursor_z(mw):
-    """Pre-rotate a matrix so its +Z is aligned with the 3D cursor's +Z (shortest
-    rotation). Translation is preserved. Used by ALIGN_CURSOR before R_step so
-    the rigid rotation distributes clones cleanly in the cursor's plane."""
+def _cursor_z_world():
+    """3D cursor's +Z direction in world space. None if cursor has no matrix."""
     try:
-        cursor_z = bpy.context.scene.cursor.matrix.to_3x3() @ Vector((0, 0, 1))
+        z = bpy.context.scene.cursor.matrix.to_3x3() @ Vector((0, 0, 1))
+    except AttributeError:
+        return None
+    return z if z.length > 1e-6 else None
+
+
+def _tilt_to_cursor_z(mw):
+    """ALIGN_CURSOR step 1 — replace `mw`'s rotation with the 3D cursor's full
+    rotation, preserving translation. The clones then inherit the cursor's
+    entire frame (not only +Z), so R_step distributes them in cursor's plane
+    and local-axis nudges apply in cursor's local X/Y/Z space."""
+    try:
+        cursor_3x3 = bpy.context.scene.cursor.matrix.to_3x3()
     except AttributeError:
         return mw
-    if cursor_z.length < 1e-6:
-        return mw
-    src_z = mw.to_3x3() @ Vector((0, 0, 1))
-    if src_z.length < 1e-6:
-        return mw
-    q = src_z.rotation_difference(cursor_z)
-    new_3x3 = q.to_matrix() @ mw.to_3x3()
-    out = new_3x3.to_4x4()
+    out = cursor_3x3.to_4x4()
     out.translation = mw.translation
     return out
+
+
+def _effective_rotation_axis(op, context):
+    """The axis R_step rotates around. Normally `_resolve_axis(op, context)` but
+    ALIGN_CURSOR forces cursor's +Z so the cursor tilt survives R_step intact
+    (R_step around tilted axis preserves the tilted +Z)."""
+    if op.align_mode == ALIGN_CURSOR:
+        cursor_z = _cursor_z_world()
+        if cursor_z is not None:
+            return cursor_z
+    return _resolve_axis(op, context)
 
 
 def _build_anchor_matrix(op):
@@ -704,7 +718,7 @@ def _build_ghost_segments(op, context):
             continue
     op.subtree_data = valid
 
-    axis_vec = _resolve_axis(op, context)
+    axis_vec = _effective_rotation_axis(op, context)
     ang_total, step, n_clones = _compute_arc(op, axis_vec)
 
     segs = []
@@ -1158,7 +1172,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     self.arc_apex_h_signed = -self.arc_apex_h_signed
                 else:
                     # default semicircle on +perp side; flipped → semicircle on −perp
-                    axis_vec = _resolve_axis(self, context)
+                    axis_vec = _effective_rotation_axis(self, context)
                     params = _arc_two_point_geometry(self, axis_vec)
                     if params is not None:
                         # Use r_min derived from A/B
@@ -1178,7 +1192,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         # --- LMB PRESS: two controllers in ARC_CURSOR (center marker / arc curve)
         #               and one in fixed-angle arcs (ring = radius).
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
-            axis_vec = _resolve_axis(self, context)
+            axis_vec = _effective_rotation_axis(self, context)
             params = _arc_params(self, axis_vec)
             arc_center = params[0] if params is not None else self.pivot_co
             arc_R = params[1] if params is not None else _effective_radius(self)
@@ -1217,7 +1231,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
-            axis_vec = _resolve_axis(self, context)
+            axis_vec = _effective_rotation_axis(self, context)
             if self.arc_mode == ARC_CURSOR:
                 # Mouse = desired arc apex. arc_apex_h_signed captures it
                 # directly; the geometry function picks minor or major based
@@ -1255,7 +1269,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if self.arc_center_drag_active and event.type == "MOUSEMOVE":
-            axis_vec = _resolve_axis(self, context)
+            axis_vec = _effective_rotation_axis(self, context)
             active = getattr(self, "active_obj", None)
             if active is None:
                 return {"RUNNING_MODAL"}
@@ -1381,7 +1395,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         number of subtrees actually snapped."""
         if not self._match_saved:
             return 0
-        axis_vec = _resolve_axis(self, context)
+        axis_vec = _effective_rotation_axis(self, context)
         params = _arc_params(self, axis_vec)
         if params is None:
             return 0
@@ -1476,7 +1490,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._match_saved = None
             self.match_active = False
             return
-        axis_vec = _resolve_axis(self, context)
+        axis_vec = _effective_rotation_axis(self, context)
         ang_total, step, n_clones = _compute_arc(self, axis_vec)
         if n_clones <= 0:
             return
