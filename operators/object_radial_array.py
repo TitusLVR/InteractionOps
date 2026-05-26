@@ -39,6 +39,7 @@ def _build_help(context):
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match from origins", "M",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -645,6 +646,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.report({"INFO"}, "Radial Array reset to defaults")
             return {"RUNNING_MODAL"}
 
+        # --- match radius / count (and arc) from current source origins ---
+        if event.type == "M" and event.value == "PRESS":
+            self._match_from_sources(context)
+            return {"RUNNING_MODAL"}
+
         # --- axis ---
         if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
             self.axis_mode = {"X": AXIS_GLOBAL_X, "Y": AXIS_GLOBAL_Y, "Z": AXIS_GLOBAL_Z}[event.type]
@@ -893,6 +899,55 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
+
+    def _match_from_sources(self, context):
+        """Infer pivot center, radius and count from the source origins themselves.
+        Origins → centroid = new pivot. Avg in-plane distance to centroid = radius.
+        Count = len(sources). In arc modes, also set start_offset / arc_angle from
+        the extreme source angles around the rotation axis."""
+        origins = []
+        for sub in self.subtree_data:
+            try:
+                origins.append(sub[0][0].matrix_world.translation.copy())
+            except ReferenceError:
+                continue
+        if not origins:
+            self.report({"WARNING"}, "No live source origins")
+            return
+        center = Vector((0.0, 0.0, 0.0))
+        for o in origins:
+            center += o
+        center /= len(origins)
+        self.pivot_co = center
+        self.pivot_obj = None
+        self.pivot_mode = PIVOT_CURSOR
+
+        axis_vec = _resolve_axis(self, context)
+        radii = []
+        for o in origins:
+            v = o - center
+            v_radial = v - axis_vec * v.dot(axis_vec)
+            radii.append(v_radial.length)
+        avg_r = sum(radii) / len(radii)
+        self.radius_override = avg_r if avg_r > 1e-6 else None
+        self.count = max(2, len(origins))
+
+        if self.arc_mode != ARC_FULL and len(origins) >= 2:
+            right, fwd = _arc_frame(axis_vec)
+            angles = [math.atan2((o - center).dot(fwd), (o - center).dot(right))
+                      for o in origins]
+            self.start_offset = angles[0]
+            self.start_offset_enabled = True
+            sweep = angles[-1] - angles[0]
+            while sweep > math.pi:
+                sweep -= 2 * math.pi
+            while sweep <= -math.pi:
+                sweep += 2 * math.pi
+            self.arc_angle = sweep
+
+        self._dirty = True
+        self.report({"INFO"},
+                    f"Matched from {len(origins)} origins: r={avg_r:.3f}, count={self.count}")
 
     def _reset_defaults(self):
         """Restore all parameters to factory defaults. Sources & pivot stay.
