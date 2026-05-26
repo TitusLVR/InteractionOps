@@ -35,6 +35,7 @@ def _build_help(context):
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Angle drag",     "G + mouse",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -307,6 +308,34 @@ def _mesh_edge_segments_world(obj_mw, mesh):
     return [(verts_world[e.vertices[0]], verts_world[e.vertices[1]]) for e in mesh.edges]
 
 
+def _arc_frame(axis_vec):
+    """Return (right, fwd) orthonormal basis in the plane perpendicular to axis_vec."""
+    up = axis_vec
+    right = Vector((1, 0, 0)) if abs(up.x) < 0.9 else Vector((0, 1, 0))
+    right = (right - up * right.dot(up)).normalized()
+    fwd = up.cross(right)
+    return right, fwd
+
+
+def _arc_endpoint_world(op, axis_vec):
+    """World position of the arc-end marker. None if no meaningful endpoint (FULL_360 has no endpoint)."""
+    if op.arc_mode == ARC_FULL:
+        return None
+    if op.arc_mode == ARC_ANGLE:
+        end_angle = op.start_offset + op.arc_angle
+    else:  # ARC_TWO_POINTS — endpoint is the end_target's projected position
+        if op.end_target is None:
+            return None
+        try:
+            v = op.end_target.matrix_world.translation - op.pivot_co
+        except ReferenceError:
+            return None
+        end_angle = math.atan2(v.dot(_arc_frame(axis_vec)[1]), v.dot(_arc_frame(axis_vec)[0]))
+    right, fwd = _arc_frame(axis_vec)
+    r = _effective_radius(op)
+    return op.pivot_co + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * r
+
+
 def _group_anchor_co(op):
     """Centroid of source root world positions — group rotates around pivot as one unit."""
     pts = []
@@ -398,10 +427,7 @@ def _draw_preview_3d(op, context):
     # circle/arc in plane perpendicular to axis
     if max_r > 1e-3:
         steps = 64
-        up = axis_vec
-        right = Vector((1, 0, 0)) if abs(up.x) < 0.9 else Vector((0, 1, 0))
-        right = (right - up * right.dot(up)).normalized()
-        fwd = up.cross(right)
+        right, fwd = _arc_frame(axis_vec)
         sweep = ang_total if op.arc_mode != ARC_FULL else 2 * math.pi
         ring = []
         for i in range(steps + 1):
@@ -417,6 +443,11 @@ def _draw_preview_3d(op, context):
 
     # pivot marker
     iops_draw.points([op.pivot_co], role=Role.PIVOT, context=context)
+
+    # arc end marker (draggable; absent in FULL_360 or two-points-without-target)
+    end_pt = _arc_endpoint_world(op, axis_vec)
+    if end_pt is not None:
+        iops_draw.points([end_pt], role=Role.ACTIVE_POINT, context=context)
 
 
 class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
@@ -462,6 +493,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._cached_axis_vec = Vector((0, 0, 1))
         self.radius_override = None       # None = use natural source distance
         self.radius_drag_active = False
+        self.arc_end_drag_active = False
         self._dirty = True
 
         pivot_co, pivot_obj, sources, end_target = _resolve_selection(context, self.pivot_mode)
@@ -723,16 +755,29 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             if event.type in digit_map or event.type in {"PERIOD", "NUMPAD_PERIOD", "BACK_SPACE", "MINUS"}:
                 return {"RUNNING_MODAL"}
 
-        # --- radius drag (LMB on the preview ring) ---
+        # --- LMB PRESS: hit-test arc endpoint first, then ring ---
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             axis_vec = _resolve_axis(self, context)
-            r_mouse = _mouse_radius_in_plane(context, event, self.pivot_co, axis_vec)
+            hit = _mouse_on_rot_plane(context, event, self.pivot_co, axis_vec)
             cur_r = _effective_radius(self)
-            tol = max(0.25 * cur_r, 0.4)
-            if r_mouse is not None and abs(r_mouse - cur_r) < tol:
-                self.radius_drag_active = True
-                self.radius_override = max(1e-4, r_mouse)
-                self._dirty = True
+            # arc endpoint hit?
+            end_pt = _arc_endpoint_world(self, axis_vec)
+            if hit is not None and end_pt is not None:
+                if (hit - end_pt).length < max(0.18 * cur_r, 0.3):
+                    self.arc_end_drag_active = True
+                    if self.arc_mode == ARC_FULL:
+                        self.arc_mode = ARC_ANGLE  # convert to angle so drag is meaningful
+                    return {"RUNNING_MODAL"}
+            # ring hit (radius)?
+            if hit is not None:
+                radial = hit - self.pivot_co
+                radial = radial - axis_vec * radial.dot(axis_vec)
+                r_mouse = radial.length
+                tol = max(0.25 * cur_r, 0.4)
+                if abs(r_mouse - cur_r) < tol:
+                    self.radius_drag_active = True
+                    self.radius_override = max(1e-4, r_mouse)
+                    self._dirty = True
             return {"RUNNING_MODAL"}
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
@@ -743,8 +788,34 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if self.radius_drag_active and event.type == "LEFTMOUSE" and event.value == "RELEASE":
+        if self.arc_end_drag_active and event.type == "MOUSEMOVE":
+            axis_vec = _resolve_axis(self, context)
+            hit = _mouse_on_rot_plane(context, event, self.pivot_co, axis_vec)
+            if hit is not None:
+                right, fwd = _arc_frame(axis_vec)
+                v = hit - self.pivot_co
+                mouse_angle = math.atan2(v.dot(fwd), v.dot(right))
+                new_arc = mouse_angle - self.start_offset
+                # normalize to (-pi, pi] but allow wide sweeps via Shift (no normalize)
+                if not event.shift:
+                    while new_arc > math.pi:
+                        new_arc -= 2 * math.pi
+                    while new_arc <= -math.pi:
+                        new_arc += 2 * math.pi
+                if event.ctrl and event.shift:
+                    snap = math.radians(15.0)
+                    new_arc = round(new_arc / snap) * snap
+                elif event.ctrl:
+                    snap = math.radians(5.0)
+                    new_arc = round(new_arc / snap) * snap
+                self.arc_angle = new_arc
+                self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" \
+                and (self.radius_drag_active or self.arc_end_drag_active):
             self.radius_drag_active = False
+            self.arc_end_drag_active = False
             return {"RUNNING_MODAL"}
 
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
