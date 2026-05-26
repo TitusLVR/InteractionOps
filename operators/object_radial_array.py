@@ -549,27 +549,28 @@ def _pool_fill_iter(op, axis_vec):
     N = len(op.subtree_data)
     if N == 0:
         return
+    params = _arc_params(op, axis_vec)
+    if params is None:
+        return
+    arc_center, radius, arc_start, arc_sweep = params
     n_slots = max(1, int(op.count))
     if op.arc_mode == ARC_FULL:
         step = 2 * math.pi / n_slots
     else:
-        ang_total, _step_unused, _ = _compute_arc(op, axis_vec)
         if n_slots > 1:
-            step = ang_total / (n_slots - 1) if op.end_inclusive else ang_total / n_slots
+            step = arc_sweep / (n_slots - 1) if op.end_inclusive else arc_sweep / n_slots
         else:
             step = 0.0
     rng = random.Random(op._pool_seed)
-    radius = _effective_radius(op)
     if radius < 1e-6:
         radius = 1.0
     right, fwd = _arc_frame(axis_vec)
 
     # First sweep — compute every slot's target position so FOLLOW knows neighbours.
     slot_positions = []
-    start = _arc_effective_start(op, axis_vec)
     for s in range(n_slots):
-        ang = start + s * step
-        slot_positions.append(op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * radius)
+        ang = arc_start + s * step
+        slot_positions.append(arc_center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius)
 
     def _follow_target(i):
         if i + 1 < n_slots:
@@ -759,25 +760,32 @@ def _draw_preview_3d(op, context):
     if crosses:
         iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
 
-    # axis line through pivot; use effective radius so ring tracks override drag
-    max_r = _effective_radius(op)
-    if max_r < 1e-3:
-        max_r = 1.0
-    a_half = axis_vec * (max_r * 2.0)
-    iops_draw.edges_3d([op.pivot_co - a_half, op.pivot_co + a_half],
+    # Visualization uses the unified arc params so ARC_CURSOR draws around the
+    # derived center, not the user pivot.
+    params = _arc_params(op, axis_vec)
+    if params is not None:
+        center, radius, start_a, sweep = params
+    else:
+        center = op.pivot_co.copy()
+        radius = _effective_radius(op)
+        start_a = 0.0
+        sweep = 2 * math.pi if op.arc_mode == ARC_FULL else 0.0
+    if radius < 1e-3:
+        radius = 1.0
+
+    a_half = axis_vec * (radius * 2.0)
+    iops_draw.edges_3d([center - a_half, center + a_half],
                        role=Role.ACTIVE_LINE, context=context)
 
-    # circle/arc in plane perpendicular to axis
-    if max_r > 1e-3:
+    if radius > 1e-3:
         steps = 64
         right, fwd = _arc_frame(axis_vec)
-        sweep = ang_total if op.arc_mode != ARC_FULL else 2 * math.pi
-        eff_start = _arc_effective_start(op, axis_vec)
+        ring_sweep = sweep if op.arc_mode != ARC_FULL else 2 * math.pi
         ring = []
         for i in range(steps + 1):
             t = i / steps
-            ang = eff_start + t * sweep
-            p = op.pivot_co + (right * math.cos(ang) + fwd * math.sin(ang)) * max_r
+            ang = start_a + t * ring_sweep
+            p = center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
             ring.append(p)
         pairs = []
         for i in range(len(ring) - 1):
@@ -785,8 +793,8 @@ def _draw_preview_3d(op, context):
             pairs.append(ring[i + 1])
         iops_draw.edges_3d(pairs, role=Role.PREVIEW_LINE, context=context)
 
-    # pivot marker
-    iops_draw.points([op.pivot_co], role=Role.PIVOT, context=context)
+    # Marker at the derived arc center.
+    iops_draw.points([center], role=Role.PIVOT, context=context)
 
     # arc end marker (draggable; absent in FULL_360 or two-points-without-target)
     end_pt = _arc_endpoint_world(op, axis_vec)
@@ -1304,18 +1312,23 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             for delta, subtree, _slot_pos in _pool_fill_iter(self, axis_vec):
                 _clone_subtree(subtree, delta)
         else:
-            anchor_raw = Matrix.Translation(_group_anchor_co(self))
-            anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
-                                              self.radius_override if self.radius_override is not None else _effective_radius(self))
+            params = _arc_params(self, axis_vec)
+            if params is None:
+                return
+            arc_center, arc_R, arc_start, arc_sweep = params
             anchor_actual = (self.anchor_obj.matrix_world.copy()
-                             if self.anchor_obj is not None else anchor_raw)
-            eff_start = _arc_effective_start(self, axis_vec)
+                             if self.anchor_obj is not None else Matrix.Translation(_group_anchor_co(self)))
             n_total = max(2, int(self.count))
+            if self.arc_mode == ARC_FULL:
+                slot_step = (2 * math.pi) / n_total
+            else:
+                slot_step = arc_sweep / (n_total - 1) if (n_total > 1 and self.end_inclusive) else arc_sweep / max(1, n_total)
+            step = slot_step  # for downstream R_step
+            right, fwd = _arc_frame(axis_vec)
             all_positions = []
             for ci in range(n_total):
-                angle = eff_start + ci * step
-                M_anchor = _clone_matrix(self.pivot_co, axis_vec, angle, anchor_eff)
-                all_positions.append(M_anchor.translation.copy())
+                a = arc_start + ci * slot_step
+                all_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
 
             wraps = (self.arc_mode == ARC_FULL)
 
