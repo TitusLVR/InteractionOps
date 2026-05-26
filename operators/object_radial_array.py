@@ -553,20 +553,11 @@ def _arc_params(op, axis_vec):
       derived. None if A and B coincide."""
     if op.arc_mode == ARC_CURSOR:
         return _arc_two_point_geometry(op, axis_vec)
-    # Place the arc center in the same axis-perpendicular plane as the active
-    # object so slot 0 (at active's angular position) lands exactly on the
-    # active's origin — not at pivot's axial level.
+    # Center stays at the user pivot (= cursor in default mode). The active's
+    # axial offset isn't propagated, so the ring sits at the pivot's height.
     center = op.pivot_co.copy()
     active = getattr(op, "active_obj", None)
-    if active is not None:
-        try:
-            a_axial = axis_vec * active.matrix_world.translation.dot(axis_vec)
-            c_axial = axis_vec * center.dot(axis_vec)
-            center = center - c_axial + a_axial
-        except ReferenceError:
-            pass
-    # Radius: planar distance from pivot to active when no override, so slot 0
-    # lands on active exactly. With override the slider takes precedence.
+    # Radius: planar distance from pivot to active when no override.
     if op.radius_override is not None:
         R = op.radius_override
     elif active is not None:
