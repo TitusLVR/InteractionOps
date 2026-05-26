@@ -53,7 +53,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
 
     # --- Ghost / Surfaces ---
-    color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.451), "Ghost Edge")
+    color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.349), "Ghost Edge")
     color_ghost_default:   _color((0.851, 0.851, 0.851, 0.149), "Ghost Faces")
     point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
     point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
