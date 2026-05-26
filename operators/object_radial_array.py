@@ -309,23 +309,21 @@ def _mesh_edge_segments_world(obj_mw, mesh):
 
 
 def _mesh_face_tris_world(obj_mw, mesh):
-    """Fan-triangulate every polygon (quads and n-gons) into world-space tris."""
+    """Use Blender's precomputed loop_triangles — handles quads and n-gons,
+    including concave shapes, correctly. Falls back silently if data is empty."""
+    if not mesh.loop_triangles:
+        try:
+            mesh.calc_loop_triangles()
+        except RuntimeError:
+            return []
     verts_world = [obj_mw @ v.co for v in mesh.vertices]
     loops = mesh.loops
     tris = []
-    for poly in mesh.polygons:
-        start = poly.loop_start
-        total = poly.loop_total
-        if total < 3:
-            continue
-        i0 = loops[start].vertex_index
-        v0 = verts_world[i0]
-        for k in range(1, total - 1):
-            i1 = loops[start + k].vertex_index
-            i2 = loops[start + k + 1].vertex_index
-            tris.append(v0)
-            tris.append(verts_world[i1])
-            tris.append(verts_world[i2])
+    for lt in mesh.loop_triangles:
+        a, b, cc = lt.loops
+        tris.append(verts_world[loops[a].vertex_index])
+        tris.append(verts_world[loops[b].vertex_index])
+        tris.append(verts_world[loops[cc].vertex_index])
     return tris
 
 
@@ -430,7 +428,9 @@ def _draw_preview_3d(op, context):
         op._dirty = False
     segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
 
-    with draw_scope(blend="ALPHA", depth="ALWAYS"):
+    # Explicit face_culling=NONE so back-faces of the ghost are visible,
+    # matching Blender's default solid view (two-sided).
+    with draw_scope(blend="ALPHA", depth="ALWAYS", face_culling="NONE"):
         if tris:
             iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
 
