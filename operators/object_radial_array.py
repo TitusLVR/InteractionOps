@@ -226,19 +226,20 @@ def _signed_angle_around(v_from, v_to, axis):
 
 
 def _arc_effective_start(op, axis_vec):
-    """Effective start offset (radians). For non-full arcs we anchor the start
-    at the active object's angle around the pivot."""
-    if op.arc_mode != ARC_FULL:
-        active = getattr(op, "active_obj", None)
-        if active is not None:
-            try:
-                v = active.matrix_world.translation - op.pivot_co
-            except ReferenceError:
-                return 0.0
-            right, fwd = _arc_frame(axis_vec)
-            v_planar = v - axis_vec * v.dot(axis_vec)
-            if v_planar.length > 1e-6:
-                return math.atan2(v_planar.dot(fwd), v_planar.dot(right))
+    """Effective start offset (radians). Slot 0 sits at the active object's
+    angle around the pivot — for every arc mode, so slot 0 always lines up
+    with the active's origin."""
+    active = getattr(op, "active_obj", None)
+    if active is None:
+        return 0.0
+    try:
+        v = active.matrix_world.translation - op.pivot_co
+    except ReferenceError:
+        return 0.0
+    right, fwd = _arc_frame(axis_vec)
+    v_planar = v - axis_vec * v.dot(axis_vec)
+    if v_planar.length > 1e-6:
+        return math.atan2(v_planar.dot(fwd), v_planar.dot(right))
     return 0.0
 
 
@@ -543,8 +544,32 @@ def _arc_params(op, axis_vec):
       derived. None if A and B coincide."""
     if op.arc_mode == ARC_CURSOR:
         return _arc_two_point_geometry(op, axis_vec)
+    # Place the arc center in the same axis-perpendicular plane as the active
+    # object so slot 0 (at active's angular position) lands exactly on the
+    # active's origin — not at pivot's axial level.
     center = op.pivot_co.copy()
-    R = _effective_radius(op)
+    active = getattr(op, "active_obj", None)
+    if active is not None:
+        try:
+            a_axial = axis_vec * active.matrix_world.translation.dot(axis_vec)
+            c_axial = axis_vec * center.dot(axis_vec)
+            center = center - c_axial + a_axial
+        except ReferenceError:
+            pass
+    # Radius: planar distance from pivot to active when no override, so slot 0
+    # lands on active exactly. With override the slider takes precedence.
+    if op.radius_override is not None:
+        R = op.radius_override
+    elif active is not None:
+        try:
+            v = active.matrix_world.translation - op.pivot_co
+            R = (v - axis_vec * v.dot(axis_vec)).length
+        except ReferenceError:
+            R = 0.0
+    else:
+        R = 0.0
+    if R < 1e-3:
+        R = 1.0
     start = _arc_effective_start(op, axis_vec)
     if op.arc_mode == ARC_FULL:
         sweep = 2 * math.pi
