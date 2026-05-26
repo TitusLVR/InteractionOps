@@ -1244,61 +1244,87 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.anchor_obj = anchor
 
     def _toggle_match(self, context):
-        """Toggle: apply Match (compute pivot/radius/count from source origins)
-        or restore the snapshot taken when Match was applied."""
+        """Toggle: snap every source root to its nearest slot on the current
+        ring/arc (with alignment), or restore the world matrices saved at the
+        first Match. Children of each subtree move rigidly with their root."""
         if self.match_active and self._match_saved is not None:
-            s = self._match_saved
-            self.pivot_co = s["pivot_co"]
-            self.pivot_obj = s["pivot_obj"]
-            self.pivot_mode = s["pivot_mode"]
-            self.radius_override = s["radius_override"]
-            self.count = s["count"]
+            for obj, mw in self._match_saved.items():
+                try:
+                    obj.matrix_world = mw
+                except ReferenceError:
+                    pass
             self._match_saved = None
             self.match_active = False
             self._dirty = True
             self.report({"INFO"}, "Match undone")
             return
 
-        origins = []
-        for sub in self.subtree_data:
-            try:
-                origins.append(sub[0][0].matrix_world.translation.copy())
-            except ReferenceError:
-                continue
-        if not origins:
-            self.report({"WARNING"}, "No live source origins")
+        axis_vec = _resolve_axis(self, context)
+        params = _arc_params(self, axis_vec)
+        if params is None:
+            self.report({"WARNING"}, "Cannot match — arc geometry undefined")
+            return
+        arc_center, arc_R, arc_start, arc_sweep = params
+        n_total = max(2, int(self.count))
+        if self.arc_mode == ARC_FULL:
+            slot_step = (2 * math.pi) / n_total
+        else:
+            slot_step = arc_sweep / (n_total - 1) if (n_total > 1 and self.end_inclusive) else arc_sweep / max(1, n_total)
+        right, fwd = _arc_frame(axis_vec)
+        slot_positions = []
+        for ci in range(n_total):
+            a = arc_start + ci * slot_step
+            slot_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
+
+        if not slot_positions or not self.subtree_data:
+            self.report({"WARNING"}, "Nothing to snap")
             return
 
-        self._match_saved = {
-            "pivot_co": self.pivot_co.copy(),
-            "pivot_obj": self.pivot_obj,
-            "pivot_mode": self.pivot_mode,
-            "radius_override": self.radius_override,
-            "count": self.count,
-        }
+        def _follow_target_local(i):
+            if i + 1 < n_total:
+                return slot_positions[i + 1]
+            if self.arc_mode == ARC_FULL:
+                return slot_positions[0]
+            if i - 1 >= 0:
+                return slot_positions[i] + (slot_positions[i] - slot_positions[i - 1])
+            return None
 
-        center = Vector((0.0, 0.0, 0.0))
-        for o in origins:
-            center += o
-        center /= len(origins)
-        self.pivot_co = center
-        self.pivot_obj = None
-        self.pivot_mode = PIVOT_CURSOR
+        saved = {}
+        snapped_count = 0
+        for sub in self.subtree_data:
+            try:
+                root = sub[0][0]
+                root_mw = root.matrix_world.copy()
+            except ReferenceError:
+                continue
+            # nearest slot by 3D distance
+            best_i = min(range(len(slot_positions)),
+                         key=lambda i: (slot_positions[i] - root_mw.translation).length)
+            slot_pos = slot_positions[best_i]
+            if self.align_mode == ALIGN_NONE:
+                base_mw = root_mw.copy()
+                base_mw.translation = slot_pos
+            else:
+                R_step = Matrix.Rotation(best_i * slot_step, 4, axis_vec).to_3x3()
+                base_mw = (R_step @ root_mw.to_3x3()).to_4x4()
+                base_mw.translation = slot_pos
+            final_mw = _aligned_clone_mw(self.align_mode, arc_center, axis_vec,
+                                         base_mw, self._pool_seed, best_i,
+                                         follow_target=_follow_target_local(best_i))
+            delta = final_mw @ root_mw.inverted()
+            # save + move every member of the subtree
+            for child_obj, _rel in sub:
+                try:
+                    saved[child_obj] = child_obj.matrix_world.copy()
+                    child_obj.matrix_world = delta @ child_obj.matrix_world
+                except ReferenceError:
+                    pass
+            snapped_count += 1
 
-        axis_vec = _resolve_axis(self, context)
-        radii = []
-        for o in origins:
-            v = o - center
-            v_radial = v - axis_vec * v.dot(axis_vec)
-            radii.append(v_radial.length)
-        avg_r = sum(radii) / len(radii)
-        self.radius_override = avg_r if avg_r > 1e-6 else None
-        self.count = max(2, len(origins))
-
+        self._match_saved = saved
         self.match_active = True
         self._dirty = True
-        self.report({"INFO"},
-                    f"Matched from {len(origins)} origins: r={avg_r:.3f}, count={self.count}")
+        self.report({"INFO"}, f"Snapped {snapped_count} sources to nearest arc slot")
 
     def _reset_defaults(self):
         """Restore all parameters to factory defaults. Sources & pivot stay."""
