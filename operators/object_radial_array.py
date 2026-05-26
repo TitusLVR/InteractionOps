@@ -1,6 +1,6 @@
 import bpy
 import math
-from mathutils import Vector, Matrix, Quaternion
+from mathutils import Vector, Matrix
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme, Role
@@ -284,16 +284,15 @@ def _clone_matrix(pivot_co, axis_vec, angle, source_mw):
 
 
 def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
-                      seed, slot_index, follow_target=None,
+                      seed, slot_index,
                       local_rot=(0.0, 0.0, 0.0)):
     """Apply alignment on top of `base_mw`. `base_mw` is the clone's natural
     pre-alignment matrix — for group-rigid that's the source rotated around the
     pivot; for pool/replace that's the source with translation set to the slot.
-    ALIGN_NONE returns `base_mw` unchanged. Other modes layer an in-place
-    rotation around `base_mw.translation`.
-
-    `follow_target` = position of the next clone (used by FOLLOW modes to take
-    the direction between consecutive ring slots, not the analytic tangent)."""
+    ALIGN_NONE/ALIGN_RIGID return `base_mw` unchanged (the caller already baked
+    the desired orientation). RANDOM_* layer a deterministic random rotation in
+    place around `base_mw.translation`. `local_rot` is applied last as an
+    additional rotation around the clone's local X/Y/Z (right-mult)."""
     clone_pos = base_mw.translation
     T_to   = Matrix.Translation(clone_pos)
     T_from = Matrix.Translation(-clone_pos)
@@ -425,29 +424,43 @@ def _mouse_radius_in_plane(context, event, pivot_co, axis_vec):
 
 # --- Preview (POST_VIEW) -------------------------------------------------
 
-def _mesh_edge_segments_world(obj_mw, mesh):
-    """Return list of (Vector, Vector) world-space edge segments for a mesh."""
-    verts_world = [obj_mw @ v.co for v in mesh.vertices]
-    return [(verts_world[e.vertices[0]], verts_world[e.vertices[1]]) for e in mesh.edges]
-
-
-def _mesh_face_tris_world(obj_mw, mesh):
-    """Use Blender's precomputed loop_triangles — handles quads and n-gons,
-    including concave shapes, correctly. Falls back silently if data is empty."""
+def _mesh_geom_cache(obj):
+    """Return ([verts_local], [edge_idx_pairs], [tri_idx_triplets]) for the mesh,
+    computed once and cached on the operator. Loop triangles are pre-computed
+    so per-clone draw work is just matrix multiplies, not topology re-walks."""
+    mesh = obj.data
+    verts_local = [v.co.copy() for v in mesh.vertices]
+    edge_pairs = [(e.vertices[0], e.vertices[1]) for e in mesh.edges]
     if not mesh.loop_triangles:
         try:
             mesh.calc_loop_triangles()
         except RuntimeError:
-            return []
-    verts_world = [obj_mw @ v.co for v in mesh.vertices]
+            pass
     loops = mesh.loops
-    tris = []
-    for lt in mesh.loop_triangles:
-        a, b, cc = lt.loops
-        tris.append(verts_world[loops[a].vertex_index])
-        tris.append(verts_world[loops[b].vertex_index])
-        tris.append(verts_world[loops[cc].vertex_index])
-    return tris
+    tri_idx = [(loops[lt.loops[0]].vertex_index,
+                loops[lt.loops[1]].vertex_index,
+                loops[lt.loops[2]].vertex_index)
+               for lt in mesh.loop_triangles]
+    return verts_local, edge_pairs, tri_idx
+
+
+def _mesh_edge_segments_world(obj_mw, geom):
+    """Flat edge endpoints in world space using a precomputed local-geom cache."""
+    verts_local, edge_pairs, _ = geom
+    verts_world = [obj_mw @ v for v in verts_local]
+    return [(verts_world[a], verts_world[b]) for a, b in edge_pairs]
+
+
+def _mesh_face_tris_world(obj_mw, geom):
+    """Triangulated faces in world space using a precomputed local-geom cache."""
+    verts_local, _, tri_idx = geom
+    verts_world = [obj_mw @ v for v in verts_local]
+    out = []
+    for a, b, c in tri_idx:
+        out.append(verts_world[a])
+        out.append(verts_world[b])
+        out.append(verts_world[c])
+    return out
 
 
 def _arc_frame(axis_vec):
@@ -612,21 +625,6 @@ def _pool_fill_iter(op, axis_vec):
         radius = 1.0
     right, fwd = _arc_frame(axis_vec)
 
-    # First sweep — compute every slot's target position so FOLLOW knows neighbours.
-    slot_positions = []
-    for s in range(n_slots):
-        ang = arc_start + s * step
-        slot_positions.append(arc_center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius)
-
-    def _follow_target(i):
-        if i + 1 < n_slots:
-            return slot_positions[i + 1]
-        if op.arc_mode == ARC_FULL:
-            return slot_positions[0]
-        if i - 1 >= 0:
-            return slot_positions[i] + (slot_positions[i] - slot_positions[i - 1])
-        return None
-
     for s in range(n_slots):
         sub_idx = s if s < N else rng.randrange(N)
         subtree = op.subtree_data[sub_idx]
@@ -635,14 +633,12 @@ def _pool_fill_iter(op, axis_vec):
             src_mw = src_root.matrix_world.copy()
         except ReferenceError:
             continue
-        target_pos = slot_positions[s]
-        # base_mw — source orientation at the slot position (pool placement is
-        # per-source so no group-style pivot rotation here).
+        ang = arc_start + s * step
+        target_pos = arc_center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
         base_mw = src_mw.copy()
         base_mw.translation = target_pos
         new_mw = _aligned_clone_mw(op.align_mode, arc_center, axis_vec,
                                    base_mw, op._pool_seed, s,
-                                   follow_target=_follow_target(s),
                                    local_rot=tuple(op.local_rot))
         delta = new_mw @ src_mw.inverted()
         yield delta, subtree, target_pos
@@ -704,15 +700,17 @@ def _build_ghost_segments(op, context):
     if not subtrees:
         return segs, tris, crosses, axis_vec, ang_total
 
+    cache = getattr(op, "_mesh_cache", {})
     if op.source_mode == SOURCE_POOL:
         for delta, subtree, slot_pos in _pool_fill_iter(op, axis_vec):
             crosses.append(slot_pos.copy())
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
-                if child_obj.type == "MESH" and child_obj.data is not None:
-                    for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
+                geom = cache.get(child_obj)
+                if geom is not None:
+                    for a, b in _mesh_edge_segments_world(child_clone_mw, geom):
                         segs.append((a, b))
-                    tris.extend(_mesh_face_tris_world(child_clone_mw, child_obj.data))
+                    tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
                 else:
                     crosses.append(child_clone_mw.translation.copy())
         return segs, tris, crosses, axis_vec, ang_total
@@ -739,18 +737,7 @@ def _build_ghost_segments(op, context):
         a = arc_start + ci * slot_step
         all_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
 
-    wraps = (op.arc_mode == ARC_FULL)
-    # alias for downstream rotation step
-    step = slot_step
-
-    def _follow_target(i):
-        if i + 1 < n_total:
-            return all_positions[i + 1]
-        if wraps:
-            return all_positions[0]
-        if i - 1 >= 0:
-            return all_positions[i] + (all_positions[i] - all_positions[i - 1])
-        return None
+    step = slot_step  # alias for downstream rotation step
 
     # Drawn indices: skip_first OFF leaves source visible at slot 0, so we draw
     # clones from slot 1 onward. skip_first ON also clones slot 0.
@@ -767,17 +754,18 @@ def _build_ghost_segments(op, context):
             base_mw.translation = slot_pos
         M_anchor_final = _aligned_clone_mw(
             op.align_mode, arc_center, axis_vec, base_mw,
-            op._pool_seed, ci, follow_target=_follow_target(ci),
+            op._pool_seed, ci,
             local_rot=tuple(op.local_rot))
         delta = M_anchor_final @ anchor_actual.inverted()
         crosses.append(slot_pos.copy())
         for subtree in subtrees:
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
-                if child_obj.type == "MESH" and child_obj.data is not None:
-                    for a, b in _mesh_edge_segments_world(child_clone_mw, child_obj.data):
+                geom = cache.get(child_obj)
+                if geom is not None:
+                    for a, b in _mesh_edge_segments_world(child_clone_mw, geom):
                         segs.append((a, b))
-                    tris.extend(_mesh_face_tris_world(child_clone_mw, child_obj.data))
+                    tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
                 else:
                     crosses.append(child_clone_mw.translation.copy())
 
@@ -1303,12 +1291,23 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
     def _rebuild_sources(self, context):
         """Resolve source roots + subtree snapshots according to current source_mode.
-        Updates self.subtree_data, self.sources, self.anchor_obj."""
+        Updates self.subtree_data, self.sources, self.anchor_obj. Also pre-builds
+        a per-mesh geometry cache (verts_local + edge/tri indices) so the modal
+        redraw path doesn't re-walk mesh topology per slot."""
         roots, anchor = _resolve_source_roots(context, self.source_mode)
         include_children = self.source_mode in (SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
         self.subtree_data = _build_subtree_data(roots, include_children)
         self.sources = roots
         self.anchor_obj = anchor
+        cache = {}
+        for sub in self.subtree_data:
+            for child_obj, _rel in sub:
+                if child_obj.type == "MESH" and child_obj.data is not None and child_obj not in cache:
+                    try:
+                        cache[child_obj] = _mesh_geom_cache(child_obj)
+                    except (ReferenceError, AttributeError):
+                        pass
+        self._mesh_cache = cache
 
     def _toggle_match(self, context):
         """Toggle Match. First press snapshots original matrices and snaps to
@@ -1374,15 +1373,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if not slot_positions:
             return 0
 
-        def _follow_target_local(i):
-            if i + 1 < n_total:
-                return slot_positions[i + 1]
-            if self.arc_mode == ARC_FULL:
-                return slot_positions[0]
-            if i - 1 >= 0:
-                return slot_positions[i] + (slot_positions[i] - slot_positions[i - 1])
-            return None
-
         snapped = 0
         for sub in self.subtree_data:
             try:
@@ -1406,7 +1396,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 base_mw.translation = slot_pos
             final_mw = _aligned_clone_mw(self.align_mode, arc_center, axis_vec,
                                          base_mw, self._pool_seed, best_i,
-                                         follow_target=_follow_target_local(best_i),
                                          local_rot=tuple(self.local_rot))
             delta = final_mw @ original_root_mw.inverted()
             for child_obj, _rel in sub:
@@ -1556,7 +1545,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 base0 = anchor_actual.copy()
                 base0.translation = M_slot0.translation
                 M_final0 = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
-                                             base0, self._pool_seed, 0, follow_target=None,
+                                             base0, self._pool_seed, 0,
                                              local_rot=tuple(self.local_rot))
                 delta = M_final0 @ anchor_actual.inverted()
                 for subtree in subtrees:
@@ -1576,7 +1565,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                         base_i = (R_step @ anchor_actual.to_3x3()).to_4x4()
                         base_i.translation = M_anchor.translation
                     M_final = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
-                                                base_i, self._pool_seed, ci, follow_target=None,
+                                                base_i, self._pool_seed, ci,
                                                 local_rot=tuple(self.local_rot))
                     delta_i = M_final @ anchor_actual.inverted()
                     for subtree in subtrees:
@@ -1603,17 +1592,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 a = arc_start + ci * slot_step
                 all_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
 
-            wraps = (self.arc_mode == ARC_FULL)
-
-            def _follow_target(i):
-                if i + 1 < n_total:
-                    return all_positions[i + 1]
-                if wraps:
-                    return all_positions[0]
-                if i - 1 >= 0:
-                    return all_positions[i] + (all_positions[i] - all_positions[i - 1])
-                return None
-
             for ci in range(start_index, n_total):
                 slot_pos = all_positions[ci]
                 if self.align_mode == ALIGN_NONE:
@@ -1625,7 +1603,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     base_mw.translation = slot_pos
                 M_final = _aligned_clone_mw(
                     self.align_mode, arc_center, axis_vec, base_mw,
-                    self._pool_seed, ci, follow_target=_follow_target(ci),
+                    self._pool_seed, ci,
                     local_rot=tuple(self.local_rot))
                 delta = M_final @ anchor_actual.inverted()
                 for subtree in subtrees:
