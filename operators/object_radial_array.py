@@ -38,6 +38,7 @@ def _build_help(context):
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -638,6 +639,12 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
+        # --- reset everything to defaults ---
+        if event.type == "B" and event.value == "PRESS":
+            self._reset_defaults()
+            self.report({"INFO"}, "Radial Array reset to defaults")
+            return {"RUNNING_MODAL"}
+
         # --- axis ---
         if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
             self.axis_mode = {"X": AXIS_GLOBAL_X, "Y": AXIS_GLOBAL_Y, "Z": AXIS_GLOBAL_Z}[event.type]
@@ -886,6 +893,29 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
+
+    def _reset_defaults(self):
+        """Restore all parameters to factory defaults. Sources & pivot stay.
+        Numeric channels and drag states close so the modal returns to idle."""
+        self.pivot_mode  = PIVOT_CURSOR
+        self.clone_mode  = CLONE_DUP
+        self.arc_mode    = ARC_FULL
+        self.axis_mode   = AXIS_GLOBAL_Z
+        self.align_to_radius = False
+        self.skip_first  = False
+        self.end_inclusive = True
+        self.count = 6
+        self.arc_angle = 0.0
+        self.start_offset = 0.0
+        self.start_offset_enabled = False
+        self.numeric_channel = None
+        self.numeric_string = ""
+        self.pending_normal_pick = False
+        self.radius_override = None
+        self.radius_drag_active = False
+        self.arc_end_drag_active = False
+        self._cached_axis_vec = Vector((0, 0, 1))
+        self._dirty = True
 
     def _cleanup(self):
         if getattr(self, "_handle", None) is not None:
