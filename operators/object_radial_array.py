@@ -24,20 +24,18 @@ def _build_help(context):
     helpo = HelpOverlay("object_radial_array")
     helpo.add_section(HUDSection("Radial Array", [
         HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Arc mode",       "W",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Arc mode (360/180/90/45/Cursor)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Alignment cycle (Original/Outward/Inward/Follow/Follow-rev/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Start offset",   "S + digits",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Skip first",     "F",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Axis X/Y/Z",     "X / Y / Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Local axis",     "C",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal pick",    "T + LMB",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Angle drag",     "G + mouse",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Arc end drag",   "LMB on end marker + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Flip arc center", "I",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Match from origins", "M (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Source mode (Active/Hier/Group/Pool)", "U", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -91,10 +89,19 @@ ALIGN_CYCLE        = (ALIGN_NONE, ALIGN_OUTWARD, ALIGN_INWARD,
                       ALIGN_FOLLOW, ALIGN_FOLLOW_REV,
                       ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
 
-ARC_FULL           = "FULL_360"
-ARC_ANGLE          = "ARC_ANGLE"
-ARC_CURSOR         = "ARC_CURSOR"   # sweep from active object to the 3D cursor
-ARC_CYCLE          = (ARC_FULL, ARC_ANGLE, ARC_CURSOR)
+ARC_FULL           = "360°"
+ARC_180            = "180°"
+ARC_90             = "90°"
+ARC_45             = "45°"
+ARC_CURSOR         = "Active→Cursor"
+ARC_CYCLE          = (ARC_FULL, ARC_180, ARC_90, ARC_45, ARC_CURSOR)
+
+_ARC_FIXED_SWEEPS = {
+    ARC_FULL:   2 * math.pi,
+    ARC_180:    math.pi,
+    ARC_90:     math.pi / 2,
+    ARC_45:     math.pi / 4,
+}
 
 AXIS_GLOBAL_X      = "GX"
 AXIS_GLOBAL_Y      = "GY"
@@ -218,49 +225,40 @@ def _signed_angle_around(v_from, v_to, axis):
 
 
 def _arc_effective_start(op, axis_vec):
-    """Effective start offset (radians) for the active arc. In arc modes the start
-    sits at the active object's angle around the pivot, so the ring naturally
-    anchors to where the user has placed their reference object."""
-    if op.arc_mode in (ARC_ANGLE, ARC_CURSOR):
+    """Effective start offset (radians). For non-full arcs we anchor the start
+    at the active object's angle around the pivot."""
+    if op.arc_mode != ARC_FULL:
         active = getattr(op, "active_obj", None)
         if active is not None:
             try:
                 v = active.matrix_world.translation - op.pivot_co
             except ReferenceError:
-                return op.start_offset
+                return 0.0
             right, fwd = _arc_frame(axis_vec)
             v_planar = v - axis_vec * v.dot(axis_vec)
             if v_planar.length > 1e-6:
                 return math.atan2(v_planar.dot(fwd), v_planar.dot(right))
-    return op.start_offset
+    return 0.0
 
 
 def _compute_arc(self, axis_vec):
     """Return (arc_angle_radians, step_radians, n_clones) for the current mode."""
     n = max(2, int(self.count))
     if self.arc_mode == ARC_FULL:
-        step = 2 * math.pi / n
-        return 2 * math.pi, step, n - 1
-    if self.arc_mode == ARC_ANGLE:
-        ang = self.arc_angle
-        if abs(ang) < 1e-8:
-            return 0.0, 0.0, 0
+        return 2 * math.pi, (2 * math.pi) / n, n - 1
+    if self.arc_mode in _ARC_FIXED_SWEEPS:
+        ang = _ARC_FIXED_SWEEPS[self.arc_mode]
         step = ang / (n - 1) if self.end_inclusive else ang / n
         return ang, step, n - 1
-    # ARC_CURSOR — sweep from active object to the 3D cursor
-    active = getattr(self, "active_obj", None)
-    if active is None:
+    # ARC_CURSOR — sweep derived from active→cursor geometry
+    g = _arc_two_point_geometry(self, axis_vec)
+    if g is None:
         return 0.0, 0.0, 0
-    try:
-        start_vec = active.matrix_world.translation - self.pivot_co
-    except ReferenceError:
+    _center, _R, _start, sweep = g
+    if abs(sweep) < 1e-6:
         return 0.0, 0.0, 0
-    end_vec = bpy.context.scene.cursor.location - self.pivot_co
-    ang = _signed_angle_around(start_vec, end_vec, axis_vec)
-    if abs(ang) < 1e-6:
-        ang = 2 * math.pi
-    step = ang / (n - 1) if self.end_inclusive else ang / n
-    return ang, step, n - 1
+    step = sweep / (n - 1) if self.end_inclusive else sweep / n
+    return sweep, step, n - 1
 
 
 def _clone_matrix(pivot_co, axis_vec, angle, source_mw):
@@ -463,17 +461,84 @@ def _arc_frame(axis_vec):
     return right, fwd
 
 
+def _arc_two_point_geometry(op, axis_vec):
+    """For ARC_CURSOR: derive the circle that actually passes through the
+    active object (start) and the 3D cursor (end), with user-controlled radius
+    (>= half the in-plane distance). Returns
+    (center_world, radius, start_angle, sweep) — angles in the global arc_frame
+    around `center_world`. None if degenerate (A and B coincide in-plane)."""
+    A_obj = getattr(op, "active_obj", None)
+    if A_obj is None:
+        return None
+    try:
+        A = A_obj.matrix_world.translation.copy()
+    except ReferenceError:
+        return None
+    B = bpy.context.scene.cursor.location.copy()
+
+    AB = B - A
+    ab_planar = AB - axis_vec * AB.dot(axis_vec)
+    ab_len = ab_planar.length
+    if ab_len < 1e-6:
+        return None
+
+    midpoint = (A + B) * 0.5
+    r_min = ab_len * 0.5
+    R = op.radius_override if op.radius_override is not None else r_min
+    if R < r_min:
+        R = r_min
+
+    perp = axis_vec.cross(ab_planar).normalized()
+    d = math.sqrt(max(0.0, R * R - r_min * r_min))
+    sign = -1.0 if getattr(op, "arc_flip", False) else 1.0
+    center = midpoint + perp * (sign * d)
+
+    right, fwd = _arc_frame(axis_vec)
+
+    def _angle_of(p):
+        v = p - center
+        v_planar = v - axis_vec * v.dot(axis_vec)
+        return math.atan2(v_planar.dot(fwd), v_planar.dot(right))
+
+    start_angle = _angle_of(A)
+    end_angle = _angle_of(B)
+    sweep = end_angle - start_angle
+    while sweep > math.pi:
+        sweep -= 2 * math.pi
+    while sweep <= -math.pi:
+        sweep += 2 * math.pi
+    return center, R, start_angle, sweep
+
+
+def _arc_params(op, axis_vec):
+    """Unified arc parameters: (center_world, radius, start_angle, sweep).
+    - ARC_FULL/180°/90°/45°: center = pivot, radius = effective_radius,
+      sweep = fixed constant, start = angle of active (or 0 for ARC_FULL).
+    - ARC_CURSOR: arc passes through active and cursor; center, radius and sweep
+      derived. None if A and B coincide."""
+    if op.arc_mode == ARC_CURSOR:
+        return _arc_two_point_geometry(op, axis_vec)
+    center = op.pivot_co.copy()
+    R = _effective_radius(op)
+    start = _arc_effective_start(op, axis_vec)
+    if op.arc_mode == ARC_FULL:
+        sweep = 2 * math.pi
+    else:
+        sweep = _ARC_FIXED_SWEEPS.get(op.arc_mode, 0.0)
+    return center, R, start, sweep
+
+
 def _arc_endpoint_world(op, axis_vec):
-    """World position of the arc-end marker (last slot in the arc). None for
-    ARC_FULL — full circle has no endpoint. Uses the **computed** sweep so
-    ARC_CURSOR shows its marker where the cursor projects onto the ring."""
+    """World position of the arc-end marker (last slot). None for ARC_FULL."""
     if op.arc_mode == ARC_FULL:
         return None
-    ang_total, _step, _n = _compute_arc(op, axis_vec)
-    end_angle = _arc_effective_start(op, axis_vec) + ang_total
+    params = _arc_params(op, axis_vec)
+    if params is None:
+        return None
+    center, R, start, sweep = params
+    end_angle = start + sweep
     right, fwd = _arc_frame(axis_vec)
-    r = _effective_radius(op)
-    return op.pivot_co + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * r
+    return center + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * R
 
 
 def _pool_fill_iter(op, axis_vec):
@@ -599,28 +664,31 @@ def _build_ghost_segments(op, context):
                     crosses.append(child_clone_mw.translation.copy())
         return segs, tris, crosses, axis_vec, ang_total
 
-    # Treat all sources as one rigid group: centroid is the rotation anchor.
-    # The anchor object's actual matrix_world (with rotation) is used for alignment,
-    # so the alignment math sees the group's true orientation.
-    anchor_raw = Matrix.Translation(_group_anchor_co(op))
-    anchor_eff = _effective_source_mw(anchor_raw, op.pivot_co, axis_vec,
-                                       op.radius_override if op.radius_override is not None else _effective_radius(op))
+    # Build slot positions from unified arc params (handles ARC_FULL/ANGLE/CURSOR).
+    params = _arc_params(op, axis_vec)
+    if params is None:
+        return segs, tris, crosses, axis_vec, ang_total
+    arc_center, arc_R, arc_start, arc_sweep = params
     anchor_actual = (op.anchor_obj.matrix_world.copy()
-                     if op.anchor_obj is not None else anchor_raw)
+                     if op.anchor_obj is not None else Matrix.Translation(_group_anchor_co(op)))
 
-    # FULL slot table — every absolute slot index 0..n_total-1, regardless of
-    # whether we'll actually draw that slot. FOLLOW alignment reads neighbours
-    # from this table so direction math is correct even when slot 0 (source)
-    # or other slots are skipped.
-    eff_start = _arc_effective_start(op, axis_vec)
     n_total = max(2, int(op.count))
+    if op.arc_mode == ARC_FULL:
+        slot_step = (2 * math.pi) / n_total
+    else:
+        if n_total > 1:
+            slot_step = arc_sweep / (n_total - 1) if op.end_inclusive else arc_sweep / n_total
+        else:
+            slot_step = 0.0
+    right, fwd = _arc_frame(axis_vec)
     all_positions = []
     for ci in range(n_total):
-        angle = eff_start + ci * step
-        M_anchor = _clone_matrix(op.pivot_co, axis_vec, angle, anchor_eff)
-        all_positions.append(M_anchor.translation.copy())
+        a = arc_start + ci * slot_step
+        all_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
 
     wraps = (op.arc_mode == ARC_FULL)
+    # alias for downstream rotation step
+    step = slot_step
 
     def _follow_target(i):
         if i + 1 < n_total:
@@ -761,16 +829,11 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
-        self.arc_angle = 0.0          # radians
-        self.start_offset = 0.0       # radians
-        self.start_offset_enabled = False
-        self.numeric_channel = None   # None | "ANGLE" | "OFFSET"
-        self.numeric_string = ""
         self.pending_normal_pick = False
         self._cached_axis_vec = Vector((0, 0, 1))
         self.radius_override = None       # None = use natural source distance
         self.radius_drag_active = False
-        self.arc_end_drag_active = False
+        self.arc_flip = False             # ARC_CURSOR: flip which side of A-B has the arc center
         self.match_active = False
         self._match_saved = None          # snapshot used to un-apply Match
         self.source_mode = SOURCE_GROUP   # U cycles ACTIVE / HIERARCHY / GROUP / POOL
@@ -796,14 +859,12 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._hud.add_param(HUDParam("Count",       lambda: self.count, "int"))
         self._hud.add_param(HUDParam("Radius",      lambda: _effective_radius(self), "float", fmt="{:.3f}"))
         self._hud.add_param(HUDParam("Step",        lambda: math.degrees(_clone_step_deg(self)), "float", fmt="{:.2f}°"))
-        self._hud.add_param(HUDParam("Angle",       lambda: math.degrees(self.arc_angle), "float", fmt="{:.1f}°",
-                                     active_getter=lambda: self.arc_mode == ARC_ANGLE))
-        self._hud.add_param(HUDParam("Offset",      lambda: math.degrees(self.start_offset), "float", fmt="{:.1f}°",
-                                     active_getter=lambda: self.start_offset_enabled))
+        self._hud.add_param(HUDParam("Flip arc",    lambda: self.arc_flip, "bool",
+                                     active_getter=lambda: self.arc_mode == ARC_CURSOR))
         self._hud.add_param(HUDParam("Alignment",   lambda: self.align_mode, "str"))
         self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
         self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
-                                     active_getter=lambda: self.arc_mode in (ARC_ANGLE, ARC_CURSOR)))
+                                     active_getter=lambda: self.arc_mode != ARC_FULL))
         self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool"))
         self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
         self._help = _build_help(context)
@@ -958,122 +1019,43 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        # --- count (Ctrl+wheel, or NUMPAD_+/-, or EQUAL/MINUS when not typing) ---
-        if event.type in {"NUMPAD_PLUS", "EQUAL", "WHEELUPMOUSE"} and event.value == "PRESS" \
-                and (event.type == "WHEELUPMOUSE" and event.ctrl or
-                     event.type in {"NUMPAD_PLUS", "EQUAL"} and self.numeric_channel is None):
-            step = 10 if (event.shift and event.type == "WHEELUPMOUSE") else 1
-            self.count = min(1024, self.count + step)
+        # --- count ---
+        if event.type in {"NUMPAD_PLUS", "EQUAL"} and event.value == "PRESS":
+            self.count = min(1024, self.count + 1)
             self._dirty = True
             return {"RUNNING_MODAL"}
-        if event.type in {"NUMPAD_MINUS", "MINUS", "WHEELDOWNMOUSE"} and event.value == "PRESS" \
-                and (event.type == "WHEELDOWNMOUSE" and event.ctrl or
-                     event.type in {"NUMPAD_MINUS", "MINUS"} and self.numeric_channel is None):
-            step = 10 if (event.shift and event.type == "WHEELDOWNMOUSE") else 1
-            self.count = max(2, self.count - step)
+        if event.type in {"NUMPAD_MINUS", "MINUS"} and event.value == "PRESS":
+            self.count = max(2, self.count - 1)
             self._dirty = True
             return {"RUNNING_MODAL"}
-
-        # --- numeric channel selection ---
-        if event.type == "G" and event.value == "PRESS":
-            if self.numeric_channel == "ANGLE":
-                self.numeric_channel = None
-            else:
-                self.numeric_channel = "ANGLE"
-                self.numeric_string = ""
-                self._angle_drag_start_x = event.mouse_region_x
-                self._angle_drag_start_value = self.arc_angle
-            return {"RUNNING_MODAL"}
-        if event.type == "S" and event.value == "PRESS":
-            if self.numeric_channel == "OFFSET":
-                self.numeric_channel = None
-                self.start_offset_enabled = not self.start_offset_enabled
-            else:
-                self.start_offset_enabled = True
-                self.numeric_channel = "OFFSET"
-                self.numeric_string = ""
-            return {"RUNNING_MODAL"}
-
-        # angle drag in ANGLE channel
-        if self.numeric_channel == "ANGLE" and event.type == "MOUSEMOVE":
-            dx = event.mouse_region_x - getattr(self, "_angle_drag_start_x", event.mouse_region_x)
-            ang = getattr(self, "_angle_drag_start_value", 0.0) + math.radians(dx * 0.5)
-            if event.ctrl and event.shift:
-                snap = math.radians(15.0)
-                ang = round(ang / snap) * snap
-            elif event.ctrl:
-                snap = math.radians(5.0)
-                ang = round(ang / snap) * snap
-            self.arc_angle = ang
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.value == "PRESS" and event.ctrl:
+            step = 10 if event.shift else 1
+            sign = 1 if event.type == "WHEELUPMOUSE" else -1
+            self.count = max(2, min(1024, self.count + sign * step))
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        # numeric digits
-        if self.numeric_channel is not None and event.value == "PRESS":
-            digit_map = {
-                "ZERO": "0", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4",
-                "FIVE": "5", "SIX": "6", "SEVEN": "7", "EIGHT": "8", "NINE": "9",
-                "NUMPAD_0": "0", "NUMPAD_1": "1", "NUMPAD_2": "2", "NUMPAD_3": "3",
-                "NUMPAD_4": "4", "NUMPAD_5": "5", "NUMPAD_6": "6", "NUMPAD_7": "7",
-                "NUMPAD_8": "8", "NUMPAD_9": "9",
-            }
-            if event.type in digit_map:
-                self.numeric_string += digit_map[event.type]
-            elif event.type in {"PERIOD", "NUMPAD_PERIOD"}:
-                if "." not in self.numeric_string:
-                    self.numeric_string += "."
-            elif event.type == "BACK_SPACE":
-                self.numeric_string = self.numeric_string[:-1]
-            elif event.type == "MINUS":
-                if self.numeric_string.startswith("-"):
-                    self.numeric_string = self.numeric_string[1:]
-                else:
-                    self.numeric_string = "-" + self.numeric_string
-            else:
-                # not a digit-input key — let it fall through to other handlers below
-                pass
-            try:
-                if self.numeric_string in ("", "-", ".", "-."):
-                    val_deg = 0.0
-                else:
-                    val_deg = float(self.numeric_string)
-                val_rad = math.radians(val_deg)
-                if self.numeric_channel == "ANGLE":
-                    self.arc_angle = val_rad
-                elif self.numeric_channel == "OFFSET":
-                    self.start_offset = val_rad
+        # --- flip arc center side (ARC_CURSOR only) ---
+        if event.type == "I" and event.value == "PRESS":
+            if self.arc_mode == ARC_CURSOR:
+                self.arc_flip = not self.arc_flip
                 self._dirty = True
-            except ValueError:
-                pass
-            # Only consume if it was actually a numeric-input key
-            if event.type in digit_map or event.type in {"PERIOD", "NUMPAD_PERIOD", "BACK_SPACE", "MINUS"}:
-                return {"RUNNING_MODAL"}
+                self.report({"INFO"}, f"Arc flip: {'ON' if self.arc_flip else 'OFF'}")
+            return {"RUNNING_MODAL"}
 
-        # --- LMB PRESS: hit-test arc endpoint first, then ring ---
+        # --- LMB PRESS / drag: control radius via ring hit ---
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             axis_vec = _resolve_axis(self, context)
-            hit = _mouse_on_rot_plane(context, event, self.pivot_co, axis_vec)
-            cur_r = _effective_radius(self)
-            # arc endpoint hit?
-            end_pt = _arc_endpoint_world(self, axis_vec)
-            if hit is not None and end_pt is not None:
-                if (hit - end_pt).length < max(0.18 * cur_r, 0.3):
-                    self.arc_end_drag_active = True
-                    # Promote FULL_360 to ARC_ANGLE at full sweep so drag can shorten it.
-                    if self.arc_mode == ARC_FULL:
-                        self.arc_mode = ARC_ANGLE
-                        self.arc_angle = 2 * math.pi
-                    right, fwd = _arc_frame(axis_vec)
-                    v = hit - self.pivot_co
-                    self._arc_drag_prev_angle = math.atan2(v.dot(fwd), v.dot(right))
-                    return {"RUNNING_MODAL"}
-            # ring hit (radius)?
+            params = _arc_params(self, axis_vec)
+            arc_center = params[0] if params is not None else self.pivot_co
+            arc_R = params[1] if params is not None else _effective_radius(self)
+            hit = _mouse_on_rot_plane(context, event, arc_center, axis_vec)
             if hit is not None:
-                radial = hit - self.pivot_co
+                radial = hit - arc_center
                 radial = radial - axis_vec * radial.dot(axis_vec)
                 r_mouse = radial.length
-                tol = max(0.25 * cur_r, 0.4)
-                if abs(r_mouse - cur_r) < tol:
+                tol = max(0.25 * arc_R, 0.4)
+                if abs(r_mouse - arc_R) < tol:
                     self.radius_drag_active = True
                     self.radius_override = max(1e-4, r_mouse)
                     self._dirty = True
@@ -1081,47 +1063,16 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
             axis_vec = _resolve_axis(self, context)
-            r_mouse = _mouse_radius_in_plane(context, event, self.pivot_co, axis_vec)
+            params = _arc_params(self, axis_vec)
+            arc_center = params[0] if params is not None else self.pivot_co
+            r_mouse = _mouse_radius_in_plane(context, event, arc_center, axis_vec)
             if r_mouse is not None:
                 self.radius_override = max(1e-4, r_mouse)
                 self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if self.arc_end_drag_active and event.type == "MOUSEMOVE":
-            axis_vec = _resolve_axis(self, context)
-            hit = _mouse_on_rot_plane(context, event, self.pivot_co, axis_vec)
-            if hit is not None:
-                right, fwd = _arc_frame(axis_vec)
-                v = hit - self.pivot_co
-                cur_mouse_angle = math.atan2(v.dot(fwd), v.dot(right))
-                # accumulate delta so drag is smooth across the +π/−π seam
-                delta = cur_mouse_angle - getattr(self, "_arc_drag_prev_angle", cur_mouse_angle)
-                while delta > math.pi:
-                    delta -= 2 * math.pi
-                while delta <= -math.pi:
-                    delta += 2 * math.pi
-                TWO_PI = 2 * math.pi
-                new_arc = max(-TWO_PI, min(TWO_PI, self.arc_angle + delta))
-                if event.ctrl and event.shift:
-                    snap = math.radians(15.0)
-                    new_arc = round(new_arc / snap) * snap
-                elif event.ctrl:
-                    snap = math.radians(5.0)
-                    new_arc = round(new_arc / snap) * snap
-                self.arc_angle = new_arc
-                self._arc_drag_prev_angle = cur_mouse_angle
-                # snap visual to full circle when sweep saturates
-                if abs(self.arc_angle) >= TWO_PI - 1e-4:
-                    self.arc_mode = ARC_FULL
-                else:
-                    self.arc_mode = ARC_ANGLE
-                self._dirty = True
-            return {"RUNNING_MODAL"}
-
-        if event.type == "LEFTMOUSE" and event.value == "RELEASE" \
-                and (self.radius_drag_active or self.arc_end_drag_active):
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self.radius_drag_active:
             self.radius_drag_active = False
-            self.arc_end_drag_active = False
             return {"RUNNING_MODAL"}
 
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
@@ -1132,10 +1083,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if self.pending_normal_pick and event.type == "ESC" and event.value == "PRESS":
             self.pending_normal_pick = False
             self.report({"INFO"}, "Normal pick cancelled")
-            return {"RUNNING_MODAL"}
-
-        if event.type == "ESC" and event.value == "PRESS" and self.numeric_channel is not None:
-            self.numeric_channel = None
             return {"RUNNING_MODAL"}
 
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
@@ -1163,9 +1110,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.pivot_mode = s["pivot_mode"]
             self.radius_override = s["radius_override"]
             self.count = s["count"]
-            self.start_offset = s["start_offset"]
-            self.start_offset_enabled = s["start_offset_enabled"]
-            self.arc_angle = s["arc_angle"]
             self._match_saved = None
             self.match_active = False
             self._dirty = True
@@ -1188,9 +1132,6 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             "pivot_mode": self.pivot_mode,
             "radius_override": self.radius_override,
             "count": self.count,
-            "start_offset": self.start_offset,
-            "start_offset_enabled": self.start_offset_enabled,
-            "arc_angle": self.arc_angle,
         }
 
         center = Vector((0.0, 0.0, 0.0))
@@ -1211,27 +1152,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_override = avg_r if avg_r > 1e-6 else None
         self.count = max(2, len(origins))
 
-        if self.arc_mode != ARC_FULL and len(origins) >= 2:
-            right, fwd = _arc_frame(axis_vec)
-            angles = [math.atan2((o - center).dot(fwd), (o - center).dot(right))
-                      for o in origins]
-            self.start_offset = angles[0]
-            self.start_offset_enabled = True
-            sweep = angles[-1] - angles[0]
-            while sweep > math.pi:
-                sweep -= 2 * math.pi
-            while sweep <= -math.pi:
-                sweep += 2 * math.pi
-            self.arc_angle = sweep
-
         self.match_active = True
         self._dirty = True
         self.report({"INFO"},
                     f"Matched from {len(origins)} origins: r={avg_r:.3f}, count={self.count}")
 
     def _reset_defaults(self):
-        """Restore all parameters to factory defaults. Sources & pivot stay.
-        Numeric channels and drag states close so the modal returns to idle."""
+        """Restore all parameters to factory defaults. Sources & pivot stay."""
         self.pivot_mode  = PIVOT_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
@@ -1240,15 +1167,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
-        self.arc_angle = 0.0
-        self.start_offset = 0.0
-        self.start_offset_enabled = False
-        self.numeric_channel = None
-        self.numeric_string = ""
         self.pending_normal_pick = False
         self.radius_override = None
         self.radius_drag_active = False
-        self.arc_end_drag_active = False
+        self.arc_flip = False
         self.match_active = False
         self._match_saved = None
         self.source_mode = SOURCE_GROUP
