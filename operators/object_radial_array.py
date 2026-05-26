@@ -924,6 +924,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         context.area.tag_redraw()
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
+        # Live re-snap when Match is on so parameter tweaks stay interactive.
+        if self.match_active and self._dirty:
+            self._snap_to_arc(context)
+
         try:
             theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
         except (KeyError, AttributeError):
@@ -1249,9 +1253,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.anchor_obj = anchor
 
     def _toggle_match(self, context):
-        """Toggle: snap every source root to its nearest slot on the current
-        ring/arc (with alignment), or restore the world matrices saved at the
-        first Match. Children of each subtree move rigidly with their root."""
+        """Toggle Match. First press snapshots original matrices and snaps to
+        the arc. Second press restores those originals. While active, parameter
+        changes trigger live re-snap via `_snap_to_arc`."""
         if self.match_active and self._match_saved is not None:
             for obj, mw in self._match_saved.items():
                 try:
@@ -1264,11 +1268,40 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.report({"INFO"}, "Match undone")
             return
 
+        # Snapshot originals for every root + child once.
+        saved = {}
+        for sub in self.subtree_data:
+            for child_obj, _rel in sub:
+                try:
+                    saved[child_obj] = child_obj.matrix_world.copy()
+                except ReferenceError:
+                    pass
+        if not saved:
+            self.report({"WARNING"}, "Nothing to snap")
+            return
+        self._match_saved = saved
+        self.match_active = True
+        n = self._snap_to_arc(context)
+        if n == 0:
+            # snap failed; revert match state
+            self._match_saved = None
+            self.match_active = False
+            self.report({"WARNING"}, "Cannot match — arc geometry undefined")
+            return
+        self._dirty = True
+        self.report({"INFO"}, f"Snapped {n} sources to nearest arc slot")
+
+    def _snap_to_arc(self, context):
+        """Move every source root from its ORIGINAL matrix (in `_match_saved`)
+        to the nearest slot of the current arc/ring, applying current alignment.
+        Children of each subtree move rigidly with their root. Returns the
+        number of subtrees actually snapped."""
+        if not self._match_saved:
+            return 0
         axis_vec = _resolve_axis(self, context)
         params = _arc_params(self, axis_vec)
         if params is None:
-            self.report({"WARNING"}, "Cannot match — arc geometry undefined")
-            return
+            return 0
         arc_center, arc_R, arc_start, arc_sweep = params
         n_total = max(2, int(self.count))
         if self.arc_mode == ARC_FULL:
@@ -1280,10 +1313,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         for ci in range(n_total):
             a = arc_start + ci * slot_step
             slot_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
-
-        if not slot_positions or not self.subtree_data:
-            self.report({"WARNING"}, "Nothing to snap")
-            return
+        if not slot_positions:
+            return 0
 
         def _follow_target_local(i):
             if i + 1 < n_total:
@@ -1294,42 +1325,41 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 return slot_positions[i] + (slot_positions[i] - slot_positions[i - 1])
             return None
 
-        saved = {}
-        snapped_count = 0
+        snapped = 0
         for sub in self.subtree_data:
             try:
                 root = sub[0][0]
-                root_mw = root.matrix_world.copy()
-            except ReferenceError:
+            except IndexError:
                 continue
-            # nearest slot by 3D distance
+            original_root_mw = self._match_saved.get(root)
+            if original_root_mw is None:
+                continue
+            # nearest slot relative to ORIGINAL position so the assignment is
+            # stable as the user tweaks params.
             best_i = min(range(len(slot_positions)),
-                         key=lambda i: (slot_positions[i] - root_mw.translation).length)
+                         key=lambda i: (slot_positions[i] - original_root_mw.translation).length)
             slot_pos = slot_positions[best_i]
             if self.align_mode == ALIGN_NONE:
-                base_mw = root_mw.copy()
+                base_mw = original_root_mw.copy()
                 base_mw.translation = slot_pos
             else:
                 R_step = Matrix.Rotation(best_i * slot_step, 4, axis_vec).to_3x3()
-                base_mw = (R_step @ root_mw.to_3x3()).to_4x4()
+                base_mw = (R_step @ original_root_mw.to_3x3()).to_4x4()
                 base_mw.translation = slot_pos
             final_mw = _aligned_clone_mw(self.align_mode, arc_center, axis_vec,
                                          base_mw, self._pool_seed, best_i,
                                          follow_target=_follow_target_local(best_i))
-            delta = final_mw @ root_mw.inverted()
-            # save + move every member of the subtree
+            delta = final_mw @ original_root_mw.inverted()
             for child_obj, _rel in sub:
+                orig = self._match_saved.get(child_obj)
+                if orig is None:
+                    continue
                 try:
-                    saved[child_obj] = child_obj.matrix_world.copy()
-                    child_obj.matrix_world = delta @ child_obj.matrix_world
+                    child_obj.matrix_world = delta @ orig
                 except ReferenceError:
                     pass
-            snapped_count += 1
-
-        self._match_saved = saved
-        self.match_active = True
-        self._dirty = True
-        self.report({"INFO"}, f"Snapped {snapped_count} sources to nearest arc slot")
+            snapped += 1
+        return snapped
 
     def _reset_defaults(self):
         """Restore all parameters to factory defaults. Sources & pivot stay."""
