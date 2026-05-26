@@ -26,7 +26,7 @@ def _build_help(context):
         HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc mode (360/180/90/45/Cursor)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Alignment cycle (Original/Outward/Inward/Follow/Follow-rev/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Alignment cycle (Rigid/Original/Outward/Inward/Follow/Follow-rev/Random)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Skip first",     "F",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Axis X/Y/Z",     "X / Y / Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
