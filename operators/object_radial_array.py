@@ -614,7 +614,7 @@ def _pool_fill_iter(op, axis_vec):
         # per-source so no group-style pivot rotation here).
         base_mw = src_mw.copy()
         base_mw.translation = target_pos
-        new_mw = _aligned_clone_mw(op.align_mode, op.pivot_co, axis_vec,
+        new_mw = _aligned_clone_mw(op.align_mode, arc_center, axis_vec,
                                    base_mw, op._pool_seed, s,
                                    follow_target=_follow_target(s))
         delta = new_mw @ src_mw.inverted()
@@ -734,7 +734,7 @@ def _build_ghost_segments(op, context):
             base_mw = rotated_3x3.to_4x4()
             base_mw.translation = slot_pos
         M_anchor_final = _aligned_clone_mw(
-            op.align_mode, op.pivot_co, axis_vec, base_mw,
+            op.align_mode, arc_center, axis_vec, base_mw,
             op._pool_seed, ci, follow_target=_follow_target(ci))
         delta = M_anchor_final @ anchor_actual.inverted()
         crosses.append(slot_pos.copy())
@@ -1421,10 +1421,12 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                                                   self.radius_override if self.radius_override is not None else _effective_radius(self))
                 anchor_actual = (self.anchor_obj.matrix_world.copy()
                                  if self.anchor_obj is not None else anchor_raw)
+                _replace_params = _arc_params(self, axis_vec)
+                replace_center = _replace_params[0] if _replace_params is not None else self.pivot_co
                 M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
                 base0 = anchor_actual.copy()
                 base0.translation = M_slot0.translation
-                M_final0 = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
+                M_final0 = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
                                              base0, self._pool_seed, 0, follow_target=None)
                 delta = M_final0 @ anchor_actual.inverted()
                 for subtree in subtrees:
@@ -1443,7 +1445,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                         R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
                         base_i = (R_step @ anchor_actual.to_3x3()).to_4x4()
                         base_i.translation = M_anchor.translation
-                    M_final = _aligned_clone_mw(self.align_mode, self.pivot_co, axis_vec,
+                    M_final = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
                                                 base_i, self._pool_seed, ci, follow_target=None)
                     delta_i = M_final @ anchor_actual.inverted()
                     for subtree in subtrees:
@@ -1491,7 +1493,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
                     base_mw.translation = slot_pos
                 M_final = _aligned_clone_mw(
-                    self.align_mode, self.pivot_co, axis_vec, base_mw,
+                    self.align_mode, arc_center, axis_vec, base_mw,
                     self._pool_seed, ci, follow_target=_follow_target(ci))
                 delta = M_final @ anchor_actual.inverted()
                 for subtree in subtrees:
