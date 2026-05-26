@@ -193,12 +193,19 @@ def _resolve_axis(self, context):
     if am == AXIS_GLOBAL_Y: return Vector((0, 1, 0))
     if am == AXIS_GLOBAL_Z: return Vector((0, 0, 1))
     if am in (AXIS_LOCAL_X, AXIS_LOCAL_Y, AXIS_LOCAL_Z):
+        local = {AXIS_LOCAL_X: Vector((1, 0, 0)),
+                 AXIS_LOCAL_Y: Vector((0, 1, 0)),
+                 AXIS_LOCAL_Z: Vector((0, 0, 1))}[am]
+        # When pivot is the 3D cursor (or no pivot object), use the cursor's
+        # own rotation matrix so "local" axes follow the cursor's orientation
+        # instead of falling back to world.
         if self.pivot_obj is None:
-            return Vector((0, 0, 1))  # cursor pivot fallback
-        rot = self.pivot_obj.matrix_world.to_3x3()
-        local = {AXIS_LOCAL_X: Vector((1,0,0)),
-                 AXIS_LOCAL_Y: Vector((0,1,0)),
-                 AXIS_LOCAL_Z: Vector((0,0,1))}[am]
+            try:
+                rot = bpy.context.scene.cursor.matrix.to_3x3()
+            except AttributeError:
+                return local
+        else:
+            rot = self.pivot_obj.matrix_world.to_3x3()
         return (rot @ local).normalized()
     if am == AXIS_VIEW:
         rv3d = context.region_data
@@ -897,7 +904,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.pivot_mode  = PIVOT_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
-        self.axis_mode   = AXIS_GLOBAL_Z
+        self.axis_mode   = AXIS_LOCAL_Z   # by default follow pivot's local Z (= cursor's Z when pivot is cursor)
         self.align_mode  = ALIGN_RIGID
         self.skip_first  = False
         self.end_inclusive = True
@@ -1401,7 +1408,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.pivot_mode  = PIVOT_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
-        self.axis_mode   = AXIS_GLOBAL_Z
+        self.axis_mode   = AXIS_LOCAL_Z   # by default follow pivot's local Z (= cursor's Z when pivot is cursor)
         self.align_mode  = ALIGN_RIGID
         self.skip_first  = False
         self.end_inclusive = True
