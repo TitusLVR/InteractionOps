@@ -294,13 +294,19 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
 
     # Stage 1: alignment-mode-driven rotation around clone position.
     if align_mode == ALIGN_CURSOR:
-        # Tilt the clone's +Z onto axis_vec via the shortest rotation, so the
-        # whole array lies flat in the cursor's plane (when pivot is cursor).
-        src_z = base_mw.to_3x3() @ Vector((0, 0, 1))
-        if src_z.length > 1e-6 and axis_vec.length > 1e-6:
-            q = src_z.rotation_difference(axis_vec)
-            R = q.to_matrix().to_4x4()
-            base_mw = T_to @ R @ T_from @ base_mw
+        # Tilt the clone's +Z onto the 3D cursor's +Z via the shortest
+        # rotation — independent of pivot mode and axis mode. Lets users align
+        # any radial array to the cursor's plane.
+        try:
+            cursor_z = bpy.context.scene.cursor.matrix.to_3x3() @ Vector((0, 0, 1))
+        except AttributeError:
+            cursor_z = None
+        if cursor_z is not None and cursor_z.length > 1e-6:
+            src_z = base_mw.to_3x3() @ Vector((0, 0, 1))
+            if src_z.length > 1e-6:
+                q = src_z.rotation_difference(cursor_z)
+                R = q.to_matrix().to_4x4()
+                base_mw = T_to @ R @ T_from @ base_mw
 
     if align_mode in (ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z):
         import random
