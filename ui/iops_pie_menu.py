@@ -54,6 +54,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.modifier_easy_array_curve", text="Easy Modifier - Array Curve")
         col.operator("iops.modifier_easy_curve", text="Easy Modifier - Curve")
         col.operator("iops.modifier_easy_shwarp", text="Easy Modifier - SHWARP")
+        col.operator("iops.object_radial_array", text="Radial Array")
         col.separator()
         col.operator("iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail")
         col.separator()
