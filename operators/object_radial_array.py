@@ -34,7 +34,8 @@ def _build_help(context):
         HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal pick",    "T + LMB",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Radius drag",    "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Radius drag (360/180/90/45)", "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Move arc center (Active→Cursor)", "LMB on center + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip arc center", "I",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Match from origins", "M (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -841,6 +842,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._cached_axis_vec = Vector((0, 0, 1))
         self.radius_override = None       # None = use natural source distance
         self.radius_drag_active = False
+        self.arc_center_drag_active = False   # ARC_CURSOR: drag the derived center
         self.arc_flip = False             # ARC_CURSOR: flip which side of A-B has the arc center
         self.match_active = False
         self._match_saved = None          # snapshot used to un-apply Match
@@ -1051,22 +1053,33 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self.report({"INFO"}, f"Arc flip: {'ON' if self.arc_flip else 'OFF'}")
             return {"RUNNING_MODAL"}
 
-        # --- LMB PRESS / drag: control radius via ring hit ---
+        # --- LMB PRESS: hit-test center (ARC_CURSOR) first, else ring ---
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             axis_vec = _resolve_axis(self, context)
             params = _arc_params(self, axis_vec)
             arc_center = params[0] if params is not None else self.pivot_co
             arc_R = params[1] if params is not None else _effective_radius(self)
             hit = _mouse_on_rot_plane(context, event, arc_center, axis_vec)
-            if hit is not None:
-                radial = hit - arc_center
-                radial = radial - axis_vec * radial.dot(axis_vec)
-                r_mouse = radial.length
-                tol = max(0.25 * arc_R, 0.4)
-                if abs(r_mouse - arc_R) < tol:
-                    self.radius_drag_active = True
-                    self.radius_override = max(1e-4, r_mouse)
+            if hit is None:
+                return {"RUNNING_MODAL"}
+            # ARC_CURSOR: drag the center marker to slide along AB's perpendicular
+            # bisector. Distance from AB midpoint sets the radius; sign sets flip.
+            if self.arc_mode == ARC_CURSOR:
+                dist_to_center = (hit - arc_center).length
+                tol_c = max(0.15 * arc_R, 0.3)
+                if dist_to_center < tol_c:
+                    self.arc_center_drag_active = True
                     self._dirty = True
+                    return {"RUNNING_MODAL"}
+            # Otherwise — radius drag on the ring.
+            radial = hit - arc_center
+            radial = radial - axis_vec * radial.dot(axis_vec)
+            r_mouse = radial.length
+            tol = max(0.25 * arc_R, 0.4)
+            if abs(r_mouse - arc_R) < tol:
+                self.radius_drag_active = True
+                self.radius_override = max(1e-4, r_mouse)
+                self._dirty = True
             return {"RUNNING_MODAL"}
 
         if self.radius_drag_active and event.type == "MOUSEMOVE":
@@ -1079,8 +1092,41 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self.radius_drag_active:
+        if self.arc_center_drag_active and event.type == "MOUSEMOVE":
+            axis_vec = _resolve_axis(self, context)
+            active = getattr(self, "active_obj", None)
+            if active is None:
+                return {"RUNNING_MODAL"}
+            try:
+                A = active.matrix_world.translation.copy()
+            except ReferenceError:
+                return {"RUNNING_MODAL"}
+            B = bpy.context.scene.cursor.location.copy()
+            AB = B - A
+            ab_planar = AB - axis_vec * AB.dot(axis_vec)
+            ab_len = ab_planar.length
+            if ab_len < 1e-6:
+                return {"RUNNING_MODAL"}
+            midpoint = (A + B) * 0.5
+            perp = axis_vec.cross(ab_planar).normalized()
+            hit = _mouse_on_rot_plane(context, event, midpoint, axis_vec)
+            if hit is None:
+                return {"RUNNING_MODAL"}
+            d_signed = (hit - midpoint).dot(perp)
+            r_min = ab_len * 0.5
+            R = math.sqrt(d_signed * d_signed + r_min * r_min)
+            self.radius_override = R
+            # flip ↔ sign convention in _arc_two_point_geometry:
+            # center = midpoint + perp * (sign * d), sign = -1 if arc_flip else +1.
+            # So flip True puts center on the −perp side. Match d_signed sign.
+            self.arc_flip = (d_signed < 0)
+            self._dirty = True
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" \
+                and (self.radius_drag_active or self.arc_center_drag_active):
             self.radius_drag_active = False
+            self.arc_center_drag_active = False
             return {"RUNNING_MODAL"}
 
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
@@ -1178,6 +1224,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.pending_normal_pick = False
         self.radius_override = None
         self.radius_drag_active = False
+        self.arc_center_drag_active = False
         self.arc_flip = False
         self.match_active = False
         self._match_saved = None
