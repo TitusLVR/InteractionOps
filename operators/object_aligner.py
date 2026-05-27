@@ -82,7 +82,10 @@ def _draw_preview_3d(op, context):
     rig ghost at the hovered target (added in Task 7)."""
     # Reference highlight — active surface fill, polygons only.
     if op.ref_obj is not None:
-        tris = _mesh_tris_world(op.ref_obj)
+        try:
+            tris = _mesh_tris_world(op.ref_obj)
+        except ReferenceError:
+            tris = []
         if tris:
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
@@ -201,7 +204,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if getattr(self, "_handle_3d", None) is not None:
             safe_handler_remove(self._handle_3d, bpy.types.SpaceView3D, "WINDOW")
             self._handle_3d = None
-        context.area.tag_redraw()
+        if context.area is not None:
+            context.area.tag_redraw()
 
     def modal(self, context, event):
         context.area.tag_redraw()
