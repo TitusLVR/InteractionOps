@@ -762,13 +762,18 @@ Add these methods to the class:
 ```python
     def _pick(self, context, event):
         """Raycast under the mouse, excluding the rig (and reference when
-        stamping). Returns the hit object or None."""
+        stamping). Returns the ORIGINAL hit object or None.
+
+        `scene.ray_cast` yields the depsgraph-evaluated object; we return
+        `obj.original` so (a) duplication copies the base datablock rather than
+        an evaluated/flattened mesh, (b) geometry-fit reads base-mesh verts, and
+        (c) membership in the exclude set (which holds originals) matches."""
         exclude = set(self.source_set)
         if self.mode == MODE_STAMP and self.ref_obj is not None:
             exclude.add(self.ref_obj)
         hit, _loc, _n, _fi, obj, _mx = raycast_from_mouse(
             context, _mouse_coord(event), exclude=exclude)
-        return obj if hit else None
+        return obj.original if (hit and obj is not None) else None
 
     def _update_hover(self, context, event):
         self.hover_obj = self._pick(context, event)
