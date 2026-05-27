@@ -64,6 +64,40 @@ def _mesh_tris_world(obj):
     return out
 
 
+def _mesh_edges_world(obj, world_matrix):
+    """Flat list of world-space edge endpoints for `obj.data` transformed by
+    `world_matrix`. [] if not a mesh."""
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return []
+    mesh = obj.data
+    verts = [world_matrix @ v.co for v in mesh.vertices]
+    out = []
+    for e in mesh.edges:
+        out.append(verts[e.vertices[0]])
+        out.append(verts[e.vertices[1]])
+    return out
+
+
+def _mesh_tris_world_at(obj, world_matrix):
+    """Like _mesh_tris_world but with an explicit placement matrix."""
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return []
+    mesh = obj.data
+    if not mesh.loop_triangles:
+        try:
+            mesh.calc_loop_triangles()
+        except RuntimeError:
+            return []
+    verts = [world_matrix @ v.co for v in mesh.vertices]
+    loops = mesh.loops
+    out = []
+    for lt in mesh.loop_triangles:
+        out.append(verts[loops[lt.loops[0]].vertex_index])
+        out.append(verts[loops[lt.loops[1]].vertex_index])
+        out.append(verts[loops[lt.loops[2]].vertex_index])
+    return out
+
+
 def _verts_world_np(obj):
     """Nx3 NumPy array of an object's mesh vertices in world space."""
     mesh = obj.data
@@ -170,6 +204,36 @@ def _draw_preview_3d(op, context):
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
+
+    # Rig ghost at the hovered target (fill + edges).
+    if op.mode == MODE_STAMP and op.hover_obj is not None and op.ref_obj is not None \
+            and op.hover_obj not in op.source_set and op.hover_obj is not op.ref_obj:
+        try:
+            t_matrix, fit_kind = _compute_fit(op, op.hover_obj)
+        except (ReferenceError, ValueError):
+            t_matrix, fit_kind = None, ""
+        if t_matrix is not None:
+            op.last_fit = fit_kind
+            ghost_tris = []
+            ghost_edges = []
+            for src in op.source_objs:
+                try:
+                    placement = t_matrix @ src.matrix_world
+                except (ReferenceError, ValueError):
+                    continue
+                ghost_tris.extend(_mesh_tris_world_at(src, placement))
+                ghost_edges.extend(_mesh_edges_world(src, placement))
+            if ghost_tris:
+                with draw_scope(blend="NONE", depth="LESS_EQUAL",
+                                face_culling="BACK", depth_mask=True,
+                                color_mask=(False, False, False, False)):
+                    iops_draw.tris(ghost_tris, role=Role.GHOST_DEFAULT, context=context)
+                with draw_scope(blend="ALPHA", depth="EQUAL",
+                                face_culling="BACK", depth_mask=False):
+                    iops_draw.tris(ghost_tris, role=Role.GHOST_DEFAULT, context=context)
+            if ghost_edges:
+                with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
+                    iops_draw.edges_3d(ghost_edges, role=Role.GHOST_EDGE, context=context)
 
 
 # --- HUD / Help builders ---------------------------------------------------
