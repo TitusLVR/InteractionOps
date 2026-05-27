@@ -448,8 +448,7 @@ from ..ui.draw import draw_scope
 from ..ui.draw.theme import Role
 from ..ui.hud import (
     HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-    HUDParam, ItemState,
-    handle_hud_toggle, handle_help_toggle, capture_event,
+    HUDParam, ItemState, capture_event,
 )
 from ..utils.picking import raycast_from_mouse
 from ..utils.alignment_fit import solve_fit
@@ -583,10 +582,25 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
 
     def modal(self, context, event):
         context.area.tag_redraw()
-        self._last_event = capture_event(event)
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        if handle_help_toggle(self, event) or handle_hud_toggle(self, event):
-            return {"RUNNING_MODAL"}
+        # HUD/Help drag + toggle handling (verified pattern from
+        # object_radial_array.py:1262-1275 — the `handle_*_toggle` module
+        # helpers have a different arity and must NOT be called as (op, event)).
+        try:
+            theme_prefs = context.preferences.addons["InteractionOps"].preferences.iops_theme
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            for ov in (self._help, self._hud):
+                if ov is None:
+                    continue
+                if ov.handle_drag_event(context, event, theme_prefs):
+                    return {"RUNNING_MODAL"}
+            if self._help.handle_toggle_event(event, theme_prefs):
+                return {"RUNNING_MODAL"}
+            if self._hud.handle_param_toggle_event(event, theme_prefs):
+                return {"RUNNING_MODAL"}
 
         if event.type in {"ESC"} and event.value == "PRESS":
             return self._cancel(context)
