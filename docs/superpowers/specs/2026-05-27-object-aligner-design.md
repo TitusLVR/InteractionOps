@@ -96,7 +96,10 @@ The HUD shows which fit was used per hovered target (`Fit: geometry` /
    geometry become the alignment base. HUD mode switches to *Stamp*.
 3. **Pick targets** — each subsequent LMB raycast onto a non-source object stamps
    a duplicate of the whole source set, transformed by `T_fit` (auto-selected
-   geometry/matrix). The modal stays open (many targets per session).
+   geometry/matrix). Picked targets are highlighted with the theme's **Result
+   Preview** surface fill (`GHOST_PREVIEW`, polygons only — no edges/points), so
+   the user sees which objects already received the rig. The modal stays open
+   (many targets per session).
 4. **Re-pick reference** — `R` re-enters reference-pick mode; the next LMB
    re-assigns the anchor.
 5. **Ghost preview** — once a reference exists, hovering a valid object draws a
@@ -141,13 +144,18 @@ or iterations run out. This reuses the existing iterate-and-offset loop in
 
 ## Rendering (reuses object_radial_array infra)
 
-- POST_VIEW ghost preview of the source set at the hovered target position:
-  `_mesh_geom_cache(obj)` → cached `(verts_local, edge_pairs, tri_idx)` →
-  `_mesh_edge_segments_world` / `_mesh_face_tris_world` → `iops_draw.tris`,
-  `edges_3d`, `points`. Two-pass depth-prepass + `depth=EQUAL` fill to avoid
-  alpha stacking on overlapping clones.
-- Reference object highlighted via active theme roles (`GHOST_ACTIVE`,
-  `ACTIVE_LINE`, `ACTIVE_POINT`).
+- POST_VIEW ghost preview of the source set at the hovered target position
+  (the rig being placed): **fill + edges** — `GHOST_DEFAULT` tris and
+  `GHOST_EDGE` wires. `_mesh_geom_cache(obj)` → cached
+  `(verts_local, edge_pairs, tri_idx)` → `_mesh_edge_segments_world` /
+  `_mesh_face_tris_world` → `iops_draw.tris` + `edges_3d`. Two-pass
+  depth-prepass + `depth=EQUAL` fill to avoid alpha stacking on overlapping
+  clones.
+- Reference object highlighted via the active surface fill only ("surface
+  active": `GHOST_ACTIVE`) — **polygons only, no edges/points**.
+- Picked targets highlighted via the Result Preview surface fill only
+  (`GHOST_PREVIEW`) — **polygons only, no edges/points**. Visually distinct
+  from the reference.
 - All colours come from `ui/draw/theme.Role` (`GHOST_DEFAULT`, `GHOST_EDGE`,
   `PREVIEW_POINT`, …) — no hard-coded colours.
 - `safe_handler_add` / `safe_handler_remove` for handler lifecycle.
