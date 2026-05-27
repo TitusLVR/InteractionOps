@@ -38,6 +38,67 @@ def _cycle(value, options):
     return options[(i + 1) % len(options)]
 
 
+def _mouse_coord(event):
+    return (event.mouse_region_x, event.mouse_region_y)
+
+
+def _mesh_tris_world(obj):
+    """World-space triangle vertices for an object's mesh, or [] if not a mesh.
+    Used to fill-highlight a picked object's polygons (no edges)."""
+    if obj is None or obj.type != "MESH" or obj.data is None:
+        return []
+    mesh = obj.data
+    if not mesh.loop_triangles:
+        try:
+            mesh.calc_loop_triangles()
+        except RuntimeError:
+            return []
+    mw = obj.matrix_world
+    verts = [mw @ v.co for v in mesh.vertices]
+    loops = mesh.loops
+    out = []
+    for lt in mesh.loop_triangles:
+        out.append(verts[loops[lt.loops[0]].vertex_index])
+        out.append(verts[loops[lt.loops[1]].vertex_index])
+        out.append(verts[loops[lt.loops[2]].vertex_index])
+    return out
+
+
+def _verts_world_np(obj):
+    """Nx3 NumPy array of an object's mesh vertices in world space."""
+    mesh = obj.data
+    mw = obj.matrix_world
+    co = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+    mesh.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    mat = np.array(mw)                      # 4x4
+    homog = np.hstack([co, np.ones((co.shape[0], 1))])
+    world = homog @ mat.T
+    return world[:, :3]
+
+
+def _draw_preview_3d(op, context):
+    """POST_VIEW: highlight reference + picked targets (fill only), and the
+    rig ghost at the hovered target (added in Task 7)."""
+    # Reference highlight — active surface fill, polygons only.
+    if op.ref_obj is not None:
+        tris = _mesh_tris_world(op.ref_obj)
+        if tris:
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
+    # Picked targets — result-preview surface fill, polygons only.
+    for tgt in op.stamped_targets:
+        try:
+            tris = _mesh_tris_world(tgt)
+        except ReferenceError:
+            continue
+        if tris:
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
+
+
 # --- HUD / Help builders ---------------------------------------------------
 
 def _build_hud(context, op):
@@ -125,8 +186,10 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             bpy.types.SpaceView3D, _draw_callback, (self, context),
             "WINDOW", "POST_PIXEL", tick=True,
         )
-        self._handle_3d = None
-        # POST_VIEW handler (3D preview) added in Task 6.
+        self._handle_3d = safe_handler_add(
+            bpy.types.SpaceView3D, _draw_preview_3d, (self, context),
+            "WINDOW", "POST_VIEW", tick=False,
+        )
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {"RUNNING_MODAL"}
@@ -169,8 +232,41 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
             return {"FINISHED"}
 
+        if event.type == "MOUSEMOVE":
+            self._update_hover(context, event)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            return self._on_click(context, event)
+
         return {"PASS_THROUGH"}
 
     def _cancel(self, context):
         self._finish(context)
         return {"CANCELLED"}
+
+    def _pick(self, context, event):
+        """Raycast under the mouse, excluding the rig (and reference when
+        stamping). Returns the hit object or None."""
+        exclude = set(self.source_set)
+        if self.mode == MODE_STAMP and self.ref_obj is not None:
+            exclude.add(self.ref_obj)
+        hit, _loc, _n, _fi, obj, _mx = raycast_from_mouse(
+            context, _mouse_coord(event), exclude=exclude)
+        return obj if hit else None
+
+    def _update_hover(self, context, event):
+        self.hover_obj = self._pick(context, event)
+
+    def _on_click(self, context, event):
+        obj = self._pick(context, event)
+        if obj is None:
+            return {"RUNNING_MODAL"}
+        if self.mode == MODE_PICK_REF:
+            self.ref_obj = obj
+            self.ref_name = obj.name
+            self.ref_world_np = _verts_world_np(obj) if obj.type == "MESH" else None
+            self.mode = MODE_STAMP
+            return {"RUNNING_MODAL"}
+        # MODE_STAMP handled in Task 7.
+        return {"RUNNING_MODAL"}
