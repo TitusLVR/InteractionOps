@@ -39,6 +39,7 @@ def _build_help(context):
         HUDItem("Reroll pool seed",   "G",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Lock clones out (hover + LMB) · N = Show/Hide locked", "N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Lock ALL clones (then click to keep a few)", "M", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1461,6 +1462,21 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self.skip_mode = _cycle(self.skip_mode, SKIP_CYCLE)
             self._dirty = True
             self.report({"INFO"}, f"Locked clones: {self.skip_mode}")
+            return {"RUNNING_MODAL"}
+
+        # M locks every clone at once — for "delete almost all, keep a couple":
+        # lock the lot, then click the few to keep (a click on a locked slot
+        # unlocks it). Pressing M again when all are locked clears the lot.
+        if event.type == "M" and event.value == "PRESS":
+            all_slots = set(_drawn_slot_range(self))
+            if all_slots and all_slots <= self.locked_slots:
+                self.locked_slots.clear()
+                self.report({"INFO"}, "All clones unlocked")
+            else:
+                self.locked_slots = all_slots
+                self.report({"INFO"}, f"All clones locked ({len(all_slots)}) — click to keep")
+            self._dirty = True
+            context.area.tag_redraw()
             return {"RUNNING_MODAL"}
 
         # --- count ---
