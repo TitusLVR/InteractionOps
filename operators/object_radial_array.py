@@ -1230,6 +1230,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                                      visible_getter=lambda: bool(self.locked_slots) or self.skip_mode == SKIP_HIDE))
         self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool",
                                      visible_getter=lambda: self.match_active))
+        self._hud.add_param(HUDParam("Clone type",  lambda: self.clone_mode, "str",
+                                     visible_getter=lambda: self.clone_mode != CLONE_DUP))
         self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
         self._help = _build_help(context)
         self._last_event = capture_event(event, None)
