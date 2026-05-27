@@ -303,6 +303,17 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
             return {"FINISHED"}
 
+        if event.value == "PRESS":
+            if event.type == "D":
+                self.clone_mode = _cycle(self.clone_mode, CLONE_CYCLE)
+                return {"RUNNING_MODAL"}
+            if event.type == "S":
+                self.scale_mode = _cycle(self.scale_mode, SCALE_CYCLE)
+                return {"RUNNING_MODAL"}
+            if event.type == "R":
+                self.mode = MODE_PICK_REF
+                return {"RUNNING_MODAL"}
+
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
             return {"RUNNING_MODAL"}
