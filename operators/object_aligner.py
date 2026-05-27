@@ -181,9 +181,54 @@ def _duplicate_obj(src, world_matrix, collection, linked):
     return created
 
 
+def _bias_toward_view(coords, rv3d, factor=0.0015):
+    """Nudge world coords slightly toward the viewer so a surface-coincident
+    fill clears z-fighting with the geometry it overlays. gpu.state exposes no
+    polygon offset, so we bias the vertices instead. The shift scales with
+    depth (fraction of eye distance in perspective, view distance in ortho),
+    keeping it imperceptible at any zoom."""
+    if not coords or rv3d is None:
+        return coords
+    if rv3d.is_perspective:
+        cam = rv3d.view_matrix.inverted().translation
+        return [v + (cam - v) * factor for v in coords]
+    view_dir = rv3d.view_rotation @ Vector((0.0, 0.0, 1.0))
+    step = view_dir * (rv3d.view_distance * factor)
+    return [v + step for v in coords]
+
+
+def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
+    """Draw the source rig as a GPU ghost at the given fit matrix (fill with a
+    self-occlusion depth prepass, plus edges). Used both for the live hovered
+    target and for already-committed picks — nothing is realized in the scene
+    until _finish."""
+    ghost_tris = []
+    ghost_edges = []
+    for src in op.source_objs:
+        try:
+            placement = t_matrix @ src.matrix_world
+        except (ReferenceError, ValueError):
+            continue
+        ghost_tris.extend(_mesh_tris_world_at(src, placement))
+        ghost_edges.extend(_mesh_edges_world(src, placement))
+    if ghost_tris:
+        with draw_scope(blend="NONE", depth="LESS_EQUAL",
+                        face_culling="BACK", depth_mask=True,
+                        color_mask=(False, False, False, False)):
+            iops_draw.tris(ghost_tris, role=role, context=context)
+        with draw_scope(blend="ALPHA", depth="EQUAL",
+                        face_culling="BACK", depth_mask=False):
+            iops_draw.tris(ghost_tris, role=role, context=context)
+    if ghost_edges:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
+            iops_draw.edges_3d(ghost_edges, role=Role.GHOST_EDGE, context=context)
+
+
 def _draw_preview_3d(op, context):
-    """POST_VIEW: highlight reference + picked targets (fill only), and the
-    rig ghost at the hovered target (added in Task 7)."""
+    """POST_VIEW: highlight the reference surface, then draw the rig as a GPU
+    ghost at every committed pick and at the live hovered target. Real objects
+    are only created on confirm (_finish)."""
+    rv3d = context.region_data
     # Reference highlight — active surface fill, polygons only.
     if op.ref_obj is not None:
         try:
@@ -191,21 +236,16 @@ def _draw_preview_3d(op, context):
         except ReferenceError:
             tris = []
         if tris:
+            tris = _bias_toward_view(tris, rv3d)
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
-    # Picked targets — result-preview surface fill, polygons only.
-    for tgt in op.stamped_targets:
-        try:
-            tris = _mesh_tris_world(tgt)
-        except ReferenceError:
-            continue
-        if tris:
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
 
-    # Rig ghost at the hovered target (fill + edges).
+    # Committed picks — rig ghost at each stored placement (preview only).
+    for pend in op.pending:
+        _draw_rig_ghost(op, context, pend["matrix"], role=Role.GHOST_PREVIEW)
+
+    # Rig ghost at the live hovered target (fill + edges).
     if op.mode == MODE_STAMP and op.hover_obj is not None and op.ref_obj is not None \
             and op.hover_obj not in op.source_set and op.hover_obj is not op.ref_obj:
         try:
@@ -214,26 +254,7 @@ def _draw_preview_3d(op, context):
             t_matrix, fit_kind = None, ""
         if t_matrix is not None:
             op.last_fit = fit_kind
-            ghost_tris = []
-            ghost_edges = []
-            for src in op.source_objs:
-                try:
-                    placement = t_matrix @ src.matrix_world
-                except (ReferenceError, ValueError):
-                    continue
-                ghost_tris.extend(_mesh_tris_world_at(src, placement))
-                ghost_edges.extend(_mesh_edges_world(src, placement))
-            if ghost_tris:
-                with draw_scope(blend="NONE", depth="LESS_EQUAL",
-                                face_culling="BACK", depth_mask=True,
-                                color_mask=(False, False, False, False)):
-                    iops_draw.tris(ghost_tris, role=Role.GHOST_DEFAULT, context=context)
-                with draw_scope(blend="ALPHA", depth="EQUAL",
-                                face_culling="BACK", depth_mask=False):
-                    iops_draw.tris(ghost_tris, role=Role.GHOST_DEFAULT, context=context)
-            if ghost_edges:
-                with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-                    iops_draw.edges_3d(ghost_edges, role=Role.GHOST_EDGE, context=context)
+            _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT)
 
 
 # --- HUD / Help builders ---------------------------------------------------
@@ -313,9 +334,9 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.hover_obj = None
         self.last_fit = ""
         self.stamped_count = 0
-        self.stamped_objs = []          # everything created this session (for cancel)
-        self.stamped_targets = []       # picked target objects (for highlight)
-        self.created_collections = []   # sub-collections created this session (for cancel)
+        self.stamped_objs = []          # everything created on finish (for cancel safety)
+        self.pending = []               # committed picks: {target, matrix, linked} — realized on finish
+        self.created_collections = []   # sub-collections created on finish (for cancel)
         self._last_event = None
 
         self._hud = _build_hud(context, self)
@@ -367,6 +388,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if event.type in {"ESC"} and event.value == "PRESS":
             return self._cancel(context)
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE", "RIGHTMOUSE"} and event.value == "PRESS":
+            self._realize_pending(context)
             self._finish(context)
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
             return {"FINISHED"}
@@ -438,19 +460,29 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.ref_world_np = _verts_world_np(obj) if obj.type == "MESH" else None
             self.mode = MODE_STAMP
             return {"RUNNING_MODAL"}
-        # MODE_STAMP: stamp the rig onto the picked target. Only iterate
-        # top-level roots (objects whose parent is not itself selected) — child
-        # subtrees are duplicated recursively by _duplicate_obj, so iterating
-        # every selected object would double-stamp parented rigs.
+        # MODE_STAMP: record the pick as a pending stamp (preview only). The fit
+        # matrix and clone mode are frozen at click time; nothing is realized in
+        # the scene until _finish.
         t_matrix, fit_kind = _compute_fit(self, obj)
         self.last_fit = fit_kind
-        linked = (self.clone_mode == CLONE_INST)
-        roots = [o for o in self.source_objs if o.parent not in self.source_set]
-        for src in roots:
-            sub = _target_subcollection(self, src, obj)
-            world_matrix = t_matrix @ src.matrix_world
-            created = _duplicate_obj(src, world_matrix, sub, linked)
-            self.stamped_objs.extend(created)
-        self.stamped_targets.append(obj)
+        self.pending.append({
+            "target": obj,
+            "matrix": t_matrix,
+            "linked": self.clone_mode == CLONE_INST,
+        })
         self.stamped_count += 1
         return {"RUNNING_MODAL"}
+
+    def _realize_pending(self, context):
+        """Create the real objects for every committed pick. Only iterate
+        top-level roots (objects whose parent is not itself selected) — child
+        subtrees are duplicated recursively by _duplicate_obj, so iterating
+        every selected object would double-stamp parented rigs."""
+        roots = [o for o in self.source_objs if o.parent not in self.source_set]
+        for pend in self.pending:
+            obj, t_matrix, linked = pend["target"], pend["matrix"], pend["linked"]
+            for src in roots:
+                sub = _target_subcollection(self, src, obj)
+                world_matrix = t_matrix @ src.matrix_world
+                created = _duplicate_obj(src, world_matrix, sub, linked)
+                self.stamped_objs.extend(created)
