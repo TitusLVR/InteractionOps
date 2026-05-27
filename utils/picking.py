@@ -38,11 +38,12 @@ CORNER_FALLBACK_COORDS = (
 
 # --- Raycast ------------------------------------------------------------
 
-def raycast_from_mouse(context, mouse_coord, *, restrict_to=None,
+def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
-    of objects), the ray pierces through anything else, repeating until it
-    hits a permitted object or runs out of iterations.
+    of objects), the ray pierces through anything else. If `exclude` is provided
+    (an iterable of objects), the ray pierces through those objects. The ray
+    repeats until it hits a permitted object or runs out of iterations.
 
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
@@ -56,6 +57,7 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None,
     ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
     depsgraph = context.evaluated_depsgraph_get()
     allowed = set(restrict_to) if restrict_to is not None else None
+    blocked = set(exclude) if exclude is not None else None
     view_vec_norm = view_vector.normalized()
 
     current_origin = ray_origin
@@ -64,7 +66,10 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None,
             depsgraph, current_origin, view_vector)
         if not result:
             break
-        if allowed is None or (obj is not None and obj in allowed):
+        permitted = (allowed is None or (obj is not None and obj in allowed))
+        if blocked is not None and obj is not None and obj in blocked:
+            permitted = False
+        if permitted:
             return (True, location, normal, face_index, obj, matrix)
         if location is None:
             break
