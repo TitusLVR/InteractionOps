@@ -1072,11 +1072,13 @@ git commit -m "feat(object_aligner): live rig ghost preview at hovered target"
 ### Task 10: Pie-menu entry + final verification
 
 **Files:**
-- Modify: `ui/iops_pie_menu.py:45`
+- Modify: `ui/iops_pie_menu.py:44` (`IOPS_MT_Pie_Menu`)
 
 - [ ] **Step 1: Add the menu entry**
 
-In `ui/iops_pie_menu.py`, after line 45 (`col.operator("iops.object_radial_array", text="Radial Array")`), add:
+In `ui/iops_pie_menu.py`, in the `IOPS_MT_Pie_Menu` class, immediately after line 44
+(`col.operator("iops.object_replace", text="Object Replace")`) and before the
+`iops.object_radial_array` line, add:
 
 ```python
         col.operator("iops.object_aligner", text="Object Aligner")
