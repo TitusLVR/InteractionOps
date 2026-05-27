@@ -557,6 +557,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.stamped_count = 0
         self.stamped_objs = []          # everything created this session (for cancel)
         self.stamped_targets = []       # picked target objects (for highlight)
+        self.created_collections = []   # sub-collections created this session (for cancel)
         self._last_event = None
 
         self._hud = _build_hud(context, self)
@@ -578,7 +579,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if getattr(self, "_handle_3d", None) is not None:
             safe_handler_remove(self._handle_3d, bpy.types.SpaceView3D, "WINDOW")
             self._handle_3d = None
-        context.area.tag_redraw()
+        if context.area is not None:
+            context.area.tag_redraw()
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -707,7 +709,10 @@ def _draw_preview_3d(op, context):
     rig ghost at the hovered target (added in Task 7)."""
     # Reference highlight — active surface fill, polygons only.
     if op.ref_obj is not None:
-        tris = _mesh_tris_world(op.ref_obj)
+        try:
+            tris = _mesh_tris_world(op.ref_obj)
+        except ReferenceError:
+            tris = []
         if tris:
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
@@ -846,9 +851,11 @@ def _compute_fit(op, target):
     return t, FIT_MATRIX
 
 
-def _target_subcollection(source_obj, target):
+def _target_subcollection(op, source_obj, target):
     """Sub-collection inside the source object's collection, named
-    `<source_collection>_<target_name>`. Created on first use, reused after."""
+    `<source_collection>_<target_name>`. Created on first use, reused after.
+    Newly created collections are tracked on `op.created_collections` so cancel
+    can clean up empties."""
     parent = source_obj.users_collection[0] if source_obj.users_collection else bpy.context.scene.collection
     name = f"{parent.name}_{target.name}"
     sub = parent.children.get(name)
@@ -856,6 +863,7 @@ def _target_subcollection(source_obj, target):
         sub = bpy.data.collections.get(name)
         if sub is None:
             sub = bpy.data.collections.new(name)
+            op.created_collections.append(sub)
         if name not in parent.children:
             parent.children.link(sub)
     return sub
@@ -892,12 +900,16 @@ def _duplicate_obj(src, world_matrix, collection, linked):
 In `_on_click`, replace the line `# MODE_STAMP handled in Task 7.` and the following `return {"RUNNING_MODAL"}` with:
 
 ```python
-        # MODE_STAMP: stamp the rig onto the picked target.
+        # MODE_STAMP: stamp the rig onto the picked target. Only iterate
+        # top-level roots (objects whose parent is not itself selected) — child
+        # subtrees are duplicated recursively by _duplicate_obj, so iterating
+        # every selected object would double-stamp parented rigs.
         t_matrix, fit_kind = _compute_fit(self, obj)
         self.last_fit = fit_kind
         linked = (self.clone_mode == CLONE_INST)
-        for src in self.source_objs:
-            sub = _target_subcollection(src, obj)
+        roots = [o for o in self.source_objs if o.parent not in self.source_set]
+        for src in roots:
+            sub = _target_subcollection(self, src, obj)
             world_matrix = t_matrix @ src.matrix_world
             created = _duplicate_obj(src, world_matrix, sub, linked)
             self.stamped_objs.extend(created)
@@ -918,6 +930,14 @@ Replace `_cancel` with:
             except (ReferenceError, RuntimeError):
                 pass
         self.stamped_objs = []
+        # Remove sub-collections we created this session if they are now empty.
+        for coll in self.created_collections:
+            try:
+                if not coll.objects and not coll.children:
+                    bpy.data.collections.remove(coll)
+            except (ReferenceError, RuntimeError):
+                pass
+        self.created_collections = []
         self._finish(context)
         self.report({"INFO"}, "Aligner: cancelled")
         return {"CANCELLED"}
