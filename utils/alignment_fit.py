@@ -24,6 +24,7 @@ def kabsch(ref: np.ndarray, tgt: np.ndarray):
     h = x.T @ y
     u, _s, vt = np.linalg.svd(h)
     d = np.sign(np.linalg.det(vt.T @ u.T))
+    d = d if d != 0.0 else 1.0
     correction = np.diag([1.0, 1.0, d])
     r = vt.T @ correction @ u.T
     t = cen_tgt - r @ cen_ref
@@ -46,6 +47,7 @@ def umeyama(ref: np.ndarray, tgt: np.ndarray):
     cov = (y.T @ x) / n
     u, s_vals, vt = np.linalg.svd(cov)
     d = np.sign(np.linalg.det(u @ vt))
+    d = d if d != 0.0 else 1.0
     correction = np.diag([1.0, 1.0, d])
     r = u @ correction @ vt
     var_ref = (x ** 2).sum() / n
@@ -57,7 +59,11 @@ def umeyama(ref: np.ndarray, tgt: np.ndarray):
 def affine_fit(ref: np.ndarray, tgt: np.ndarray) -> np.ndarray:
     """General affine transform (rotation + translation + non-uniform scale +
     shear), least squares. Returns a 4x4 homogeneous matrix mapping ref -> tgt.
-    Requires >= 4 non-coplanar correspondences for a unique solution.
+
+    A unique solution requires >= 4 non-coplanar correspondences; ensuring this
+    is the CALLER's responsibility. Degenerate input (coplanar or collinear
+    points) is not validated and yields a possibly non-invertible matrix
+    without raising an error.
     """
     ref = np.asarray(ref, dtype=np.float64)
     tgt = np.asarray(tgt, dtype=np.float64)
