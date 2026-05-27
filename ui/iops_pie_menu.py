@@ -42,6 +42,7 @@ class IOPS_MT_Pie_Menu(Menu):
         col.operator("iops.materials_from_textures", text="Materials from Textures")
         col.separator()
         col.operator("iops.object_replace", text="Object Replace")
+        col.operator("iops.object_aligner", text="Object Aligner")
         col.operator("iops.object_radial_array", text="Radial Array")
         col.operator("iops.object_align_between_two", text="Align Between Two")
         col.operator("iops.mesh_quick_snap", text="Quick Snap")
