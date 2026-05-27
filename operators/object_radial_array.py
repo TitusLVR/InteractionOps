@@ -25,24 +25,27 @@ def _build_help(context):
     helpo.add_section(HUDSection("Radial Array", [
         HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Arc mode (360/180/90/45/Cursor)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("End inclusive",  "E",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Random spin cycle (off / all / X / Y / Z)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Axis offset mode (drag point)", "E",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Orientation (Align / Rotate / Random …)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Local rot step (1°/5°/15°/45°/90°)", "1..5", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Nudge local X / Y / Z",  "← / → / ↑ (Shift = reverse)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Reset local rotation",   "↓",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Skip first",     "F",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Axis (each cycles Global/Local/Cursor)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Start point clone", "S",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("End point inclusive", "F",              ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Axis (toggle Global / pivot frame)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Source mode (Active/Hier/Group/Pool)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match from origins", "A (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reroll pool seed",   "G",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Lock clones out (hover + LMB) · N = Show/Hide locked", "N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Normal pick",    "T + LMB",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Radius drag (360/180/90/45)", "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move arc center (Active→Cursor)", "LMB on center + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Flip arc center", "I",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match from origins", "M (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Source mode (Active/Hier/Group/Pool)", "U", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reroll pool seed",   "K",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Flip arc apex", "I",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Undo / Redo",    "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -63,9 +66,21 @@ def _draw_callback(op, context):
 
 # --- State enums (string constants — Blender modal idiom) ----------------
 
-PIVOT_ACTIVE       = "ACTIVE"
-PIVOT_CURSOR       = "CURSOR"
-PIVOT_CYCLE        = (PIVOT_ACTIVE, PIVOT_CURSOR)
+PIVOT_ACTIVE        = "ACTIVE"          # center & axis from the active object
+PIVOT_CURSOR        = "CURSOR"          # center & axis from the 3D cursor
+PIVOT_ACTIVE_CURSOR = "ACTIVE_CURSOR"   # axis from cursor, circle plane through active
+# Cycle order requested: Active-Cursor → Cursor → Active.
+PIVOT_CYCLE        = (PIVOT_ACTIVE_CURSOR, PIVOT_CURSOR, PIVOT_ACTIVE)
+
+PIVOT_LABELS = {
+    PIVOT_ACTIVE_CURSOR: "Active-Cursor",
+    PIVOT_CURSOR:        "Cursor",
+    PIVOT_ACTIVE:        "Active",
+}
+
+
+def _pivot_label(pivot_mode):
+    return PIVOT_LABELS.get(pivot_mode, pivot_mode)
 
 CLONE_DUP          = "DUPLICATE"
 CLONE_INST         = "INSTANCE"
@@ -78,14 +93,37 @@ SOURCE_GROUP       = "GROUP"         # all selected, rigid group, anchor = activ
 SOURCE_POOL        = "POOL"          # all selected; one per slot, random extras
 SOURCE_CYCLE       = (SOURCE_ACTIVE, SOURCE_HIERARCHY, SOURCE_GROUP, SOURCE_POOL)
 
-# Base orientation is always "rigid, tilted into the rotation-axis plane".
-# R only toggles random spin on top of that — RIGID (= none) → random variants.
-ALIGN_RIGID        = "RIGID"         # no random (clones lie in axis plane)
+# Clone orientation modes (R cycles):
+#   ALIGN  — re-orient each clone to a consistent radial frame (+X to center,
+#            +Y tangent, +Z = axis). Replaces the old "rigid/tilt" base.
+#   ROTATE — pure rigid rotation of the source around the axis through the pivot,
+#            exactly like rotate-duplicating by hand: the orientation co-rotates.
+#   RANDOM_* — random spin layered on top of the ALIGN frame.
+ALIGN_ALIGN        = "ALIGN"
+ALIGN_ROTATE       = "ROTATE"
 ALIGN_RANDOM_ALL   = "RANDOM_ALL"    # random rotation around all 3 local axes
 ALIGN_RANDOM_X     = "RANDOM_X"      # random rotation around local X
 ALIGN_RANDOM_Y     = "RANDOM_Y"      # random rotation around local Y
 ALIGN_RANDOM_Z     = "RANDOM_Z"      # random rotation around local Z
-ALIGN_CYCLE        = (ALIGN_RIGID, ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
+ALIGN_CYCLE        = (ALIGN_ALIGN, ALIGN_ROTATE, ALIGN_RANDOM_ALL, ALIGN_RANDOM_X, ALIGN_RANDOM_Y, ALIGN_RANDOM_Z)
+
+ALIGN_LABELS = {
+    ALIGN_ALIGN: "Align", ALIGN_ROTATE: "Rotate",
+    ALIGN_RANDOM_ALL: "Random all", ALIGN_RANDOM_X: "Random X",
+    ALIGN_RANDOM_Y: "Random Y", ALIGN_RANDOM_Z: "Random Z",
+}
+
+
+def _align_label(align_mode):
+    return ALIGN_LABELS.get(align_mode, align_mode)
+
+# Skip/delete display mode (N toggles). Picking (hover a clone + click to
+# lock/unlock) is always active; the mode only controls how locked clones look:
+#   SHOW — locked clones stay visible, tinted in the locked colour.
+#   HIDE — locked clones are hidden (a marker keeps them clickable).
+SKIP_SHOW  = "SHOW"
+SKIP_HIDE  = "HIDE"
+SKIP_CYCLE = (SKIP_SHOW, SKIP_HIDE)
 
 # Local-axis rotation step presets bound to number keys 1..5 (degrees).
 # Arrow keys nudge per-clone local rotation by the current step.
@@ -117,10 +155,54 @@ AXIS_CURSOR_Z      = "CZ"
 AXIS_VIEW          = "VIEW"
 AXIS_NORMAL        = "NORMAL"
 
-# Per-letter cycle: each X/Y/Z key steps Global → Local(active) → Cursor.
-_AXIS_X_CYCLE = (AXIS_GLOBAL_X, AXIS_LOCAL_X, AXIS_CURSOR_X)
-_AXIS_Y_CYCLE = (AXIS_GLOBAL_Y, AXIS_LOCAL_Y, AXIS_CURSOR_Y)
-_AXIS_Z_CYCLE = (AXIS_GLOBAL_Z, AXIS_LOCAL_Z, AXIS_CURSOR_Z)
+# Each X/Y/Z key toggles between Global and the pivot-dependent frame:
+#   pivot CURSOR → cursor axes, pivot ACTIVE → the active object's local axes.
+# Global is always kept as the second toggle state.
+_AXIS_GLOBAL = {"X": AXIS_GLOBAL_X, "Y": AXIS_GLOBAL_Y, "Z": AXIS_GLOBAL_Z}
+_AXIS_LOCAL  = {"X": AXIS_LOCAL_X,  "Y": AXIS_LOCAL_Y,  "Z": AXIS_LOCAL_Z}
+_AXIS_CURSOR = {"X": AXIS_CURSOR_X, "Y": AXIS_CURSOR_Y, "Z": AXIS_CURSOR_Z}
+# Reverse map: which letter does an axis-mode belong to (for pivot remap).
+_AXIS_TO_LETTER = {}
+for _letter in ("X", "Y", "Z"):
+    for _m in (_AXIS_GLOBAL[_letter], _AXIS_LOCAL[_letter], _AXIS_CURSOR[_letter]):
+        _AXIS_TO_LETTER[_m] = _letter
+
+
+def _pivot_frame_axis(letter, pivot_mode):
+    """The non-global axis for `letter` under the current pivot: local axes for
+    the ACTIVE pivot, cursor axes otherwise (CURSOR and ACTIVE_CURSOR both take
+    the axis from the 3D cursor)."""
+    table = _AXIS_LOCAL if pivot_mode == PIVOT_ACTIVE else _AXIS_CURSOR
+    return table[letter]
+
+
+def _axis_letter_cycle(letter, pivot_mode):
+    """Two-state toggle for an X/Y/Z key: pivot-frame axis ↔ global axis."""
+    return (_pivot_frame_axis(letter, pivot_mode), _AXIS_GLOBAL[letter])
+
+
+def _remap_axis_to_pivot(axis_mode, pivot_mode):
+    """When the pivot changes, move a local/cursor axis into the new pivot's
+    frame keeping the same letter. Global / View / Normal axes are left as-is."""
+    letter = _AXIS_TO_LETTER.get(axis_mode)
+    if letter is None:
+        return axis_mode                      # VIEW / NORMAL — untouched
+    if axis_mode in _AXIS_GLOBAL.values():
+        return axis_mode                      # keep explicit Global
+    return _pivot_frame_axis(letter, pivot_mode)
+
+# Human-readable axis names for the HUD / reports (no terse GX/LZ/CZ codes).
+AXIS_LABELS = {
+    AXIS_GLOBAL_X: "Global X", AXIS_GLOBAL_Y: "Global Y", AXIS_GLOBAL_Z: "Global Z",
+    AXIS_LOCAL_X:  "Local X",  AXIS_LOCAL_Y:  "Local Y",  AXIS_LOCAL_Z:  "Local Z",
+    AXIS_CURSOR_X: "Cursor X", AXIS_CURSOR_Y: "Cursor Y", AXIS_CURSOR_Z: "Cursor Z",
+    AXIS_VIEW:     "View",     AXIS_NORMAL:   "Normal",
+}
+
+
+def _axis_label(axis_mode):
+    """Readable axis name for UI; falls back to the raw code if unknown."""
+    return AXIS_LABELS.get(axis_mode, axis_mode)
 
 
 def _cycle(value, options):
@@ -291,10 +373,10 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
                       seed, slot_index,
                       local_rot=(0.0, 0.0, 0.0)):
     """Apply alignment on top of `base_mw`. `base_mw` is the clone's natural
-    pre-alignment matrix (caller already tilted it onto the axis plane and
-    applied R_step). ALIGN_RIGID returns it unchanged; RANDOM_* layer a
-    deterministic random rotation around `base_mw.translation`. `local_rot` is
-    applied last as a rotation around the clone's local X/Y/Z (right-mult)."""
+    pre-alignment matrix (caller already built the ALIGN/ROTATE frame and applied
+    R_step). ALIGN / ROTATE return it unchanged; RANDOM_* layer a deterministic
+    random rotation around `base_mw.translation`. `local_rot` is applied last as
+    a rotation around the clone's local X/Y/Z (right-mult)."""
     clone_pos = base_mw.translation
     T_to   = Matrix.Translation(clone_pos)
     T_from = Matrix.Translation(-clone_pos)
@@ -316,7 +398,7 @@ def _aligned_clone_mw(align_mode, pivot_co, axis_vec, base_mw,
                            ALIGN_RANDOM_Z: 'Z'}[align_mode]
             R = Matrix.Rotation(rng.uniform(-math.pi, math.pi), 4, axis_letter)
         base_mw = T_to @ R @ T_from @ base_mw
-    # ALIGN_RIGID: base_mw already encodes the desired orientation.
+    # ALIGN / ROTATE: base_mw already encodes the desired orientation.
 
     # Stage 2: per-clone local-axis rotation (arrow keys nudge `local_rot`).
     lx, ly, lz = local_rot
@@ -423,6 +505,29 @@ def _mouse_radius_in_plane(context, event, pivot_co, axis_vec):
     return radial.length
 
 
+def _mouse_signed_along_axis(context, event, base_co, axis_vec):
+    """Signed distance along `axis_vec` (from `base_co`) of the point on the axis
+    line closest to the mouse ray. Used to drag the axis-offset handle. None if
+    the view direction is parallel to the axis."""
+    from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+    region = context.region
+    rv3d = context.region_data
+    if region is None or rv3d is None:
+        return None
+    mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+    O = region_2d_to_origin_3d(region, rv3d, mouse)
+    D = region_2d_to_vector_3d(region, rv3d, mouse)
+    A = axis_vec.normalized()
+    w0 = O - base_co
+    a = D.dot(D); b = D.dot(A); c = 1.0
+    d = D.dot(w0); e = A.dot(w0)
+    denom = a * c - b * b
+    if abs(denom) < 1e-9:
+        return None
+    # parameter along the axis line of the closest point to the ray
+    return (a * e - b * d) / denom
+
+
 # --- Preview (POST_VIEW) -------------------------------------------------
 
 def _mesh_geom_cache(obj):
@@ -510,7 +615,7 @@ def _arc_two_point_geometry(op, axis_vec):
 
     h_signed = getattr(op, "arc_apex_h_signed", None)
     if h_signed is None:
-        h_signed = r_min   # default: semicircle bulging on +perp side
+        h_signed = -r_min  # default: semicircle bulging on −perp side (intuitive, no flip needed)
     h = abs(h_signed)
     if h < 1e-4:
         h = 1e-4
@@ -551,9 +656,15 @@ def _arc_params(op, axis_vec):
     - ARC_FULL/180°/90°/45°: center = pivot, radius = effective_radius,
       sweep = fixed constant, start = angle of active (or 0 for ARC_FULL).
     - ARC_CURSOR: arc passes through active and cursor; center, radius and sweep
-      derived. None if A and B coincide."""
+      derived. None if A and B coincide.
+    The whole arc is slid along the rotation axis by `op.axis_offset`."""
+    off = axis_vec * getattr(op, "axis_offset", 0.0)
     if op.arc_mode == ARC_CURSOR:
-        return _arc_two_point_geometry(op, axis_vec)
+        g = _arc_two_point_geometry(op, axis_vec)
+        if g is None:
+            return None
+        center, R, start, sweep = g
+        return center + off, R, start, sweep
     # Center is the user pivot.
     center = op.pivot_co.copy()
     active = getattr(op, "active_obj", None)
@@ -575,7 +686,7 @@ def _arc_params(op, axis_vec):
         sweep = 2 * math.pi
     else:
         sweep = _ARC_FIXED_SWEEPS.get(op.arc_mode, 0.0)
-    return center, R, start, sweep
+    return center + off, R, start, sweep
 
 
 def _arc_endpoint_world(op, axis_vec):
@@ -589,6 +700,35 @@ def _arc_endpoint_world(op, axis_vec):
     end_angle = start + sweep
     right, fwd = _arc_frame(axis_vec)
     return center + (right * math.cos(end_angle) + fwd * math.sin(end_angle)) * R
+
+
+def _slot_step(op, arc_sweep, n_total):
+    """Angular step between slots for the current arc mode."""
+    if op.arc_mode == ARC_FULL:
+        return (2 * math.pi) / n_total
+    if n_total > 1:
+        return arc_sweep / (n_total - 1) if op.end_inclusive else arc_sweep / n_total
+    return 0.0
+
+
+def _slot_positions(op, axis_vec):
+    """World positions of every slot (indexed by ci, 0..n_total-1). [] if no arc."""
+    params = _arc_params(op, axis_vec)
+    if params is None:
+        return []
+    arc_center, arc_R, arc_start, arc_sweep = params
+    n_total = max(2, int(op.count))
+    step = _slot_step(op, arc_sweep, n_total)
+    right, fwd = _arc_frame(axis_vec)
+    return [arc_center + (right * math.cos(arc_start + ci * step)
+                          + fwd * math.sin(arc_start + ci * step)) * arc_R
+            for ci in range(n_total)]
+
+
+def _drawn_slot_range(op):
+    """Indices of slots that get a clone: skip_first adds slot 0."""
+    n_total = max(2, int(op.count))
+    return range(0 if op.skip_first else 1, n_total)
 
 
 def _pool_fill_iter(op, axis_vec):
@@ -626,7 +766,7 @@ def _pool_fill_iter(op, axis_vec):
             continue
         ang = arc_start + s * step
         target_pos = arc_center + (right * math.cos(ang) + fwd * math.sin(ang)) * radius
-        base_mw = _tilt_z_to_axis(src_mw, axis_vec)
+        base_mw = _base_anchor(op.align_mode, src_mw, axis_vec, target_pos, arc_center)
         base_mw.translation = target_pos
         new_mw = _aligned_clone_mw(op.align_mode, arc_center, axis_vec,
                                    base_mw, op._pool_seed, s,
@@ -649,6 +789,42 @@ def _tilt_z_to_axis(mw, axis_vec):
     out = (q.to_matrix() @ mw.to_3x3()).to_4x4()
     out.translation = mw.translation
     return out
+
+
+def _aim_radial(mw, axis_vec, pos, center):
+    """Build a base orientation for a clone sitting at `pos` so that:
+      * +Z == `axis_vec` (clone lies flat in the rotation plane),
+      * +X == the inward radial at `pos` (points toward `center`),
+      * +Y == Z×X (the circle tangent — the 'forward' direction of travel).
+    Scale is taken from `mw`; translation is preserved. Because both the slot
+    position and this frame co-rotate by the same step around the axis, every
+    clone's local X keeps pointing at the center. Falls back to the shortest-arc
+    Z-tilt when the clone sits on the axis (radius undefined)."""
+    if axis_vec is None or axis_vec.length < 1e-6:
+        return mw
+    axis = axis_vec.normalized()
+    radial = pos - center
+    radial = radial - axis * radial.dot(axis)   # project into the rotation plane
+    if radial.length < 1e-6:
+        return _tilt_z_to_axis(mw, axis)
+    x_axis = (-radial).normalized()               # toward center
+    y_axis = axis.cross(x_axis).normalized()      # tangent / forward (= Z×X)
+    rot = Matrix((x_axis, y_axis, axis)).transposed()   # columns = basis vectors
+    _, _, scale = mw.decompose()
+    base = (rot @ Matrix.Diagonal(scale)).to_4x4()
+    base.translation = mw.translation
+    return base
+
+
+def _base_anchor(align_mode, mw, axis_vec, pos, center):
+    """Pick the clone's base orientation by mode:
+      * ROTATE — keep the source orientation untouched (pure rigid rotation
+        around the axis; R_step co-rotates it, like a hand rotate-duplicate).
+      * everything else (ALIGN, RANDOM_*) — aim +X at the center (consistent
+        radial frame); RANDOM_* then layers spin on top in `_aligned_clone_mw`."""
+    if align_mode == ALIGN_ROTATE:
+        return mw.copy()
+    return _aim_radial(mw, axis_vec, pos, center)
 
 
 def _build_anchor_matrix(op):
@@ -705,24 +881,48 @@ def _build_ghost_segments(op, context):
     segs = []
     tris = []
     crosses = []
+    hover_tris = []        # skip/delete mode: faces of the clone under the mouse
+    hover_segs = []
+    locked_tris = []       # clones locked out — shown tinted in the locked colour
+    locked_segs = []
+    locked_crosses = []    # slot markers for locked clones
+    locked = getattr(op, "locked_slots", set())
+    skip_mode = getattr(op, "skip_mode", SKIP_SHOW)
+    show_locked = (skip_mode == SKIP_SHOW)        # locked mesh visible (tinted) vs hidden
+    mark_locked = True                            # locked marker always clickable
+    hover_slot = getattr(op, "_hover_slot", None)
+
+    def _pack():
+        return (segs, tris, crosses, hover_tris, hover_segs,
+                locked_tris, locked_segs, locked_crosses, axis_vec, ang_total)
 
     # After Match, the sources sit on the arc themselves — no preview clones
     # so they don't visually pile on top of the snapped objects.
     if getattr(op, "match_active", False):
-        return segs, tris, crosses, axis_vec, ang_total
+        return _pack()
 
-    if op.arc_mode == ARC_FULL and op.skip_first:
-        start_index = 0
-    else:
-        start_index = 1
+    # skip_first (F) clones slot 0 too — works for every arc mode, including
+    # the Active→Cursor arc, not just the full circle.
+    start_index = 0 if op.skip_first else 1
 
     subtrees = op.subtree_data
     if not subtrees:
-        return segs, tris, crosses, axis_vec, ang_total
+        return _pack()
 
     cache = getattr(op, "_mesh_cache", {})
     if op.source_mode == SOURCE_POOL:
-        for delta, subtree, slot_pos in _pool_fill_iter(op, axis_vec):
+        for s, (delta, subtree, slot_pos) in enumerate(_pool_fill_iter(op, axis_vec)):
+            # Edges always use the theme edge colour; only the fill state varies.
+            if s in locked:
+                if mark_locked:
+                    locked_crosses.append(slot_pos.copy())
+                if not show_locked:
+                    continue            # HIDE / OFF — locked clone not drawn
+                into_tris = locked_tris
+            elif s == hover_slot:
+                into_tris = hover_tris
+            else:
+                into_tris = tris
             crosses.append(slot_pos.copy())
             for child_obj, _rel in subtree:
                 child_clone_mw = delta @ child_obj.matrix_world
@@ -730,17 +930,22 @@ def _build_ghost_segments(op, context):
                 if geom is not None:
                     for a, b in _mesh_edge_segments_world(child_clone_mw, geom):
                         segs.append((a, b))
-                    tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
+                    into_tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
                 else:
                     crosses.append(child_clone_mw.translation.copy())
-        return segs, tris, crosses, axis_vec, ang_total
+        return _pack()
 
     # Build slot positions from unified arc params (handles ARC_FULL/ANGLE/CURSOR).
     params = _arc_params(op, axis_vec)
     if params is None:
-        return segs, tris, crosses, axis_vec, ang_total
+        return _pack()
     arc_center, arc_R, arc_start, arc_sweep = params
-    anchor_actual = _tilt_z_to_axis(_build_anchor_matrix(op), axis_vec)
+    right, fwd = _arc_frame(axis_vec)
+    anchor_raw = _build_anchor_matrix(op)
+    # Base orientation per align mode (ALIGN aims +X at center; ROTATE keeps the
+    # source frame). R_step co-rotates it per slot.
+    _pos0 = arc_center + (right * math.cos(arc_start) + fwd * math.sin(arc_start)) * arc_R
+    anchor_actual = _base_anchor(op.align_mode, anchor_raw, axis_vec, _pos0, arc_center)
 
     n_total = max(2, int(op.count))
     if op.arc_mode == ARC_FULL:
@@ -750,7 +955,6 @@ def _build_ghost_segments(op, context):
             slot_step = arc_sweep / (n_total - 1) if op.end_inclusive else arc_sweep / n_total
         else:
             slot_step = 0.0
-    right, fwd = _arc_frame(axis_vec)
     all_positions = []
     for ci in range(n_total):
         a = arc_start + ci * slot_step
@@ -762,6 +966,19 @@ def _build_ghost_segments(op, context):
     # clones from slot 1 onward. skip_first ON also clones slot 0.
     for ci in range(start_index, n_total):
         slot_pos = all_positions[ci]
+        # Locked clones: SHOW → tinted-locked mesh; HIDE/OFF → not drawn (a
+        # marker keeps them clickable in SHOW/HIDE). Hovered clone → closest
+        # tint; rest → normal. Edges always use the theme edge colour.
+        if ci in locked:
+            if mark_locked:
+                locked_crosses.append(slot_pos.copy())
+            if not show_locked:
+                continue
+            into_tris = locked_tris
+        elif ci == hover_slot:
+            into_tris = hover_tris
+        else:
+            into_tris = tris
         R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
         base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
         base_mw.translation = slot_pos
@@ -769,7 +986,10 @@ def _build_ghost_segments(op, context):
             op.align_mode, arc_center, axis_vec, base_mw,
             op._pool_seed, ci,
             local_rot=tuple(op.local_rot))
-        delta = M_anchor_final @ anchor_actual.inverted()
+        # Divide by the RAW (untilted) anchor: the tilt lives in M_anchor_final,
+        # and children's matrix_world are untilted, so dividing by the tilted
+        # anchor would cancel the tilt (clones tumble instead of staying flat).
+        delta = M_anchor_final @ anchor_raw.inverted()
         crosses.append(slot_pos.copy())
         for subtree in subtrees:
             for child_obj, _rel in subtree:
@@ -778,11 +998,11 @@ def _build_ghost_segments(op, context):
                 if geom is not None:
                     for a, b in _mesh_edge_segments_world(child_clone_mw, geom):
                         segs.append((a, b))
-                    tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
+                    into_tris.extend(_mesh_face_tris_world(child_clone_mw, geom))
                 else:
                     crosses.append(child_clone_mw.translation.copy())
 
-    return segs, tris, crosses, axis_vec, ang_total
+    return _pack()
 
 
 def _draw_preview_3d(op, context):
@@ -793,7 +1013,8 @@ def _draw_preview_3d(op, context):
     if op._dirty or getattr(op, "_ghost_cache", None) is None:
         op._ghost_cache = _build_ghost_segments(op, context)
         op._dirty = False
-    segs, tris, crosses, axis_vec, ang_total = op._ghost_cache
+    (segs, tris, crosses, hover_tris, hover_segs,
+     locked_tris, locked_segs, locked_crosses, axis_vec, ang_total) = op._ghost_cache
 
     # Two-pass transparent fill to avoid alpha-stacking when clones overlap:
     #   1. Depth pre-pass — write only the depth buffer, no color, so the
@@ -808,6 +1029,17 @@ def _draw_preview_3d(op, context):
         with draw_scope(blend="ALPHA", depth="EQUAL",
                         face_culling="BACK", depth_mask=False):
             iops_draw.tris(tris, role=Role.GHOST_DEFAULT, context=context)
+    # Locked-out clones: stay visible, tinted in the locked colour.
+    if locked_tris:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="NONE", depth_mask=False):
+            iops_draw.tris(locked_tris, role=Role.GHOST_LOCKED, context=context)
+    # Hovered clone (skip/delete mode): tint its faces with the closest colour.
+    if hover_tris:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="NONE", depth_mask=False):
+            iops_draw.tris(hover_tris, role=Role.GHOST_CLOSEST, context=context)
+    # All clone edges share the theme edge colour, regardless of fill state.
     if segs:
         flat = []
         for a, b in segs:
@@ -815,9 +1047,6 @@ def _draw_preview_3d(op, context):
             flat.append(b)
         with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
             iops_draw.edges_3d(flat, role=Role.GHOST_EDGE, context=context)
-
-    if crosses:
-        iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
 
     # Visualization uses the unified arc params so ARC_CURSOR draws around the
     # derived center, not the user pivot.
@@ -832,9 +1061,15 @@ def _draw_preview_3d(op, context):
     if radius < 1e-3:
         radius = 1.0
 
-    a_half = axis_vec * (radius * 2.0)
+    # Axis indicator: total length = 1/3 of the radius (half each side). Doubles
+    # as the axis-offset handle — coloured like the ring by default, and like an
+    # active control while the offset mode is engaged.
+    a_half = axis_vec * (radius / 6.0)
+    axis_role = (Role.ACTIVE_LINE
+                 if getattr(op, "axis_offset_mode", False) or getattr(op, "axis_offset_drag_active", False)
+                 else Role.PREVIEW_LINE)
     iops_draw.edges_3d([center - a_half, center + a_half],
-                       role=Role.ACTIVE_LINE, context=context)
+                       role=axis_role, context=context)
 
     if radius > 1e-3:
         steps = 64
@@ -852,13 +1087,49 @@ def _draw_preview_3d(op, context):
             pairs.append(ring[i + 1])
         iops_draw.edges_3d(pairs, role=Role.PREVIEW_LINE, context=context)
 
-    # Marker at the derived arc center.
-    iops_draw.points([center], role=Role.PIVOT, context=context)
-
-    # arc end marker (draggable; absent in FULL_360 or two-points-without-target)
+    # All markers draw last, on top of every line (depth test off).
     end_pt = _arc_endpoint_world(op, axis_vec)
-    if end_pt is not None:
-        iops_draw.points([end_pt], role=Role.ACTIVE_POINT, context=context)
+    with draw_scope(blend="ALPHA", depth="NONE"):
+        if crosses:
+            iops_draw.points(crosses, role=Role.PREVIEW_POINT, context=context)
+        if locked_crosses:
+            iops_draw.points(locked_crosses, role=Role.LOCKED_POINT, context=context)
+        iops_draw.points([center], role=Role.PIVOT, context=context)
+        if end_pt is not None:
+            iops_draw.points([end_pt], role=Role.ACTIVE_POINT, context=context)
+
+    # T (normal-pick) hover overlay on top of the array preview.
+    if getattr(op, "pending_normal_pick", False):
+        _draw_tpick(op, context)
+
+
+def _draw_tpick(op, context):
+    """Draw the T-mode face pick overlay: highlighted face fill + outline, the
+    candidate snap points (edge midpoints + face center), the closest snap, and
+    a short normal indicator. All colors come from the addon theme."""
+    tp = getattr(op, "_tpick", None)
+    if not tp:
+        return
+    from ..ui.draw import primitives as iops_draw
+    from ..ui.draw import draw_scope
+
+    if tp["tris"]:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="NONE", depth_mask=False):
+            iops_draw.tris(tp["tris"], role=Role.GHOST_DEFAULT, context=context)
+    if tp["edges"]:
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
+            iops_draw.edges_3d(tp["edges"], role=Role.CLOSEST_LINE, context=context)
+    # Normal indicator from the closest snap point.
+    nlen = tp.get("nlen", 0.3) or 0.3
+    with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
+        iops_draw.edges_3d([tp["closest"], tp["closest"] + tp["normal"] * nlen],
+                           role=Role.ACTIVE_LINE, context=context)
+    # Snap points draw on top of the face/edge/normal lines.
+    with draw_scope(blend="ALPHA", depth="NONE"):
+        if tp["snaps"]:
+            iops_draw.points(tp["snaps"], role=Role.PREVIEW_POINT, context=context)
+        iops_draw.points([tp["closest"]], role=Role.CLOSEST_POINT, context=context)
 
 
 class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
@@ -885,18 +1156,23 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"CANCELLED"}
 
         # --- mode defaults ---
-        # Default to 3D-cursor pivot so every selected object (including active)
-        # is part of the rotated group and keeps its position relative to the rest.
-        # Press P during modal to cycle to ACTIVE-as-pivot or LAST_SELECTED-as-pivot.
-        self.pivot_mode  = PIVOT_CURSOR
+        # Default to Active-Cursor: axis from the 3D cursor, but the circle plane
+        # passes through the active object. Q cycles Active-Cursor → Cursor → Active.
+        self.pivot_mode  = PIVOT_ACTIVE_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_CURSOR_Z   # default: rotate around the 3D cursor's Z
-        self.align_mode  = ALIGN_RIGID
+        self.align_mode  = ALIGN_ALIGN
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
         self.pending_normal_pick = False
+        self._tpick = None                 # T-mode face-pick hover snapshot
+        self.skip_mode = SKIP_SHOW          # N toggles SHOW / HIDE for locked clones
+        self.locked_slots = set()          # slot indices excluded at apply
+        self._hover_slot = None            # slot index under the mouse in skip mode
+        self._history = []                 # Ctrl+Z/Ctrl+Shift+Z state history
+        self._hist_i = 0                   # index of the current state in _history
         self._cached_axis_vec = Vector((0, 0, 1))
         self.local_rot_step = math.radians(90.0)
         self.local_rot = [0.0, 0.0, 0.0]   # per-clone local-axis rotation (X, Y, Z) radians
@@ -904,6 +1180,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self.radius_drag_active = False
         self.arc_center_drag_active = False   # ARC_CURSOR: drag the derived center
         self.arc_apex_h_signed = None         # ARC_CURSOR: signed apex distance on AB's perpendicular bisector
+        self.axis_offset = 0.0                # signed slide of the whole array along the rotation axis
+        self.axis_offset_mode = False         # E: drag the axis-offset preview point
+        self.axis_offset_drag_active = False
         self.match_active = False
         self._match_saved = None          # snapshot used to un-apply Match
         self.source_mode = SOURCE_GROUP   # U cycles ACTIVE / HIERARCHY / GROUP / POOL
@@ -912,37 +1191,45 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._pool_seed = 12345
         self._dirty = True
 
-        pivot_co, pivot_obj, _legacy_sources, _et = _resolve_selection(context, self.pivot_mode)
-        self.pivot_co  = pivot_co
-        self.pivot_obj = pivot_obj
+        self._resolve_pivot(context)
 
         self._rebuild_sources(context)
         if not self.subtree_data:
             self.report({"WARNING"}, "Select at least one source object")
             return {"CANCELLED"}
 
+        self._history = [self._snapshot()]   # seed undo history with the initial state
+        self._hist_i = 0
+
+        def _local_rot_used():
+            return any(abs(a) > 1e-9 for a in self.local_rot)
+
         self._hud = _build_hud(context)
-        self._hud.add_param(HUDParam("Pivot",       lambda: self.pivot_mode, "str"))
-        self._hud.add_param(HUDParam("Clone",       lambda: self.clone_mode, "str"))
-        self._hud.add_param(HUDParam("Arc",         lambda: self.arc_mode, "str"))
-        self._hud.add_param(HUDParam("Axis",        lambda: self.axis_mode, "str"))
-        self._hud.add_param(HUDParam("Count",       lambda: self.count, "int"))
-        self._hud.add_param(HUDParam("Radius",      lambda: _effective_radius(self), "float", fmt="{:.3f}"))
-        self._hud.add_param(HUDParam("Step",        lambda: math.degrees(_clone_step_deg(self)), "float", fmt="{:.2f}°"))
-        self._hud.add_param(HUDParam("Apex h",      lambda: (self.arc_apex_h_signed if self.arc_apex_h_signed is not None else 0.0),
-                                     "float", fmt="{:.3f}",
-                                     active_getter=lambda: self.arc_mode == ARC_CURSOR))
-        self._hud.add_param(HUDParam("Alignment",   lambda: self.align_mode, "str"))
-        self._hud.add_param(HUDParam("Rot step",    lambda: math.degrees(self.local_rot_step), "float", fmt="{:.0f}°"))
+        # Always-on core params.
+        self._hud.add_param(HUDParam("Count",      lambda: self.count, "int"))
+        self._hud.add_param(HUDParam("Pivot",      lambda: _pivot_label(self.pivot_mode), "str"))
+        self._hud.add_param(HUDParam("Type",       lambda: self.arc_mode, "str"))
+        self._hud.add_param(HUDParam("Alignment",  lambda: _align_label(self.align_mode), "str"))
+        self._hud.add_param(HUDParam("Axis",       lambda: _axis_label(self.axis_mode), "str"))
+        # Contextual params — only shown once touched / relevant.
+        self._hud.add_param(HUDParam("Axis offset", lambda: self.axis_offset, "float", fmt="{:.3f}",
+                                     visible_getter=lambda: self.axis_offset_mode or abs(self.axis_offset) > 1e-6))
+        self._hud.add_param(HUDParam("Start point", lambda: self.skip_first, "bool",
+                                     visible_getter=lambda: self.skip_first))
+        self._hud.add_param(HUDParam("End point",   lambda: self.end_inclusive, "bool",
+                                     visible_getter=lambda: self.arc_mode != ARC_FULL))
+        self._hud.add_param(HUDParam("Rot step",    lambda: math.degrees(self.local_rot_step), "float", fmt="{:.0f}°",
+                                     visible_getter=_local_rot_used))
         self._hud.add_param(HUDParam("Local Rot",
                                      lambda: "{:.0f}°/{:.0f}°/{:.0f}°".format(
                                          math.degrees(self.local_rot[0]),
                                          math.degrees(self.local_rot[1]),
-                                         math.degrees(self.local_rot[2])), "str"))
-        self._hud.add_param(HUDParam("Skip first",   lambda: self.skip_first, "bool"))
-        self._hud.add_param(HUDParam("End inclusive", lambda: self.end_inclusive, "bool",
-                                     active_getter=lambda: self.arc_mode != ARC_FULL))
-        self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool"))
+                                         math.degrees(self.local_rot[2])), "str",
+                                     visible_getter=_local_rot_used))
+        self._hud.add_param(HUDParam("Skip/delete", lambda: f"{self.skip_mode} · {len(self.locked_slots)} locked", "str",
+                                     visible_getter=lambda: bool(self.locked_slots) or self.skip_mode == SKIP_HIDE))
+        self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool",
+                                     visible_getter=lambda: self.match_active))
         self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
         self._help = _build_help(context)
         self._last_event = capture_event(event, None)
@@ -960,6 +1247,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
+
+        # Commit the previous event's result to the undo history before handling
+        # the new event (so Ctrl+Z always reverts in a single press).
+        self._commit_history()
 
         # Live re-snap when Match is on so parameter tweaks stay interactive.
         if self.match_active and self._dirty:
@@ -989,14 +1280,36 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         if event.type in {"TRACKPADPAN", "TRACKPADZOOM"}:
             return {"PASS_THROUGH"}
 
+        # --- redo (Ctrl+Shift+Z): step forward in history ---
+        if event.type == "Z" and event.value == "PRESS" and event.ctrl and event.shift:
+            if self._hist_i < len(self._history) - 1:
+                self._hist_i += 1
+                self._restore(context, self._history[self._hist_i])
+                self.report({"INFO"}, "Redo")
+            else:
+                self.report({"INFO"}, "Nothing to redo")
+            return {"RUNNING_MODAL"}
+
+        # --- undo (Ctrl+Z): step back in history ---
+        if event.type == "Z" and event.value == "PRESS" and event.ctrl and not event.shift:
+            if self._hist_i > 0:
+                self._hist_i -= 1
+                self._restore(context, self._history[self._hist_i])
+                self.report({"INFO"}, "Undo")
+            else:
+                self.report({"INFO"}, "Nothing to undo")
+            return {"RUNNING_MODAL"}
+
         # --- mode cycles (QWER cluster) ---
         if event.type == "Q" and event.value == "PRESS":
             self.pivot_mode = _cycle(self.pivot_mode, PIVOT_CYCLE)
-            pivot_co, pivot_obj, _legacy_sources, _et = _resolve_selection(context, self.pivot_mode)
-            self.pivot_co = pivot_co
-            self.pivot_obj = pivot_obj
+            # Keep the axis letter, move it into the new pivot's frame
+            # (cursor↔local); Global / View / Normal are left untouched.
+            self.axis_mode = _remap_axis_to_pivot(self.axis_mode, self.pivot_mode)
+            self._resolve_pivot(context)
             self._rebuild_sources(context)
             self._dirty = True
+            self.report({"INFO"}, f"Pivot: {_pivot_label(self.pivot_mode)}  |  Axis: {_axis_label(self.axis_mode)}")
             return {"RUNNING_MODAL"}
 
         if event.type == "D" and event.value == "PRESS":
@@ -1015,12 +1328,12 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         # --- match radius / count (and arc) from current source origins (toggle) ---
-        if event.type == "M" and event.value == "PRESS":
+        if event.type == "A" and event.value == "PRESS":
             self._toggle_match(context)
             return {"RUNNING_MODAL"}
 
         # --- source mode cycle (Active / Hierarchy / Group / Pool) ---
-        if event.type == "U" and event.value == "PRESS":
+        if event.type == "T" and event.value == "PRESS":
             self.source_mode = _cycle(self.source_mode, SOURCE_CYCLE)
             self._rebuild_sources(context)
             self._dirty = True
@@ -1028,7 +1341,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         # --- reroll random seed for SOURCE_POOL extras ---
-        if event.type == "K" and event.value == "PRESS":
+        if event.type == "G" and event.value == "PRESS":
             if self.source_mode == SOURCE_POOL:
                 import time
                 self._pool_seed = int(time.time() * 1000) & 0xFFFFFF
@@ -1037,51 +1350,63 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         # --- axis ---
-        # Each X/Y/Z key cycles its own axis: Global → Local(active) → Cursor.
+        # Each X/Y/Z key toggles between the pivot-dependent frame (cursor axes
+        # when pivot=CURSOR, local axes when pivot=ACTIVE) and the global axis.
         if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
-            cyc = {"X": _AXIS_X_CYCLE, "Y": _AXIS_Y_CYCLE, "Z": _AXIS_Z_CYCLE}[event.type]
+            cyc = _axis_letter_cycle(event.type, self.pivot_mode)
             self.axis_mode = _cycle(self.axis_mode, cyc) if self.axis_mode in cyc else cyc[0]
             self.pending_normal_pick = False
+            self._resolve_pivot(context)   # ACTIVE_CURSOR center depends on the axis
             self._dirty = True
-            self.report({"INFO"}, f"Axis: {self.axis_mode}")
+            self.report({"INFO"}, f"Axis: {_axis_label(self.axis_mode)}")
             return {"RUNNING_MODAL"}
 
         if event.type == "V" and event.value == "PRESS":
             self.axis_mode = AXIS_VIEW
             self.pending_normal_pick = False
+            self._resolve_pivot(context)
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "T" and event.value == "PRESS":
+        if event.type == "C" and event.value == "PRESS":
             self.pending_normal_pick = True
-            self.report({"INFO"}, "Click a face to set rotation axis from its normal")
+            self._tpick_update(context, event)
+            context.area.tag_redraw()
+            self.report({"INFO"}, "Hover a face; click an edge-mid / center to snap the 3D cursor there")
             return {"RUNNING_MODAL"}
 
-        # --- normal pick via LMB while pending (MUST come before apply LMB) ---
+        # --- live hover while T is armed: highlight face + snap points ---
+        if self.pending_normal_pick and event.type == "MOUSEMOVE":
+            self._tpick_update(context, event)
+            context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+
+        # --- snap the 3D cursor on click (MUST come before the apply LMB) ---
         if self.pending_normal_pick and event.type == "LEFTMOUSE" and event.value == "PRESS":
-            region = context.region
-            rv3d = context.region_data
-            mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-            from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
-            origin = region_2d_to_origin_3d(region, rv3d, mouse)
-            direction = region_2d_to_vector_3d(region, rv3d, mouse)
-            depsgraph = context.evaluated_depsgraph_get()
-            hit, loc, normal, idx, obj, mat = context.scene.ray_cast(depsgraph, origin, direction)
-            if hit:
-                self._cached_axis_vec = normal.normalized()
-                self.axis_mode = AXIS_NORMAL
+            self._tpick_update(context, event)
+            tp = self._tpick
+            if tp is not None:
+                cursor = context.scene.cursor
+                cursor.location = tp["closest"].copy()
+                # Orient the cursor so its +Z aligns with the face normal — the
+                # array plane (Cursor Z) then lies flat on the picked face.
+                cursor.rotation_mode = "XYZ"
+                cursor.rotation_euler = tp["normal"].to_track_quat("Z", "Y").to_euler()
+                self.axis_mode = AXIS_CURSOR_Z
+                self._resolve_pivot(context)
                 self._dirty = True
-                self.report({"INFO"}, "Axis set from face normal")
+                self.report({"INFO"}, "Cursor snapped to face (Z = face normal)")
             else:
-                self.report({"WARNING"}, "No face hit")
+                self.report({"WARNING"}, "No face under cursor")
             self.pending_normal_pick = False
+            self._tpick = None
             return {"RUNNING_MODAL"}
 
         # --- toggles ---
         if event.type == "R" and event.value == "PRESS":
             self.align_mode = _cycle(self.align_mode, ALIGN_CYCLE)
             self._dirty = True
-            self.report({"INFO"}, f"Alignment: {self.align_mode}")
+            self.report({"INFO"}, f"Alignment: {_align_label(self.align_mode)}")
             return {"RUNNING_MODAL"}
 
         # --- local rotation step presets (1..5 → degrees) ---
@@ -1106,14 +1431,34 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             self._dirty = True
             return {"RUNNING_MODAL"}
 
-        if event.type == "F" and event.value == "PRESS":
+        # Start / Finish point toggles (S = first/start point, F = end/finish).
+        if event.type == "S" and event.value == "PRESS":
             self.skip_first = not self.skip_first
             self._dirty = True
+            self.report({"INFO"}, f"Start point clone: {'on' if self.skip_first else 'off'}")
             return {"RUNNING_MODAL"}
 
-        if event.type == "E" and event.value == "PRESS":
+        if event.type == "F" and event.value == "PRESS":
             self.end_inclusive = not self.end_inclusive
             self._dirty = True
+            self.report({"INFO"}, f"End point inclusive: {'on' if self.end_inclusive else 'off'}")
+            return {"RUNNING_MODAL"}
+
+        # E toggles axis-offset mode: drag the preview point to slide the array
+        # along the rotation axis.
+        if event.type == "E" and event.value == "PRESS":
+            self.axis_offset_mode = not self.axis_offset_mode
+            self._dirty = True
+            self.report({"INFO"}, f"Axis offset mode: {'on' if self.axis_offset_mode else 'off'}")
+            return {"RUNNING_MODAL"}
+
+        # N toggles how locked clones display (SHOW ↔ HIDE). Picking is always
+        # active: hover a clone and click to lock/unlock. Locked clones are
+        # always excluded at apply.
+        if event.type == "N" and event.value == "PRESS":
+            self.skip_mode = _cycle(self.skip_mode, SKIP_CYCLE)
+            self._dirty = True
+            self.report({"INFO"}, f"Locked clones: {self.skip_mode}")
             return {"RUNNING_MODAL"}
 
         # --- count ---
@@ -1138,7 +1483,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 if self.arc_apex_h_signed is not None:
                     self.arc_apex_h_signed = -self.arc_apex_h_signed
                 else:
-                    # default semicircle on +perp side; flipped → semicircle on −perp
+                    # default semicircle on −perp side; flipped → semicircle on +perp
                     axis_vec = _resolve_axis(self, context)
                     params = _arc_two_point_geometry(self, axis_vec)
                     if params is not None:
@@ -1149,11 +1494,53 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                                 A = active.matrix_world.translation
                                 B = bpy.context.scene.cursor.location
                                 ab_planar = (B - A) - axis_vec * (B - A).dot(axis_vec)
-                                self.arc_apex_h_signed = -(ab_planar.length * 0.5)
+                                self.arc_apex_h_signed = (ab_planar.length * 0.5)
                             except ReferenceError:
                                 pass
                 self._dirty = True
                 self.report({"INFO"}, "Arc apex flipped")
+            return {"RUNNING_MODAL"}
+
+        # --- skip/delete picking (always active): hover-highlight, click to lock ---
+        # Hover updates only when no drag is in progress; the event is NOT
+        # consumed so ring/center/offset drags keep working.
+        if event.type == "MOUSEMOVE" and not (self.radius_drag_active
+                                              or self.arc_center_drag_active
+                                              or self.axis_offset_drag_active):
+            hs = self._nearest_slot(context, event)
+            if hs != self._hover_slot:
+                self._hover_slot = hs
+                self._dirty = True
+                context.area.tag_redraw()
+        # Click ON a clone toggles its lock; a click elsewhere falls through to
+        # the ring/center/offset controllers below.
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            hs = self._nearest_slot(context, event)
+            if hs is not None:
+                if hs in self.locked_slots:
+                    self.locked_slots.discard(hs)
+                else:
+                    self.locked_slots.add(hs)
+                self._dirty = True
+                context.area.tag_redraw()
+                return {"RUNNING_MODAL"}
+
+        # --- axis-offset drag (E mode): slide the whole array along the axis ---
+        if self.axis_offset_mode and event.type == "LEFTMOUSE" and event.value == "PRESS":
+            self.axis_offset_drag_active = True
+            return {"RUNNING_MODAL"}
+        if self.axis_offset_drag_active and event.type == "MOUSEMOVE":
+            axis_vec = _resolve_axis(self, context)
+            params = _arc_params(self, axis_vec)
+            center = params[0] if params is not None else self.pivot_co.copy()
+            base_center = center - axis_vec * self.axis_offset   # undo current offset
+            s = _mouse_signed_along_axis(context, event, base_center, axis_vec)
+            if s is not None:
+                self.axis_offset = s
+                self._dirty = True
+            return {"RUNNING_MODAL"}
+        if self.axis_offset_drag_active and event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self.axis_offset_drag_active = False
             return {"RUNNING_MODAL"}
 
         # --- LMB PRESS: two controllers in ARC_CURSOR (center marker / arc curve)
@@ -1287,7 +1674,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         if self.pending_normal_pick and event.type == "ESC" and event.value == "PRESS":
             self.pending_normal_pick = False
-            self.report({"INFO"}, "Normal pick cancelled")
+            self._tpick = None
+            context.area.tag_redraw()
+            self.report({"INFO"}, "Face pick cancelled")
             return {"RUNNING_MODAL"}
 
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
@@ -1295,6 +1684,161 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
+
+    def _tpick_update(self, context, event):
+        """Raycast under the mouse and snapshot the hovered face for the T-pick
+        overlay: triangulated fill, boundary edges, candidate snap points
+        (edge midpoints + face center), the closest snap to the hit, and the
+        face normal. Stores the result on `self._tpick` (None when nothing hit)."""
+        region = context.region
+        rv3d = context.region_data
+        if region is None or rv3d is None:
+            self._tpick = None
+            return
+        from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+        mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+        origin = region_2d_to_origin_3d(region, rv3d, mouse)
+        direction = region_2d_to_vector_3d(region, rv3d, mouse)
+        depsgraph = context.evaluated_depsgraph_get()
+        hit, loc, normal, idx, obj, mat = context.scene.ray_cast(depsgraph, origin, direction)
+        if not hit or obj is None:
+            self._tpick = None
+            return
+        try:
+            mesh = obj.evaluated_get(depsgraph).data
+            poly = mesh.polygons[idx]
+            vids = list(poly.vertices)
+            vw = [mat @ mesh.vertices[vi].co for vi in vids]
+        except (AttributeError, IndexError, ReferenceError):
+            self._tpick = None
+            return
+        n = len(vw)
+        if n < 3:
+            self._tpick = None
+            return
+        center = mat @ poly.center
+        mids = [(vw[i] + vw[(i + 1) % n]) * 0.5 for i in range(n)]
+        # Snap candidates: face corner vertices + edge midpoints + face center.
+        snaps = list(vw) + mids + [center]
+        closest = min(snaps, key=lambda p: (p - loc).length)
+        tris = []
+        for i in range(1, n - 1):
+            tris.extend([vw[0], vw[i], vw[i + 1]])
+        edges = []
+        for i in range(n):
+            edges.append(vw[i])
+            edges.append(vw[(i + 1) % n])
+        nlen = sum((m - center).length for m in mids) / n if n else 0.3
+        self._tpick = {
+            "tris": tris, "edges": edges, "snaps": snaps,
+            "closest": closest, "normal": normal.normalized(),
+            "nlen": max(nlen, 1e-3),
+        }
+
+    # --- modal undo (Ctrl+Z) ------------------------------------------------
+    _UNDO_KEYS = ("count", "pivot_mode", "clone_mode", "arc_mode", "axis_mode",
+                  "align_mode", "skip_first", "end_inclusive", "local_rot_step",
+                  "radius_override", "arc_apex_h_signed", "axis_offset",
+                  "axis_offset_mode", "source_mode", "skip_mode", "_pool_seed")
+    _UNDO_MAX = 64
+
+    def _snapshot(self):
+        """Capture the undoable parameter state (Match is excluded — it moves
+        real objects and has its own toggle)."""
+        snap = {k: getattr(self, k) for k in self._UNDO_KEYS}
+        snap["local_rot"] = list(self.local_rot)
+        snap["locked_slots"] = set(self.locked_slots)
+        snap["pivot_co"] = self.pivot_co.copy()
+        return snap
+
+    def _commit_history(self):
+        """Record the current state if it changed since the last committed one.
+        Called at the top of modal so each event's result is committed before
+        the next event — undo/redo then just walk the `_history` index. Skipped
+        during drags (so a whole drag is one undo step) and while Match is
+        active (Match moves real objects and has its own toggle)."""
+        if getattr(self, "match_active", False):
+            return
+        if (self.radius_drag_active or self.arc_center_drag_active
+                or self.axis_offset_drag_active):
+            return
+        if not self._history:
+            self._history = [self._snapshot()]
+            self._hist_i = 0
+            return
+        snap = self._snapshot()
+        if snap == self._history[self._hist_i]:
+            return
+        del self._history[self._hist_i + 1:]      # drop redo branch
+        self._history.append(snap)
+        if len(self._history) > self._UNDO_MAX:
+            self._history.pop(0)
+        self._hist_i = len(self._history) - 1
+
+    def _restore(self, context, snap):
+        for k in self._UNDO_KEYS:
+            setattr(self, k, snap[k])
+        self.local_rot = list(snap["local_rot"])
+        self.locked_slots = set(snap["locked_slots"])
+        self.pivot_co = snap["pivot_co"].copy()
+        self._hover_slot = None
+        self._rebuild_sources(context)
+        self._dirty = True
+
+    def _resolve_pivot(self, context):
+        """Set self.pivot_co / self.pivot_obj from the current pivot mode:
+          * ACTIVE         — center & axis at the active object.
+          * CURSOR         — center at the 3D cursor.
+          * ACTIVE_CURSOR  — axis from the cursor, but the circle plane is lifted
+                             along that axis to pass through the active object
+                             (center = cursor, shifted axially to active's level).
+        The ACTIVE_CURSOR center depends on the axis, so this must be re-run
+        whenever the axis or the pivot mode changes."""
+        active = context.active_object
+        cursor = context.scene.cursor
+        if self.pivot_mode == PIVOT_ACTIVE:
+            self.pivot_obj = active
+            self.pivot_co = (active.matrix_world.translation.copy()
+                             if active else cursor.location.copy())
+        elif self.pivot_mode == PIVOT_CURSOR:
+            self.pivot_obj = None
+            self.pivot_co = cursor.location.copy()
+        else:  # PIVOT_ACTIVE_CURSOR
+            self.pivot_obj = None
+            cur = cursor.location.copy()
+            axis = _resolve_axis(self, context)
+            if active is not None and axis.length > 1e-6:
+                act = active.matrix_world.translation
+                # cursor in-plane position, but on the plane that passes through active
+                self.pivot_co = cur + axis * (act - cur).dot(axis)
+            else:
+                self.pivot_co = cur
+
+    def _nearest_slot(self, context, event):
+        """Slot index whose ring position is closest to the mouse on screen
+        (within a pixel threshold), among the slots that get a clone. None if
+        nothing is close enough."""
+        region = context.region
+        rv3d = context.region_data
+        if region is None or rv3d is None:
+            return None
+        from bpy_extras.view3d_utils import location_3d_to_region_2d
+        axis_vec = _resolve_axis(self, context)
+        positions = _slot_positions(self, axis_vec)
+        if not positions:
+            return None
+        mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+        best_ci, best_d = None, 1e9
+        for ci in _drawn_slot_range(self):
+            if ci >= len(positions):
+                continue
+            p2 = location_3d_to_region_2d(region, rv3d, positions[ci])
+            if p2 is None:
+                continue
+            d = (p2 - mouse).length
+            if d < best_d:
+                best_d, best_ci = d, ci
+        return best_ci if best_d <= 40.0 else None
 
     def _rebuild_sources(self, context):
         """Resolve source roots + subtree snapshots according to current source_mode.
@@ -1394,9 +1938,13 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
             best_i = min(range(len(slot_positions)),
                          key=lambda i: (slot_positions[i] - original_root_mw.translation).length)
             slot_pos = slot_positions[best_i]
-            tilted_orig = _tilt_z_to_axis(original_root_mw, axis_vec)
-            R_step = Matrix.Rotation(best_i * slot_step, 4, axis_vec).to_3x3()
-            base_mw = (R_step @ tilted_orig.to_3x3()).to_4x4()
+            if self.align_mode == ALIGN_ROTATE:
+                # Rigid hand-rotation: spin the source by its slot angle.
+                R_step = Matrix.Rotation(best_i * slot_step, 4, axis_vec).to_3x3()
+                base_mw = (R_step @ original_root_mw.to_3x3()).to_4x4()
+            else:
+                # ALIGN/RANDOM: aim +X at center for this slot (no extra R_step).
+                base_mw = _aim_radial(original_root_mw, axis_vec, slot_pos, arc_center)
             base_mw.translation = slot_pos
             final_mw = _aligned_clone_mw(self.align_mode, arc_center, axis_vec,
                                          base_mw, self._pool_seed, best_i,
@@ -1415,21 +1963,28 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
     def _reset_defaults(self):
         """Restore all parameters to factory defaults. Sources & pivot stay."""
-        self.pivot_mode  = PIVOT_CURSOR
+        self.pivot_mode  = PIVOT_ACTIVE_CURSOR
         self.clone_mode  = CLONE_DUP
         self.arc_mode    = ARC_FULL
         self.axis_mode   = AXIS_CURSOR_Z   # default: rotate around the 3D cursor's Z
-        self.align_mode  = ALIGN_RIGID
+        self.align_mode  = ALIGN_ALIGN
         self.local_rot_step = math.radians(90.0)
         self.local_rot = [0.0, 0.0, 0.0]
         self.skip_first  = False
         self.end_inclusive = True
         self.count = 6
         self.pending_normal_pick = False
+        self._tpick = None
+        self.skip_mode = SKIP_SHOW
+        self.locked_slots = set()
+        self._hover_slot = None
         self.radius_override = None
         self.radius_drag_active = False
         self.arc_center_drag_active = False
         self.arc_apex_h_signed = None
+        self.axis_offset = 0.0
+        self.axis_offset_mode = False
+        self.axis_offset_drag_active = False
         self.match_active = False
         self._match_saved = None
         self.source_mode = SOURCE_GROUP
@@ -1459,10 +2014,9 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
 
         created_roots = []
 
-        if self.arc_mode == ARC_FULL and self.skip_first:
-            start_index = 0
-        else:
-            start_index = 1
+        # skip_first (F) clones slot 0 too — works for every arc mode, including
+        # the Active→Cursor arc, not just the full circle.
+        start_index = 0 if self.skip_first else 1
 
         subtrees = self.subtree_data
         if not subtrees:
@@ -1484,16 +2038,19 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 new = child_obj.copy()
                 if self.clone_mode == CLONE_DUP and child_obj.data is not None:
                     new.data = child_obj.data.copy()
-                for c in child_obj.users_collection:
-                    try:
-                        c.objects.link(new)
-                    except RuntimeError:
-                        pass
+                # Clones live only in the addon's _RadialArray_ collection. Fall back
+                # to the source object's collections only when there's no ra_coll.
                 if ra_coll is not None:
                     try:
                         ra_coll.objects.link(new)
                     except RuntimeError:
                         pass
+                else:
+                    for c in child_obj.users_collection:
+                        try:
+                            c.objects.link(new)
+                        except RuntimeError:
+                            pass
                 clone_map[child_obj] = new
             for child_obj, _rel in subtree:
                 new = clone_map[child_obj]
@@ -1541,16 +2098,20 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 anchor_raw = Matrix.Translation(_group_anchor_co(self))
                 anchor_eff = _effective_source_mw(anchor_raw, self.pivot_co, axis_vec,
                                                   self.radius_override if self.radius_override is not None else _effective_radius(self))
-                anchor_actual = _tilt_z_to_axis(_build_anchor_matrix(self), axis_vec)
+                anchor_base_raw = _build_anchor_matrix(self)
                 _replace_params = _arc_params(self, axis_vec)
                 replace_center = _replace_params[0] if _replace_params is not None else self.pivot_co
                 M_slot0 = _clone_matrix(self.pivot_co, axis_vec, _arc_effective_start(self, axis_vec), anchor_eff)
+                # Base orientation per align mode for slot 0; R_step co-rotates per slot.
+                anchor_actual = _base_anchor(self.align_mode, anchor_base_raw, axis_vec, M_slot0.translation, replace_center)
                 base0 = anchor_actual.copy()
                 base0.translation = M_slot0.translation
                 M_final0 = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
                                              base0, self._pool_seed, 0,
                                              local_rot=tuple(self.local_rot))
-                delta = M_final0 @ anchor_actual.inverted()
+                # Divide by the RAW (untilted) anchor — the tilt is carried by
+                # M_final0; dividing by the tilted anchor would cancel it.
+                delta = M_final0 @ anchor_base_raw.inverted()
                 for subtree in subtrees:
                     _replace_subtree(subtree, delta)
                 # Build the rest as instances around the ring.
@@ -1566,31 +2127,39 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     M_final = _aligned_clone_mw(self.align_mode, replace_center, axis_vec,
                                                 base_i, self._pool_seed, ci,
                                                 local_rot=tuple(self.local_rot))
-                    delta_i = M_final @ anchor_actual.inverted()
+                    delta_i = M_final @ anchor_base_raw.inverted()
                     for subtree in subtrees:
                         _clone_subtree(subtree, delta_i)
         elif self.source_mode == SOURCE_POOL:
-            for delta, subtree, _slot_pos in _pool_fill_iter(self, axis_vec):
+            for s, (delta, subtree, _slot_pos) in enumerate(_pool_fill_iter(self, axis_vec)):
+                if s in self.locked_slots:
+                    continue
                 _clone_subtree(subtree, delta)
         else:
             params = _arc_params(self, axis_vec)
             if params is None:
                 return
             arc_center, arc_R, arc_start, arc_sweep = params
-            anchor_actual = _tilt_z_to_axis(_build_anchor_matrix(self), axis_vec)
+            right, fwd = _arc_frame(axis_vec)
+            anchor_raw = _build_anchor_matrix(self)
+            # Base orientation per align mode for slot 0; R_step co-rotates it per
+            # slot (ALIGN keeps X at center; ROTATE spins the source frame).
+            _pos0 = arc_center + (right * math.cos(arc_start) + fwd * math.sin(arc_start)) * arc_R
+            anchor_actual = _base_anchor(self.align_mode, anchor_raw, axis_vec, _pos0, arc_center)
             n_total = max(2, int(self.count))
             if self.arc_mode == ARC_FULL:
                 slot_step = (2 * math.pi) / n_total
             else:
                 slot_step = arc_sweep / (n_total - 1) if (n_total > 1 and self.end_inclusive) else arc_sweep / max(1, n_total)
             step = slot_step  # for downstream R_step
-            right, fwd = _arc_frame(axis_vec)
             all_positions = []
             for ci in range(n_total):
                 a = arc_start + ci * slot_step
                 all_positions.append(arc_center + (right * math.cos(a) + fwd * math.sin(a)) * arc_R)
 
             for ci in range(start_index, n_total):
+                if ci in self.locked_slots:
+                    continue   # clone locked out via skip/delete mode
                 slot_pos = all_positions[ci]
                 R_step = Matrix.Rotation(ci * step, 4, axis_vec).to_3x3()
                 base_mw = (R_step @ anchor_actual.to_3x3()).to_4x4()
@@ -1599,7 +2168,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                     self.align_mode, arc_center, axis_vec, base_mw,
                     self._pool_seed, ci,
                     local_rot=tuple(self.local_rot))
-                delta = M_final @ anchor_actual.inverted()
+                # Divide by the RAW (untilted) anchor — the tilt is carried by
+                # M_final; dividing by the tilted anchor would cancel it and the
+                # clones would tumble instead of staying flat in the axis plane.
+                delta = M_final @ anchor_raw.inverted()
                 for subtree in subtrees:
                     _clone_subtree(subtree, delta)
 

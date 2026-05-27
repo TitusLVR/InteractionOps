@@ -295,6 +295,8 @@ class HUDOverlay:
         # Measure widest param name across all visible params for alignment.
         for sec in param_sections:
             for p in sec.params:
+                if not p.is_visible():
+                    continue
                 nw, _ = hud_text.measure(p.name + ":", theme=theme,
                                          size_token="normal")
                 widest_param_name = max(widest_param_name, int(nw))
@@ -310,6 +312,8 @@ class HUDOverlay:
                 max_w = max(max_w, int(tw))
                 h += title_h + theme.hud.row_spacing
             for p in sec.params:
+                if not p.is_visible():
+                    continue
                 vw, _ = hud_text.measure(p.value_text(), theme=theme,
                                          size_token="normal")
                 row_w = param_name_col_w + int(vw)
@@ -496,6 +500,8 @@ class HUDOverlay:
                               role=Role.HUD_HEADER, size_token="hud_header")
                 y -= theme.hud.row_spacing
             for p in sec.params:
+                if not p.is_visible():
+                    continue
                 y -= row_h
                 active = p.is_active()
                 name_role = Role.HUD_LABEL if active else Role.HUD_LABEL_INACTIVE

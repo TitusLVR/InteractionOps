@@ -33,6 +33,10 @@ class Role(Enum):
     # Ghost / Surfaces — highlighted faces and ghost-preview wireframes.
     GHOST_EDGE = "ghost_edge"
     GHOST_DEFAULT = "ghost_default"
+    GHOST_ACTIVE = "ghost_active"      # state tints for ghost fills (copied from line states)
+    GHOST_CLOSEST = "ghost_closest"
+    GHOST_LOCKED = "ghost_locked"
+    GHOST_PREVIEW = "ghost_preview"
 
     # HUD text — the only text styles used anywhere in the addon.
     HUD_HEADER = "hud_header"
@@ -86,6 +90,10 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
 
     Role.GHOST_EDGE:    (0.000, 0.000, 0.000, 0.349),  # #00000059
     Role.GHOST_DEFAULT: (0.851, 0.851, 0.851, 0.149),  # #D9D9D926
+    Role.GHOST_ACTIVE:  (*_C_CYAN,  0.90),   # copied from the line states
+    Role.GHOST_CLOSEST: (*_C_GREEN, 0.85),
+    Role.GHOST_LOCKED:  (*_C_AMBER, 0.95),
+    Role.GHOST_PREVIEW: (*_C_CYAN,  0.50),
 
     Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
     Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),
@@ -272,7 +280,11 @@ def get_theme(context) -> "Theme":
             Role.CURSOR:             c("color_cursor",         _DEFAULT_COLORS[Role.CURSOR]),
 
             Role.GHOST_EDGE:         c("color_ghost_edge",     _DEFAULT_COLORS[Role.GHOST_EDGE]),
-            Role.GHOST_DEFAULT:      c("color_ghost_default",  _DEFAULT_COLORS[Role.GHOST_DEFAULT]),
+            Role.GHOST_DEFAULT:      c("color_ghost",          _DEFAULT_COLORS[Role.GHOST_DEFAULT]),
+            Role.GHOST_ACTIVE:       c("color_active_ghost",   _DEFAULT_COLORS[Role.GHOST_ACTIVE]),
+            Role.GHOST_CLOSEST:      c("color_closest_ghost",  _DEFAULT_COLORS[Role.GHOST_CLOSEST]),
+            Role.GHOST_LOCKED:       c("color_locked_ghost",   _DEFAULT_COLORS[Role.GHOST_LOCKED]),
+            Role.GHOST_PREVIEW:      c("color_preview_ghost",  _DEFAULT_COLORS[Role.GHOST_PREVIEW]),
 
             # HUD_HEADER + HUD_LABEL_ACTIVE share `color_hud_header`.
             # HUD_KEY    + HUD_ACTIVE_VALUE share `color_hud_key`.

@@ -42,12 +42,17 @@ class HUDParam:
     `active_getter` (optional) lets a parameter dim itself when it doesn't
     matter right now (e.g. snap distance when snap is off). Return False to
     render the row in the `disabled` style.
+
+    `visible_getter` (optional) hides the row entirely when it returns False —
+    use for parameters that should only appear once touched/active (the row is
+    skipped in both measurement and drawing).
     """
     name: str
     value_getter: Callable[[], Any]
     kind: str = "str"   # one of PARAM_KINDS
     fmt: str | None = None              # float format: "{:.3f}" etc.
     active_getter: Callable[[], bool] | None = None
+    visible_getter: Callable[[], bool] | None = None
 
     def value_text(self) -> str:
         try:
@@ -67,6 +72,14 @@ class HUDParam:
             return True
         try:
             return bool(self.active_getter())
+        except Exception:
+            return True
+
+    def is_visible(self) -> bool:
+        if self.visible_getter is None:
+            return True
+        try:
+            return bool(self.visible_getter())
         except Exception:
             return True
 

@@ -52,9 +52,14 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_bbox:            _color((0.650, 0.650, 0.650, 0.30), "Selection bbox")
     color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
 
-    # --- Ghost / Surfaces ---
+    # --- Ghost / Surfaces --- (per-state table like Point/Line; +edge row)
     color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.349), "Ghost Edge")
-    color_ghost_default:   _color((0.851, 0.851, 0.851, 0.149), "Ghost Faces")
+    color_ghost:           _color((0.851, 0.851, 0.851, 0.149), "Default")
+    color_closest_ghost:   _color((0.302, 0.816, 1.000, 0.85), "Closest")
+    color_active_ghost:    _color((0.302, 1.000, 0.620, 0.90), "Active")
+    color_locked_ghost:    _color((1.000, 0.098, 0.328, 0.95), "Locked")
+    color_preview_ghost:   _color((1.000, 0.872, 0.174, 1.00), "Result Preview")
+    color_error_ghost:     _color((1.000, 0.353, 0.353, 1.00), "Error")
     point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
     point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
     point_size_pivot:        FloatProperty(name="Pivot size",         default=12.0, min=1.0, max=64.0)
@@ -421,12 +426,9 @@ def draw_theme_tab(layout, theme):
     sub = _theme_section(layout, theme, "show_surfaces",
                          "Ghost / Surfaces", icon="MOD_MASK")
     if sub is not None:
-        row = sub.row(align=True)
-        row.label(text="Edges")
-        row.prop(theme, "color_ghost_edge", text="")
-        row = sub.row(align=True)
-        row.label(text="Faces")
-        row.prop(theme, "color_ghost_default", text="")
+        _name_color_row(sub, theme, "color_ghost_edge", "Edges")
+        sub.separator()
+        _state_table(sub, theme, "ghost")
 
     # Widgets — each row: name | size | color. Handle has two color
     # swatches (idle + hover) sharing one size — it's the same widget in
