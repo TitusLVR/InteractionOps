@@ -205,3 +205,74 @@ def greedy_correspondence(ref_pts: np.ndarray, tgt_pts: np.ndarray) -> np.ndarra
                 used[ti] = True
                 break
     return corr
+
+
+def d2_histogram(
+    world_verts: np.ndarray,
+    faces: Sequence[Sequence[int]],
+    samples: int = 512,
+    bins: int = 32,
+    seed: int = 0,
+) -> np.ndarray:
+    """D2 shape distribution (Osada 2002). Sample points uniformly on the
+    surface (face-area-weighted), compute pairwise distances of `samples//2`
+    random pairs, normalize by bbox diagonal, histogram into `bins`. Returns a
+    normalized histogram (sums to 1) of shape (bins,).
+
+    Triangulates n-gons into a fan from the first vertex (good enough for
+    sampling — D2 is a statistical descriptor, exact triangulation choice
+    contributes negligibly with `samples >= 256`)."""
+    if world_verts.shape[0] == 0 or not faces:
+        return np.zeros(bins, dtype=np.float64)
+
+    rng = np.random.default_rng(seed)
+
+    # Triangulate fan.
+    tri_indices = []
+    for f in faces:
+        for i in range(1, len(f) - 1):
+            tri_indices.append((f[0], f[i], f[i + 1]))
+    tris = np.array(tri_indices, dtype=np.int64)
+    if tris.shape[0] == 0:
+        return np.zeros(bins, dtype=np.float64)
+
+    a = world_verts[tris[:, 0]]
+    b = world_verts[tris[:, 1]]
+    c = world_verts[tris[:, 2]]
+    areas = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    total = float(areas.sum())
+    if total <= 0.0:
+        return np.zeros(bins, dtype=np.float64)
+    probs = areas / total
+
+    # Pick triangles for `samples` points, then barycentric.
+    tri_choice = rng.choice(tris.shape[0], size=samples, p=probs)
+    u = rng.random(samples)
+    v = rng.random(samples)
+    flip = u + v > 1.0
+    u[flip] = 1.0 - u[flip]
+    v[flip] = 1.0 - v[flip]
+    w = 1.0 - u - v
+    pts = (a[tri_choice] * u[:, None]
+           + b[tri_choice] * v[:, None]
+           + c[tri_choice] * w[:, None])
+
+    # Pair up points randomly for distances.
+    pairs = samples // 2
+    idx = rng.permutation(samples)
+    p1 = pts[idx[:pairs]]
+    p2 = pts[idx[pairs:2 * pairs]]
+    d = np.linalg.norm(p1 - p2, axis=1)
+
+    # Normalize by bbox diag.
+    mn = world_verts.min(axis=0)
+    mx = world_verts.max(axis=0)
+    diag = float(np.linalg.norm(mx - mn))
+    if diag <= 0.0:
+        return np.zeros(bins, dtype=np.float64)
+    d_norm = np.clip(d / diag, 0.0, 1.0)
+    hist, _ = np.histogram(d_norm, bins=bins, range=(0.0, 1.0))
+    s = hist.sum()
+    if s == 0:
+        return np.zeros(bins, dtype=np.float64)
+    return hist.astype(np.float64) / float(s)

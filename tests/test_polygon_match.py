@@ -153,3 +153,37 @@ def test_pca_frame_degenerate_pca_falls_back():
     z = frame[:3, 2]
     assert np.isclose(np.linalg.norm(x), 1.0, atol=1e-6)
     assert np.isclose(np.dot(x, z), 0.0, atol=1e-6)
+
+
+from utils.polygon_match import d2_histogram
+
+
+def test_d2_deterministic_with_seed():
+    h1 = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
+    h2 = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
+    assert np.array_equal(h1, h2)
+
+
+def test_d2_translation_invariant():
+    h_a = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
+    h_b = d2_histogram(CUBE + 10.0, CUBE_FACES, samples=256, bins=16, seed=0)
+    assert np.array_equal(h_a, h_b)
+
+
+def test_d2_scale_invariant_after_normalization():
+    # We normalize distances by bbox diag, so the histogram should match.
+    h_a = d2_histogram(CUBE, CUBE_FACES, samples=512, bins=16, seed=0)
+    h_b = d2_histogram(CUBE * 5.0, CUBE_FACES, samples=512, bins=16, seed=0)
+    # χ² distance ~0 between identical-shape clouds at different scales.
+    chi2 = float(np.sum((h_a - h_b) ** 2 / np.maximum(h_a + h_b, 1e-9)))
+    assert chi2 < 1e-6
+
+
+def test_d2_distinguishes_different_shapes():
+    # Cube vs. very flat slab (different aspect ratio) → distinct histograms.
+    slab = CUBE.copy()
+    slab[:, 2] *= 0.01
+    h_cube = d2_histogram(CUBE, CUBE_FACES, samples=512, bins=16, seed=0)
+    h_slab = d2_histogram(slab, CUBE_FACES, samples=512, bins=16, seed=0)
+    chi2 = float(np.sum((h_cube - h_slab) ** 2 / np.maximum(h_cube + h_slab, 1e-9)))
+    assert chi2 > 0.05
