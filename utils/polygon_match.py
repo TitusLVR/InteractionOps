@@ -69,3 +69,65 @@ def pca_ratios(world_verts: np.ndarray) -> tuple[float, float, float]:
         return (1.0, 0.0, 0.0)
     r = eigvals / s
     return (float(r[0]), float(r[1]), float(r[2]))
+
+
+def pca_frame(
+    world_verts: np.ndarray,
+    face_centroids: np.ndarray,
+    face_normals: np.ndarray,
+    face_areas: np.ndarray,
+) -> np.ndarray:
+    """Build an orthonormal frame (4x4 matrix) for a polygon selection.
+
+    - origin: area-weighted centroid of `face_centroids`.
+    - Z: normalized sum of (face_normal * face_area).
+    - X: principal PCA axis of `world_verts` projected onto plane perp to Z,
+         renormalized. Degenerate cases fall back to the second/third PCA axis,
+         then to any vector orthogonal to Z.
+    - Y: Z × X.
+
+    Inputs are NumPy arrays in world space."""
+    total_area = float(face_areas.sum())
+    if total_area <= 0.0:
+        origin = face_centroids.mean(axis=0) if face_centroids.size else np.zeros(3)
+    else:
+        origin = (face_centroids * face_areas[:, None]).sum(axis=0) / total_area
+
+    z_raw = (face_normals * face_areas[:, None]).sum(axis=0)
+    nz = np.linalg.norm(z_raw)
+    if nz < 1e-9:
+        z = np.array([0.0, 0.0, 1.0])
+    else:
+        z = z_raw / nz
+
+    # PCA eigenvectors of centered verts (descending eigenvalue).
+    if world_verts.shape[0] >= 2:
+        centered = world_verts - world_verts.mean(axis=0)
+        cov = (centered.T @ centered) / max(world_verts.shape[0] - 1, 1)
+        eigvals, eigvecs = np.linalg.eigh(cov)        # ascending
+        order = np.argsort(eigvals)[::-1]
+        axes = eigvecs[:, order].T                    # rows = axes, descending λ
+    else:
+        axes = np.eye(3)
+
+    x = None
+    for axis in axes:
+        proj = axis - np.dot(axis, z) * z
+        n = np.linalg.norm(proj)
+        if n >= 1e-4:
+            x = proj / n
+            break
+    if x is None:
+        # Last resort: any vector orthogonal to z.
+        helper = np.array([1.0, 0.0, 0.0]) if abs(z[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        x = helper - np.dot(helper, z) * z
+        x = x / np.linalg.norm(x)
+
+    y = np.cross(z, x)
+
+    m = np.eye(4)
+    m[:3, 0] = x
+    m[:3, 1] = y
+    m[:3, 2] = z
+    m[:3, 3] = origin
+    return m
