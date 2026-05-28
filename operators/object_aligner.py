@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 import numpy as np
 from mathutils import Matrix, Vector
 
@@ -16,8 +17,10 @@ from ..utils.alignment_fit import solve_fit
 
 # --- State enums ----------------------------------------------------------
 
-MODE_PICK_REF = "PICK_REF"
-MODE_STAMP    = "STAMP"
+MODE_PICK_REF      = "PICK_REF"
+MODE_STAMP         = "STAMP"
+MODE_PICK_REF_POLY = "PICK_REF_POLY"      # marking ref polys; Q again commits
+MODE_PICK_TGT_POLY = "PICK_TGT_POLY"      # marking target polys; Apply stamps
 
 CLONE_DUP  = "DUPLICATE"
 CLONE_INST = "INSTANCE"
@@ -109,6 +112,21 @@ def _verts_world_np(obj):
     homog = np.hstack([co, np.ones((co.shape[0], 1))])
     world = homog @ mat.T
     return world[:, :3]
+
+
+def _bmesh_for(op, obj):
+    """Lazy bmesh-cache keyed by obj.original. Caller must not mutate the
+    bmesh — we only read topology, normals and areas. Freed in _finish."""
+    key = obj.original
+    cached = op._bmesh_cache.get(key)
+    if cached is not None:
+        return cached
+    bm = bmesh.new()
+    bm.from_mesh(key.data)
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    op._bmesh_cache[key] = bm
+    return bm
 
 
 def _np_to_matrix(m4):
@@ -339,6 +357,21 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.created_collections = []   # sub-collections created on finish (for cancel)
         self._last_event = None
 
+        # Polygon-reference mode state.
+        self.ref_polys = {}                    # dict[obj_original -> set[face_idx]]
+        self.target_polys = {}                 # dict[obj_original -> set[face_idx]]
+        self.ref_signature = None
+        self.ref_points_np = None              # Nx3 world
+        self.ref_pca_ratios = None
+        self.ref_d2 = None
+        self.ref_frame_np = None               # 4x4 numpy
+        self.ref_bbox_diag = 0.0
+        self.match_hints = {}                  # dict[obj_original -> list[set[face_idx]]]
+        self.show_match_hints = False
+        self.force_mode = False
+        self.match_rmse_threshold = 0.05
+        self._bmesh_cache = {}
+
         self._hud = _build_hud(context, self)
         self._help = _build_help(context)
         self._handle = safe_handler_add(
@@ -354,6 +387,13 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def _finish(self, context):
+        for bm in getattr(self, "_bmesh_cache", {}).values():
+            try:
+                bm.free()
+            except (ReferenceError, RuntimeError):
+                pass
+        self._bmesh_cache = {}
+
         if getattr(self, "_handle", None) is not None:
             safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
             self._handle = None
