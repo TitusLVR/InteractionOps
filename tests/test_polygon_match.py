@@ -3,6 +3,7 @@ import pytest
 
 from utils.polygon_match import signature, pca_ratios
 from utils.polygon_match import pca_frame
+from utils.polygon_match import kabsch_with_scale, greedy_correspondence
 
 
 CUBE = np.array([
@@ -90,6 +91,49 @@ def test_pca_frame_translated_offset():
     frame = pca_frame(verts, face_centroids, face_normals, face_areas)
     assert np.allclose(frame[:3, 3], [11.0, 6.0, 2.0], atol=1e-6)
     assert np.allclose(frame[:3, 2], [0.0, 0.0, 1.0], atol=1e-6)
+
+
+REF_CLOUD = np.array([
+    [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+    [1.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 1.0, 1.0],
+])
+
+
+def test_kabsch_with_scale_keep_translation():
+    tgt = REF_CLOUD + np.array([5.0, -2.0, 3.0])
+    T, rmse = kabsch_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
+    # Apply T to REF_CLOUD (homogeneous) and compare.
+    homog = np.hstack([REF_CLOUD, np.ones((REF_CLOUD.shape[0], 1))])
+    out = (homog @ T.T)[:, :3]
+    assert np.allclose(out, tgt, atol=1e-6)
+    assert rmse < 1e-6
+
+
+def test_kabsch_with_scale_uniform_recovers_2x():
+    tgt = REF_CLOUD * 2.0
+    T, rmse = kabsch_with_scale(REF_CLOUD, tgt, scale_mode="UNIFORM")
+    homog = np.hstack([REF_CLOUD, np.ones((REF_CLOUD.shape[0], 1))])
+    out = (homog @ T.T)[:, :3]
+    assert np.allclose(out, tgt, atol=1e-6)
+    assert rmse < 1e-6
+
+
+def test_kabsch_rmse_nonzero_on_noise():
+    rng = np.random.default_rng(42)
+    tgt = REF_CLOUD + rng.normal(0.0, 0.01, REF_CLOUD.shape)
+    _, rmse = kabsch_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
+    assert 0.0 < rmse < 0.1
+
+
+def test_greedy_correspondence_recovers_shuffled():
+    # Shuffle target, verify correspondence reverses the shuffle.
+    rng = np.random.default_rng(7)
+    perm = rng.permutation(REF_CLOUD.shape[0])
+    tgt = REF_CLOUD[perm] + np.array([3.0, 0.0, 0.0])
+    corr = greedy_correspondence(REF_CLOUD, tgt)
+    # corr[i] should give the index in tgt that pairs with ref[i].
+    paired_tgt = tgt[corr]
+    assert np.allclose(paired_tgt - np.array([3.0, 0.0, 0.0]), REF_CLOUD, atol=1e-6)
 
 
 def test_pca_frame_degenerate_pca_falls_back():

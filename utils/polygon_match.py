@@ -15,6 +15,8 @@ from typing import Sequence
 
 import numpy as np
 
+from .alignment_fit import solve_fit
+
 
 @dataclass(frozen=True)
 class Signature:
@@ -131,3 +133,75 @@ def pca_frame(
     m[:3, 2] = z
     m[:3, 3] = origin
     return m
+
+
+def kabsch_with_scale(
+    ref_pts: np.ndarray,
+    tgt_pts: np.ndarray,
+    scale_mode: str = "KEEP",
+) -> tuple[np.ndarray, float]:
+    """Wrap `utils.alignment_fit.solve_fit` and additionally return RMSE.
+
+    Returns (T_4x4, rmse) where T transforms ref_pts -> tgt_pts in homogeneous
+    coordinates, and rmse is the residual root-mean-square distance between
+    transformed-ref and tgt after the fit. Both arrays must have the same
+    length (point-to-point correspondence assumed)."""
+    T = solve_fit(ref_pts, tgt_pts, scale_mode)
+    homog = np.hstack([ref_pts, np.ones((ref_pts.shape[0], 1))])
+    transformed = (homog @ T.T)[:, :3]
+    diff = transformed - tgt_pts
+    rmse = float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
+    return T, rmse
+
+
+def greedy_correspondence(ref_pts: np.ndarray, tgt_pts: np.ndarray) -> np.ndarray:
+    """Pair each ref point with a unique tgt point, seeded by a PCA-frame
+    pre-alignment. Returns a permutation array `corr` where tgt[corr] is the
+    reordered target matching ref.
+
+    Algorithm: pre-align ref to tgt via centroid-translate + axis-match using
+    PCA orientations, then for each pre-aligned ref point assign nearest unused
+    tgt point greedily (sorted by distance to its nearest tgt, so unambiguous
+    pairs claim first).
+
+    Assumes len(ref_pts) == len(tgt_pts)."""
+    n = ref_pts.shape[0]
+    if tgt_pts.shape[0] != n:
+        raise ValueError("ref and tgt must have equal length")
+
+    # PCA pre-alignment: centroid translate + rotation that aligns PCA axes.
+    ref_c = ref_pts.mean(axis=0)
+    tgt_c = tgt_pts.mean(axis=0)
+    ref_centered = ref_pts - ref_c
+    tgt_centered = tgt_pts - tgt_c
+
+    def _axes(pts):
+        cov = (pts.T @ pts) / max(pts.shape[0] - 1, 1)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        order = np.argsort(eigvals)[::-1]
+        return eigvecs[:, order]
+
+    Ar = _axes(ref_centered)
+    At = _axes(tgt_centered)
+    R = At @ Ar.T                                     # rotates ref-axes onto tgt-axes
+    if np.linalg.det(R) < 0:                          # avoid reflection
+        At[:, 2] *= -1
+        R = At @ Ar.T
+    pre_aligned = ref_centered @ R.T + tgt_c
+
+    # Distance matrix (n is small in practice -- single polys to a few hundred).
+    diff = pre_aligned[:, None, :] - tgt_pts[None, :, :]
+    dists = np.linalg.norm(diff, axis=2)              # n x n
+
+    # Greedy: sort ref by its min distance, claim nearest unused tgt.
+    order = np.argsort(dists.min(axis=1))
+    used = np.zeros(n, dtype=bool)
+    corr = np.full(n, -1, dtype=np.int64)
+    for ri in order:
+        candidates = np.argsort(dists[ri])
+        for ti in candidates:
+            if not used[ti]:
+                corr[ri] = int(ti)
+                used[ti] = True
+                break
+    return corr
