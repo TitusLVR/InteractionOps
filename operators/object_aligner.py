@@ -328,6 +328,17 @@ def _draw_preview_3d(op, context):
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_TARGET_SEL, context=context)
 
+    # Hover poly preview in poly modes — closest-surface highlight.
+    if op.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY) \
+            and op.hover_obj is not None and op.hover_face_idx >= 0:
+        hover_store = {op.hover_obj: {op.hover_face_idx}}
+        tris = _selected_face_tris_world(op, hover_store)
+        if tris:
+            tris = _bias_toward_view(tris, rv3d)
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_CLOSEST, context=context)
+
     # Match hints — A-key candidates.
     if op.show_match_hints and op.match_hints:
         hint_store = {obj: set().union(*comps) for obj, comps in op.match_hints.items()}
@@ -472,6 +483,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.ref_name = ""
         self.ref_world_np = None        # cached Nx3 reference verts (world)
         self.hover_obj = None
+        self.hover_face_idx = -1        # poly-mode: face index under cursor
         self.last_fit = ""
         self.stamped_count = 0
         self.stamped_objs = []          # everything created on finish (for cancel safety)
@@ -864,7 +876,13 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         return np.asarray(verts, dtype=np.float64) if verts else np.zeros((0, 3)), faces
 
     def _update_hover(self, context, event):
-        self.hover_obj = self._pick(context, event)
+        if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY):
+            obj, fi = self._pick_face(context, event)
+            self.hover_obj = obj
+            self.hover_face_idx = fi
+        else:
+            self.hover_obj = self._pick(context, event)
+            self.hover_face_idx = -1
 
     def _on_click(self, context, event):
         obj = self._pick(context, event)
