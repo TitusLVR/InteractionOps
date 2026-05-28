@@ -520,6 +520,13 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if event.type in {"ESC"} and event.value == "PRESS":
             return self._cancel(context)
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE", "RIGHTMOUSE"} and event.value == "PRESS":
+            if self.mode == MODE_PICK_TGT_POLY:
+                m, f, mi, s = self._enqueue_target_poly_stamps(context)
+                self._realize_pending(context)
+                self._finish(context)
+                self.report({"INFO"},
+                            f"Aligner: {m} match + {mi} mirror + {f} forced ({s} skipped)")
+                return {"FINISHED"}
             self._realize_pending(context)
             self._finish(context)
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
@@ -816,16 +823,208 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.stamped_count += 1
         return {"RUNNING_MODAL"}
 
+    def _compute_fit_poly_strict(self, target_obj, component_face_idx_set):
+        """Try Procrustes (no reflection) on ref points → component points.
+
+        Returns (T_matrix, rmse, ok, is_mirror) where:
+        - ok=True iff strict-tier criteria all pass AND RMSE/diag < self.match_rmse_threshold.
+        - is_mirror=True iff non-reflection Procrustes failed but reflection-allowed
+          Procrustes produced an acceptable RMSE (requires self.mirror_mode).
+        T_matrix is None when neither path passes.
+        """
+        from ..utils import polygon_match as pm
+
+        mw_np = np.array(target_obj.matrix_world)
+        tgt_verts, tgt_faces = self._extract_component_verts(
+            target_obj, component_face_idx_set, mw_np)
+        tgt_sig = pm.signature(tgt_verts, tgt_faces)
+        ref_sig = self.ref_signature
+        if (tgt_sig.vert_count != ref_sig.vert_count
+                or tgt_sig.face_count != ref_sig.face_count
+                or tgt_sig.face_vcount_hist != ref_sig.face_vcount_hist):
+            return None, float("inf"), False, False
+
+        corr = pm.greedy_correspondence(self.ref_points_np, tgt_verts)
+        tgt_reordered = tgt_verts[corr]
+        denom = ref_sig.bbox_diag if ref_sig.bbox_diag > 1e-9 else 1.0
+
+        T_np, rmse = pm.kabsch_with_scale(
+            self.ref_points_np, tgt_reordered, scale_mode=self.scale_mode)
+        if rmse / denom < self.match_rmse_threshold:
+            return _np_to_matrix(T_np), rmse, True, False
+
+        # Non-reflection Procrustes failed. Try mirror if enabled.
+        # Re-run greedy_correspondence on a centroid-reflected copy so the
+        # PCA pre-alignment inside greedy_correspondence can orient a chiral
+        # shape correctly before the mirror Kabsch fit.
+        if self.mirror_mode:
+            tgt_c = tgt_verts.mean(axis=0)
+            tgt_reflected = tgt_verts.copy()
+            tgt_reflected[:, 0] = 2.0 * tgt_c[0] - tgt_verts[:, 0]
+            corr_m = pm.greedy_correspondence(self.ref_points_np, tgt_reflected)
+            tgt_reordered_m = tgt_verts[corr_m]
+            T_m, rmse_m = pm.kabsch_mirror_with_scale(
+                self.ref_points_np, tgt_reordered_m, scale_mode=self.scale_mode)
+            if rmse_m / denom < self.match_rmse_threshold:
+                return _np_to_matrix(T_m), rmse_m, True, True
+
+        return None, rmse, False, False
+
+    def _compute_fit_poly_force(self, target_obj, component_face_idx_set):
+        """PCA-frame fit: T = frame_target · frame_ref⁻¹."""
+        from ..utils import polygon_match as pm
+
+        mw_np = np.array(target_obj.matrix_world)
+        mesh = target_obj.data
+        face_centroids, face_normals, face_areas = [], [], []
+        verts_world, _ = self._extract_component_verts(
+            target_obj, component_face_idx_set, mw_np)
+        for fi in component_face_idx_set:
+            if fi < 0 or fi >= len(mesh.polygons):
+                continue
+            poly = mesh.polygons[fi]
+            n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
+            n_world = mw_np[:3, :3] @ n_local
+            nrm = np.linalg.norm(n_world)
+            face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
+            face_areas.append(float(poly.area))
+            ws_centroid = np.array([0.0, 0.0, 0.0])
+            for vi in poly.vertices:
+                co = mesh.vertices[vi].co
+                h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                ws_centroid += h[:3]
+            ws_centroid /= len(poly.vertices)
+            face_centroids.append(ws_centroid)
+        tgt_frame = pm.pca_frame(
+            verts_world,
+            np.asarray(face_centroids),
+            np.asarray(face_normals),
+            np.asarray(face_areas),
+        )
+        T_np = tgt_frame @ np.linalg.inv(self.ref_frame_np)
+        return _np_to_matrix(T_np)
+
+    def _enqueue_target_poly_stamps(self, context):
+        """Decompose self.target_polys per-object into connected components,
+        compute a fit for each, append to self.pending. Returns
+        (matched, forced, mirrored, skipped) counts for reporting.
+
+        - strict pass → pending entry, last_fit="poly-strict"
+        - mirror pass (only when self.mirror_mode) → pending entry with mirror=True,
+          last_fit="poly-mirror"
+        - else if self.force_mode → PCA-frame fallback, last_fit="poly-force"
+        - else → skip
+        """
+        from ..utils import polygon_match as pm
+
+        matched = forced = mirrored = skipped = 0
+        for obj, face_idx_set in self.target_polys.items():
+            try:
+                bm = _bmesh_for(self, obj)
+            except (RuntimeError, ReferenceError):
+                skipped += 1
+                continue
+            comps = pm.components_in_selection(bm, face_idx_set)
+            for comp in comps:
+                T_strict, _rmse, ok, is_mirror = self._compute_fit_poly_strict(obj, comp)
+                if ok:
+                    self.pending.append({
+                        "target": obj,
+                        "matrix": T_strict,
+                        "linked": self.clone_mode == CLONE_INST,
+                        "mirror": is_mirror,
+                    })
+                    self.last_fit = "poly-mirror" if is_mirror else "poly-strict"
+                    self.stamped_count += 1
+                    if is_mirror:
+                        mirrored += 1
+                    else:
+                        matched += 1
+                    continue
+                if self.force_mode:
+                    T_force = self._compute_fit_poly_force(obj, comp)
+                    self.pending.append({
+                        "target": obj,
+                        "matrix": T_force,
+                        "linked": self.clone_mode == CLONE_INST,
+                        "mirror": False,
+                    })
+                    self.last_fit = "poly-force"
+                    self.stamped_count += 1
+                    forced += 1
+                else:
+                    skipped += 1
+        return matched, forced, mirrored, skipped
+
+    def _bake_mirror_objs(self, context, objs):
+        """For each mesh object in `objs`, apply location/rotation/scale and
+        reverse polygon winding (so the mirror's flipped normals come out
+        correct). Skips non-mesh and linked mesh datablocks."""
+        # Use a fresh override context so transform_apply works regardless of
+        # the user's selection state.
+        meshes_to_flip = []
+        # Snapshot active/selection to restore later.
+        view_layer = context.view_layer
+        prev_active = view_layer.objects.active
+        prev_selected = [o for o in context.selected_objects]
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+            for ob in objs:
+                if ob.type != "MESH" or ob.data is None:
+                    continue
+                if ob.data.library is not None:
+                    continue
+                ob.select_set(True)
+                view_layer.objects.active = ob
+                bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+                ob.select_set(False)
+                meshes_to_flip.append(ob.data)
+        finally:
+            bpy.ops.object.select_all(action="DESELECT")
+            for ob in prev_selected:
+                try:
+                    ob.select_set(True)
+                except ReferenceError:
+                    pass
+            if prev_active is not None:
+                try:
+                    view_layer.objects.active = prev_active
+                except ReferenceError:
+                    pass
+
+        # Reverse winding on each unique mesh datablock.
+        seen = set()
+        for mesh in meshes_to_flip:
+            if mesh.name in seen:
+                continue
+            seen.add(mesh.name)
+            bm = bmesh.new()
+            try:
+                bm.from_mesh(mesh)
+                for f in bm.faces:
+                    f.normal_flip()
+                bm.to_mesh(mesh)
+                mesh.update()
+            finally:
+                bm.free()
+
     def _realize_pending(self, context):
         """Create the real objects for every committed pick. Only iterate
         top-level roots (objects whose parent is not itself selected) — child
         subtrees are duplicated recursively by _duplicate_obj, so iterating
-        every selected object would double-stamp parented rigs."""
+        every selected object would double-stamp parented rigs.
+
+        When a pending entry is a mirror stamp and `self.apply_mirror_bake` is
+        on, apply transforms + reverse winding on the duplicates after
+        placement so the negative-determinant matrix is baked into geometry."""
         roots = [o for o in self.source_objs if o.parent not in self.source_set]
         for pend in self.pending:
             obj, t_matrix, linked = pend["target"], pend["matrix"], pend["linked"]
+            is_mirror = pend.get("mirror", False)
             for src in roots:
                 sub = _target_subcollection(self, src, obj)
                 world_matrix = t_matrix @ src.matrix_world
                 created = _duplicate_obj(src, world_matrix, sub, linked)
                 self.stamped_objs.extend(created)
+                if is_mirror and self.apply_mirror_bake:
+                    self._bake_mirror_objs(context, created)
