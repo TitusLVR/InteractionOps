@@ -421,6 +421,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.show_match_hints = False
         self.force_mode = False
         self.match_rmse_threshold = 0.05
+        self.mirror_mode = False         # F: enable reflection-Procrustes in strict-tier
+        self.apply_mirror_bake = False   # A: bake mirror via transform_apply + flip normals on stamp
         self._bmesh_cache = {}
 
         self._hud = _build_hud(context, self)
@@ -515,6 +517,27 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 else:
                     self._search_matches(context)
                     self.show_match_hints = True
+                return {"RUNNING_MODAL"}
+            if event.type == "W":
+                if self.mode == MODE_PICK_TGT_POLY:
+                    self.force_mode = not self.force_mode
+                return {"RUNNING_MODAL"}
+            if event.type == "F":
+                if self.mode == MODE_PICK_TGT_POLY:
+                    self.mirror_mode = not self.mirror_mode
+                return {"RUNNING_MODAL"}
+            if event.type == "A":
+                if self.mode == MODE_PICK_TGT_POLY:
+                    self.apply_mirror_bake = not self.apply_mirror_bake
+                return {"RUNNING_MODAL"}
+            if event.alt and event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
+                if self.mode != MODE_PICK_TGT_POLY:
+                    return {"PASS_THROUGH"}
+                step = 0.005
+                if event.type == "WHEELUPMOUSE":
+                    self.match_rmse_threshold = min(0.5, self.match_rmse_threshold + step)
+                else:
+                    self.match_rmse_threshold = max(0.001, self.match_rmse_threshold - step)
                 return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
