@@ -398,10 +398,9 @@ def _build_hud(context, op):
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
                            visible_getter=lambda: bool(op.last_fit)))
     hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int"))
-    hud.add_param(HUDParam("Hidden",
-                           lambda: len(op.hidden_objs),
-                           kind="int",
-                           visible_getter=lambda: bool(op.hidden_objs)))
+    hud.add_param(HUDParam("Rig hidden",
+                           lambda: "yes" if op.rig_hidden else "no",
+                           visible_getter=lambda: op.rig_hidden))
     return hud
 
 
@@ -414,7 +413,7 @@ def _build_help(context):
         HUDItem("Add linked island",       "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Add similar (normal/area)", "Ctrl+LMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Remove polygon / island", "Alt+LMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Hide object under cursor", "X",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle rig visibility",   "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle match hints",      "M",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle force fit",        "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle mirror match",     "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -498,7 +497,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self._bmesh_cache = {}
         self._eval_mesh_cache = {}             # dict[obj_original -> evaluated Mesh]
         self._eval_mesh_owners = []            # eval objs holding the meshes alive
-        self.hidden_objs = []                  # X-key hidden objects to restore on finish/cancel
+        self.rig_hidden = False                # X: rig (source_objs) hidden in viewport
 
         self._hud = _build_hud(context, self)
         self._help = _build_help(context)
@@ -530,12 +529,13 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self._eval_mesh_owners = []
         self._eval_mesh_cache = {}
 
-        for ob in getattr(self, "hidden_objs", []):
-            try:
-                ob.hide_viewport = False
-            except ReferenceError:
-                pass
-        self.hidden_objs = []
+        if getattr(self, "rig_hidden", False):
+            for ob in getattr(self, "source_objs", []):
+                try:
+                    ob.hide_viewport = False
+                except ReferenceError:
+                    pass
+            self.rig_hidden = False
 
         if getattr(self, "_handle", None) is not None:
             safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
@@ -628,14 +628,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     self.apply_mirror_bake = not self.apply_mirror_bake
                 return {"RUNNING_MODAL"}
             if event.type == "X":
-                if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY) \
-                        and self.hover_obj is not None \
-                        and self.hover_obj not in self.source_set \
-                        and self.hover_obj is not self.ref_obj:
+                # Toggle visibility of the pre-selected rig (source_objs) so
+                # it stops blocking picks. Always restored in _finish.
+                self.rig_hidden = not self.rig_hidden
+                for ob in self.source_objs:
                     try:
-                        self.hover_obj.hide_viewport = True
-                        self.hidden_objs.append(self.hover_obj)
-                        self.hover_obj = None
+                        ob.hide_viewport = self.rig_hidden
                     except ReferenceError:
                         pass
                 return {"RUNNING_MODAL"}
