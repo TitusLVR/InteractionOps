@@ -115,18 +115,45 @@ def _verts_world_np(obj):
 
 
 def _bmesh_for(op, obj):
-    """Lazy bmesh-cache keyed by obj.original. Caller must not mutate the
-    bmesh — we only read topology, normals and areas. Freed in _finish."""
+    """Lazy bmesh-cache keyed by obj.original. Reads the **evaluated** mesh
+    (with modifiers applied) so picks respect Mirror/Array/SubD/etc. Caller
+    must not mutate the bmesh — read-only. Freed in _finish."""
     key = obj.original
     cached = op._bmesh_cache.get(key)
     if cached is not None:
         return cached
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = key.evaluated_get(depsgraph)
+    eval_mesh = eval_obj.to_mesh()
     bm = bmesh.new()
-    bm.from_mesh(key.data)
+    bm.from_mesh(eval_mesh)
     bm.faces.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
+    # Free the temporary evaluated mesh datablock.
+    eval_obj.to_mesh_clear()
     op._bmesh_cache[key] = bm
     return bm
+
+
+def _evaluated_mesh_for(op, obj):
+    """Get a cached evaluated mesh datablock for `obj` (the modifier-applied
+    one). Cached by obj.original on op._eval_mesh_cache. Freed in _finish.
+
+    Returns the bpy.types.Mesh you can index .polygons / .vertices on.
+    """
+    key = obj.original
+    cache = op._eval_mesh_cache
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = key.evaluated_get(depsgraph)
+    eval_mesh = eval_obj.to_mesh()
+    # Keep the eval_obj alive so the mesh datablock stays valid; store both.
+    cache[key] = eval_mesh
+    op._eval_mesh_owners = getattr(op, "_eval_mesh_owners", [])
+    op._eval_mesh_owners.append(eval_obj)
+    return eval_mesh
 
 
 def _np_to_matrix(m4):
@@ -215,15 +242,16 @@ def _bias_toward_view(coords, rv3d, factor=0.0015):
     return [v + step for v in coords]
 
 
-def _selected_face_tris_world(store: dict) -> list:
+def _selected_face_tris_world(op, store: dict) -> list:
     """Flat list of world-space triangle verts for the faces stored in
-    `store` (dict[obj_original -> set[face_idx]]). Fan-triangulates n-gons."""
+    `store` (dict[obj_original -> set[face_idx]]). Fan-triangulates n-gons.
+    Uses the evaluated mesh so mirrored/arrayed geometry is drawn correctly."""
     out = []
     for obj, face_idx_set in store.items():
         try:
             if obj.type != "MESH" or obj.data is None:
                 continue
-            mesh = obj.data
+            mesh = _evaluated_mesh_for(op, obj)
             mw = obj.matrix_world
             for fi in face_idx_set:
                 if fi < 0 or fi >= len(mesh.polygons):
@@ -284,7 +312,7 @@ def _draw_preview_3d(op, context):
 
     # Marked ref polys — fill (replaces whole-object highlight when present).
     if op.ref_polys:
-        tris = _selected_face_tris_world(op.ref_polys)
+        tris = _selected_face_tris_world(op, op.ref_polys)
         if tris:
             tris = _bias_toward_view(tris, rv3d)
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
@@ -293,7 +321,7 @@ def _draw_preview_3d(op, context):
 
     # Marked target polys (current edit set).
     if op.target_polys:
-        tris = _selected_face_tris_world(op.target_polys)
+        tris = _selected_face_tris_world(op, op.target_polys)
         if tris:
             tris = _bias_toward_view(tris, rv3d)
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
@@ -303,7 +331,7 @@ def _draw_preview_3d(op, context):
     # Match hints — A-key candidates.
     if op.show_match_hints and op.match_hints:
         hint_store = {obj: set().union(*comps) for obj, comps in op.match_hints.items()}
-        tris = _selected_face_tris_world(hint_store)
+        tris = _selected_face_tris_world(op, hint_store)
         if tris:
             tris = _bias_toward_view(tris, rv3d)
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
@@ -370,6 +398,10 @@ def _build_hud(context, op):
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
                            visible_getter=lambda: bool(op.last_fit)))
     hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int"))
+    hud.add_param(HUDParam("Hidden",
+                           lambda: len(op.hidden_objs),
+                           kind="int",
+                           visible_getter=lambda: bool(op.hidden_objs)))
     return hud
 
 
@@ -382,6 +414,7 @@ def _build_help(context):
         HUDItem("Add linked island",       "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Add similar (normal/area)", "Ctrl+LMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Remove polygon / island", "Alt+LMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Hide object under cursor", "X",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle match hints",      "M",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle force fit",        "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle mirror match",     "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -463,6 +496,9 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.mirror_mode = False         # F: enable reflection-Procrustes in strict-tier
         self.apply_mirror_bake = False   # A: bake mirror via transform_apply + flip normals on stamp
         self._bmesh_cache = {}
+        self._eval_mesh_cache = {}             # dict[obj_original -> evaluated Mesh]
+        self._eval_mesh_owners = []            # eval objs holding the meshes alive
+        self.hidden_objs = []                  # X-key hidden objects to restore on finish/cancel
 
         self._hud = _build_hud(context, self)
         self._help = _build_help(context)
@@ -485,6 +521,21 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             except (ReferenceError, RuntimeError):
                 pass
         self._bmesh_cache = {}
+
+        for eval_obj in getattr(self, "_eval_mesh_owners", []):
+            try:
+                eval_obj.to_mesh_clear()
+            except (ReferenceError, RuntimeError):
+                pass
+        self._eval_mesh_owners = []
+        self._eval_mesh_cache = {}
+
+        for ob in getattr(self, "hidden_objs", []):
+            try:
+                ob.hide_viewport = False
+            except ReferenceError:
+                pass
+        self.hidden_objs = []
 
         if getattr(self, "_handle", None) is not None:
             safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
@@ -576,6 +627,18 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 if self.mode == MODE_PICK_TGT_POLY:
                     self.apply_mirror_bake = not self.apply_mirror_bake
                 return {"RUNNING_MODAL"}
+            if event.type == "X":
+                if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY) \
+                        and self.hover_obj is not None \
+                        and self.hover_obj not in self.source_set \
+                        and self.hover_obj is not self.ref_obj:
+                    try:
+                        self.hover_obj.hide_viewport = True
+                        self.hidden_objs.append(self.hover_obj)
+                        self.hover_obj = None
+                    except ReferenceError:
+                        pass
+                return {"RUNNING_MODAL"}
             if event.alt and event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
                 if self.mode != MODE_PICK_TGT_POLY:
                     return {"PASS_THROUGH"}
@@ -658,7 +721,10 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         original = obj.original
         if original.type != "MESH" or original.data is None:
             return None, -1
-        if face_idx >= len(original.data.polygons):
+        if not original.visible_get():
+            return None, -1
+        eval_mesh = _evaluated_mesh_for(self, original)
+        if face_idx >= len(eval_mesh.polygons):
             return None, -1
         return original, int(face_idx)
 
@@ -701,7 +767,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         verts_all, faces_all = [], []
         face_centroids, face_normals, face_areas = [], [], []
         for obj, face_idx_set in self.ref_polys.items():
-            mesh = obj.data
+            mesh = _evaluated_mesh_for(self, obj)
             mw_np = np.array(obj.matrix_world)
             local_index = {}
             for fi in face_idx_set:
@@ -749,6 +815,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         for obj in context.scene.objects:
             if obj in self.source_set or obj.type != "MESH" or obj.data is None:
                 continue
+            if not obj.visible_get():
+                continue
             original = obj.original
             try:
                 bm = _bmesh_for(self, original)
@@ -778,7 +846,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
     def _extract_component_verts(self, obj, face_idx_set, mw_np):
         """Helper: world-space verts (Nx3) and local face index lists for the
         union of the given face set on `obj`. Returns (verts, faces)."""
-        mesh = obj.data
+        mesh = _evaluated_mesh_for(self, obj)
         local_index = {}
         verts = []
         faces = []
@@ -875,7 +943,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         from ..utils import polygon_match as pm
 
         mw_np = np.array(target_obj.matrix_world)
-        mesh = target_obj.data
+        mesh = _evaluated_mesh_for(self, target_obj)
         face_centroids, face_normals, face_areas = [], [], []
         verts_world, _ = self._extract_component_verts(
             target_obj, component_face_idx_set, mw_np)
