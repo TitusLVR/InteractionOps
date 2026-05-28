@@ -506,7 +506,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     self.mode = MODE_PICK_TGT_POLY
                     return {"RUNNING_MODAL"}
                 return {"RUNNING_MODAL"}
-            if event.type == "A":
+            if event.type == "M":
                 if self.mode != MODE_PICK_TGT_POLY or self.ref_signature is None:
                     return {"RUNNING_MODAL"}
                 if self.show_match_hints:
