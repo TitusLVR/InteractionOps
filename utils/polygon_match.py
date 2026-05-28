@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import Counter
-from typing import Iterable, Sequence
+from typing import Sequence
 
 import numpy as np
 
