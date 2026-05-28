@@ -332,9 +332,39 @@ def _build_hud(context, op):
     hud = HUDOverlay("object_aligner")
     hud.title = "Object Aligner"
     hud.bind_region(context.region)
-    hud.add_param(HUDParam("Mode", lambda: "Pick reference" if op.mode == MODE_PICK_REF else "Stamp"))
+
+    def _mode_label():
+        return {
+            MODE_PICK_REF: "Pick reference",
+            MODE_STAMP: "Stamp",
+            MODE_PICK_REF_POLY: "Pick ref polys",
+            MODE_PICK_TGT_POLY: "Pick target polys",
+        }.get(op.mode, op.mode)
+
+    hud.add_param(HUDParam("Mode", _mode_label))
     hud.add_param(HUDParam("Reference", lambda: op.ref_name or "—",
                            visible_getter=lambda: bool(op.ref_name)))
+    hud.add_param(HUDParam("Ref polys",
+                           lambda: sum(len(s) for s in op.ref_polys.values()),
+                           kind="int",
+                           visible_getter=lambda: bool(op.ref_polys)))
+    hud.add_param(HUDParam("Target polys",
+                           lambda: sum(len(s) for s in op.target_polys.values()),
+                           kind="int",
+                           visible_getter=lambda: bool(op.target_polys)))
+    hud.add_param(HUDParam("Match ε",
+                           lambda: op.match_rmse_threshold,
+                           kind="float", fmt="{:.3f}",
+                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
+    hud.add_param(HUDParam("Force fit",
+                           lambda: "on" if op.force_mode else "off",
+                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
+    hud.add_param(HUDParam("Mirror match",
+                           lambda: "on" if op.mirror_mode else "off",
+                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
+    hud.add_param(HUDParam("Mirror bake",
+                           lambda: "on" if op.apply_mirror_bake else "off",
+                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
     hud.add_param(HUDParam("Clone", lambda: op.clone_mode))
     hud.add_param(HUDParam("Scale", lambda: SCALE_LABELS.get(op.scale_mode, op.scale_mode)))
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
@@ -348,6 +378,15 @@ def _build_help(context):
     helpo.add_section(HUDSection("Object Aligner", [
         HUDItem("Pick reference / target", "LMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Re-pick reference",       "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle ref-poly mode",    "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Add linked island",       "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Add similar (normal/area)", "Ctrl+LMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Remove polygon / island", "Alt+LMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle match hints",      "M",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle force fit",        "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle mirror match",     "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Toggle mirror bake",      "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Adjust match threshold",  "Alt+Wheel",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate/Instance)", "D",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Scale (Uniform/Keep/Stretch)",    "S",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",                   "Enter / Space / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
