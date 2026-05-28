@@ -276,3 +276,82 @@ def d2_histogram(
     if s == 0:
         return np.zeros(bins, dtype=np.float64)
     return hist.astype(np.float64) / float(s)
+
+
+# --- bmesh helpers --------------------------------------------------------
+#
+# These read mesh topology from a bmesh.types.BMesh constructed by the caller
+# via `bm = bmesh.new(); bm.from_mesh(obj.data); bm.faces.ensure_lookup_table()`
+# and freed via `bm.free()` when no longer needed. No mutation of the bmesh
+# occurs here.
+import math
+
+
+def face_island(bm, seed_face_index: int) -> set[int]:
+    """BFS expansion from `seed_face_index` across shared edges. Terminates at
+    mesh boundary edges (single-face) and at non-manifold edges (>2 faces).
+    Returns the set of face indices in the same connected island."""
+    seed = bm.faces[seed_face_index]
+    visited = {seed.index}
+    stack = [seed]
+    while stack:
+        face = stack.pop()
+        for edge in face.edges:
+            if len(edge.link_faces) != 2:
+                continue
+            for nbr in edge.link_faces:
+                if nbr.index in visited:
+                    continue
+                visited.add(nbr.index)
+                stack.append(nbr)
+    return visited
+
+
+def similar_by_normal_area(
+    bm,
+    seed_face_index: int,
+    angle_tol_deg: float = 5.0,
+    area_tol: float = 0.10,
+) -> set[int]:
+    """Return indices of faces on the same bmesh whose normal is within
+    `angle_tol_deg` of the seed face's normal AND whose area is within
+    `area_tol` fractional difference of the seed face's area."""
+    seed = bm.faces[seed_face_index]
+    seed_n = seed.normal.copy()
+    seed_a = float(seed.calc_area())
+    cos_tol = math.cos(math.radians(angle_tol_deg))
+    out = set()
+    for f in bm.faces:
+        if f.normal.dot(seed_n) < cos_tol:
+            continue
+        a = float(f.calc_area())
+        if seed_a <= 0.0:
+            if a > 0.0:
+                continue
+        elif abs(a - seed_a) / seed_a > area_tol:
+            continue
+        out.add(f.index)
+    return out
+
+
+def components_in_selection(bm, face_indices: set[int]) -> list[set[int]]:
+    """Connected components within a subset of faces. Two faces are connected
+    iff they share an edge AND both belong to `face_indices`. Returns a list
+    of disjoint face-index sets."""
+    remaining = set(face_indices)
+    components = []
+    while remaining:
+        seed_idx = next(iter(remaining))
+        comp = {seed_idx}
+        stack = [bm.faces[seed_idx]]
+        remaining.discard(seed_idx)
+        while stack:
+            face = stack.pop()
+            for edge in face.edges:
+                for nbr in edge.link_faces:
+                    if nbr.index in remaining:
+                        remaining.discard(nbr.index)
+                        comp.add(nbr.index)
+                        stack.append(nbr)
+        components.append(comp)
+    return components
