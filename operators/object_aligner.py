@@ -300,6 +300,16 @@ def _draw_preview_3d(op, context):
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_TARGET_SEL, context=context)
 
+    # Match hints — A-key candidates.
+    if op.show_match_hints and op.match_hints:
+        hint_store = {obj: set().union(*comps) for obj, comps in op.match_hints.items()}
+        tris = _selected_face_tris_world(hint_store)
+        if tris:
+            tris = _bias_toward_view(tris, rv3d)
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_MATCH_HINT, context=context)
+
     # Committed picks — rig ghost at each stored placement (preview only).
     for pend in op.pending:
         _draw_rig_ghost(op, context, pend["matrix"], role=Role.GHOST_PREVIEW)
@@ -496,6 +506,16 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     self.mode = MODE_PICK_TGT_POLY
                     return {"RUNNING_MODAL"}
                 return {"RUNNING_MODAL"}
+            if event.type == "A":
+                if self.mode != MODE_PICK_TGT_POLY or self.ref_signature is None:
+                    return {"RUNNING_MODAL"}
+                if self.show_match_hints:
+                    self.show_match_hints = False
+                    self.match_hints = {}
+                else:
+                    self._search_matches(context)
+                    self.show_match_hints = True
+                return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
@@ -646,6 +666,67 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             np.asarray(face_normals),
             np.asarray(face_areas),
         )
+
+    def _search_matches(self, context):
+        """Loose-tier similarity scan over all non-rig objects in the scene.
+        Populates self.match_hints[obj] with lists of face-index sets, one per
+        candidate component. Used only for visual hints — does not auto-select."""
+        from ..utils import polygon_match as pm
+        self.match_hints = {}
+        if self.ref_signature is None:
+            return
+        loose_ratio_tol = 0.10
+        loose_d2_chi2 = 0.05
+        for obj in context.scene.objects:
+            if obj in self.source_set or obj.type != "MESH" or obj.data is None:
+                continue
+            original = obj.original
+            try:
+                bm = _bmesh_for(self, original)
+            except (RuntimeError, ReferenceError):
+                continue
+            all_face_set = {f.index for f in bm.faces}
+            comps = pm.components_in_selection(bm, all_face_set)
+            mw_np = np.array(obj.matrix_world)
+            kept = []
+            for comp in comps:
+                verts_world, faces_local = self._extract_component_verts(
+                    original, comp, mw_np)
+                if verts_world.shape[0] == 0:
+                    continue
+                ratios = pm.pca_ratios(verts_world)
+                ratio_dist = sum(abs(a - b) for a, b in zip(ratios, self.ref_pca_ratios))
+                if ratio_dist > loose_ratio_tol:
+                    continue
+                d2 = pm.d2_histogram(verts_world, faces_local)
+                chi2 = float(np.sum((d2 - self.ref_d2) ** 2 / np.maximum(d2 + self.ref_d2, 1e-9)))
+                if chi2 > loose_d2_chi2:
+                    continue
+                kept.append(comp)
+            if kept:
+                self.match_hints[original] = kept
+
+    def _extract_component_verts(self, obj, face_idx_set, mw_np):
+        """Helper: world-space verts (Nx3) and local face index lists for the
+        union of the given face set on `obj`. Returns (verts, faces)."""
+        mesh = obj.data
+        local_index = {}
+        verts = []
+        faces = []
+        for fi in face_idx_set:
+            if fi < 0 or fi >= len(mesh.polygons):
+                continue
+            poly = mesh.polygons[fi]
+            f_local = []
+            for vi in poly.vertices:
+                if vi not in local_index:
+                    co = mesh.vertices[vi].co
+                    h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                    local_index[vi] = len(verts)
+                    verts.append(h[:3])
+                f_local.append(local_index[vi])
+            faces.append(f_local)
+        return np.asarray(verts, dtype=np.float64) if verts else np.zeros((0, 3)), faces
 
     def _update_hover(self, context, event):
         self.hover_obj = self._pick(context, event)
