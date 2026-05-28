@@ -605,8 +605,47 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             store.pop(obj, None)
 
     def _commit_ref_polys(self, context):
-        # Filled in Task 9.
-        pass
+        """Snapshot all derived data for the ref poly set at commit time so
+        target-side matching is cheap during mouse-move."""
+        from ..utils import polygon_match as pm
+
+        verts_all, faces_all = [], []
+        face_centroids, face_normals, face_areas = [], [], []
+        for obj, face_idx_set in self.ref_polys.items():
+            mesh = obj.data
+            mw_np = np.array(obj.matrix_world)
+            local_index = {}
+            for fi in face_idx_set:
+                poly = mesh.polygons[fi]
+                f_local = []
+                for vi in poly.vertices:
+                    if vi not in local_index:
+                        co = mesh.vertices[vi].co
+                        h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                        local_index[vi] = len(verts_all)
+                        verts_all.append(h[:3])
+                    f_local.append(local_index[vi])
+                faces_all.append(f_local)
+                ws = np.array([verts_all[i] for i in f_local])
+                face_centroids.append(ws.mean(axis=0))
+                n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
+                n_world = mw_np[:3, :3] @ n_local
+                nrm = np.linalg.norm(n_world)
+                face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
+                face_areas.append(float(poly.area))
+
+        self.ref_points_np = np.asarray(verts_all, dtype=np.float64)
+        sig = pm.signature(self.ref_points_np, faces_all)
+        self.ref_signature = sig
+        self.ref_bbox_diag = sig.bbox_diag
+        self.ref_pca_ratios = pm.pca_ratios(self.ref_points_np)
+        self.ref_d2 = pm.d2_histogram(self.ref_points_np, faces_all)
+        self.ref_frame_np = pm.pca_frame(
+            self.ref_points_np,
+            np.asarray(face_centroids),
+            np.asarray(face_normals),
+            np.asarray(face_areas),
+        )
 
     def _update_hover(self, context, event):
         self.hover_obj = self._pick(context, event)
