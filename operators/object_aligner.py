@@ -215,6 +215,29 @@ def _bias_toward_view(coords, rv3d, factor=0.0015):
     return [v + step for v in coords]
 
 
+def _selected_face_tris_world(store: dict) -> list:
+    """Flat list of world-space triangle verts for the faces stored in
+    `store` (dict[obj_original -> set[face_idx]]). Fan-triangulates n-gons."""
+    out = []
+    for obj, face_idx_set in store.items():
+        try:
+            if obj.type != "MESH" or obj.data is None:
+                continue
+            mesh = obj.data
+            mw = obj.matrix_world
+            for fi in face_idx_set:
+                if fi < 0 or fi >= len(mesh.polygons):
+                    continue
+                poly = mesh.polygons[fi]
+                vs = [mw @ mesh.vertices[poly.vertices[i]].co
+                      for i in range(len(poly.vertices))]
+                for i in range(1, len(vs) - 1):
+                    out.extend([vs[0], vs[i], vs[i + 1]])
+        except ReferenceError:
+            continue
+    return out
+
+
 def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
     """Draw the source rig as a GPU ghost at the given fit matrix (fill with a
     self-occlusion depth prepass, plus edges). Used both for the live hovered
@@ -247,8 +270,8 @@ def _draw_preview_3d(op, context):
     ghost at every committed pick and at the live hovered target. Real objects
     are only created on confirm (_finish)."""
     rv3d = context.region_data
-    # Reference highlight — active surface fill, polygons only.
-    if op.ref_obj is not None:
+    # Reference highlight — whole-object fill (only when no ref polys marked).
+    if op.ref_obj is not None and not op.ref_polys:
         try:
             tris = _mesh_tris_world(op.ref_obj)
         except ReferenceError:
@@ -258,6 +281,24 @@ def _draw_preview_3d(op, context):
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
+
+    # Marked ref polys — fill (replaces whole-object highlight when present).
+    if op.ref_polys:
+        tris = _selected_face_tris_world(op.ref_polys)
+        if tris:
+            tris = _bias_toward_view(tris, rv3d)
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
+
+    # Marked target polys (current edit set).
+    if op.target_polys:
+        tris = _selected_face_tris_world(op.target_polys)
+        if tris:
+            tris = _bias_toward_view(tris, rv3d)
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                            face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_TARGET_SEL, context=context)
 
     # Committed picks — rig ghost at each stored placement (preview only).
     for pend in op.pending:
@@ -443,12 +484,41 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if event.type == "R":
                 self.mode = MODE_PICK_REF
                 return {"RUNNING_MODAL"}
+            if event.type == "Q":
+                if self.mode == MODE_STAMP and self.ref_obj is not None:
+                    self.mode = MODE_PICK_REF_POLY
+                    return {"RUNNING_MODAL"}
+                if self.mode == MODE_PICK_REF_POLY:
+                    if not self.ref_polys:
+                        self.report({"WARNING"}, "Ref poly set is empty")
+                        return {"RUNNING_MODAL"}
+                    self._commit_ref_polys(context)
+                    self.mode = MODE_PICK_TGT_POLY
+                    return {"RUNNING_MODAL"}
+                return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY):
+                obj, face_idx = self._pick_face(context, event)
+                if obj is None:
+                    return {"RUNNING_MODAL"}
+                store = self.ref_polys if self.mode == MODE_PICK_REF_POLY else self.target_polys
+                if event.alt:
+                    if face_idx in store.get(obj, set()):
+                        self._toggle_face(store, obj, face_idx)
+                    else:
+                        self._remove_island(store, obj, face_idx)
+                elif event.shift:
+                    self._add_island(store, obj, face_idx)
+                elif event.ctrl:
+                    self._add_similar(store, obj, face_idx)
+                else:
+                    self._toggle_face(store, obj, face_idx)
+                return {"RUNNING_MODAL"}
             return self._on_click(context, event)
 
         return {"PASS_THROUGH"}
@@ -486,6 +556,57 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         hit, _loc, _n, _fi, obj, _mx = raycast_from_mouse(
             context, _mouse_coord(event), exclude=exclude)
         return obj.original if (hit and obj is not None) else None
+
+    def _pick_face(self, context, event):
+        """Raycast under the mouse, return (obj.original, face_index) or
+        (None, -1). Excludes rig only — ref object is allowed to be re-picked
+        in poly modes (per spec: ref-set may live anywhere except rig)."""
+        from ..utils.picking import raycast_from_mouse
+        hit, _loc, _n, face_idx, obj, _mx = raycast_from_mouse(
+            context, _mouse_coord(event), exclude=set(self.source_set))
+        if not hit or obj is None:
+            return None, -1
+        original = obj.original
+        if original.type != "MESH" or original.data is None:
+            return None, -1
+        if face_idx >= len(original.data.polygons):
+            return None, -1
+        return original, int(face_idx)
+
+    def _toggle_face(self, store: dict, obj, face_idx: int):
+        """Toggle a single face in either self.ref_polys or self.target_polys."""
+        s = store.setdefault(obj, set())
+        if face_idx in s:
+            s.discard(face_idx)
+            if not s:
+                store.pop(obj, None)
+        else:
+            s.add(face_idx)
+
+    def _add_island(self, store: dict, obj, face_idx: int):
+        from ..utils.polygon_match import face_island
+        bm = _bmesh_for(self, obj)
+        store.setdefault(obj, set()).update(face_island(bm, face_idx))
+
+    def _add_similar(self, store: dict, obj, face_idx: int):
+        from ..utils.polygon_match import similar_by_normal_area
+        bm = _bmesh_for(self, obj)
+        store.setdefault(obj, set()).update(similar_by_normal_area(bm, face_idx))
+
+    def _remove_island(self, store: dict, obj, face_idx: int):
+        from ..utils.polygon_match import face_island
+        bm = _bmesh_for(self, obj)
+        island = face_island(bm, face_idx)
+        s = store.get(obj)
+        if s is None:
+            return
+        s.difference_update(island)
+        if not s:
+            store.pop(obj, None)
+
+    def _commit_ref_polys(self, context):
+        # Filled in Task 9.
+        pass
 
     def _update_hover(self, context, event):
         self.hover_obj = self._pick(context, event)
