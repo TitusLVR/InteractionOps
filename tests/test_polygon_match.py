@@ -187,3 +187,37 @@ def test_d2_distinguishes_different_shapes():
     h_slab = d2_histogram(slab, CUBE_FACES, samples=512, bins=16, seed=0)
     chi2 = float(np.sum((h_cube - h_slab) ** 2 / np.maximum(h_cube + h_slab, 1e-9)))
     assert chi2 > 0.05
+
+
+from utils.polygon_match import kabsch_mirror_with_scale
+
+
+def test_kabsch_mirror_recovers_reflection():
+    # Reflect REF_CLOUD across the X=0 plane: x -> -x.
+    tgt = REF_CLOUD.copy()
+    tgt[:, 0] = -tgt[:, 0]
+    T, rmse = kabsch_mirror_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
+    homog = np.hstack([REF_CLOUD, np.ones((REF_CLOUD.shape[0], 1))])
+    out = (homog @ T.T)[:, :3]
+    assert np.allclose(out, tgt, atol=1e-6)
+    assert rmse < 1e-6
+    # Determinant of the 3x3 rotation part should be -1 (reflection).
+    R = T[:3, :3]
+    assert np.linalg.det(R) < 0
+
+
+def test_kabsch_mirror_on_non_mirror_still_works():
+    # On a pure translation, the mirror variant should still find a near-zero
+    # RMSE solution (it can pick det=+1 if that's optimal).
+    tgt = REF_CLOUD + np.array([5.0, 0.0, 0.0])
+    _, rmse = kabsch_mirror_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
+    assert rmse < 1e-6
+
+
+def test_kabsch_mirror_high_rmse_on_unrelated():
+    # Random target shape — mirror variant won't find a low-RMSE alignment.
+    rng = np.random.default_rng(123)
+    tgt = rng.normal(0, 1, REF_CLOUD.shape)
+    _, rmse = kabsch_mirror_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
+    # 8 random points in unit-stdev cloud vs ref → RMSE roughly O(1).
+    assert rmse > 0.3

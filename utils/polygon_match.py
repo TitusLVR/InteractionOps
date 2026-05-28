@@ -278,6 +278,63 @@ def d2_histogram(
     return hist.astype(np.float64) / float(s)
 
 
+def kabsch_mirror_with_scale(
+    ref_pts: np.ndarray,
+    tgt_pts: np.ndarray,
+    scale_mode: str = "KEEP",
+) -> tuple[np.ndarray, float]:
+    """Procrustes alignment that ALLOWS reflection (det may be -1).
+
+    Used to detect mirrored target groups: a mirrored copy of `ref_pts` will
+    yield a near-zero RMSE here even though `kabsch_with_scale` (which forces
+    det=+1) reports a high residual. Same inputs/outputs as
+    `kabsch_with_scale`: returns (T_4x4, rmse).
+
+    `scale_mode` in {"KEEP", "UNIFORM", "STRETCH"} mirrors the semantics of
+    `utils.alignment_fit.solve_fit`. For STRETCH (per-axis scale), the mirror
+    determinant is naturally folded into the diagonal — so the dedicated
+    mirror branch only applies for KEEP/UNIFORM."""
+    if ref_pts.shape != tgt_pts.shape:
+        raise ValueError("ref and tgt must have the same shape")
+    n = ref_pts.shape[0]
+    if n == 0:
+        return np.eye(4), 0.0
+
+    ref_c = ref_pts.mean(axis=0)
+    tgt_c = tgt_pts.mean(axis=0)
+    P = ref_pts - ref_c
+    Q = tgt_pts - tgt_c
+
+    if scale_mode == "STRETCH":
+        # Affine fit per axis — already handles reflection in the diagonal.
+        # Delegate to solve_fit for consistency.
+        T = solve_fit(ref_pts, tgt_pts, scale_mode)
+    else:
+        # SVD-based Procrustes WITHOUT the det>0 fix.
+        H = P.T @ Q                                  # 3x3 covariance
+        U, _S, Vt = np.linalg.svd(H)
+        R = (Vt.T @ U.T)                             # det may be ±1
+
+        scale = 1.0
+        if scale_mode == "UNIFORM":
+            # Uniform scale recovered from the trace of (R @ H).
+            num = float(np.trace(R @ H))
+            den = float(np.sum(P * P))
+            scale = num / den if den > 1e-12 else 1.0
+
+        t = tgt_c - scale * R @ ref_c
+
+        T = np.eye(4)
+        T[:3, :3] = scale * R
+        T[:3, 3] = t
+
+    homog = np.hstack([ref_pts, np.ones((ref_pts.shape[0], 1))])
+    transformed = (homog @ T.T)[:, :3]
+    diff = transformed - tgt_pts
+    rmse = float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
+    return T, rmse
+
+
 # --- bmesh helpers --------------------------------------------------------
 #
 # These read mesh topology from a bmesh.types.BMesh constructed by the caller
