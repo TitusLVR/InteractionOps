@@ -56,6 +56,14 @@ _LINE_ROLES = (Role.LINE, Role.CLOSEST_LINE, Role.ACTIVE_LINE,
 # state colors visible in the preview always match what operators render.
 _TEXT_ROLES = _POINT_ROLES
 _TEXT_SIZE_TOKENS = ("hud_label",) * 6
+# Ghost-surface roles shown as a row of labeled spheres above the
+# polyline. GHOST_EDGE is the shared wireframe color, not a fill — drawn
+# once over all spheres.
+_GHOST_ROLES = (Role.GHOST_DEFAULT, Role.GHOST_CLOSEST, Role.GHOST_ACTIVE,
+                Role.GHOST_LOCKED, Role.GHOST_PREVIEW,
+                Role.GHOST_TARGET_SEL, Role.GHOST_MATCH_HINT)
+_GHOST_LABELS = ("Default", "Closest", "Active", "Locked",
+                 "Preview", "Target Sel", "Match Hint")
 
 
 def _draw_view(state):
@@ -83,13 +91,14 @@ def _draw_view(state):
         draw.points([state["pivot_pt"]],        role=Role.PIVOT,        theme=th)
         draw.points([state["cursor_pt"]],       role=Role.CURSOR,       theme=th)
         draw.edges_3d(state["bbox_edges"],      role=Role.BBOX,         theme=th)
-        # Island palette: 8 translucent quads, one per slot.
-        for i, quad_tris in enumerate(state["island_quads"]):
-            draw.tris(quad_tris, color=th.island_palette[i], theme=th)
-        # Ghost sphere — filled tris (Ghost Default) under wireframe (Ghost Edge).
-        if "ghost_tris" in state and "ghost_edges" in state:
-            draw.tris(state["ghost_tris"], role=Role.GHOST_DEFAULT, theme=th)
-            draw.edges_3d(state["ghost_edges"], role=Role.GHOST_EDGE, theme=th)
+        # Ghost sphere row — one labeled sphere per ghost fill role,
+        # all wireframes batched into a single GHOST_EDGE draw.
+        ghost_tris_by_role = state.get("ghost_tris_by_role")
+        if ghost_tris_by_role is not None:
+            for role, tris in zip(_GHOST_ROLES, ghost_tris_by_role):
+                draw.tris(tris, role=role, theme=th)
+            draw.edges_3d(state["ghost_edges"], role=Role.GHOST_EDGE,
+                          theme=th)
 
 
 from ..ui.hud import EventSnapshot as _EventSnapshot
@@ -128,6 +137,19 @@ def _draw_state_labels(context, state):
         w, h = hud_text.measure(label, theme=theme, size_token=size_token)
         hud_text.draw(label, int(scr.x - w * 0.5), int(scr.y + 18),
                       theme=theme, role=role, size_token=size_token)
+    # Ghost row labels — rendered in HUD_LABEL so they don't compete
+    # visually with the translucent fills underneath.
+    anchors = state.get("ghost_label_anchors")
+    if anchors:
+        for pt, label in zip(anchors, _GHOST_LABELS):
+            scr = view3d_utils.location_3d_to_region_2d(region, rv3d, pt)
+            if scr is None:
+                continue
+            w, _ = hud_text.measure(label, theme=theme,
+                                    size_token="hud_label")
+            hud_text.draw(label, int(scr.x - w * 0.5), int(scr.y + 6),
+                          theme=theme, role=Role.HUD_LABEL,
+                          size_token="hud_label")
 
 
 class IOPS_OT_DrawThemePreview(bpy.types.Operator):
@@ -370,53 +392,54 @@ class IOPS_OT_DrawThemePreview(bpy.types.Operator):
             bbox_pts[2], bbox_pts[3],
             bbox_pts[3], bbox_pts[0],
         ]
-        # --- island palette: row of 8 translucent fill quads on the
-        # right, one per `island_palette_N`.
-        pal_x = 2.4
-        pal_w = 0.35
-        pal_h = 0.30
-        pal_z0 = 1.4
-        island_tris = []  # flat tri list, each quad → two triangles
-        for i in range(8):
-            z = pal_z0 - i * (pal_h + 0.04)
-            a = Vector((pal_x,         0, z - pal_h))
-            b = Vector((pal_x + pal_w, 0, z - pal_h))
-            d = Vector((pal_x,         0, z))
-            e = Vector((pal_x + pal_w, 0, z))
-            island_tris.append([c + a, c + b, c + e,
-                                c + a, c + e, c + d])
-        state["island_quads"] = island_tris
-
-        # --- Ghost sphere preview: UV sphere wireframe + translucent fill.
-        # Placed on the left, mirroring the island palette on the right.
+        # --- Ghost sphere row: one labeled sphere per fill role, sitting
+        # above the polyline. All wireframes share a single GHOST_EDGE
+        # batch; each sphere's tri list keeps its own role colour.
         import math
-        sphere_center = c + Vector((-2.4, 0, 0.4))
-        sphere_radius = 0.55
-        segs = 18
-        rings = 10
-        grid = []
-        for r in range(rings + 1):
-            phi = math.pi * r / rings
-            z = math.cos(phi) * sphere_radius
-            rr = math.sin(phi) * sphere_radius
-            row = []
-            for s in range(segs):
-                th = 2.0 * math.pi * s / segs
-                v = sphere_center + Vector((rr * math.cos(th), rr * math.sin(th), z))
-                row.append(v)
-            grid.append(row)
+        n_spheres = len(_GHOST_ROLES)
+        sphere_radius = 0.20
+        row_z = 2.0
+        # Spread spheres evenly across roughly the same horizontal span
+        # as the points / lines row.
+        span_x = 3.2
+        x0 = -span_x * 0.5
+        step = span_x / max(1, n_spheres - 1)
+        centers = [c + Vector((x0 + i * step, 0, row_z))
+                   for i in range(n_spheres)]
+        segs = 14
+        rings = 8
         ghost_edges = []
-        ghost_tris = []
-        for r in range(rings):
-            for s in range(segs):
-                a = grid[r][s]
-                b = grid[r][(s + 1) % segs]
-                d = grid[r + 1][s]
-                e = grid[r + 1][(s + 1) % segs]
-                ghost_edges.extend([a, b, a, d])
-                ghost_tris.extend([a, d, e, a, e, b])
+        ghost_tris_by_role = []
+        for sphere_center in centers:
+            grid = []
+            for r in range(rings + 1):
+                phi = math.pi * r / rings
+                z = math.cos(phi) * sphere_radius
+                rr = math.sin(phi) * sphere_radius
+                row = []
+                for s in range(segs):
+                    th = 2.0 * math.pi * s / segs
+                    row.append(sphere_center + Vector(
+                        (rr * math.cos(th), rr * math.sin(th), z)))
+                grid.append(row)
+            tris = []
+            for r in range(rings):
+                for s in range(segs):
+                    a = grid[r][s]
+                    b = grid[r][(s + 1) % segs]
+                    d = grid[r + 1][s]
+                    e = grid[r + 1][(s + 1) % segs]
+                    ghost_edges.extend([a, b, a, d])
+                    tris.extend([a, d, e, a, e, b])
+            ghost_tris_by_role.append(tris)
         state["ghost_edges"] = ghost_edges
-        state["ghost_tris"] = ghost_tris
+        state["ghost_tris_by_role"] = ghost_tris_by_role
+        # Anchor for the per-sphere label — pushed up so text sits above
+        # each sphere with a small gap.
+        state["ghost_label_anchors"] = [
+            ctr + Vector((0, 0, sphere_radius + 0.05))
+            for ctr in centers
+        ]
 
     def _build_hud(self, state):
         hud = HUDOverlay("theme_preview")

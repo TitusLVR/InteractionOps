@@ -186,6 +186,7 @@ def _bundled_overrides() -> dict[str, dict[str, Any]]:
             "panel_bg_color":           [0.117, 0.117, 0.117, 0.85],
             "color_hud_header":         [0.306, 0.788, 0.690, 1.00],  # #4EC9B0
             "color_hud_key":            [0.337, 0.612, 0.839, 1.00],  # #569CD6
+            "color_hud_active_value":   [0.337, 0.612, 0.839, 1.00],
             "color_hud_label":          [0.831, 0.831, 0.831, 1.00],  # #D4D4D4
             "color_hud_label_inactive": [0.502, 0.502, 0.502, 0.90],  # #808080
             "color_hud_stats_error":    [0.949, 0.294, 0.294, 1.00],  # #F14C4C
@@ -195,6 +196,7 @@ def _bundled_overrides() -> dict[str, dict[str, Any]]:
             "panel_bg_color":           [1.000, 1.000, 1.000, 0.90],
             "color_hud_header":         [0.149, 0.498, 0.600, 1.00],  # #267F99
             "color_hud_key":            [0.000, 0.000, 1.000, 1.00],  # #0000FF
+            "color_hud_active_value":   [0.000, 0.000, 1.000, 1.00],
             "color_hud_label":          [0.000, 0.000, 0.000, 1.00],
             "color_hud_label_inactive": [0.467, 0.467, 0.467, 0.90],  # #777
             "color_hud_stats_error":    [0.639, 0.082, 0.082, 1.00],  # #A31515
@@ -204,6 +206,7 @@ def _bundled_overrides() -> dict[str, dict[str, Any]]:
             "panel_bg_color":           [0.153, 0.157, 0.133, 0.95],  # #272822
             "color_hud_header":         [0.976, 0.149, 0.447, 1.00],  # #F92672
             "color_hud_key":            [0.902, 0.859, 0.455, 1.00],  # #E6DB74
+            "color_hud_active_value":   [0.902, 0.859, 0.455, 1.00],
             "color_hud_label":          [0.973, 0.973, 0.949, 1.00],  # #F8F8F2
             "color_hud_label_inactive": [0.459, 0.443, 0.369, 0.90],  # #75715E
             "color_hud_stats_error":    [0.976, 0.149, 0.447, 1.00],
@@ -219,6 +222,7 @@ def _bundled_overrides() -> dict[str, dict[str, Any]]:
             "panel_bg_color":           [0.114, 0.114, 0.114, 0.95],
             "color_hud_header":         [1.000, 0.627, 0.157, 1.00],
             "color_hud_key":            [0.702, 0.682, 0.212, 1.00],
+            "color_hud_active_value":   [0.702, 0.682, 0.212, 1.00],
             "color_hud_label":          [1.000, 1.000, 1.000, 1.00],
             "color_hud_label_inactive": [0.902, 0.902, 0.902, 0.85],
             "color_hud_stats_error":    [0.949, 0.294, 0.294, 1.00],
@@ -228,6 +232,7 @@ def _bundled_overrides() -> dict[str, dict[str, Any]]:
             "panel_bg_color":           [0.000, 0.169, 0.212, 0.95],  # #002B36
             "color_hud_header":         [0.149, 0.545, 0.824, 1.00],  # #268BD2
             "color_hud_key":            [0.710, 0.537, 0.000, 1.00],  # #B58900
+            "color_hud_active_value":   [0.710, 0.537, 0.000, 1.00],
             "color_hud_label":          [0.514, 0.580, 0.588, 1.00],  # #839496
             "color_hud_label_inactive": [0.345, 0.431, 0.459, 0.90],  # #586E75
             "color_hud_stats_error":    [0.863, 0.196, 0.184, 1.00],  # #DC322F

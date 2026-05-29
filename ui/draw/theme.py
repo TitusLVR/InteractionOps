@@ -2,6 +2,23 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import bpy
+from mathutils import Color
+
+
+def _srgb_encode(rgba: tuple) -> tuple:
+    """Encode a scene-linear RGBA tuple to sRGB for screen-space draws.
+
+    Blender stores `FloatVectorProperty(subtype='COLOR')` values in
+    scene-linear. The POST_PIXEL draw path writes straight to the
+    final (already color-managed) framebuffer with no further encode,
+    so linear values land far too dark. POST_VIEW colors must stay
+    linear — only call this for roles drawn in screen-space (HUD,
+    panel bg, shadow).
+    """
+    r, g, b = rgba[0], rgba[1], rgba[2]
+    a = rgba[3] if len(rgba) > 3 else 1.0
+    enc = Color((r, g, b)).from_scene_linear_to_srgb()
+    return (enc.r, enc.g, enc.b, a)
 
 
 class Role(Enum):
@@ -253,6 +270,11 @@ def get_theme(context) -> "Theme":
     def c(name, fallback):
         return tuple(getattr(t, name, fallback))
 
+    def cs(name, fallback):
+        # Screen-space color: scene-linear → sRGB so the user-picked
+        # value matches what's drawn in POST_PIXEL handlers.
+        return _srgb_encode(tuple(getattr(t, name, fallback)))
+
     def fl(name, fallback):
         return float(getattr(t, name, fallback))
 
@@ -292,15 +314,16 @@ def get_theme(context) -> "Theme":
             Role.GHOST_TARGET_SEL:   c("color_target_sel_ghost", _DEFAULT_COLORS[Role.GHOST_TARGET_SEL]),
             Role.GHOST_MATCH_HINT:   c("color_match_hint_ghost", _DEFAULT_COLORS[Role.GHOST_MATCH_HINT]),
 
-            # HUD_HEADER + HUD_LABEL_ACTIVE share `color_hud_header`.
-            # HUD_KEY    + HUD_ACTIVE_VALUE share `color_hud_key`.
-            Role.HUD_HEADER:         c("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),
-            Role.HUD_LABEL_ACTIVE:   c("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),
-            Role.HUD_KEY:            c("color_hud_key",            _DEFAULT_COLORS[Role.HUD_KEY]),
-            Role.HUD_ACTIVE_VALUE:   c("color_hud_key",            _DEFAULT_COLORS[Role.HUD_KEY]),
-            Role.HUD_LABEL:          c("color_hud_label",          _DEFAULT_COLORS[Role.HUD_LABEL]),
-            Role.HUD_LABEL_INACTIVE: c("color_hud_label_inactive", _DEFAULT_COLORS[Role.HUD_LABEL_INACTIVE]),
-            Role.HUD_STATS_ERROR:    c("color_hud_stats_error",    _DEFAULT_COLORS[Role.HUD_STATS_ERROR]),
+            # All HUD roles are screen-space → encode linear→sRGB.
+            Role.HUD_HEADER:         cs("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),
+            # HUD_LABEL_ACTIVE is driven by the same pref as
+            # HUD_ACTIVE_VALUE — both signal "active item" highlight.
+            Role.HUD_LABEL_ACTIVE:   cs("color_hud_active_value",   _DEFAULT_COLORS[Role.HUD_LABEL_ACTIVE]),
+            Role.HUD_KEY:            cs("color_hud_key",            _DEFAULT_COLORS[Role.HUD_KEY]),
+            Role.HUD_ACTIVE_VALUE:   cs("color_hud_active_value",   _DEFAULT_COLORS[Role.HUD_ACTIVE_VALUE]),
+            Role.HUD_LABEL:          cs("color_hud_label",          _DEFAULT_COLORS[Role.HUD_LABEL]),
+            Role.HUD_LABEL_INACTIVE: cs("color_hud_label_inactive", _DEFAULT_COLORS[Role.HUD_LABEL_INACTIVE]),
+            Role.HUD_STATS_ERROR:    cs("color_hud_stats_error",    _DEFAULT_COLORS[Role.HUD_STATS_ERROR]),
         },
         point_sizes={s: fl(f"point_size_{s}", _DEFAULT_POINT_SIZES[s]) for s in STATES},
         line_widths={s: fl(f"line_width_{s}", _DEFAULT_LINE_WIDTHS[s]) for s in STATES},
@@ -312,7 +335,7 @@ def get_theme(context) -> "Theme":
         },
         shadow=ShadowSettings(
             enabled=bool(t.shadow_enabled),
-            color=tuple(t.shadow_color),
+            color=_srgb_encode(tuple(t.shadow_color)),
             blur=int(t.shadow_blur),
             offset_x=int(t.shadow_offset_x),
             offset_y=int(t.shadow_offset_y),
@@ -336,8 +359,8 @@ def get_theme(context) -> "Theme":
             key_label_spacing=int(getattr(t, "hud_key_label_spacing", 16)),
             smoothing=float(getattr(t, "hud_smoothing", 0.70)),
             bg_enabled=bool(getattr(t, "panel_bg_enabled", True)),
-            bg_color=tuple(getattr(t, "panel_bg_color",
-                                   (0.0, 0.0, 0.0, 0.25))),
+            bg_color=_srgb_encode(tuple(getattr(t, "panel_bg_color",
+                                                (0.0, 0.0, 0.0, 0.25)))),
             bg_padding=int(getattr(t, "panel_bg_padding", 10)),
         ),
         depth_test_default=str(t.depth_test_default),

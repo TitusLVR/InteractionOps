@@ -529,6 +529,29 @@ def keymap_registration():
     bpy.context.window_manager.keyconfigs.update()
 
 
+def _sync_hud_from_blender_theme_if_pristine():
+    """First-install convenience: if the user hasn't touched any of the
+    HUD color/panel prefs (all still equal to their hardcoded defaults),
+    seed them from Blender's current theme so the HUD blends with the
+    rest of the UI out of the box. Skipped silently if the user has
+    customised any of those prefs."""
+    try:
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        t = prefs.iops_theme
+    except (KeyError, AttributeError):
+        return
+    watched = ("color_hud_header", "color_hud_key",
+               "color_hud_active_value", "color_hud_label",
+               "color_hud_label_inactive", "color_hud_stats_error",
+               "panel_bg_color")
+    if any(t.is_property_set(p) for p in watched):
+        return
+    try:
+        bpy.ops.iops.theme_use_blender_hud_colors()
+    except (RuntimeError, AttributeError) as e:
+        print(f"IOPS: initial HUD theme sync skipped: {e}")
+
+
 def register():
     reg_cls()
     register_pool_menus()
@@ -536,6 +559,10 @@ def register():
         _ensure_default_theme_presets()
     except Exception as e:
         print(f"IOPS: ensure_default_theme_presets failed: {e}")
+    try:
+        _sync_hud_from_blender_theme_if_pristine()
+    except Exception as e:
+        print(f"IOPS: HUD theme sync failed: {e}")
 
     bpy.types.WindowManager.IOPS_AddonProperties = bpy.props.PointerProperty(
         type=IOPS_AddonProperties

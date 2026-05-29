@@ -12,7 +12,6 @@ from ..ui.hud import (
     HUDOverlay, HelpOverlay, HUDSection, HUDItem,
     HUDParam, ItemState, capture_event,
 )
-from ..utils.picking import raycast_from_mouse
 from ..utils.alignment_fit import solve_fit
 
 
@@ -233,6 +232,78 @@ def _duplicate_obj(src, world_matrix, collection, linked):
     return created
 
 
+def _is_instancer(obj):
+    return (obj is not None
+            and obj.type == "EMPTY"
+            and obj.instance_collection is not None)
+
+
+def _instancer_geom(op, collection):
+    """Cached list of (inner_local_matrix, tris_local, edges_local) for every
+    mesh in `collection.all_objects`. inner_local_matrix accounts for
+    `collection.instance_offset`, so multiplying by an instancer EMPTY's
+    matrix_world reproduces the same placement the depsgraph dupli shows.
+    Built once per collection per modal session — collections don't move
+    during a pick session, so per-frame `to_mesh` is avoided."""
+    cache = op._collection_geom_cache
+    cached = cache.get(collection)
+    if cached is not None:
+        return cached
+    offset = Matrix.Translation(-collection.instance_offset)
+    entries = []
+    for inner in collection.all_objects:
+        if inner.type != "MESH" or inner.data is None:
+            continue
+        inner_mat = offset @ inner.matrix_world
+        with _eval_mesh(inner) as mesh:
+            if not mesh.loop_triangles:
+                try:
+                    mesh.calc_loop_triangles()
+                except RuntimeError:
+                    continue
+            verts = [v.co.copy() for v in mesh.vertices]
+            loops = mesh.loops
+            tris_local = []
+            for lt in mesh.loop_triangles:
+                tris_local.append(verts[loops[lt.loops[0]].vertex_index])
+                tris_local.append(verts[loops[lt.loops[1]].vertex_index])
+                tris_local.append(verts[loops[lt.loops[2]].vertex_index])
+            edges_local = []
+            for e in mesh.edges:
+                edges_local.append(verts[e.vertices[0]])
+                edges_local.append(verts[e.vertices[1]])
+        entries.append((inner_mat, tris_local, edges_local))
+    cache[collection] = entries
+    return entries
+
+
+def _instancer_tris_world(op, empty, world_matrix=None):
+    """World-space triangles for an EMPTY-instancer's collection contents.
+    `world_matrix` overrides empty.matrix_world (used for ghost preview at a
+    candidate placement)."""
+    coll = empty.instance_collection
+    if coll is None:
+        return []
+    em = world_matrix if world_matrix is not None else empty.matrix_world
+    out = []
+    for inner_mat, tris_local, _edges in _instancer_geom(op, coll):
+        M = em @ inner_mat
+        out.extend(M @ v for v in tris_local)
+    return out
+
+
+def _instancer_edges_world(op, empty, world_matrix=None):
+    coll = empty.instance_collection
+    if coll is None:
+        return []
+    em = world_matrix if world_matrix is not None else empty.matrix_world
+    out = []
+    for inner_mat, _tris, edges_local in _instancer_geom(op, coll):
+        M = em @ inner_mat
+        out.extend(M @ v for v in edges_local)
+    return out
+
+
 def _bias_toward_view(coords, rv3d, factor=0.0015):
     """Nudge world coords slightly toward the viewer so a surface-coincident
     fill clears z-fighting with the geometry it overlays. gpu.state exposes no
@@ -285,8 +356,12 @@ def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
             placement = t_matrix @ src.matrix_world
         except (ReferenceError, ValueError):
             continue
-        ghost_tris.extend(_mesh_tris_world_at(src, placement))
-        ghost_edges.extend(_mesh_edges_world(src, placement))
+        if _is_instancer(src):
+            ghost_tris.extend(_instancer_tris_world(op, src, placement))
+            ghost_edges.extend(_instancer_edges_world(op, src, placement))
+        else:
+            ghost_tris.extend(_mesh_tris_world_at(src, placement))
+            ghost_edges.extend(_mesh_edges_world(src, placement))
     if ghost_tris:
         with draw_scope(blend="NONE", depth="LESS_EQUAL",
                         face_culling="BACK", depth_mask=True,
@@ -310,7 +385,10 @@ def _draw_preview_3d(op, context):
         if obj is None:
             return
         try:
-            tris = _mesh_tris_world(obj)
+            if _is_instancer(obj):
+                tris = _instancer_tris_world(op, obj)
+            else:
+                tris = _mesh_tris_world(obj)
         except ReferenceError:
             return
         if not tris:
@@ -510,6 +588,16 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
 
         self.source_objs = sel
         self.source_set = set(sel)
+        # Pierce-set for raycast: source rig + inner objects of any source
+        # EMPTY-instancer (clicking through dupli geometry of the source must
+        # not register as picking the source itself).
+        self.source_excluded = set(self.source_set)
+        for src in sel:
+            if _is_instancer(src):
+                for inner in src.instance_collection.all_objects:
+                    self.source_excluded.add(inner)
+        self._collection_geom_cache = {}
+        self.instancer_cache = self._build_instancer_cache(context)
         self.mode = MODE_PICK_REF
         self.clone_mode = CLONE_DUP
         self.scale_mode = SCALE_UNIFORM
@@ -620,6 +708,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 self.report({"INFO"},
                             f"Aligner: {m} match + {mi} mirror + {f} forced ({s} skipped)")
                 return {"FINISHED"}
+            self._enqueue_target_obj_stamps(context)
             self._realize_pending(context)
             self._finish(context)
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
@@ -641,6 +730,9 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if event.type == "E":
                 if self.ref_obj is None:
                     self.report({"WARNING"}, "Pick a reference object first (Q)")
+                    return {"RUNNING_MODAL"}
+                if self.ref_obj.type != "MESH":
+                    self.report({"WARNING"}, "Poly-pattern mode requires a mesh reference")
                     return {"RUNNING_MODAL"}
                 if self.mode == MODE_PICK_REF_POLY:
                     if not self.ref_polys:
@@ -735,13 +827,79 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.report({"INFO"}, "Aligner: cancelled")
         return {"CANCELLED"}
 
+    def _build_instancer_cache(self, context):
+        """Map inner_object_original -> [(instancer_empty_original, dupli_matrix), ...].
+        Walked from depsgraph.object_instances once at invoke. The dupli matrix
+        disambiguates when one collection is instanced by multiple EMPTYs."""
+        deps = context.evaluated_depsgraph_get()
+        cache = {}
+        for inst in deps.object_instances:
+            if not inst.is_instance:
+                continue
+            parent = inst.parent
+            if parent is None:
+                continue
+            p_orig = parent.original
+            if p_orig.type != "EMPTY" or p_orig.instance_collection is None:
+                continue
+            inner = inst.object.original
+            cache.setdefault(inner, []).append((p_orig, inst.matrix_world.copy()))
+        return cache
+
+    def _resolve_instancer(self, inner_orig, dupli_matrix):
+        """Given a raycast hit's original object + the hit's world matrix,
+        return the instancer EMPTY that produced this dupli, or None."""
+        candidates = self.instancer_cache.get(inner_orig)
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0][0]
+        best = None
+        best_d = float("inf")
+        for empty, dupli_m in candidates:
+            d = (dupli_matrix.translation - dupli_m.translation).length_squared
+            if d < best_d:
+                best_d = d
+                best = empty
+        return best
+
     def _pick(self, context, event):
-        """Raycast under the mouse, excluding the rig. Returns the ORIGINAL
-        hit object or None."""
-        hit, _loc, _n, _fi, obj, _mx = raycast_from_mouse(
-            context, _mouse_coord(event),
-            exclude=set(self.source_set), visible_only=True)
-        return obj.original if (hit and obj is not None) else None
+        """Raycast under the mouse; pierce through the source rig (and any
+        inner objects of source instance collections), resolve dupli hits to
+        their instancer EMPTY. Returns the ORIGINAL hit object or None."""
+        from bpy_extras.view3d_utils import (
+            region_2d_to_vector_3d, region_2d_to_origin_3d)
+        region = context.region
+        rv3d = context.space_data.region_3d
+        if rv3d is None:
+            return None
+        coord = _mouse_coord(event)
+        view_vec = region_2d_to_vector_3d(region, rv3d, coord)
+        origin = region_2d_to_origin_3d(region, rv3d, coord)
+        deps = context.evaluated_depsgraph_get()
+        sv = context.space_data
+        viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
+        step_dir = view_vec.normalized()
+        cur = origin
+        for _ in range(100):
+            hit, loc, _n, _fi, obj, mx = context.scene.ray_cast(deps, cur, view_vec)
+            if not hit or obj is None:
+                return None
+            orig = obj.original
+            resolved = self._resolve_instancer(orig, mx) if mx is not None else None
+            if resolved is None:
+                resolved = orig
+            blocked = resolved in self.source_excluded or orig in self.source_excluded
+            try:
+                visible = resolved.visible_get(viewport=viewport)
+            except (ReferenceError, TypeError):
+                visible = True
+            if not blocked and visible:
+                return resolved
+            if loc is None:
+                return None
+            cur = loc + step_dir * 0.0001
+        return None
 
     def _pick_face(self, context, event):
         """Raycast under the mouse, return (obj.original, face_index) or
@@ -1122,6 +1280,26 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     fits.append((comp_fs, t, is_mirror))
             if fits:
                 self.hint_fits[obj] = fits
+
+    def _enqueue_target_obj_stamps(self, context):
+        """Object-pick mode (W): compute fit per chosen target and enqueue
+        placements. Matches the preview path (lines ~471-479) — ref is implicit
+        in the search but is NOT a stamping target."""
+        for tgt in self.target_objs:
+            if tgt is self.ref_obj:
+                continue
+            try:
+                t_matrix, fit_kind = _compute_fit(self, tgt)
+            except (ReferenceError, ValueError):
+                continue
+            self.pending.append({
+                "target": tgt,
+                "matrix": t_matrix,
+                "linked": self.clone_mode == CLONE_INST,
+                "mirror": False,
+            })
+            self.last_fit = fit_kind
+            self.stamped_count += 1
 
     def _enqueue_target_poly_stamps(self, context):
         """Stamp each kept match (auto-hint OR manual addition) using the

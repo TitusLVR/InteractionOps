@@ -70,14 +70,13 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # the Theme tab). These are the only text styles used anywhere in
     # the addon. Sizes:
     #   Header / Glyph / Label — three independent sliders.
-    # Colors:
-    #   Header, Glyph, Label, Label Active, Label Inactive,
-    #   Active Value, Stats Error/Warning.
-    # HUD Glyph and HUD Active Value share one color slider; HUD Header
-    # and HUD Label Active share another. Distinct roles in code (so
-    # future split is trivial) but a single pref drives each pair.
-    color_hud_header:        _color((0.302, 1.000, 0.620, 0.75), "HUD Header / Label Active")
-    color_hud_key:           _color((1.000, 0.872, 0.174, 0.75), "HUD Glyph / Active Value")
+    # Each role now has its own color pref; defaults match
+    # presets/themes/Default.itheme.
+    color_hud_header:        _color((0.302, 1.000, 0.620, 0.75), "HUD Header")
+    color_hud_key:           _color((1.000, 0.872, 0.174, 0.75), "HUD Glyph")
+    # HUD Active Value also drives HUD_LABEL_ACTIVE — both convey the
+    # "currently active item" highlight.
+    color_hud_active_value:  _color((1.000, 0.872, 0.174, 0.75), "HUD Active Value / Label Active")
     color_hud_label:         _color((0.844, 0.844, 0.844, 0.75), "HUD Label")
     color_hud_label_inactive:_color((0.466, 0.473, 0.487, 0.85), "HUD Label Inactive")
     color_hud_stats_error:   _color((1.000, 0.339, 0.382, 0.90), "HUD Stats Error/Warning")
@@ -338,6 +337,65 @@ class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IOPS_OT_ThemeUseBlenderHUDColors(bpy.types.Operator):
+    bl_idname = "iops.theme_use_blender_hud_colors"
+    bl_label = "Use Blender Theme HUD Colors"
+    bl_description = ("Copy HUD-relevant colors from Blender's current "
+                      "theme into the addon's HUD palette")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        from mathutils import Color
+
+        def to_linear_rgba(src, *, alpha_override=None):
+            """Convert a sRGB theme color (3 or 4 components) to a
+            scene-linear RGBA tuple ready to write into a COLOR prop."""
+            r, g, b = src[0], src[1], src[2]
+            c = Color((r, g, b)).from_srgb_to_scene_linear()
+            if alpha_override is not None:
+                a = float(alpha_override)
+            elif len(src) > 3:
+                a = float(src[3])
+            else:
+                a = 1.0
+            return (c.r, c.g, c.b, a)
+
+        try:
+            bth = context.preferences.themes[0]
+            ui = bth.user_interface
+            v3d = bth.view_3d
+        except (IndexError, AttributeError):
+            self.report({"ERROR"}, "Blender theme is unavailable")
+            return {"CANCELLED"}
+
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        t = prefs.iops_theme
+
+        # Header → panel_title (Blender's section-title text color).
+        t.color_hud_header = to_linear_rgba(ui.panel_title,
+                                            alpha_override=1.0)
+        # Glyph → object_active accent.
+        t.color_hud_key = to_linear_rgba(v3d.object_active,
+                                          alpha_override=1.0)
+        # Active Value → editmesh_active accent (drives HUD_LABEL_ACTIVE
+        # too — both convey the "active item" highlight).
+        t.color_hud_active_value = to_linear_rgba(v3d.editmesh_active,
+                                                   alpha_override=1.0)
+        # Label / Label Inactive → widget text settings; inactive is
+        # the same color at half opacity.
+        text = ui.wcol_text.text
+        t.color_hud_label          = to_linear_rgba(text, alpha_override=1.0)
+        t.color_hud_label_inactive = to_linear_rgba(text, alpha_override=0.5)
+        # Stats error → widget state error.
+        t.color_hud_stats_error = to_linear_rgba(ui.wcol_state.error)
+        # Panel background → ThemeUserInterface.panel_back (keeps its
+        # native alpha for the see-through look).
+        t.panel_bg_color = to_linear_rgba(ui.panel_back)
+
+        self.report({"INFO"}, "HUD colors synced from Blender theme")
+        return {"FINISHED"}
+
+
 _STATE_LABELS = ("Default", "Closest", "Active", "Locked", "Result Preview", "Error")
 
 
@@ -458,11 +516,16 @@ def draw_theme_tab(layout, theme):
         body = _theme_section(sub, theme, "show_hud_text",
                               "Text Styles", icon="FONT_DATA")
         if body is not None:
+            body.operator("iops.theme_use_blender_hud_colors",
+                          icon="COLOR")
+            body.separator()
             for attr, size_attr, label in (
                     ("color_hud_header",         "text_size_hud_header",
-                     "HUD Header / Label Active"),
+                     "HUD Header"),
                     ("color_hud_key",            "text_size_hud_key",
-                     "HUD Glyph / Active Value"),
+                     "HUD Glyph"),
+                    ("color_hud_active_value",   None,
+                     "HUD Active Value / Label Active"),
                     ("color_hud_label",          "text_size_hud_label",
                      "HUD Label"),
                     ("color_hud_label_inactive", None,
@@ -501,10 +564,6 @@ def draw_theme_tab(layout, theme):
                               "Font", icon="FILE_FONT")
         if body is not None:
             body.prop(theme, "font_path", text="")
-            body.label(
-                text="Empty = Blender default. Used by every HUD overlay.",
-                icon="INFO",
-            )
 
         sub.separator()
 
@@ -527,17 +586,13 @@ def draw_theme_tab(layout, theme):
             body.prop(theme, "hud_padding")
             body.prop(theme, "hud_key_label_spacing")
             body.prop(theme, "hud_smoothing", slider=True)
-            body.prop(theme, "hud_anim_fps")
-            body.label(text="Toggle: Keymaps → iops.ui_hud_params_toggle",
-                       icon="INFO")
 
         # --- Help Overlay -----------------------------------------------
         body = _theme_section(sub, theme, "show_help",
                               "Help Overlay", icon="QUESTION")
         if body is not None:
-            body.label(text="Toggle: Keymaps → iops.ui_help_toggle",
-                       icon="INFO")
             body.prop(theme, "help_corner")
+            body.prop(theme, "hud_anim_fps")
             row = body.row(align=True)
             if theme.help_corner == "free":
                 row.prop(theme, "help_free_x")
@@ -589,4 +644,5 @@ def draw_theme_tab(layout, theme):
         row.operator("iops.draw_theme_preview", icon="HIDE_OFF")
 
 
-classes = (IOPS_Theme, IOPS_OT_ThemeResetDefaults)
+classes = (IOPS_Theme, IOPS_OT_ThemeResetDefaults,
+           IOPS_OT_ThemeUseBlenderHUDColors)
