@@ -1,0 +1,235 @@
+/*
+ * InteractionOps docs theme — derived from the current live Blender theme.
+ * Pulled from context.preferences.themes[0] of Blender 5.1.2 "Default".
+ * Update via the docs-theme refresh script if the Blender theme changes.
+ *
+ * Palette anchors:
+ *   panel_back        #2C3037   page background / panel
+ *   wcol_regular.item #505766   raised surfaces / hover
+ *   wcol_regular.outline #41444B borders, dividers
+ *   panel_text        #E0E0E0   primary text
+ *   wcol_text.text    #B6B9BF   secondary text
+ *   object_active     #36CC8F   primary accent (active object green)
+ *   editmesh_active   #00FFB3   highlight (active edit-mesh teal)
+ *   vertex_select     #51AAFB   secondary accent / links (selection blue)
+ *   wcol_state.warning  #AC8737 warnings
+ *   wcol_state.error    #E20000 errors
+ */
+
+:root,
+[data-md-color-scheme="slate"] {
+  /* Surfaces */
+  --md-default-bg-color:        #2C3037;
+  --md-default-bg-color--light: #383E48;
+  --md-default-bg-color--lighter: #41444B;
+  --md-default-bg-color--lightest: #505766;
+
+  /* Foreground / text */
+  --md-default-fg-color:          #E0E0E0;
+  --md-default-fg-color--light:   #B6B9BF;
+  --md-default-fg-color--lighter: #8C8F95;
+  --md-default-fg-color--lightest: #2C3037;
+
+  /* Primary — Blender object_active green */
+  --md-primary-fg-color:        #36CC8F;
+  --md-primary-fg-color--light: #00FFB3;
+  --md-primary-fg-color--dark:  #2BA873;
+  --md-primary-bg-color:        #1A1D22;
+  --md-primary-bg-color--light: rgba(26, 29, 34, 0.7);
+
+  /* Accent — Blender selection blue */
+  --md-accent-fg-color:        #51AAFB;
+  --md-accent-fg-color--transparent: rgba(81, 170, 251, 0.10);
+  --md-accent-bg-color:        #E0E0E0;
+  --md-accent-bg-color--light: rgba(224, 224, 224, 0.7);
+
+  /* Code surfaces */
+  --md-code-fg-color:        #E0E0E0;
+  --md-code-bg-color:        #1F2228;
+  --md-code-hl-color:        rgba(255, 215, 80, 0.15);
+  --md-code-hl-number-color: #E2B86A;
+  --md-code-hl-special-color:#CA18C9;
+  --md-code-hl-function-color:#36CC8F;
+  --md-code-hl-constant-color:#51AAFB;
+  --md-code-hl-keyword-color: #B17B48;
+  --md-code-hl-string-color:  #98C379;
+  --md-code-hl-name-color:    #E0E0E0;
+  --md-code-hl-operator-color:#B6B9BF;
+  --md-code-hl-punctuation-color:#8C8F95;
+  --md-code-hl-comment-color: #6B9699;
+  --md-code-hl-generic-color: #B6B9BF;
+  --md-code-hl-variable-color:#E0E0E0;
+
+  /* Typeset links */
+  --md-typeset-color:       #E0E0E0;
+  --md-typeset-a-color:     #51AAFB;
+  --md-typeset-mark-color:  rgba(0, 255, 179, 0.20);
+
+  /* Table dividers */
+  --md-typeset-table-color: #41444B;
+  --md-typeset-table-color--light: rgba(65, 68, 75, 0.45);
+
+  /* Admonition tints */
+  --md-admonition-fg-color: var(--md-default-fg-color);
+  --md-admonition-bg-color: rgba(80, 87, 102, 0.18);
+
+  /* Footer */
+  --md-footer-bg-color:        #1F2228;
+  --md-footer-bg-color--dark:  #181B20;
+  --md-footer-fg-color:        #E0E0E0;
+  --md-footer-fg-color--light: #B6B9BF;
+  --md-footer-fg-color--lighter: #8C8F95;
+}
+
+/* Light scheme — keep functional, lean on the same accents. */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #2BA873;
+  --md-accent-fg-color:  #2B86CC;
+}
+
+/* Header tweaks — Blender header sits flush, slight outline. */
+.md-header {
+  background-color: #2C3037;
+  border-bottom: 1px solid #41444B;
+  box-shadow: none;
+}
+.md-header__title { color: #E0E0E0; }
+
+/* Tabs strip — Blender-ish flat tabs. */
+.md-tabs {
+  background-color: #1F2228;
+  border-bottom: 1px solid #41444B;
+}
+.md-tabs__link { opacity: 0.85; }
+.md-tabs__link:hover,
+.md-tabs__link--active { color: #36CC8F; opacity: 1; }
+
+/* Sidebar nav — tighter, more like Blender's outliner. */
+.md-nav__title { color: #B6B9BF; letter-spacing: 0.02em; }
+.md-nav__item .md-nav__link--active,
+.md-nav__link:focus,
+.md-nav__link:hover { color: #36CC8F; }
+.md-nav__item--nested > .md-nav__link { font-weight: 600; }
+
+/* Inline code chip */
+.md-typeset code {
+  background-color: #1F2228;
+  border: 1px solid #41444B;
+  color: #00FFB3;
+  border-radius: 3px;
+  padding: 0 0.35em;
+}
+.md-typeset pre code { border: none; padding: 0; color: var(--md-code-fg-color); }
+.md-typeset pre > code { background: transparent; }
+.md-typeset .highlight,
+.md-typeset pre { border: 1px solid #41444B; border-radius: 4px; }
+
+/* Keyboard glyph — emulate Blender header buttons */
+.md-typeset kbd,
+.md-typeset .keys kbd {
+  background-color: #383E48;
+  color: #E0E0E0;
+  border: 1px solid #505766;
+  border-bottom-color: #2C3037;
+  box-shadow: inset 0 -1px 0 #2C3037;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: var(--md-code-font-family, monospace);
+  font-size: 0.85em;
+}
+
+/* Tables — Blender list-row alternation */
+.md-typeset table:not([class]) {
+  border: 1px solid #41444B;
+  background-color: #2C3037;
+}
+.md-typeset table:not([class]) th {
+  background-color: #383E48;
+  color: #E0E0E0;
+  border-bottom: 1px solid #41444B;
+}
+.md-typeset table:not([class]) tr:nth-child(even) td {
+  background-color: rgba(80, 87, 102, 0.12);
+}
+.md-typeset table:not([class]) td { border-top: 1px solid #41444B; }
+
+/* Admonitions — repaint by type using Blender accents */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 4px;
+  border-left-width: 3px;
+  background-color: rgba(80, 87, 102, 0.14);
+}
+.md-typeset .admonition.note,
+.md-typeset details.note { border-left-color: #51AAFB; }
+.md-typeset .admonition.tip,
+.md-typeset details.tip,
+.md-typeset .admonition.hint,
+.md-typeset details.hint { border-left-color: #36CC8F; }
+.md-typeset .admonition.warning,
+.md-typeset details.warning { border-left-color: #AC8737; }
+.md-typeset .admonition.danger,
+.md-typeset details.danger,
+.md-typeset .admonition.error,
+.md-typeset details.error { border-left-color: #E20000; }
+.md-typeset .admonition.info,
+.md-typeset details.info { border-left-color: #6B9699; }
+.md-typeset .admonition.example,
+.md-typeset details.example { border-left-color: #CA18C9; }
+.md-typeset .admonition-title,
+.md-typeset summary {
+  background-color: rgba(80, 87, 102, 0.18);
+  font-weight: 600;
+}
+
+/* Section headings — Blender uses uppercase tab labels; keep proportions */
+.md-typeset h1 { color: #E0E0E0; border-bottom: 1px solid #41444B; padding-bottom: 0.3em; }
+.md-typeset h2 { color: #00FFB3; }
+.md-typeset h3 { color: #36CC8F; }
+.md-typeset h4 { color: #B6B9BF; }
+
+/* Blockquote — Blender warning-ish, low key */
+.md-typeset blockquote {
+  border-left: 3px solid #51AAFB;
+  background-color: rgba(81, 170, 251, 0.06);
+  color: #B6B9BF;
+}
+
+/* Search dropdown */
+.md-search__form { background-color: #1F2228; }
+.md-search-result__article--document { background-color: #2C3037; }
+
+/* Selection */
+::selection {
+  background: rgba(0, 255, 179, 0.30);
+  color: #1A1D22;
+}
+
+/* Scrollbar (WebKit) — Blender style */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: #2C3037; }
+::-webkit-scrollbar-thumb {
+  background: #505766;
+  border: 2px solid #2C3037;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover { background: #6B6F7A; }
+
+/* Custom utility classes for the operator docs */
+.iops-meta {
+  display: flex; gap: 0.5rem; flex-wrap: wrap;
+  margin: 0.5em 0 1em;
+  font-size: 0.85em;
+}
+.iops-meta > span {
+  background-color: #383E48;
+  border: 1px solid #41444B;
+  color: #B6B9BF;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-family: var(--md-code-font-family, monospace);
+}
+.iops-meta > span.mode  { color: #36CC8F; }
+.iops-meta > span.key   { color: #00FFB3; }
+.iops-meta > span.modal { color: #51AAFB; }
+.iops-meta > span.hud   { color: #AC8737; }
