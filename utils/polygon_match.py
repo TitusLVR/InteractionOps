@@ -391,6 +391,155 @@ def similar_by_normal_area(
     return out
 
 
+def build_face_pattern(bm, face_indices: Sequence[int]) -> dict:
+    """Build a subgraph-matching pattern from a face selection on `bm`.
+
+    Returns a dict with:
+      - faces: list of face indices in BFS-canonical order (root first).
+      - adj: list[list[int]] — adjacency among the pattern faces, by position
+        in `faces`. (i, j) ∈ adj iff the corresponding bm faces share an edge.
+      - vcounts: list[int] — vertex count per pattern face.
+      - areas: list[float] — area per pattern face.
+    """
+    sel = set(face_indices)
+    if not sel:
+        return {"faces": [], "adj": [], "vcounts": [], "areas": []}
+    # BFS so the root is the largest face (most distinctive for seeding).
+    seed = max(sel, key=lambda fi: bm.faces[fi].calc_area())
+    order: list[int] = [seed]
+    seen = {seed}
+    head = 0
+    while head < len(order):
+        fi = order[head]
+        head += 1
+        for edge in bm.faces[fi].edges:
+            for nbr in edge.link_faces:
+                if nbr.index in sel and nbr.index not in seen:
+                    seen.add(nbr.index)
+                    order.append(nbr.index)
+    pos_of = {fi: i for i, fi in enumerate(order)}
+    adj: list[list[int]] = [[] for _ in order]
+    for i, fi in enumerate(order):
+        for edge in bm.faces[fi].edges:
+            for nbr in edge.link_faces:
+                j = pos_of.get(nbr.index)
+                if j is not None and j != i and j not in adj[i]:
+                    adj[i].append(j)
+    vcounts = [len(bm.faces[fi].verts) for fi in order]
+    areas = [float(bm.faces[fi].calc_area()) for fi in order]
+    return {"faces": order, "adj": adj, "vcounts": vcounts, "areas": areas}
+
+
+def find_pattern_matches(bm, pattern: dict, *, area_tol: float = 0.20,
+                         max_matches: int = 512,
+                         allow_overlap: bool = False) -> list[list[int]]:
+    """Find subsets of `bm.faces` whose induced subgraph is isomorphic to the
+    pattern's face-adjacency, with matching vertex counts and per-face areas
+    (within `area_tol` relative). Matches are translation/rotation invariant
+    by construction.
+
+    DFS with backtracking from every plausible root candidate. By default
+    matches are disjoint (a face used in one match isn't re-used by another).
+    Setting `allow_overlap` lets matches share faces — caller is responsible
+    for deduplicating, but it recovers matches that would have been blocked
+    by an earlier overlapping match.
+    """
+    pat_faces = pattern["faces"]
+    if not pat_faces:
+        return []
+    pat_adj = pattern["adj"]
+    pat_vcounts = pattern["vcounts"]
+    pat_areas = pattern["areas"]
+    n = len(pat_faces)
+
+    # Cache (calc_area, len(verts)) per bmesh face to avoid recomputing during
+    # candidate filtering — calc_area() walks the n-gon's verts each call.
+    face_areas = {f.index: float(f.calc_area()) for f in bm.faces}
+    face_vcounts = {f.index: len(f.verts) for f in bm.faces}
+
+    def _attrs_ok(pi: int, fi: int) -> bool:
+        if face_vcounts[fi] != pat_vcounts[pi]:
+            return False
+        ref_area = pat_areas[pi]
+        if ref_area <= 0.0:
+            return face_areas[fi] <= 0.0
+        return abs(face_areas[fi] - ref_area) / ref_area <= area_tol
+
+    # Root candidates: any face with matching vcount/area to pattern face 0.
+    roots = [f for f in bm.faces if _attrs_ok(0, f.index)]
+
+    matches: list[list[int]] = []
+    seen: set[frozenset[int]] = set()
+    locked: set[int] = set()
+
+    def _try_match(root_face) -> list[int] | None:
+        mapping: dict[int, int] = {0: root_face.index}
+        used: set[int] = {root_face.index}
+
+        def _solve(pi: int) -> bool:
+            if pi >= n:
+                return True
+            anchor = None
+            for q in pat_adj[pi]:
+                if q in mapping:
+                    anchor = q
+                    break
+            if anchor is None:
+                return False
+            anchor_face = bm.faces[mapping[anchor]]
+            candidates = []
+            for edge in anchor_face.edges:
+                for tf in edge.link_faces:
+                    if tf is anchor_face:
+                        continue
+                    if tf.index in used:
+                        continue
+                    if not allow_overlap and tf.index in locked:
+                        continue
+                    if not _attrs_ok(pi, tf.index):
+                        continue
+                    candidates.append(tf)
+            for tf in candidates:
+                ok = True
+                for q in pat_adj[pi]:
+                    if q not in mapping or q == anchor:
+                        continue
+                    qf = bm.faces[mapping[q]]
+                    if not any(tf in e.link_faces for e in qf.edges):
+                        ok = False
+                        break
+                if not ok:
+                    continue
+                mapping[pi] = tf.index
+                used.add(tf.index)
+                if _solve(pi + 1):
+                    return True
+                used.discard(tf.index)
+                mapping.pop(pi, None)
+            return False
+
+        if _solve(1):
+            return [mapping[i] for i in range(n)]
+        return None
+
+    for root in roots:
+        if len(matches) >= max_matches:
+            break
+        if not allow_overlap and root.index in locked:
+            continue
+        m = _try_match(root)
+        if m is None:
+            continue
+        key = frozenset(m)
+        if key in seen:
+            continue
+        seen.add(key)
+        matches.append(m)
+        if not allow_overlap:
+            locked.update(m)
+    return matches
+
+
 def components_in_selection(bm, face_indices: set[int]) -> list[set[int]]:
     """Connected components within a subset of faces. Two faces are connected
     iff they share an edge AND both belong to `face_indices`. Returns a list

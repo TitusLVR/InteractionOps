@@ -1,6 +1,7 @@
 import bpy
 import bmesh
 import numpy as np
+from contextlib import contextmanager
 from mathutils import Matrix, Vector
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -17,10 +18,10 @@ from ..utils.alignment_fit import solve_fit
 
 # --- State enums ----------------------------------------------------------
 
-MODE_PICK_REF      = "PICK_REF"
-MODE_STAMP         = "STAMP"
-MODE_PICK_REF_POLY = "PICK_REF_POLY"      # marking ref polys; Q again commits
-MODE_PICK_TGT_POLY = "PICK_TGT_POLY"      # marking target polys; Apply stamps
+MODE_PICK_REF      = "PICK_REF"           # Q: click to set ref object
+MODE_PICK_TGT_OBJS = "PICK_TGT_OBJS"      # W: click to add/remove target objects
+MODE_PICK_REF_POLY = "PICK_REF_POLY"      # E: marking ref polys; E again commits + searches
+MODE_PICK_TGT_POLY = "PICK_TGT_POLY"      # after commit: click hint components to skip/keep
 
 CLONE_DUP  = "DUPLICATE"
 CLONE_INST = "INSTANCE"
@@ -47,37 +48,38 @@ def _mouse_coord(event):
 
 def _mesh_tris_world(obj):
     """World-space triangle vertices for an object's mesh, or [] if not a mesh.
-    Used to fill-highlight a picked object's polygons (no edges)."""
+    Reads the **evaluated** mesh so modifiers (Array/Mirror/SubD/etc.) are
+    included in the highlight."""
     if obj is None or obj.type != "MESH" or obj.data is None:
         return []
-    mesh = obj.data
-    if not mesh.loop_triangles:
-        try:
-            mesh.calc_loop_triangles()
-        except RuntimeError:
-            return []
     mw = obj.matrix_world
-    verts = [mw @ v.co for v in mesh.vertices]
-    loops = mesh.loops
-    out = []
-    for lt in mesh.loop_triangles:
-        out.append(verts[loops[lt.loops[0]].vertex_index])
-        out.append(verts[loops[lt.loops[1]].vertex_index])
-        out.append(verts[loops[lt.loops[2]].vertex_index])
+    with _eval_mesh(obj) as mesh:
+        if not mesh.loop_triangles:
+            try:
+                mesh.calc_loop_triangles()
+            except RuntimeError:
+                return []
+        verts = [mw @ v.co for v in mesh.vertices]
+        loops = mesh.loops
+        out = []
+        for lt in mesh.loop_triangles:
+            out.append(verts[loops[lt.loops[0]].vertex_index])
+            out.append(verts[loops[lt.loops[1]].vertex_index])
+            out.append(verts[loops[lt.loops[2]].vertex_index])
     return out
 
 
 def _mesh_edges_world(obj, world_matrix):
-    """Flat list of world-space edge endpoints for `obj.data` transformed by
-    `world_matrix`. [] if not a mesh."""
+    """Flat list of world-space edge endpoints for `obj`'s evaluated mesh
+    transformed by `world_matrix`. [] if not a mesh."""
     if obj is None or obj.type != "MESH" or obj.data is None:
         return []
-    mesh = obj.data
-    verts = [world_matrix @ v.co for v in mesh.vertices]
-    out = []
-    for e in mesh.edges:
-        out.append(verts[e.vertices[0]])
-        out.append(verts[e.vertices[1]])
+    with _eval_mesh(obj) as mesh:
+        verts = [world_matrix @ v.co for v in mesh.vertices]
+        out = []
+        for e in mesh.edges:
+            out.append(verts[e.vertices[0]])
+            out.append(verts[e.vertices[1]])
     return out
 
 
@@ -85,19 +87,19 @@ def _mesh_tris_world_at(obj, world_matrix):
     """Like _mesh_tris_world but with an explicit placement matrix."""
     if obj is None or obj.type != "MESH" or obj.data is None:
         return []
-    mesh = obj.data
-    if not mesh.loop_triangles:
-        try:
-            mesh.calc_loop_triangles()
-        except RuntimeError:
-            return []
-    verts = [world_matrix @ v.co for v in mesh.vertices]
-    loops = mesh.loops
-    out = []
-    for lt in mesh.loop_triangles:
-        out.append(verts[loops[lt.loops[0]].vertex_index])
-        out.append(verts[loops[lt.loops[1]].vertex_index])
-        out.append(verts[loops[lt.loops[2]].vertex_index])
+    with _eval_mesh(obj) as mesh:
+        if not mesh.loop_triangles:
+            try:
+                mesh.calc_loop_triangles()
+            except RuntimeError:
+                return []
+        verts = [world_matrix @ v.co for v in mesh.vertices]
+        loops = mesh.loops
+        out = []
+        for lt in mesh.loop_triangles:
+            out.append(verts[loops[lt.loops[0]].vertex_index])
+            out.append(verts[loops[lt.loops[1]].vertex_index])
+            out.append(verts[loops[lt.loops[2]].vertex_index])
     return out
 
 
@@ -135,25 +137,22 @@ def _bmesh_for(op, obj):
     return bm
 
 
-def _evaluated_mesh_for(op, obj):
-    """Get a cached evaluated mesh datablock for `obj` (the modifier-applied
-    one). Cached by obj.original on op._eval_mesh_cache. Freed in _finish.
-
-    Returns the bpy.types.Mesh you can index .polygons / .vertices on.
-    """
-    key = obj.original
-    cache = op._eval_mesh_cache
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
+@contextmanager
+def _eval_mesh(obj):
+    """Yield the evaluated (modifier-applied) Mesh datablock for `obj` and
+    free it on exit. Use inside a `with` block — do NOT cache the returned
+    Mesh across yields, the datablock is invalidated when the depsgraph
+    re-evaluates."""
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    eval_obj = key.evaluated_get(depsgraph)
+    eval_obj = obj.original.evaluated_get(depsgraph)
     eval_mesh = eval_obj.to_mesh()
-    # Keep the eval_obj alive so the mesh datablock stays valid; store both.
-    cache[key] = eval_mesh
-    op._eval_mesh_owners = getattr(op, "_eval_mesh_owners", [])
-    op._eval_mesh_owners.append(eval_obj)
-    return eval_mesh
+    try:
+        yield eval_mesh
+    finally:
+        try:
+            eval_obj.to_mesh_clear()
+        except (ReferenceError, RuntimeError):
+            pass
 
 
 def _np_to_matrix(m4):
@@ -202,11 +201,17 @@ def _target_subcollection(op, source_obj, target):
 
 def _duplicate_obj(src, world_matrix, collection, linked):
     """Copy one object (+ its child hierarchy, preserving matrix_local) into
-    `collection`. Root placed at `world_matrix`. Returns the list of new objs."""
+    `collection`. Root placed at `world_matrix`. Returns the list of new objs.
+
+    Clones inherit ALL properties from `src` via `.copy()` — including
+    `hide_viewport` if the rig was X-toggled to hidden. Force visibility on
+    every clone so freshly-stamped objects are actually drawn."""
     new_root = src.copy()
     if not linked and src.type == "MESH" and src.data and src.data.library is None:
         new_root.data = src.data.copy()
     new_root.parent = None
+    new_root.hide_viewport = False
+    new_root.hide_set(False)
     collection.objects.link(new_root)
     new_root.matrix_world = world_matrix
     created = [new_root]
@@ -218,7 +223,9 @@ def _duplicate_obj(src, world_matrix, collection, linked):
                 new_ob.data = child.data.copy()
             new_ob.parent = new_parent
             new_ob.matrix_local = child.matrix_local.copy()
+            new_ob.hide_viewport = False
             collection.objects.link(new_ob)
+            new_ob.hide_set(False)
             created.append(new_ob)
             _dup_children(child, new_ob)
 
@@ -251,16 +258,16 @@ def _selected_face_tris_world(op, store: dict) -> list:
         try:
             if obj.type != "MESH" or obj.data is None:
                 continue
-            mesh = _evaluated_mesh_for(op, obj)
-            mw = obj.matrix_world
-            for fi in face_idx_set:
-                if fi < 0 or fi >= len(mesh.polygons):
-                    continue
-                poly = mesh.polygons[fi]
-                vs = [mw @ mesh.vertices[poly.vertices[i]].co
-                      for i in range(len(poly.vertices))]
-                for i in range(1, len(vs) - 1):
-                    out.extend([vs[0], vs[i], vs[i + 1]])
+            with _eval_mesh(obj) as mesh:
+                mw = obj.matrix_world
+                for fi in face_idx_set:
+                    if fi < 0 or fi >= len(mesh.polygons):
+                        continue
+                    poly = mesh.polygons[fi]
+                    vs = [mw @ mesh.vertices[poly.vertices[i]].co
+                          for i in range(len(poly.vertices))]
+                    for i in range(1, len(vs) - 1):
+                        out.extend([vs[0], vs[i], vs[i + 1]])
         except ReferenceError:
             continue
     return out
@@ -298,17 +305,38 @@ def _draw_preview_3d(op, context):
     ghost at every committed pick and at the live hovered target. Real objects
     are only created on confirm (_finish)."""
     rv3d = context.region_data
-    # Reference highlight — whole-object fill (only when no ref polys marked).
-    if op.ref_obj is not None and not op.ref_polys:
+
+    def _draw_obj_fill(obj, role):
+        if obj is None:
+            return
         try:
-            tris = _mesh_tris_world(op.ref_obj)
+            tris = _mesh_tris_world(obj)
         except ReferenceError:
-            tris = []
-        if tris:
-            tris = _bias_toward_view(tris, rv3d)
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
+            return
+        if not tris:
+            return
+        tris = _bias_toward_view(tris, rv3d)
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="NONE", depth_mask=False):
+            iops_draw.tris(tris, role=role, context=context)
+
+    # Whole-object highlights per mode:
+    #   PICK_REF        — ref ACTIVE only.
+    #   PICK_TGT_OBJS   — ref ACTIVE (bright), targets PREVIEW (faded).
+    #   PICK_REF_POLY   — ref + targets all PREVIEW (ref reads as just
+    #                     another target). Marked ref polys are layered on
+    #                     top with ACTIVE color so the selection pops.
+    #   PICK_TGT_POLY   — same as REF_POLY (visual context for hint clicks).
+    if op.ref_obj is not None and not op.ref_polys:
+        ref_role = (Role.GHOST_ACTIVE
+                    if op.mode in (MODE_PICK_REF, MODE_PICK_TGT_OBJS)
+                    else Role.GHOST_CLOSEST)
+        _draw_obj_fill(op.ref_obj, ref_role)
+    if op.mode in (MODE_PICK_TGT_OBJS, MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY):
+        for tgt in op.target_objs:
+            if tgt is op.ref_obj:
+                continue
+            _draw_obj_fill(tgt, Role.GHOST_CLOSEST)
 
     # Marked ref polys — fill (replaces whole-object highlight when present).
     if op.ref_polys:
@@ -339,31 +367,50 @@ def _draw_preview_3d(op, context):
                             face_culling="NONE", depth_mask=False):
                 iops_draw.tris(tris, role=Role.GHOST_CLOSEST, context=context)
 
-    # Match hints — A-key candidates.
-    if op.show_match_hints and op.match_hints:
-        hint_store = {obj: set().union(*comps) for obj, comps in op.match_hints.items()}
-        tris = _selected_face_tris_world(op, hint_store)
+    # Match hints — auto-found candidates the user has skipped (clicked off
+    # or inverted with C). Drawn with GHOST_LOCKED (amber) so they read as
+    # "available but disabled" — click to re-enable.
+    if op.mode == MODE_PICK_TGT_POLY and op.match_hints:
+        skipped_store = {}
+        for obj, comps in op.match_hints.items():
+            sel = op.target_polys.get(obj, set())
+            skipped = set().union(*(c for c in comps if not (c & sel)))
+            if skipped:
+                skipped_store[obj] = skipped
+        tris = _selected_face_tris_world(op, skipped_store)
         if tris:
             tris = _bias_toward_view(tris, rv3d)
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                             face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_MATCH_HINT, context=context)
+                iops_draw.tris(tris, role=Role.GHOST_LOCKED, context=context)
 
     # Committed picks — rig ghost at each stored placement (preview only).
     for pend in op.pending:
         _draw_rig_ghost(op, context, pend["matrix"], role=Role.GHOST_PREVIEW)
 
-    # Rig ghost at the live hovered target (fill + edges).
-    if op.mode == MODE_STAMP and op.hover_obj is not None and op.ref_obj is not None \
-            and op.hover_obj not in op.source_set and op.hover_obj is not op.ref_obj:
-        try:
-            t_matrix, fit_kind = _compute_fit(op, op.hover_obj)
-        except (ReferenceError, ValueError):
-            t_matrix, fit_kind = None, ""
-        if t_matrix is not None:
-            op.last_fit = fit_kind
-            _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT)
+    # Object-mode preview: in PICK_TGT_OBJS draw a rig-ghost at every chosen
+    # target so the user sees where Enter will stamp clones.
+    if op.mode == MODE_PICK_TGT_OBJS and op.ref_obj is not None:
+        for tgt in op.target_objs:
+            if tgt is op.ref_obj:
+                continue
+            try:
+                t_matrix, _fit_kind = _compute_fit(op, tgt)
+            except (ReferenceError, ValueError):
+                continue
+            _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_PREVIEW)
 
+    # Auto-hint placements — rig ghost at each component the user kept in
+    # target_polys. Skipped components are hidden until the user clicks them
+    # back in.
+    if op.mode == MODE_PICK_TGT_POLY and op.hint_fits:
+        for obj, fits in op.hint_fits.items():
+            sel = op.target_polys.get(obj, set())
+            if not sel:
+                continue
+            for comp, t_matrix, _is_mirror in fits:
+                if comp <= sel:
+                    _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_PREVIEW)
 
 # --- HUD / Help builders ---------------------------------------------------
 
@@ -375,7 +422,7 @@ def _build_hud(context, op):
     def _mode_label():
         return {
             MODE_PICK_REF: "Pick reference",
-            MODE_STAMP: "Stamp",
+            MODE_PICK_TGT_OBJS: "Pick targets",
             MODE_PICK_REF_POLY: "Pick ref polys",
             MODE_PICK_TGT_POLY: "Pick target polys",
         }.get(op.mode, op.mode)
@@ -391,19 +438,10 @@ def _build_hud(context, op):
                            lambda: sum(len(s) for s in op.target_polys.values()),
                            kind="int",
                            visible_getter=lambda: bool(op.target_polys)))
-    hud.add_param(HUDParam("Match ε",
-                           lambda: op.match_rmse_threshold,
-                           kind="float", fmt="{:.3f}",
-                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
-    hud.add_param(HUDParam("Force fit",
-                           lambda: "on" if op.force_mode else "off",
-                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
-    hud.add_param(HUDParam("Mirror match",
-                           lambda: "on" if op.mirror_mode else "off",
-                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
-    hud.add_param(HUDParam("Mirror bake",
-                           lambda: "on" if op.apply_mirror_bake else "off",
-                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
+    hud.add_param(HUDParam("Targets",
+                           lambda: len(op.target_objs),
+                           kind="int",
+                           visible_getter=lambda: bool(op.target_objs)))
     hud.add_param(HUDParam("Clone", lambda: op.clone_mode))
     hud.add_param(HUDParam("Scale", lambda: SCALE_LABELS.get(op.scale_mode, op.scale_mode)))
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
@@ -418,18 +456,14 @@ def _build_hud(context, op):
 def _build_help(context):
     helpo = HelpOverlay("object_aligner")
     helpo.add_section(HUDSection("Object Aligner", [
-        HUDItem("Pick reference / target", "LMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Re-pick reference",       "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle ref-poly mode",    "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Add linked island",       "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Add similar (normal/area)", "Ctrl+LMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Remove polygon / island", "Alt+LMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pick / toggle (LMB)",     "LMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pick ref object",         "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pick target objects",     "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Ref-poly mode / commit",  "E",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reset to start",          "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle rig visibility",   "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle match hints",      "M",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle force fit",        "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle mirror match",     "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle mirror bake",      "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Adjust match threshold",  "Alt+Wheel",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Skip all matches",        "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Invert match selection",  "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate/Instance)", "D",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Scale (Uniform/Keep/Stretch)",    "S",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",                   "Enter / Space / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -481,35 +515,39 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.scale_mode = SCALE_UNIFORM
         self.ref_obj = None
         self.ref_name = ""
-        self.ref_world_np = None        # cached Nx3 reference verts (world)
+        self.ref_world_np = None
         self.hover_obj = None
-        self.hover_face_idx = -1        # poly-mode: face index under cursor
+        self.hover_face_idx = -1
         self.last_fit = ""
         self.stamped_count = 0
-        self.stamped_objs = []          # everything created on finish (for cancel safety)
-        self.pending = []               # committed picks: {target, matrix, linked} — realized on finish
-        self.created_collections = []   # sub-collections created on finish (for cancel)
+        self.stamped_objs = []
+        self.pending = []
+        self.created_collections = []
         self._last_event = None
 
+        # Target objects — explicit user-selected subset of the scene that the
+        # pattern search scans (Q/W workflow). Without this the search would
+        # iterate every visible mesh and become unusably slow on big scenes.
+        self.target_objs = set()
+
         # Polygon-reference mode state.
-        self.ref_polys = {}                    # dict[obj_original -> set[face_idx]]
-        self.target_polys = {}                 # dict[obj_original -> set[face_idx]]
+        self.ref_polys = {}
+        self.target_polys = {}
         self.ref_signature = None
-        self.ref_points_np = None              # Nx3 world
+        self.ref_points_np = None
         self.ref_pca_ratios = None
         self.ref_d2 = None
-        self.ref_frame_np = None               # 4x4 numpy
+        self.ref_frame_np = None
         self.ref_bbox_diag = 0.0
-        self.match_hints = {}                  # dict[obj_original -> list[set[face_idx]]]
-        self.show_match_hints = False
-        self.force_mode = False
-        self.match_rmse_threshold = 0.05
-        self.mirror_mode = False         # F: enable reflection-Procrustes in strict-tier
-        self.apply_mirror_bake = False   # A: bake mirror via transform_apply + flip normals on stamp
+        self.match_hints = {}
+        self.match_orders = {}
+        self.match_mirrors = {}
+        self.ref_pattern_anchors = None
+        self.ref_anchor_offset = 1.0
+        self.hint_fits = {}
+        self.force_mode = True
         self._bmesh_cache = {}
-        self._eval_mesh_cache = {}             # dict[obj_original -> evaluated Mesh]
-        self._eval_mesh_owners = []            # eval objs holding the meshes alive
-        self.rig_hidden = False                # X: rig (source_objs) hidden in viewport
+        self.rig_hidden = False
 
         self._hud = _build_hud(context, self)
         self._help = _build_help(context)
@@ -532,14 +570,6 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             except (ReferenceError, RuntimeError):
                 pass
         self._bmesh_cache = {}
-
-        for eval_obj in getattr(self, "_eval_mesh_owners", []):
-            try:
-                eval_obj.to_mesh_clear()
-            except (ReferenceError, RuntimeError):
-                pass
-        self._eval_mesh_owners = []
-        self._eval_mesh_cache = {}
 
         if getattr(self, "rig_hidden", False):
             for ob in getattr(self, "source_objs", []):
@@ -602,46 +632,73 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if event.type == "S":
                 self.scale_mode = _cycle(self.scale_mode, SCALE_CYCLE)
                 return {"RUNNING_MODAL"}
-            if event.type == "R":
+            if event.type == "Q":
                 self.mode = MODE_PICK_REF
                 return {"RUNNING_MODAL"}
-            if event.type == "Q":
-                if self.mode == MODE_STAMP and self.ref_obj is not None:
-                    self.mode = MODE_PICK_REF_POLY
+            if event.type == "W":
+                self.mode = MODE_PICK_TGT_OBJS
+                return {"RUNNING_MODAL"}
+            if event.type == "E":
+                if self.ref_obj is None:
+                    self.report({"WARNING"}, "Pick a reference object first (Q)")
                     return {"RUNNING_MODAL"}
                 if self.mode == MODE_PICK_REF_POLY:
                     if not self.ref_polys:
                         self.report({"WARNING"}, "Ref poly set is empty")
                         return {"RUNNING_MODAL"}
                     self._commit_ref_polys(context)
-                    self.mode = MODE_PICK_TGT_POLY
-                    return {"RUNNING_MODAL"}
-                return {"RUNNING_MODAL"}
-            if event.type == "M":
-                if self.mode != MODE_PICK_TGT_POLY or self.ref_signature is None:
-                    return {"RUNNING_MODAL"}
-                if self.show_match_hints:
-                    self.show_match_hints = False
-                    self.match_hints = {}
-                else:
                     self._search_matches(context)
-                    self.show_match_hints = True
+                    self.target_polys = {
+                        obj: set().union(*comps)
+                        for obj, comps in self.match_hints.items()
+                    }
+                    self._seed_hint_fits()
+                    self.mode = MODE_PICK_TGT_POLY
+                    self.report({"INFO"},
+                                f"Found {sum(len(c) for c in self.match_hints.values())} "
+                                f"match component(s) — click to skip/keep")
+                    return {"RUNNING_MODAL"}
+                self.mode = MODE_PICK_REF_POLY
                 return {"RUNNING_MODAL"}
-            if event.type == "W":
-                if self.mode == MODE_PICK_TGT_POLY:
-                    self.force_mode = not self.force_mode
+            if event.type == "R":
+                # Full reset to the initial state — re-pick everything.
+                self.ref_obj = None
+                self.ref_name = ""
+                self.ref_world_np = None
+                self.target_objs = set()
+                self.ref_polys = {}
+                self.target_polys = {}
+                self.match_hints = {}
+                self.match_orders = {}
+                self.match_mirrors = {}
+                self.hint_fits = {}
+                self.ref_signature = None
+                self.ref_points_np = None
+                self.ref_pca_ratios = None
+                self.ref_d2 = None
+                self.ref_frame_np = None
+                self.ref_pattern_anchors = None
+                self.pending = []
+                self.stamped_count = 0
+                self.mode = MODE_PICK_REF
                 return {"RUNNING_MODAL"}
-            if event.type == "F":
+            if event.type == "C":
                 if self.mode == MODE_PICK_TGT_POLY:
-                    self.mirror_mode = not self.mirror_mode
+                    self.target_polys = {}
                 return {"RUNNING_MODAL"}
-            if event.type == "A":
+            if event.type == "I":
                 if self.mode == MODE_PICK_TGT_POLY:
-                    self.apply_mirror_bake = not self.apply_mirror_bake
+                    for obj, comps in self.match_hints.items():
+                        s = self.target_polys.setdefault(obj, set())
+                        for comp in comps:
+                            if comp & s:
+                                s.difference_update(comp)
+                            else:
+                                s.update(comp)
+                        if not s:
+                            self.target_polys.pop(obj, None)
                 return {"RUNNING_MODAL"}
             if event.type == "X":
-                # Toggle visibility of the pre-selected rig (source_objs) so
-                # it stops blocking picks. Always restored in _finish.
                 self.rig_hidden = not self.rig_hidden
                 for ob in self.source_objs:
                     try:
@@ -649,38 +706,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     except ReferenceError:
                         pass
                 return {"RUNNING_MODAL"}
-            if event.alt and event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
-                if self.mode != MODE_PICK_TGT_POLY:
-                    return {"PASS_THROUGH"}
-                step = 0.005
-                if event.type == "WHEELUPMOUSE":
-                    self.match_rmse_threshold = min(0.5, self.match_rmse_threshold + step)
-                else:
-                    self.match_rmse_threshold = max(0.001, self.match_rmse_threshold - step)
-                return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
-            if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY):
-                obj, face_idx = self._pick_face(context, event)
-                if obj is None:
-                    return {"RUNNING_MODAL"}
-                store = self.ref_polys if self.mode == MODE_PICK_REF_POLY else self.target_polys
-                if event.alt:
-                    if face_idx in store.get(obj, set()):
-                        self._toggle_face(store, obj, face_idx)
-                    else:
-                        self._remove_island(store, obj, face_idx)
-                elif event.shift:
-                    self._add_island(store, obj, face_idx)
-                elif event.ctrl:
-                    self._add_similar(store, obj, face_idx)
-                else:
-                    self._toggle_face(store, obj, face_idx)
-                return {"RUNNING_MODAL"}
             return self._on_click(context, event)
 
         return {"PASS_THROUGH"}
@@ -705,18 +736,11 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         return {"CANCELLED"}
 
     def _pick(self, context, event):
-        """Raycast under the mouse, excluding the rig (and reference when
-        stamping). Returns the ORIGINAL hit object or None.
-
-        `scene.ray_cast` yields the depsgraph-evaluated object; we return
-        `obj.original` so (a) duplication copies the base datablock rather than
-        an evaluated/flattened mesh, (b) geometry-fit reads base-mesh verts, and
-        (c) membership in the exclude set (which holds originals) matches."""
-        exclude = set(self.source_set)
-        if self.mode == MODE_STAMP and self.ref_obj is not None:
-            exclude.add(self.ref_obj)
+        """Raycast under the mouse, excluding the rig. Returns the ORIGINAL
+        hit object or None."""
         hit, _loc, _n, _fi, obj, _mx = raycast_from_mouse(
-            context, _mouse_coord(event), exclude=exclude)
+            context, _mouse_coord(event),
+            exclude=set(self.source_set), visible_only=True)
         return obj.original if (hit and obj is not None) else None
 
     def _pick_face(self, context, event):
@@ -725,18 +749,35 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         in poly modes (per spec: ref-set may live anywhere except rig)."""
         from ..utils.picking import raycast_from_mouse
         hit, _loc, _n, face_idx, obj, _mx = raycast_from_mouse(
-            context, _mouse_coord(event), exclude=set(self.source_set))
+            context, _mouse_coord(event), exclude=set(self.source_set),
+            visible_only=True)
         if not hit or obj is None:
             return None, -1
         original = obj.original
         if original.type != "MESH" or original.data is None:
             return None, -1
-        if not original.visible_get():
-            return None, -1
-        eval_mesh = _evaluated_mesh_for(self, original)
-        if face_idx >= len(eval_mesh.polygons):
-            return None, -1
+        with _eval_mesh(original) as eval_mesh:
+            if face_idx >= len(eval_mesh.polygons):
+                return None, -1
         return original, int(face_idx)
+
+    def _toggle_hint_component(self, obj, face_idx: int):
+        """Find the hint component containing `face_idx` on `obj` and toggle
+        all of its faces in self.target_polys. No-op if the click landed on a
+        face that wasn't part of any auto-found hint."""
+        comps = self.match_hints.get(obj)
+        if not comps:
+            return
+        comp = next((c for c in comps if face_idx in c), None)
+        if comp is None:
+            return
+        s = self.target_polys.setdefault(obj, set())
+        if comp & s:
+            s.difference_update(comp)
+            if not s:
+                self.target_polys.pop(obj, None)
+        else:
+            s.update(comp)
 
     def _toggle_face(self, store: dict, obj, face_idx: int):
         """Toggle a single face in either self.ref_polys or self.target_polys."""
@@ -748,27 +789,6 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         else:
             s.add(face_idx)
 
-    def _add_island(self, store: dict, obj, face_idx: int):
-        from ..utils.polygon_match import face_island
-        bm = _bmesh_for(self, obj)
-        store.setdefault(obj, set()).update(face_island(bm, face_idx))
-
-    def _add_similar(self, store: dict, obj, face_idx: int):
-        from ..utils.polygon_match import similar_by_normal_area
-        bm = _bmesh_for(self, obj)
-        store.setdefault(obj, set()).update(similar_by_normal_area(bm, face_idx))
-
-    def _remove_island(self, store: dict, obj, face_idx: int):
-        from ..utils.polygon_match import face_island
-        bm = _bmesh_for(self, obj)
-        island = face_island(bm, face_idx)
-        s = store.get(obj)
-        if s is None:
-            return
-        s.difference_update(island)
-        if not s:
-            store.pop(obj, None)
-
     def _commit_ref_polys(self, context):
         """Snapshot all derived data for the ref poly set at commit time so
         target-side matching is cheap during mouse-move."""
@@ -777,27 +797,27 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         verts_all, faces_all = [], []
         face_centroids, face_normals, face_areas = [], [], []
         for obj, face_idx_set in self.ref_polys.items():
-            mesh = _evaluated_mesh_for(self, obj)
-            mw_np = np.array(obj.matrix_world)
-            local_index = {}
-            for fi in face_idx_set:
-                poly = mesh.polygons[fi]
-                f_local = []
-                for vi in poly.vertices:
-                    if vi not in local_index:
-                        co = mesh.vertices[vi].co
-                        h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
-                        local_index[vi] = len(verts_all)
-                        verts_all.append(h[:3])
-                    f_local.append(local_index[vi])
-                faces_all.append(f_local)
-                ws = np.array([verts_all[i] for i in f_local])
-                face_centroids.append(ws.mean(axis=0))
-                n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
-                n_world = mw_np[:3, :3] @ n_local
-                nrm = np.linalg.norm(n_world)
-                face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
-                face_areas.append(float(poly.area))
+            with _eval_mesh(obj) as mesh:
+                mw_np = np.array(obj.matrix_world)
+                local_index = {}
+                for fi in face_idx_set:
+                    poly = mesh.polygons[fi]
+                    f_local = []
+                    for vi in poly.vertices:
+                        if vi not in local_index:
+                            co = mesh.vertices[vi].co
+                            h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                            local_index[vi] = len(verts_all)
+                            verts_all.append(h[:3])
+                        f_local.append(local_index[vi])
+                    faces_all.append(f_local)
+                    ws = np.array([verts_all[i] for i in f_local])
+                    face_centroids.append(ws.mean(axis=0))
+                    n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
+                    n_world = mw_np[:3, :3] @ n_local
+                    nrm = np.linalg.norm(n_world)
+                    face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
+                    face_areas.append(float(poly.area))
 
         self.ref_points_np = np.asarray(verts_all, dtype=np.float64)
         sig = pm.signature(self.ref_points_np, faces_all)
@@ -813,66 +833,141 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         )
 
     def _search_matches(self, context):
-        """Loose-tier similarity scan over all non-rig objects in the scene.
-        Populates self.match_hints[obj] with lists of face-index sets, one per
-        candidate component. Used only for visual hints — does not auto-select."""
+        """Subgraph-isomorphism scan: find face subsets in every visible mesh
+        whose face-adjacency + per-face attributes match the ref selection's
+        pattern. Each match is further validated by PCA-ratio + d2-histogram
+        similarity to the ref geometry. Populates self.match_hints (set form
+        for membership/skip checks) and self.match_orders (ordered list form
+        used by the face-correspondence procrustes fit)."""
         from ..utils import polygon_match as pm
         self.match_hints = {}
-        if self.ref_signature is None:
+        self.match_orders = {}
+        self.ref_pattern_anchors = None
+        if self.ref_signature is None or not self.ref_polys:
             return
-        loose_ratio_tol = 0.10
-        loose_d2_chi2 = 0.05
-        for obj in context.scene.objects:
-            if obj in self.source_set or obj.type != "MESH" or obj.data is None:
-                continue
-            if not obj.visible_get():
-                continue
-            original = obj.original
-            try:
-                bm = _bmesh_for(self, original)
-            except (RuntimeError, ReferenceError):
-                continue
-            all_face_set = {f.index for f in bm.faces}
-            comps = pm.components_in_selection(bm, all_face_set)
-            mw_np = np.array(obj.matrix_world)
-            kept = []
-            for comp in comps:
-                verts_world, faces_local = self._extract_component_verts(
-                    original, comp, mw_np)
-                if verts_world.shape[0] == 0:
+        ref_obj, ref_faces = next(iter(self.ref_polys.items()))
+        try:
+            ref_bm = _bmesh_for(self, ref_obj)
+        except (RuntimeError, ReferenceError):
+            return
+        pattern = pm.build_face_pattern(ref_bm, ref_faces)
+        if not pattern["faces"]:
+            return
+        # Constant anchor offset derived from the ref pattern's mean √area —
+        # scales with the pattern's overall size but stays fixed across all
+        # target matches (so anchor distance differences don't pollute rmse).
+        mean_sqrt_area = float(np.mean([np.sqrt(max(a, 1e-12))
+                                        for a in pattern["areas"]]))
+        self.ref_anchor_offset = max(0.5 * mean_sqrt_area, 1e-6)
+        # Reference anchors computed once in pattern.faces order so every match
+        # can be Kabsch-fit against the same reference frame.
+        self.ref_pattern_anchors = self._face_anchor_points(ref_obj, pattern["faces"])
+        sv = getattr(context, "space_data", None)
+        viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
+        # Two-tier scan. Tier 0 is the tight pass; if nothing survives the
+        # validation gate, tier 1 reruns with a wider area_tol on the pattern
+        # search itself plus more permissive PCA/d2 caps. Tiny patterns (≤3
+        # faces) skip the PCA+d2 gate entirely — those statistics are
+        # degenerate for so few points and reject genuine matches.
+        # Single-tier search: pattern matcher's adjacency + face attrs do the
+        # topology gate, Kabsch fit_rmse does the geometry gate. PCA-ratio and
+        # d2-histogram checks were dropped — both are noisy on small patterns
+        # and Kabsch already gives a sharp, scale-stable signal.
+        tier_specs = [
+            {"area_tol": 0.20, "fit_rmse": 0.05},
+            {"area_tol": 0.35, "fit_rmse": 0.15},
+        ]
+        ref_set = set(ref_faces)
+        ref_bbox_diag = self.ref_signature.bbox_diag if self.ref_signature else 1.0
+        ref_bbox_diag = ref_bbox_diag if ref_bbox_diag > 1e-9 else 1.0
+        # Scan ref_obj + user-picked target objects. ref_obj is implicit (not
+        # in target_objs so it can't be removed via target-click), but search
+        # always includes it so its own copies of the pattern are also found.
+        scan_objs = set(self.target_objs)
+        if ref_obj is not None:
+            scan_objs.add(ref_obj)
+        for tier_idx, spec in enumerate(tier_specs):
+            self.match_hints = {}
+            self.match_orders = {}
+            self.match_mirrors = {}
+            n_objs = n_raw = n_rej_fit = n_kept = n_mirror = 0
+            worst_fit = 1e9
+            for obj in scan_objs:
+                if obj in self.source_set or obj.type != "MESH" or obj.data is None:
                     continue
-                ratios = pm.pca_ratios(verts_world)
-                ratio_dist = sum(abs(a - b) for a, b in zip(ratios, self.ref_pca_ratios))
-                if ratio_dist > loose_ratio_tol:
+                if not obj.visible_get(viewport=viewport):
                     continue
-                d2 = pm.d2_histogram(verts_world, faces_local)
-                chi2 = float(np.sum((d2 - self.ref_d2) ** 2 / np.maximum(d2 + self.ref_d2, 1e-9)))
-                if chi2 > loose_d2_chi2:
+                n_objs += 1
+                original = obj.original
+                try:
+                    bm = _bmesh_for(self, original)
+                except (RuntimeError, ReferenceError):
                     continue
-                kept.append(comp)
-            if kept:
-                self.match_hints[original] = kept
+                raw_matches = pm.find_pattern_matches(
+                    bm, pattern, area_tol=spec["area_tol"], allow_overlap=True)
+                n_raw += len(raw_matches)
+                kept_sets: list[frozenset[int]] = []
+                kept_orders: list[tuple[int, ...]] = []
+                kept_mirrors: list[bool] = []
+                for match in raw_matches:
+                    if original is ref_obj and set(match) == ref_set:
+                        continue
+                    # Try both orientations — mirror detection is automatic.
+                    tgt_anchors = self._face_anchor_points(original, match)
+                    if tgt_anchors.shape != self.ref_pattern_anchors.shape:
+                        n_rej_fit += 1
+                        continue
+                    _T_n, fit_rmse_n = pm.kabsch_with_scale(
+                        self.ref_pattern_anchors, tgt_anchors, scale_mode=self.scale_mode)
+                    _T_m, fit_rmse_m = pm.kabsch_mirror_with_scale(
+                        self.ref_pattern_anchors, tgt_anchors, scale_mode=self.scale_mode)
+                    rmse_rel_n = float(fit_rmse_n) / ref_bbox_diag
+                    rmse_rel_m = float(fit_rmse_m) / ref_bbox_diag
+                    is_mirror = rmse_rel_m < rmse_rel_n
+                    rmse_rel = rmse_rel_m if is_mirror else rmse_rel_n
+                    if rmse_rel > spec["fit_rmse"]:
+                        n_rej_fit += 1
+                        if rmse_rel < worst_fit:
+                            worst_fit = rmse_rel
+                        continue
+                    kept_sets.append(frozenset(match))
+                    kept_orders.append(tuple(match))
+                    kept_mirrors.append(is_mirror)
+                    n_kept += 1
+                    if is_mirror:
+                        n_mirror += 1
+                if kept_sets:
+                    self.match_hints[original] = kept_sets
+                    self.match_orders[original] = kept_orders
+                    self.match_mirrors[original] = kept_mirrors
+            print(f"[aligner] search tier {tier_idx} (area={spec['area_tol']} "
+                  f"fit_rmse={spec['fit_rmse']}): "
+                  f"pattern_faces={len(pattern['faces'])} objs={n_objs} "
+                  f"raw={n_raw} rej_fit={n_rej_fit} (best_rej={worst_fit:.4f}) "
+                  f"kept={n_kept} (mirror={n_mirror}) hints={len(self.match_hints)}")
+            if n_kept > 0:
+                return
 
     def _extract_component_verts(self, obj, face_idx_set, mw_np):
         """Helper: world-space verts (Nx3) and local face index lists for the
         union of the given face set on `obj`. Returns (verts, faces)."""
-        mesh = _evaluated_mesh_for(self, obj)
         local_index = {}
         verts = []
         faces = []
-        for fi in face_idx_set:
-            if fi < 0 or fi >= len(mesh.polygons):
-                continue
-            poly = mesh.polygons[fi]
-            f_local = []
-            for vi in poly.vertices:
-                if vi not in local_index:
-                    co = mesh.vertices[vi].co
-                    h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
-                    local_index[vi] = len(verts)
-                    verts.append(h[:3])
-                f_local.append(local_index[vi])
-            faces.append(f_local)
+        with _eval_mesh(obj) as mesh:
+            for fi in face_idx_set:
+                if fi < 0 or fi >= len(mesh.polygons):
+                    continue
+                poly = mesh.polygons[fi]
+                f_local = []
+                for vi in poly.vertices:
+                    if vi not in local_index:
+                        co = mesh.vertices[vi].co
+                        h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                        local_index[vi] = len(verts)
+                        verts.append(h[:3])
+                    f_local.append(local_index[vi])
+                faces.append(f_local)
         return np.asarray(verts, dtype=np.float64) if verts else np.zeros((0, 3)), faces
 
     def _update_hover(self, context, event):
@@ -885,6 +980,23 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.hover_face_idx = -1
 
     def _on_click(self, context, event):
+        """LMB dispatch per mode:
+          PICK_REF       — set ref_obj (re-clickable to change).
+          PICK_TGT_OBJS  — toggle clicked object in target_objs.
+          PICK_REF_POLY  — toggle clicked face in ref_polys (ref_obj only).
+          PICK_TGT_POLY  — toggle the hint component the clicked face belongs to.
+        """
+        if self.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY):
+            obj, face_idx = self._pick_face(context, event)
+            if obj is None:
+                return {"RUNNING_MODAL"}
+            if self.mode == MODE_PICK_REF_POLY:
+                if obj is not self.ref_obj:
+                    return {"RUNNING_MODAL"}
+                self._toggle_face(self.ref_polys, obj, face_idx)
+            else:
+                self._toggle_hint_component(obj, face_idx)
+            return {"RUNNING_MODAL"}
         obj = self._pick(context, event)
         if obj is None:
             return {"RUNNING_MODAL"}
@@ -892,93 +1004,46 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.ref_obj = obj
             self.ref_name = obj.name
             self.ref_world_np = _verts_world_np(obj) if obj.type == "MESH" else None
-            self.mode = MODE_STAMP
+            # Auto-advance to target-pick: typical next step.
+            self.mode = MODE_PICK_TGT_OBJS
             return {"RUNNING_MODAL"}
-        # MODE_STAMP: record the pick as a pending stamp (preview only). The fit
-        # matrix and clone mode are frozen at click time; nothing is realized in
-        # the scene until _finish.
-        t_matrix, fit_kind = _compute_fit(self, obj)
-        self.last_fit = fit_kind
-        self.pending.append({
-            "target": obj,
-            "matrix": t_matrix,
-            "linked": self.clone_mode == CLONE_INST,
-        })
-        self.stamped_count += 1
+        if self.mode == MODE_PICK_TGT_OBJS:
+            # Ref is implicitly included in the search — disallow toggling it
+            # via target-click so target_objs only holds extra targets.
+            if obj is self.ref_obj:
+                return {"RUNNING_MODAL"}
+            if obj in self.target_objs:
+                self.target_objs.discard(obj)
+            else:
+                self.target_objs.add(obj)
+            return {"RUNNING_MODAL"}
         return {"RUNNING_MODAL"}
-
-    def _compute_fit_poly_strict(self, target_obj, component_face_idx_set):
-        """Try Procrustes (no reflection) on ref points → component points.
-
-        Returns (T_matrix, rmse, ok, is_mirror) where:
-        - ok=True iff strict-tier criteria all pass AND RMSE/diag < self.match_rmse_threshold.
-        - is_mirror=True iff non-reflection Procrustes failed but reflection-allowed
-          Procrustes produced an acceptable RMSE (requires self.mirror_mode).
-        T_matrix is None when neither path passes.
-        """
-        from ..utils import polygon_match as pm
-
-        mw_np = np.array(target_obj.matrix_world)
-        tgt_verts, tgt_faces = self._extract_component_verts(
-            target_obj, component_face_idx_set, mw_np)
-        tgt_sig = pm.signature(tgt_verts, tgt_faces)
-        ref_sig = self.ref_signature
-        if (tgt_sig.vert_count != ref_sig.vert_count
-                or tgt_sig.face_count != ref_sig.face_count
-                or tgt_sig.face_vcount_hist != ref_sig.face_vcount_hist):
-            return None, float("inf"), False, False
-
-        corr = pm.greedy_correspondence(self.ref_points_np, tgt_verts)
-        tgt_reordered = tgt_verts[corr]
-        denom = ref_sig.bbox_diag if ref_sig.bbox_diag > 1e-9 else 1.0
-
-        T_np, rmse = pm.kabsch_with_scale(
-            self.ref_points_np, tgt_reordered, scale_mode=self.scale_mode)
-        if rmse / denom < self.match_rmse_threshold:
-            return _np_to_matrix(T_np), rmse, True, False
-
-        # Non-reflection Procrustes failed. Try mirror if enabled.
-        # Re-run greedy_correspondence on a centroid-reflected copy so the
-        # PCA pre-alignment inside greedy_correspondence can orient a chiral
-        # shape correctly before the mirror Kabsch fit.
-        if self.mirror_mode:
-            tgt_c = tgt_verts.mean(axis=0)
-            tgt_reflected = tgt_verts.copy()
-            tgt_reflected[:, 0] = 2.0 * tgt_c[0] - tgt_verts[:, 0]
-            corr_m = pm.greedy_correspondence(self.ref_points_np, tgt_reflected)
-            tgt_reordered_m = tgt_verts[corr_m]
-            T_m, rmse_m = pm.kabsch_mirror_with_scale(
-                self.ref_points_np, tgt_reordered_m, scale_mode=self.scale_mode)
-            if rmse_m / denom < self.match_rmse_threshold:
-                return _np_to_matrix(T_m), rmse_m, True, True
-
-        return None, rmse, False, False
 
     def _compute_fit_poly_force(self, target_obj, component_face_idx_set):
         """PCA-frame fit: T = frame_target · frame_ref⁻¹."""
         from ..utils import polygon_match as pm
 
         mw_np = np.array(target_obj.matrix_world)
-        mesh = _evaluated_mesh_for(self, target_obj)
         face_centroids, face_normals, face_areas = [], [], []
         verts_world, _ = self._extract_component_verts(
             target_obj, component_face_idx_set, mw_np)
-        for fi in component_face_idx_set:
-            if fi < 0 or fi >= len(mesh.polygons):
-                continue
-            poly = mesh.polygons[fi]
-            n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
-            n_world = mw_np[:3, :3] @ n_local
-            nrm = np.linalg.norm(n_world)
-            face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
-            face_areas.append(float(poly.area))
-            ws_centroid = np.array([0.0, 0.0, 0.0])
-            for vi in poly.vertices:
-                co = mesh.vertices[vi].co
-                h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
-                ws_centroid += h[:3]
-            ws_centroid /= len(poly.vertices)
-            face_centroids.append(ws_centroid)
+        with _eval_mesh(target_obj) as mesh:
+            for fi in component_face_idx_set:
+                if fi < 0 or fi >= len(mesh.polygons):
+                    continue
+                poly = mesh.polygons[fi]
+                n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
+                n_world = mw_np[:3, :3] @ n_local
+                nrm = np.linalg.norm(n_world)
+                face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
+                face_areas.append(float(poly.area))
+                ws_centroid = np.array([0.0, 0.0, 0.0])
+                for vi in poly.vertices:
+                    co = mesh.vertices[vi].co
+                    h = np.array([co.x, co.y, co.z, 1.0]) @ mw_np.T
+                    ws_centroid += h[:3]
+                ws_centroid /= len(poly.vertices)
+                face_centroids.append(ws_centroid)
         tgt_frame = pm.pca_frame(
             verts_world,
             np.asarray(face_centroids),
@@ -988,17 +1053,82 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         T_np = tgt_frame @ np.linalg.inv(self.ref_frame_np)
         return _np_to_matrix(T_np)
 
-    def _enqueue_target_poly_stamps(self, context):
-        """Decompose self.target_polys per-object into connected components,
-        compute a fit for each, append to self.pending. Returns
-        (matched, forced, mirrored, skipped) counts for reporting.
+    def _face_anchor_points(self, obj, ordered_face_list):
+        """For each face index in `ordered_face_list`, emit two world-space
+        points: the face centroid and centroid + ref_anchor_offset * normal.
+        A *constant* offset (taken from the ref pattern's mean √area, stored
+        as `self.ref_anchor_offset`) keeps target and ref anchors at the same
+        relative distance — so Kabsch rmse reflects only rotation/translation
+        mismatch, not per-face area variation within the matching tolerance."""
+        mw_np = np.array(obj.matrix_world)
+        rot_np = mw_np[:3, :3]
+        offset = float(self.ref_anchor_offset)
+        points = []
+        with _eval_mesh(obj) as mesh:
+            n_polys = len(mesh.polygons)
+            for fi in ordered_face_list:
+                if fi < 0 or fi >= n_polys:
+                    continue
+                poly = mesh.polygons[fi]
+                cx = cy = cz = 0.0
+                for vi in poly.vertices:
+                    co = mesh.vertices[vi].co
+                    cx += co.x
+                    cy += co.y
+                    cz += co.z
+                inv = 1.0 / len(poly.vertices)
+                c_local = np.array([cx * inv, cy * inv, cz * inv, 1.0])
+                c_world = c_local @ mw_np.T
+                n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
+                n_world = rot_np @ n_local
+                nrm = float(np.linalg.norm(n_world))
+                n_world = n_world / nrm if nrm > 1e-9 else np.array([0.0, 0.0, 1.0])
+                points.append(c_world[:3])
+                points.append(c_world[:3] + n_world * offset)
+        return np.asarray(points, dtype=np.float64)
 
-        - strict pass → pending entry, last_fit="poly-strict"
-        - mirror pass (only when self.mirror_mode) → pending entry with mirror=True,
-          last_fit="poly-mirror"
-        - else if self.force_mode → PCA-frame fallback, last_fit="poly-force"
-        - else → skip
-        """
+    def _compute_fit_poly_pattern(self, target_obj, ordered_target_faces, mirror=False):
+        """Face-correspondence procrustes between the ref pattern anchors and
+        the target match anchors. Returns (Matrix, rmse) or (None, inf) when
+        the anchor sets are inconsistent (e.g. a face was missing in the
+        evaluated mesh)."""
+        from ..utils import polygon_match as pm
+        ref_pts = self.ref_pattern_anchors
+        if ref_pts is None or len(ordered_target_faces) == 0:
+            return None, float("inf")
+        tgt_pts = self._face_anchor_points(target_obj, ordered_target_faces)
+        if tgt_pts.shape != ref_pts.shape:
+            return None, float("inf")
+        if mirror:
+            T_np, rmse = pm.kabsch_mirror_with_scale(
+                ref_pts, tgt_pts, scale_mode=self.scale_mode)
+        else:
+            T_np, rmse = pm.kabsch_with_scale(
+                ref_pts, tgt_pts, scale_mode=self.scale_mode)
+        return _np_to_matrix(T_np), float(rmse)
+
+    def _seed_hint_fits(self):
+        """Precompute placement matrices for every auto-found hint using the
+        mirror flag that the search already determined per match."""
+        self.hint_fits = {}
+        for obj, orders in self.match_orders.items():
+            mirrors = self.match_mirrors.get(obj, [False] * len(orders))
+            fits = []
+            for comp_order, is_mirror in zip(orders, mirrors):
+                comp_fs = frozenset(comp_order)
+                t, _rmse = self._compute_fit_poly_pattern(
+                    obj, comp_order, mirror=is_mirror)
+                if t is not None:
+                    fits.append((comp_fs, t, is_mirror))
+            if fits:
+                self.hint_fits[obj] = fits
+
+    def _enqueue_target_poly_stamps(self, context):
+        """Stamp each kept match (auto-hint OR manual addition) using the
+        face-correspondence procrustes fit. Auto-hints reuse their ordered
+        face list directly (so adjacency-preserving correspondence is fed to
+        the fit). Manual additions are decomposed by shared-edge connectivity
+        and fit via PCA-frame (no face correspondence available)."""
         from ..utils import polygon_match as pm
 
         matched = forced = mirrored = skipped = 0
@@ -1008,25 +1138,41 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             except (RuntimeError, ReferenceError):
                 skipped += 1
                 continue
-            comps = pm.components_in_selection(bm, face_idx_set)
-            for comp in comps:
-                T_strict, _rmse, ok, is_mirror = self._compute_fit_poly_strict(obj, comp)
-                if ok:
-                    self.pending.append({
-                        "target": obj,
-                        "matrix": T_strict,
-                        "linked": self.clone_mode == CLONE_INST,
-                        "mirror": is_mirror,
-                    })
-                    self.last_fit = "poly-mirror" if is_mirror else "poly-strict"
-                    self.stamped_count += 1
-                    if is_mirror:
-                        mirrored += 1
-                    else:
-                        matched += 1
+            # Iterate auto-hint components in order. The mirror flag was
+            # already determined by the search (smallest-rmse orientation).
+            orders = self.match_orders.get(obj, [])
+            mirrors = self.match_mirrors.get(obj, [False] * len(orders))
+            covered: set[int] = set()
+            for comp_order, is_mirror in zip(orders, mirrors):
+                comp_set = set(comp_order)
+                if not comp_set <= face_idx_set:
                     continue
-                if self.force_mode:
-                    T_force = self._compute_fit_poly_force(obj, comp)
+                covered.update(comp_set)
+                pick_t, _rmse = self._compute_fit_poly_pattern(
+                    obj, comp_order, mirror=is_mirror)
+                if pick_t is None:
+                    skipped += 1
+                    continue
+                self.pending.append({
+                    "target": obj,
+                    "matrix": pick_t,
+                    "linked": self.clone_mode == CLONE_INST,
+                    "mirror": is_mirror,
+                })
+                self.last_fit = "poly-mirror" if is_mirror else "poly-strict"
+                self.stamped_count += 1
+                if is_mirror:
+                    mirrored += 1
+                else:
+                    matched += 1
+            leftover = face_idx_set - covered
+            if leftover:
+                for comp in pm.components_in_selection(bm, leftover):
+                    try:
+                        T_force = self._compute_fit_poly_force(obj, comp)
+                    except (ValueError, np.linalg.LinAlgError):
+                        skipped += 1
+                        continue
                     self.pending.append({
                         "target": obj,
                         "matrix": T_force,
@@ -1036,79 +1182,18 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     self.last_fit = "poly-force"
                     self.stamped_count += 1
                     forced += 1
-                else:
-                    skipped += 1
         return matched, forced, mirrored, skipped
-
-    def _bake_mirror_objs(self, context, objs):
-        """For each mesh object in `objs`, apply location/rotation/scale and
-        reverse polygon winding (so the mirror's flipped normals come out
-        correct). Skips non-mesh and linked mesh datablocks."""
-        # Use a fresh override context so transform_apply works regardless of
-        # the user's selection state.
-        meshes_to_flip = []
-        # Snapshot active/selection to restore later.
-        view_layer = context.view_layer
-        prev_active = view_layer.objects.active
-        prev_selected = [o for o in context.selected_objects]
-        try:
-            bpy.ops.object.select_all(action="DESELECT")
-            for ob in objs:
-                if ob.type != "MESH" or ob.data is None:
-                    continue
-                if ob.data.library is not None:
-                    continue
-                ob.select_set(True)
-                view_layer.objects.active = ob
-                bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-                ob.select_set(False)
-                meshes_to_flip.append(ob.data)
-        finally:
-            bpy.ops.object.select_all(action="DESELECT")
-            for ob in prev_selected:
-                try:
-                    ob.select_set(True)
-                except ReferenceError:
-                    pass
-            if prev_active is not None:
-                try:
-                    view_layer.objects.active = prev_active
-                except ReferenceError:
-                    pass
-
-        # Reverse winding on each unique mesh datablock.
-        seen = set()
-        for mesh in meshes_to_flip:
-            if mesh.name in seen:
-                continue
-            seen.add(mesh.name)
-            bm = bmesh.new()
-            try:
-                bm.from_mesh(mesh)
-                for f in bm.faces:
-                    f.normal_flip()
-                bm.to_mesh(mesh)
-                mesh.update()
-            finally:
-                bm.free()
 
     def _realize_pending(self, context):
         """Create the real objects for every committed pick. Only iterate
         top-level roots (objects whose parent is not itself selected) — child
         subtrees are duplicated recursively by _duplicate_obj, so iterating
-        every selected object would double-stamp parented rigs.
-
-        When a pending entry is a mirror stamp and `self.apply_mirror_bake` is
-        on, apply transforms + reverse winding on the duplicates after
-        placement so the negative-determinant matrix is baked into geometry."""
+        every selected object would double-stamp parented rigs."""
         roots = [o for o in self.source_objs if o.parent not in self.source_set]
         for pend in self.pending:
             obj, t_matrix, linked = pend["target"], pend["matrix"], pend["linked"]
-            is_mirror = pend.get("mirror", False)
             for src in roots:
                 sub = _target_subcollection(self, src, obj)
                 world_matrix = t_matrix @ src.matrix_world
                 created = _duplicate_obj(src, world_matrix, sub, linked)
                 self.stamped_objs.extend(created)
-                if is_mirror and self.apply_mirror_bake:
-                    self._bake_mirror_objs(context, created)

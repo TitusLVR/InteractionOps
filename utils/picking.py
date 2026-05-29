@@ -39,11 +39,15 @@ CORNER_FALLBACK_COORDS = (
 # --- Raycast ------------------------------------------------------------
 
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
+                       visible_only: bool = False,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
-    (an iterable of objects), the ray pierces through those objects. The ray
-    repeats until it hits a permitted object or runs out of iterations.
+    (an iterable of objects), the ray pierces through those objects. If
+    `visible_only` is True, hits on objects whose `visible_get()` is False in
+    the current view layer (eye-icon / H-hidden) are also pierced — depsgraph
+    still contains those objects, so `scene.ray_cast` would otherwise see them.
+    The ray repeats until it hits a permitted object or runs out of iterations.
 
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
@@ -59,6 +63,16 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     allowed = set(restrict_to) if restrict_to is not None else None
     blocked = set(exclude) if exclude is not None else None
     view_vec_norm = view_vector.normalized()
+    # Pass the active SpaceView3D to visible_get so local-view (Numpad /) and
+    # per-viewport visibility overrides are respected. Fall back to area.spaces
+    # when context.space_data isn't the VIEW_3D (e.g. invoked from a header).
+    viewport = None
+    if visible_only:
+        sv = getattr(context, "space_data", None)
+        if sv is None or sv.type != "VIEW_3D":
+            area = getattr(context, "area", None)
+            sv = area.spaces.active if (area is not None and area.type == "VIEW_3D") else None
+        viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
 
     current_origin = ray_origin
     for _ in range(max_iterations):
@@ -69,6 +83,12 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
         permitted = (allowed is None or (obj is not None and obj in allowed))
         if blocked is not None and obj is not None and obj in blocked:
             permitted = False
+        if visible_only and obj is not None:
+            try:
+                if not obj.original.visible_get(viewport=viewport):
+                    permitted = False
+            except (ReferenceError, TypeError):
+                permitted = False
         if permitted:
             return (True, location, normal, face_index, obj, matrix)
         if location is None:
