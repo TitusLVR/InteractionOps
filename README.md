@@ -75,9 +75,20 @@ InteractionOps/
 
 Active specs and plans live under [`docs/superpowers/`](docs/superpowers/). See [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md) for current implementation status of each.
 
-## External documentation
+## Documentation
 
-Legacy hosted docs: https://interactionops-docs.readthedocs.io/en/latest/index.html — these predate the unified-UI / HUD split / theme refactors and may lag behind master. The in-repo `docs/` and operator source are the authoritative reference.
+User docs are built from [`docs/`](docs/) with MkDocs Material and deployed via GitHub Actions to GitHub Pages:
+
+**https://tituslvr.github.io/InteractionOps/**
+
+Local preview:
+
+```sh
+pip install -r requirements-docs.txt
+mkdocs serve
+```
+
+Legacy Sphinx docs (predate the unified-UI / HUD split / theme refactor): https://interactionops-docs.readthedocs.io/en/latest/index.html
 
 ## Community
 

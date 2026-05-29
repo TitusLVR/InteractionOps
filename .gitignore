@@ -19,3 +19,6 @@ config/recent-files.txt
 
 
 .claude/*
+
+# MkDocs build output
+/site/

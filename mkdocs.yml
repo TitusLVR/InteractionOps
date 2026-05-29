@@ -1,0 +1,171 @@
+site_name: InteractionOps
+site_description: Blender addon that boosts day-to-day interactivity via a small set of context-aware F1–F5 operators.
+site_url: https://tituslvr.github.io/InteractionOps/
+repo_url: https://github.com/TitusLVR/InteractionOps
+repo_name: TitusLVR/InteractionOps
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+site_dir: site
+
+exclude_docs: |
+  superpowers/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: slate
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+    - scheme: default
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.instant
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - search.share
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/TitusLVR/InteractionOps
+    - icon: fontawesome/solid/cube
+      link: https://blenderartists.org/t/interactionops-iops/
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - UI:
+      - Overview: ui.md
+      - Menus: ui/ui_menus.md
+      - Pies: ui/ui_pies.md
+  - Operators:
+      - Overview: operators.md
+      - Core System:
+          - iOps Dispatcher: operators/op_iops.md
+          - Functional Buttons: operators/op_funcional_buttons.md
+          - Modes: operators/op_modes.md
+      - Object — Alignment:
+          - Align Between Two: operators/op_align_between_two.md
+          - Align Origin to Normal: operators/op_align_origin_to_normal.md
+          - Align Origin to Face Normal: operators/op_align_origin_to_face_normal.md
+          - Align Object to Face: operators/op_object_align_to_face.md
+          - Drop It: operators/op_object_drop_it.md
+          - Put On: operators/op_put_on.md
+      - Object — Transform:
+          - Complex Modal Rotation: operators/op_complex_modal_rotation.md
+          - Three Point Rotation: operators/op_object_three_point_rotation.md
+          - Object Rotate: operators/op_object_rotate.md
+          - Object Rotate XYZ: operators/op_object_rotate_XYZ.md
+          - Object Normalize: operators/op_object_normalize.md
+          - Match Transform Active: operators/op_object_match_transform_active.md
+      - Object — Utilities:
+          - Auto Smooth: operators/op_object_auto_smooth.md
+          - KitBash Grid: operators/op_object_kitbash_grid.md
+          - Name from Active: operators/op_object_name_from_active.md
+          - Replace: operators/op_object_replace.md
+          - UVMaps Add/Remove: operators/op_object_uvmaps_add_remove.md
+          - UVMaps Cleaner: operators/op_object_uvmaps_cleaner.md
+          - Object Visual Origin: operators/op_object_visual_origin.md
+          - Visual Origin: operators/op_visual_origin.md
+      - Mesh — Selection:
+          - Bounded Loop/Ring: operators/op_select_bounded_loop_ring.md
+          - Grow Loop/Ring: operators/op_grow_loop_ring.md
+          - Shrink Loop/Ring: operators/op_shrink_loop_ring.md
+          - Mouse Fill Select: operators/op_mouse_fill_select.md
+          - Mouseover Fill Select: operators/op_mouseover_fill_select.md
+          - Convert Selection: operators/op_mesh_convert_selection.md
+      - Mesh — Editing:
+          - Connect: operators/op_connect.md
+          - Line Up: operators/op_line_up.md
+          - Equalize: operators/op_equalize.md
+          - Delete Selection: operators/op_delete_selection.md
+          - Mirror: operators/op_mirror.md
+          - Mesh to Grid: operators/op_mesh_to_grid.md
+          - Cursor Bisect: operators/op_mesh_cursor_bisect.md
+      - Mesh — Utilities:
+          - Copy Edges Angle: operators/op_mesh_copy_edges_angle.md
+          - Copy Edges Length: operators/op_mesh_copy_edges_length.md
+          - Quick Snap (Mesh): operators/op_mesh_quick_snap.md
+          - UV Channel Hop: operators/op_mesh_uv_channel_hop.md
+          - Assign Vertex Color: operators/op_assign_vertex_color.md
+      - Snap & Transform:
+          - Drag Snap: operators/op_drag_snap.md
+          - Drag Snap Cursor: operators/op_drag_snap_cursor.md
+          - Drag Snap UV: operators/op_drag_snap_uv.md
+          - Quick Snap: operators/op_quick_snap.md
+          - Snap Combos: operators/op_snap_combos.md
+      - Grid:
+          - Grid from Active: operators/op_grid_from_active.md
+          - Z Ops: operators/op_z_ops.md
+      - Modifiers:
+          - Easy Mod — Array: operators/op_easy_mod_array.md
+          - Easy Mod — Curve: operators/op_easy_mod_curve.md
+          - Easy Mod — Shwarp: operators/op_easy_mod_shwarp.md
+      - Curve:
+          - Spline Type: operators/op_curve_spline_type.md
+          - Subdivide: operators/op_curve_subdivide.md
+          - Cursor Rotate: operators/op_cursor_rotate.md
+      - Interface:
+          - Split Screen Area: operators/op_split_screen_area.md
+          - Split Screen Area (New): operators/op_split_screen_area_new.md
+          - Save/Load Space Data: operators/op_save_load_space_data.md
+          - UI Prop Switch: operators/op_ui_prop_switch.md
+          - Maya Isolate: operators/op_maya_isolate.md
+      - Collection:
+          - Outliner Collection Ops: operators/op_outliner_collection_ops.md
+      - Assets:
+          - Open Asset in Current Blender: operators/op_open_asset_in_current_blender.md
+          - Render Asset Thumbnail: operators/op_render_asset_thumbnail.md
+      - Material & Texture:
+          - Materials from Textures: operators/op_materials_from_textures.md
+          - Image Reload: operators/op_image_reload.md
+          - Library Reload: operators/op_library_reload.md
+      - Scripting:
+          - Executor: operators/op_executor.md
+          - Run Text: operators/op_run_text.md
+          - Script Executor: operators/op_script_executor.md
+      - Context:
+          - Cyclic Switcher: operators/op_cyclic_switcher.md
+  - Preferences: preferences.md
