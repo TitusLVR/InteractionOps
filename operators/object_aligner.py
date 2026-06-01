@@ -621,10 +621,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         # Polygon-reference mode state.
         self.ref_polys = {}
         self.target_polys = {}
-        self.ref_signature = None
         self.ref_points_np = None
-        self.ref_pca_ratios = None
-        self.ref_d2 = None
         self.ref_frame_np = None
         self.ref_bbox_diag = 0.0
         self.match_hints = {}
@@ -775,10 +772,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 self.match_orders = {}
                 self.match_mirrors = {}
                 self.hint_fits = {}
-                self.ref_signature = None
                 self.ref_points_np = None
-                self.ref_pca_ratios = None
-                self.ref_d2 = None
                 self.ref_frame_np = None
                 self.ref_pattern_anchors = None
                 self.ref_sub_patterns = []
@@ -996,10 +990,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
 
         self.ref_points_np = np.asarray(verts_all, dtype=np.float64)
         sig = pm.signature(self.ref_points_np, faces_all)
-        self.ref_signature = sig
         self.ref_bbox_diag = sig.bbox_diag
-        self.ref_pca_ratios = pm.pca_ratios(self.ref_points_np)
-        self.ref_d2 = pm.d2_histogram(self.ref_points_np, faces_all)
         self.ref_frame_np = pm.pca_frame(
             self.ref_points_np,
             np.asarray(face_centroids),
