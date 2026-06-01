@@ -356,18 +356,68 @@ def _apply_affine(T: np.ndarray, pt: np.ndarray) -> np.ndarray:
     return (T @ h)[:3]
 
 
+def _compose_srt(R: np.ndarray, cen_ref: np.ndarray, cen_tgt: np.ndarray,
+                 scale: float) -> np.ndarray:
+    """4x4 homogeneous matrix for tgt ≈ scale * (ref @ R.T) + t about centroids."""
+    T = np.eye(4)
+    T[:3, :3] = scale * R
+    T[:3, 3] = cen_tgt - scale * (R @ cen_ref)
+    return T
+
+
+def _fit_rmse(ref: np.ndarray, tgt: np.ndarray, T: np.ndarray) -> float:
+    """RMS residual after mapping `ref` through `T` and comparing to `tgt`."""
+    homog = np.hstack([ref, np.ones((ref.shape[0], 1))])
+    diff = (homog @ T.T)[:, :3] - tgt
+    return float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
+
+
 def fit_both(ref_pts: np.ndarray, tgt_pts: np.ndarray,
              scale_mode: str = "KEEP") -> tuple[np.ndarray, float, bool]:
     """Fit ref_pts -> tgt_pts, returning whichever of the proper-rotation and
     reflection-allowing Procrustes fits has the lower RMSE.
 
     Returns (T_4x4, rmse, is_mirror). `is_mirror` is True when the reflection
-    variant won."""
-    T_n, rmse_n = kabsch_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
-    T_m, rmse_m = kabsch_mirror_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
+    variant won.
+
+    Both orientations share one covariance SVD (H = Pᵀ·Q): the proper fit
+    applies the det-correction diag(1,1,d), the mirror fit omits it. This
+    matches `kabsch_with_scale` + `kabsch_mirror_with_scale` exactly while
+    computing a single SVD instead of two. STRETCH (affine) folds reflection
+    into the per-axis scale, so its mirror fit coincides with the proper one —
+    no second solve, is_mirror is always False there."""
+    ref = np.asarray(ref_pts, dtype=np.float64)
+    tgt = np.asarray(tgt_pts, dtype=np.float64)
+    if scale_mode == "STRETCH":
+        T = solve_fit(ref, tgt, "STRETCH")
+        return T, _fit_rmse(ref, tgt, T), False
+
+    cen_ref = ref.mean(axis=0)
+    cen_tgt = tgt.mean(axis=0)
+    P = ref - cen_ref
+    Q = tgt - cen_tgt
+    H = P.T @ Q
+    U, S, Vt = np.linalg.svd(H)
+    VtT = Vt.T
+    d = np.sign(np.linalg.det(VtT @ U.T))
+    d = d if d != 0.0 else 1.0
+    R_proper = VtT @ np.diag([1.0, 1.0, d]) @ U.T
+    R_mirror = VtT @ U.T
+
+    denom = float((P * P).sum())
+    if scale_mode == "UNIFORM" and denom > 1e-12:
+        s_proper = float(S[0] + S[1] + d * S[2]) / denom
+        s_mirror = float(S.sum()) / denom
+    else:
+        s_proper = s_mirror = 1.0
+
+    T_proper = _compose_srt(R_proper, cen_ref, cen_tgt, s_proper)
+    T_mirror = _compose_srt(R_mirror, cen_ref, cen_tgt, s_mirror)
+    rmse_n = _fit_rmse(ref, tgt, T_proper)
+    rmse_m = _fit_rmse(ref, tgt, T_mirror)
     if rmse_m < rmse_n:
-        return T_m, float(rmse_m), True
-    return T_n, float(rmse_n), False
+        return T_mirror, rmse_m, True
+    return T_proper, rmse_n, False
 
 
 def assemble_constellations(

@@ -364,3 +364,30 @@ def test_assemble_anchor_idx_nonzero():
     assert res[0]["faces"] == frozenset((1, 2, 3, 4))
     assert res[0]["order"] == (1, 2, 3, 4)
     assert not res[0]["mirror"]
+
+
+def test_fit_both_matches_reference_impl():
+    # fit_both must equal "run both kabsch variants, take the lower-rmse one"
+    # across scale modes and reflected/non-reflected targets. Guards the
+    # shared-SVD optimization against numeric drift.
+    rng = np.random.default_rng(11)
+    base = rng.normal(size=(12, 3))
+    for mode in ("KEEP", "UNIFORM", "STRETCH"):
+        for reflect in (False, True):
+            Q, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+            if np.linalg.det(Q) < 0:
+                Q[:, 0] = -Q[:, 0]
+            s = 1.0 if mode == "KEEP" else 2.3
+            tgt = (base @ Q.T) * s + np.array([1.0, -2.0, 0.5])
+            if reflect:
+                tgt = tgt.copy()
+                tgt[:, 0] = -tgt[:, 0]
+            T, rmse, is_mir = fit_both(base, tgt, scale_mode=mode)
+            Tn, rn = kabsch_with_scale(base, tgt, scale_mode=mode)
+            Tm, rm = kabsch_mirror_with_scale(base, tgt, scale_mode=mode)
+            ref_is_mir = rm < rn
+            ref_T = Tm if ref_is_mir else Tn
+            ref_rmse = rm if ref_is_mir else rn
+            assert is_mir == ref_is_mir, (mode, reflect)
+            assert rmse == pytest.approx(ref_rmse, abs=1e-9), (mode, reflect)
+            assert np.allclose(T, ref_T, atol=1e-9), (mode, reflect)
