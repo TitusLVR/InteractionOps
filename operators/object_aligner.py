@@ -357,11 +357,19 @@ def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
         except (ReferenceError, ValueError):
             continue
         if _is_instancer(src):
-            ghost_tris.extend(_instancer_tris_world(op, src, placement))
+            tris = _instancer_tris_world(op, src, placement)
             ghost_edges.extend(_instancer_edges_world(op, src, placement))
         else:
-            ghost_tris.extend(_mesh_tris_world_at(src, placement))
+            tris = _mesh_tris_world_at(src, placement)
             ghost_edges.extend(_mesh_edges_world(src, placement))
+        # A reflected placement (negative determinant) reverses triangle
+        # winding, so BACK-face culling hides the visible side and the ghost
+        # reads as inside-out. Flip winding back for mirrored placements.
+        if placement.to_3x3().determinant() < 0.0:
+            tris = [tris[i + j]
+                    for i in range(0, len(tris), 3)
+                    for j in (0, 2, 1)]
+        ghost_tris.extend(tris)
     if ghost_tris:
         with draw_scope(blend="NONE", depth="LESS_EQUAL",
                         face_culling="BACK", depth_mask=True,
