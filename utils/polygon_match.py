@@ -400,9 +400,13 @@ def assemble_constellations(
     Returns a list of dicts {"order": tuple[int], "faces": frozenset[int],
     "mirror": bool, "rmse": float}, one per distinct assembled constellation
     (deduplicated by face set). For C == 1 this reduces to one entry per
-    candidate that passes the global rmse gate."""
+    candidate that passes the global rmse gate.
+
+    When the anchor component is a single face and C > 1, hypothesis seeding is
+    O(|anchor candidates| * |next-component candidates|) fit_both calls —
+    bounded in practice by the upstream candidate cap."""
     C = len(ref_comp_anchors)
-    if C == 0 or anchor_idx >= len(cand_pool):
+    if C == 0 or anchor_idx >= len(cand_pool) or len(cand_pool) < C:
         return []
     ref_global = np.vstack(ref_comp_anchors)
     bbox = bbox_diag if bbox_diag > 1e-9 else 1.0
@@ -413,6 +417,8 @@ def assemble_constellations(
     for ca in cand_pool[anchor_idx]:
         # Hypothesis transform(s) from the anchor candidate.
         if ref_comp_facecount[anchor_idx] >= 2 or not other:
+            if ca.anchors.shape != ref_comp_anchors[anchor_idx].shape:
+                continue
             T0, _r, _m = fit_both(ref_comp_anchors[anchor_idx], ca.anchors,
                                   scale_mode)
             hypotheses = [T0]

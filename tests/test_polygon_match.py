@@ -322,7 +322,7 @@ def test_assemble_detects_mirror():
     c1 = Candidate((3, 4), mirror(REF_C1).mean(axis=0), mirror(REF_C1))
     res = assemble_constellations(
         anchors, cents, fc, 0, [[c0], [c1]],
-        scale_mode="KEEP", pos_tol=0.5, fit_rmse_rel=0.05, bbox_diag=4.0)
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
     assert len(res) == 1
     assert res[0]["mirror"]
 
@@ -350,3 +350,17 @@ def test_assemble_degenerate_anchor_pairwise_seed():
     assert len(res) == 1
     assert res[0]["faces"] == frozenset((1, 3, 4))
     assert res[0]["order"] == (1, 3, 4)
+
+
+def test_assemble_anchor_idx_nonzero():
+    anchors, cents, fc = _ref_inputs()
+    t = np.array([0.0, 6.0, -1.0])
+    c0 = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    c1 = Candidate((3, 4), (REF_C1 + t).mean(axis=0), REF_C1 + t)
+    res = assemble_constellations(
+        anchors, cents, fc, 1, [[c0], [c1]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["faces"] == frozenset((1, 2, 3, 4))
+    assert res[0]["order"] == (1, 2, 3, 4)
+    assert not res[0]["mirror"]
