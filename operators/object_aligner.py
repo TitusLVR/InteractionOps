@@ -621,10 +621,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         # Polygon-reference mode state.
         self.ref_polys = {}
         self.target_polys = {}
-        self.ref_signature = None
         self.ref_points_np = None
-        self.ref_pca_ratios = None
-        self.ref_d2 = None
         self.ref_frame_np = None
         self.ref_bbox_diag = 0.0
         self.match_hints = {}
@@ -632,6 +629,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.match_mirrors = {}
         self.ref_pattern_anchors = None
         self.ref_anchor_offset = 1.0
+        self.ref_sub_patterns = []
+        self.ref_comp_anchors = []
+        self.ref_comp_centroids = []
+        self.ref_comp_facecount = []
+        self.ref_anchor_component = 0
+        self.ref_pattern_weak = False
         self.hint_fits = {}
         self.force_mode = True
         self._bmesh_cache = {}
@@ -739,6 +742,11 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                         self.report({"WARNING"}, "Ref poly set is empty")
                         return {"RUNNING_MODAL"}
                     self._commit_ref_polys(context)
+                    if getattr(self, "ref_pattern_weak", False):
+                        self.report(
+                            {"WARNING"},
+                            "Weak pattern: mark at least one island of 2+ faces "
+                            "for reliable matching")
                     self._search_matches(context)
                     self.target_polys = {
                         obj: set().union(*comps)
@@ -764,12 +772,15 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 self.match_orders = {}
                 self.match_mirrors = {}
                 self.hint_fits = {}
-                self.ref_signature = None
                 self.ref_points_np = None
-                self.ref_pca_ratios = None
-                self.ref_d2 = None
                 self.ref_frame_np = None
                 self.ref_pattern_anchors = None
+                self.ref_sub_patterns = []
+                self.ref_comp_anchors = []
+                self.ref_comp_centroids = []
+                self.ref_comp_facecount = []
+                self.ref_anchor_component = 0
+                self.ref_pattern_weak = False
                 self.pending = []
                 self.stamped_count = 0
                 self.mode = MODE_PICK_REF
@@ -979,10 +990,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
 
         self.ref_points_np = np.asarray(verts_all, dtype=np.float64)
         sig = pm.signature(self.ref_points_np, faces_all)
-        self.ref_signature = sig
         self.ref_bbox_diag = sig.bbox_diag
-        self.ref_pca_ratios = pm.pca_ratios(self.ref_points_np)
-        self.ref_d2 = pm.d2_histogram(self.ref_points_np, faces_all)
         self.ref_frame_np = pm.pca_frame(
             self.ref_points_np,
             np.asarray(face_centroids),
@@ -990,66 +998,91 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             np.asarray(face_areas),
         )
 
-    def _search_matches(self, context):
-        """Subgraph-isomorphism scan: find face subsets in every visible mesh
-        whose face-adjacency + per-face attributes match the ref selection's
-        pattern. Each match is further validated by PCA-ratio + d2-histogram
-        similarity to the ref geometry. Populates self.match_hints (set form
-        for membership/skip checks) and self.match_orders (ordered list form
-        used by the face-correspondence procrustes fit)."""
-        from ..utils import polygon_match as pm
-        self.match_hints = {}
-        self.match_orders = {}
-        self.ref_pattern_anchors = None
-        if self.ref_signature is None or not self.ref_polys:
+        # --- Composite pattern: decompose the selection into connected
+        # components so a multi-island / scattered selection becomes one rigid
+        # constellation. (A single island degenerates to one component, i.e.
+        # the original single-pattern behavior.)
+        ref_obj = next(iter(self.ref_polys), None)
+        self.ref_sub_patterns = []
+        self.ref_comp_anchors = []
+        self.ref_comp_centroids = []
+        self.ref_comp_facecount = []
+        self.ref_anchor_component = 0
+        self.ref_pattern_weak = False
+        if ref_obj is None:
             return
-        ref_obj, ref_faces = next(iter(self.ref_polys.items()))
         try:
             ref_bm = _bmesh_for(self, ref_obj)
         except (RuntimeError, ReferenceError):
             return
-        pattern = pm.build_face_pattern(ref_bm, ref_faces)
-        if not pattern["faces"]:
+        components = pm.components_in_selection(ref_bm, set(self.ref_polys[ref_obj]))
+        sub_patterns = [pm.build_face_pattern(ref_bm, comp) for comp in components]
+        sub_patterns = [p for p in sub_patterns if p["faces"]]
+        # Most distinctive component first: descending face count, then area.
+        sub_patterns.sort(key=lambda p: (-len(p["faces"]), -sum(p["areas"])))
+        self.ref_sub_patterns = sub_patterns
+        if not sub_patterns:
             return
-        # Constant anchor offset derived from the ref pattern's mean √area —
-        # scales with the pattern's overall size but stays fixed across all
-        # target matches (so anchor distance differences don't pollute rmse).
-        mean_sqrt_area = float(np.mean([np.sqrt(max(a, 1e-12))
-                                        for a in pattern["areas"]]))
+
+        # Constant anchor offset from the mean sqrt-area over ALL pattern faces
+        # (kept identical in spirit to the previous single-pattern offset, but
+        # spanning every component).
+        all_areas = [a for p in sub_patterns for a in p["areas"]]
+        mean_sqrt_area = float(np.mean([np.sqrt(max(a, 1e-12)) for a in all_areas]))
         self.ref_anchor_offset = max(0.5 * mean_sqrt_area, 1e-6)
-        # Reference anchors computed once in pattern.faces order so every match
-        # can be Kabsch-fit against the same reference frame.
-        self.ref_pattern_anchors = self._face_anchor_points(ref_obj, pattern["faces"])
+
+        # Per-component anchors + global anchor cloud (in component order).
+        global_faces = []
+        for p in sub_patterns:
+            anchors = self._face_anchor_points(ref_obj, p["faces"])
+            self.ref_comp_anchors.append(anchors)
+            self.ref_comp_centroids.append(
+                anchors.mean(axis=0) if anchors.size else np.zeros(3))
+            self.ref_comp_facecount.append(len(p["faces"]))
+            global_faces.extend(p["faces"])
+        self.ref_pattern_anchors = self._face_anchor_points(ref_obj, global_faces)
+        self.ref_anchor_component = 0
+        # Weak pattern: anchor component is a single face -> matching relies
+        # almost entirely on inter-component arrangement and is less reliable.
+        self.ref_pattern_weak = self.ref_comp_facecount[0] < 2
+
+    def _search_matches(self, context):
+        """Per-component candidate search + constellation assembly. For each
+        scan object, find candidates for every reference sub-pattern, then
+        assemble candidate tuples whose mutual arrangement reproduces the ref
+        constellation (validated by a single global Kabsch fit). Populates
+        self.match_hints / match_orders / match_mirrors with ONE entry per
+        assembled constellation — same shape downstream code already expects."""
+        from ..utils import polygon_match as pm
+        self.match_hints = {}
+        self.match_orders = {}
+        self.match_mirrors = {}
+        if not getattr(self, "ref_sub_patterns", None) or not self.ref_polys:
+            return
+        ref_obj = next(iter(self.ref_polys))
+        ref_all_faces = frozenset().union(
+            *[set(p["faces"]) for p in self.ref_sub_patterns])
+
         sv = getattr(context, "space_data", None)
         viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
-        # Two-tier scan. Tier 0 is the tight pass; if nothing survives the
-        # validation gate, tier 1 reruns with a wider area_tol on the pattern
-        # search itself plus more permissive PCA/d2 caps. Tiny patterns (≤3
-        # faces) skip the PCA+d2 gate entirely — those statistics are
-        # degenerate for so few points and reject genuine matches.
-        # Single-tier search: pattern matcher's adjacency + face attrs do the
-        # topology gate, Kabsch fit_rmse does the geometry gate. PCA-ratio and
-        # d2-histogram checks were dropped — both are noisy on small patterns
-        # and Kabsch already gives a sharp, scale-stable signal.
-        tier_specs = [
-            {"area_tol": 0.20, "fit_rmse": 0.05},
-            {"area_tol": 0.35, "fit_rmse": 0.15},
-        ]
-        ref_set = set(ref_faces)
-        ref_bbox_diag = self.ref_signature.bbox_diag if self.ref_signature else 1.0
-        ref_bbox_diag = ref_bbox_diag if ref_bbox_diag > 1e-9 else 1.0
-        # Scan ref_obj + user-picked target objects. ref_obj is implicit (not
-        # in target_objs so it can't be removed via target-click), but search
-        # always includes it so its own copies of the pattern are also found.
+        ref_bbox_diag = self.ref_bbox_diag if self.ref_bbox_diag > 1e-9 else 1.0
+
         scan_objs = set(self.target_objs)
         if ref_obj is not None:
             scan_objs.add(ref_obj)
+
+        # Two-tier escalation: tier 0 tight, tier 1 wider area/rmse/position
+        # tolerances. pos_tol is a fraction of the ref bbox diagonal.
+        tier_specs = [
+            {"area_tol": 0.20, "fit_rmse": 0.05, "pos_tol": 0.10},
+            {"area_tol": 0.35, "fit_rmse": 0.15, "pos_tol": 0.20},
+        ]
         for tier_idx, spec in enumerate(tier_specs):
             self.match_hints = {}
             self.match_orders = {}
             self.match_mirrors = {}
-            n_objs = n_raw = n_rej_fit = n_kept = n_mirror = 0
-            worst_fit = 1e9
+            pos_tol = spec["pos_tol"] * ref_bbox_diag
+            n_objs = n_kept = n_mirror = 0
             for obj in scan_objs:
                 if obj in self.source_set or obj.type != "MESH" or obj.data is None:
                     continue
@@ -1061,47 +1094,38 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     bm = _bmesh_for(self, original)
                 except (RuntimeError, ReferenceError):
                     continue
-                raw_matches = pm.find_pattern_matches(
-                    bm, pattern, area_tol=spec["area_tol"], allow_overlap=True)
-                n_raw += len(raw_matches)
-                kept_sets: list[frozenset[int]] = []
-                kept_orders: list[tuple[int, ...]] = []
-                kept_mirrors: list[bool] = []
-                for match in raw_matches:
-                    if original is ref_obj and set(match) == ref_set:
+                # Per-component candidate pool on this object.
+                cand_pool = []
+                for p in self.ref_sub_patterns:
+                    expected = 2 * len(p["faces"])
+                    cands = []
+                    raw = pm.find_pattern_matches(
+                        bm, p, area_tol=spec["area_tol"], allow_overlap=True)
+                    for match in raw:
+                        anchors = self._face_anchor_points(original, match)
+                        if anchors.shape[0] != expected:
+                            continue
+                        cands.append(pm.Candidate(
+                            tuple(match), anchors.mean(axis=0), anchors))
+                    cand_pool.append(cands)
+                assemblies = pm.assemble_constellations(
+                    self.ref_comp_anchors, self.ref_comp_centroids,
+                    self.ref_comp_facecount, self.ref_anchor_component,
+                    cand_pool, scale_mode=self.scale_mode, pos_tol=pos_tol,
+                    fit_rmse_rel=spec["fit_rmse"], bbox_diag=ref_bbox_diag)
+                for asm in assemblies:
+                    # Skip the assembly that IS the ref selection itself.
+                    if original is ref_obj and asm["faces"] == ref_all_faces:
                         continue
-                    # Try both orientations — mirror detection is automatic.
-                    tgt_anchors = self._face_anchor_points(original, match)
-                    if tgt_anchors.shape != self.ref_pattern_anchors.shape:
-                        n_rej_fit += 1
-                        continue
-                    _T_n, fit_rmse_n = pm.kabsch_with_scale(
-                        self.ref_pattern_anchors, tgt_anchors, scale_mode=self.scale_mode)
-                    _T_m, fit_rmse_m = pm.kabsch_mirror_with_scale(
-                        self.ref_pattern_anchors, tgt_anchors, scale_mode=self.scale_mode)
-                    rmse_rel_n = float(fit_rmse_n) / ref_bbox_diag
-                    rmse_rel_m = float(fit_rmse_m) / ref_bbox_diag
-                    is_mirror = rmse_rel_m < rmse_rel_n
-                    rmse_rel = rmse_rel_m if is_mirror else rmse_rel_n
-                    if rmse_rel > spec["fit_rmse"]:
-                        n_rej_fit += 1
-                        if rmse_rel < worst_fit:
-                            worst_fit = rmse_rel
-                        continue
-                    kept_sets.append(frozenset(match))
-                    kept_orders.append(tuple(match))
-                    kept_mirrors.append(is_mirror)
+                    self.match_hints.setdefault(original, []).append(asm["faces"])
+                    self.match_orders.setdefault(original, []).append(asm["order"])
+                    self.match_mirrors.setdefault(original, []).append(asm["mirror"])
                     n_kept += 1
-                    if is_mirror:
+                    if asm["mirror"]:
                         n_mirror += 1
-                if kept_sets:
-                    self.match_hints[original] = kept_sets
-                    self.match_orders[original] = kept_orders
-                    self.match_mirrors[original] = kept_mirrors
             print(f"[aligner] search tier {tier_idx} (area={spec['area_tol']} "
-                  f"fit_rmse={spec['fit_rmse']}): "
-                  f"pattern_faces={len(pattern['faces'])} objs={n_objs} "
-                  f"raw={n_raw} rej_fit={n_rej_fit} (best_rej={worst_fit:.4f}) "
+                  f"fit_rmse={spec['fit_rmse']} pos_tol={spec['pos_tol']}): "
+                  f"components={len(self.ref_sub_patterns)} objs={n_objs} "
                   f"kept={n_kept} (mirror={n_mirror}) hints={len(self.match_hints)}")
             if n_kept > 0:
                 return

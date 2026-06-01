@@ -335,6 +335,145 @@ def kabsch_mirror_with_scale(
     return T, rmse
 
 
+@dataclass(frozen=True)
+class Candidate:
+    """One per-component pattern match on a target mesh.
+
+    - faces: matched face indices in the sub-pattern's canonical order.
+    - centroid: mean of `anchors` (world space) — the component's anchor point
+      used for arrangement prediction.
+    - anchors: (2*len(faces), 3) world-space anchor cloud for the matched faces,
+      in the same order `_face_anchor_points` emits them.
+    """
+    faces: tuple
+    centroid: np.ndarray
+    anchors: np.ndarray
+
+
+def _apply_affine(T: np.ndarray, pt: np.ndarray) -> np.ndarray:
+    """Apply a 4x4 affine matrix to a single 3D point."""
+    h = np.array([pt[0], pt[1], pt[2], 1.0])
+    return (T @ h)[:3]
+
+
+def fit_both(ref_pts: np.ndarray, tgt_pts: np.ndarray,
+             scale_mode: str = "KEEP") -> tuple[np.ndarray, float, bool]:
+    """Fit ref_pts -> tgt_pts, returning whichever of the proper-rotation and
+    reflection-allowing Procrustes fits has the lower RMSE.
+
+    Returns (T_4x4, rmse, is_mirror). `is_mirror` is True when the reflection
+    variant won."""
+    T_n, rmse_n = kabsch_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
+    T_m, rmse_m = kabsch_mirror_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
+    if rmse_m < rmse_n:
+        return T_m, float(rmse_m), True
+    return T_n, float(rmse_n), False
+
+
+def assemble_constellations(
+    ref_comp_anchors: Sequence[np.ndarray],
+    ref_comp_centroids: Sequence[np.ndarray],
+    ref_comp_facecount: Sequence[int],
+    anchor_idx: int,
+    cand_pool: Sequence[Sequence["Candidate"]],
+    *,
+    scale_mode: str = "KEEP",
+    pos_tol: float,
+    fit_rmse_rel: float,
+    bbox_diag: float,
+) -> list[dict]:
+    """Assemble whole-constellation matches from per-component candidates.
+
+    - ref_comp_anchors: list (len C) of (Ki, 3) reference anchor clouds, one per
+      connected component, in the chosen component order.
+    - ref_comp_centroids: list (len C) of (3,) reference component centroids
+      (each = mean of that component's anchor cloud).
+    - ref_comp_facecount: list (len C) of face counts per component.
+    - anchor_idx: index of the component that seeds the hypothesis transform.
+    - cand_pool: list (len C); cand_pool[j] is the list of Candidate for
+      component j on a single target object.
+    - pos_tol: max world-space distance between a predicted component centroid
+      and a candidate centroid for that candidate to be accepted.
+    - fit_rmse_rel: max (global_rmse / bbox_diag) for an assembly to survive.
+    - bbox_diag: reference bbox diagonal (rmse normalizer).
+
+    Returns a list of dicts {"order": tuple[int], "faces": frozenset[int],
+    "mirror": bool, "rmse": float}, one per distinct assembled constellation
+    (deduplicated by face set). For C == 1 this reduces to one entry per
+    candidate that passes the global rmse gate.
+
+    When the anchor component is a single face and C > 1, hypothesis seeding is
+    O(|anchor candidates| * |next-component candidates|) fit_both calls —
+    bounded in practice by the upstream candidate cap."""
+    C = len(ref_comp_anchors)
+    if C == 0 or anchor_idx >= len(cand_pool) or len(cand_pool) < C:
+        return []
+    ref_global = np.vstack(ref_comp_anchors)
+    bbox = bbox_diag if bbox_diag > 1e-9 else 1.0
+    other = [j for j in range(C) if j != anchor_idx]
+    results: list[dict] = []
+    seen: set[frozenset] = set()
+
+    for ca in cand_pool[anchor_idx]:
+        # Hypothesis transform(s) from the anchor candidate.
+        if ref_comp_facecount[anchor_idx] >= 2 or not other:
+            if ca.anchors.shape != ref_comp_anchors[anchor_idx].shape:
+                continue
+            T0, _r, _m = fit_both(ref_comp_anchors[anchor_idx], ca.anchors,
+                                  scale_mode)
+            hypotheses = [T0]
+        else:
+            # Degenerate anchor (single face fixes no in-plane rotation): seed
+            # jointly with each candidate of the next-most-distinctive component.
+            j0 = other[0]
+            ref_seed = np.vstack([ref_comp_anchors[anchor_idx],
+                                  ref_comp_anchors[j0]])
+            hypotheses = []
+            for cb in cand_pool[j0]:
+                tgt_seed = np.vstack([ca.anchors, cb.anchors])
+                if tgt_seed.shape != ref_seed.shape:
+                    continue
+                T0, _r, _m = fit_both(ref_seed, tgt_seed, scale_mode)
+                hypotheses.append(T0)
+
+        for T_hyp in hypotheses:
+            chosen = {anchor_idx: ca}
+            used = set(ca.faces)
+            ok = True
+            for j in other:
+                pred = _apply_affine(T_hyp, ref_comp_centroids[j])
+                best = None
+                best_d = pos_tol
+                for cand in cand_pool[j]:
+                    if used & set(cand.faces):
+                        continue
+                    d = float(np.linalg.norm(cand.centroid - pred))
+                    if d <= best_d:
+                        best_d = d
+                        best = cand
+                if best is None:
+                    ok = False
+                    break
+                chosen[j] = best
+                used.update(best.faces)
+            if not ok:
+                continue
+            tgt_global = np.vstack([chosen[i].anchors for i in range(C)])
+            if tgt_global.shape != ref_global.shape:
+                continue
+            _T, rmse, is_mirror = fit_both(ref_global, tgt_global, scale_mode)
+            if rmse / bbox > fit_rmse_rel:
+                continue
+            order = tuple(f for i in range(C) for f in chosen[i].faces)
+            key = frozenset(order)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({"order": order, "faces": key,
+                            "mirror": is_mirror, "rmse": rmse})
+    return results
+
+
 # --- bmesh helpers --------------------------------------------------------
 #
 # These read mesh topology from a bmesh.types.BMesh constructed by the caller
