@@ -221,3 +221,25 @@ def test_kabsch_mirror_high_rmse_on_unrelated():
     _, rmse = kabsch_mirror_with_scale(REF_CLOUD, tgt, scale_mode="KEEP")
     # 8 random points in unit-stdev cloud vs ref → RMSE roughly O(1).
     assert rmse > 0.3
+
+
+from utils.polygon_match import fit_both
+
+
+def test_fit_both_translation_not_mirror():
+    tgt = REF_CLOUD + np.array([2.0, -1.0, 4.0])
+    T, rmse, is_mirror = fit_both(REF_CLOUD, tgt, scale_mode="KEEP")
+    assert not is_mirror
+    assert rmse < 1e-6
+    homog = np.hstack([REF_CLOUD, np.ones((REF_CLOUD.shape[0], 1))])
+    out = (homog @ T.T)[:, :3]
+    assert np.allclose(out, tgt, atol=1e-6)
+
+
+def test_fit_both_detects_reflection():
+    tgt = REF_CLOUD.copy()
+    tgt[:, 0] = -tgt[:, 0]
+    T, rmse, is_mirror = fit_both(REF_CLOUD, tgt, scale_mode="KEEP")
+    assert is_mirror
+    assert rmse < 1e-6
+    assert np.linalg.det(T[:3, :3]) < 0

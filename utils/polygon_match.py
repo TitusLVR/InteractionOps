@@ -335,6 +335,41 @@ def kabsch_mirror_with_scale(
     return T, rmse
 
 
+@dataclass(frozen=True)
+class Candidate:
+    """One per-component pattern match on a target mesh.
+
+    - faces: matched face indices in the sub-pattern's canonical order.
+    - centroid: mean of `anchors` (world space) — the component's anchor point
+      used for arrangement prediction.
+    - anchors: (2*len(faces), 3) world-space anchor cloud for the matched faces,
+      in the same order `_face_anchor_points` emits them.
+    """
+    faces: tuple
+    centroid: np.ndarray
+    anchors: np.ndarray
+
+
+def _apply_affine(T: np.ndarray, pt: np.ndarray) -> np.ndarray:
+    """Apply a 4x4 affine matrix to a single 3D point."""
+    h = np.array([pt[0], pt[1], pt[2], 1.0])
+    return (T @ h)[:3]
+
+
+def fit_both(ref_pts: np.ndarray, tgt_pts: np.ndarray,
+             scale_mode: str = "KEEP") -> tuple[np.ndarray, float, bool]:
+    """Fit ref_pts -> tgt_pts, returning whichever of the proper-rotation and
+    reflection-allowing Procrustes fits has the lower RMSE.
+
+    Returns (T_4x4, rmse, is_mirror). `is_mirror` is True when the reflection
+    variant won."""
+    T_n, rmse_n = kabsch_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
+    T_m, rmse_m = kabsch_mirror_with_scale(ref_pts, tgt_pts, scale_mode=scale_mode)
+    if rmse_m < rmse_n:
+        return T_m, float(rmse_m), True
+    return T_n, float(rmse_n), False
+
+
 # --- bmesh helpers --------------------------------------------------------
 #
 # These read mesh topology from a bmesh.types.BMesh constructed by the caller
