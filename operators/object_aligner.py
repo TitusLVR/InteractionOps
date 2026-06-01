@@ -632,6 +632,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.match_mirrors = {}
         self.ref_pattern_anchors = None
         self.ref_anchor_offset = 1.0
+        self.ref_sub_patterns = []
+        self.ref_comp_anchors = []
+        self.ref_comp_centroids = []
+        self.ref_comp_facecount = []
+        self.ref_anchor_component = 0
+        self.ref_pattern_weak = False
         self.hint_fits = {}
         self.force_mode = True
         self._bmesh_cache = {}
@@ -739,6 +745,11 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                         self.report({"WARNING"}, "Ref poly set is empty")
                         return {"RUNNING_MODAL"}
                     self._commit_ref_polys(context)
+                    if getattr(self, "ref_pattern_weak", False):
+                        self.report(
+                            {"WARNING"},
+                            "Weak pattern: mark at least one island of 2+ faces "
+                            "for reliable matching")
                     self._search_matches(context)
                     self.target_polys = {
                         obj: set().union(*comps)
@@ -770,6 +781,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 self.ref_d2 = None
                 self.ref_frame_np = None
                 self.ref_pattern_anchors = None
+                self.ref_sub_patterns = []
+                self.ref_comp_anchors = []
+                self.ref_comp_centroids = []
+                self.ref_comp_facecount = []
+                self.ref_anchor_component = 0
+                self.ref_pattern_weak = False
                 self.pending = []
                 self.stamped_count = 0
                 self.mode = MODE_PICK_REF
