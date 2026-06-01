@@ -1164,9 +1164,9 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         # and the looser tier that would have caught the mirrors never ran.
         # area_tol / fit_rmse / pos_tol are operator attributes so the user can
         # adjust the tolerance live (Alt+Scroll).
-        area_tol = self.match_area_tol
-        fit_rmse = self.match_fit_rmse
-        pos_tol = self.match_pos_tol * ref_bbox_diag
+        area_tol = getattr(self, "match_area_tol", 0.35)
+        fit_rmse = getattr(self, "match_fit_rmse", 0.15)
+        pos_tol = getattr(self, "match_pos_tol", 0.20) * ref_bbox_diag
         n_objs = n_kept = n_mirror = 0
         for obj in scan_objs:
             if obj in self.source_set or obj.type != "MESH" or obj.data is None:
