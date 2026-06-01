@@ -990,6 +990,54 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             np.asarray(face_areas),
         )
 
+        # --- Composite pattern: decompose the selection into connected
+        # components so a multi-island / scattered selection becomes one rigid
+        # constellation. (A single island degenerates to one component, i.e.
+        # the original single-pattern behavior.)
+        ref_obj = next(iter(self.ref_polys), None)
+        self.ref_sub_patterns = []
+        self.ref_comp_anchors = []
+        self.ref_comp_centroids = []
+        self.ref_comp_facecount = []
+        self.ref_anchor_component = 0
+        self.ref_pattern_weak = False
+        if ref_obj is None:
+            return
+        try:
+            ref_bm = _bmesh_for(self, ref_obj)
+        except (RuntimeError, ReferenceError):
+            return
+        components = pm.components_in_selection(ref_bm, set(self.ref_polys[ref_obj]))
+        sub_patterns = [pm.build_face_pattern(ref_bm, comp) for comp in components]
+        sub_patterns = [p for p in sub_patterns if p["faces"]]
+        # Most distinctive component first: descending face count, then area.
+        sub_patterns.sort(key=lambda p: (-len(p["faces"]), -sum(p["areas"])))
+        self.ref_sub_patterns = sub_patterns
+        if not sub_patterns:
+            return
+
+        # Constant anchor offset from the mean sqrt-area over ALL pattern faces
+        # (kept identical in spirit to the previous single-pattern offset, but
+        # spanning every component).
+        all_areas = [a for p in sub_patterns for a in p["areas"]]
+        mean_sqrt_area = float(np.mean([np.sqrt(max(a, 1e-12)) for a in all_areas]))
+        self.ref_anchor_offset = max(0.5 * mean_sqrt_area, 1e-6)
+
+        # Per-component anchors + global anchor cloud (in component order).
+        global_faces = []
+        for p in sub_patterns:
+            anchors = self._face_anchor_points(ref_obj, p["faces"])
+            self.ref_comp_anchors.append(anchors)
+            self.ref_comp_centroids.append(
+                anchors.mean(axis=0) if anchors.size else np.zeros(3))
+            self.ref_comp_facecount.append(len(p["faces"]))
+            global_faces.extend(p["faces"])
+        self.ref_pattern_anchors = self._face_anchor_points(ref_obj, global_faces)
+        self.ref_anchor_component = 0
+        # Weak pattern: anchor component is a single face -> matching relies
+        # almost entirely on inter-component arrangement and is less reliable.
+        self.ref_pattern_weak = self.ref_comp_facecount[0] < 2
+
     def _search_matches(self, context):
         """Subgraph-isomorphism scan: find face subsets in every visible mesh
         whose face-adjacency + per-face attributes match the ref selection's
