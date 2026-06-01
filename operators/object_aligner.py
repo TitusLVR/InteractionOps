@@ -351,8 +351,11 @@ def _rig_local_geom(op, src):
     and reused every frame, so the modal preview never re-extracts the mesh —
     per frame only a matrix transform of the cached verts is needed. This is
     what keeps the preview cheap when many ghosts are on screen at once."""
+    cache = getattr(op, "_rig_geom_cache", None)
+    if cache is None:
+        cache = op._rig_geom_cache = {}
     key = src.original
-    cached = op._rig_geom_cache.get(key)
+    cached = cache.get(key)
     if cached is not None:
         return cached
     verts = np.zeros((0, 3))
@@ -387,7 +390,7 @@ def _rig_local_geom(op, src):
                     base = np.arange(tri_idx.size).reshape(n_tri, 3)
                     flip = base[:, [0, 2, 1]].reshape(-1)
     cached = (verts, tri_idx, edge_idx, flip)
-    op._rig_geom_cache[key] = cached
+    cache[key] = cached
     return cached
 
 
