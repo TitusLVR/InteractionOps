@@ -366,6 +366,76 @@ def test_assemble_anchor_idx_nonzero():
     assert not res[0]["mirror"]
 
 
+from utils.polygon_match import refine_fit_icp
+
+_ICP_C = np.array([[0.0, 0, 0], [3, 0, 0], [0, 2, 0], [0, 0, 1]], dtype=float)
+_ICP_N = np.array([[0.0, 0, 1], [0, 1, 0], [1, 0, 0], [0, 1, 1]], dtype=float)
+
+
+def _icp_anchors(off=0.5):
+    rows = []
+    for c, n in zip(_ICP_C, _ICP_N):
+        rows.append(c)
+        rows.append(c + n * off)
+    return np.array(rows, dtype=float)
+
+
+def _icp_apply(T, A):
+    h = np.hstack([A, np.ones((len(A), 1))])
+    return (h @ T.T)[:, :3]
+
+
+def _icp_swap(A, fperm):
+    return A.reshape(-1, 2, 3)[fperm].reshape(-1, 3)
+
+
+def _rotT(th=0.5, t=(1.0, 2.0, -1.0)):
+    R = np.array([[np.cos(th), -np.sin(th), 0],
+                  [np.sin(th), np.cos(th), 0],
+                  [0, 0, 1.0]])
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = t
+    return T
+
+
+def test_refine_icp_proper_correct_correspondence():
+    ref = _icp_anchors()
+    tgt = _icp_apply(_rotT(), ref)
+    T, rmse, mir, perm = refine_fit_icp(ref, tgt, "KEEP")
+    assert rmse < 1e-6
+    assert not mir
+
+
+def test_refine_icp_proper_twisted_correspondence():
+    # Faces 1 and 2 mislabeled — ICP must re-pair geometrically and fit at ~0,
+    # NOT settle for a false mirror.
+    ref = _icp_anchors()
+    tgt = _icp_swap(_icp_apply(_rotT(), ref), [0, 2, 1, 3])
+    T, rmse, mir, perm = refine_fit_icp(ref, tgt, "KEEP")
+    assert rmse < 1e-6
+    assert not mir
+
+
+def test_refine_icp_mirror_correct_correspondence():
+    ref = _icp_anchors()
+    tgt = ref.copy()
+    tgt[:, 0] = -tgt[:, 0]
+    T, rmse, mir, perm = refine_fit_icp(ref, tgt, "KEEP")
+    assert rmse < 1e-6
+    assert mir
+
+
+def test_refine_icp_mirror_twisted_correspondence():
+    ref = _icp_anchors()
+    tgt = ref.copy()
+    tgt[:, 0] = -tgt[:, 0]
+    tgt = _icp_swap(tgt, [1, 0, 3, 2])
+    T, rmse, mir, perm = refine_fit_icp(ref, tgt, "KEEP")
+    assert rmse < 1e-6
+    assert mir
+
+
 def test_assemble_dedups_face_overlap_keeps_best():
     # Two single-component candidates that SHARE a face: the perfect one
     # (rmse 0) and an overlapping worse one. Face-disjoint dedup must keep only

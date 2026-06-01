@@ -420,6 +420,137 @@ def fit_both(ref_pts: np.ndarray, tgt_pts: np.ndarray,
     return T_proper, rmse_n, False
 
 
+def fit_orientations(ref_pts: np.ndarray, tgt_pts: np.ndarray,
+                     scale_mode: str = "KEEP"):
+    """Return (T_proper, T_reflected): the best proper-rotation fit (det +1)
+    and the best reflection fit (det -1), sharing one covariance SVD.
+
+    Used to seed BOTH chiralities when the anchor component is symmetric and
+    therefore can't reveal which orientation the target needs — without the
+    reflected hypothesis, a mirrored constellation never assembles (its other
+    components are predicted at non-reflected positions). STRETCH folds
+    reflection into the affine diagonal, so both variants coincide there."""
+    ref = np.asarray(ref_pts, dtype=np.float64)
+    tgt = np.asarray(tgt_pts, dtype=np.float64)
+    if scale_mode == "STRETCH":
+        T = solve_fit(ref, tgt, "STRETCH")
+        return T, T
+    cen_ref = ref.mean(axis=0)
+    cen_tgt = tgt.mean(axis=0)
+    P = ref - cen_ref
+    Q = tgt - cen_tgt
+    H = P.T @ Q
+    U, S, Vt = np.linalg.svd(H)
+    VtT = Vt.T
+    d = np.sign(np.linalg.det(VtT @ U.T))
+    d = d if d != 0.0 else 1.0
+    R_p = VtT @ np.diag([1.0, 1.0, d]) @ U.T
+    R_r = VtT @ np.diag([1.0, 1.0, -d]) @ U.T
+    denom = float((P * P).sum())
+    if scale_mode == "UNIFORM" and denom > 1e-12:
+        s_p = float(S[0] + S[1] + d * S[2]) / denom
+        s_r = float(S[0] + S[1] - d * S[2]) / denom
+    else:
+        s_p = s_r = 1.0
+    return (_compose_srt(R_p, cen_ref, cen_tgt, s_p),
+            _compose_srt(R_r, cen_ref, cen_tgt, s_r))
+
+
+def _greedy_assignment(dist: np.ndarray) -> np.ndarray:
+    """One-to-one nearest assignment on a square distance matrix. Returns a
+    permutation `perm` where reference row i pairs with target column perm[i].
+    Rows claim their nearest free column, processed in ascending order of their
+    best available distance (so unambiguous pairs claim first)."""
+    n = dist.shape[0]
+    perm = np.full(n, -1, dtype=np.intp)
+    used = np.zeros(n, dtype=bool)
+    for i in np.argsort(dist.min(axis=1)):
+        i = int(i)
+        for j in np.argsort(dist[i]):
+            j = int(j)
+            if not used[j]:
+                perm[i] = j
+                used[j] = True
+                break
+    return perm
+
+
+def _pca_axes(pts: np.ndarray) -> np.ndarray:
+    """Principal axes (columns, descending eigenvalue) of a centered cloud."""
+    cov = pts.T @ pts
+    w, v = np.linalg.eigh(cov)
+    return v[:, np.argsort(w)[::-1]]
+
+
+# Axis sign combinations: 4 proper (det +1) + 4 improper (det -1). Covers the
+# PCA eigenvector sign ambiguity for both chiralities of initial alignment.
+_PCA_SIGNS = ((1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1),
+              (-1, -1, -1), (-1, 1, 1), (1, -1, 1), (1, 1, -1))
+
+
+def refine_fit_icp(ref_anchors: np.ndarray, tgt_anchors: np.ndarray,
+                   scale_mode: str = "KEEP", iters: int = 4):
+    """Robust ICP refinement of a face-correspondence fit.
+
+    Anchors are laid out two rows per face: [centroid, centroid+normal*offset,
+    centroid, ...]. The face correspondence the topological matcher returns is
+    only an adjacency isomorphism — on symmetric components it can be
+    geometrically twisted, forcing a false mirror or a poor fit. So this ignores
+    the incoming order and re-derives the correspondence GEOMETRICALLY:
+
+    Multi-start: align the reference centroid cloud to the target cloud by their
+    PCA frames over every axis-sign combination (both chiralities), and also try
+    the identity (given-order) start. From each start, run a few ICP iterations
+    (nearest-centroid one-to-one re-pairing + refit, where the fit itself picks
+    proper or mirror by rmse). Keep the global lowest-rmse result.
+
+    Returns (T_4x4, rmse, is_mirror, face_perm) where face_perm[i] is the target
+    face position (into the input face order) paired with reference face i."""
+    nf = ref_anchors.shape[0] // 2
+    T0, rmse0, mir0 = fit_both(ref_anchors, tgt_anchors, scale_mode)
+    identity = np.arange(nf, dtype=np.intp)
+    if nf < 2:
+        return T0, rmse0, mir0, identity
+
+    ref_faces = ref_anchors.reshape(nf, 2, 3)
+    tgt_faces = tgt_anchors.reshape(nf, 2, 3)
+    ref_c = ref_faces[:, 0, :]
+    tgt_c = tgt_faces[:, 0, :]
+    homog_ref = np.hstack([ref_c, np.ones((nf, 1))])
+    ref_mean = ref_c.mean(axis=0)
+    tgt_mean = tgt_c.mean(axis=0)
+    Ar = _pca_axes(ref_c - ref_mean)
+    At = _pca_axes(tgt_c - tgt_mean)
+
+    # Initial transforms: identity-order fit + one per PCA sign combination.
+    init_Ts = [T0]
+    for s in _PCA_SIGNS:
+        R0 = At @ np.diag(s).astype(float) @ Ar.T
+        Ti = np.eye(4)
+        Ti[:3, :3] = R0
+        Ti[:3, 3] = tgt_mean - R0 @ ref_mean
+        init_Ts.append(Ti)
+
+    best = (T0, rmse0, mir0, identity)
+    for T in init_Ts:
+        perm = None
+        for _ in range(iters):
+            moved = (homog_ref @ T.T)[:, :3]
+            d = np.linalg.norm(moved[:, None, :] - tgt_c[None, :, :], axis=2)
+            new_perm = _greedy_assignment(d)
+            tgt_re = tgt_faces[new_perm].reshape(-1, 3)
+            T, rmse, is_mir = fit_both(ref_anchors, tgt_re, scale_mode)
+            if perm is not None and np.array_equal(new_perm, perm):
+                perm = new_perm
+                break
+            perm = new_perm
+        if rmse < best[1]:
+            best = (T, rmse, is_mir, perm.copy())
+        if best[1] < 1e-9:
+            break
+    return best
+
+
 def assemble_constellations(
     ref_comp_anchors: Sequence[np.ndarray],
     ref_comp_centroids: Sequence[np.ndarray],
@@ -480,9 +611,12 @@ def assemble_constellations(
         if ref_comp_facecount[anchor_idx] >= 2 or not other:
             if ca.anchors.shape != ref_comp_anchors[anchor_idx].shape:
                 continue
-            T0, _r, _m = fit_both(ref_comp_anchors[anchor_idx], ca.anchors,
-                                  scale_mode)
-            hypotheses = [T0]
+            # Seed BOTH chiralities: a symmetric anchor can't reveal whether the
+            # target is mirrored, and the reflected hypothesis is what lets a
+            # mirrored constellation predict its other components correctly.
+            Tp, Tr = fit_orientations(ref_comp_anchors[anchor_idx], ca.anchors,
+                                      scale_mode)
+            hypotheses = [Tp, Tr]
         else:
             # Degenerate anchor (single face fixes no in-plane rotation): seed
             # jointly with each candidate of the next-most-distinctive component.
@@ -534,10 +668,16 @@ def assemble_constellations(
             tgt_global = np.vstack([chosen[i].anchors for i in range(C)])
             if tgt_global.shape != ref_global.shape:
                 continue
-            _T, rmse, is_mirror = fit_both(ref_global, tgt_global, scale_mode)
+            base_order = tuple(f for i in range(C) for f in chosen[i].faces)
+            # Re-derive the face correspondence geometrically (the topological
+            # matcher's order is only an adjacency isomorphism — twisted on
+            # symmetric components). This makes the proper/mirror decision and
+            # the fit reliable; spurious twisted assemblies fail the rmse gate.
+            _T, rmse, is_mirror, fperm = refine_fit_icp(
+                ref_global, tgt_global, scale_mode)
             if rmse / bbox > fit_rmse_rel:
                 continue
-            order = tuple(f for i in range(C) for f in chosen[i].faces)
+            order = tuple(base_order[p] for p in fperm)
             key = frozenset(order)
             if key in seen:
                 continue
