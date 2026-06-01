@@ -600,6 +600,10 @@ def _build_hud(context, op):
                            visible_getter=lambda: bool(op.target_objs)))
     hud.add_param(HUDParam("Clone", lambda: op.clone_mode))
     hud.add_param(HUDParam("Scale", lambda: SCALE_LABELS.get(op.scale_mode, op.scale_mode)))
+    hud.add_param(HUDParam("Tolerance",
+                           lambda: f"{getattr(op, 'match_fit_rmse', 0.15):.2f}",
+                           visible_getter=lambda: op.mode in (
+                               MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY)))
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
                            visible_getter=lambda: bool(op.last_fit)))
     hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int"))
@@ -622,6 +626,7 @@ def _build_help(context):
         HUDItem("Invert match selection",  "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate/Instance)", "D",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Scale (Uniform/Keep/Stretch)",    "S",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match tolerance",         "Alt+Wheel",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply",                   "Enter / Space / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",                  "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",              "H",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -765,6 +770,16 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if context.area is not None:
             context.area.tag_redraw()
 
+    def _refresh_matches(self, context):
+        """Re-run the constellation search at the current tolerance and reseed
+        the hint preview / kept set. Ref polys must already be committed."""
+        self._search_matches(context)
+        self.target_polys = {
+            obj: set().union(*comps)
+            for obj, comps in self.match_hints.items()
+        }
+        self._seed_hint_fits()
+
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
@@ -803,6 +818,18 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.report({"INFO"}, f"Aligner: stamped {self.stamped_count}")
             return {"FINISHED"}
 
+        # Alt+Wheel: live match-tolerance (fit rmse gate). Looser tolerance
+        # accepts matches with more deviation (e.g. imperfect mirrors). Plain
+        # wheel (no Alt) is left for viewport zoom. Re-runs the search live so
+        # clones appear/disappear while scrolling in target-poly mode.
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.alt:
+            step = 0.02 if event.type == "WHEELUPMOUSE" else -0.02
+            cur = getattr(self, "match_fit_rmse", 0.15)
+            self.match_fit_rmse = round(min(0.50, max(0.02, cur + step)), 3)
+            if self.mode == MODE_PICK_TGT_POLY:
+                self._refresh_matches(context)
+            return {"RUNNING_MODAL"}
+
         if event.value == "PRESS":
             if event.type == "D":
                 self.clone_mode = _cycle(self.clone_mode, CLONE_CYCLE)
@@ -833,12 +860,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                             {"WARNING"},
                             "Weak pattern: mark at least one island of 2+ faces "
                             "for reliable matching")
-                    self._search_matches(context)
-                    self.target_polys = {
-                        obj: set().union(*comps)
-                        for obj, comps in self.match_hints.items()
-                    }
-                    self._seed_hint_fits()
+                    self._refresh_matches(context)
                     self.mode = MODE_PICK_TGT_POLY
                     self.report({"INFO"},
                                 f"Found {sum(len(c) for c in self.match_hints.values())} "
