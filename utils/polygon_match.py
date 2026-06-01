@@ -544,7 +544,21 @@ def assemble_constellations(
             seen.add(key)
             results.append({"order": order, "faces": key,
                             "mirror": is_mirror, "rmse": rmse})
-    return results
+
+    # Keep face-disjoint matches, best fit first: a target face belongs to at
+    # most one stamped constellation. This drops spurious overlapping matches —
+    # e.g. a twisted-correspondence mirror duplicate of a proper match (sharing
+    # most of its faces) that would otherwise stamp an extra flipped clone over
+    # the correct one. Genuinely separate instances share no faces and survive.
+    results.sort(key=lambda r: r["rmse"])
+    selected: list[dict] = []
+    used_faces: set[int] = set()
+    for r in results:
+        if r["faces"] & used_faces:
+            continue
+        selected.append(r)
+        used_faces |= r["faces"]
+    return selected
 
 
 # --- bmesh helpers --------------------------------------------------------

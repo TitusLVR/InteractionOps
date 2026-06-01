@@ -366,6 +366,26 @@ def test_assemble_anchor_idx_nonzero():
     assert not res[0]["mirror"]
 
 
+def test_assemble_dedups_face_overlap_keeps_best():
+    # Two single-component candidates that SHARE a face: the perfect one
+    # (rmse 0) and an overlapping worse one. Face-disjoint dedup must keep only
+    # the perfect match. A third, face-disjoint candidate must survive.
+    t = np.array([5.0, 0.0, 0.0])
+    good = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    worse = Candidate((2, 3), (REF_C0 + t).mean(axis=0),
+                      REF_C0 + t + np.array([0.0, 0.0, 0.02]))  # shares face 2
+    far = Candidate((7, 8), (REF_C0 + t + np.array([50.0, 0.0, 0.0])).mean(axis=0),
+                    REF_C0 + t + np.array([50.0, 0.0, 0.0]))    # disjoint
+    res = assemble_constellations(
+        [REF_C0], [REF_C0.mean(axis=0)], [2], 0, [[good, worse, far]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    face_sets = {r["faces"] for r in res}
+    assert frozenset((1, 2)) in face_sets       # perfect kept
+    assert frozenset((2, 3)) not in face_sets    # overlapping worse dropped
+    assert frozenset((7, 8)) in face_sets        # disjoint survives
+    assert len(res) == 2
+
+
 def test_fit_both_matches_reference_impl():
     # fit_both must equal "run both kabsch variants, take the lower-rmse one"
     # across scale modes and reflected/non-reflected targets. Guards the
