@@ -713,6 +713,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.ref_comp_facecount = []
         self.ref_anchor_component = 0
         self.ref_pattern_weak = False
+        # Matching tolerance (user-adjustable). fit_rmse is the geometric fit
+        # gate (relative to bbox); looser values accept matches with deviation
+        # (e.g. imperfect mirrors). area_tol gates the per-face pattern search.
+        self.match_area_tol = 0.35
+        self.match_fit_rmse = 0.15
+        self.match_pos_tol = 0.20
         self.hint_fits = {}
         self.force_mode = True
         self._bmesh_cache = {}
@@ -1151,64 +1157,61 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         if ref_obj is not None:
             scan_objs.add(ref_obj)
 
-        # Two-tier escalation: tier 0 tight, tier 1 wider area/rmse/position
-        # tolerances. pos_tol is a fraction of the ref bbox diagonal.
-        tier_specs = [
-            {"area_tol": 0.20, "fit_rmse": 0.05, "pos_tol": 0.10},
-            {"area_tol": 0.35, "fit_rmse": 0.15, "pos_tol": 0.20},
-        ]
-        for tier_idx, spec in enumerate(tier_specs):
-            self.match_hints = {}
-            self.match_orders = {}
-            self.match_mirrors = {}
-            pos_tol = spec["pos_tol"] * ref_bbox_diag
-            n_objs = n_kept = n_mirror = 0
-            for obj in scan_objs:
-                if obj in self.source_set or obj.type != "MESH" or obj.data is None:
-                    continue
-                if not obj.visible_get(viewport=viewport):
-                    continue
-                n_objs += 1
-                original = obj.original
-                try:
-                    bm = _bmesh_for(self, original)
-                except (RuntimeError, ReferenceError):
-                    continue
-                # Per-component candidate pool on this object.
-                cand_pool = []
-                for p in self.ref_sub_patterns:
-                    expected = 2 * len(p["faces"])
-                    cands = []
-                    raw = pm.find_pattern_matches(
-                        bm, p, area_tol=spec["area_tol"], allow_overlap=True)
-                    for match in raw:
-                        anchors = self._face_anchor_points(original, match)
-                        if anchors.shape[0] != expected:
-                            continue
-                        cands.append(pm.Candidate(
-                            tuple(match), anchors.mean(axis=0), anchors))
-                    cand_pool.append(cands)
-                assemblies = pm.assemble_constellations(
-                    self.ref_comp_anchors, self.ref_comp_centroids,
-                    self.ref_comp_facecount, self.ref_anchor_component,
-                    cand_pool, scale_mode=self.scale_mode, pos_tol=pos_tol,
-                    fit_rmse_rel=spec["fit_rmse"], bbox_diag=ref_bbox_diag)
-                for asm in assemblies:
-                    # Skip the assembly that IS the ref selection itself.
-                    if original is ref_obj and asm["faces"] == ref_all_faces:
+        # Single matching pass at a configurable tolerance. This replaced a
+        # two-tier escalation that early-returned after a tight tier: genuine
+        # mirror matches sit at a slightly higher fit rmse than perfect proper
+        # matches, so the tight tier found only the proper ones and returned,
+        # and the looser tier that would have caught the mirrors never ran.
+        # area_tol / fit_rmse / pos_tol are operator attributes so the user can
+        # adjust the tolerance live (Alt+Scroll).
+        area_tol = self.match_area_tol
+        fit_rmse = self.match_fit_rmse
+        pos_tol = self.match_pos_tol * ref_bbox_diag
+        n_objs = n_kept = n_mirror = 0
+        for obj in scan_objs:
+            if obj in self.source_set or obj.type != "MESH" or obj.data is None:
+                continue
+            if not obj.visible_get(viewport=viewport):
+                continue
+            n_objs += 1
+            original = obj.original
+            try:
+                bm = _bmesh_for(self, original)
+            except (RuntimeError, ReferenceError):
+                continue
+            # Per-component candidate pool on this object.
+            cand_pool = []
+            for p in self.ref_sub_patterns:
+                expected = 2 * len(p["faces"])
+                cands = []
+                raw = pm.find_pattern_matches(
+                    bm, p, area_tol=area_tol, allow_overlap=True)
+                for match in raw:
+                    anchors = self._face_anchor_points(original, match)
+                    if anchors.shape[0] != expected:
                         continue
-                    self.match_hints.setdefault(original, []).append(asm["faces"])
-                    self.match_orders.setdefault(original, []).append(asm["order"])
-                    self.match_mirrors.setdefault(original, []).append(asm["mirror"])
-                    n_kept += 1
-                    if asm["mirror"]:
-                        n_mirror += 1
-            print(f"[aligner] search tier {tier_idx} (area={spec['area_tol']} "
-                  f"fit_rmse={spec['fit_rmse']} pos_tol={spec['pos_tol']}): "
-                  f"components={len(self.ref_sub_patterns)} objs={n_objs} "
-                  f"kept={n_kept} (mirror={n_mirror}) hints={len(self.match_hints)}")
-            if n_kept > 0:
-                return
+                    cands.append(pm.Candidate(
+                        tuple(match), anchors.mean(axis=0), anchors))
+                cand_pool.append(cands)
+            assemblies = pm.assemble_constellations(
+                self.ref_comp_anchors, self.ref_comp_centroids,
+                self.ref_comp_facecount, self.ref_anchor_component,
+                cand_pool, scale_mode=self.scale_mode, pos_tol=pos_tol,
+                fit_rmse_rel=fit_rmse, bbox_diag=ref_bbox_diag)
+            for asm in assemblies:
+                # Skip the assembly that IS the ref selection itself.
+                if original is ref_obj and asm["faces"] == ref_all_faces:
+                    continue
+                self.match_hints.setdefault(original, []).append(asm["faces"])
+                self.match_orders.setdefault(original, []).append(asm["order"])
+                self.match_mirrors.setdefault(original, []).append(asm["mirror"])
+                n_kept += 1
+                if asm["mirror"]:
+                    n_mirror += 1
+        print(f"[aligner] search (area={area_tol} fit_rmse={fit_rmse} "
+              f"pos_tol={self.match_pos_tol}): components={len(self.ref_sub_patterns)} "
+              f"objs={n_objs} kept={n_kept} (mirror={n_mirror}) "
+              f"hints={len(self.match_hints)}")
 
     def _extract_component_verts(self, obj, face_idx_set, mw_np):
         """Helper: world-space verts (Nx3) and local face index lists for the
