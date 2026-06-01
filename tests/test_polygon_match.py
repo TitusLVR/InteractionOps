@@ -243,3 +243,110 @@ def test_fit_both_detects_reflection():
     assert is_mirror
     assert rmse < 1e-6
     assert np.linalg.det(T[:3, :3]) < 0
+
+
+from utils.polygon_match import Candidate, assemble_constellations
+
+
+def _rigid(pts, R, t):
+    return pts @ np.asarray(R).T + np.asarray(t)
+
+
+# Two reference components, each 2 faces -> 4 anchors. Chiral (non-coplanar)
+# so an x -> -x reflection is NOT equivalent to any proper rotation, making
+# mirror detection well-posed.
+REF_C0 = np.array([
+    [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+])
+REF_C1 = np.array([
+    [3.0, 0.0, 0.0], [4.0, 0.0, 0.0],
+    [3.0, 1.0, 0.0], [3.0, 0.0, 1.0],
+])
+
+
+def _ref_inputs():
+    anchors = [REF_C0, REF_C1]
+    cents = [REF_C0.mean(axis=0), REF_C1.mean(axis=0)]
+    fc = [2, 2]
+    return anchors, cents, fc
+
+
+def test_assemble_single_component_passthrough():
+    t = np.array([5.0, 1.0, -2.0])
+    cand = Candidate((10, 11), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    res = assemble_constellations(
+        [REF_C0], [REF_C0.mean(axis=0)], [2], 0, [[cand]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["order"] == (10, 11)
+    assert res[0]["faces"] == frozenset((10, 11))
+    assert not res[0]["mirror"]
+
+
+def test_assemble_two_components_correct():
+    anchors, cents, fc = _ref_inputs()
+    t = np.array([10.0, 0.0, 0.0])
+    c0 = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    c1 = Candidate((3, 4), (REF_C1 + t).mean(axis=0), REF_C1 + t)
+    res = assemble_constellations(
+        anchors, cents, fc, 0, [[c0], [c1]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["faces"] == frozenset((1, 2, 3, 4))
+    assert res[0]["order"] == (1, 2, 3, 4)
+    assert not res[0]["mirror"]
+
+
+def test_assemble_rejects_wrong_arrangement():
+    anchors, cents, fc = _ref_inputs()
+    t = np.array([10.0, 0.0, 0.0])
+    c0 = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    bad = REF_C1 + t + np.array([0.0, 0.0, 20.0])  # far from predicted slot
+    c1 = Candidate((3, 4), bad.mean(axis=0), bad)
+    res = assemble_constellations(
+        anchors, cents, fc, 0, [[c0], [c1]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert res == []
+
+
+def test_assemble_detects_mirror():
+    anchors, cents, fc = _ref_inputs()
+
+    def mirror(pts):
+        m = pts.copy()
+        m[:, 0] = -m[:, 0]
+        return m
+
+    c0 = Candidate((1, 2), mirror(REF_C0).mean(axis=0), mirror(REF_C0))
+    c1 = Candidate((3, 4), mirror(REF_C1).mean(axis=0), mirror(REF_C1))
+    res = assemble_constellations(
+        anchors, cents, fc, 0, [[c0], [c1]],
+        scale_mode="KEEP", pos_tol=0.5, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["mirror"]
+
+
+def test_assemble_degenerate_anchor_pairwise_seed():
+    # comp0 is a single face: its 2 anchors lie on the Z axis through origin,
+    # so a 90-deg rotation about Z is invisible to a comp0-only fit. The
+    # pairwise seed with comp1 (off-axis) must recover it.
+    ref_c0_single = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.5]])
+    anchors = [ref_c0_single, REF_C1]
+    cents = [ref_c0_single.mean(axis=0), REF_C1.mean(axis=0)]
+    fc = [1, 2]
+    theta = np.pi / 2.0
+    R = np.array([[np.cos(theta), -np.sin(theta), 0.0],
+                  [np.sin(theta), np.cos(theta), 0.0],
+                  [0.0, 0.0, 1.0]])
+    t = np.array([7.0, 3.0, 0.0])
+    c0 = Candidate((1,), _rigid(ref_c0_single, R, t).mean(axis=0),
+                   _rigid(ref_c0_single, R, t))
+    c1 = Candidate((3, 4), _rigid(REF_C1, R, t).mean(axis=0),
+                   _rigid(REF_C1, R, t))
+    res = assemble_constellations(
+        anchors, cents, fc, 0, [[c0], [c1]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["faces"] == frozenset((1, 3, 4))
+    assert res[0]["order"] == (1, 3, 4)
