@@ -344,43 +344,110 @@ def _selected_face_tris_world(op, store: dict) -> list:
     return out
 
 
+def _rig_local_geom(op, src):
+    """Cache a source mesh's object-space ghost geometry: a vertex array (V,3),
+    a triangle-vertex index stream, an edge-vertex index stream, and a winding-
+    flip permutation. Built once from the evaluated mesh (a single `to_mesh`)
+    and reused every frame, so the modal preview never re-extracts the mesh —
+    per frame only a matrix transform of the cached verts is needed. This is
+    what keeps the preview cheap when many ghosts are on screen at once."""
+    key = src.original
+    cached = op._rig_geom_cache.get(key)
+    if cached is not None:
+        return cached
+    verts = np.zeros((0, 3))
+    tri_idx = np.zeros(0, dtype=np.intp)
+    edge_idx = np.zeros(0, dtype=np.intp)
+    flip = np.zeros(0, dtype=np.intp)
+    if src.type == "MESH" and src.data is not None:
+        with _eval_mesh(src) as mesh:
+            n = len(mesh.vertices)
+            if n:
+                co = np.empty(n * 3, dtype=np.float64)
+                mesh.vertices.foreach_get("co", co)
+                verts = co.reshape(-1, 3)
+                if not mesh.loop_triangles:
+                    try:
+                        mesh.calc_loop_triangles()
+                    except RuntimeError:
+                        pass
+                loops = mesh.loops
+                tri = []
+                for lt in mesh.loop_triangles:
+                    tri.append(loops[lt.loops[0]].vertex_index)
+                    tri.append(loops[lt.loops[1]].vertex_index)
+                    tri.append(loops[lt.loops[2]].vertex_index)
+                tri_idx = np.asarray(tri, dtype=np.intp)
+                if len(mesh.edges):
+                    edges = np.empty(len(mesh.edges) * 2, dtype=np.intp)
+                    mesh.edges.foreach_get("vertices", edges)
+                    edge_idx = edges
+                n_tri = tri_idx.size // 3
+                if n_tri:
+                    base = np.arange(tri_idx.size).reshape(n_tri, 3)
+                    flip = base[:, [0, 2, 1]].reshape(-1)
+    cached = (verts, tri_idx, edge_idx, flip)
+    op._rig_geom_cache[key] = cached
+    return cached
+
+
 def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
     """Draw the source rig as a GPU ghost at the given fit matrix (fill with a
     self-occlusion depth prepass, plus edges). Used both for the live hovered
     target and for already-committed picks — nothing is realized in the scene
-    until _finish."""
-    ghost_tris = []
-    ghost_edges = []
+    until _finish.
+
+    Mesh sources use a cached object-space geometry (see `_rig_local_geom`) and
+    are transformed per frame with one NumPy matmul — no `to_mesh` per frame,
+    so drawing dozens of ghosts during a mouse-move stays cheap."""
+    tris_chunks = []
+    edges_chunks = []
     for src in op.source_objs:
         try:
             placement = t_matrix @ src.matrix_world
         except (ReferenceError, ValueError):
             continue
+        mirrored = placement.to_3x3().determinant() < 0.0
         if _is_instancer(src):
-            tris = _instancer_tris_world(op, src, placement)
-            ghost_edges.extend(_instancer_edges_world(op, src, placement))
-        else:
-            tris = _mesh_tris_world_at(src, placement)
-            ghost_edges.extend(_mesh_edges_world(src, placement))
-        # A reflected placement (negative determinant) reverses triangle
-        # winding, so BACK-face culling hides the visible side and the ghost
-        # reads as inside-out. Flip winding back for mirrored placements.
-        if placement.to_3x3().determinant() < 0.0:
-            tris = [tris[i + j]
-                    for i in range(0, len(tris), 3)
-                    for j in (0, 2, 1)]
-        ghost_tris.extend(tris)
-    if ghost_tris:
+            t = _instancer_tris_world(op, src, placement)
+            e = _instancer_edges_world(op, src, placement)
+            # Mirrored placement reverses winding; flip it back so BACK-face
+            # culling keeps the visible side instead of hiding it.
+            if mirrored and t:
+                t = [t[i + j] for i in range(0, len(t), 3) for j in (0, 2, 1)]
+            if t:
+                tris_chunks.append(np.asarray(t, dtype=np.float64))
+            if e:
+                edges_chunks.append(np.asarray(e, dtype=np.float64))
+            continue
+        verts_l, tri_idx, edge_idx, flip = _rig_local_geom(op, src)
+        if verts_l.shape[0] == 0:
+            continue
+        Pnp = np.array(placement, dtype=np.float64)
+        vw = verts_l @ Pnp[:3, :3].T + Pnp[:3, 3]
+        if tri_idx.size:
+            tarr = vw[tri_idx]
+            if mirrored:
+                tarr = tarr[flip]
+            tris_chunks.append(tarr)
+        if edge_idx.size:
+            edges_chunks.append(vw[edge_idx])
+
+    ghost_tris = np.vstack(tris_chunks) if tris_chunks else None
+    ghost_edges = np.vstack(edges_chunks) if edges_chunks else None
+    if ghost_tris is not None and len(ghost_tris):
+        coords = ghost_tris.tolist()
         with draw_scope(blend="NONE", depth="LESS_EQUAL",
                         face_culling="BACK", depth_mask=True,
                         color_mask=(False, False, False, False)):
-            iops_draw.tris(ghost_tris, role=role, context=context)
+            iops_draw.tris(coords, role=role, context=context)
         with draw_scope(blend="ALPHA", depth="EQUAL",
                         face_culling="BACK", depth_mask=False):
-            iops_draw.tris(ghost_tris, role=role, context=context)
-    if ghost_edges:
+            iops_draw.tris(coords, role=role, context=context)
+    if ghost_edges is not None and len(ghost_edges):
         with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-            iops_draw.edges_3d(ghost_edges, role=Role.GHOST_EDGE, context=context)
+            iops_draw.edges_3d(ghost_edges.tolist(), role=Role.GHOST_EDGE,
+                               context=context)
 
 
 def _draw_preview_3d(op, context):
@@ -646,6 +713,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.hint_fits = {}
         self.force_mode = True
         self._bmesh_cache = {}
+        self._rig_geom_cache = {}
         self.rig_hidden = False
 
         self._hud = _build_hud(context, self)
@@ -669,6 +737,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             except (ReferenceError, RuntimeError):
                 pass
         self._bmesh_cache = {}
+        self._rig_geom_cache = {}
 
         if getattr(self, "rig_hidden", False):
             for ob in getattr(self, "source_objs", []):
