@@ -1166,7 +1166,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         # adjust the tolerance live (Alt+Scroll).
         area_tol = getattr(self, "match_area_tol", 0.35)
         fit_rmse = getattr(self, "match_fit_rmse", 0.15)
-        pos_tol = getattr(self, "match_pos_tol", 0.20) * ref_bbox_diag
+        pos_tol_frac = getattr(self, "match_pos_tol", 0.20)
+        pos_tol = pos_tol_frac * ref_bbox_diag
         n_objs = n_kept = n_mirror = 0
         for obj in scan_objs:
             if obj in self.source_set or obj.type != "MESH" or obj.data is None:
@@ -1209,7 +1210,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 if asm["mirror"]:
                     n_mirror += 1
         print(f"[aligner] search (area={area_tol} fit_rmse={fit_rmse} "
-              f"pos_tol={self.match_pos_tol}): components={len(self.ref_sub_patterns)} "
+              f"pos_tol={pos_tol_frac}): components={len(self.ref_sub_patterns)} "
               f"objs={n_objs} kept={n_kept} (mirror={n_mirror}) "
               f"hints={len(self.match_hints)}")
 
