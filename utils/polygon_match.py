@@ -414,6 +414,17 @@ def assemble_constellations(
     results: list[dict] = []
     seen: set[frozenset] = set()
 
+    # Precompute per-component candidate centroids (M,3) and face sets once so
+    # the inner nearest-candidate search is a single vectorized squared-distance
+    # pass instead of a Python np.linalg.norm per candidate pair.
+    comp_centroids = [
+        (np.array([c.centroid for c in cand_pool[j]], dtype=np.float64)
+         if cand_pool[j] else np.empty((0, 3), dtype=np.float64))
+        for j in range(C)
+    ]
+    comp_facesets = [[set(c.faces) for c in cand_pool[j]] for j in range(C)]
+    pos_tol_sq = pos_tol * pos_tol
+
     for ca in cand_pool[anchor_idx]:
         # Hypothesis transform(s) from the anchor candidate.
         if ref_comp_facecount[anchor_idx] >= 2 or not other:
@@ -441,19 +452,31 @@ def assemble_constellations(
             used = set(ca.faces)
             ok = True
             for j in other:
-                pred = _apply_affine(T_hyp, ref_comp_centroids[j])
-                best = None
-                best_d = pos_tol
-                for cand in cand_pool[j]:
-                    if used & set(cand.faces):
-                        continue
-                    d = float(np.linalg.norm(cand.centroid - pred))
-                    if d <= best_d:
-                        best_d = d
-                        best = cand
-                if best is None:
+                cents = comp_centroids[j]
+                if cents.shape[0] == 0:
                     ok = False
                     break
+                pred = _apply_affine(T_hyp, ref_comp_centroids[j])
+                diff = cents - pred
+                d2 = np.einsum("ij,ij->i", diff, diff)
+                facesets = comp_facesets[j]
+                idx = int(np.argmin(d2))
+                if d2[idx] <= pos_tol_sq and used.isdisjoint(facesets[idx]):
+                    best = cand_pool[j][idx]
+                else:
+                    # Nearest is out of range or its faces overlap an already
+                    # used component; scan ascending for the first valid one.
+                    best = None
+                    for k in np.argsort(d2):
+                        k = int(k)
+                        if d2[k] > pos_tol_sq:
+                            break
+                        if used.isdisjoint(facesets[k]):
+                            best = cand_pool[j][k]
+                            break
+                    if best is None:
+                        ok = False
+                        break
                 chosen[j] = best
                 used.update(best.faces)
             if not ok:
