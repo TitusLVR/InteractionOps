@@ -734,6 +734,7 @@ class IOPS_OT_Call_Pie_Edit(bpy.types.Operator):
     """IOPS Pie"""
 
     bl_idname = "iops.call_pie_edit"
+    is_bindable = True
     bl_label = "IOPS Pie Edit"
 
     @classmethod

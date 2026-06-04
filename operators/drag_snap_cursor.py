@@ -11,6 +11,7 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
     """Quick drag & snap using 3D Cursor"""
 
     bl_idname = "iops.object_drag_snap_cursor"
+    is_bindable = True
     bl_label = "IOPS Drag Snap Cursor"
     bl_description = (
         "Hold Q and LMB Click to quickly snap point to point using 3D Cursor"

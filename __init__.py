@@ -40,6 +40,7 @@ from .operators.split_screen_area import IOPS_OT_SwitchScreenArea
 from .operators.outliner_collection_ops import (
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
+    IOPS_OT_Collections_Remove_Keep_Objects,
 )
 
 if bpy.app.version[0] < 3:
@@ -74,6 +75,7 @@ from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
 from .operators.mesh_copy_edges_angle import IOPS_MESH_OT_CopyEdgesAngle
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
+from .operators.uv_visual_cursor import IOPS_OT_VisualCursorUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_replace import IOPS_OT_Object_Replace
@@ -215,7 +217,8 @@ from .operators.snap_combos import IOPS_OT_SetSnapCombo
 
 
 from .utils.functions import (register_keymaps, unregister_keymaps,
-                               fix_old_keymaps,
+                               fix_old_keymaps, merge_missing_defaults,
+                               build_bindable_defaults,
                                register_ui_toggle_keymaps)
 
 # Hotkeys
@@ -311,6 +314,7 @@ classes = (
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
+    IOPS_OT_Collections_Remove_Keep_Objects,
     IOPS_OT_Main,
     IOPS_OT_F1,
     IOPS_OT_F2,
@@ -405,6 +409,7 @@ classes = (
     IOPS_OT_Mesh_Quick_Connect,
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
+    IOPS_OT_VisualCursorUV,
     IOPS_OT_DragSnapCursor,
     IOPS_OT_ActiveObject_Scroll_UP,
     IOPS_OT_ActiveObject_Scroll_DOWN,
@@ -518,12 +523,14 @@ def keymap_registration():
             if not isinstance(keys_user, list):
                 print("IOPS: Invalid hotkeys file format, using defaults")
                 keys_user = keys_default
-            register_keymaps(keys_user)
+            # Merge in any defaults the saved file predates, so operators added
+            # since the user last saved become bindable (in-memory only).
+            register_keymaps(merge_missing_defaults(keys_user))
         except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
             print(f"IOPS: Error loading user hotkeys - {e}, using defaults")
-            register_keymaps(keys_default)
+            register_keymaps(build_bindable_defaults())
     else:
-        register_keymaps(keys_default)
+        register_keymaps(build_bindable_defaults())
 
     register_ui_toggle_keymaps()
     bpy.context.window_manager.keyconfigs.update()
@@ -650,6 +657,8 @@ def outliner_collection_ops(self, context):
     self.layout.separator()
     self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
     self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
+    self.layout.separator()
+    self.layout.operator(IOPS_OT_Collections_Remove_Keep_Objects.bl_idname, icon="TRASH")
 
 
 def select_interior_faces(self, context):

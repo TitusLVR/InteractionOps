@@ -11,6 +11,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     """Three point rotation"""
 
     bl_idname = "iops.object_modal_three_point_rotation"
+    is_bindable = True
     bl_label = "Complex Modal Rotation"
     bl_options = {"REGISTER", "UNDO"}
     obj = None

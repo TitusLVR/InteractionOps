@@ -6,6 +6,7 @@ class IOPS_OT_Modifier_Window(bpy.types.Operator):
     """Creates a new window for Modifiers at 300x600 size"""
 
     bl_idname = "iops.window_modifiers"
+    is_bindable = True
     bl_label = "IOPS Modifiers Window"
     bl_description = "Create a new window and switch to Properties > Modifiers panel (300x600)"
     bl_options = {'REGISTER', 'UNDO'}

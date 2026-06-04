@@ -52,6 +52,7 @@ class IOPS_OT_object_rotate_Z(bpy.types.Operator):
     """Rotate object local Z-axis 90 degrees"""
 
     bl_idname = "iops.object_rotate_z"
+    is_bindable = True
     bl_label = "IOPS rotate Z-axis - Positive"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -100,6 +101,7 @@ class IOPS_OT_object_rotate_MZ(bpy.types.Operator):
     """Rotate object local Z-axis -90 degrees"""
 
     bl_idname = "iops.object_rotate_mz"
+    is_bindable = True
     bl_label = "IOPS rotate Z-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -148,6 +150,7 @@ class IOPS_OT_object_rotate_Y(bpy.types.Operator):
     """Rotate object local Y-axis 90 degrees"""
 
     bl_idname = "iops.object_rotate_y"
+    is_bindable = True
     bl_label = "IOPS rotate Y-axis - Positive"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -196,6 +199,7 @@ class IOPS_OT_object_rotate_MY(bpy.types.Operator):
     """Rotate object local Y-axis -90 degrees"""
 
     bl_idname = "iops.object_rotate_my"
+    is_bindable = True
     bl_label = "IOPS rotate Y-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -244,6 +248,7 @@ class IOPS_OT_object_rotate_X(bpy.types.Operator):
     """Rotate object local X-axis 90 degrees"""
 
     bl_idname = "iops.object_rotate_x"
+    is_bindable = True
     bl_label = "IOPS rotate X-axis - Positive"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -292,6 +297,7 @@ class IOPS_OT_object_rotate_MX(bpy.types.Operator):
     """Rotate object local X-axis -90 degrees"""
 
     bl_idname = "iops.object_rotate_mx"
+    is_bindable = True
     bl_label = "IOPS rotate X-axis - Negative"
     bl_options = {"REGISTER", "UNDO"}
 

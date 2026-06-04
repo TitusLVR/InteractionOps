@@ -589,6 +589,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     """Interactive UV island manipulation directly on the 3D mesh surface"""
 
     bl_idname = "iops.mesh_visual_uv"
+    is_bindable = True
     bl_label = "IOPS Visual UV"
     bl_options = {"REGISTER", "UNDO"}
 

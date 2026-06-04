@@ -20,6 +20,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
     """Quick drag & snap point to point"""
 
     bl_idname = "iops.object_drag_snap"
+    is_bindable = True
     bl_label = "IOPS Drag Snap"
     bl_options = {"REGISTER", "UNDO"}
 

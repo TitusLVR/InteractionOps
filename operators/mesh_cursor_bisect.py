@@ -58,6 +58,7 @@ NUMERIC_KEYS = {
 
 class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
+    is_bindable = True
     bl_label = "Cursor Bisect"
     bl_description = "Bisect mesh. S-snap, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, X-toggle normal axis, W-world align, P-toggle preview mode, I-toggle distance info"
     bl_options = {'REGISTER', 'UNDO'}

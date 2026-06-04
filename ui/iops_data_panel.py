@@ -238,6 +238,7 @@ class IOPS_OT_Call_Data_Panel(bpy.types.Operator):
     """Active object data(mesh) information"""
 
     bl_idname = "iops.call_panel_data"
+    is_bindable = True
     bl_label = "IOPS Data panel"
 
     @classmethod

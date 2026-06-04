@@ -1,8 +1,12 @@
 import bpy
 import os
 import json
-from ...utils.functions import register_keymaps, unregister_keymaps
-from ...prefs.hotkeys_default import keys_default
+from ...utils.functions import (
+    register_keymaps,
+    unregister_keymaps,
+    merge_missing_defaults,
+    build_bindable_defaults,
+)
 
 
 class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
@@ -39,7 +43,7 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
             except Exception as e:
                 print(f"IOPS: Error creating hotkeys file - {e}")
 
-        register_keymaps(keys_user)
+        register_keymaps(merge_missing_defaults(keys_user))
         bpy.context.window_manager.keyconfigs.update()
         print("Loaded user's hotkeys")
         return {"FINISHED"}
@@ -52,7 +56,7 @@ class IOPS_OT_LoadDefaultHotkeys(bpy.types.Operator):
 
     def execute(self, context):
         unregister_keymaps()
-        register_keymaps(keys_default)
+        register_keymaps(build_bindable_defaults())
         bpy.context.window_manager.keyconfigs.update()
         print("Loaded default hotkeys")
         return {"FINISHED"}

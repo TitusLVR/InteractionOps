@@ -7,6 +7,7 @@ import mathutils
 class IOPS_OT_Cursor_Rotate(bpy.types.Operator):
     """Rotate cursor around X or Y or Z axis"""
     bl_idname = "iops.cursor_rotate"
+    is_bindable = True
     bl_label = "Cursor Rotate"
     bl_options = {"REGISTER", "UNDO"}
 

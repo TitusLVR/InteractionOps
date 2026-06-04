@@ -509,6 +509,7 @@ class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
     """Tranformation, PivotPoint, Snapping panel"""
 
     bl_idname = "iops.call_panel_tps"
+    is_bindable = True
     bl_label = "IOPS Transformation, PivotPoint, Snaps panel"
 
     @classmethod
@@ -524,6 +525,7 @@ class IOPS_OT_Call_TM_Panel(bpy.types.Operator):
     """Call Tranformation panel"""
 
     bl_idname = "iops.call_panel_tm"
+    is_bindable = True
     bl_label = "IOPS Transform panel"
 
     @classmethod

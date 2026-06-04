@@ -3,7 +3,7 @@ import os
 import json
 
 
-from ...prefs.hotkeys_default import keys_default
+from ...utils.functions import merge_missing_defaults
 
 
 def save_hotkeys():
@@ -13,14 +13,9 @@ def save_hotkeys():
     if not os.path.exists(folder):
         os.makedirs(folder)
     with open(user_hotkeys_file, "w") as f:
-        data = get_iops_keys()
-        
-        # Merge missing default keys
-        existing_idnames = {k[0] for k in data}
-        for default_key in keys_default:
-            if default_key[0] not in existing_idnames:
-                data.append(default_key)
-                
+        # Persist every current iops kmi, plus any default not yet bound, so
+        # newly shipped operators survive a save/load round-trip.
+        data = merge_missing_defaults(get_iops_keys())
         f.write("[" + ",\n".join(json.dumps(i) for i in data) + "]\n")
 
 

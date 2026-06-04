@@ -163,6 +163,7 @@ class IOPS_OT_Call_Pie_Menu(bpy.types.Operator):
     """IOPS Pie"""
 
     bl_idname = "iops.call_pie_menu"
+    is_bindable = True
     bl_label = "IOPS Pie Menu"
 
     def execute(self, context):

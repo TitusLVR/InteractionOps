@@ -3,6 +3,7 @@ import bpy
 
 class IOPS_OT_MeshToTrisToQuads(bpy.types.Operator):
     bl_idname = "iops.mesh_to_tris_to_quads"
+    is_bindable = True
     bl_label = "Mesh To Tris To Quads"
     bl_options = {"REGISTER", "UNDO"}
 

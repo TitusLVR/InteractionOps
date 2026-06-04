@@ -10,6 +10,7 @@ class IOPS_OT_Mesh_UV_Channel_Hop(bpy.types.Operator):
     """Cyclic switching uv channels and uv seams on active object"""
 
     bl_idname = "iops.mesh_uv_channel_hop"
+    is_bindable = True
     bl_label = "Object UV Channel Hop"
     bl_options = {"REGISTER", "UNDO"}
 

@@ -544,6 +544,7 @@ class IOPS_OT_Call_Pie_Split(bpy.types.Operator):
     """IOPS Pie Split"""
 
     bl_idname = "iops.call_pie_split"
+    is_bindable = True
     bl_label = "IOPS Pie Split"
 
     def execute(self, context):

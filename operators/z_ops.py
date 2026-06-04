@@ -866,6 +866,7 @@ def string_along(ovs, equalize):
 
 class Z_OT_GrowLoop(bpy.types.Operator):
     bl_idname = "iops.z_grow_loop"
+    is_bindable = True
     bl_label = "Grow Loop"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -882,6 +883,7 @@ class Z_OT_GrowLoop(bpy.types.Operator):
 
 class Z_OT_ShrinkLoop(bpy.types.Operator):
     bl_idname = "iops.z_shrink_loop"
+    is_bindable = True
     bl_label = "Shrink Loop"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -896,6 +898,7 @@ class Z_OT_ShrinkLoop(bpy.types.Operator):
 
 class Z_OT_GrowRing(bpy.types.Operator):
     bl_idname = "iops.z_grow_ring"
+    is_bindable = True
     bl_label = "Grow Ring"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -910,6 +913,7 @@ class Z_OT_GrowRing(bpy.types.Operator):
 
 class Z_OT_ShrinkRing(bpy.types.Operator):
     bl_idname = "iops.z_shrink_ring"
+    is_bindable = True
     bl_label = "Shrink Ring"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -924,6 +928,7 @@ class Z_OT_ShrinkRing(bpy.types.Operator):
 
 class Z_OT_SelectBoundedLoop(bpy.types.Operator):
     bl_idname = "iops.z_select_bounded_loop"
+    is_bindable = True
     bl_label = "Select Bounded Loop"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -938,6 +943,7 @@ class Z_OT_SelectBoundedLoop(bpy.types.Operator):
 
 class Z_OT_SelectBoundedRing(bpy.types.Operator):
     bl_idname = "iops.z_select_bounded_ring"
+    is_bindable = True
     bl_label = "Select Bounded Ring"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -952,6 +958,7 @@ class Z_OT_SelectBoundedRing(bpy.types.Operator):
 
 class Z_OT_ContextDelete(bpy.types.Operator):
     bl_idname = "iops.z_delete_mode"
+    is_bindable = True
     bl_label = "Delete Selection"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -977,6 +984,7 @@ class Z_OT_EdgeEq(bpy.types.Operator):
     """Equalize the selected contiguous edges."""
 
     bl_idname = "iops.z_eq_edges"
+    is_bindable = True
     bl_label = "Equalize"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -995,6 +1003,7 @@ class Z_OT_EdgeLineUp(bpy.types.Operator):
     """Line up the selected contiguous edges."""
 
     bl_idname = "iops.z_line_up_edges"
+    is_bindable = True
     bl_label = "Line Up"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -1013,6 +1022,7 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
     """Connect the selected edges."""
 
     bl_idname = "iops.z_connect"
+    is_bindable = True
     bl_label = "Connect"
     # bl_options = {'PRESET'}
     bl_options = {"REGISTER", "UNDO"}
@@ -1109,6 +1119,7 @@ class Z_OT_EdgeConnect(bpy.types.Operator):
 
 class Z_OT_PutOn(bpy.types.Operator):
     bl_idname = "iops.z_put_on"
+    is_bindable = True
     bl_label = "Put On"
     bl_options = {"REGISTER", "UNDO"}
     turn: FloatProperty(
@@ -1141,6 +1152,7 @@ class Z_OT_PutOn(bpy.types.Operator):
 
 class Z_OT_Mirror(bpy.types.Operator):
     bl_idname = "iops.z_mirror"
+    is_bindable = True
     bl_label = "Mirror"
     bl_options = {"REGISTER", "UNDO"}
 

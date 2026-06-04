@@ -7,6 +7,7 @@ class IOPS_OT_mesh_to_grid(bpy.types.Operator):
     """Gridify vertex position"""
 
     bl_idname = "iops.mesh_to_grid"
+    is_bindable = True
     bl_label = "IOPS mesh_to_grid"
     bl_options = {"REGISTER", "UNDO"}
 

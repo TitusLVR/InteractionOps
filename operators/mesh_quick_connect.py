@@ -13,6 +13,7 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
 
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
+    is_bindable = True
     bl_label = "Quick Connect"
     bl_description = "Connect two vertices by dragging"
     bl_options = {'REGISTER'}

@@ -665,44 +665,83 @@ km_to_remove = ['iops.snap_scroll_down',
              'iops.object_drag_snap_uv',]
 
 
+def keymap_name_for_idname(idname):
+    """Return the addon keymap an iops operator should live in, based on its
+    idname prefix. Single source of truth shared by `register_keymaps` and the
+    new-operator scan so routing can never drift between the two."""
+    if ".z_" in idname or "iops.mesh" in idname:
+        return "Mesh"
+    if "iops.object" in idname:
+        return "Object Mode"
+    if "iops.uv" in idname:
+        return "UV Editor"
+    return "Window"
+
+
 def register_keymaps(keys):
-    # keyconfigs = bpy.context.window_manager.keyconfigs
-    keymapItems = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
-        "Window"
-    ).keymap_items
-    keymapItemsMesh = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
-        "Mesh"
-    ).keymap_items
-    keymapItemsObject = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
-        "Object Mode"
-    ).keymap_items
-    keymapItemsUV = bpy.context.window_manager.keyconfigs.addon.keymaps.new(
-        "UV Editor"
-    ).keymap_items
+    kc = bpy.context.window_manager.keyconfigs.addon
+    km_cache = {}
+
+    def items_for(name):
+        if name not in km_cache:
+            km_cache[name] = kc.keymaps.new(name).keymap_items
+        return km_cache[name]
+
+    # Pre-create the four keymaps so they exist even when `keys` is empty
+    # (the prefs Keymaps UI reads these by name).
+    for name in ("Window", "Mesh", "Object Mode", "UV Editor"):
+        items_for(name)
+
     for k in keys:
-        # print ("init", k)
-        if ".z_" in k[0]:  # Make z_ops in mesh keymaps
-            keymapItemsMesh.new(
-                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-            )
-        elif "iops.mesh" in k[0]:  # Make iops.mesh in mesh keymaps
-            keymapItemsMesh.new(
-                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-            )
-        elif "iops.object" in k[0]:  # Make iops.object in mesh keymaps
-            keymapItemsObject.new(
-                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-            )
-        elif "iops.uv" in k[0]:  # Make iops.object in mesh keymaps
-            keymapItemsUV.new(
-                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-            )
-        else:
-            keymapItems.new(
-                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-            )
-        # print("Registered:", k[0])
+        items_for(keymap_name_for_idname(k[0])).new(
+            k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+        )
     print("IOPS Keymaps registered")
+
+
+def build_bindable_defaults():
+    """Return keymap tuples for every bindable IOPS operator.
+
+    The bindable set is the union of two sources:
+      1. `keys_default` — the shipped default-binding table (also the home of
+         the dynamically-registered ops, e.g. the pie/panel callers, that have
+         no stampable Python class).
+      2. Every registered `IOPS_OT_*` operator class whose `is_bindable` class
+         attribute is True — the per-operator opt-in. Operators flagged this
+         way but absent from `keys_default` register unbound (type NONE) for
+         the user to assign.
+
+    To make a new operator bindable: set `is_bindable = True` on its class
+    (it appears unbound in the prefs Keymaps "Other" bucket), and optionally
+    add a `keys_default` line if you want to ship a default key."""
+    from ..prefs.hotkeys_default import keys_default
+    out = {k[0]: list(k) for k in keys_default}
+    for name in dir(bpy.types):
+        if not name.startswith("IOPS_OT_"):
+            continue
+        cls = getattr(bpy.types, name)
+        if getattr(cls, "is_bindable", False):
+            idname = getattr(cls, "bl_idname", None)
+            if idname and idname not in out:
+                out[idname] = [idname, "NONE", "PRESS",
+                               False, False, False, False]
+    return list(out.values())
+
+
+def merge_missing_defaults(keys):
+    """Append any bindable-operator default whose idname isn't already present
+    in `keys`. Append-only and idempotent — never overrides a user binding.
+
+    Called on load so operators newly made bindable (added to `keys_default`
+    or flagged `is_bindable`) become available even for users who already have
+    a saved `iops_hotkeys_user.py` file. Works in-memory only; the file is
+    rewritten solely when the user clicks Save."""
+    existing = {k[0] for k in keys}
+    merged = list(keys)
+    for dk in build_bindable_defaults():
+        if dk[0] not in existing:
+            merged.append(list(dk))
+    return merged
 
 
 # UI toggle keymaps — kept separate from `keys_default` so the user-hotkey

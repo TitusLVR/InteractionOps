@@ -93,6 +93,7 @@ ASTAR_H_WEIGHT = 2.5
 
 class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
     bl_idname = "iops.mesh_uv_shortest_mark"
+    is_bindable = True
     bl_label = "UV Shortest Path Mark"
     bl_description = (
         "Interactive shortest path edge marking bounded by barrier edges. "

@@ -8,6 +8,7 @@ class IOPS_OT_object_normalize(bpy.types.Operator):
     """Normalize location,Rotation,Scale,Dimensions values"""
 
     bl_idname = "iops.object_normalize"
+    is_bindable = True
     bl_label = "IOPS object normalize"
     bl_options = {"REGISTER", "UNDO"}
 

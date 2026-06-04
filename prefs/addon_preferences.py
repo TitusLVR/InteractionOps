@@ -618,6 +618,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_ui.label(text="UI Toggles:")
             col_ui = box_ui.column(align=True)
             km_ui_col = col_ui.row(align=True).column(align=True)
+            # Other / uncategorized — catches operators whose idname matches no
+            # explicit bucket above (e.g. iops.collections_*), including those
+            # added via "Scan for New Operators".
+            box_other = col.box()
+            box_other.label(text="Other:")
+            col_other = box_other.column(align=True)
+            km_other_col = col_other.row(align=True).column(align=True)
 
 
             """
@@ -739,6 +746,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_scripts_col.label(
+                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                icon="INFO",
+                            )
+                    elif kmi.idname.startswith("iops."):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_other_col, 0
+                            )
+                        except AttributeError:
+                            km_other_col.label(
                                 text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
                                 icon="INFO",
                             )

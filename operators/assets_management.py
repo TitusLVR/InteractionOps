@@ -682,6 +682,7 @@ class IOPS_OT_Call_Pie_Assets(bpy.types.Operator):
     """Call the asset management pie menu"""
 
     bl_idname = "iops.call_pie_assets"
+    is_bindable = True
     bl_label = "IOPS Asset Management Pie"
 
     def execute(self, context):
