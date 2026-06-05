@@ -11,8 +11,8 @@ from .functions import (
     empty_to_cursor,
     view_selected_uv,
     uv_select_mode,
-    uv_island_toggle,
     uv_sync_toggle,
+    uv_visual_cursor,
     set_display_mode,
     curve_subdivide,
     curve_spline_type,
@@ -652,7 +652,7 @@ class IOPS_Dict:
                         "NONE": lambda: mesh_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -672,7 +672,7 @@ class IOPS_Dict:
                         "NONE": lambda: mesh_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -692,7 +692,7 @@ class IOPS_Dict:
                         "NONE": lambda: no_operator(),
                     },
                     "F4": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -712,7 +712,7 @@ class IOPS_Dict:
                         "NONE": lambda: uv_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: uv_island_toggle(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -732,7 +732,7 @@ class IOPS_Dict:
                         "NONE": lambda: uv_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: uv_island_toggle(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -749,7 +749,7 @@ class IOPS_Dict:
                         "NONE": lambda: view_selected_uv(),
                     },
                     "F4": { 
-                        "NONE": lambda: uv_island_toggle(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),
@@ -769,7 +769,7 @@ class IOPS_Dict:
                         "NONE": lambda: uv_select_mode("FACE"),
                     },
                     "F4": {
-                        "NONE": lambda: view_selected_uv(),
+                        "NONE": lambda: uv_visual_cursor(),
                     },
                     "F5": {
                         "NONE": lambda: uv_sync_toggle(),

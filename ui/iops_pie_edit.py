@@ -571,9 +571,8 @@ class IOPS_MT_Pie_Edit(Menu):
             pie.operator("iops.function_f3", text="Face", icon="FACESEL")
             pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
             pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
-            if not context.tool_settings.use_uv_select_sync:
-                pie.separator()
-                pie.operator("iops.function_f4", text="Island", icon="UV_ISLANDSEL")
+            pie.separator()
+            pie.operator("iops.function_f4", text="2D Cursor", icon="CURSOR")
 
             draw_open_asset_in_pie_if_poll(pie, context)
 

@@ -63,6 +63,71 @@ def get_selected_face_islands(bm, uv_layer):
     return islands, uv_to_faces
 
 
+def get_uv_selected_islands(bm, uv_layer):
+    """Detect complete UV islands that contain at least one UV-selected loop.
+
+    Unlike `get_selected_face_islands` (which seeds from mesh face selection,
+    `f.select`), this seeds from the UV editor's own selection: a face is a
+    seed if any of its loops is UV-selected. Uses the Blender-5.0+
+    `loop.uv_select_vert` with a fallback to `loop[uv_layer].select`, and also
+    ORs in `f.select` so it works with UV Sync Selection on too.
+
+    Returns a list of islands, each a set of face indices (expanded to the
+    island's full extent via UV-weld connectivity, matching
+    `get_selected_face_islands`).
+    """
+    def _loop_selected(loop):
+        sel = getattr(loop, "uv_select_vert", None)
+        if sel is None:
+            sel = loop[uv_layer].select
+        return sel
+
+    seed = set()
+    for f in bm.faces:
+        if f.select or any(_loop_selected(lp) for lp in f.loops):
+            seed.add(f.index)
+    if not seed:
+        return []
+
+    # UV connectivity: key = (vert_index, rounded_u, rounded_v) = a weld point.
+    uv_to_faces = {}
+    for f in bm.faces:
+        for loop in f.loops:
+            uv = loop[uv_layer].uv
+            key = (loop.vert.index, round(uv.x, 6), round(uv.y, 6))
+            uv_to_faces.setdefault(key, set()).add(f.index)
+
+    face_to_neighbors = {}
+    for f in bm.faces:
+        neighbors = set()
+        for loop in f.loops:
+            uv = loop[uv_layer].uv
+            key = (loop.vert.index, round(uv.x, 6), round(uv.y, 6))
+            neighbors |= uv_to_faces.get(key, set())
+        neighbors.discard(f.index)
+        face_to_neighbors[f.index] = neighbors
+
+    visited = set()
+    islands = []
+    for seed_idx in seed:
+        if seed_idx in visited:
+            continue
+        island = set()
+        stack = [seed_idx]
+        while stack:
+            fi = stack.pop()
+            if fi in visited:
+                continue
+            visited.add(fi)
+            island.add(fi)
+            for ni in face_to_neighbors.get(fi, set()):
+                if ni not in visited:
+                    stack.append(ni)
+        islands.append(island)
+
+    return islands
+
+
 def get_island_uv_data(bm, island_face_indices, uv_layer):
     """
     Get UV data for an island: edges, points, and bounding box.

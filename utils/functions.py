@@ -283,6 +283,18 @@ def uv_sync_toggle():
     print("UV Sync:", flag)
 
 
+def uv_visual_cursor():
+    """F4 in the UV editor: visual 2D-cursor placement. Mirrors the 3D-view
+    F4 = visual origin (`cursor_origin_mesh`) so the key is consistent across
+    both editors. The modal op guards context itself; we only gate on having
+    a mesh in edit mode."""
+    obj = bpy.context.active_object
+    if obj is not None and obj.type == "MESH" and obj.mode == "EDIT":
+        bpy.ops.iops.uv_visual_cursor("INVOKE_DEFAULT")
+    else:
+        print("VisualCursorUV: requires a mesh in edit mode")
+
+
 def mesh_select_mode(type):
     if bpy.context.mode == "OBJECT":
         object_mode_switch("EDIT")
