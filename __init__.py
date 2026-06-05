@@ -14,6 +14,7 @@ from .operators.preferences.io_addon_preferences import (
 )
 from .operators.preferences.io_theme import (
     IOPS_OT_ThemeSaveAs,
+    IOPS_OT_ThemeSave,
     IOPS_OT_ThemeDelete,
     IOPS_OT_ThemeOpenFolder,
     ensure_default_presets as _ensure_default_theme_presets,
@@ -400,6 +401,7 @@ classes = (
     IOPS_OT_SaveAddonPreferences,
     IOPS_OT_LoadAddonPreferences,
     IOPS_OT_ThemeSaveAs,
+    IOPS_OT_ThemeSave,
     IOPS_OT_ThemeDelete,
     IOPS_OT_ThemeOpenFolder,
     IOPS_OT_RenderAssetThumbnail,

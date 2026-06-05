@@ -1,6 +1,6 @@
 import bpy
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty,
-                       FloatVectorProperty, IntProperty)
+                       FloatVectorProperty, IntProperty, StringProperty)
 
 
 def _color(default, name=""):
@@ -283,11 +283,20 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     )
 
     # --- Theme presets (file-backed list in scripts/presets/IOPS/themes/) ---
+    # `theme_preset` is a dynamic EnumProperty (items from a callback), which
+    # Blender does NOT persist to userpref.blend — it resets to the first item
+    # on every reload. We back it with `theme_preset_name` (a real, persisted
+    # StringProperty) via get/set so the last selection survives reload. The
+    # get/set only translate index<->name; getter returns 0 if the stored name
+    # no longer exists, so a deleted preset degrades gracefully.
+    theme_preset_name: StringProperty(default="", options={"HIDDEN"})
     theme_preset: EnumProperty(
         name="Preset",
         description="Apply a saved theme preset",
         items=lambda self, ctx: _theme_preset_items_proxy(self, ctx),
         update=lambda self, ctx: _theme_preset_update_proxy(self, ctx),
+        get=lambda self: _theme_preset_get_proxy(self),
+        set=lambda self, value: _theme_preset_set_proxy(self, value),
     )
 
     # --- Theme tab fold state (UI only) ---
@@ -319,6 +328,16 @@ def _theme_preset_items_proxy(self, context):
 def _theme_preset_update_proxy(self, context):
     from ..operators.preferences import io_theme
     io_theme.theme_preset_update(self, context)
+
+
+def _theme_preset_get_proxy(self):
+    from ..operators.preferences import io_theme
+    return io_theme.theme_preset_get(self)
+
+
+def _theme_preset_set_proxy(self, value):
+    from ..operators.preferences import io_theme
+    io_theme.theme_preset_set(self, value)
 
 
 class IOPS_OT_ThemeResetDefaults(bpy.types.Operator):
@@ -460,6 +479,7 @@ def draw_theme_tab(layout, theme):
     bar = layout.row(align=True)
     bar.prop(theme, "theme_preset", text="")
     bar.operator("iops.theme_save_as", text="", icon="FILE_NEW")
+    bar.operator("iops.theme_save", text="", icon="FILE_TICK")
     bar.operator("iops.theme_delete", text="", icon="TRASH")
     bar.operator("iops.theme_open_folder", text="", icon="FILE_FOLDER")
     layout.separator()

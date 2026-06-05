@@ -151,6 +151,29 @@ def theme_preset_items(self, context):
     return _ENUM_ITEMS_CACHE
 
 
+def theme_preset_get(self):
+    """Getter for the `theme_preset` enum — resolve the persisted name string
+    to its index in the current items list. Returns 0 (first item) if the
+    stored preset no longer exists, so a deleted preset degrades gracefully."""
+    name = getattr(self, "theme_preset_name", "")
+    if not name:
+        return 0
+    items = theme_preset_items(self, None)
+    for i, it in enumerate(items):
+        if it[0] == name:
+            return i
+    return 0
+
+
+def theme_preset_set(self, value):
+    """Setter for the `theme_preset` enum — translate the index back to a
+    name and store it in the persisted `theme_preset_name` string. The
+    EnumProperty's `update` callback fires afterwards and applies the preset."""
+    items = theme_preset_items(self, None)
+    if 0 <= value < len(items):
+        self.theme_preset_name = items[value][0]
+
+
 def theme_preset_update(self, context):
     """Update callback — apply the selected preset."""
     name = getattr(self, "theme_preset", "")
@@ -319,6 +342,37 @@ class IOPS_OT_ThemeSaveAs(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class IOPS_OT_ThemeSave(bpy.types.Operator):
+    bl_idname = "iops.theme_save"
+    bl_label = "Save Current Theme"
+    bl_description = ("Save current values onto the selected preset "
+                      "(writes to the user folder, overriding a bundled "
+                      "preset of the same name)")
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        theme = _get_theme(context)
+        if theme is None:
+            return False
+        return getattr(theme, "theme_preset", "") not in ("", "__none__")
+
+    def execute(self, context):
+        theme = _get_theme(context)
+        if theme is None:
+            self.report({"ERROR"}, "Theme prefs not available")
+            return {"CANCELLED"}
+        name = theme.theme_preset
+        path = os.path.join(user_themes_folder(), name + _ITHEME_EXT)
+        try:
+            _write_atomic(path, serialize_theme(theme))
+        except Exception as e:
+            self.report({"ERROR"}, f"Save failed: {e}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Saved theme '{name}' to {path}")
+        return {"FINISHED"}
+
+
 class IOPS_OT_ThemeDelete(bpy.types.Operator):
     bl_idname = "iops.theme_delete"
     bl_label = "Delete Theme Preset"
@@ -377,6 +431,7 @@ class IOPS_OT_ThemeOpenFolder(bpy.types.Operator):
 
 classes = (
     IOPS_OT_ThemeSaveAs,
+    IOPS_OT_ThemeSave,
     IOPS_OT_ThemeDelete,
     IOPS_OT_ThemeOpenFolder,
 )
