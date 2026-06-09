@@ -85,7 +85,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     text_size_hud_label:     IntProperty(name="Label Size",  default=11, min=8, max=64)
     shadow_enabled:        BoolProperty(name="Shadow", default=True)
     shadow_color:          _color((0.0, 0.0, 0.0, 1.0), "Shadow color")
-    shadow_blur:           IntProperty(name="Shadow blur", default=0, min=0, max=10)
+    shadow_blur:           IntProperty(name="Shadow blur", default=0, min=0, max=5)
     shadow_offset_x:       IntProperty(name="Shadow X", default=1, min=-8, max=8)
     shadow_offset_y:       IntProperty(name="Shadow Y", default=-1, min=-8, max=8)
 
@@ -532,13 +532,12 @@ def draw_theme_tab(layout, theme):
     # three per-overlay sub-sections (Dynamic, Help, Statistics).
     sub = _theme_section(layout, theme, "show_hud", "HUD", icon="WINDOW")
     if sub is not None:
+        sub.operator("iops.theme_use_blender_hud_colors", icon="COLOR")
+        sub.separator()
         # --- Text Styles ----------------------------------------------
         body = _theme_section(sub, theme, "show_hud_text",
                               "Text Styles", icon="FONT_DATA")
         if body is not None:
-            body.operator("iops.theme_use_blender_hud_colors",
-                          icon="COLOR")
-            body.separator()
             for attr, size_attr, label in (
                     ("color_hud_header",         "text_size_hud_header",
                      "HUD Header"),

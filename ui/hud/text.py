@@ -14,6 +14,7 @@ cache is bounded to keep memory in check.
 """
 from __future__ import annotations
 import os
+from contextlib import contextmanager
 import blf
 
 from ..draw.theme import Theme, Role
@@ -26,6 +27,16 @@ _FONT_CACHE: dict[str, int] = {"": 0}
 # Cache: { (text, font_id, size_px) -> (width_px, height_px) }
 _MEASURE_CACHE: dict[tuple, tuple[float, float]] = {}
 _MEASURE_CACHE_MAX = 2048
+
+# blf.shadow only accepts these blur kernel levels; any other value raises
+# TypeError, which — swallowed by a draw handler's try/except — makes the
+# whole text block silently disappear. Snap arbitrary slider values to the
+# nearest legal level so the HUD never vanishes.
+_BLF_SHADOW_LEVELS = (0, 3, 5, 6)
+
+
+def _snap_shadow_blur(blur: int) -> int:
+    return min(_BLF_SHADOW_LEVELS, key=lambda v: abs(v - blur))
 
 
 def _resolve_font(theme: Theme) -> int:
@@ -58,7 +69,7 @@ def configure(theme: Theme, size_token: str = "normal",
     if theme.shadow.enabled and shadow_alpha_mul > 0.0:
         blf.enable(font_id, blf.SHADOW)
         sc = theme.shadow.color
-        blf.shadow(font_id, theme.shadow.blur,
+        blf.shadow(font_id, _snap_shadow_blur(theme.shadow.blur),
                    sc[0], sc[1], sc[2], sc[3] * shadow_alpha_mul)
         blf.shadow_offset(font_id, theme.shadow.offset_x, theme.shadow.offset_y)
     else:
@@ -120,3 +131,30 @@ def invalidate_caches() -> None:
     """Drop measurement cache. Call when theme settings that affect
     glyph metrics change (font_path, text sizes)."""
     _MEASURE_CACHE.clear()
+
+
+@contextmanager
+def isolated(theme: Theme, font_id: int | None = None):
+    """Isolate blf font state for the duration of a HUD draw.
+
+    When `theme.font_path` is empty the HUD draws with blf font id 0 — the
+    *same* font Blender uses for its own UI text (outliner rows, properties,
+    headers). `configure()` mutates that shared font (size, color, and
+    crucially `blf.enable(SHADOW)`) and leaves it dirty. A POST_PIXEL draw
+    handler that does this is coupling our HUD rendering to every other
+    editor that shares the font.
+
+    blf has no getters, so on exit we hard-reset to Blender's UI baseline:
+    SHADOW disabled. (Size/color are re-set per glyph by every consumer,
+    ours and Blender's, so they self-correct — only the SHADOW *enable*
+    bit sticks across draws.) Use this around any persistent or modal
+    HUD draw so our font state never bleeds into the outliner et al."""
+    if font_id is None:
+        font_id = _resolve_font(theme)
+    try:
+        yield font_id
+    finally:
+        try:
+            blf.disable(font_id, blf.SHADOW)
+        except Exception:
+            pass

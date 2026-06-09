@@ -2,6 +2,7 @@ import os
 import bpy
 
 from ..ui.draw.theme import get_theme, Role
+from ..ui.hud import text as hud_text
 from ..ui.hud.text import draw as hud_text_draw, measure as hud_text_measure
 
 
@@ -147,3 +148,16 @@ def draw_iops_statistics():
 
     except Exception:
         pass
+    finally:
+        # blf shadow is a *global* state bit on the shared UI font (id 0 when
+        # no custom font_path) — the same font the outliner draws its rows
+        # with. `configure()` enables SHADOW and leaves it on; on the next
+        # same-pass redraw that bleeds into the outliner's text, which the
+        # user sees as row flicker on click (only when shadow is enabled).
+        # Hard-disable it after our draw so our HUD state never escapes into
+        # Blender's own UI rendering.
+        import blf
+        try:
+            blf.disable(hud_text._resolve_font(theme), blf.SHADOW)
+        except Exception:
+            pass
