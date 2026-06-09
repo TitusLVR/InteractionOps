@@ -63,14 +63,18 @@ def get_selected_face_islands(bm, uv_layer):
     return islands, uv_to_faces
 
 
-def get_uv_selected_islands(bm, uv_layer):
+def get_uv_selected_islands(bm, uv_layer, use_sync=False):
     """Detect complete UV islands that contain at least one UV-selected loop.
 
-    Unlike `get_selected_face_islands` (which seeds from mesh face selection,
-    `f.select`), this seeds from the UV editor's own selection: a face is a
-    seed if any of its loops is UV-selected. Uses the Blender-5.0+
-    `loop.uv_select_vert` with a fallback to `loop[uv_layer].select`, and also
-    ORs in `f.select` so it works with UV Sync Selection on too.
+    Seeds from the UV editor's own selection (Blender-5.0+ `loop.uv_select_vert`,
+    fallback `loop[uv_layer].select`). The selection rule depends on UV Sync:
+
+    * Sync OFF: `uv_select_vert` defaults to True for the *whole mesh* — even
+      faces not shown in the UV editor — so reading it alone selects
+      everything. The editor only shows/edits UVs of selected mesh faces, so a
+      face seeds only when `f.select AND <a loop is uv-selected>`.
+    * Sync ON: selection mirrors the mesh element selection and `uv_select_vert`
+      already reflects it, so seed on `uv_select_vert` alone.
 
     Returns a list of islands, each a set of face indices (expanded to the
     island's full extent via UV-weld connectivity, matching
@@ -84,7 +88,10 @@ def get_uv_selected_islands(bm, uv_layer):
 
     seed = set()
     for f in bm.faces:
-        if f.select or any(_loop_selected(lp) for lp in f.loops):
+        if use_sync:
+            if any(_loop_selected(lp) for lp in f.loops):
+                seed.add(f.index)
+        elif f.select and any(_loop_selected(lp) for lp in f.loops):
             seed.add(f.index)
     if not seed:
         return []

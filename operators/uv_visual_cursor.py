@@ -62,15 +62,21 @@ def _selection_bbox(context):
     """Min/max of selected UV verts on the active mesh, or None if none.
 
     Reads selection via the Blender-5.0+ `loop.uv_select_vert` with a
-    fallback to `loop[uv_layer].select` — same idiom as
-    `utils.picking.build_uv_kdtree`.
+    fallback to `loop[uv_layer].select`. With UV Sync OFF `uv_select_vert`
+    defaults to True across the *whole mesh* (incl. faces not shown in the
+    editor), so a loop counts as selected only when its face is also selected
+    (`f.select`) — the editor only exposes UVs of selected faces. With Sync ON
+    `uv_select_vert` already mirrors the mesh selection, so use it directly.
     """
     obj = context.active_object
+    use_sync = context.scene.tool_settings.use_uv_select_sync
     bm = bmesh.from_edit_mesh(obj.data)
     uv_layer = bm.loops.layers.uv.verify()
     mn = None
     mx = None
     for face in bm.faces:
+        if not use_sync and not face.select:
+            continue
         for loop in face.loops:
             sel = getattr(loop, "uv_select_vert", None)
             if sel is None:
@@ -350,7 +356,8 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             obj = context.active_object
             bm = bmesh.from_edit_mesh(obj.data)
             uv_layer = bm.loops.layers.uv.verify()
-            self.islands = get_uv_selected_islands(bm, uv_layer)
+            use_sync = context.scene.tool_settings.use_uv_select_sync
+            self.islands = get_uv_selected_islands(bm, uv_layer, use_sync)
         except (AttributeError, RuntimeError):
             self.islands = []
 
