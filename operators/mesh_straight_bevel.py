@@ -207,14 +207,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         items=[
             ("STRAIGHT", "Straight", "Perpendicular cuts across adjacent faces"),
             ("PCT",      "Percent",  "Rounded edge bevel (mesh.bevel SUPERELLIPSE)"),
-            ("FAN",      "Flat Fan", "Flat in-face bevel aligned to picked face plane"),
+            # FAN ("Flat Fan") disabled — unfinished 9411f5c feature that
+            # never worked reliably. _exec_fan and its overlays are kept
+            # but unreachable; re-add the enum item + F/Q/W modal keys to
+            # resurrect.
         ],
         default="STRAIGHT",
     )
     pct_segments: IntProperty(
         name="Pct Segments",
         description="Bevel segments for Percent mode",
-        default=16, min=1, max=16,
+        default=16, min=1, soft_max=32,
     )
     fan_segments: IntProperty(
         name="Fan Segments",
@@ -341,16 +344,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._hud.add_param(HUDParam(
             "Pct bevel (B)", lambda: self._pct_active, "bool"))
         self._hud.add_param(HUDParam(
-            "Flat fan (F)", lambda: self._fan_active, "bool"))
-        self._hud.add_param(HUDParam(
             "Pct segs", lambda: self._pct_segments, "int",
             active_getter=lambda: self._pct_active))
-        self._hud.add_param(HUDParam(
-            "Fan segs", lambda: self._fan_segments, "int",
-            active_getter=lambda: self._fan_active))
-        self._hud.add_param(HUDParam(
-            "Align mode (W)", lambda: self._fan_align_mode, "str",
-            active_getter=lambda: self._fan_active))
         self._hud.add_param(HUDParam(
             "Cleanup (C)", lambda: self._cleanup_mode, "bool"))
         self._hud.add_param(HUDParam(
@@ -359,9 +354,6 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._help.add_section(HUDSection("Straight Bevel", [
             HUDItem("Adjust offset", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Percent bevel", "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flat fan",      "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cycle align faces", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align mode (proj/recomp)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cleanup (limited dissolve on align faces)", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap cut to chain endpoint vert", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -405,11 +397,12 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} \
                 and (self._pct_active or self._fan_active) and event.value == "PRESS":
             # Wheel intercepted while pct or fan overlay is on.
-            # Up: more segments; down: fewer (clamped to 1..16).
+            # Up: more segments; down: fewer. No hard ceiling — 32 is
+            # only the redo-panel slider's soft limit.
             attr = "_pct_segments" if self._pct_active else "_fan_segments"
             cur = getattr(self, attr)
             if event.type == "WHEELUPMOUSE":
-                setattr(self, attr, min(16, cur + 1))
+                setattr(self, attr, cur + 1)
             else:
                 setattr(self, attr, max(1, cur - 1))
             context.workspace.status_text_set(self._status_text())
@@ -461,28 +454,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
-            if event.type == "F":
-                self._fan_active = not self._fan_active
-                if self._fan_active:
-                    self._pct_active = False
-                context.workspace.status_text_set(self._status_text())
-                return {"RUNNING_MODAL"}
-
-            if self._fan_active and event.type == "Q":
-                # Raycast under mouse cursor → pick that face as the
-                # alignment face for the endpoint nearest the hit. If
-                # the face isn't already in that endpoint's candidates,
-                # prepend it (so pick_idx=0 selects it).
-                self._raycast_pick_face(context, event)
-                context.workspace.status_text_set(self._status_text())
-                return {"RUNNING_MODAL"}
-
-            if self._fan_active and event.type == "W":
-                self._fan_align_mode = (
-                    "recompute" if self._fan_align_mode == "project" else "project"
-                )
-                context.workspace.status_text_set(self._status_text())
-                return {"RUNNING_MODAL"}
+            # FAN mode (F/Q/W keys) disabled — see the mode enum note.
 
             if event.type == "C":
                 self._cleanup_mode = not self._cleanup_mode
@@ -643,6 +615,32 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     if direction.length < 1e-9:
                         continue
                     face_pairs.setdefault(face, []).append((v, oe, direction.copy(), e))
+
+        # Suppressed-vert fallback — mirrors execute: a ridge ending on a
+        # colinear interior vert leaves its face with one job; complete
+        # the pair at the suppressed vert so the preview shows the same
+        # continuous slice the execute pass will cut.
+        for e in selected:
+            for face in e.link_faces:
+                jobs_fr = [j for j in face_pairs.get(face, []) if j[3] is e]
+                if len(jobs_fr) != 1:
+                    continue
+                v_miss = e.other_vert(jobs_fr[0][0])
+                if v_miss not in shared_verts:
+                    continue
+                oe = next(
+                    (ee for ee in v_miss.link_edges
+                     if face in ee.link_faces and ee is not e
+                     and ee not in selected_set),
+                    None,
+                )
+                if oe is None:
+                    continue
+                direction = oe.other_vert(v_miss).co - v_miss.co
+                if direction.length < 1e-9:
+                    continue
+                face_pairs.setdefault(face, []).append(
+                    (v_miss, oe, direction.copy(), e))
 
         # Propagate offsets around each component (same algorithm as execute).
         sel_adj = {}
@@ -1535,9 +1533,13 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     pts3 = [Vector((p[0], p[1], 0.0)) for p in endpoints_2d]
                     draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
 
-        # Snap-endpoint extension preview: dashed-ish line from the
-        # hanging cut endpoint to the boundary edge it'll snap to.
-        snap_ext = self._preview_snap_extensions()
+        # Snap-endpoint extension preview: line from the hanging cut
+        # endpoint to the boundary edge it'll snap to. Only drawn while
+        # snap mode (S) is armed — the snap pass in _exec_straight is
+        # gated the same way, so the preview never advertises topology
+        # the confirm won't produce.
+        snap_ext = (self._preview_snap_extensions()
+                    if getattr(self, "_snap_to_endpoint", False) else [])
         if snap_ext:
             ext_segs = []
             ext_pts = []
@@ -1625,24 +1627,61 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
         bm.edges.ensure_lookup_table()
+        # Key ridges by endpoint COORDS, not vert indices — the straight
+        # pass splits/renumbers, and a stale index pair can re-select a
+        # completely different edge for the PERCENT step. Ridge verts do
+        # not move during the straight pass, so coords are stable.
+        def _vkey(v):
+            return tuple(round(c, 5) for c in v.co)
         ridge_vert_pairs = set()
         for e in bm.edges:
             if e.select and len(e.link_faces) > 0:
-                ridge_vert_pairs.add(tuple(sorted(v.index for v in e.verts)))
+                ridge_vert_pairs.add(tuple(sorted(_vkey(v) for v in e.verts)))
         if not ridge_vert_pairs:
             self.report({"WARNING"}, "No edges selected")
             return {"CANCELLED"}
         segments = self.pct_segments
-        result = self._exec_straight(context)
+        # Flat-plate detection: every face touching a selected ridge lies
+        # in ONE plane (2D plate workflow, e.g. floor plans). Only then do
+        # PCT cuts continue across adjacent faces to the plate boundary
+        # and fan regions dissolve into clean ngons. 3D solids keep the
+        # validated solid-mesh behaviour (cuts stop at rails, vmesh kept).
+        plate_normal = None
+        is_flat_plate = True
+        for e in bm.edges:
+            if not e.select:
+                continue
+            for f in e.link_faces:
+                if f.normal.length < 0.5:
+                    continue
+                if plate_normal is None:
+                    plate_normal = f.normal.copy()
+                elif abs(f.normal.dot(plate_normal)) < 0.999:
+                    is_flat_plate = False
+                    break
+            if not is_flat_plate:
+                break
+        self._extend_cuts_to_boundary = is_flat_plate
+        try:
+            result = self._exec_straight(context)
+        finally:
+            self._extend_cuts_to_boundary = False
         if result != {"FINISHED"}:
             return result
         bm = bmesh.from_edit_mesh(me)
         bm.edges.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
+        # The straight pass leaves its cut + extension edges selected.
+        # Record them (by coords) as hard walls for the fan cleanup below:
+        # region-grow must never cross a slice line.
+        def _ekey(e):
+            return tuple(sorted(tuple(round(c, 5) for c in v.co)
+                                for v in e.verts))
+        wall_keys = {_ekey(e) for e in bm.edges if e.select}
         bpy.ops.mesh.select_all(action="DESELECT")
         selected_count = 0
         for e in bm.edges:
-            pair = tuple(sorted(v.index for v in e.verts))
+            pair = tuple(sorted(_vkey(v) for v in e.verts))
             if pair in ridge_vert_pairs:
                 e.select = True
                 selected_count += 1
@@ -1661,6 +1700,52 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             loop_slide=True,
             release_confirm=False,
         )
+        # Fan cleanup: around a rounded corner mesh.bevel fills the
+        # adjacent region with a triangle fan (its vertex-mesh), while the
+        # arc band proper is all quads. The bevel leaves its new faces
+        # selected. Starting from the selected triangles, region-grow
+        # across COPLANAR faces — stopping at slice lines (wall_keys) and
+        # at the quad band — and dissolve each grown region into a single
+        # clean ngon. Non-coplanar fans (true 3D corners) stay untouched.
+        bm = bmesh.from_edit_mesh(me)
+        bm.faces.ensure_lookup_table()
+        fan_tris = ([f for f in bm.faces if f.select and len(f.verts) == 3]
+                    if is_flat_plate else [])
+        visited = set()
+        regions = []
+        for t in fan_tris:
+            if t in visited or not t.is_valid:
+                continue
+            n0 = t.normal
+            if n0.length < 0.5:
+                continue
+            region = {t}
+            stack = [t]
+            visited.add(t)
+            while stack:
+                f = stack.pop()
+                for e in f.edges:
+                    if _ekey(e) in wall_keys:
+                        continue  # never cross a slice line
+                    for nf in e.link_faces:
+                        if nf is f or nf in visited or not nf.is_valid:
+                            continue
+                        if nf.select and len(nf.verts) != 3:
+                            continue  # arc band quad
+                        if abs(nf.normal.dot(n0)) < 0.9999:
+                            continue  # not coplanar — keep 3D corners
+                        visited.add(nf)
+                        region.add(nf)
+                        stack.append(nf)
+            if len(region) > 1:
+                regions.append(list(region))
+        # Dissolve after the scan: dissolve_faces invalidates BMFace refs,
+        # which would corrupt the visited/fan_tris sets mid-iteration.
+        for region in regions:
+            faces = [f for f in region if f.is_valid]
+            if len(faces) > 1:
+                bmesh.ops.dissolve_faces(bm, faces=faces, use_verts=False)
+        bmesh.update_edit_mesh(me)
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.mesh.remove_doubles(threshold=1e-5)
         bpy.ops.mesh.select_all(action="DESELECT")
@@ -1867,6 +1952,35 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         continue
                     face_pairs.setdefault(face, []).append((v, oe, direction.copy(), e))
 
+        # Fallback: a ridge whose other endpoint is a suppressed colinear
+        # interior vert leaves its face with a single job, so Pass 1's
+        # by_ridge grouping would silently drop the cut (multi-edge flat
+        # paths — the case 9411f5c tried to fix by dropping suppression
+        # entirely). Complete the pair with a job AT the suppressed vert:
+        # its propagated offset places the rail split exactly on the
+        # continuous slice line, so no corner cut appears at it.
+        for e in selected:
+            for face in e.link_faces:
+                jobs_fr = [j for j in face_pairs.get(face, []) if j[3] is e]
+                if len(jobs_fr) != 1:
+                    continue
+                v_miss = e.other_vert(jobs_fr[0][0])
+                if v_miss not in shared_verts:
+                    continue
+                fe = [
+                    oe for oe in v_miss.link_edges
+                    if face in oe.link_faces and oe is not e
+                    and oe not in selected_set
+                ]
+                if not fe:
+                    continue
+                oe = fe[0]
+                direction = oe.other_vert(v_miss).co - v_miss.co
+                if direction.length < 1e-9:
+                    continue
+                face_pairs.setdefault(face, []).append(
+                    (v_miss, oe, direction.copy(), e))
+
         # Propagate offsets around each selected-edge component. At each
         # ridge edge (v1, v2) in a chosen reference face, compute the
         # correction and set offset_v2 = offset_v1 + correction. Subdivision
@@ -2043,6 +2157,10 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         face_groups = {}
         for j in corner_jobs_ext:
             face_groups.setdefault(j[1], []).append(j)
+        # Cuts completed per ridge edge. Faces split during Pass 1, so
+        # face identity is useless for "already handled" checks in Pass 2
+        # — ridge edges survive and count their successful connects.
+        ridge_cut_count = {}
         for face, jobs_here in face_groups.items():
             # Group jobs in this face by their selected ridge edge.
             # A face hosting N ridges produces N independent perpendicular cuts;
@@ -2072,9 +2190,13 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         if e.other_vert(s1) is s2:
                             new_edges.append(e)
                             break
+                    ridge_cut_count[ridge_jobs[0][4]] = (
+                        ridge_cut_count.get(ridge_jobs[0][4], 0) + 1)
                     continue
                 res = bmesh.ops.connect_vert_pair(bm, verts=[s1, s2])
                 new_edges.extend(res.get("edges", []))
+                ridge_cut_count[ridge_jobs[0][4]] = (
+                    ridge_cut_count.get(ridge_jobs[0][4], 0) + 1)
             handled_faces.add(face)
 
         # Pass 2: path-chain for multi-edge open paths.
@@ -2083,6 +2205,13 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
             if len(component) == 1:
                 continue  # handled by face-pair
+            # Every ridge of this component already received a cut in
+            # each of its faces during Pass 1 (suppressed-vert fallback
+            # jobs complete the pairs) — the chain would lay a second,
+            # perpendicular-offset cut over the correct along-rail one.
+            if all(ridge_cut_count.get(e2, 0) >= len(e2.link_faces)
+                   for e2 in component):
+                continue
 
             # Multi-edge path: sort edges from one endpoint to the other.
             comp_verts = set()
@@ -2251,15 +2380,97 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     new_edges.extend(res.get("edges", []))
                 handled_faces.update(strip)
 
-        # Endpoint extension pass. ALWAYS: cast the rail-split vert
-        # along -ridge_dir to the nearest face boundary edge and move
-        # its coordinates there (geometric extension — cut visually
-        # lands on the boundary).
-        # OPTIONAL (snap_endpoints=True): also split that boundary edge
-        # at the hit point and weld the cut endpoint into the new
-        # boundary vert (topological join — boundary becomes subdivided
-        # and shares the cut endpoint).
-        for comp_edges in _components_pre.values():
+        # Slice continuation (PCT mode): extend every cut line beyond its
+        # endpoints across adjacent faces — splitting crossed edges and
+        # connecting — until the mesh boundary. Gives PCT a continuous
+        # slice through neighbouring faces so the arc band borders clean
+        # regions instead of stopping dead on the rail.
+        if getattr(self, "_extend_cuts_to_boundary", False):
+            for ce in list(new_edges):
+                if not ce.is_valid:
+                    continue
+                ce_faces = set(ce.link_faces)
+                # Slice plane normal: extension only continues across faces
+                # COPLANAR with the cut's host face — a flat slice running
+                # to the plate boundary. On 3D geometry (perpendicular
+                # neighbours, closed meshes) the cut stops at the rail,
+                # preserving the validated solid-mesh behaviour.
+                n_ce = None
+                for f in ce_faces:
+                    if f.is_valid and f.normal.length > 0.5:
+                        n_ce = f.normal.copy()
+                        break
+                if n_ce is None:
+                    continue
+                for tip, tail in ((ce.verts[0], ce.verts[1]),
+                                  (ce.verts[1], ce.verts[0])):
+                    d = tip.co - tail.co
+                    if d.length < 1e-9:
+                        continue
+                    d = d.normalized()
+                    cur = tip
+                    visited_f = set(ce_faces)
+                    for _ in range(64):
+                        if not cur.is_valid:
+                            break
+                        next_faces = [f for f in cur.link_faces
+                                      if f.is_valid and f not in visited_f
+                                      and abs(f.normal.dot(n_ce)) > 0.9999]
+                        if not next_faces:
+                            break
+                        best = None
+                        for f in next_faces:
+                            for ee in f.edges:
+                                if not ee.is_valid or cur in ee.verts:
+                                    continue
+                                a, b = ee.verts[0].co, ee.verts[1].co
+                                res = intersect_line_line(cur.co, cur.co + d, a, b)
+                                if res is None:
+                                    continue
+                                p1, p2 = res
+                                if (p1 - p2).length > 1e-4:
+                                    continue
+                                t = (p1 - cur.co).dot(d)
+                                if t <= EPS:
+                                    continue
+                                seg = b - a
+                                l2 = seg.length_squared
+                                if l2 < 1e-12:
+                                    continue
+                                u = (p1 - a).dot(seg) / l2
+                                if u < -EPS or u > 1 + EPS:
+                                    continue
+                                if best is None or t < best[0]:
+                                    best = (t, f, ee, max(0.0, min(1.0, u)))
+                        if best is None:
+                            break
+                        _t, hit_face, hit_edge, u = best
+                        visited_f.add(hit_face)
+                        if u < EPS:
+                            nxt = hit_edge.verts[0]
+                        elif u > 1 - EPS:
+                            nxt = hit_edge.verts[1]
+                        else:
+                            _, nxt = bmesh.utils.edge_split(
+                                hit_edge, hit_edge.verts[0], u)
+                        if nxt is not cur and not _connected(cur, nxt):
+                            res = bmesh.ops.connect_vert_pair(bm, verts=[cur, nxt])
+                            new_edges.extend(res.get("edges", []))
+                        # Stop at the mesh boundary; otherwise continue
+                        # into the face on the far side of the hit edge.
+                        if not nxt.is_valid or len(hit_edge.link_faces) < 2:
+                            break
+                        cur = nxt
+
+        # Endpoint extension pass — ONLY when snap_to_endpoint (S) is on.
+        # Casts each endpoint's rail-split vert along the ridge direction
+        # to the nearest face boundary edge, moves it there, then splits
+        # that boundary edge and welds the cut vert into it (topological
+        # join). This must NEVER run for a plain straight bevel: on
+        # flat/coplanar meshes the cast travels across the face interior
+        # and relocates perfectly good rail cuts onto far boundary edges
+        # (wrong snaps, non-perpendicular cuts, distorted faces).
+        for comp_edges in (_components_pre.values() if self.snap_to_endpoint else ()):
             _ec = {}
             for e in comp_edges:
                 for v in e.verts:
