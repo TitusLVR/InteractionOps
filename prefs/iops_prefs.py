@@ -148,6 +148,12 @@ def get_iops_prefs():
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")
         },
+        "THEME": {
+            # Persisted preset NAME only — colors live in .itheme preset
+            # files; theme_preset is a dynamic enum that Blender does not
+            # save reliably, so the name is round-tripped through this JSON.
+            "theme_preset_name": getattr(getattr(prefs, "iops_theme", None), "theme_preset_name", "") or "",
+        },
         "CURSOR_BISECT": {
             "cursor_bisect_edge_subdivisions": safe("cursor_bisect_edge_subdivisions", 1),
             "cursor_bisect_face_depth": safe("cursor_bisect_face_depth", 5),

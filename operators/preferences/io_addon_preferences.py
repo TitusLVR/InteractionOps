@@ -232,7 +232,17 @@ def load_iops_preferences():
                             defaults = default_prefs.get("MODIFIER_WINDOW", {})
                             prefs.modifier_window_method = safe_get(value, "modifier_window_method",
                                 defaults.get("modifier_window_method", "RENDER"))
-                    
+
+                    case "THEME":
+                        if isinstance(value, dict):
+                            # Restore the persisted preset NAME only — do not
+                            # re-apply the preset colors here, so manual color
+                            # tweaks survive reload. Missing/empty name falls
+                            # back to the first preset via the enum getter.
+                            name = safe_get(value, "theme_preset_name", "")
+                            if isinstance(name, str) and hasattr(prefs, "iops_theme"):
+                                prefs.iops_theme.theme_preset_name = name
+
                     case _:
                         print(f"IOPS Prefs: No entry for {key}")
             

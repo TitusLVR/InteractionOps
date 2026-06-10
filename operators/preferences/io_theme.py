@@ -194,6 +194,15 @@ def theme_preset_update(self, context):
         return
     n = apply_theme_dict(self, data)
     print(f"IOPS theme: applied '{name}' ({n} props)")
+    # Persist the selection immediately through the IOPS prefs JSON
+    # (iops_prefs_user.json) so the last active preset survives reload
+    # and restart even when userpref.blend is never saved. Lazy import
+    # avoids a module-init cycle with io_addon_preferences.
+    try:
+        from .io_addon_preferences import save_iops_preferences
+        save_iops_preferences()
+    except Exception as e:
+        print(f"IOPS theme: failed to persist preset selection: {e}")
 
 
 # --- Bundled defaults ------------------------------------------------------
