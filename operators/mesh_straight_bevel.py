@@ -193,7 +193,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
     offset: FloatProperty(
         name="Offset",
-        description="Perpendicular distance from the ridge to the new cut",
+        description="Distance along the neighbouring edge from the corner to the new cut",
         default=0.05,
         min=0.0,
         soft_max=10.0,
@@ -293,20 +293,9 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         for face, pair in face_pairs.items():
             for v, oe, direction, ridge in pair:
                 L = direction.length
-                if L < 1e-9 or ridge is None or not ridge.is_valid:
+                if L < 1e-9:
                     continue
-                ridge_v = ridge.other_vert(v).co - v.co
-                rl = ridge_v.length
-                if rl < 1e-9:
-                    continue
-                sin_th = (direction / L).cross(ridge_v / rl).length
-                if sin_th < 1e-4:
-                    continue
-                # Cap is the max PERPENDICULAR offset that still keeps
-                # the along-rail cut within (L - base) — base is the
-                # along-rail propagation correction, so subtract before
-                # the sin scale.
-                allowed = max(0.0, (L * 0.99 - base.get(v, 0.0))) * sin_th
+                allowed = L - base.get(v, 0.0)
                 if allowed < cap:
                     cap = allowed
         self._max_user_offset = cap if cap != float("inf") else None
@@ -667,10 +656,11 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             comp_verts = set()
             for e in comp_edges:
                 comp_verts.update(e.verts)
-            # Prefer a real endpoint (count=1 within the component) as
-            # the BFS root. Picking a random non-shared vert can land
-            # on a multi-edge corner, where the very first correction
-            # step uses a poorly-defined `oe` and pollutes propagation.
+            # Root the BFS at a real endpoint (count=1 in the component).
+            # Corner corrections are not antisymmetric, so the propagated
+            # offsets DEPEND on the start vert; rooting at an arbitrary
+            # set-iteration vert makes results nondeterministic on
+            # direction-corner (staircase) paths and can balloon offsets.
             _ecount = {}
             for e in comp_edges:
                 for v in e.verts:
@@ -686,31 +676,24 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             while queue:
                 current = queue.pop()
                 cur = comp_offsets[current]
-                # Correction only flows through collinear interior verts
-                # (shared_verts). Endpoints and L-corners stop the chain:
-                # on a distorted face the projection of the next-ridge
-                # direction onto -oe is geometrically meaningless once
-                # the rail isn't straight, and used to balloon vert_offset
-                # past the neighbour-edge cap.
                 for other, ridge in sel_adj.get(current, []):
                     if ridge not in comp_set or ridge in visited:
                         continue
                     visited.add(ridge)
                     correction = 0.0
-                    if current in shared_verts:
-                        for face in ridge.link_faces:
-                            fe = [
-                                ee for ee in current.link_edges
-                                if face in ee.link_faces and ee is not ridge
-                                and ee not in selected_set
-                            ]
-                            if not fe:
-                                continue
-                            d = fe[0].other_vert(current).co - current.co
-                            if d.length < 1e-9:
-                                continue
-                            correction = (other.co - current.co).dot(-(d.normalized()))
-                            break
+                    for face in ridge.link_faces:
+                        fe = [
+                            ee for ee in current.link_edges
+                            if face in ee.link_faces and ee is not ridge
+                            and ee not in selected_set
+                        ]
+                        if not fe:
+                            continue
+                        d = fe[0].other_vert(current).co - current.co
+                        if d.length < 1e-9:
+                            continue
+                        correction = (other.co - current.co).dot(-(d.normalized()))
+                        break
                     comp_offsets[other] = cur + correction
                     queue.append(other)
             if comp_offsets:
@@ -789,31 +772,17 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._fan_endpoints = endpoints
 
     @staticmethod
-    def _cut_on_rail(v, oe, direction, ridge, offset_perp):
-        """Cut point on rail `oe` at perpendicular distance
-        `offset_perp` from `ridge`. Matches mesh.bevel(OFFSET,
-        loop_slide=False) semantics — bevel's OFFSET parameter is the
-        perpendicular distance from the new edge to the original
-        ridge, NOT the distance along the rail. For an angled rail the
-        cut sits further along the rail: s = offset_perp / sin(angle).
+    def _cut_on_rail(v, oe, direction, ridge, offset_along):
+        """Cut point on rail `oe` at distance `offset_along` ALONG the
+        rail from the corner vert. The propagated vert offsets are
+        along-rail distances (see _collect_jobs), so they are consumed
+        directly — no perpendicular-to-along conversion.
         Returns the cut Vector or None on degenerate input."""
         L = direction.length
         if L < 1e-9 or ridge is None or not ridge.is_valid:
             return None
         rail_n = direction / L
-        ridge_v = ridge.other_vert(v).co - v.co
-        rl = ridge_v.length
-        if rl < 1e-9:
-            return None
-        ridge_n = ridge_v / rl
-        sin_th = rail_n.cross(ridge_n).length
-        if sin_th < 1e-4:
-            # Rail nearly parallel to ridge — bevel would degenerate;
-            # fall back to along-rail to avoid div-by-zero.
-            s = offset_perp
-        else:
-            s = offset_perp / sin_th
-        s = min(max(s, 0.0), L * 0.99)
+        s = min(max(offset_along, 0.0), L * 0.99)
         return v.co + rail_n * s
 
     def _preview_segments(self):
@@ -838,8 +807,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     if not (v.is_valid and oe.is_valid):
                         ok = False
                         break
-                    s_perp = user_o + base.get(v, 0.0)
-                    cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                    s_along = user_o + base.get(v, 0.0)
+                    cut = self._cut_on_rail(v, oe, direction, ridge, s_along)
                     if cut is None:
                         ok = False
                         break
@@ -879,8 +848,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     continue
                 if ridge is None or not ridge.is_valid:
                     continue
-                s_perp = user_o + base.get(v, 0.0)
-                cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                s_along = user_o + base.get(v, 0.0)
+                cut = self._cut_on_rail(v, oe, direction, ridge, s_along)
                 if cut is None:
                     continue
                 by_pair.setdefault((v, ridge), []).append(cut)
@@ -1343,8 +1312,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     continue
                 if ridge is None or not ridge.is_valid:
                     continue
-                s_perp = user_o + base.get(v, 0.0)
-                cut = self._cut_on_rail(v, oe, direction, ridge, s_perp)
+                s_along = user_o + base.get(v, 0.0)
+                cut = self._cut_on_rail(v, oe, direction, ridge, s_along)
                 if cut is None:
                     continue
                 # Same per-corner grouping as in _draw_pct_overlay —
@@ -1492,8 +1461,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         continue
                     if sel_ridge is not ridge:
                         continue
-                    s_perp = user_o + base.get(v, 0.0)
-                    sv_co = self._cut_on_rail(v, oe, direction, sel_ridge, s_perp)
+                    s_along = user_o + base.get(v, 0.0)
+                    sv_co = self._cut_on_rail(v, oe, direction, sel_ridge, s_along)
                     if sv_co is None:
                         continue
                     best = None
@@ -1642,36 +1611,59 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         return endpoint_data
 
     def _exec_pct(self, context):
+        # Two-step pct path (slice respected — see 4050601): (1) run the
+        # propagated straight bevel so the orange cut points become real
+        # verts, (2) re-select the same originally-selected ridges by
+        # vert-pair lookup and run mesh.bevel(PERCENT 100%) on them,
+        # rounding the post-cut stubs into arcs between the cut points.
+        # A uniform mesh.bevel(OFFSET) here would ignore the propagated
+        # per-corner offsets and break the continuous slice across
+        # multi-corner selections.
         obj = context.active_object
         if obj is None or obj.type != "MESH":
             return {"CANCELLED"}
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
         bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        bm.normal_update()
-        selected = [e for e in bm.edges if e.select and len(e.link_faces) > 0]
-        if not selected:
+        ridge_vert_pairs = set()
+        for e in bm.edges:
+            if e.select and len(e.link_faces) > 0:
+                ridge_vert_pairs.add(tuple(sorted(v.index for v in e.verts)))
+        if not ridge_vert_pairs:
             self.report({"WARNING"}, "No edges selected")
             return {"CANCELLED"}
-        endpoint_data = self._gather_endpoint_data(bm, selected)
-        user_offset = self.offset
         segments = self.pct_segments
-        pre_n = len(bm.verts)
+        result = self._exec_straight(context)
+        if result != {"FINISHED"}:
+            return result
+        bm = bmesh.from_edit_mesh(me)
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bpy.ops.mesh.select_all(action="DESELECT")
+        selected_count = 0
+        for e in bm.edges:
+            pair = tuple(sorted(v.index for v in e.verts))
+            if pair in ridge_vert_pairs:
+                e.select = True
+                selected_count += 1
+        bmesh.update_edit_mesh(me)
+        if selected_count == 0:
+            return {"FINISHED"}
         bpy.ops.mesh.bevel(
-            offset_type="OFFSET",
-            offset=user_offset,
+            offset_type="PERCENT",
+            offset=0,
             profile_type="SUPERELLIPSE",
+            offset_pct=100,
             segments=segments,
             profile=0.5,
             affect="EDGES",
-            clamp_overlap=False,
-            loop_slide=False,
+            clamp_overlap=True,
+            loop_slide=True,
             release_confirm=False,
         )
-        self._snap_apex_tips(me, endpoint_data, user_offset)
-        planes = [p for _, p in endpoint_data]
-        self._post_bevel_cleanup(me, pre_n, self.cleanup_mode, planes)
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.remove_doubles(threshold=1e-5)
+        bpy.ops.mesh.select_all(action="DESELECT")
         return {"FINISHED"}
 
     def _exec_fan(self, context):
@@ -1854,17 +1846,14 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
         # Find neighbour edge at each (vert, face) for each ridge edge.
         # Collect per-face pairs (v1, oe1, v2, oe2) so we can compute offsets
-        # that yield perpendicular cuts.
-        # Don't exclude shared_verts here. A shared (collinear interior)
-        # vert sits between two ridges that live in DIFFERENT face sets;
-        # without a job entry on the shared side, Pass 1's by_ridge
-        # grouping never gets two jobs for those faces, so no cut is
-        # produced (cuts "vanish" past the shared corner). The collinear
-        # geometry guarantees the split point on the shared rail aligns
-        # naturally between the two adjacent ridge cuts.
+        # that yield perpendicular cuts. Colinear interior verts
+        # (shared_verts) get no corner job — suppression mirrors the
+        # preview path in _collect_jobs.
         face_pairs = {}  # face -> [(v, oe), (v, oe)]
         for e in selected:
             for v in e.verts:
+                if v in shared_verts:
+                    continue
                 for face in e.link_faces:
                     face_edges_at_v = [
                         oe for oe in v.link_edges
@@ -1898,11 +1887,10 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             for e in comp_edges:
                 comp_verts.update(e.verts)
 
-            # Pick a starting vert (endpoint for open path; any for closed loop).
-            # Prefer count=1 in the component so BFS roots at a real
-            # endpoint rather than an L-corner — see _collect_jobs for
-            # the full rationale on why corner-rooted propagation
-            # produces garbage corrections on deformed quads.
+            # Pick a starting vert (endpoint for open path; any for closed
+            # loop). Must mirror _collect_jobs: endpoint-rooted BFS keeps
+            # corner-path propagation deterministic (corrections are not
+            # antisymmetric, so the start vert changes the result).
             _ecount = {}
             for e in comp_edges:
                 for v in e.verts:
@@ -1924,22 +1912,21 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         continue
                     visited_edges.add(ridge)
                     correction = 0.0
-                    if current in shared_verts:
-                        for face in ridge.link_faces:
-                            fe_at_cur = [
-                                oe for oe in current.link_edges
-                                if face in oe.link_faces and oe is not ridge
-                                and oe not in selected_set
-                            ]
-                            if not fe_at_cur:
-                                continue
-                            oe = fe_at_cur[0]
-                            d = oe.other_vert(current).co - current.co
-                            if d.length < 1e-9:
-                                continue
-                            d_n = d.normalized()
-                            correction = (other.co - current.co).dot(-d_n)
-                            break
+                    for face in ridge.link_faces:
+                        fe_at_cur = [
+                            oe for oe in current.link_edges
+                            if face in oe.link_faces and oe is not ridge
+                            and oe not in selected_set
+                        ]
+                        if not fe_at_cur:
+                            continue
+                        oe = fe_at_cur[0]
+                        d = oe.other_vert(current).co - current.co
+                        if d.length < 1e-9:
+                            continue
+                        d_n = d.normalized()
+                        correction = (other.co - current.co).dot(-d_n)
+                        break
                     comp_offsets[other] = cur_off + correction
                     queue.append(other)
 
@@ -1950,12 +1937,8 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                     vert_offset[v] = (o - min_off) + offset
 
         # Build offsets_at per (v, oe). `s` from vert_offset is the
-        # PERPENDICULAR distance from the ridge (preview semantics).
-        # Convert to along-rail by /sin(θ) where θ is the angle between
-        # the rail and THIS face's ridge. Without this the cut at a
-        # non-90° rail lands closer to the corner than the preview, so
-        # the resulting connect_vert_pair line isn't parallel to the
-        # ridge — "straight bevel not straight" on trapezoidal faces.
+        # distance ALONG the neighbour (rail) edge — consumed directly,
+        # matching the preview path.
         offsets_at = {}
         for v, s in vert_offset.items():
             if s <= EPS:
@@ -1965,12 +1948,6 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                                  if e in selected_set and face in e.link_faces]
                 if not ridge_in_face:
                     continue
-                ridge = ridge_in_face[0]
-                ridge_v = ridge.other_vert(v).co - v.co
-                rl = ridge_v.length
-                if rl < 1e-9:
-                    continue
-                ridge_n = ridge_v / rl
                 fe_at_v = [
                     oe for oe in v.link_edges
                     if face in oe.link_faces and oe not in selected_set
@@ -1978,19 +1955,15 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 if not fe_at_v:
                     continue
                 oe = fe_at_v[0]
-                rail = oe.other_vert(v).co - v.co
-                L = rail.length
+                L = (oe.other_vert(v).co - v.co).length
                 if L < 1e-9:
                     continue
-                rail_n = rail / L
-                sin_th = rail_n.cross(ridge_n).length
-                s_along = s if sin_th < 1e-4 else s / sin_th
                 # Stop at the neighbour vertex if the offset would
                 # reach or exceed it: snap to L exactly so _get_start
                 # returns the existing vert instead of producing a
                 # near-zero-length split. This prevents the cut from
                 # crossing past an existing vertex.
-                clamped = min(max(s_along, 0.0), L)
+                clamped = min(max(s, 0.0), L)
                 key = (v, oe)
                 if key not in offsets_at or clamped > offsets_at[key]:
                     offsets_at[key] = clamped
