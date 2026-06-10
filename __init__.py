@@ -611,6 +611,15 @@ def register():
 
 
 def unregister():
+    # Persist the current prefs (incl. the full Theme snapshot — preset
+    # name, colors, font sizes, HUD placement) before anything is torn
+    # down, so manual tweaks survive addon reloads without requiring an
+    # explicit Save click or a userpref.blend write.
+    try:
+        from .operators.preferences.io_addon_preferences import save_iops_preferences
+        save_iops_preferences()
+    except Exception as e:
+        print("IOPS: prefs autosave on unregister failed:", e)
     # Kill any running theme-preview install before classes go away, so
     # the draw handlers + 60fps timer don't outlive the operator class.
     try:

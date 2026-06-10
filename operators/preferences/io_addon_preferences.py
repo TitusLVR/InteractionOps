@@ -234,14 +234,24 @@ def load_iops_preferences():
                                 defaults.get("modifier_window_method", "RENDER"))
 
                     case "THEME":
-                        if isinstance(value, dict):
-                            # Restore the persisted preset NAME only — do not
-                            # re-apply the preset colors here, so manual color
-                            # tweaks survive reload. Missing/empty name falls
-                            # back to the first preset via the enum getter.
+                        if isinstance(value, dict) and hasattr(prefs, "iops_theme"):
+                            theme = prefs.iops_theme
+                            # 1) Restore ALL saved theme values (colors, font
+                            #    sizes, HUD placement, ...) — the last active
+                            #    state, including manual tweaks. Missing keys
+                            #    keep their current/default values.
+                            values = safe_get(value, "values", {})
+                            if isinstance(values, dict) and values:
+                                from .io_theme import apply_theme_dict
+                                apply_theme_dict(theme, values)
+                            # 2) Restore the preset NAME afterwards (selection
+                            #    state only — applying it would re-load the
+                            #    preset file and clobber the tweaks above).
+                            #    Missing/empty name falls back to the first
+                            #    preset via the enum getter.
                             name = safe_get(value, "theme_preset_name", "")
-                            if isinstance(name, str) and hasattr(prefs, "iops_theme"):
-                                prefs.iops_theme.theme_preset_name = name
+                            if isinstance(name, str):
+                                theme.theme_preset_name = name
 
                     case _:
                         print(f"IOPS Prefs: No entry for {key}")

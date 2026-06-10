@@ -22,9 +22,11 @@ import bpy
 _ITHEME_EXT = ".itheme"
 # Property names we never serialize: UI accordion booleans and the
 # preset-selector itself (which would re-trigger its own update callback
-# on load and cause infinite recursion). The Island palette belongs to
-# Visual UV prefs and is intentionally excluded from theme presets.
-_SKIP_PROPS = {"rna_type", "theme_preset"}
+# on load and cause infinite recursion). theme_preset_name is selection
+# state, not style data — embedding it in a .itheme would clobber the
+# current selection when that preset is applied. The Island palette
+# belongs to Visual UV prefs and is intentionally excluded from presets.
+_SKIP_PROPS = {"rna_type", "theme_preset", "theme_preset_name"}
 _SKIP_PREFIXES = ("show_", "island_palette_")
 
 # Path to the read-only themes shipped inside the addon. The user's

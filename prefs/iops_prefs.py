@@ -4,6 +4,24 @@ import json
 from .addon_preferences import IOPS_AddonPreferences
 
 
+def _get_theme_section(prefs):
+    """Full snapshot of the Theme tab for the prefs JSON: the persisted
+    preset NAME (theme_preset is a dynamic enum Blender does not save
+    reliably) plus EVERY writable IOPS_Theme value (colors, font sizes,
+    HUD placement, animations, stats...) so manual tweaks survive
+    reload/restart without depending on userpref.blend."""
+    theme = getattr(prefs, "iops_theme", None)
+    if theme is None:
+        return {"theme_preset_name": "", "values": {}}
+    # Lazy import — io_theme has no addon-internal imports, but keep the
+    # dependency one-directional at module-init time.
+    from ..operators.preferences.io_theme import serialize_theme
+    return {
+        "theme_preset_name": getattr(theme, "theme_preset_name", "") or "",
+        "values": serialize_theme(theme),
+    }
+
+
 def get_iops_prefs():
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     snap_combo_dict = {}
@@ -148,12 +166,7 @@ def get_iops_prefs():
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")
         },
-        "THEME": {
-            # Persisted preset NAME only — colors live in .itheme preset
-            # files; theme_preset is a dynamic enum that Blender does not
-            # save reliably, so the name is round-tripped through this JSON.
-            "theme_preset_name": getattr(getattr(prefs, "iops_theme", None), "theme_preset_name", "") or "",
-        },
+        "THEME": _get_theme_section(prefs),
         "CURSOR_BISECT": {
             "cursor_bisect_edge_subdivisions": safe("cursor_bisect_edge_subdivisions", 1),
             "cursor_bisect_face_depth": safe("cursor_bisect_face_depth", 5),
