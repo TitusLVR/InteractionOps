@@ -104,27 +104,42 @@ def _control_min_width(control, theme):
     return 0.0
 
 
+def _in_context(widget, context):
+    try:
+        return bool(widget.poll(context))
+    except Exception:
+        return False
+
+
 def compute_layout(context, widget, theme=None):
     """Compute row heights/content width from the theme and lay the panel
     out (clamped to the region). Returns the resolved theme. Safe to call
-    from both the draw handler and the interact operator."""
+    from both the draw handler and the interact operator.
+
+    Out of context the panel collapses to title bar + one message row, so
+    hit rects match the collapsed draw."""
     th = theme if theme is not None else get_theme(context)
     rows = []
-    for control in widget.rows():
-        if isinstance(control, Row):
-            height = max((_row_height(c, th) for c in control.children),
-                         default=_row_height(control, th))
-            rows.append((height, control.columns))
-        else:
-            rows.append((_row_height(control, th), 1))
+    if _in_context(widget, context):
+        for control in widget.rows():
+            if isinstance(control, Row):
+                height = max((_row_height(c, th) for c in control.children),
+                             default=_row_height(control, th))
+                rows.append((height, control.columns))
+            else:
+                rows.append((_row_height(control, th), 1))
+        min_content = max((_control_min_width(c, th) for c in widget.rows()),
+                          default=0.0)
+    else:
+        rows.append((th.text_size("hud_label") + ROW_PAD_CONTROL, 1))
+        min_content = hud_text.measure(OUT_OF_CONTEXT_TEXT, theme=th)[0] + 8.0
 
     title_h = th.text_size("hud_header") + TITLE_PAD
     content_w = max(
         PANEL_MIN_CONTENT_W,
         hud_text.measure(widget.panel.title, theme=th,
                          size_token="hud_header")[0] + title_h + 8.0,
-        max((_control_min_width(c, th) for c in widget.rows()),
-            default=0.0),
+        min_content,
     )
     widget.panel.layout(
         rows, content_w,
@@ -304,19 +319,22 @@ def _draw_chrome(panel, theme, dim):
 def draw_widget(context, widget):
     """Draw one widget panel into the current POST_PIXEL region. Resolves
     the theme per frame, lays out (storing hit rects on the panel), and
-    renders chrome + controls. Out of context (widget.poll False): grayed
-    controls from cached values + centered hint; only drag/close active."""
+    renders chrome + controls. Out of context (widget.poll False): panel
+    collapses to title bar + the hint message; only drag/close active."""
     theme = compute_layout(context, widget)
     panel = widget.panel
-    try:
-        in_context = bool(widget.poll(context))
-    except Exception:
-        in_context = False
+    in_context = _in_context(widget, context)
     dim = 1.0 if in_context else DISABLED_ALPHA
 
     with hud_text.isolated(theme):
         with draw_scope(blend="ALPHA"):
             _draw_chrome(panel, theme, dim)
+            if not in_context:
+                _text_centered(OUT_OF_CONTEXT_TEXT, panel.row_rects[0][0],
+                               theme=theme,
+                               color=_col(theme, Role.HUD_LABEL_INACTIVE,
+                                          1.0))
+                return
             for r, control in enumerate(widget.rows()):
                 cells = panel.row_rects[r]
                 if isinstance(control, Row):
@@ -326,8 +344,3 @@ def draw_widget(context, widget):
                 else:
                     _draw_control(control, cells[0], theme, dim,
                                   context, in_context)
-            if not in_context:
-                body = panel.bounds()
-                _text_centered(OUT_OF_CONTEXT_TEXT, body, theme=theme,
-                               color=_col(theme, Role.HUD_LABEL_INACTIVE,
-                                          1.0))

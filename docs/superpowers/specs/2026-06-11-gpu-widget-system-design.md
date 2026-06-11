@@ -44,7 +44,7 @@ the HUD is display-only by design. This project adds the deferred piece:
 | Slider snapping | Default drag snaps to 0.125 increments; **Ctrl held = smooth** free values. |
 | Presets | Bevel: 0, 0.25, 0.5, 1.0. Crease: 0, 0.5, 0.9, 1.0. Absolute writes. |
 | Flags | Sharp, Seam, Freestyle as **flip boxes** (checkbox + label). |
-| Out of context | Panel stays, grayed, centered text "Go back to Edit Mode"; only drag/✕ active. |
+| Out of context | Panel stays but collapses to title bar + single centered message "Go back to Edit Mode" (no controls drawn); only drag/✕ active. |
 | Undo | One undo push per completed gesture (slider release, flip click, preset click). Live writes during drag do not spam undo. ESC/RMB during slider drag restores pre-drag values. |
 
 ## Architecture
@@ -150,7 +150,7 @@ leak that caused outliner flicker previously).
 ## Error handling
 
 - **No selection:** value controls disabled; presets/Clear inert; drag/✕ work.
-- **Out of context:** grayed panel + "Go back to Edit Mode".
+- **Out of context:** collapsed panel (title + message only).
 - **Anchor area gone:** re-anchor to largest VIEW_3D region.
 - **Exception in draw:** skip frame, log once.
 - **Keymap:** single registration at addon register; unregister removes only
