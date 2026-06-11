@@ -168,6 +168,31 @@ leak that caused outliner flicker previously).
 - Manual checklist: toggle, drag, anchor fallback, undo granularity, Ctrl
   smooth drag, out-of-context placeholder, theme colors.
 
+## Widgets prefs tab (added same day, user-approved)
+
+A `WIDGETS` tab between Keymaps and Theme: compose widgets from the known
+block palette without Python.
+
+- **Storage:** one JSON per widget in `presets/IOPS/widgets/<name>.json`
+  (`widgets/composed.py` owns schema + runtime). Files are the source of
+  truth; the prefs CollectionProperty is a UI mirror rebuilt by
+  `sync_from_files()`, and every edit autosaves the selected widget's file
+  and re-registers the live widget.
+- **Palette:** Section / Slider / Presets / FlipBox / Button. Value rows
+  bind to the adapter registry (`widgets/adapters.py`: BEVEL, CREASE,
+  SHARP, SEAM, FREESTYLE) — no arbitrary Python in definitions. Buttons
+  carry an operator idname + JSON kwargs + role.
+- **Flip boxes:** adjacent FLIPBOX rows merge into one panel row.
+- **Built-ins** (edge_data) are listed read-only with a lock icon;
+  Duplicate produces an editable JSON copy (from `EDGE_DATA_DEF`, the
+  composer-format mirror of the Python widget).
+- **Import/Export:** file browser ops; imported names are unique-ified.
+  Open Folder opens the presets dir.
+- **Poll:** composed widgets with any edge-bound row poll `EDIT_MESH`;
+  pure button widgets are always-on.
+- Invalid files: skipped with console warning; bad rows dropped
+  individually, the rest of the widget survives.
+
 ## Risks
 
 - **LEFTMOUSE keymap entry** is global to 3D View; the poll gate must be

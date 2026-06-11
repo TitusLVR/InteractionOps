@@ -15,6 +15,7 @@ from bpy.props import (
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from .theme import IOPS_Theme, draw_theme_tab
+from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -84,11 +85,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # Area.type, Area.ui_type, Icon, PrefText
     tabs: bpy.props.EnumProperty(
         name="Preferences",
-        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", ""), ("THEME", "Theme", "Unified UI theme")],
+        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", ""), ("WIDGETS", "Widgets", "GPU widget composer"), ("THEME", "Theme", "Unified UI theme")],
         default="PREFS",
     )
 
     iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
+
+    # Widgets tab — UI mirror of presets/IOPS/widgets/*.json (the files
+    # are the source of truth; see prefs/widget_composer.py)
+    widget_defs: bpy.props.CollectionProperty(type=IOPS_WidgetDefItem)
+    widget_defs_index: bpy.props.IntProperty(default=0)
 
     # Statistics overlay toggles (the only stat-related prefs that aren't
     # cosmetic — colors / sizes / positions all live in IOPS_Theme).
@@ -548,6 +554,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         tabs_row.separator()
         tabs_row.prop_enum(self, "tabs", "KM")
         tabs_row.separator()
+        tabs_row.prop_enum(self, "tabs", "WIDGETS")
+        tabs_row.separator()
         tabs_row.prop_enum(self, "tabs", "THEME")
         column_main = layout.column()
         if self.tabs == "KM":
@@ -890,6 +898,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")
             if body is not None:
                 body.prop(self, "IOPS_DEBUG")
+
+        if self.tabs == "WIDGETS":
+            draw_widgets_tab(column_main, context, self)
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)

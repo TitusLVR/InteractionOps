@@ -253,6 +253,8 @@ from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
 
 # GPU Widget framework (persistent clickable viewport panels)
 from .ui import widgets as ui_widgets
+from .prefs.widget_composer import classes as _widget_composer_classes
+from .operators.preferences.io_widgets import classes as _io_widgets_classes
 
 # Concrete GPU widget definitions (widgets/edge_data.py, ...). Optional —
 # the framework registers fine without it while the package lands.
@@ -317,7 +319,9 @@ bl_info = {
 # Classes for reg and unreg
 classes = (
     *_theme_classes,
+    *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
     IOPS_AddonPreferences,
+    *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
     IOPS_OT_StopThemePreview,
     IOPS_CollectionItem,
@@ -626,6 +630,16 @@ def register():
     ui_widgets.register()
     if iops_widgets is not None and hasattr(iops_widgets, "register"):
         iops_widgets.register()
+        # Composed (JSON) widgets + the prefs Widgets-tab mirror
+        try:
+            from .widgets import composed
+            from .prefs import widget_composer
+            problems = composed.load_all()
+            for fn, errors in problems.items():
+                print(f"IOPS widgets: {fn}: {'; '.join(errors)}")
+            widget_composer.sync_from_files()
+        except Exception as e:
+            print(f"IOPS widgets: composed widget load failed: {e}")
 
     print("IOPS Registered!")
 

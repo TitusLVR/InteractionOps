@@ -25,6 +25,13 @@ if _HAS_BPY:
         register_widget(EdgeDataWidget)
 
     def unregister():
+        # Composed (JSON) widgets first — they may not shadow built-ins,
+        # so order doesn't matter, but keep teardown symmetric anyway.
+        try:
+            from . import composed
+            composed.unregister_all()
+        except Exception as e:
+            print(f"IOPS widgets: composed unregister failed: {e}")
         unregister_widget(EdgeDataWidget.name)
 else:  # plain pytest / headless tooling without bpy
     def register():
