@@ -251,6 +251,17 @@ from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
                                             IOPS_OT_StopThemePreview)
 
+# GPU Widget framework (persistent clickable viewport panels)
+from .ui import widgets as ui_widgets
+
+# Concrete GPU widget definitions (widgets/edge_data.py, ...). Optional —
+# the framework registers fine without it while the package lands.
+try:
+    from . import widgets as iops_widgets
+except ModuleNotFoundError:
+    iops_widgets = None
+    print("IOPS: concrete widgets package not found, framework only")
+
 # Asset Management
 from .operators.assets_management import (
     IOPS_OT_AssetMoveToCatalog,
@@ -500,6 +511,8 @@ classes = (
     IOPS_OT_Material_Override_Clear,
     IOPS_PT_Material_Override_Panel,
     IOPS_OT_Call_Material_Override_Panel,
+    # GPU widget operators (iops.widget_toggle / iops.widget_interact)
+    *ui_widgets.classes,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -607,10 +620,27 @@ def register():
     load_iops_preferences()
     keymap_registration()
 
+    # GPU widget framework: app handlers + persisted widget state + the
+    # LEFTMOUSE interact keymap entry. Must run after the operator classes
+    # are registered and after load_iops_preferences().
+    ui_widgets.register()
+    if iops_widgets is not None and hasattr(iops_widgets, "register"):
+        iops_widgets.register()
+
     print("IOPS Registered!")
 
 
 def unregister():
+    # GPU widget teardown first (reverse of register): concrete widgets,
+    # then the framework — saves widget state to prefs, removes ONLY its
+    # own keymap entry and app/draw handlers. Guarded so a failure here
+    # never blocks the rest of the addon's unregister.
+    try:
+        if iops_widgets is not None and hasattr(iops_widgets, "unregister"):
+            iops_widgets.unregister()
+        ui_widgets.unregister()
+    except Exception as e:
+        print("IOPS: widget system unregister failed:", e)
     # Persist the current prefs (incl. the full Theme snapshot — preset
     # name, colors, font sizes, HUD placement) before anything is torn
     # down, so manual tweaks survive addon reloads without requiring an

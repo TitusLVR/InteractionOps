@@ -253,6 +253,15 @@ def load_iops_preferences():
                             if isinstance(name, str):
                                 theme.theme_preset_name = name
 
+                    case "WIDGETS":
+                        # Must restore BEFORE ui_widgets.register() runs
+                        # (root register() order guarantees it) so
+                        # state.load_states() reads the persisted blob.
+                        if isinstance(value, dict) and hasattr(prefs, "widgets_state"):
+                            ws = safe_get(value, "widgets_state", "{}")
+                            if isinstance(ws, str):
+                                prefs.widgets_state = ws
+
                     case _:
                         print(f"IOPS Prefs: No entry for {key}")
             

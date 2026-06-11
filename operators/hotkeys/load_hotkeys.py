@@ -6,7 +6,25 @@ from ...utils.functions import (
     unregister_keymaps,
     merge_missing_defaults,
     build_bindable_defaults,
+    register_ui_toggle_keymaps,
 )
+from ...ui.widgets import events as widget_events
+
+
+def _reload_keymaps(keys):
+    """Shared reload: sweep every iops.* entry, re-register `keys`, then
+    re-add the programmatic entries the sweep also removes — the widget
+    LEFTMOUSE interact entry and the UI-toggle markers are NOT part of
+    the bindable key tables, so register_keymaps() alone would leave the
+    widget panels inert and the HUD toggles dead until addon reload."""
+    # Detach the widget entry cleanly first so events._keymap_items never
+    # holds references the iops.* sweep below already removed.
+    widget_events.unregister_keymap()
+    unregister_keymaps()
+    register_keymaps(keys)
+    register_ui_toggle_keymaps()
+    widget_events.register_keymap()
+    bpy.context.window_manager.keyconfigs.update()
 
 
 class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
@@ -15,8 +33,6 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        unregister_keymaps()
-
         keys_user = []
 
         path = bpy.utils.script_path_user()
@@ -43,8 +59,7 @@ class IOPS_OT_LoadUserHotkeys(bpy.types.Operator):
             except Exception as e:
                 print(f"IOPS: Error creating hotkeys file - {e}")
 
-        register_keymaps(merge_missing_defaults(keys_user))
-        bpy.context.window_manager.keyconfigs.update()
+        _reload_keymaps(merge_missing_defaults(keys_user))
         print("Loaded user's hotkeys")
         return {"FINISHED"}
 
@@ -55,8 +70,6 @@ class IOPS_OT_LoadDefaultHotkeys(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        unregister_keymaps()
-        register_keymaps(build_bindable_defaults())
-        bpy.context.window_manager.keyconfigs.update()
+        _reload_keymaps(build_bindable_defaults())
         print("Loaded default hotkeys")
         return {"FINISHED"}
