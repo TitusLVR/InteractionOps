@@ -1,8 +1,8 @@
 """Polygon-group shape descriptors and geometric helpers for the object
 aligner's polygon-reference mode.
 
-The numpy-only functions (signature, pca_ratios, pca_frame, d2_histogram,
-kabsch_with_scale, greedy_correspondence) carry no bpy dependency and are
+The numpy-only functions (signature, pca_frame, kabsch_with_scale, fit_both,
+refine_fit_icp, assemble_constellations) carry no bpy dependency and are
 unit-tested with pytest. The bmesh-dependent helpers (face_island,
 similar_by_normal_area, components_in_selection) live below the
 `# --- bmesh helpers ---` divider and run inside Blender only.
@@ -16,6 +16,23 @@ from typing import Sequence
 import numpy as np
 
 from .alignment_fit import solve_fit
+
+# On (near-)symmetric patterns the proper and mirror fits tie at noise level;
+# a strict rmse comparison then picks a chirality at random, flipping stamped
+# clones. The mirror fit must beat the proper one by this fraction of the
+# cloud's RMS radius to be chosen.
+MIRROR_MARGIN_REL = 0.05
+
+# Near-tie window for choosing among multi-start ICP solutions (fraction of
+# the anchor cloud's RMS radius): within it, prefer proper over mirror and the
+# correspondence closest to the canonical face order.
+ICP_TIE_REL = 1e-3
+
+# Two assembled constellations whose placements land within this fraction of
+# the reference bbox diagonal (at comparable scale) are the same physical spot
+# — symmetric meshes produce several disjoint face sets there; keep only the
+# best-fitting one instead of stamping stacked clones.
+PLACEMENT_DEDUP_REL = 0.25
 
 
 @dataclass(frozen=True)
@@ -50,27 +67,6 @@ def signature(world_verts: np.ndarray, faces: Sequence[Sequence[int]]) -> Signat
         face_vcount_hist=hist,
         bbox_diag=diag,
     )
-
-
-def pca_ratios(world_verts: np.ndarray) -> tuple[float, float, float]:
-    """Normalized eigenvalues (sorted descending, sum=1) of the centered point
-    cloud's covariance matrix. Invariant under translation and rotation.
-
-    For degenerate clouds (<3 points or co-linear) returns a triple that sums
-    to 1 with zeros for the absent axes."""
-    if world_verts.shape[0] < 2:
-        return (1.0, 0.0, 0.0)
-    centered = world_verts - world_verts.mean(axis=0)
-    cov = (centered.T @ centered) / max(world_verts.shape[0] - 1, 1)
-    # Symmetric matrix → eigh.
-    eigvals = np.linalg.eigvalsh(cov)
-    eigvals = np.clip(eigvals, 0.0, None)            # numerical floor
-    eigvals = np.sort(eigvals)[::-1]
-    s = float(eigvals.sum())
-    if s <= 0.0:
-        return (1.0, 0.0, 0.0)
-    r = eigvals / s
-    return (float(r[0]), float(r[1]), float(r[2]))
 
 
 def pca_frame(
@@ -125,6 +121,14 @@ def pca_frame(
         x = helper - np.dot(helper, z) * z
         x = x / np.linalg.norm(x)
 
+    # Eigenvector signs are arbitrary — pin X to the vertex distribution's
+    # skew so ref and target frames of similar selections agree. Without this
+    # the poly-force fit lands 180° off at random.
+    if world_verts.shape[0]:
+        proj = (world_verts - world_verts.mean(axis=0)) @ x
+        if float((proj ** 3).sum()) < 0.0:
+            x = -x
+
     y = np.cross(z, x)
 
     m = np.eye(4)
@@ -152,130 +156,6 @@ def kabsch_with_scale(
     diff = transformed - tgt_pts
     rmse = float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
     return T, rmse
-
-
-def greedy_correspondence(ref_pts: np.ndarray, tgt_pts: np.ndarray) -> np.ndarray:
-    """Pair each ref point with a unique tgt point, seeded by a PCA-frame
-    pre-alignment. Returns a permutation array `corr` where tgt[corr] is the
-    reordered target matching ref.
-
-    Algorithm: pre-align ref to tgt via centroid-translate + axis-match using
-    PCA orientations, then for each pre-aligned ref point assign nearest unused
-    tgt point greedily (sorted by distance to its nearest tgt, so unambiguous
-    pairs claim first).
-
-    Assumes len(ref_pts) == len(tgt_pts)."""
-    n = ref_pts.shape[0]
-    if tgt_pts.shape[0] != n:
-        raise ValueError("ref and tgt must have equal length")
-
-    # PCA pre-alignment: centroid translate + rotation that aligns PCA axes.
-    ref_c = ref_pts.mean(axis=0)
-    tgt_c = tgt_pts.mean(axis=0)
-    ref_centered = ref_pts - ref_c
-    tgt_centered = tgt_pts - tgt_c
-
-    def _axes(pts):
-        cov = (pts.T @ pts) / max(pts.shape[0] - 1, 1)
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        order = np.argsort(eigvals)[::-1]
-        return eigvecs[:, order]
-
-    Ar = _axes(ref_centered)
-    At = _axes(tgt_centered)
-    R = At @ Ar.T                                     # rotates ref-axes onto tgt-axes
-    if np.linalg.det(R) < 0:                          # avoid reflection
-        At[:, 2] *= -1
-        R = At @ Ar.T
-    pre_aligned = ref_centered @ R.T + tgt_c
-
-    # Distance matrix (n is small in practice -- single polys to a few hundred).
-    diff = pre_aligned[:, None, :] - tgt_pts[None, :, :]
-    dists = np.linalg.norm(diff, axis=2)              # n x n
-
-    # Greedy: sort ref by its min distance, claim nearest unused tgt.
-    order = np.argsort(dists.min(axis=1))
-    used = np.zeros(n, dtype=bool)
-    corr = np.full(n, -1, dtype=np.int64)
-    for ri in order:
-        candidates = np.argsort(dists[ri])
-        for ti in candidates:
-            if not used[ti]:
-                corr[ri] = int(ti)
-                used[ti] = True
-                break
-    return corr
-
-
-def d2_histogram(
-    world_verts: np.ndarray,
-    faces: Sequence[Sequence[int]],
-    samples: int = 512,
-    bins: int = 32,
-    seed: int = 0,
-) -> np.ndarray:
-    """D2 shape distribution (Osada 2002). Sample points uniformly on the
-    surface (face-area-weighted), compute pairwise distances of `samples//2`
-    random pairs, normalize by bbox diagonal, histogram into `bins`. Returns a
-    normalized histogram (sums to 1) of shape (bins,).
-
-    Triangulates n-gons into a fan from the first vertex (good enough for
-    sampling — D2 is a statistical descriptor, exact triangulation choice
-    contributes negligibly with `samples >= 256`)."""
-    if world_verts.shape[0] == 0 or not faces:
-        return np.zeros(bins, dtype=np.float64)
-
-    rng = np.random.default_rng(seed)
-
-    # Triangulate fan.
-    tri_indices = []
-    for f in faces:
-        for i in range(1, len(f) - 1):
-            tri_indices.append((f[0], f[i], f[i + 1]))
-    tris = np.array(tri_indices, dtype=np.int64)
-    if tris.shape[0] == 0:
-        return np.zeros(bins, dtype=np.float64)
-
-    a = world_verts[tris[:, 0]]
-    b = world_verts[tris[:, 1]]
-    c = world_verts[tris[:, 2]]
-    areas = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
-    total = float(areas.sum())
-    if total <= 0.0:
-        return np.zeros(bins, dtype=np.float64)
-    probs = areas / total
-
-    # Pick triangles for `samples` points, then barycentric.
-    tri_choice = rng.choice(tris.shape[0], size=samples, p=probs)
-    u = rng.random(samples)
-    v = rng.random(samples)
-    flip = u + v > 1.0
-    u[flip] = 1.0 - u[flip]
-    v[flip] = 1.0 - v[flip]
-    w = 1.0 - u - v
-    pts = (a[tri_choice] * u[:, None]
-           + b[tri_choice] * v[:, None]
-           + c[tri_choice] * w[:, None])
-
-    # Pair up points randomly for distances.
-    pairs = samples // 2
-    idx = rng.permutation(samples)
-    p1 = pts[idx[:pairs]]
-    p2 = pts[idx[pairs:2 * pairs]]
-    d = np.linalg.norm(p1 - p2, axis=1)
-
-    # Normalize by bbox diag.
-    mn = world_verts.min(axis=0)
-    mx = world_verts.max(axis=0)
-    diag = float(np.linalg.norm(mx - mn))
-    if diag <= 0.0:
-        return np.zeros(bins, dtype=np.float64)
-    d_norm = np.clip(d / diag, 0.0, 1.0)
-    hist, _ = np.histogram(d_norm, bins=bins, range=(0.0, 1.0))
-    s = hist.sum()
-    if s == 0:
-        return np.zeros(bins, dtype=np.float64)
-    return hist.astype(np.float64) / float(s)
 
 
 def kabsch_mirror_with_scale(
@@ -415,7 +295,8 @@ def fit_both(ref_pts: np.ndarray, tgt_pts: np.ndarray,
     T_mirror = _compose_srt(R_mirror, cen_ref, cen_tgt, s_mirror)
     rmse_n = _fit_rmse(ref, tgt, T_proper)
     rmse_m = _fit_rmse(ref, tgt, T_mirror)
-    if rmse_m < rmse_n:
+    rms_radius = float(np.sqrt((P * P).sum(axis=1).mean())) if len(ref) else 0.0
+    if rmse_m < rmse_n - MIRROR_MARGIN_REL * rms_radius:
         return T_mirror, rmse_m, True
     return T_proper, rmse_n, False
 
@@ -531,7 +412,17 @@ def refine_fit_icp(ref_anchors: np.ndarray, tgt_anchors: np.ndarray,
         Ti[:3, 3] = tgt_mean - R0 @ ref_mean
         init_Ts.append(Ti)
 
+    centered = ref_anchors - ref_anchors.mean(axis=0)
+    tie = ICP_TIE_REL * float(np.sqrt((centered ** 2).sum(axis=1).mean()))
+
+    def _tie_rank(is_mir, perm):
+        # Near-tie preference: proper rotation first, then the correspondence
+        # closest to the canonical (identity) face order. Keeps symmetric
+        # patterns from flipping/twisting on sub-tolerance noise.
+        return (bool(is_mir), -int((perm == identity).sum()))
+
     best = (T0, rmse0, mir0, identity)
+    best_rank = _tie_rank(mir0, identity)
     for T in init_Ts:
         perm = None
         for _ in range(iters):
@@ -544,10 +435,10 @@ def refine_fit_icp(ref_anchors: np.ndarray, tgt_anchors: np.ndarray,
                 perm = new_perm
                 break
             perm = new_perm
-        if rmse < best[1]:
+        rank = _tie_rank(is_mir, perm)
+        if rmse < best[1] - tie or (rmse < best[1] + tie and rank < best_rank):
             best = (T, rmse, is_mir, perm.copy())
-        if best[1] < 1e-9:
-            break
+            best_rank = rank
     return best
 
 
@@ -579,8 +470,9 @@ def assemble_constellations(
     - bbox_diag: reference bbox diagonal (rmse normalizer).
 
     Returns a list of dicts {"order": tuple[int], "faces": frozenset[int],
-    "mirror": bool, "rmse": float}, one per distinct assembled constellation
-    (deduplicated by face set). For C == 1 this reduces to one entry per
+    "mirror": bool, "rmse": float, "T": 4x4 ndarray}, one per distinct
+    assembled constellation (deduplicated by face set AND by placement — see
+    the selection loop below). For C == 1 this reduces to one entry per
     candidate that passes the global rmse gate.
 
     When the anchor component is a single face and C > 1, hypothesis seeding is
@@ -683,21 +575,39 @@ def assemble_constellations(
                 continue
             seen.add(key)
             results.append({"order": order, "faces": key,
-                            "mirror": is_mirror, "rmse": rmse})
+                            "mirror": is_mirror, "rmse": rmse, "T": _T})
 
     # Keep face-disjoint matches, best fit first: a target face belongs to at
     # most one stamped constellation. This drops spurious overlapping matches —
     # e.g. a twisted-correspondence mirror duplicate of a proper match (sharing
     # most of its faces) that would otherwise stamp an extra flipped clone over
     # the correct one. Genuinely separate instances share no faces and survive.
-    results.sort(key=lambda r: r["rmse"])
+    #
+    # Additionally dedup by PLACEMENT: on symmetric meshes the pattern matches
+    # several DISJOINT face sets at the same physical spot — face-disjointness
+    # alone keeps them all and clones get stamped on top of each other. Two
+    # placements count as the same spot when the transformed pattern centroid
+    # lands within PLACEMENT_DEDUP_REL of the ref bbox diagonal at comparable
+    # scale. Proper fits win exact ties against mirrors.
+    results.sort(key=lambda r: (r["rmse"], r["mirror"]))
+    probe = ref_global.mean(axis=0)
     selected: list[dict] = []
     used_faces: set[int] = set()
+    placements: list[tuple[np.ndarray, float]] = []
     for r in results:
         if r["faces"] & used_faces:
             continue
+        p = _apply_affine(r["T"], probe)
+        det = abs(float(np.linalg.det(r["T"][:3, :3])))
+        s = det ** (1.0 / 3.0) if det > 1e-12 else 1.0
+        radius = PLACEMENT_DEDUP_REL * bbox
+        if any(float(np.linalg.norm(p - q)) <= radius * max(s, sq)
+               and 0.7 <= s / sq <= 1.4
+               for q, sq in placements):
+            continue
         selected.append(r)
         used_faces |= r["faces"]
+        placements.append((p, s))
     return selected
 
 

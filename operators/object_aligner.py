@@ -45,61 +45,15 @@ def _mouse_coord(event):
     return (event.mouse_region_x, event.mouse_region_y)
 
 
-def _mesh_tris_world(obj):
-    """World-space triangle vertices for an object's mesh, or [] if not a mesh.
-    Reads the **evaluated** mesh so modifiers (Array/Mirror/SubD/etc.) are
-    included in the highlight."""
-    if obj is None or obj.type != "MESH" or obj.data is None:
-        return []
-    mw = obj.matrix_world
-    with _eval_mesh(obj) as mesh:
-        if not mesh.loop_triangles:
-            try:
-                mesh.calc_loop_triangles()
-            except RuntimeError:
-                return []
-        verts = [mw @ v.co for v in mesh.vertices]
-        loops = mesh.loops
-        out = []
-        for lt in mesh.loop_triangles:
-            out.append(verts[loops[lt.loops[0]].vertex_index])
-            out.append(verts[loops[lt.loops[1]].vertex_index])
-            out.append(verts[loops[lt.loops[2]].vertex_index])
-    return out
-
-
-def _mesh_edges_world(obj, world_matrix):
-    """Flat list of world-space edge endpoints for `obj`'s evaluated mesh
-    transformed by `world_matrix`. [] if not a mesh."""
-    if obj is None or obj.type != "MESH" or obj.data is None:
-        return []
-    with _eval_mesh(obj) as mesh:
-        verts = [world_matrix @ v.co for v in mesh.vertices]
-        out = []
-        for e in mesh.edges:
-            out.append(verts[e.vertices[0]])
-            out.append(verts[e.vertices[1]])
-    return out
-
-
-def _mesh_tris_world_at(obj, world_matrix):
-    """Like _mesh_tris_world but with an explicit placement matrix."""
-    if obj is None or obj.type != "MESH" or obj.data is None:
-        return []
-    with _eval_mesh(obj) as mesh:
-        if not mesh.loop_triangles:
-            try:
-                mesh.calc_loop_triangles()
-            except RuntimeError:
-                return []
-        verts = [world_matrix @ v.co for v in mesh.vertices]
-        loops = mesh.loops
-        out = []
-        for lt in mesh.loop_triangles:
-            out.append(verts[loops[lt.loops[0]].vertex_index])
-            out.append(verts[loops[lt.loops[1]].vertex_index])
-            out.append(verts[loops[lt.loops[2]].vertex_index])
-    return out
+def _normal_matrix(mw_np):
+    """3x3 normal transform (inverse-transpose of the rotation/scale block).
+    Plain `M3 @ n` skews normals on non-uniformly scaled objects; callers
+    renormalize the result. Falls back to M3 for singular matrices."""
+    m3 = mw_np[:3, :3]
+    try:
+        return np.linalg.inv(m3).T
+    except np.linalg.LinAlgError:
+        return m3
 
 
 def _verts_world_np(obj):
@@ -171,13 +125,37 @@ def _compute_fit(op, target):
     if same_topo:
         tgt_np = _verts_world_np(target)
         t_np = solve_fit(op.ref_world_np, tgt_np, op.scale_mode)
-        return _np_to_matrix(t_np), FIT_GEOMETRY
+        # Equal vertex COUNT is not equal topology: an unrelated mesh that
+        # happens to match the count would get a garbage index-correspondence
+        # fit. Gate by residual (relative to the target's bbox diagonal) and
+        # reject degenerate (flattening) STRETCH results; fall back to the
+        # matrix fit otherwise.
+        homog = np.hstack([op.ref_world_np,
+                           np.ones((op.ref_world_np.shape[0], 1))])
+        diff = (homog @ t_np.T)[:, :3] - tgt_np
+        rmse = float(np.sqrt((diff * diff).sum(axis=1).mean()))
+        diag = float(np.linalg.norm(tgt_np.max(axis=0) - tgt_np.min(axis=0)))
+        det = abs(float(np.linalg.det(t_np[:3, :3])))
+        if rmse <= 0.05 * max(diag, 1e-6) and det > 1e-9:
+            return _np_to_matrix(t_np), FIT_GEOMETRY
     # Matrix fallback: T = M_target @ M_ref^-1
     try:
         t = target.matrix_world @ ref.matrix_world.inverted()
     except (ReferenceError, ValueError):
         t = Matrix.Identity(4)
     return t, FIT_MATRIX
+
+
+def _compute_fit_cached(op, target):
+    """Memoized `_compute_fit` for the per-frame W-mode preview — objects
+    don't move during the modal, so the fit is constant per (target, scale).
+    Cleared when the reference changes."""
+    key = (target.original, op.scale_mode)
+    hit = op._fit_cache.get(key)
+    if hit is None:
+        hit = _compute_fit(op, target)
+        op._fit_cache[key] = hit
+    return hit
 
 
 def _target_subcollection(op, source_obj, target):
@@ -239,12 +217,13 @@ def _is_instancer(obj):
 
 
 def _instancer_geom(op, collection):
-    """Cached list of (inner_local_matrix, tris_local, edges_local) for every
-    mesh in `collection.all_objects`. inner_local_matrix accounts for
+    """Cached list of (inner_local_matrix, verts_local (V,3), tri_idx, edge_idx)
+    for every mesh in `collection.all_objects`. inner_local_matrix accounts for
     `collection.instance_offset`, so multiplying by an instancer EMPTY's
     matrix_world reproduces the same placement the depsgraph dupli shows.
     Built once per collection per modal session — collections don't move
-    during a pick session, so per-frame `to_mesh` is avoided."""
+    during a pick session, so per-frame `to_mesh` is avoided and the per-frame
+    transform is a single NumPy matmul."""
     cache = op._collection_geom_cache
     cached = cache.get(collection)
     if cached is not None:
@@ -256,92 +235,137 @@ def _instancer_geom(op, collection):
             continue
         inner_mat = offset @ inner.matrix_world
         with _eval_mesh(inner) as mesh:
+            n = len(mesh.vertices)
+            if not n:
+                continue
             if not mesh.loop_triangles:
                 try:
                     mesh.calc_loop_triangles()
                 except RuntimeError:
                     continue
-            verts = [v.co.copy() for v in mesh.vertices]
-            loops = mesh.loops
-            tris_local = []
-            for lt in mesh.loop_triangles:
-                tris_local.append(verts[loops[lt.loops[0]].vertex_index])
-                tris_local.append(verts[loops[lt.loops[1]].vertex_index])
-                tris_local.append(verts[loops[lt.loops[2]].vertex_index])
-            edges_local = []
-            for e in mesh.edges:
-                edges_local.append(verts[e.vertices[0]])
-                edges_local.append(verts[e.vertices[1]])
-        entries.append((inner_mat, tris_local, edges_local))
+            co = np.empty(n * 3, dtype=np.float64)
+            mesh.vertices.foreach_get("co", co)
+            verts = co.reshape(-1, 3)
+            nt = len(mesh.loop_triangles)
+            tri_idx = np.empty(nt * 3, dtype=np.intp)
+            if nt:
+                mesh.loop_triangles.foreach_get("vertices", tri_idx)
+            edge_idx = np.empty(len(mesh.edges) * 2, dtype=np.intp)
+            if len(mesh.edges):
+                mesh.edges.foreach_get("vertices", edge_idx)
+        entries.append((inner_mat, verts, tri_idx, edge_idx))
     cache[collection] = entries
     return entries
 
 
 def _instancer_tris_world(op, empty, world_matrix=None):
-    """World-space triangles for an EMPTY-instancer's collection contents.
-    `world_matrix` overrides empty.matrix_world (used for ghost preview at a
-    candidate placement)."""
+    """(N,3) world-space triangle verts for an EMPTY-instancer's collection
+    contents, or None. `world_matrix` overrides empty.matrix_world (used for
+    ghost preview at a candidate placement)."""
     coll = empty.instance_collection
     if coll is None:
-        return []
+        return None
     em = world_matrix if world_matrix is not None else empty.matrix_world
-    out = []
-    for inner_mat, tris_local, _edges in _instancer_geom(op, coll):
-        M = em @ inner_mat
-        out.extend(M @ v for v in tris_local)
-    return out
+    chunks = []
+    for inner_mat, verts, tri_idx, _edges in _instancer_geom(op, coll):
+        if tri_idx.size == 0:
+            continue
+        M = np.array(em @ inner_mat, dtype=np.float64)
+        vw = verts @ M[:3, :3].T + M[:3, 3]
+        chunks.append(vw[tri_idx])
+    return np.vstack(chunks) if chunks else None
 
 
 def _instancer_edges_world(op, empty, world_matrix=None):
     coll = empty.instance_collection
     if coll is None:
-        return []
+        return None
     em = world_matrix if world_matrix is not None else empty.matrix_world
-    out = []
-    for inner_mat, _tris, edges_local in _instancer_geom(op, coll):
-        M = em @ inner_mat
-        out.extend(M @ v for v in edges_local)
-    return out
+    chunks = []
+    for inner_mat, verts, _tris, edge_idx in _instancer_geom(op, coll):
+        if edge_idx.size == 0:
+            continue
+        M = np.array(em @ inner_mat, dtype=np.float64)
+        vw = verts @ M[:3, :3].T + M[:3, 3]
+        chunks.append(vw[edge_idx])
+    return np.vstack(chunks) if chunks else None
 
 
 def _bias_toward_view(coords, rv3d, factor=0.0015):
-    """Nudge world coords slightly toward the viewer so a surface-coincident
-    fill clears z-fighting with the geometry it overlays. gpu.state exposes no
-    polygon offset, so we bias the vertices instead. The shift scales with
-    depth (fraction of eye distance in perspective, view distance in ortho),
-    keeping it imperceptible at any zoom."""
-    if not coords or rv3d is None:
+    """Nudge world coords ((N,3) ndarray) slightly toward the viewer so a
+    surface-coincident fill clears z-fighting with the geometry it overlays.
+    gpu.state exposes no polygon offset, so we bias the vertices instead. The
+    shift scales with depth (fraction of eye distance in perspective, view
+    distance in ortho), keeping it imperceptible at any zoom."""
+    if coords is None or len(coords) == 0 or rv3d is None:
         return coords
     if rv3d.is_perspective:
-        cam = rv3d.view_matrix.inverted().translation
-        return [v + (cam - v) * factor for v in coords]
-    view_dir = rv3d.view_rotation @ Vector((0.0, 0.0, 1.0))
-    step = view_dir * (rv3d.view_distance * factor)
-    return [v + step for v in coords]
+        cam = np.array(rv3d.view_matrix.inverted().translation, dtype=np.float64)
+        return coords + (cam - coords) * factor
+    view_dir = np.array(rv3d.view_rotation @ Vector((0.0, 0.0, 1.0)),
+                        dtype=np.float64)
+    return coords + view_dir * (rv3d.view_distance * factor)
 
 
-def _selected_face_tris_world(op, store: dict) -> list:
-    """Flat list of world-space triangle verts for the faces stored in
-    `store` (dict[obj_original -> set[face_idx]]). Fan-triangulates n-gons.
-    Uses the evaluated mesh so mirrored/arrayed geometry is drawn correctly."""
-    out = []
+def _face_geom_for(op, obj):
+    """Cached evaluated-mesh triangulation for face-set highlights and bounds
+    checks: (verts_local (V,3), tri_vidx (T,3), tri_poly (T,), n_polys).
+    Built once per object per modal session — only a NumPy transform remains
+    per frame, no `to_mesh`."""
+    key = obj.original
+    cached = op._face_geom_cache.get(key)
+    if cached is not None:
+        return cached
+    verts = tri_v = tri_p = None
+    n_polys = 0
+    if obj.type == "MESH" and obj.data is not None:
+        with _eval_mesh(obj) as mesh:
+            n_polys = len(mesh.polygons)
+            n = len(mesh.vertices)
+            if n:
+                if not mesh.loop_triangles:
+                    try:
+                        mesh.calc_loop_triangles()
+                    except RuntimeError:
+                        pass
+                co = np.empty(n * 3, dtype=np.float64)
+                mesh.vertices.foreach_get("co", co)
+                verts = co.reshape(-1, 3)
+                nt = len(mesh.loop_triangles)
+                if nt:
+                    tv = np.empty(nt * 3, dtype=np.intp)
+                    mesh.loop_triangles.foreach_get("vertices", tv)
+                    tri_v = tv.reshape(-1, 3)
+                    tri_p = np.empty(nt, dtype=np.intp)
+                    mesh.loop_triangles.foreach_get("polygon_index", tri_p)
+    cached = (verts, tri_v, tri_p, n_polys)
+    op._face_geom_cache[key] = cached
+    return cached
+
+
+def _selected_face_tris_world(op, store: dict):
+    """(N,3) ndarray of world-space triangle verts for the faces stored in
+    `store` (dict[obj_original -> set[face_idx]]), or None. Uses the cached
+    evaluated triangulation so mirrored/arrayed geometry draws correctly
+    without a per-frame `to_mesh`."""
+    chunks = []
     for obj, face_idx_set in store.items():
+        if not face_idx_set:
+            continue
         try:
-            if obj.type != "MESH" or obj.data is None:
-                continue
-            with _eval_mesh(obj) as mesh:
-                mw = obj.matrix_world
-                for fi in face_idx_set:
-                    if fi < 0 or fi >= len(mesh.polygons):
-                        continue
-                    poly = mesh.polygons[fi]
-                    vs = [mw @ mesh.vertices[poly.vertices[i]].co
-                          for i in range(len(poly.vertices))]
-                    for i in range(1, len(vs) - 1):
-                        out.extend([vs[0], vs[i], vs[i + 1]])
+            verts, tri_v, tri_p, _n_polys = _face_geom_for(op, obj)
+            mw = np.array(obj.matrix_world, dtype=np.float64)
         except ReferenceError:
             continue
-    return out
+        if verts is None or tri_v is None:
+            continue
+        sel = np.fromiter(face_idx_set, dtype=np.intp)
+        mask = np.isin(tri_p, sel)
+        if not mask.any():
+            continue
+        vw = verts @ mw[:3, :3].T + mw[:3, 3]
+        chunks.append(vw[tri_v[mask].reshape(-1)])
+    return np.vstack(chunks) if chunks else None
 
 
 def _rig_local_geom(op, src):
@@ -416,12 +440,12 @@ def _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_DEFAULT):
             e = _instancer_edges_world(op, src, placement)
             # Mirrored placement reverses winding; flip it back so BACK-face
             # culling keeps the visible side instead of hiding it.
-            if mirrored and t:
-                t = [t[i + j] for i in range(0, len(t), 3) for j in (0, 2, 1)]
-            if t:
-                tris_chunks.append(np.asarray(t, dtype=np.float64))
-            if e:
-                edges_chunks.append(np.asarray(e, dtype=np.float64))
+            if t is not None and len(t):
+                if mirrored:
+                    t = t.reshape(-1, 3, 3)[:, [0, 2, 1], :].reshape(-1, 3)
+                tris_chunks.append(t)
+            if e is not None and len(e):
+                edges_chunks.append(e)
             continue
         verts_l, tri_idx, edge_idx, flip = _rig_local_geom(op, src)
         if verts_l.shape[0] == 0:
@@ -466,15 +490,27 @@ def _draw_preview_3d(op, context):
             if _is_instancer(obj):
                 tris = _instancer_tris_world(op, obj)
             else:
-                tris = _mesh_tris_world(obj)
+                verts_l, tri_idx, _e, _f = _rig_local_geom(op, obj)
+                if verts_l.shape[0] == 0 or tri_idx.size == 0:
+                    return
+                M = np.array(obj.matrix_world, dtype=np.float64)
+                tris = (verts_l @ M[:3, :3].T + M[:3, 3])[tri_idx]
         except ReferenceError:
             return
-        if not tris:
+        if tris is None or len(tris) == 0:
             return
         tris = _bias_toward_view(tris, rv3d)
         with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
                         face_culling="NONE", depth_mask=False):
-            iops_draw.tris(tris, role=role, context=context)
+            iops_draw.tris(tris.tolist(), role=role, context=context)
+
+    # Hover pre-pick highlight: show what LMB would grab BEFORE the click —
+    # picking blind was the single biggest friction point in object modes.
+    if op.mode in (MODE_PICK_REF, MODE_PICK_TGT_OBJS) \
+            and op.hover_obj is not None \
+            and op.hover_obj is not op.ref_obj \
+            and op.hover_obj not in op.target_objs:
+        _draw_obj_fill(op.hover_obj, Role.GHOST_MATCH_HINT)
 
     # Whole-object highlights per mode:
     #   PICK_REF        — ref ACTIVE only.
@@ -494,34 +530,27 @@ def _draw_preview_3d(op, context):
                 continue
             _draw_obj_fill(tgt, Role.GHOST_CLOSEST)
 
+    def _draw_face_fill(store, role):
+        tris = _selected_face_tris_world(op, store)
+        if tris is None:
+            return
+        tris = _bias_toward_view(tris, rv3d)
+        with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
+                        face_culling="NONE", depth_mask=False):
+            iops_draw.tris(tris.tolist(), role=role, context=context)
+
     # Marked ref polys — fill (replaces whole-object highlight when present).
     if op.ref_polys:
-        tris = _selected_face_tris_world(op, op.ref_polys)
-        if tris:
-            tris = _bias_toward_view(tris, rv3d)
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_ACTIVE, context=context)
+        _draw_face_fill(op.ref_polys, Role.GHOST_ACTIVE)
 
     # Marked target polys (current edit set).
     if op.target_polys:
-        tris = _selected_face_tris_world(op, op.target_polys)
-        if tris:
-            tris = _bias_toward_view(tris, rv3d)
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_TARGET_SEL, context=context)
+        _draw_face_fill(op.target_polys, Role.GHOST_TARGET_SEL)
 
     # Hover poly preview in poly modes — closest-surface highlight.
     if op.mode in (MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY) \
             and op.hover_obj is not None and op.hover_face_idx >= 0:
-        hover_store = {op.hover_obj: {op.hover_face_idx}}
-        tris = _selected_face_tris_world(op, hover_store)
-        if tris:
-            tris = _bias_toward_view(tris, rv3d)
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_CLOSEST, context=context)
+        _draw_face_fill({op.hover_obj: {op.hover_face_idx}}, Role.GHOST_CLOSEST)
 
     # Match hints — auto-found candidates the user has skipped (clicked off
     # or inverted with C). Drawn with GHOST_LOCKED (amber) so they read as
@@ -533,16 +562,7 @@ def _draw_preview_3d(op, context):
             skipped = set().union(*(c for c in comps if not (c & sel)))
             if skipped:
                 skipped_store[obj] = skipped
-        tris = _selected_face_tris_world(op, skipped_store)
-        if tris:
-            tris = _bias_toward_view(tris, rv3d)
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL",
-                            face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_LOCKED, context=context)
-
-    # Committed picks — rig ghost at each stored placement (preview only).
-    for pend in op.pending:
-        _draw_rig_ghost(op, context, pend["matrix"], role=Role.GHOST_PREVIEW)
+        _draw_face_fill(skipped_store, Role.GHOST_LOCKED)
 
     # Object-mode preview: in PICK_TGT_OBJS draw a rig-ghost at every chosen
     # target so the user sees where Enter will stamp clones.
@@ -551,22 +571,25 @@ def _draw_preview_3d(op, context):
             if tgt is op.ref_obj:
                 continue
             try:
-                t_matrix, _fit_kind = _compute_fit(op, tgt)
+                t_matrix, _fit_kind = _compute_fit_cached(op, tgt)
             except (ReferenceError, ValueError):
                 continue
             _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_PREVIEW)
 
     # Auto-hint placements — rig ghost at each component the user kept in
     # target_polys. Skipped components are hidden until the user clicks them
-    # back in.
+    # back in. Mirrored placements get their own color so a flip is visible
+    # BEFORE stamping.
     if op.mode == MODE_PICK_TGT_POLY and op.hint_fits:
         for obj, fits in op.hint_fits.items():
             sel = op.target_polys.get(obj, set())
             if not sel:
                 continue
-            for comp, t_matrix, _is_mirror in fits:
+            for comp, t_matrix, is_mirror in fits:
                 if comp <= sel:
-                    _draw_rig_ghost(op, context, t_matrix, role=Role.GHOST_PREVIEW)
+                    _draw_rig_ghost(
+                        op, context, t_matrix,
+                        role=Role.GHOST_MIRROR if is_mirror else Role.GHOST_PREVIEW)
 
 # --- HUD / Help builders ---------------------------------------------------
 
@@ -604,6 +627,14 @@ def _build_hud(context, op):
                            lambda: f"{getattr(op, 'match_fit_rmse', 0.15):.2f}",
                            visible_getter=lambda: op.mode in (
                                MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY)))
+
+    def _matches_label():
+        total = sum(len(c) for c in op.match_hints.values())
+        n_mir = sum(sum(1 for m in v if m) for v in op.match_mirrors.values())
+        return f"{total} ({n_mir} mirror)" if n_mir else str(total)
+
+    hud.add_param(HUDParam("Matches", _matches_label,
+                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
     hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
                            visible_getter=lambda: bool(op.last_fit)))
     hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int"))
@@ -616,19 +647,22 @@ def _build_hud(context, op):
 def _build_help(context):
     helpo = HelpOverlay("object_aligner")
     helpo.add_section(HUDSection("Object Aligner", [
-        HUDItem("Pick / toggle (LMB)",     "LMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Pick / paint polys (LMB drag)", "LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Mark face island",        "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Mark similar faces",      "Ctrl+LMB",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Pick ref object",         "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Pick target objects",     "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("All visible / clear targets", "A / Alt+A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Ref-poly mode / commit",  "E",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset to start",          "R",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Reset stage / all",       "R / Shift+R",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle rig visibility",   "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Skip all matches",        "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Invert match selection",  "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate/Instance)", "D",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Scale (Uniform/Keep/Stretch)",    "S",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Match tolerance",         "Alt+Wheel",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply",                   "Enter / Space / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel",                  "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Apply",                   "Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Cancel",                  "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD",              "H",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
     helpo.bind_region(context.region)
@@ -728,7 +762,13 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.force_mode = True
         self._bmesh_cache = {}
         self._rig_geom_cache = {}
+        self._face_geom_cache = {}
+        self._fit_cache = {}
         self.rig_hidden = False
+        self.ref_tangent_anchor = False
+        # LMB drag-paint state for ref-poly marking.
+        self._paint_active = False
+        self._paint_adding = True
 
         self._hud = _build_hud(context, self)
         self._help = _build_help(context)
@@ -752,6 +792,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 pass
         self._bmesh_cache = {}
         self._rig_geom_cache = {}
+        self._face_geom_cache = {}
+        self._fit_cache = {}
 
         if getattr(self, "rig_hidden", False):
             for ob in getattr(self, "source_objs", []):
@@ -802,9 +844,11 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if self._hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
 
-        if event.type in {"ESC"} and event.value == "PRESS":
+        # RMB cancels — Blender modal convention (it used to apply, which
+        # tripped up everyone trained on RMB-as-cancel everywhere else).
+        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
             return self._cancel(context)
-        if event.type in {"RET", "NUMPAD_ENTER", "SPACE", "RIGHTMOUSE"} and event.value == "PRESS":
+        if event.type in {"RET", "NUMPAD_ENTER", "SPACE"} and event.value == "PRESS":
             if self.mode == MODE_PICK_TGT_POLY:
                 m, f, mi, s = self._enqueue_target_poly_stamps(context)
                 self._realize_pending(context)
@@ -836,6 +880,20 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
             if event.type == "S":
                 self.scale_mode = _cycle(self.scale_mode, SCALE_CYCLE)
+                if self.mode == MODE_PICK_TGT_POLY:
+                    # Scale mode feeds the search and the precomputed fits —
+                    # refresh so the ghosts don't go stale.
+                    self._refresh_matches(context)
+                return {"RUNNING_MODAL"}
+            if event.type == "A" and self.mode == MODE_PICK_TGT_OBJS:
+                if event.alt:
+                    self.target_objs = set()
+                    return {"RUNNING_MODAL"}
+                for obj in context.visible_objects:
+                    if obj in self.source_excluded or obj is self.ref_obj:
+                        continue
+                    if obj.type == "MESH" or _is_instancer(obj):
+                        self.target_objs.add(obj)
                 return {"RUNNING_MODAL"}
             if event.type == "Q":
                 self.mode = MODE_PICK_REF
@@ -869,29 +927,25 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 self.mode = MODE_PICK_REF_POLY
                 return {"RUNNING_MODAL"}
             if event.type == "R":
-                # Full reset to the initial state — re-pick everything.
-                self.ref_obj = None
-                self.ref_name = ""
-                self.ref_world_np = None
-                self.target_objs = set()
-                self.ref_polys = {}
-                self.target_polys = {}
-                self.match_hints = {}
-                self.match_orders = {}
-                self.match_mirrors = {}
-                self.hint_fits = {}
-                self.ref_points_np = None
-                self.ref_frame_np = None
-                self.ref_pattern_anchors = None
-                self.ref_sub_patterns = []
-                self.ref_comp_anchors = []
-                self.ref_comp_centroids = []
-                self.ref_comp_facecount = []
-                self.ref_anchor_component = 0
-                self.ref_pattern_weak = False
-                self.pending = []
-                self.stamped_count = 0
-                self.mode = MODE_PICK_REF
+                # R resets only the current stage's data; Shift+R is the old
+                # full reset. A stray R next to E used to wipe the whole
+                # session silently.
+                if event.shift:
+                    self._reset_all()
+                elif self.mode == MODE_PICK_TGT_OBJS:
+                    self.target_objs = set()
+                elif self.mode == MODE_PICK_REF_POLY:
+                    self.ref_polys = {}
+                elif self.mode == MODE_PICK_TGT_POLY:
+                    # Back to ref-poly marking, keeping the marked ref set.
+                    self.target_polys = {}
+                    self.match_hints = {}
+                    self.match_orders = {}
+                    self.match_mirrors = {}
+                    self.hint_fits = {}
+                    self.mode = MODE_PICK_REF_POLY
+                else:
+                    self._reset_all()
                 return {"RUNNING_MODAL"}
             if event.type == "C":
                 if self.mode == MODE_PICK_TGT_POLY:
@@ -920,12 +974,55 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
 
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
+            # Drag-paint: while LMB is held in ref-poly mode, keep applying
+            # the stroke's add/remove action to every face swept over.
+            if (self._paint_active and self.mode == MODE_PICK_REF_POLY
+                    and self.hover_obj is self.ref_obj
+                    and self.hover_face_idx >= 0):
+                s = self.ref_polys.setdefault(self.ref_obj, set())
+                if self._paint_adding:
+                    s.add(self.hover_face_idx)
+                else:
+                    s.discard(self.hover_face_idx)
+                    if not s:
+                        self.ref_polys.pop(self.ref_obj, None)
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             return self._on_click(context, event)
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self._paint_active = False
+            return {"RUNNING_MODAL"}
 
         return {"PASS_THROUGH"}
+
+    def _reset_all(self):
+        """Full reset to the initial state — re-pick everything."""
+        self.ref_obj = None
+        self.ref_name = ""
+        self.ref_world_np = None
+        self.target_objs = set()
+        self.ref_polys = {}
+        self.target_polys = {}
+        self.match_hints = {}
+        self.match_orders = {}
+        self.match_mirrors = {}
+        self.hint_fits = {}
+        self.ref_points_np = None
+        self.ref_frame_np = None
+        self.ref_pattern_anchors = None
+        self.ref_sub_patterns = []
+        self.ref_comp_anchors = []
+        self.ref_comp_centroids = []
+        self.ref_comp_facecount = []
+        self.ref_anchor_component = 0
+        self.ref_pattern_weak = False
+        self.ref_tangent_anchor = False
+        self.pending = []
+        self.stamped_count = 0
+        self._fit_cache = {}
+        self._paint_active = False
+        self.mode = MODE_PICK_REF
 
     def _cancel(self, context):
         for ob in reversed(self.stamped_objs):
@@ -1033,9 +1130,9 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         original = obj.original
         if original.type != "MESH" or original.data is None:
             return None, -1
-        with _eval_mesh(original) as eval_mesh:
-            if face_idx >= len(eval_mesh.polygons):
-                return None, -1
+        _v, _tv, _tp, n_polys = _face_geom_for(self, original)
+        if face_idx >= n_polys:
+            return None, -1
         return original, int(face_idx)
 
     def _toggle_hint_component(self, obj, face_idx: int):
@@ -1076,6 +1173,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         for obj, face_idx_set in self.ref_polys.items():
             with _eval_mesh(obj) as mesh:
                 mw_np = np.array(obj.matrix_world)
+                nrm_mat = _normal_matrix(mw_np)
                 local_index = {}
                 for fi in face_idx_set:
                     poly = mesh.polygons[fi]
@@ -1091,7 +1189,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     ws = np.array([verts_all[i] for i in f_local])
                     face_centroids.append(ws.mean(axis=0))
                     n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
-                    n_world = mw_np[:3, :3] @ n_local
+                    n_world = nrm_mat @ n_local
                     nrm = np.linalg.norm(n_world)
                     face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
                     face_areas.append(float(poly.area))
@@ -1117,6 +1215,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.ref_comp_facecount = []
         self.ref_anchor_component = 0
         self.ref_pattern_weak = False
+        self.ref_tangent_anchor = False
         if ref_obj is None:
             return
         try:
@@ -1131,6 +1230,12 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self.ref_sub_patterns = sub_patterns
         if not sub_patterns:
             return
+
+        # Single-face pattern: add a tangent anchor (see _face_anchor_points)
+        # on both the ref and every candidate so the in-plane rotation is
+        # pinned instead of falling out of the SVD arbitrarily.
+        self.ref_tangent_anchor = (
+            len(sub_patterns) == 1 and len(sub_patterns[0]["faces"]) == 1)
 
         # Constant anchor offset from the mean sqrt-area over ALL pattern faces
         # (kept identical in spirit to the previous single-pattern offset, but
@@ -1206,6 +1311,8 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             cand_pool = []
             for p in self.ref_sub_patterns:
                 expected = 2 * len(p["faces"])
+                if self.ref_tangent_anchor and len(p["faces"]) == 1:
+                    expected += 1
                 cands = []
                 raw = pm.find_pattern_matches(
                     bm, p, area_tol=area_tol, allow_overlap=True)
@@ -1231,10 +1338,6 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 n_kept += 1
                 if asm["mirror"]:
                     n_mirror += 1
-        print(f"[aligner] search (area={area_tol} fit_rmse={fit_rmse} "
-              f"pos_tol={pos_tol_frac}): components={len(self.ref_sub_patterns)} "
-              f"objs={n_objs} kept={n_kept} (mirror={n_mirror}) "
-              f"hints={len(self.match_hints)}")
 
     def _extract_component_verts(self, obj, face_idx_set, mw_np):
         """Helper: world-space verts (Nx3) and local face index lists for the
@@ -1281,7 +1384,29 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if self.mode == MODE_PICK_REF_POLY:
                 if obj is not self.ref_obj:
                     return {"RUNNING_MODAL"}
+                if event.shift or event.ctrl:
+                    # Shift: whole connected island. Ctrl: faces with similar
+                    # normal+area. Clicking a marked face removes the group.
+                    from ..utils import polygon_match as pm
+                    try:
+                        bm = _bmesh_for(self, obj)
+                    except (RuntimeError, ReferenceError):
+                        return {"RUNNING_MODAL"}
+                    group = (pm.face_island(bm, face_idx) if event.shift
+                             else pm.similar_by_normal_area(bm, face_idx))
+                    s = self.ref_polys.setdefault(obj, set())
+                    if face_idx in s:
+                        s.difference_update(group)
+                    else:
+                        s.update(group)
+                    if not s:
+                        self.ref_polys.pop(obj, None)
+                    return {"RUNNING_MODAL"}
                 self._toggle_face(self.ref_polys, obj, face_idx)
+                # The click starts a paint stroke; its action (add/remove)
+                # follows what the toggle just did to the first face.
+                self._paint_active = True
+                self._paint_adding = face_idx in self.ref_polys.get(obj, set())
             else:
                 self._toggle_hint_component(obj, face_idx)
             return {"RUNNING_MODAL"}
@@ -1292,6 +1417,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             self.ref_obj = obj
             self.ref_name = obj.name
             self.ref_world_np = _verts_world_np(obj) if obj.type == "MESH" else None
+            self._fit_cache = {}
             # Auto-advance to target-pick: typical next step.
             self.mode = MODE_PICK_TGT_OBJS
             return {"RUNNING_MODAL"}
@@ -1312,6 +1438,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         from ..utils import polygon_match as pm
 
         mw_np = np.array(target_obj.matrix_world)
+        nrm_mat = _normal_matrix(mw_np)
         face_centroids, face_normals, face_areas = [], [], []
         verts_world, _ = self._extract_component_verts(
             target_obj, component_face_idx_set, mw_np)
@@ -1321,7 +1448,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                     continue
                 poly = mesh.polygons[fi]
                 n_local = np.array([poly.normal.x, poly.normal.y, poly.normal.z])
-                n_world = mw_np[:3, :3] @ n_local
+                n_world = nrm_mat @ n_local
                 nrm = np.linalg.norm(n_world)
                 face_normals.append(n_world / nrm if nrm > 0 else np.array([0.0, 0.0, 1.0]))
                 face_areas.append(float(poly.area))
@@ -1347,10 +1474,17 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         A *constant* offset (taken from the ref pattern's mean √area, stored
         as `self.ref_anchor_offset`) keeps target and ref anchors at the same
         relative distance — so Kabsch rmse reflects only rotation/translation
-        mismatch, not per-face area variation within the matching tolerance."""
+        mismatch, not per-face area variation within the matching tolerance.
+
+        Single-face patterns (`self.ref_tangent_anchor`) additionally emit the
+        midpoint of the face's longest edge: centroid + normal alone leave the
+        in-plane rotation unconstrained, so the SVD would pick an arbitrary
+        spin for the stamped clone."""
         mw_np = np.array(obj.matrix_world)
-        rot_np = mw_np[:3, :3]
+        rot_np = _normal_matrix(mw_np)
         offset = float(self.ref_anchor_offset)
+        want_tangent = (getattr(self, "ref_tangent_anchor", False)
+                        and len(ordered_face_list) == 1)
         points = []
         with _eval_mesh(obj) as mesh:
             n_polys = len(mesh.polygons)
@@ -1373,6 +1507,21 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 n_world = n_world / nrm if nrm > 1e-9 else np.array([0.0, 0.0, 1.0])
                 points.append(c_world[:3])
                 points.append(c_world[:3] + n_world * offset)
+                if want_tangent:
+                    vs = poly.vertices
+                    best_len = -1.0
+                    best_mid = None
+                    for i in range(len(vs)):
+                        a = mesh.vertices[vs[i]].co
+                        b = mesh.vertices[vs[(i + 1) % len(vs)]].co
+                        aw = (np.array([a.x, a.y, a.z, 1.0]) @ mw_np.T)[:3]
+                        bw = (np.array([b.x, b.y, b.z, 1.0]) @ mw_np.T)[:3]
+                        length = float(np.linalg.norm(bw - aw))
+                        if length > best_len:
+                            best_len = length
+                            best_mid = (aw + bw) * 0.5
+                    if best_mid is not None:
+                        points.append(best_mid)
         return np.asarray(points, dtype=np.float64)
 
     def _compute_fit_poly_pattern(self, target_obj, ordered_target_faces, mirror=False):
@@ -1419,7 +1568,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
             if tgt is self.ref_obj:
                 continue
             try:
-                t_matrix, fit_kind = _compute_fit(self, tgt)
+                t_matrix, fit_kind = _compute_fit_cached(self, tgt)
             except (ReferenceError, ValueError):
                 continue
             self.pending.append({
@@ -1505,3 +1654,18 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
                 world_matrix = t_matrix @ src.matrix_world
                 created = _duplicate_obj(src, world_matrix, sub, linked)
                 self.stamped_objs.extend(created)
+        # Hand the selection over to the fresh clones so the user can tweak
+        # them immediately (the rig stays where it was).
+        if self.stamped_objs:
+            for ob in list(context.selected_objects):
+                ob.select_set(False)
+            active = None
+            for ob in self.stamped_objs:
+                try:
+                    ob.select_set(True)
+                    if active is None:
+                        active = ob
+                except (RuntimeError, ReferenceError):
+                    pass
+            if active is not None:
+                context.view_layer.objects.active = active
