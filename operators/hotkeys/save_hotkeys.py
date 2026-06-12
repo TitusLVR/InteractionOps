@@ -5,6 +5,13 @@ import json
 
 from ...utils.functions import merge_missing_defaults
 
+# Programmatically managed keymap entries that must NEVER be serialized:
+# the save tuple can't round-trip them (no `any` flag, and a load would
+# route the space-typed "3D View" widget entry into the space-agnostic
+# "Window" keymap as a duplicate global LMB binding). Their owner
+# (ui/widgets/events.py) registers them itself at addon register.
+NEVER_SAVE = {"iops.widget_interact"}
+
 
 def save_hotkeys():
     path = bpy.utils.script_path_user()
@@ -28,7 +35,9 @@ def get_iops_keys():
         if keymap:
             keymapItems = keymap.keymap_items
             toSave = tuple(
-                item for item in keymapItems if item.idname.startswith("iops.")
+                item for item in keymapItems
+                if item.idname.startswith("iops.")
+                and item.idname not in NEVER_SAVE
             )
             for item in toSave:
                 entry = (

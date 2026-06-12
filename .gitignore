@@ -22,3 +22,5 @@ config/recent-files.txt
 
 # MkDocs build output
 /site/
+
+.superpowers/

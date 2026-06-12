@@ -13,7 +13,12 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def pytest_collect_directory(path, parent):
-    from _pytest.python import Dir
+    # pytest.Dir is the public home since pytest 8; older pytest kept it in
+    # _pytest.python.
+    try:
+        from pytest import Dir
+    except ImportError:
+        from _pytest.python import Dir
 
     if str(path) == _REPO_ROOT:
         return Dir.from_parent(parent, path=path)

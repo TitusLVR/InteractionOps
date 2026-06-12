@@ -167,6 +167,12 @@ def get_iops_prefs():
             "modifier_window_method": safe("modifier_window_method", "RENDER")
         },
         "THEME": _get_theme_section(prefs),
+        "WIDGETS": {
+            # GPU widget visibility/positions (JSON blob managed by
+            # ui/widgets/state.py) — round-tripped so widget state
+            # survives restarts/reinstalls without userpref.blend.
+            "widgets_state": safe("widgets_state", "{}"),
+        },
         "CURSOR_BISECT": {
             "cursor_bisect_edge_subdivisions": safe("cursor_bisect_edge_subdivisions", 1),
             "cursor_bisect_face_depth": safe("cursor_bisect_face_depth", 5),
