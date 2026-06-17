@@ -96,6 +96,23 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     widget_defs: bpy.props.CollectionProperty(type=IOPS_WidgetDefItem)
     widget_defs_index: bpy.props.IntProperty(default=0)
 
+    # Widget library folder (executor-parity). Source folder for the
+    # JSON widgets the popup lists and the loader registers.
+    widgets_use_script_path_user: BoolProperty(
+        name="Use user script path",
+        description="Resolve the widgets folder under the user scripts path",
+        default=True,
+    )
+    widgets_subfolder: StringProperty(
+        name="Widgets sub-folder",
+        default="presets/IOPS/widgets",
+    )
+    widgets_folder: StringProperty(
+        name="Widgets Folder",
+        subtype="DIR_PATH",
+        default=bpy.utils.script_path_user(),
+    )
+
     # Statistics overlay toggles (the only stat-related prefs that aren't
     # cosmetic — colors / sizes / positions all live in IOPS_Theme).
     iops_stat: BoolProperty(

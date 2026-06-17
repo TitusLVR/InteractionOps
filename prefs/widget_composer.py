@@ -11,11 +11,9 @@ Each list row also draws the widget's toggle hotkey (the user-keyconfig
 `iops.widget_toggle` entry kept in sync by ui/widgets/events.py
 sync_toggle_kmis()) as a key-capture field.
 
-Built-in (Python) widgets appear in the list read-only with a lock icon —
-"Duplicate" turns them into an editable JSON copy.
+All widgets are JSON-composed (loaded from the library folder); every
+list row is editable.
 """
-import json
-
 import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty,
                        FloatProperty, StringProperty)
@@ -90,8 +88,7 @@ class IOPS_WidgetRowItem(PropertyGroup):
 
 class IOPS_WidgetDefItem(PropertyGroup):
     name: StringProperty(name="Name", default="widget", update=_on_rename)
-    # Previous on-disk name — lets a rename move the file and lets the
-    # rename callback revert edits on built-ins.
+    # Previous on-disk name — lets a rename move the file.
     stored_name: StringProperty(default="", options={"HIDDEN"})
     title: StringProperty(name="Title", default="", update=_autosave)
     builtin: BoolProperty(default=False)
@@ -102,97 +99,56 @@ class IOPS_UL_WidgetDefs(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data,
                   active_propname, index):
         from ..ui.widgets import events
-        split = layout.split(factor=0.55, align=True)
-        if item.builtin:
-            split.label(text=item.name, icon="LOCKED")
-        else:
-            split.prop(item, "name", text="", emboss=False)
-        # Toggle hotkey — edits the user-keyconfig entry directly so the
-        # binding persists in userpref.blend (it can't round-trip through
-        # the iops hotkey save file; see events.sync_toggle_kmis).
+        # Two equal columns (name | hotkey) with a divider line between —
+        # matches the header drawn in draw_widgets_tab.
+        row = layout.row(align=False)
+        name = row.row()
+        name.prop(item, "name", text="", emboss=False)
+        row.separator(type="LINE")
+        key = row.row()
         _km, kmi = events.find_user_toggle_kmi(item.name)
         if kmi is not None:
-            split.prop(kmi, "type", text="", full_event=True)
+            key.prop(kmi, "type", text="", full_event=True)
         else:
-            split.label(text="")
+            key.label(text="—")
 
 
 # ----------------------------------------------------------------------
 # Collection <-> definition dict
 # ----------------------------------------------------------------------
-def row_item_to_def(item):
-    t = item.type
-    if t == "SECTION":
-        return {"type": t, "label": item.label}
-    if t == "SLIDER":
-        return {"type": t, "target": item.target_float, "snap": item.snap}
-    if t == "PRESETS":
-        from ..widgets.composed import parse_values
-        return {"type": t, "target": item.target_float,
-                "values": parse_values(item.values)}
-    if t == "FLIPBOX":
-        return {"type": t, "target": item.target_bool, "label": item.label}
-    try:
-        kwargs = json.loads(item.op_kwargs or "{}")
-    except ValueError:
-        kwargs = {}
-    return {"type": t, "label": item.label, "op": item.op,
-            "op_kwargs": kwargs if isinstance(kwargs, dict) else {},
-            "role": item.role}
-
-
 def item_to_def(item):
-    from ..widgets.composed import SCHEMA_VERSION
-    return {
-        "version": SCHEMA_VERSION,
-        "name": item.name,
-        "title": item.title or item.name,
-        "space": "VIEW_3D",
-        "rows": [row_item_to_def(r) for r in item.rows],
-    }
+    """The widget's on-disk definition, re-keyed to the list item's
+    current name/title. The JSON file is the source of truth — the prefs
+    list no longer mirrors row contents (the in-prefs row editor was
+    removed and the schema now has shapes the flat row mirror can't hold,
+    e.g. ROW groups and RNA-prop flipboxes), so Duplicate/Export/autosave
+    read the file rather than reconstructing from a stale mirror. Returns
+    None when the file is missing/unreadable."""
+    from ..widgets import composed
+    src = item.stored_name or item.name
+    wdef, _errors = composed.load_def(composed.widget_path(src))
+    if wdef is None:
+        return None
+    wdef["name"] = item.name
+    wdef["title"] = item.title or item.name
+    return wdef
 
 
 def def_to_item(item, wdef, builtin=False):
+    # Only the identity fields are mirrored into the prefs list; row
+    # contents live in the JSON file (see item_to_def).
     item.name = wdef["name"]
     item.stored_name = wdef["name"]
     item.title = wdef.get("title", "")
     item.builtin = builtin
-    item.rows.clear()
-    for row in wdef.get("rows", []):
-        r = item.rows.add()
-        r.type = row["type"]
-        t = row["type"]
-        if t == "SECTION":
-            r.label = row.get("label", "")
-        elif t in ("SLIDER", "PRESETS"):
-            r.target_float = row.get("target", "BEVEL")
-            if t == "SLIDER":
-                r.snap = float(row.get("snap", 0.125))
-            else:
-                r.values = ", ".join(f"{v:g}" for v in row.get("values", []))
-        elif t == "FLIPBOX":
-            r.target_bool = row.get("target", "SHARP")
-            r.label = row.get("label", "")
-        else:
-            r.label = row.get("label", "")
-            r.op = row.get("op", "")
-            r.op_kwargs = json.dumps(row.get("op_kwargs", {}))
-            r.role = row.get("role", "default")
 
 
 # ----------------------------------------------------------------------
 # Sync + autosave
 # ----------------------------------------------------------------------
-def builtin_defs():
-    """Definition mirrors of the Python widgets (currently edge_data) —
-    used for the read-only list entries, Duplicate and Export."""
-    from ..widgets.composed import EDGE_DATA_DEF
-    return {"edge_data": EDGE_DATA_DEF}
-
-
 def sync_from_files(select=None):
-    """Rebuild the prefs collection: built-ins first, then one entry per
-    valid definition file. Keeps (or sets) the selection by name."""
+    """Rebuild the prefs collection: one entry per valid definition file.
+    Keeps (or sets) the selection by name."""
     global _SYNC
     import os
     from ..widgets import composed
@@ -206,9 +162,6 @@ def sync_from_files(select=None):
     _SYNC = True
     try:
         prefs.widget_defs.clear()
-        for wdef in builtin_defs().values():
-            item = prefs.widget_defs.add()
-            def_to_item(item, wdef, builtin=True)
         for fn in composed.list_widget_files():
             path = os.path.join(composed.widgets_folder(), fn)
             wdef, _errors = composed.load_def(path)
@@ -216,16 +169,6 @@ def sync_from_files(select=None):
                 continue
             item = prefs.widget_defs.add()
             def_to_item(item, wdef)
-        # Python widgets without a composed-def mirror (registry-only)
-        # still get a locked row so their toggle hotkey is assignable.
-        from ..ui import widgets as framework
-        listed = {it.name for it in prefs.widget_defs}
-        for w in framework.iter_widgets():
-            if w.name in listed:
-                continue
-            item = prefs.widget_defs.add()
-            def_to_item(item, {"name": w.name, "title": w.title or w.name,
-                               "rows": []}, builtin=True)
         idx = next((i for i, it in enumerate(prefs.widget_defs)
                     if it.name == keep), 0)
         prefs.widget_defs_index = idx
@@ -267,21 +210,13 @@ def autosave_selected():
 
 def rename_item(item):
     """Sanitize + unique-ify the new name, move the definition file, and
-    re-register under the new name. Built-ins revert silently."""
+    re-register under the new name."""
     global _SYNC
     if item is None:
         return
     from ..widgets import composed
-    if item.builtin:
-        _SYNC = True
-        try:
-            item.name = item.stored_name
-        finally:
-            _SYNC = False
-        return
     prefs = get_prefs()
     taken = {it.name for it in prefs.widget_defs if it != item}
-    taken.update(builtin_defs())
     new = composed.unique_name(
         composed.sanitize_name(item.name) or "widget", taken)
     old = item.stored_name
@@ -293,6 +228,16 @@ def rename_item(item):
             _SYNC = False
     if old and old != new:
         from ..ui.widgets import state, events
+        # Move the definition on disk: load the old file, re-key, save it
+        # under the new name, then drop the old widget + file. The JSON
+        # file is the source of truth (the prefs list mirrors only name/
+        # title), so we never reconstruct rows from the list.
+        wdef, _errors = composed.load_def(composed.widget_path(old))
+        if wdef is not None:
+            wdef["name"] = new
+            wdef["title"] = wdef.get("title", new)
+            composed.save_def(wdef)
+            composed.register_composed(wdef)
         state.hide_widget(old)
         composed.unregister_composed(old)
         composed.delete_def(old)
@@ -300,7 +245,6 @@ def rename_item(item):
         # the rename instead of resetting to unbound.
         events.rename_toggle_kmi(old, new)
     item.stored_name = new
-    autosave_item(item)
 
 
 def _redraw_views():
@@ -317,12 +261,59 @@ def _redraw_views():
 # Tab draw (called from addon_preferences.draw)
 # ----------------------------------------------------------------------
 def draw_widgets_tab(layout, context, prefs):
+    # Widgets library folder (executor-parity).
+    box = layout.box()
+    box.label(text="Widgets Folder:", icon="FILE_FOLDER")
+    box.prop(prefs, "widgets_use_script_path_user")
+    if prefs.widgets_use_script_path_user:
+        import bpy
+        box.label(text=bpy.utils.script_path_user())
+        box.prop(prefs, "widgets_subfolder")
+    else:
+        box.prop(prefs, "widgets_folder")
+    # Popup operator + its hotkey (bindable op in the addon "Window"
+    # keymap). Draw the user-keyconfig entry so a rebind persists in
+    # userpref.blend, same as the per-widget toggle fields.
+    kc = context.window_manager.keyconfigs.user
+    km = kc.keymaps.get("Window") if kc is not None else None
+    kmi = None
+    if km is not None:
+        kmi = next((k for k in km.keymap_items
+                    if k.idname == "iops.scripts_call_widgets_panel"), None)
+    box.separator()
+    # One row, two equal columns + divider — mirrors the widget-list rows
+    # below (name | hotkey), so the popup reads as the "all widgets" entry
+    # with its own toggle key.
+    row = box.row(align=False)
+    btn = row.row()
+    btn.operator("iops.scripts_call_widgets_panel",
+                 text="All Widgets Panel", icon="MENU_PANEL")
+    row.separator(type="LINE")
+    key = row.row()
+    if kmi is not None:
+        key.prop(kmi, "type", text="", full_event=True)
+    else:
+        key.label(text="—")
+
+    layout.separator(type="LINE")
     col = layout.column()
-    col.label(text="Widgets")
-    row = col.row()
-    row.template_list("IOPS_UL_WidgetDefs", "", prefs, "widget_defs",
-                      prefs, "widget_defs_index", rows=8)
-    ops = row.column(align=True)
+    col.label(text="Widget Library:")
+    # Column header — two equal columns with a divider, mirroring the
+    # list rows (IOPS_UL_WidgetDefs.draw_item).
+    head = col.row(align=False)
+    h_name = head.row()
+    h_name.label(text="Widget")
+    head.separator(type="LINE")
+    h_key = head.row()
+    h_key.label(text="Toggle Hotkey")
+    # List + a divider + the (square, icon-only) manage buttons. The
+    # template_list is a direct child of the row so it expands and the
+    # button column shrinks to icon width.
+    body = col.row(align=False)
+    body.template_list("IOPS_UL_WidgetDefs", "", prefs, "widget_defs",
+                       prefs, "widget_defs_index", rows=8)
+    body.separator(type="LINE")
+    ops = body.column(align=True)
     ops.operator("iops.widget_def_add", text="", icon="ADD")
     ops.operator("iops.widget_def_duplicate", text="", icon="DUPLICATE")
     ops.operator("iops.widget_def_remove", text="", icon="REMOVE")

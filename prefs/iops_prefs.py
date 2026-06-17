@@ -144,6 +144,11 @@ def get_iops_prefs():
             "executor_use_script_path_user": safe("executor_use_script_path_user", True),
             "executor_scripts_subfolder": safe("executor_scripts_subfolder", "iops_exec"),
         },
+        "WIDGETS_FOLDER": {
+            "widgets_use_script_path_user": safe("widgets_use_script_path_user", True),
+            "widgets_subfolder": safe("widgets_subfolder", "presets/IOPS/widgets"),
+            "widgets_folder": safe("widgets_folder", bpy.utils.script_path_user()),
+        },
         "SPLIT_AREA_PIES": {
             f"PIE_{i}": {
                 f"split_area_pie_{i}_factor": safe(f"split_area_pie_{i}_factor", 0.5),

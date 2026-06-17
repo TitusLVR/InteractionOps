@@ -19,7 +19,6 @@ from ...widgets import composed
 def _taken_names():
     prefs = widget_composer.get_prefs()
     taken = {it.name for it in prefs.widget_defs}
-    taken.update(widget_composer.builtin_defs())
     return taken
 
 
@@ -53,10 +52,7 @@ class IOPS_OT_WidgetDefDuplicate(bpy.types.Operator):
 
     def execute(self, context):
         item = widget_composer.selected_item()
-        if item.builtin:
-            src = widget_composer.builtin_defs().get(item.name)
-        else:
-            src = widget_composer.item_to_def(item)
+        src = widget_composer.item_to_def(item)
         if src is None:
             self.report({"ERROR"}, "Nothing to duplicate")
             return {"CANCELLED"}
@@ -140,10 +136,7 @@ class IOPS_OT_WidgetDefExport(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         import json
         item = widget_composer.selected_item()
-        if item.builtin:
-            wdef = widget_composer.builtin_defs().get(item.name)
-        else:
-            wdef, _ = composed.validate_def(widget_composer.item_to_def(item))
+        wdef, _ = composed.validate_def(widget_composer.item_to_def(item))
         if wdef is None:
             self.report({"ERROR"}, "Nothing to export")
             return {"CANCELLED"}

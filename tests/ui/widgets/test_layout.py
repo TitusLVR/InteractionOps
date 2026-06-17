@@ -117,19 +117,21 @@ def test_bounds_match_anchor_and_size():
 # ----------------------------------------------------------------------
 # Edge clamping to region
 # ----------------------------------------------------------------------
-def test_clamp_left_and_bottom():
+def test_clamp_left_and_title_bottom():
     panel = make_panel([(20.0, 1)], content_width=100.0, x=-50.0, y=10.0)
     panel.clamp_to_region(1000.0, 800.0, margin=2.0)
     assert panel.x == pytest.approx(2.0)
-    # Bottom edge of the panel stays >= margin.
-    assert panel.y == pytest.approx(panel.height + 2.0)
+    # Vertical clamp keeps the TITLE BAR reachable (top edge >=
+    # title_h + margin), not the whole panel body, so the body may
+    # overflow below.
+    assert panel.y == pytest.approx(panel.title_h + 2.0)
 
 
 def test_clamp_right_and_top():
     panel = make_panel([(20.0, 1)], content_width=100.0, x=5000.0, y=5000.0)
     panel.clamp_to_region(1000.0, 800.0, margin=2.0)
     assert panel.x == pytest.approx(1000.0 - panel.width - 2.0)
-    assert panel.y == pytest.approx(800.0 - 2.0)
+    assert panel.y == pytest.approx(800.0 - 2.0)  # top edge at region top
 
 
 def test_clamp_noop_when_inside():
@@ -139,12 +141,30 @@ def test_clamp_noop_when_inside():
     assert panel.y == pytest.approx(400.0)
 
 
-def test_clamp_oversized_panel_keeps_title_visible():
-    # Panel taller than the region: the top (title bar) wins.
-    panel = make_panel([(500.0, 1)], content_width=100.0, x=0.0, y=100.0)
+def test_clamp_tall_panel_keeps_dragged_position():
+    # Regression (CCP Data OPS): a tall panel must keep the vertical
+    # position it was dragged to — the body overflows below the region
+    # instead of the panel snapping up to height+margin.
+    panel = make_panel([(700.0, 1)], content_width=100.0, x=100.0, y=400.0)
+    assert panel.height > 400.0
+    panel.clamp_to_region(2000.0, 1000.0)
+    assert panel.x == pytest.approx(100.0)
+    assert panel.y == pytest.approx(400.0)   # not forced to panel.height
+
+
+def test_clamp_oversized_panel_keeps_title_reachable():
+    # Panel taller than the region: a valid title position is preserved;
+    # out-of-range placements clamp so the title bar stays grabbable.
+    panel = make_panel([(500.0, 1)], content_width=100.0, x=0.0, y=150.0)
     assert panel.height > 200.0
     panel.clamp_to_region(1000.0, 200.0)
-    assert panel.y == pytest.approx(200.0)  # top edge at region top
+    assert panel.y == pytest.approx(150.0)         # valid title pos kept
+    panel.y = 5000.0
+    panel.clamp_to_region(1000.0, 200.0)
+    assert panel.y == pytest.approx(200.0)         # clamped to region top
+    panel.y = -100.0
+    panel.clamp_to_region(1000.0, 200.0)
+    assert panel.y == pytest.approx(panel.title_h)  # title bar kept on-screen
 
 
 def test_clamp_degenerate_region_is_noop():

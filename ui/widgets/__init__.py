@@ -21,7 +21,7 @@ stay importable from the test harness too.
 """
 from .panel import WidgetPanel, Rect
 from .controls import (Control, Section, Slider, PresetRow, FlipBox,
-                       ActionButton, Row)
+                       ActionButton, Row, Swatch)
 
 try:
     import bpy  # noqa: F401
@@ -135,7 +135,7 @@ else:  # plain pytest / headless tooling without bpy
 __all__ = [
     "Widget", "WidgetPanel", "Rect",
     "Control", "Section", "Slider", "PresetRow", "FlipBox",
-    "ActionButton", "Row",
+    "ActionButton", "Row", "Swatch",
     "register_widget", "unregister_widget", "get_widget", "iter_widgets",
     "classes", "register", "unregister",
 ]

@@ -1,10 +1,11 @@
 """Widget controls — Control base + Slider, PresetRow, FlipBox,
-ActionButton, Section, Row.
+ActionButton, Section, Row, Swatch.
 
 IMPORTANT: this module must stay importable WITHOUT bpy. All value<->pixel
 math lives in module-level functions so it can be unit-tested with plain
-pytest. The only bpy usage is inside `ActionButton.execute()` (a deferred
-local import that only runs inside Blender when the user clicks).
+pytest. The only bpy usage is inside `_invoke_operator()` — a deferred
+local import that only runs inside Blender when a button or swatch fires
+(called by ActionButton.execute and Swatch.execute).
 
 Data-binding contract (per the widget design doc):
 - getters:  get(context) -> (value, is_mixed). `value is None` means
@@ -248,6 +249,18 @@ class FlipBox(_ValueControl):
         return not value
 
 
+def _invoke_operator(op_idname, kwargs):
+    """Fire an operator by idname via INVOKE_DEFAULT. The ONLY bpy touch in
+    this module — deferred import so the module stays importable under plain
+    pytest. INVOKE_DEFAULT: invoke-only operators (e.g. CCP export ops) raise
+    under EXEC_DEFAULT; operators without invoke fall through to execute, so
+    this is safe for both kinds. Shared by ActionButton and Swatch."""
+    import bpy
+    module, _, name = op_idname.partition(".")
+    op = getattr(getattr(bpy.ops, module), name)
+    return op("INVOKE_DEFAULT", **kwargs)
+
+
 class ActionButton(Control):
     """Fires an operator on click (release inside the button)."""
 
@@ -264,15 +277,30 @@ class ActionButton(Control):
         self.enabled_get = enabled_get
 
     def execute(self, context):
-        # The ONLY bpy touch in this module — deferred so the module stays
-        # importable under plain pytest.
-        import bpy
-        module, _, name = self.op.partition(".")
-        op = getattr(getattr(bpy.ops, module), name)
-        # INVOKE_DEFAULT: invoke-only operators (e.g. the CCP export ops)
-        # raise under the default EXEC_DEFAULT; operators without invoke
-        # fall through to execute, so this is safe for both kinds.
-        return op("INVOKE_DEFAULT", **self.kwargs)
+        return _invoke_operator(self.op, self.kwargs)
+
+
+class Swatch(_ValueControl):
+    """Color swatch bound to an RGBA getter, firing an operator on click.
+
+    Read-only binding: `set` is None and `write()` is never called — the
+    swatch only displays its color and fires `op` (release-inside, exactly
+    like ActionButton). The getter returns (rgba, is_mixed); a None color is
+    the disabled sentinel (renders faded, no operator fires). Scalar binding,
+    so is_mixed is always False."""
+
+    kind = "swatch"
+    interactive = True
+
+    def __init__(self, get, op, kwargs=None, label="", enabled_get=None):
+        super().__init__(get, None)
+        self.op = op            # operator idname, e.g. "iops.object_color_apply"
+        self.kwargs = dict(kwargs) if kwargs else {}
+        self.label = label      # optional centered glyph/text on the fill
+        self.enabled_get = enabled_get
+
+    def execute(self, context):
+        return _invoke_operator(self.op, self.kwargs)
 
 
 class Row(Control):

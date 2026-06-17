@@ -17,7 +17,7 @@ against exactly what was drawn.
 from __future__ import annotations
 
 from ..draw import primitives, draw_scope
-from ..draw.theme import Role, get_theme
+from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
 from .controls import Row, pixel_from_value, preset_cell_rects
 from .panel import Rect
@@ -32,6 +32,9 @@ ROW_PAD_CONTROL = 10.0
 TITLE_PAD = 10.0
 SLIDER_VALUE_COL = 8.0      # gap between track and value text
 BOX_INSET = 3.0             # flipbox check inset
+SWATCH_INSET = 2.0          # color-fill inset inside the swatch outline
+SWATCH_MIN_W = 28.0         # min swatch cell width (clickable target)
+SWATCH_HEIGHT_FACTOR = 1.8  # swatch row height = factor * label height
 PRESET_GAP = 4.0
 TICK_H = 4.0
 MAX_TICKS = 32
@@ -83,6 +86,8 @@ def _row_height(control, theme):
     label_h = theme.text_size("hud_label")
     if control.kind == "section":
         return label_h + ROW_PAD_SECTION
+    if control.kind == "swatch":
+        return label_h * SWATCH_HEIGHT_FACTOR + ROW_PAD_CONTROL
     return label_h + ROW_PAD_CONTROL
 
 
@@ -104,6 +109,8 @@ def _control_min_width(control, theme):
     if control.kind == "flipbox":
         box = theme.text_size("hud_label")
         return box + 6.0 + tw(control.label)
+    if control.kind == "swatch":
+        return SWATCH_MIN_W
     if control.kind == "button":
         return tw(control.label) + 24.0
     if control.kind == "row":
@@ -284,6 +291,25 @@ def _draw_button(control, rect, theme, dim):
     _text_centered(control.label, rect, theme=theme, color=text_color)
 
 
+def _draw_swatch(control, rect, theme, dim, context, live):
+    value, _ = control.value(context) if live else control.cached()
+    disabled = (value is None) or not control.enabled
+    eff = dim * (DISABLED_ALPHA if disabled else 1.0)
+    if value is not None:
+        # subtype=COLOR props are scene-linear; encode to sRGB to match the
+        # native color field. Force opaque fill so a low-alpha stored color
+        # is still visible (alpha is not part of the swatch's job here).
+        enc = _srgb_encode(value)
+        primitives.rect_2d(rect.x + SWATCH_INSET, rect.y + SWATCH_INSET,
+                           rect.w - SWATCH_INSET * 2.0, rect.h - SWATCH_INSET * 2.0,
+                           color=(enc[0], enc[1], enc[2], 1.0), theme=theme)
+    # Outline/label carry the disabled fade; the fill stays readable.
+    _outline(rect, _col(theme, Role.LINE, eff), theme)
+    if control.label:
+        _text_centered(control.label, rect, theme=theme,
+                       color=_col(theme, Role.HUD_LABEL, eff))
+
+
 def _draw_control(control, rect, theme, dim, context, live):
     # Live enabled resolution (dirty-cached): presets/Clear gray out and
     # go inert with no selection (spec) — only touched while in context,
@@ -301,6 +327,8 @@ def _draw_control(control, rect, theme, dim, context, live):
         _draw_flipbox(control, rect, theme, dim, context, live)
     elif kind == "button":
         _draw_button(control, rect, theme, dim)
+    elif kind == "swatch":
+        _draw_swatch(control, rect, theme, dim, context, live)
 
 
 # ----------------------------------------------------------------------

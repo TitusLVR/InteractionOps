@@ -122,3 +122,180 @@ def test_merge_trailing_run():
     rows = [_r("SECTION"), _r("FLIPBOX"), _r("FLIPBOX")]
     merged = composed.merge_flipbox_runs(rows)
     assert isinstance(merged[-1], list) and len(merged[-1]) == 2
+
+
+# ----------------------------------------------------------------------
+# RNA path resolver + bool adapter
+# ----------------------------------------------------------------------
+class _Obj:
+    pass
+
+
+def _fake_context():
+    ctx = _Obj()
+    ctx.scene = _Obj()
+    ctx.scene.CCP = _Obj()
+    ctx.scene.CCP.flag = True
+    return ctx
+
+
+def test_resolve_rna_owner_walks_path():
+    ctx = _fake_context()
+    owner, attr = composed.resolve_rna_owner(ctx, "scene.CCP.flag")
+    assert owner is ctx.scene.CCP and attr == "flag"
+
+
+def test_resolve_rna_owner_missing_returns_none():
+    ctx = _fake_context()
+    owner, attr = composed.resolve_rna_owner(ctx, "scene.NOPE.flag")
+    assert owner is None and attr is None
+
+
+def test_rna_bool_adapter_get_set():
+    ctx = _fake_context()
+    ad = composed.rna_bool_adapter("scene.CCP.flag")
+    assert ad["get"](ctx) == (True, False)
+    ad["set"](ctx, False)
+    assert ctx.scene.CCP.flag is False
+    # Missing path -> disabled sentinel, set is a no-op (no raise)
+    bad = composed.rna_bool_adapter("scene.NOPE.flag")
+    assert bad["get"](ctx) == (None, False)
+    bad["set"](ctx, True)
+
+
+# ----------------------------------------------------------------------
+# FLIPBOX prop + ROW
+# ----------------------------------------------------------------------
+def test_validate_flipbox_prop():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "FLIPBOX", "prop": "scene.CCP.red_export_opaqueAreas",
+             "label": "Opaque"},
+            {"type": "FLIPBOX", "prop": "scene.CCP.x"},   # label defaults
+        ],
+    })
+    assert errors == []
+    assert wdef["rows"][0]["prop"] == "scene.CCP.red_export_opaqueAreas"
+    assert wdef["rows"][0]["label"] == "Opaque"
+    assert wdef["rows"][1]["label"] == "x"   # last path segment
+
+
+def test_validate_flipbox_needs_exactly_one_of_prop_target():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "FLIPBOX"},                                   # neither
+            {"type": "FLIPBOX", "prop": "scene.x", "target": "SEAM"},  # both
+        ],
+    })
+    assert wdef["rows"] == []
+    assert len(errors) == 2
+
+
+def test_validate_row_grouping():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "ROW", "cells": [
+                {"type": "FLIPBOX", "prop": "scene.CCP.x", "label": "X"},
+                {"type": "BUTTON", "label": "Export", "op": "ccp.do"},
+            ]},
+            {"type": "ROW", "cells": []},                  # empty -> drop
+            {"type": "ROW", "cells": [{"type": "NOPE"}]},  # all bad -> drop
+        ],
+    })
+    assert len(wdef["rows"]) == 1
+    row = wdef["rows"][0]
+    assert row["type"] == "ROW" and len(row["cells"]) == 2
+    assert row["cells"][0]["type"] == "FLIPBOX"
+    assert row["cells"][1]["type"] == "BUTTON"
+    assert len(errors) >= 2
+
+
+def test_validate_row_rejects_nested_row():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [{"type": "ROW", "cells": [
+            {"type": "ROW", "cells": [{"type": "SECTION", "label": "x"}]},
+        ]}],
+    })
+    assert wdef["rows"] == []   # only cell was a nested ROW -> dropped -> empty
+    assert errors
+
+
+# ----------------------------------------------------------------------
+# SWATCH row type + rna_color_adapter
+# ----------------------------------------------------------------------
+def test_validate_swatch_minimal():
+    data = {"name": "oc", "rows": [
+        {"type": "SWATCH", "prop": "scene.IOPS.iops_object_color",
+         "op": "iops.object_color_apply"}]}
+    wdef, errors = composed.validate_def(data)
+    assert errors == []
+    assert wdef["rows"][0] == {
+        "type": "SWATCH", "prop": "scene.IOPS.iops_object_color",
+        "op": "iops.object_color_apply", "label": "", "op_kwargs": {}}
+
+
+def test_validate_swatch_with_kwargs_and_label():
+    data = {"name": "oc", "rows": [
+        {"type": "SWATCH", "prop": "scene.IOPS.iops_object_color_recent_0",
+         "op": "iops.object_color_apply_recent",
+         "op_kwargs": {"index": 0}, "label": "1"}]}
+    wdef, errors = composed.validate_def(data)
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["op_kwargs"] == {"index": 0}
+    assert r["label"] == "1"
+
+
+def test_validate_swatch_missing_prop_dropped():
+    data = {"name": "oc", "rows": [{"type": "SWATCH", "op": "iops.x"}]}
+    wdef, errors = composed.validate_def(data)
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_swatch_bad_op_dropped():
+    data = {"name": "oc", "rows": [
+        {"type": "SWATCH", "prop": "scene.IOPS.iops_object_color",
+         "op": "nodothere"}]}
+    wdef, errors = composed.validate_def(data)
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_swatch_inside_row_cells():
+    data = {"name": "oc", "rows": [{"type": "ROW", "cells": [
+        {"type": "SWATCH", "prop": "scene.IOPS.iops_object_color_recent_0",
+         "op": "iops.object_color_apply_recent", "op_kwargs": {"index": 0}},
+        {"type": "SWATCH", "prop": "scene.IOPS.iops_object_color_recent_1",
+         "op": "iops.object_color_apply_recent", "op_kwargs": {"index": 1}},
+    ]}]}
+    wdef, errors = composed.validate_def(data)
+    assert errors == []
+    cells = wdef["rows"][0]["cells"]
+    assert len(cells) == 2
+    assert cells[0]["op_kwargs"] == {"index": 0}
+    assert cells[1]["prop"].endswith("recent_1")
+
+
+def test_rna_color_adapter_reads_tuple():
+    ad = composed.rna_color_adapter("scene.IOPS.iops_object_color")
+
+    class _P: pass
+    class _S: pass
+    class _C: pass
+    p = _P(); p.iops_object_color = (0.1, 0.2, 0.3, 1.0)
+    s = _S(); s.IOPS = p
+    c = _C(); c.scene = s
+    assert ad["get"](c) == ((0.1, 0.2, 0.3, 1.0), False)
+
+
+def test_rna_color_adapter_absent_is_disabled_sentinel():
+    ad = composed.rna_color_adapter("scene.IOPS.iops_object_color")
+
+    class _C: pass
+    c = _C(); c.scene = None
+    assert ad["get"](c) == (None, False)

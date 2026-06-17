@@ -124,7 +124,20 @@ def load_iops_preferences():
                                 defaults.get("executor_use_script_path_user", True))
                             prefs.executor_scripts_subfolder = safe_get(value, "executor_scripts_subfolder",
                                 defaults.get("executor_scripts_subfolder", "iops_exec"))
-                    
+
+                    case "WIDGETS_FOLDER":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("WIDGETS_FOLDER", {})
+                            prefs.widgets_use_script_path_user = safe_get(
+                                value, "widgets_use_script_path_user",
+                                defaults.get("widgets_use_script_path_user", True))
+                            prefs.widgets_subfolder = safe_get(
+                                value, "widgets_subfolder",
+                                defaults.get("widgets_subfolder", "presets/IOPS/widgets"))
+                            prefs.widgets_folder = safe_get(
+                                value, "widgets_folder",
+                                defaults.get("widgets_folder", bpy.utils.script_path_user()))
+
                     case "SPLIT_AREA_PIES":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("SPLIT_AREA_PIES", {})

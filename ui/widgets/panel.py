@@ -124,15 +124,22 @@ class WidgetPanel:
 
     def clamp_to_region(self, region_w: float, region_h: float,
                         margin: float = 0.0) -> None:
-        """Keep the panel inside the region. When the panel is larger than
-        the region, the title bar (top-left) stays visible."""
+        """Keep the panel reachable inside the region.
+
+        Horizontally the whole panel is kept on-screen. Vertically only
+        the TITLE BAR is kept reachable (top edge within
+        [title_h + margin, region_h - margin]); a tall body is allowed to
+        overflow below the region. Forcing the entire body on-screen
+        would pin tall panels (e.g. CCP Data OPS) to a fixed band and
+        fight the user's drag placement."""
         if self.width <= 0.0 or region_w <= 0.0 or region_h <= 0.0:
             return
         max_x = region_w - self.width - margin
         self.x = min(max(self.x, margin), max(margin, max_x))
-        min_y = self.height + margin          # bottom edge >= margin
-        max_y = region_h - margin             # top edge <= region top
-        self.y = min(max(self.y, min_y), max_y)
+        # y is the TOP edge; the title bar spans [y - title_h, y].
+        top_max = region_h - margin           # title top <= region top
+        top_min = min(self.title_h + margin, top_max)   # title stays on-screen
+        self.y = min(max(self.y, top_min), top_max)
 
     # ------------------------------------------------------------------
     # Hit-testing

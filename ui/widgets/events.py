@@ -21,7 +21,7 @@ per call inside the widget's value adapters — nothing bmesh-shaped is
 ever stored on the operator.
 """
 import bpy
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 
 from . import state
 
@@ -45,6 +45,11 @@ class IOPS_OT_widget_toggle(bpy.types.Operator):
 
     name: StringProperty(name="Widget", description="Widget name to toggle",
                          default="")
+    # When True (default), summon at the mouse cursor — natural for a
+    # viewport hotkey press. The All-Widgets popup sets this False so a
+    # click re-opens the widget at its remembered position instead of
+    # under the popup.
+    use_cursor: BoolProperty(name="At Cursor", default=True)
 
     def _toggle(self, context, mouse=None):
         from . import get_widget
@@ -79,9 +84,15 @@ class IOPS_OT_widget_toggle(bpy.types.Operator):
         return {"FINISHED"}
 
     def invoke(self, context, event):
-        # Summon at the cursor when toggled from inside the viewport.
+        # Summon at the cursor when toggled from inside the viewport, but
+        # only from a real WINDOW region — a popup/menu region's mouse
+        # coords aren't in viewport space. use_cursor=False (the popup)
+        # always re-opens at the remembered position.
         mouse = None
-        if context.area is not None and context.region is not None:
+        if (self.use_cursor and context.area is not None
+                and context.region is not None
+                and context.region.type == "WINDOW"
+                and context.area.type == "VIEW_3D"):
             mouse = (event.mouse_region_x, event.mouse_region_y)
         return self._toggle(context, mouse)
 
@@ -200,7 +211,9 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             self._mode = "release_undo"
             return self._begin_modal(context)
 
-        if control.kind == "button":
+        if control.kind in ("button", "swatch"):
+            # Swatch fires its operator on release-inside, exactly like a
+            # button (one ed.undo_push, mark_dirty afterwards).
             self._control = control
             self._mode = "button"
             return self._begin_modal(context)

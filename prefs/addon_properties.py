@@ -111,6 +111,12 @@ class IOPS_ExecutorScriptItem(PropertyGroup):
     path: StringProperty(name="Script path", default="")
 
 
+class IOPS_WidgetListItem(PropertyGroup):
+    """One widget (name + display title) for the scan-to-popup list."""
+    name: StringProperty(name="Widget name", default="")
+    title: StringProperty(name="Title", default="")
+
+
 class IOPS_AddonProperties(PropertyGroup):
     iops_panel_mesh_info: bpy.props.BoolProperty(
         name="Show mesh info", description="Show mesh info panel", default=False
@@ -167,6 +173,11 @@ class IOPS_SceneProperties(PropertyGroup):
         type=IOPS_ExecutorScriptItem,
         name="Filtered executor scripts",
         description="Filtered script paths when search is active",
+    )
+    widget_list: CollectionProperty(
+        type=IOPS_WidgetListItem,
+        name="Widget list",
+        description="Widgets found in the library folder for the popup",
     )
     dragsnap_point_a: FloatVectorProperty(
         name="DragSnap Point A",

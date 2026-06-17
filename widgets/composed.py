@@ -1,7 +1,7 @@
 """JSON-composed widgets — the runtime behind the prefs "Widgets" tab.
 
 A composed widget is a JSON definition built from the known block palette
-(Section / Slider / Presets / FlipBox / Button) with value rows bound to
+(Section / Slider / Presets / FlipBox / Button / Swatch) with value rows bound to
 the adapter registry (adapters.ADAPTERS). One file per widget in
 `bpy.utils.script_path_user()/presets/IOPS/widgets/<name>.json`:
 
@@ -30,7 +30,7 @@ its import to call time.
 import json
 import os
 
-ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON")
+ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON", "ROW", "SWATCH")
 FLOAT_TARGETS = ("BEVEL", "CREASE")
 BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
 SCHEMA_VERSION = 1
@@ -88,6 +88,56 @@ def parse_values(text):
     return vals
 
 
+def resolve_rna_owner(root, path):
+    """Walk a dotted attribute path from `root`, returning
+    (owner, last_attr) so callers can get/set the final attribute.
+    Returns (None, None) if any intermediate segment is missing.
+    Pure (getattr only) — pytest-covered with a fake object."""
+    parts = [p for p in str(path).split(".") if p]
+    if not parts:
+        return None, None
+    owner = root
+    for attr in parts[:-1]:
+        owner = getattr(owner, attr, None)
+        if owner is None:
+            return None, None
+    return owner, parts[-1]
+
+
+def rna_bool_adapter(path):
+    """A get/set bundle for an arbitrary RNA boolean resolved against
+    `context` (e.g. "scene.CCP.red_export_opaqueAreas"). Absence-safe:
+    get returns (None, False) -> control renders disabled; set no-ops.
+    Scalar binding, so is_mixed is always False."""
+    def get(context):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is None or not hasattr(owner, attr):
+            return (None, False)
+        return (bool(getattr(owner, attr)), False)
+
+    def set(context, value):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is not None and hasattr(owner, attr):
+            setattr(owner, attr, bool(value))
+
+    return {"get": get, "set": set}
+
+
+def rna_color_adapter(path):
+    """A read-only get bundle for an arbitrary RNA color (FloatVector
+    subtype COLOR) resolved against `context` (e.g.
+    "scene.IOPS.iops_object_color"). Absence-safe: get returns
+    (None, False) -> the swatch renders disabled. Scalar binding, so
+    is_mixed is always False."""
+    def get(context):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is None or not hasattr(owner, attr):
+            return (None, False)
+        return (tuple(getattr(owner, attr)), False)
+
+    return {"get": get}
+
+
 def unique_name(base, taken):
     """`base`, or `base_2`, `base_3`, ... — first not in `taken`."""
     if base not in taken:
@@ -96,6 +146,100 @@ def unique_name(base, taken):
     while f"{base}_{i}" in taken:
         i += 1
     return f"{base}_{i}"
+
+
+def _clean_row(row):
+    """Validate + normalize ONE row def. Returns (out_dict, error_or_None).
+    out_dict is None when the row is unusable. Shared by validate_def's
+    top-level loop and ROW cell validation."""
+    if not isinstance(row, dict):
+        return None, "not an object"
+    rtype = str(row.get("type", "")).upper()
+    if rtype not in ROW_TYPES:
+        return None, f"unknown type '{rtype}'"
+    out = {"type": rtype}
+    if rtype == "SECTION":
+        out["label"] = str(row.get("label", ""))
+        return out, None
+    if rtype == "SLIDER":
+        target = str(row.get("target", "")).upper()
+        if target not in FLOAT_TARGETS:
+            return None, f"slider target '{target}' invalid"
+        out["target"] = target
+        try:
+            out["snap"] = max(0.0, float(row.get("snap", 0.125)))
+        except (TypeError, ValueError):
+            out["snap"] = 0.125
+        return out, None
+    if rtype == "PRESETS":
+        target = str(row.get("target", "")).upper()
+        if target not in FLOAT_TARGETS:
+            return None, f"presets target '{target}' invalid"
+        out["target"] = target
+        vals = []
+        values = row.get("values", [])
+        if isinstance(values, list):
+            for v in values:
+                try:
+                    vals.append(max(0.0, min(1.0, float(v))))
+                except (TypeError, ValueError):
+                    pass
+        if not vals:
+            return None, "presets without values"
+        out["values"] = vals
+        return out, None
+    if rtype == "FLIPBOX":
+        prop = str(row.get("prop", "")).strip()
+        target = str(row.get("target", "")).strip().upper()
+        if bool(prop) == bool(target):
+            return None, "flipbox needs exactly one of prop/target"
+        if prop:
+            out["prop"] = prop
+            out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
+        else:
+            if target not in BOOL_TARGETS:
+                return None, f"flipbox target '{target}' invalid"
+            out["target"] = target
+            out["label"] = str(row.get("label", "")) or target.title()
+        return out, None
+    if rtype == "ROW":
+        cells_in = row.get("cells", [])
+        if not isinstance(cells_in, list):
+            return None, "row cells is not a list"
+        cells = []
+        for cell in cells_in:
+            c, _err = _clean_row(cell)
+            if c is None or c["type"] == "ROW":
+                continue   # drop unusable / nested ROW cells silently
+            cells.append(c)
+        if not cells:
+            return None, "row has no usable cells"
+        out["cells"] = cells
+        return out, None
+    if rtype == "SWATCH":
+        prop = str(row.get("prop", "")).strip()
+        if not prop:
+            return None, "swatch needs a prop (RNA color path)"
+        op = str(row.get("op", "")).strip()
+        if "." not in op:
+            return None, f"swatch op '{op}' is not an operator idname"
+        out["prop"] = prop
+        out["op"] = op
+        out["label"] = str(row.get("label", ""))
+        kwargs = row.get("op_kwargs", {})
+        out["op_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
+        return out, None
+    # BUTTON
+    op = str(row.get("op", "")).strip()
+    if "." not in op:
+        return None, f"button op '{op}' is not an operator idname"
+    out["op"] = op
+    out["label"] = str(row.get("label", "")) or op
+    kwargs = row.get("op_kwargs", {})
+    out["op_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
+    role = str(row.get("role", "default"))
+    out["role"] = role if role in ("default", "error") else "default"
+    return out, None
 
 
 def validate_def(data):
@@ -122,67 +266,11 @@ def validate_def(data):
     if not isinstance(rows, list):
         return clean, ["rows is not a list"]
     for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            errors.append(f"row {i}: not an object — dropped")
-            continue
-        rtype = str(row.get("type", "")).upper()
-        if rtype not in ROW_TYPES:
-            errors.append(f"row {i}: unknown type '{rtype}' — dropped")
-            continue
-        out: dict = {"type": rtype}
-        if rtype == "SECTION":
-            out["label"] = str(row.get("label", ""))
-        elif rtype == "SLIDER":
-            target = str(row.get("target", "")).upper()
-            if target not in FLOAT_TARGETS:
-                errors.append(f"row {i}: slider target '{target}' invalid"
-                              " — dropped")
-                continue
-            out["target"] = target
-            try:
-                out["snap"] = max(0.0, float(row.get("snap", 0.125)))
-            except (TypeError, ValueError):
-                out["snap"] = 0.125
-        elif rtype == "PRESETS":
-            target = str(row.get("target", "")).upper()
-            if target not in FLOAT_TARGETS:
-                errors.append(f"row {i}: presets target '{target}' invalid"
-                              " — dropped")
-                continue
-            out["target"] = target
-            values = row.get("values", [])
-            vals = []
-            if isinstance(values, list):
-                for v in values:
-                    try:
-                        vals.append(max(0.0, min(1.0, float(v))))
-                    except (TypeError, ValueError):
-                        pass
-            if not vals:
-                errors.append(f"row {i}: presets without values — dropped")
-                continue
-            out["values"] = vals
-        elif rtype == "FLIPBOX":
-            target = str(row.get("target", "")).upper()
-            if target not in BOOL_TARGETS:
-                errors.append(f"row {i}: flipbox target '{target}' invalid"
-                              " — dropped")
-                continue
-            out["target"] = target
-            out["label"] = str(row.get("label", "")) or target.title()
-        elif rtype == "BUTTON":
-            op = str(row.get("op", "")).strip()
-            if "." not in op:
-                errors.append(f"row {i}: button op '{op}' is not an"
-                              " operator idname — dropped")
-                continue
-            out["op"] = op
-            out["label"] = str(row.get("label", "")) or op
-            kwargs = row.get("op_kwargs", {})
-            out["op_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
-            role = str(row.get("role", "default"))
-            out["role"] = role if role in ("default", "error") else "default"
-        clean["rows"].append(out)
+        out, err = _clean_row(row)
+        if err:
+            errors.append(f"row {i}: {err} — dropped")
+        if out is not None:
+            clean["rows"].append(out)
     return clean, errors
 
 
@@ -211,8 +299,13 @@ def merge_flipbox_runs(rows):
 def build_controls(row_defs):
     """Materialize a validated `rows` list into framework controls."""
     from ..ui.widgets import (Section, Slider, PresetRow, FlipBox,
-                              ActionButton, Row)
+                              ActionButton, Row, Swatch)
     from .adapters import ADAPTERS, has_selected_edges
+
+    edge_bound = _binds_edges(row_defs)
+    # Buttons/presets gray with no selection ONLY for edge widgets; a
+    # scene-prop widget (e.g. ccp_data_ops) keeps them always enabled.
+    gate = has_selected_edges if edge_bound else None
 
     def one(row):
         rtype = row["type"]
@@ -226,22 +319,31 @@ def build_controls(row_defs):
                           restore=a.get("restore"))
         if rtype == "PRESETS":
             a = ADAPTERS[row["target"]]
-            return PresetRow(row["values"], set=a["set"],
-                             enabled_get=has_selected_edges)
+            return PresetRow(row["values"], set=a["set"], enabled_get=gate)
         if rtype == "FLIPBOX":
+            if row.get("prop"):
+                ad = rna_bool_adapter(row["prop"])
+                return FlipBox(row["label"], get=ad["get"], set=ad["set"])
             a = ADAPTERS[row["target"]]
             return FlipBox(row["label"], get=a["get"], set=a["set"])
+        if rtype == "SWATCH":
+            ad = rna_color_adapter(row["prop"])
+            return Swatch(get=ad["get"], op=row["op"],
+                          kwargs=row.get("op_kwargs") or {},
+                          label=row.get("label", ""))
         if rtype == "BUTTON":
             return ActionButton(row["label"], op=row["op"],
                                 kwargs=row.get("op_kwargs") or {},
                                 role=row.get("role", "default"),
-                                enabled_get=has_selected_edges)
+                                enabled_get=gate)
         return None
 
     controls = []
     for item in merge_flipbox_runs(row_defs):
         if isinstance(item, list):
             controls.append(Row([one(r) for r in item]))
+        elif isinstance(item, dict) and item.get("type") == "ROW":
+            controls.append(Row([one(r) for r in item["cells"]]))
         else:
             ctrl = one(item)
             if ctrl is not None:
@@ -250,7 +352,13 @@ def build_controls(row_defs):
 
 
 def _binds_edges(row_defs):
-    return any(r.get("target") for r in row_defs)
+    """True if any control binds an EDGE adapter (target=). Recurses into
+    ROW cells. prop-bound flipboxes are NOT edge-bound."""
+    def row_binds(r):
+        if r.get("type") == "ROW":
+            return any(row_binds(c) for c in r.get("cells", []))
+        return bool(r.get("target"))
+    return any(row_binds(r) for r in row_defs)
 
 
 def make_widget(wdef):
@@ -279,8 +387,17 @@ def make_widget(wdef):
 # ----------------------------------------------------------------------
 def widgets_folder():
     import bpy
-    return os.path.join(bpy.utils.script_path_user(),
-                        "presets", "IOPS", "widgets")
+    base = bpy.utils.script_path_user()
+    try:
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+    except (KeyError, AttributeError):
+        # Early register / factory-startup: fall back to the canonical path
+        return os.path.join(base, "presets", "IOPS", "widgets")
+    if getattr(prefs, "widgets_use_script_path_user", True):
+        sub = (prefs.widgets_subfolder or "").strip()
+        return os.path.join(base, sub) if sub else base
+    return prefs.widgets_folder or os.path.join(base, "presets", "IOPS",
+                                                "widgets")
 
 
 def widget_path(name):
@@ -335,13 +452,17 @@ _live = set()
 
 
 def register_composed(wdef):
-    """(Re)register one composed widget. A composed widget may not shadow
-    a built-in (Python) widget name."""
+    """(Re)register one composed widget. Idempotent — keyed by name.
+
+    Re-registration rebuilds the Widget with a FRESH panel at its default
+    corner; seed it from the persisted state so a (re)register never
+    drops the remembered on-screen position."""
     from ..ui import widgets as framework
-    existing = framework.get_widget(wdef["name"])
-    if existing is not None and wdef["name"] not in _live:
-        return None, f"name '{wdef['name']}' is taken by a built-in widget"
+    from ..ui.widgets import state
     inst = framework.register_widget(make_widget(wdef))
+    st = state.get_state(inst.name)
+    inst.panel.x = float(st.get("x", inst.panel.x))
+    inst.panel.y = float(st.get("y", inst.panel.y))
     _live.add(wdef["name"])
     return inst, None
 
