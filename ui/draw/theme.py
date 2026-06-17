@@ -56,6 +56,7 @@ class Role(Enum):
     GHOST_PREVIEW = "ghost_preview"
     GHOST_TARGET_SEL = "ghost_target_sel"   # selected target polys in poly-ref mode
     GHOST_MATCH_HINT = "ghost_match_hint"   # A-key match candidates
+    GHOST_MIRROR = "ghost_mirror"           # mirrored placement previews
 
     # HUD text — the only text styles used anywhere in the addon.
     HUD_HEADER = "hud_header"
@@ -115,6 +116,7 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.GHOST_PREVIEW: (*_C_CYAN,  0.50),
     Role.GHOST_TARGET_SEL: (*_C_AMBER, 0.70),   # warm fill — easy to distinguish from cyan ref
     Role.GHOST_MATCH_HINT: (*_C_GREEN, 0.35),   # dim green — "candidate", not yet selected
+    Role.GHOST_MIRROR:     (0.850, 0.350, 1.000, 0.50),  # magenta — flipped clone preview
 
     Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
     Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),
@@ -313,6 +315,7 @@ def get_theme(context) -> "Theme":
             Role.GHOST_PREVIEW:      c("color_preview_ghost",  _DEFAULT_COLORS[Role.GHOST_PREVIEW]),
             Role.GHOST_TARGET_SEL:   c("color_target_sel_ghost", _DEFAULT_COLORS[Role.GHOST_TARGET_SEL]),
             Role.GHOST_MATCH_HINT:   c("color_match_hint_ghost", _DEFAULT_COLORS[Role.GHOST_MATCH_HINT]),
+            Role.GHOST_MIRROR:       c("color_mirror_ghost",     _DEFAULT_COLORS[Role.GHOST_MIRROR]),
 
             # All HUD roles are screen-space → encode linear→sRGB.
             Role.HUD_HEADER:         cs("color_hud_header",         _DEFAULT_COLORS[Role.HUD_HEADER]),

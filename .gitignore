@@ -23,4 +23,7 @@ config/recent-files.txt
 # MkDocs build output
 /site/
 
+# Rust build artifacts
+rust/target/
+
 .superpowers/

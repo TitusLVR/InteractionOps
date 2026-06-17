@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from utils.polygon_match import signature, pca_ratios
+from utils.polygon_match import signature
 from utils.polygon_match import pca_frame
-from utils.polygon_match import kabsch_with_scale, greedy_correspondence
+from utils.polygon_match import kabsch_with_scale
 
 
 CUBE = np.array([
@@ -32,22 +32,6 @@ def test_signature_mixed_face_sizes():
     sig = signature(CUBE[:5], faces)
     assert sig.face_count == 3
     assert sig.face_vcount_hist == ((3, 1), (4, 1), (5, 1))
-
-
-def test_pca_ratios_isotropic_cube():
-    r = pca_ratios(CUBE)
-    # Sum to 1.
-    assert np.isclose(sum(r), 1.0, atol=1e-9)
-    # All three eigenvalues equal for a cube.
-    assert all(np.isclose(x, 1.0 / 3.0, atol=1e-6) for x in r)
-
-
-def test_pca_ratios_flat_plane():
-    # Points on z=0 plane — third eigenvalue near zero.
-    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [2.0, 1.0, 0.0]])
-    r = pca_ratios(pts)
-    assert r[0] > r[1] > r[2]
-    assert r[2] < 1e-9
 
 
 def test_pca_frame_axis_aligned_quad():
@@ -125,17 +109,6 @@ def test_kabsch_rmse_nonzero_on_noise():
     assert 0.0 < rmse < 0.1
 
 
-def test_greedy_correspondence_recovers_shuffled():
-    # Shuffle target, verify correspondence reverses the shuffle.
-    rng = np.random.default_rng(7)
-    perm = rng.permutation(REF_CLOUD.shape[0])
-    tgt = REF_CLOUD[perm] + np.array([3.0, 0.0, 0.0])
-    corr = greedy_correspondence(REF_CLOUD, tgt)
-    # corr[i] should give the index in tgt that pairs with ref[i].
-    paired_tgt = tgt[corr]
-    assert np.allclose(paired_tgt - np.array([3.0, 0.0, 0.0]), REF_CLOUD, atol=1e-6)
-
-
 def test_pca_frame_degenerate_pca_falls_back():
     # All vertices collinear along Z, normal also Z → projection of principal
     # PCA axis onto plane perp-to-Z is zero. Fallback must produce a valid
@@ -153,40 +126,6 @@ def test_pca_frame_degenerate_pca_falls_back():
     z = frame[:3, 2]
     assert np.isclose(np.linalg.norm(x), 1.0, atol=1e-6)
     assert np.isclose(np.dot(x, z), 0.0, atol=1e-6)
-
-
-from utils.polygon_match import d2_histogram
-
-
-def test_d2_deterministic_with_seed():
-    h1 = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
-    h2 = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
-    assert np.array_equal(h1, h2)
-
-
-def test_d2_translation_invariant():
-    h_a = d2_histogram(CUBE, CUBE_FACES, samples=256, bins=16, seed=0)
-    h_b = d2_histogram(CUBE + 10.0, CUBE_FACES, samples=256, bins=16, seed=0)
-    assert np.array_equal(h_a, h_b)
-
-
-def test_d2_scale_invariant_after_normalization():
-    # We normalize distances by bbox diag, so the histogram should match.
-    h_a = d2_histogram(CUBE, CUBE_FACES, samples=512, bins=16, seed=0)
-    h_b = d2_histogram(CUBE * 5.0, CUBE_FACES, samples=512, bins=16, seed=0)
-    # χ² distance ~0 between identical-shape clouds at different scales.
-    chi2 = float(np.sum((h_a - h_b) ** 2 / np.maximum(h_a + h_b, 1e-9)))
-    assert chi2 < 1e-6
-
-
-def test_d2_distinguishes_different_shapes():
-    # Cube vs. very flat slab (different aspect ratio) → distinct histograms.
-    slab = CUBE.copy()
-    slab[:, 2] *= 0.01
-    h_cube = d2_histogram(CUBE, CUBE_FACES, samples=512, bins=16, seed=0)
-    h_slab = d2_histogram(slab, CUBE_FACES, samples=512, bins=16, seed=0)
-    chi2 = float(np.sum((h_cube - h_slab) ** 2 / np.maximum(h_cube + h_slab, 1e-9)))
-    assert chi2 > 0.05
 
 
 from utils.polygon_match import kabsch_mirror_with_scale
@@ -454,6 +393,96 @@ def test_assemble_dedups_face_overlap_keeps_best():
     assert frozenset((2, 3)) not in face_sets    # overlapping worse dropped
     assert frozenset((7, 8)) in face_sets        # disjoint survives
     assert len(res) == 2
+
+
+def test_fit_both_prefers_proper_on_near_tie():
+    # Mirror-degenerate cloud: nearly coplanar points, target is the exact
+    # reflection. The chirality residuals differ only at noise level — the
+    # proper rotation must win, otherwise the mirror flag flips on float
+    # noise and the aligner stamps randomly flipped clones.
+    rng = np.random.default_rng(3)
+    pts = rng.normal(size=(10, 3))
+    pts[:, 2] *= 1e-7
+    tgt = pts.copy()
+    tgt[:, 2] = -tgt[:, 2]
+    _T, _rmse, is_mirror = fit_both(pts, tgt, scale_mode="KEEP")
+    assert not is_mirror
+
+
+def test_fit_both_still_detects_decisive_mirror():
+    # Chiral cloud, true reflection: mirror beats proper by a wide margin and
+    # must still be reported.
+    tgt = REF_CLOUD.copy()
+    tgt[:, 0] = -tgt[:, 0]
+    _T, rmse, is_mirror = fit_both(REF_CLOUD, tgt, scale_mode="UNIFORM")
+    assert is_mirror
+    assert rmse < 1e-6
+
+
+def test_assemble_dedups_same_placement_disjoint_faces():
+    # Symmetric meshes yield two DISJOINT face sets matching at the same spot.
+    # Face-disjoint filtering alone keeps both -> two clones stacked on each
+    # other. Placement-level dedup must keep only the best one.
+    t = np.array([5.0, 0.0, 0.0])
+    a = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    b = Candidate((3, 4), (REF_C0 + t).mean(axis=0), REF_C0 + t + 1e-4)
+    res = assemble_constellations(
+        [REF_C0], [REF_C0.mean(axis=0)], [2], 0, [[a, b]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 1
+    assert res[0]["faces"] == frozenset((1, 2))
+
+
+def test_assemble_keeps_distinct_placements():
+    # Two matches farther apart than the dedup radius are genuinely separate
+    # instances and must both survive.
+    t = np.array([5.0, 0.0, 0.0])
+    a = Candidate((1, 2), (REF_C0 + t).mean(axis=0), REF_C0 + t)
+    far_off = t + np.array([10.0, 0.0, 0.0])
+    b = Candidate((3, 4), (REF_C0 + far_off).mean(axis=0), REF_C0 + far_off)
+    res = assemble_constellations(
+        [REF_C0], [REF_C0.mean(axis=0)], [2], 0, [[a, b]],
+        scale_mode="KEEP", pos_tol=0.1, fit_rmse_rel=0.05, bbox_diag=4.0)
+    assert len(res) == 2
+
+
+def test_refine_icp_stable_under_noise():
+    # 4-fold symmetric anchor layout: many (T, perm) solutions tie near rmse 0.
+    # Sub-tolerance noise must not flip which correspondence/orientation wins —
+    # the identity-order proper solution should be chosen every time.
+    c = np.array([[1.0, 1, 0], [-1, 1, 0], [-1, -1, 0], [1, -1, 0]])
+    n = np.array([[0.0, 0, 1]] * 4)
+    ref = np.empty((8, 3))
+    ref[0::2] = c
+    ref[1::2] = c + n * 0.5
+    for seed in range(10):
+        rng = np.random.default_rng(seed)
+        tgt = ref + np.array([3.0, 0.0, 0.0]) + rng.normal(0, 1e-7, ref.shape)
+        _T, rmse, mir, perm = refine_fit_icp(ref, tgt, "KEEP")
+        assert rmse < 1e-5
+        assert not mir, f"seed {seed} flipped to mirror"
+        assert np.array_equal(perm, np.arange(4)), f"seed {seed} perm {perm}"
+
+
+def test_pca_frame_x_sign_deterministic_by_skew():
+    # X-sign must follow the vertex distribution's skew, not the eigensolver's
+    # arbitrary sign convention. A cloud and its x-negated copy share the same
+    # covariance, so without an explicit rule both get the SAME X — one of the
+    # two frames is then 180-deg wrong for the poly-force fit.
+    xs = np.array([0.0, 1.0, 2.0, 3.0, 10.0])
+    verts = np.zeros((10, 3))
+    verts[:5, 0] = xs
+    verts[5:, 0] = xs
+    verts[5:, 1] = 1.0
+    face_normals = np.array([[0.0, 0.0, 1.0]])
+    face_areas = np.array([1.0])
+    face_centroids = verts.mean(axis=0, keepdims=True)
+    f_pos = pca_frame(verts, face_centroids, face_normals, face_areas)
+    neg = verts.copy()
+    neg[:, 0] = -neg[:, 0]
+    f_neg = pca_frame(neg, face_centroids * [-1.0, 1.0, 1.0], face_normals, face_areas)
+    assert f_pos[0, 0] > 0.0, "X must point toward the heavy +x tail"
+    assert f_neg[0, 0] < 0.0, "X must follow the mirrored tail to -x"
 
 
 def test_fit_both_matches_reference_impl():

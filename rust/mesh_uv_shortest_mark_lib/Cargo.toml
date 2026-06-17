@@ -8,4 +8,4 @@ name = "mesh_uv_shortest_mark_lib"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py311"] }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
