@@ -282,13 +282,21 @@ def _draw_flipbox(control, rect, theme, dim, context, live):
 def _draw_button(control, rect, theme, dim, pressed=False):
     eff = dim * (1.0 if control.enabled else DISABLED_ALPHA)
     if pressed:
-        # Active-press feedback: fill with the checkbox/active-value color
-        # at 25% opacity while the button is held down (set by the interact
-        # modal; cleared on release/cancel).
+        # Active-press feedback while the button is held (set by the
+        # interact modal; cleared on release/cancel): a subtle tint = 25%
+        # of the checkbox/active-value color mixed over the panel bg.
+        # Pre-mixed at the panel's own alpha rather than relying on a low
+        # alpha + GPU blend, which the filled-tri shader doesn't honor
+        # consistently (it would otherwise render at full opacity).
+        bg = theme.hud.bg_color
+        hot = theme.color_for(Role.HUD_ACTIVE_VALUE)
+        t = 0.25
+        tint = (bg[0] * (1.0 - t) + hot[0] * t,
+                bg[1] * (1.0 - t) + hot[1] * t,
+                bg[2] * (1.0 - t) + hot[2] * t,
+                bg[3])
         primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
-                           color=_col(theme, Role.HUD_ACTIVE_VALUE,
-                                      eff * 0.25),
-                           theme=theme)
+                           color=tint, theme=theme)
     if control.role == "error":
         line_color = _col(theme, Role.ERROR_LINE, eff)
         text_color = _col(theme, Role.HUD_STATS_ERROR, eff)
