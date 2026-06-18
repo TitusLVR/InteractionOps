@@ -134,6 +134,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         self._widget = widget          # registry instance — plain python
         self._control = None
         self._mode = "swallow"         # consume press+release, no action
+        widget._press_cell = None      # clear any stale pressed highlight
 
         if kind == "close":
             state.hide_widget(widget.name)
@@ -156,6 +157,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             if control is not None and control.interactive \
                     and control.update_enabled(context):
                 row, col = where
+                self._where = where
                 self._rect = widget.panel.row_rects[row][col]
                 result = self._begin_gesture(context, event, control)
                 if result is not None:
@@ -216,6 +218,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             # button (one ed.undo_push, mark_dirty afterwards).
             self._control = control
             self._mode = "button"
+            # Arm the pressed highlight (rendered only for buttons).
+            self._widget._press_cell = self._where
             return self._begin_modal(context)
         return None
 
@@ -266,6 +270,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                     self.report({"ERROR"}, f"IOPS widget action failed: {e}")
                 self._widget.mark_dirty()
                 self._undo_push()
+        self._widget._press_cell = None
         _tag_redraw(context)
         return {"FINISHED"}
 
@@ -289,6 +294,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                 # without a snapshot hook can't be restored — leave as-is.
                 control.write(context, self._pre_value)
             control.mark_dirty()
+        self._widget._press_cell = None
         _tag_redraw(context)
         return {"CANCELLED"}
 

@@ -279,8 +279,16 @@ def _draw_flipbox(control, rect, theme, dim, context, live):
                theme=theme, color=_col(theme, Role.HUD_LABEL, eff))
 
 
-def _draw_button(control, rect, theme, dim):
+def _draw_button(control, rect, theme, dim, pressed=False):
     eff = dim * (1.0 if control.enabled else DISABLED_ALPHA)
+    if pressed:
+        # Active-press feedback: fill with the checkbox/active-value color
+        # at 25% opacity while the button is held down (set by the interact
+        # modal; cleared on release/cancel).
+        primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
+                           color=_col(theme, Role.HUD_ACTIVE_VALUE,
+                                      eff * 0.25),
+                           theme=theme)
     if control.role == "error":
         line_color = _col(theme, Role.ERROR_LINE, eff)
         text_color = _col(theme, Role.HUD_STATS_ERROR, eff)
@@ -310,7 +318,7 @@ def _draw_swatch(control, rect, theme, dim, context, live):
                        color=_col(theme, Role.HUD_LABEL, eff))
 
 
-def _draw_control(control, rect, theme, dim, context, live):
+def _draw_control(control, rect, theme, dim, context, live, pressed=False):
     # Live enabled resolution (dirty-cached): presets/Clear gray out and
     # go inert with no selection (spec) — only touched while in context,
     # out-of-context draws keep the last cached flag.
@@ -326,7 +334,7 @@ def _draw_control(control, rect, theme, dim, context, live):
     elif kind == "flipbox":
         _draw_flipbox(control, rect, theme, dim, context, live)
     elif kind == "button":
-        _draw_button(control, rect, theme, dim)
+        _draw_button(control, rect, theme, dim, pressed)
     elif kind == "swatch":
         _draw_swatch(control, rect, theme, dim, context, live)
 
@@ -374,12 +382,15 @@ def draw_widget(context, widget):
                                color=_col(theme, Role.HUD_LABEL_INACTIVE,
                                           1.0))
                 return
+            press = getattr(widget, "_press_cell", None)
             for r, control in enumerate(widget.rows()):
                 cells = panel.row_rects[r]
                 if isinstance(control, Row):
                     for c, child in enumerate(control.children):
                         _draw_control(child, cells[c], theme, dim,
-                                      context, in_context)
+                                      context, in_context,
+                                      pressed=(press == (r, c)))
                 else:
                     _draw_control(control, cells[0], theme, dim,
-                                  context, in_context)
+                                  context, in_context,
+                                  pressed=(press == (r, 0)))
