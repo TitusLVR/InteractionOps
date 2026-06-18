@@ -602,6 +602,7 @@ def register():
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
+        bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.append(select_interior_faces)
     except Exception:
         print(
@@ -676,6 +677,7 @@ def unregister():
         print("IOPS: theme-preview cleanup failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
+        bpy.types.VIEW3D_MT_copypopup.remove(object_copy_match_dimensions)
         bpy.types.OUTLINER_MT_collection.remove(outliner_collection_ops)
         bpy.types.VIEW3D_MT_edit_mesh_select_similar.remove(select_interior_faces)
         bpy.types.ASSETBROWSER_MT_context_menu.remove(open_asset_in_current_blender)
@@ -726,6 +728,12 @@ def select_interior_faces(self, context):
 def object_apply_change_scale(self, context):
     self.layout.separator()
     self.layout.operator(IOPS_OT_ChangeScale.bl_idname)
+
+
+def object_copy_match_dimensions(self, context):
+    # Appended to the Copy Attributes Menu addon's object Ctrl+C popup.
+    self.layout.operator(IOPS_OT_MatchTransformActive.bl_idname,
+                         text="Match Object's Dimensions")
 
 
 def select_grouped_similar_name(self, context):
