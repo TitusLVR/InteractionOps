@@ -5,14 +5,6 @@ from bpy.props import (
     StringProperty,
     BoolProperty,
 )
-from mathutils import Vector
-from ..utils.functions import get_object_col_names 
-
-
-def distance_vec(point1: Vector, point2: Vector):
-    """Calculate distance between two points."""
-    return (point2 - point1).length
-
 
 class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     """Rename Object as Active ObjectName"""
@@ -134,46 +126,62 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
                     self.trim_suffix = self.trim_prefix = 0
 
                 digit = "{0:0>" + str(self.counter_digits) + "}"
-                # Combine objects
-                active = bpy.context.view_layer.objects.active
-                Objects = bpy.context.selected_objects
-                to_rename = []
+                active = context.view_layer.objects.active
+                Objects = context.selected_objects
                 if self.use_distance:
-                    Objects.sort(key=lambda obj: (obj.location - active.location).length)
+                    al = active.location
+                    Objects.sort(key=lambda obj: (obj.location - al).length_squared)
                 # Check active
                 if self.rename_active:
                     to_rename = [ob.name for ob in Objects]
                 else:
                     to_rename = [ob.name for ob in Objects if ob is not active]
-                # counter
-                counter = 0
-                if self.counter_shift:
-                    counter = 1
-                
-                if self.rename_linked:
-                    if active.children_recursive:
-                        to_rename.extend([child.name for child in active.children_recursive])
-                    
+                if self.rename_linked and active.children_recursive:
+                    to_rename.extend(child.name for child in active.children_recursive)
+                    # children may already be selected - dedup, keep first order
+                    to_rename = list(dict.fromkeys(to_rename))
+
+                # Split the pattern once; tokens get filled per object below.
+                tokens = re.split(r"(\[\w+\])", self.pattern)
+                want_name = "[N]" in tokens
+                want_counter = "[C]" in tokens
+                want_type = "[T]" in tokens
+                per_collection = "[COL]" in tokens
+
+                # Build an object -> collection-names map once (O(M) instead of
+                # O(objects x collections) from a per-object lookup).
+                col_map = {}
+                if per_collection:
+                    for col in bpy.data.collections:
+                        for ob in col.objects:
+                            col_map.setdefault(ob.name, []).append(col.name)
+
+                # counter - per-collection when [COL] is used, otherwise global
+                start = 1 if self.counter_shift else 0
+                counters = {}
 
                 for name in to_rename:
                     o = bpy.data.objects[name]
-                    pattern = re.split(r"(\[\w+\])", self.pattern)
-                    # i - index, p - pattern
-                    for i, p in enumerate(pattern):
-                        if p == "[N]":
-                            pattern[i] = self.new_name
-                        if p == "[C]":
-                            pattern[i] = digit.format(counter)
-                        if p == "[T]":
-                            pattern[i] = o.type.lower()
-                        if p == "[COL]":
-                            pattern[i] = get_object_col_names(o) 
-                    o.name = "".join(pattern)
+                    col_names = "_".join(col_map.get(name, ())) if per_collection else ""
+                    # Separate counter per collection group so each collection
+                    # gets its own 01..0N sequence instead of a shared global one.
+                    key = col_names if per_collection else ""
+                    counter = counters.get(key, start)
+                    parts = tokens[:]
+                    for i, p in enumerate(parts):
+                        if want_name and p == "[N]":
+                            parts[i] = self.new_name
+                        elif want_counter and p == "[C]":
+                            parts[i] = digit.format(counter)
+                        elif want_type and p == "[T]":
+                            parts[i] = o.type.lower()
+                        elif per_collection and p == "[COL]":
+                            parts[i] = col_names
+                    o.name = "".join(parts)
                     # Rename object mesh data
-                    if self.rename_mesh_data:
-                        if o.type == "MESH":
-                            o.data.name = o.name
-                    counter += 1
+                    if self.rename_mesh_data and o.type == "MESH":
+                        o.data.name = o.name
+                    counters[key] = counter + 1
             else:
                 self.report({"ERROR"}, "Please fill the pattern field")
             return {"FINISHED"}

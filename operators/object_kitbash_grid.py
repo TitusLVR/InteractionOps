@@ -279,9 +279,18 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     arrange_mode: bpy.props.EnumProperty(
         name="Mode",
         items=[('LINEAR', "Linear", "Arrange objects in a single line"),
-               ('GRID', "Grid", "Arrange objects in a grid")],
+               ('GRID', "Grid", "Arrange objects in a grid"),
+               ('CENTER', "To Center", "Collapse all units to the world origin (0,0,0)")],
         default='GRID',
         description="How to arrange the objects"
+    )
+
+    center_as_group: bpy.props.BoolProperty(
+        name="As Group",
+        default=True,
+        description="To-Center: move the whole selection as one rigid unit "
+                    "(combined center to origin, relative layout preserved). "
+                    "When off, every unit is centered on the origin individually"
     )
 
     grid_columns: bpy.props.IntProperty(
@@ -375,16 +384,22 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         if self.arrange_mode == 'GRID':
             box.prop(self, "grid_columns")
             box.prop(self, "arrange_axis", text="Grid Direction Axis") # X means columns go along X
-        else:
+        elif self.arrange_mode == 'LINEAR':
              box.prop(self, "arrange_axis", text="Linear Axis")
-        row = box.row(align=True)
-        row.prop(self, "gap_x")
-        row.prop(self, "gap_y")
+        elif self.arrange_mode == 'CENTER':
+             box.prop(self, "center_as_group")
+        # CENTER mode needs no axis/columns
+        if self.arrange_mode != 'CENTER':
+            row = box.row(align=True)
+            row.prop(self, "gap_x")
+            row.prop(self, "gap_y")
 
-        box = layout.box()
-        box.label(text="Sorting")
-        box.prop(self, "sort_by")
-        
+        # Sorting is irrelevant when all units collapse to one point
+        if self.arrange_mode != 'CENTER':
+            box = layout.box()
+            box.label(text="Sorting")
+            box.prop(self, "sort_by")
+
         box = layout.box()
         box.label(text="Alignment")
         row = box.row(align=True)
@@ -608,9 +623,62 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         object_data.sort(key=lambda d: d['sort_key'], reverse=sort_reverse_flag)
 
         # --- 4. Placement ---
-        
+
+        # --- To-Center Arrangement ---
+        if self.arrange_mode == 'CENTER':
+            target_align_point = Vector((0.0, 0.0, 0.0))
+
+            if self.center_as_group:
+                # Move the whole selection as one rigid unit: shift everything by
+                # a single delta so the combined alignment point lands on origin.
+                combined_min = Vector((
+                    min(d['initial_bbox']['min'].x for d in object_data),
+                    min(d['initial_bbox']['min'].y for d in object_data),
+                    min(d['initial_bbox']['min'].z for d in object_data)))
+                combined_max = Vector((
+                    max(d['initial_bbox']['max'].x for d in object_data),
+                    max(d['initial_bbox']['max'].y for d in object_data),
+                    max(d['initial_bbox']['max'].z for d in object_data)))
+                combined_bbox = {
+                    'min': combined_min,
+                    'max': combined_max,
+                    'center': (combined_min + combined_max) / 2.0,
+                }
+                group_align_point = get_bbox_align_point(
+                    combined_bbox, self.align_x, self.align_y, self.align_z)
+                delta = target_align_point - group_align_point
+
+                if collections_mode:
+                    for data in object_data:
+                        coll = data['obj']
+                        all_objs = set(coll.all_objects)
+                        for root in coll.all_objects:
+                            # Skip non-roots: their parent inside carries them.
+                            if root.parent is not None and root.parent in all_objs:
+                                continue
+                            if root in moved_objects:
+                                continue
+                            root.matrix_world.translation = root.matrix_world.translation + delta
+                            moved_objects.add(root)
+                else:
+                    for data in object_data:
+                        unit = data['obj']
+                        unit.matrix_world.translation = unit.matrix_world.translation + delta
+                depsgraph.update()
+            else:
+                # Collapse every unit so its own alignment point lands on the origin.
+                for data in object_data:
+                    unit = data['obj']
+                    current_obj_bbox = get_unit_bbox(unit)
+                    if not current_obj_bbox:
+                        continue
+                    if apply_unit_placement(unit, current_obj_bbox, target_align_point):
+                        depsgraph.update()
+                    else:
+                        print(f"Warning: Could not center {unit.name}")
+
         # --- Linear Arrangement ---
-        if self.arrange_mode == 'LINEAR':
+        elif self.arrange_mode == 'LINEAR':
             primary_axis_idx = 0 if self.arrange_axis == 'X' else 1
             secondary_axis_idx = 1 if self.arrange_axis == 'X' else 0
             gap_primary = self.gap_x if self.arrange_axis == 'X' else self.gap_y
@@ -765,6 +833,8 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         unit_word = "collections" if collections_mode else "objects"
         if overlap_detected:
             self.report({'WARNING'}, f"Placed {valid_selection_count} {unit_word}; some collections share objects — shared objects were moved once.")
+        elif self.arrange_mode == 'CENTER':
+            self.report({'INFO'}, f"Centered {valid_selection_count} {unit_word} to world origin.")
         else:
             self.report({'INFO'}, f"Sorted and placed {valid_selection_count} {unit_word} (including initial active).")
         return {'FINISHED'}
