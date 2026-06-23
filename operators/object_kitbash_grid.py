@@ -98,6 +98,59 @@ def get_empty_children_bbox_data(empty_obj, depsgraph):
         'obj_origin': empty_obj.matrix_world.translation
     }
 
+def get_collection_bbox_data(coll, depsgraph):
+    """
+    Calculates compound bounding box data for a collection based on all its mesh
+    objects, recursively including sub-collections (via coll.all_objects).
+    Returns a dict with the same shape as the per-object helpers, so the placement
+    logic can treat a collection as a single unit. Returns None if the collection
+    has no valid mesh objects.
+    """
+    if not coll:
+        return None
+
+    all_world_corners = []
+    for child in coll.all_objects:
+        if child.type != 'MESH':
+            continue
+        try:
+            eval_child = child.evaluated_get(depsgraph)
+            if not eval_child.bound_box:
+                continue
+            bbox_corners_world = [eval_child.matrix_world @ Vector(corner) for corner in eval_child.bound_box]
+            all_world_corners.extend(bbox_corners_world)
+        except (RuntimeError, ReferenceError):
+            continue
+
+    if not all_world_corners:
+        return None
+
+    min_coord = Vector((min(v.x for v in all_world_corners),
+                        min(v.y for v in all_world_corners),
+                        min(v.z for v in all_world_corners)))
+    max_coord = Vector((max(v.x for v in all_world_corners),
+                        max(v.y for v in all_world_corners),
+                        max(v.z for v in all_world_corners)))
+
+    world_dim = max_coord - min_coord
+    world_dim.x = max(world_dim.x, 0.0)
+    world_dim.y = max(world_dim.y, 0.0)
+    world_dim.z = max(world_dim.z, 0.0)
+
+    world_center = (min_coord + max_coord) / 2.0
+    volume = world_dim.x * world_dim.y * world_dim.z
+
+    # Collections have no transform of their own; use the bbox center as origin.
+    return {
+        'min': min_coord,
+        'max': max_coord,
+        'center': world_center,
+        'dim': world_dim,
+        'volume': volume,
+        'world_bbox_center_offset': Vector((0, 0, 0)),
+        'obj_origin': world_center,
+    }
+
 def get_object_bbox_data(obj, depsgraph):
     """
     Calculates world space bounding box data for an evaluated object.
@@ -171,6 +224,20 @@ def get_object_bbox_data(obj, depsgraph):
         'obj_origin': eval_obj.matrix_world.translation
     }
 
+def get_bbox_align_point(bbox, align_x, align_y, align_z):
+    """
+    Returns the world-space alignment point of a bbox (the min/center/max corner
+    selected per axis by the alignment options).
+    """
+    p = Vector(bbox['center'])  # Start with center
+    if align_x == 'MIN': p.x = bbox['min'].x
+    elif align_x == 'MAX': p.x = bbox['max'].x
+    if align_y == 'MIN': p.y = bbox['min'].y
+    elif align_y == 'MAX': p.y = bbox['max'].y
+    if align_z == 'MIN': p.z = bbox['min'].z
+    elif align_z == 'MAX': p.z = bbox['max'].z
+    return p
+
 def get_target_world_pos(current_obj_bbox, target_align_point, align_x, align_y, align_z):
     """
     Calculates the required world OBJECT ORIGIN position to place the object
@@ -179,18 +246,11 @@ def get_target_world_pos(current_obj_bbox, target_align_point, align_x, align_y,
     if not current_obj_bbox: return None
 
     current_origin = current_obj_bbox['obj_origin']
-    current_align_point = Vector(current_obj_bbox['center']) # Start with center
-
-    if align_x == 'MIN': current_align_point.x = current_obj_bbox['min'].x
-    elif align_x == 'MAX': current_align_point.x = current_obj_bbox['max'].x
-    if align_y == 'MIN': current_align_point.y = current_obj_bbox['min'].y
-    elif align_y == 'MAX': current_align_point.y = current_obj_bbox['max'].y
-    if align_z == 'MIN': current_align_point.z = current_obj_bbox['min'].z
-    elif align_z == 'MAX': current_align_point.z = current_obj_bbox['max'].z
+    current_align_point = get_bbox_align_point(current_obj_bbox, align_x, align_y, align_z)
 
     translation_needed = target_align_point - current_align_point
     new_origin_pos = current_origin + translation_needed
-    
+
     return new_origin_pos
 # --- End Helper Functions ---
 
@@ -206,6 +266,15 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     # arrange_mode, grid_columns, arrange_axis, gap_x, gap_y, 
     # sort_by, align_x, align_y, align_z
     # ... (omitting them here for brevity, but they are needed) ...
+    # --- Unit Properties ---
+    operate_on: bpy.props.EnumProperty(
+        name="Operate On",
+        items=[('OBJECTS', "Objects", "Arrange selected objects individually"),
+               ('COLLECTIONS', "Collections", "Arrange the collections of the selected objects as single units")],
+        default='OBJECTS',
+        description="Whether to arrange individual objects or whole collections"
+    )
+
     # --- Arrangement Properties ---
     arrange_mode: bpy.props.EnumProperty(
         name="Mode",
@@ -295,7 +364,11 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
     # --- Draw method (Keep as before) ---
     def draw(self, context):
         layout = self.layout
-        
+
+        box = layout.box()
+        box.label(text="Unit")
+        box.prop(self, "operate_on", expand=True)
+
         box = layout.box()
         box.label(text="Arrangement")
         box.prop(self, "arrange_mode")
@@ -321,101 +394,181 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
         row.label(text="Align (X, Y, Z)")
     # --- End Draw ---
 
+    # --- Collect the ordered, deduplicated collections of the selected objects ---
+    @staticmethod
+    def collect_collections(context):
+        """
+        Returns (collections, active_collection) for COLLECTIONS mode.
+        Collections are the user-collections of the selected objects, deduplicated
+        and order-stable, excluding the scene master collection. The active
+        collection is the active object's first collection that is in the set.
+        """
+        master = context.scene.collection
+        selected_objs_all = list(context.selected_objects)
+
+        seen = set()
+        collections = []
+        for obj in selected_objs_all:
+            if not obj:
+                continue
+            for coll in obj.users_collection:
+                if coll is master:
+                    continue
+                if coll.name in seen:
+                    continue
+                seen.add(coll.name)
+                collections.append(coll)
+
+        active_collection = None
+        active_obj = context.active_object
+        if active_obj:
+            for coll in active_obj.users_collection:
+                if coll in collections:
+                    active_collection = coll
+                    break
+        if active_collection is None and collections:
+            active_collection = collections[0]
+
+        return collections, active_collection
+
     # --- Invoke method to auto-calculate grid columns ---
     def invoke(self, context, event):
         # Auto-calculate grid columns based on selection if in GRID mode
         if self.arrange_mode == 'GRID':
-            selected_objs_all = list(context.selected_objects)
-            
-            # Count valid objects (similar to execute method)
-            valid_count = 0
             depsgraph = context.evaluated_depsgraph_get()
-            
-            # Check if selection contains only empty objects
-            has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
-            has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
-            only_empties = has_empty and not has_mesh
-            
-            for obj in selected_objs_all:
-                if not obj or obj.name not in context.scene.objects:
-                    continue
-                
-                # Use appropriate bbox function based on object type
-                if only_empties and obj.type == 'EMPTY':
-                    bbox_data = get_empty_children_bbox_data(obj, depsgraph)
-                else:
-                    bbox_data = get_object_bbox_data(obj, depsgraph)
-                
-                if bbox_data is not None:
-                    valid_count += 1
-            
+            valid_count = 0
+
+            if self.operate_on == 'COLLECTIONS':
+                collections, _ = self.collect_collections(context)
+                for coll in collections:
+                    if get_collection_bbox_data(coll, depsgraph) is not None:
+                        valid_count += 1
+            else:
+                selected_objs_all = list(context.selected_objects)
+
+                # Check if selection contains only empty objects
+                has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
+                has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
+                only_empties = has_empty and not has_mesh
+
+                for obj in selected_objs_all:
+                    if not obj or obj.name not in context.scene.objects:
+                        continue
+
+                    # Use appropriate bbox function based on object type
+                    if only_empties and obj.type == 'EMPTY':
+                        bbox_data = get_empty_children_bbox_data(obj, depsgraph)
+                    else:
+                        bbox_data = get_object_bbox_data(obj, depsgraph)
+
+                    if bbox_data is not None:
+                        valid_count += 1
+
             # Calculate columns to make grid as square as possible
             if valid_count > 0:
                 self.grid_columns = max(1, int(math.ceil(math.sqrt(valid_count))))
-        
+
         # Show the dialog
         return context.window_manager.invoke_props_dialog(self)
 
     # --- Execution Logic ---
     def execute(self, context):
         active_obj = context.active_object
-        # *** CHANGE: Include active object in the list to be processed ***
         selected_objs_all = list(context.selected_objects) # Use all selected
+        collections_mode = (self.operate_on == 'COLLECTIONS')
 
-        if not active_obj:
-            # Still need an active object to define the STARTING reference point, even if it moves later
-            self.report({'WARNING'}, "Active object required to define starting reference point.")
-            return {'CANCELLED'}
-        if len(selected_objs_all) < 1: # Need at least one object (which would be the active one)
-            self.report({'INFO'}, "Select at least one object (the active object).")
+        if len(selected_objs_all) < 1:
+            self.report({'INFO'}, "Select at least one object.")
             return {'CANCELLED'}
 
         depsgraph = context.evaluated_depsgraph_get()
 
-        # Check if selection contains only empty objects
-        has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
-        has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
-        only_empties = has_empty and not has_mesh
+        # --- Determine the units to arrange and the starting (active) unit ---
+        only_empties = False
+        moved_objects = set()   # collection roots already moved (dedup across overlapping collections)
+        overlap_detected = False
 
-        # --- 1. Get STARTING Reference Data from Active Object (BEFORE it potentially moves) ---
-        if only_empties and active_obj.type == 'EMPTY':
-            initial_active_bbox_data = get_empty_children_bbox_data(active_obj, depsgraph)
+        if collections_mode:
+            units, active_unit = self.collect_collections(context)
+            if not units:
+                self.report({'WARNING'}, "Selected objects are not in any collection (besides the scene collection).")
+                return {'CANCELLED'}
+            # Detect overlapping membership across the operated collections
+            all_seen = set()
+            for coll in units:
+                for o in coll.all_objects:
+                    if o in all_seen:
+                        overlap_detected = True
+                    all_seen.add(o)
         else:
-            initial_active_bbox_data = get_object_bbox_data(active_obj, depsgraph)
-        
+            if not active_obj:
+                # Still need an active object to define the STARTING reference point
+                self.report({'WARNING'}, "Active object required to define starting reference point.")
+                return {'CANCELLED'}
+            units = selected_objs_all
+            active_unit = active_obj
+            # Check if selection contains only empty objects
+            has_mesh = any(obj.type == 'MESH' for obj in selected_objs_all if obj)
+            has_empty = any(obj.type == 'EMPTY' for obj in selected_objs_all if obj)
+            only_empties = has_empty and not has_mesh
+
+        # --- Unit helpers (abstract over objects vs collections) ---
+        def get_unit_bbox(unit):
+            if collections_mode:
+                return get_collection_bbox_data(unit, depsgraph)
+            if only_empties and unit.type == 'EMPTY':
+                return get_empty_children_bbox_data(unit, depsgraph)
+            return get_object_bbox_data(unit, depsgraph)
+
+        def apply_unit_placement(unit, current_bbox, target_align_point):
+            """Move a unit so its alignment point matches target_align_point.
+            Returns True on success."""
+            if collections_mode:
+                delta = target_align_point - get_bbox_align_point(
+                    current_bbox, self.align_x, self.align_y, self.align_z)
+                all_objs = set(unit.all_objects)
+                for root in unit.all_objects:
+                    # Skip non-roots: their parent inside the collection carries them.
+                    if root.parent is not None and root.parent in all_objs:
+                        continue
+                    if root in moved_objects:
+                        continue
+                    root.matrix_world.translation = root.matrix_world.translation + delta
+                    moved_objects.add(root)
+                return True
+            target_origin_pos = get_target_world_pos(
+                current_bbox, target_align_point, self.align_x, self.align_y, self.align_z)
+            if not target_origin_pos:
+                return False
+            unit.location = target_origin_pos
+            # Zero out Z coordinate for empty objects
+            if only_empties and unit.type == 'EMPTY':
+                unit.location.z = 0.0
+            return True
+
+        # --- 1. Get STARTING Reference Data from the active unit (BEFORE it moves) ---
+        initial_active_bbox_data = get_unit_bbox(active_unit)
         if initial_active_bbox_data is None:
-            if only_empties:
-                self.report({'WARNING'}, "Could not get bounding box for the initial active empty object or its children.")
-            else:
-                self.report({'WARNING'}, "Could not get bounding box for the initial active object. Ensure it's a Mesh.")
+            self.report({'WARNING'}, "Could not get bounding box for the starting unit.")
             return {'CANCELLED'}
-            
-        # Determine the absolute starting reference point based on initial active obj & alignment
-        initial_active_ref_point = Vector(initial_active_bbox_data['center'])
-        if self.align_x == 'MIN': initial_active_ref_point.x = initial_active_bbox_data['min'].x
-        elif self.align_x == 'MAX': initial_active_ref_point.x = initial_active_bbox_data['max'].x
-        if self.align_y == 'MIN': initial_active_ref_point.y = initial_active_bbox_data['min'].y
-        elif self.align_y == 'MAX': initial_active_ref_point.y = initial_active_bbox_data['max'].y
-        if self.align_z == 'MIN': initial_active_ref_point.z = initial_active_bbox_data['min'].z
-        elif self.align_z == 'MAX': initial_active_ref_point.z = initial_active_bbox_data['max'].z
-        
+
+        # Determine the absolute starting reference point based on the active unit & alignment
+        initial_active_ref_point = get_bbox_align_point(
+            initial_active_bbox_data, self.align_x, self.align_y, self.align_z)
+
         # Store the initial max edges needed to start the placement cursors
         initial_active_max_x = initial_active_bbox_data['max'].x
         initial_active_max_y = initial_active_bbox_data['max'].y
 
 
-        # --- 2. Get Data & Filter for Valid Objects (Now includes active obj) ---
+        # --- 2. Get Data & Filter for Valid Units (Now includes active unit) ---
         object_data = []
         valid_selection_count = 0
-        for obj in selected_objs_all: # Iterate through ALL selected objects
-            if not obj or obj.name not in context.scene.objects: continue # Check existence
-            
-            # Use appropriate bbox function based on object type and selection context
-            if only_empties and obj.type == 'EMPTY':
-                bbox_data = get_empty_children_bbox_data(obj, depsgraph)
-            else:
-                bbox_data = get_object_bbox_data(obj, depsgraph)
-            
+        for unit in units:
+            if not unit: continue # Check existence
+            if not collections_mode and unit.name not in context.scene.objects: continue
+
+            bbox_data = get_unit_bbox(unit)
             if bbox_data is None: continue
 
             # --- Sorting Key Calculation (same as before) ---
@@ -426,21 +579,23 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             elif sort_key_name == 'X_DIM': sort_key_base = bbox_data['dim'].x
             elif sort_key_name == 'Y_DIM': sort_key_base = bbox_data['dim'].y
             elif sort_key_name == 'Z_DIM': sort_key_base = bbox_data['dim'].z
-            elif sort_key_name == 'NAME': sort_key_base = obj.name
+            elif sort_key_name == 'NAME': sort_key_base = unit.name
             if isinstance(sort_key_base, (int, float)):
                 sort_key = -sort_key_base if reverse_sort else sort_key_base
             else: sort_key = sort_key_base
             # --- End Sorting Key ---
 
             object_data.append({
-                'obj': obj,
+                'obj': unit,
                 'sort_key': sort_key,
                 'initial_bbox': bbox_data,
             })
             valid_selection_count += 1
 
         if not object_data:
-            if only_empties:
+            if collections_mode:
+                self.report({'WARNING'}, "No collections with valid mesh objects found.")
+            elif only_empties:
                 self.report({'WARNING'}, "No valid empty objects with mesh children found in selection.")
             else:
                 self.report({'WARNING'}, "No valid mesh objects found in selection.")
@@ -467,11 +622,8 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             is_first_object = True
             
             for i, data in enumerate(object_data):
-                obj = data['obj']
-                if only_empties and obj.type == 'EMPTY':
-                    current_obj_bbox = get_empty_children_bbox_data(obj, depsgraph)
-                else:
-                    current_obj_bbox = get_object_bbox_data(obj, depsgraph)
+                unit = data['obj']
+                current_obj_bbox = get_unit_bbox(unit)
                 if not current_obj_bbox: continue
 
                 obj_dim_primary = current_obj_bbox['dim'][primary_axis_idx]
@@ -502,28 +654,19 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                 target_align_point[2] = initial_active_ref_point[2] # Align Z based on initial active ref
 
                 # Calculate and Apply Translation
-                target_origin_pos = get_target_world_pos(current_obj_bbox, target_align_point, self.align_x, self.align_y, self.align_z)
-                
-                if target_origin_pos:
-                     obj.location = target_origin_pos
-                     # Zero out Z coordinate for empty objects
-                     if only_empties and obj.type == 'EMPTY':
-                         obj.location.z = 0.0
+                if apply_unit_placement(unit, current_obj_bbox, target_align_point):
                      depsgraph.update() # Update after move
 
-                     # Update Cursor using the object JUST PLACED
-                     if only_empties and obj.type == 'EMPTY':
-                         placed_bbox = get_empty_children_bbox_data(obj, depsgraph)
-                     else:
-                         placed_bbox = get_object_bbox_data(obj, depsgraph)
+                     # Update Cursor using the unit JUST PLACED
+                     placed_bbox = get_unit_bbox(unit)
                      if placed_bbox:
                           current_cursor_primary = placed_bbox['max'][primary_axis_idx]
-                     else: 
+                     else:
                           current_cursor_primary = target_min_primary + obj_dim_primary # Estimate
-                     
+
                      is_first_object = False # No longer the first object
                 else:
-                    print(f"Warning: Could not calculate target position for {obj.name}")
+                    print(f"Warning: Could not calculate target position for {unit.name}")
 
         # --- Grid Arrangement ---
         elif self.arrange_mode == 'GRID':
@@ -543,7 +686,7 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
             is_first_row = True # Flag to handle first row positioning
 
             for i, data in enumerate(object_data):
-                obj = data['obj']
+                unit = data['obj']
                 col_idx = i % cols
                 row_idx = i // cols
 
@@ -554,11 +697,8 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                     max_dim_secondary_in_row = 0.0
                     is_first_row = False
 
-                # Process Object
-                if only_empties and obj.type == 'EMPTY':
-                    current_obj_bbox = get_empty_children_bbox_data(obj, depsgraph)
-                else:
-                    current_obj_bbox = get_object_bbox_data(obj, depsgraph)
+                # Process Unit
+                current_obj_bbox = get_unit_bbox(unit)
                 if not current_obj_bbox: continue
 
                 obj_dim_primary = current_obj_bbox['dim'][primary_axis_idx]
@@ -607,20 +747,11 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                 target_align_point[2] = initial_active_ref_point[2] # Align Z based on initial active ref
 
                 # Calculate and Apply Translation
-                target_origin_pos = get_target_world_pos(current_obj_bbox, target_align_point, self.align_x, self.align_y, self.align_z)
-
-                if target_origin_pos:
-                     obj.location = target_origin_pos
-                     # Zero out Z coordinate for empty objects
-                     if only_empties and obj.type == 'EMPTY':
-                         obj.location.z = 0.0
+                if apply_unit_placement(unit, current_obj_bbox, target_align_point):
                      depsgraph.update()
 
                      # Update Cursors and Max Dim
-                     if only_empties and obj.type == 'EMPTY':
-                         placed_bbox = get_empty_children_bbox_data(obj, depsgraph)
-                     else:
-                         placed_bbox = get_object_bbox_data(obj, depsgraph)
+                     placed_bbox = get_unit_bbox(unit)
                      if placed_bbox:
                           current_cursor_primary = placed_bbox['max'][primary_axis_idx]
                           max_dim_secondary_in_row = max(max_dim_secondary_in_row, placed_bbox['dim'][secondary_axis_idx])
@@ -628,10 +759,14 @@ class IOPS_OT_KitBash_Grid(bpy.types.Operator):
                           current_cursor_primary = target_min_primary + obj_dim_primary
                           max_dim_secondary_in_row = max(max_dim_secondary_in_row, obj_dim_secondary)
                 else:
-                     print(f"Warning: Could not calculate target position for {obj.name}")
+                     print(f"Warning: Could not calculate target position for {unit.name}")
 
 
-        self.report({'INFO'}, f"Sorted and placed {valid_selection_count} objects (including initial active).")
+        unit_word = "collections" if collections_mode else "objects"
+        if overlap_detected:
+            self.report({'WARNING'}, f"Placed {valid_selection_count} {unit_word}; some collections share objects — shared objects were moved once.")
+        else:
+            self.report({'INFO'}, f"Sorted and placed {valid_selection_count} {unit_word} (including initial active).")
         return {'FINISHED'}
 
 
