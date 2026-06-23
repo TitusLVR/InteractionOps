@@ -99,7 +99,17 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     )
 
     def invoke(self, context, event):
-        self.active_name = context.view_layer.objects.active.name
+        active = context.view_layer.objects.active
+        if active is None:
+            # No active object (e.g. collections picked in the outliner) -
+            # fall back to the last selected object and make it active.
+            selected = context.selected_objects
+            if not selected:
+                self.report({"ERROR"}, "Nothing selected.")
+                return {"CANCELLED"}
+            active = selected[-1]
+            context.view_layer.objects.active = active
+        self.active_name = active.name
         self.new_name = self.active_name
         return self.execute(context)
 
@@ -113,8 +123,16 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
             return {"FINISHED"}
         else:
             if self.pattern:
-                if self.active_name != context.view_layer.objects.active.name:
-                    context.view_layer.objects.active.name = self.active_name
+                active = context.view_layer.objects.active
+                if active is None:
+                    selected = context.selected_objects
+                    if not selected:
+                        self.report({"ERROR"}, "Nothing selected.")
+                        return {"CANCELLED"}
+                    active = selected[-1]
+                    context.view_layer.objects.active = active
+                if self.active_name != active.name:
+                    active.name = self.active_name
                 # Trim string
                 if self.use_trim:
                     name = self.active_name
@@ -126,7 +144,6 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
                     self.trim_suffix = self.trim_prefix = 0
 
                 digit = "{0:0>" + str(self.counter_digits) + "}"
-                active = context.view_layer.objects.active
                 Objects = context.selected_objects
                 if self.use_distance:
                     al = active.location
