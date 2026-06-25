@@ -51,6 +51,7 @@ class IOPS_MT_Pie_Menu(Menu):
         # col.operator("iops.polygon_bevel", text="Polygon Bevel")  # WIP
         col.operator("iops.object_drop_it", text="Drop It!")
         col.operator("iops.object_kitbash_grid", text="Grid")
+        col.operator("iops.object_kitbash_grid", text="to Center").arrange_mode = 'CENTER'
         col.separator()
         col.operator("iops.modifier_easy_array_caps", text="Easy Modifier - Array Caps")
         col.operator("iops.modifier_easy_array_curve", text="Easy Modifier - Array Curve")
