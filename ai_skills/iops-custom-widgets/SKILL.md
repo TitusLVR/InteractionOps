@@ -55,9 +55,14 @@ Row types:
 | `PRESETS` | `target` (BEVEL/CREASE), `values` (list 0..1) | edge float attribute |
 | `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
+| `SWATCH` | `prop` (RNA color path), `op` (operator idname), `op_kwargs`, `label` | shows a color, fires an operator on click |
 | `ROW` | `cells` (list of the above, no nested ROW) | lays its cells on one panel line |
 
 Any top-level row (not cells inside a `ROW`) may carry an optional `"show_if"` key — see [Conditional row rendering (`show_if`)](#conditional-row-rendering-show_if) below.
+
+**Full field-by-field reference** (every key, type, default, and constraint
+for top-level keys + all row types + `show_if` + `switches` + the context
+vocabulary): see [schema-reference.md](schema-reference.md).
 
 Key capabilities:
 - **`FLIPBOX` `prop`** binds any scene/RNA boolean, e.g.
@@ -167,6 +172,75 @@ rows appear only while the Advanced flipbox is on. The last two sections
 gate on context: one appears only in Edit Mesh mode, the other only when
 the active object is a mesh.
 
+## Authoring a new widget (agent guide)
+
+Step-by-step when building a NEW widget from scratch. Full field details are
+in [schema-reference.md](schema-reference.md).
+
+**1. Save location.** One `<name>.json` per widget in the library folder
+(`composed.widgets_folder()` — default `presets/IOPS/widgets`). The filename
+stem must match `name`. Drop it next to the existing widgets.
+
+**2. Pick controls by intent:**
+
+| Need | Use |
+|---|---|
+| Static label / group heading | `SECTION` |
+| Run an operator | `BUTTON` (`op` + `op_kwargs`) |
+| A boolean the user flips | `FLIPBOX` — `target` (edge attr), `prop` (scene/RNA bool), or `switch` (local panel state) |
+| Reveal/hide other rows from a toggle | `FLIPBOX` `switch` + `show_if: {switch: …}` on the gated rows |
+| Edit a bevel/crease value | `SLIDER` / `PRESETS` (edge floats; auto edit-mesh gating) |
+| Show a color + apply it | `SWATCH` |
+| Two controls side by side | `ROW` with `cells` |
+
+**3. Make it context-sensitive with `show_if`.** Gate each row on `mode` /
+`object_type` / `selection` / `prop` / `switch`. In `OBJECT` mode use
+`object_type` to tell mesh from curve; in edit mode the `mode` string already
+implies the type (`EDIT_MESH` vs `EDIT_CURVE`). Gate selection-dependent
+operators on `selection` (mesh-edit only — see the vocabulary in the
+reference). Enabled/disabled state is separate: edge-`target` widgets
+auto-gray buttons/presets with no selection; a widget with no edge target
+polls always-true and keeps buttons enabled.
+
+**4. Choose operators that fit the click + the context:**
+- Buttons fire `op("INVOKE_DEFAULT", **op_kwargs)`. **Avoid interactive modal
+  operators** — the ones that grab the mouse to drag a value: `mesh.bevel`,
+  `mesh.inset`, `mesh.extrude_*`, and the interactive transform tools
+  `transform.translate` / `transform.resize` / `transform.rotate` /
+  `transform.bevel`. INVOKE starts a modal that hijacks the viewport from a
+  panel click. Non-interactive exec operators are fine even if their name
+  starts with `transform`/`object` — e.g. `object.transform_apply`,
+  `object.location_clear`, `pose.transforms_clear`, `mesh.subdivide`,
+  `mesh.normals_make_consistent`, `object.shade_smooth`, `curve.subdivide`,
+  `object.convert`. When unsure, test the click once: if it starts a drag
+  instead of acting immediately, it's modal — don't use it.
+- Pass enum/bool args via `op_kwargs` (e.g. `{"action": "SELECT"}`,
+  `{"type": "ORIGIN_GEOMETRY"}`, `{"location": true}`).
+- **Match `show_if` to the operator's own `poll`**: only show an op where it
+  can actually run, or the click does nothing.
+
+**5. Mind the flipbox auto-merge.** Consecutive bare `FLIPBOX` rows merge into
+one multi-column row — this applies to **any** flipbox binding (`target`,
+`prop`, or `switch`) that has no `show_if`. To keep them stacked, give each a
+`show_if` (merge skips those) or wrap each in a single-cell `ROW`.
+
+**6. Validate + verify before calling it done:**
+```python
+clean, errors = composed.validate_def(wdef)   # errors must be []
+inst, _ = composed.register_composed(clean)
+# Sweep the contexts you gated on and confirm the right rows appear:
+[c.label for c in inst.rows(bpy.context)]
+```
+Then `python -m pytest tests -q` stays green (`composed.py` is bpy-free).
+
+**Pre-flight checklist:**
+- [ ] `validate_def` returns no errors (every row survived).
+- [ ] Each `FLIPBOX` has exactly one of `target`/`prop`/`switch`.
+- [ ] Every `switch` referenced in `show_if` is defined (flipbox) or defaulted (`switches` map) — else it's stuck at `false`.
+- [ ] No modal operators on buttons; `op` idnames contain a `.`.
+- [ ] `show_if` contexts match where each operator can run.
+- [ ] Row sets verified across every gated context (object/edit, each object_type, selection on/off, switch on/off).
+
 ## Summon + popup + hotkey
 
 - `bpy.ops.iops.widget_toggle(name="my_widget")` — toggles that widget at
@@ -216,6 +290,7 @@ Slider(get, set, vmin=0.0, vmax=1.0, snap=0.125, fmt="{:.3f}", snapshot=None, re
 PresetRow(values, set, fmt="{:g}", enabled_get=None)
 FlipBox(label, get, set)
 ActionButton(label, op, kwargs=None, role="default", enabled_get=None)
+Swatch(get, op, kwargs=None, label="", enabled_get=None)
 Row(children)
 ```
 
