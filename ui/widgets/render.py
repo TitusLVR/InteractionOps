@@ -138,14 +138,14 @@ def compute_layout(context, widget, theme=None):
     th = theme if theme is not None else get_theme(context)
     rows = []
     if _in_context(widget, context):
-        for control in widget.rows():
+        for control in widget.rows(context):
             if isinstance(control, Row):
                 height = max((_row_height(c, th) for c in control.children),
                              default=_row_height(control, th))
                 rows.append((height, control.columns))
             else:
                 rows.append((_row_height(control, th), 1))
-        min_content = max((_control_min_width(c, th) for c in widget.rows()),
+        min_content = max((_control_min_width(c, th) for c in widget.rows(context)),
                           default=0.0)
     else:
         rows.append((th.text_size("hud_label") + ROW_PAD_CONTROL, 1))
@@ -391,7 +391,7 @@ def draw_widget(context, widget):
                                           1.0))
                 return
             press = getattr(widget, "_press_cell", None)
-            for r, control in enumerate(widget.rows()):
+            for r, control in enumerate(widget.rows(context)):
                 cells = panel.row_rects[r]
                 if isinstance(control, Row):
                     for c, child in enumerate(control.children):

@@ -43,8 +43,10 @@ class Widget:
     name = ""
     title = ""
     space = "VIEW_3D"
+    switches = {}
 
     def __init__(self):
+        self.switches = {}
         self.controls = list(self.build())
         self.panel = WidgetPanel(title=self.title or self.name)
 
@@ -54,15 +56,23 @@ class Widget:
     def poll(self, context):
         return True
 
-    def rows(self):
-        """Top-level controls — one visual row each (Row = 1 row, N cols)."""
-        return self.controls
+    def rows(self, context=None):
+        """Visible top-level controls. With a context, rows are filtered by
+        each control's show_if predicate (one visual row each: Row = 1 row,
+        N cols). context=None returns the unfiltered list (back-compat)."""
+        if context is None:
+            return self.controls
+        from .predicates import build_eval_ctx, filter_controls
+        ctx = build_eval_ctx(context, getattr(self, "switches", None) or {})
+        return filter_controls(self.controls, ctx)
 
-    def control_at(self, row, col):
-        """Resolve a panel hit_test ("control", (row, col)) to a control."""
-        if not (0 <= row < len(self.controls)):
+    def control_at(self, context, row, col):
+        """Resolve a panel hit_test ("control", (row, col)) to a control,
+        indexing the SAME filtered visible list the layout/draw used."""
+        vis = self.rows(context)
+        if not (0 <= row < len(vis)):
             return None
-        ctrl = self.controls[row]
+        ctrl = vis[row]
         if isinstance(ctrl, Row):
             if 0 <= col < len(ctrl.children):
                 return ctrl.children[col]

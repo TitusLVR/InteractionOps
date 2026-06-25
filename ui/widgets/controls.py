@@ -119,6 +119,10 @@ class Control:
         # per-frame draws never rescan the mesh.
         self.enabled_get = None
         self._enabled_dirty = True
+        # Optional show_if predicate (validated dict) attached by the
+        # composed builder; None = always visible. Read by the framework's
+        # row filtering (ui/widgets/predicates.filter_controls).
+        self._show_if = None
 
     def mark_dirty(self):
         """Invalidate any cached display value / enabled state. Extended

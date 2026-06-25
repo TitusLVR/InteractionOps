@@ -54,3 +54,10 @@ def test_swatch_is_interactive_and_kind():
     sw = Swatch(get=lambda ctx: ((1, 1, 1, 1), False), op="iops.x")
     assert sw.kind == "swatch"
     assert sw.interactive is True
+
+
+def test_control_has_show_if_default():
+    # `controls` loaded per the file's existing pattern; use Section as
+    # the simplest Control.
+    s = controls.Section("x")
+    assert s._show_if is None

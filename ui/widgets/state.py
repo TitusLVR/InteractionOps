@@ -54,7 +54,8 @@ SPACE_TYPES = {
 def get_state(name):
     st = _states.get(name)
     if st is None:
-        st = {"visible": False, "x": 80.0, "y": 400.0, "anchor_area_ptr": 0}
+        st = {"visible": False, "x": 80.0, "y": 400.0,
+              "anchor_area_ptr": 0, "switches": {}}
         _states[name] = st
     return st
 
@@ -109,6 +110,13 @@ def store_position(name, x, y):
     st = get_state(name)
     st["x"] = float(x)
     st["y"] = float(y)
+    save_states()
+
+
+def store_switches(name, switches):
+    """Persist a widget's local switch state (a {name: bool} dict)."""
+    st = get_state(name)
+    st["switches"] = {str(k): bool(v) for k, v in switches.items()}
     save_states()
 
 
@@ -208,7 +216,9 @@ def save_states():
     data = {
         name: {"visible": bool(st.get("visible")),
                "x": float(st.get("x", 80.0)),
-               "y": float(st.get("y", 400.0))}
+               "y": float(st.get("y", 400.0)),
+               "switches": {str(k): bool(v)
+                            for k, v in st.get("switches", {}).items()}}
         for name, st in _states.items()
     }
     try:
@@ -245,6 +255,14 @@ def load_states():
             st["y"] = float(entry.get("y", st["y"]))
         except (TypeError, ValueError):
             pass
+        sw = entry.get("switches", {})
+        if isinstance(sw, dict):
+            st["switches"] = {str(k): bool(v) for k, v in sw.items()}
+            widget = get_widget(name)
+            if widget is not None and getattr(widget, "switches", None):
+                for k, v in st["switches"].items():
+                    if k in widget.switches:
+                        widget.switches[k] = bool(v)
         st["anchor_area_ptr"] = 0
         widget = get_widget(name)
         if widget is not None:

@@ -151,7 +151,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             in_context = False
 
         if kind == "control" and in_context:
-            control = widget.control_at(*where)
+            control = widget.control_at(context, *where)
             # update_enabled resolves the live flag (presets/Clear go
             # inert with no selection) — never trust a stale draw.
             if control is not None and control.interactive \

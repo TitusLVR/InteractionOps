@@ -10,14 +10,15 @@ _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__),
 
 
 def _load_composed():
-    """Load widgets/composed.py standalone — importing the widgets package
-    would pull in the addon root (bpy)."""
-    path = os.path.join(_ROOT, "widgets", "composed.py")
-    spec = importlib.util.spec_from_file_location("iops_test_composed", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """Load widgets/composed.py with package context for relative imports.
+    Ensures build_controls can import ui.widgets controls."""
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+
+    # Simply use normal import - ui.widgets is importable without bpy
+    # since ui/widgets/__init__.py guards its bpy imports
+    composed_mod = importlib.import_module("widgets.composed")
+    return composed_mod
 
 
 composed = _load_composed()
@@ -122,6 +123,31 @@ def test_merge_trailing_run():
     rows = [_r("SECTION"), _r("FLIPBOX"), _r("FLIPBOX")]
     merged = composed.merge_flipbox_runs(rows)
     assert isinstance(merged[-1], list) and len(merged[-1]) == 2
+
+
+# ---- merge interaction with show_if ------------------------------------
+def test_merge_excludes_show_if_flipboxes():
+    rows = [
+        {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
+        {"type": "FLIPBOX", "target": "SEAM", "label": "Seam",
+         "show_if": {"switch": "adv"}},
+        {"type": "FLIPBOX", "target": "FREESTYLE", "label": "FS"},
+    ]
+    merged = composed.merge_flipbox_runs(rows)
+    # Sharp stands alone (run broken by the show_if box), the show_if box
+    # stands alone, FS stands alone — no 2+ run forms.
+    assert all(not isinstance(m, list) for m in merged)
+    assert len(merged) == 3
+
+
+def test_merge_still_groups_plain_flipboxes():
+    rows = [
+        {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
+        {"type": "FLIPBOX", "target": "SEAM", "label": "Seam"},
+    ]
+    merged = composed.merge_flipbox_runs(rows)
+    assert len(merged) == 1 and isinstance(merged[0], list)
+    assert len(merged[0]) == 2
 
 
 # ----------------------------------------------------------------------
@@ -299,3 +325,128 @@ def test_rna_color_adapter_absent_is_disabled_sentinel():
     class _C: pass
     c = _C(); c.scene = None
     assert ad["get"](c) == (None, False)
+
+
+# ---- show_if validation ------------------------------------------------
+def test_show_if_valid_attached():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "SECTION", "label": "Adv",
+             "show_if": {"switch": "adv"}},
+            {"type": "BUTTON", "label": "Go", "op": "iops.executor",
+             "show_if": {"mode": "EDIT_MESH", "object_type": ["MESH"]}},
+        ],
+    })
+    assert errors == []
+    assert wdef["rows"][0]["show_if"] == {"switch": "adv"}
+    assert wdef["rows"][1]["show_if"]["mode"] == ["EDIT_MESH"]
+    assert wdef["rows"][1]["show_if"]["object_type"] == ["MESH"]
+
+
+def test_show_if_invalid_keeps_row_reports():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "SECTION", "label": "X", "show_if": {"selection": "x"}},
+        ],
+    })
+    # Row survives (no show_if attached), error reported.
+    assert len(wdef["rows"]) == 1
+    assert "show_if" not in wdef["rows"][0]
+    assert any("show_if" in e for e in errors)
+
+
+def test_show_if_normalizes_mode_and_selection():
+    clean, err = composed._clean_show_if(
+        {"mode": "edit_mesh", "selection": "EDGES"})
+    assert err is None
+    assert clean == {"mode": ["EDIT_MESH"], "selection": "edges"}
+
+
+def test_show_if_equals_preserved():
+    clean, err = composed._clean_show_if({"switch": "n", "equals": False})
+    assert err is None
+    assert clean == {"switch": "n", "equals": False}
+
+
+# ---- switch flipbox + switches map -------------------------------------
+def test_flipbox_switch_binding():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [{"type": "FLIPBOX", "switch": "adv", "label": "Advanced"}],
+    })
+    assert errors == []
+    row = wdef["rows"][0]
+    assert row["switch"] == "adv" and row["label"] == "Advanced"
+    assert "target" not in row and "prop" not in row
+
+
+def test_flipbox_requires_exactly_one_binding():
+    # zero bindings
+    wdef, _ = composed.validate_def(
+        {"name": "w", "rows": [{"type": "FLIPBOX", "label": "x"}]})
+    assert wdef["rows"] == []
+    # two bindings
+    wdef, _ = composed.validate_def({
+        "name": "w",
+        "rows": [{"type": "FLIPBOX", "switch": "a", "target": "SHARP"}]})
+    assert wdef["rows"] == []
+
+
+def test_switches_map_defaults():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "switches": {"adv": True, "bad": "yes"},
+        "rows": [],
+    })
+    assert wdef["switches"] == {"adv": True, "bad": True}
+
+
+def test_collect_switches_from_refs_and_map():
+    wdef, _ = composed.validate_def({
+        "name": "w",
+        "switches": {"adv": True},
+        "rows": [
+            {"type": "FLIPBOX", "switch": "adv", "label": "Adv"},
+            {"type": "SECTION", "label": "extra",
+             "show_if": {"switch": "more"}},
+        ],
+    })
+    sw = composed.collect_switches(wdef)
+    assert sw == {"adv": True, "more": False}
+
+
+# ---- switch adapter + build_controls predicate attach ------------------
+def test_switch_adapter_get_set_and_on_change():
+    store = {}
+    seen = []
+    ad = composed.switch_adapter(store, "adv",
+                                 on_change=lambda n, v: seen.append((n, v)))
+    assert ad["get"](None) == (False, False)
+    ad["set"](None, True)
+    assert store["adv"] is True
+    assert ad["get"](None) == (True, False)
+    assert seen == [("adv", True)]
+
+
+def test_build_controls_attaches_show_if():
+    rows = [
+        {"type": "SECTION", "label": "A", "show_if": {"switch": "adv"}},
+        {"type": "BUTTON", "label": "Go", "op": "iops.executor"},
+    ]
+    store = {}
+    ctrls = composed.build_controls(rows, switch_store=store)
+    assert ctrls[0]._show_if == {"switch": "adv"}
+    assert ctrls[1]._show_if is None
+
+
+def test_build_controls_switch_flipbox_uses_store():
+    rows = [{"type": "FLIPBOX", "switch": "adv", "label": "Adv"}]
+    store = {}
+    ctrls = composed.build_controls(rows, switch_store=store)
+    fb = ctrls[0]
+    # FlipBox get/set wired to the store.
+    assert fb.get(None) == (False, False)
+    fb.set(None, True)
+    assert store["adv"] is True

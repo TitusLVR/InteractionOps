@@ -104,6 +104,65 @@ def resolve_rna_owner(root, path):
     return owner, parts[-1]
 
 
+SHOW_IF_SELECTION = ("verts", "edges", "faces", "objects")
+
+
+def resolve_prop(context, path):
+    """Resolve a dotted RNA path against context -> (value, found).
+    found=False when any segment is missing. Pure (getattr only)."""
+    owner, attr = resolve_rna_owner(context, path)
+    if owner is None or not hasattr(owner, attr):
+        return (None, False)
+    return (getattr(owner, attr), True)
+
+
+def _as_str_list(value):
+    """A str or list -> list of non-empty upper-cased strings."""
+    if isinstance(value, (list, tuple, set)):
+        items = [str(v).strip().upper() for v in value]
+    else:
+        items = [str(value).strip().upper()]
+    return [s for s in items if s]
+
+
+def _clean_show_if(raw):
+    """Validate/normalize a show_if clause. Returns (clean|None, err)."""
+    if not isinstance(raw, dict):
+        return None, "show_if is not an object"
+    out = {}
+    if "mode" in raw:
+        modes = _as_str_list(raw["mode"])
+        if not modes:
+            return None, "show_if mode is empty"
+        out["mode"] = modes
+    if "object_type" in raw:
+        types = _as_str_list(raw["object_type"])
+        if not types:
+            return None, "show_if object_type is empty"
+        out["object_type"] = types
+    if "selection" in raw:
+        sel = str(raw["selection"]).strip().lower()
+        if sel not in SHOW_IF_SELECTION:
+            return None, f"show_if selection '{sel}' invalid"
+        out["selection"] = sel
+    if "prop" in raw:
+        p = str(raw["prop"]).strip()
+        if not p:
+            return None, "show_if prop is empty"
+        out["prop"] = p
+    if "switch" in raw:
+        s = str(raw["switch"]).strip()
+        if not s:
+            return None, "show_if switch is empty"
+        out["switch"] = s
+    if "equals" in raw:
+        out["equals"] = raw["equals"]
+    if not any(k in out for k in
+               ("mode", "object_type", "selection", "prop", "switch")):
+        return None, "show_if has no recognized keys"
+    return out, None
+
+
 def rna_bool_adapter(path):
     """A get/set bundle for an arbitrary RNA boolean resolved against
     `context` (e.g. "scene.CCP.red_export_opaqueAreas"). Absence-safe:
@@ -138,6 +197,21 @@ def rna_color_adapter(path):
     return {"get": get}
 
 
+def switch_adapter(store, name, on_change=None):
+    """get/set bundle for a local widget switch held in `store` (a dict
+    on the live widget). set() mutates the store and fires on_change so
+    the widget can persist + redraw. Scalar -> is_mixed always False."""
+    def get(context):
+        return (bool(store.get(name, False)), False)
+
+    def set(context, value):
+        store[name] = bool(value)
+        if on_change is not None:
+            on_change(name, bool(value))
+
+    return {"get": get, "set": set}
+
+
 def unique_name(base, taken):
     """`base`, or `base_2`, `base_3`, ... — first not in `taken`."""
     if base not in taken:
@@ -148,7 +222,7 @@ def unique_name(base, taken):
     return f"{base}_{i}"
 
 
-def _clean_row(row):
+def _clean_row_body(row):
     """Validate + normalize ONE row def. Returns (out_dict, error_or_None).
     out_dict is None when the row is unusable. Shared by validate_def's
     top-level loop and ROW cell validation."""
@@ -191,9 +265,14 @@ def _clean_row(row):
     if rtype == "FLIPBOX":
         prop = str(row.get("prop", "")).strip()
         target = str(row.get("target", "")).strip().upper()
-        if bool(prop) == bool(target):
-            return None, "flipbox needs exactly one of prop/target"
-        if prop:
+        switch = str(row.get("switch", "")).strip()
+        bound = [b for b in (prop, target, switch) if b]
+        if len(bound) != 1:
+            return None, "flipbox needs exactly one of prop/target/switch"
+        if switch:
+            out["switch"] = switch
+            out["label"] = str(row.get("label", "")) or switch
+        elif prop:
             out["prop"] = prop
             out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
         else:
@@ -208,7 +287,7 @@ def _clean_row(row):
             return None, "row cells is not a list"
         cells = []
         for cell in cells_in:
-            c, _err = _clean_row(cell)
+            c, _err = _clean_row_body(cell)
             if c is None or c["type"] == "ROW":
                 continue   # drop unusable / nested ROW cells silently
             cells.append(c)
@@ -242,6 +321,21 @@ def _clean_row(row):
     return out, None
 
 
+def _clean_row(row):
+    """Validate one row (delegates to _clean_row_body), then parse an
+    optional show_if. Invalid show_if keeps the row always-visible and
+    reports — never drops the row for a bad predicate."""
+    out, err = _clean_row_body(row)
+    if out is None:
+        return None, err
+    if isinstance(row, dict) and "show_if" in row:
+        si, si_err = _clean_show_if(row["show_if"])
+        if si_err:
+            return out, f"invalid show_if ({si_err}); row kept always-visible"
+        out["show_if"] = si
+    return out, err
+
+
 def validate_def(data):
     """Validate + normalize a widget definition dict.
 
@@ -262,13 +356,19 @@ def validate_def(data):
         "space": "VIEW_3D",   # IMAGE_EDITOR widgets come later (spec)
         "rows": [],
     }
+    clean["switches"] = {}
+    raw_switches = data.get("switches", {})
+    if isinstance(raw_switches, dict):
+        for k, v in raw_switches.items():
+            clean["switches"][str(k)] = bool(v)
     rows = data.get("rows", [])
     if not isinstance(rows, list):
         return clean, ["rows is not a list"]
     for i, row in enumerate(rows):
         out, err = _clean_row(row)
         if err:
-            errors.append(f"row {i}: {err} — dropped")
+            suffix = "" if out is not None else " — dropped"
+            errors.append(f"row {i}: {err}{suffix}")
         if out is not None:
             clean["rows"].append(out)
     return clean, errors
@@ -281,7 +381,7 @@ def merge_flipbox_runs(rows):
     merged = []
     run = []
     for row in rows:
-        if row.get("type") == "FLIPBOX":
+        if row.get("type") == "FLIPBOX" and "show_if" not in row:
             run.append(row)
             continue
         if run:
@@ -293,37 +393,83 @@ def merge_flipbox_runs(rows):
     return merged
 
 
+def collect_switches(wdef):
+    """Every switch name referenced by the def -> its default bool.
+    Default False; overridden by the validated `switches` map. Recurses
+    into ROW cells for switch flipboxes (show_if only on top-level rows)."""
+    names = set()
+
+    def scan(row):
+        if not isinstance(row, dict):
+            return
+        if row.get("type") == "FLIPBOX" and row.get("switch"):
+            names.add(row["switch"])
+        if row.get("type") == "ROW":
+            for cell in row.get("cells", []):
+                scan(cell)
+        si = row.get("show_if")
+        if isinstance(si, dict) and si.get("switch"):
+            names.add(si["switch"])
+
+    for row in wdef.get("rows", []):
+        scan(row)
+    defaults = wdef.get("switches", {})
+    return {name: bool(defaults.get(name, False)) for name in names}
+
+
 # ----------------------------------------------------------------------
 # Control building (bpy/bmesh deferred)
 # ----------------------------------------------------------------------
-def build_controls(row_defs):
-    """Materialize a validated `rows` list into framework controls."""
-    from ..ui.widgets import (Section, Slider, PresetRow, FlipBox,
-                              ActionButton, Row, Swatch)
-    from .adapters import ADAPTERS, has_selected_edges
+def build_controls(row_defs, switch_store=None, on_switch=None):
+    """Materialize a validated `rows` list into framework controls.
+    `switch_store` (a dict) backs switch flipboxes; `on_switch(name, value)`
+    fires on a switch write (persist + redraw). Each produced top-level
+    control carries its `_show_if` predicate (None = always visible)."""
+    # Relative for Blender (addon loads as package InteractionOps, so
+    # ..ui.widgets -> InteractionOps.ui.widgets); absolute fallback for
+    # pytest (composed is loaded top-level as widgets.composed, where ..
+    # is beyond the package boundary but `ui` is on sys.path via _ROOT).
+    try:
+        from ..ui.widgets import (Section, Slider, PresetRow, FlipBox,
+                                  ActionButton, Row, Swatch)
+    except ImportError:
+        from ui.widgets import (Section, Slider, PresetRow, FlipBox,
+                                ActionButton, Row, Swatch)
 
+    if switch_store is None:
+        switch_store = {}
     edge_bound = _binds_edges(row_defs)
-    # Buttons/presets gray with no selection ONLY for edge widgets; a
-    # scene-prop widget (e.g. ccp_data_ops) keeps them always enabled.
-    gate = has_selected_edges if edge_bound else None
+    # has_selected_edges gates presets/buttons for edge widgets; only edge
+    # widgets need it (and the bmesh-backed adapters module), so the import
+    # is deferred to here — keeps composed importable bpy-free for tests.
+    gate = None
+    if edge_bound:
+        from .adapters import has_selected_edges
+        gate = has_selected_edges
 
     def one(row):
         rtype = row["type"]
         if rtype == "SECTION":
             return Section(row.get("label", ""))
         if rtype == "SLIDER":
+            from .adapters import ADAPTERS
             a = ADAPTERS[row["target"]]
             return Slider(get=a["get"], set=a["set"],
                           snap=row.get("snap", 0.125),
                           snapshot=a.get("snapshot"),
                           restore=a.get("restore"))
         if rtype == "PRESETS":
+            from .adapters import ADAPTERS
             a = ADAPTERS[row["target"]]
             return PresetRow(row["values"], set=a["set"], enabled_get=gate)
         if rtype == "FLIPBOX":
+            if row.get("switch"):
+                ad = switch_adapter(switch_store, row["switch"], on_switch)
+                return FlipBox(row["label"], get=ad["get"], set=ad["set"])
             if row.get("prop"):
                 ad = rna_bool_adapter(row["prop"])
                 return FlipBox(row["label"], get=ad["get"], set=ad["set"])
+            from .adapters import ADAPTERS
             a = ADAPTERS[row["target"]]
             return FlipBox(row["label"], get=a["get"], set=a["set"])
         if rtype == "SWATCH":
@@ -341,13 +487,17 @@ def build_controls(row_defs):
     controls = []
     for item in merge_flipbox_runs(row_defs):
         if isinstance(item, list):
-            controls.append(Row([one(r) for r in item]))
+            ctrl = Row([one(r) for r in item])
+            ctrl._show_if = None
         elif isinstance(item, dict) and item.get("type") == "ROW":
-            controls.append(Row([one(r) for r in item["cells"]]))
+            ctrl = Row([one(r) for r in item["cells"]])
+            ctrl._show_if = item.get("show_if")
         else:
             ctrl = one(item)
-            if ctrl is not None:
-                controls.append(ctrl)
+            if ctrl is None:
+                continue
+            ctrl._show_if = item.get("show_if")
+        controls.append(ctrl)
     return controls
 
 
@@ -373,10 +523,19 @@ def make_widget(wdef):
     inst.title = wdef["title"]
     inst.space = wdef.get("space", "VIEW_3D")
     inst.composed_def = wdef
+    inst.switches = collect_switches(wdef)
+
+    def on_switch(_name, _value):
+        # Persist the new switch state and repaint (visible rows change).
+        from ..ui.widgets import state
+        state.store_switches(inst.name, inst.switches)
+        state.tag_redraw_all()
+
     edge_bound = _binds_edges(wdef["rows"])
     inst.poll = (lambda context: context.mode == "EDIT_MESH") if edge_bound \
         else (lambda context: True)
-    inst.controls = build_controls(wdef["rows"])
+    inst.controls = build_controls(wdef["rows"], switch_store=inst.switches,
+                                   on_switch=on_switch)
     from ..ui.widgets.panel import WidgetPanel
     inst.panel = WidgetPanel(title=inst.title or inst.name)
     return inst
@@ -463,6 +622,11 @@ def register_composed(wdef):
     st = state.get_state(inst.name)
     inst.panel.x = float(st.get("x", inst.panel.x))
     inst.panel.y = float(st.get("y", inst.panel.y))
+    saved = st.get("switches", {})
+    if isinstance(saved, dict):
+        for k, v in saved.items():
+            if k in inst.switches:
+                inst.switches[k] = bool(v)
     _live.add(wdef["name"])
     return inst, None
 

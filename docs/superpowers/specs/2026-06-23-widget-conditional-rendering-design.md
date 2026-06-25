@@ -165,10 +165,13 @@ flipbox with no `show_if` still merges normally.)
   Row predicates are **additive** and only filter inside an in-context
   widget. A new context-sensitive widget binds no edge `target`, so it
   polls always-true and simply filters rows.
-- **Press-cell stability**: a `switch` flipbox writes on **release**, so
-  visibility changes only on the next frame. Within one press→release
-  gesture the visible set is constant and `_press_cell` `(row, col)`
-  indices stay valid.
+- **Press-cell stability**: a `switch` flipbox writes on **press** (like
+  every flipbox/preset), so the visible set can change immediately. This is
+  safe because the interact modal captures the resolved `_control` and
+  `_rect` at gesture start and the `release_undo` finish path only calls
+  `_undo_push()` — it never re-indexes by `(row, col)` — so a mid-gesture
+  visibility change cannot desync the active gesture. The relaid-out panel
+  appears on the next redraw.
 
 ## Out of scope (v1)
 

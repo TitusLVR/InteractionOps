@@ -31,7 +31,6 @@ class IOPS_OT_Call_Widgets_Panel(bpy.types.Operator):
         if iops is None:
             self.report({"ERROR"}, "IOPS scene data not available")
             return {"CANCELLED"}
-        from ..ui.widgets import get_widget
         folder = composed.widgets_folder()
         found = []
         if os.path.isdir(folder):
@@ -39,13 +38,15 @@ class IOPS_OT_Call_Widgets_Panel(bpy.types.Operator):
                 wdef, _err = composed.load_def(os.path.join(folder, fn))
                 if wdef is None:
                     continue
-                # Only register widgets that aren't already live — never
-                # re-register an existing one here. Re-registration
-                # rebuilds the Widget with a fresh panel at the default
-                # corner, which would wipe the on-screen position of every
-                # already-placed widget each time the popup opens.
-                if get_widget(wdef["name"]) is None:
-                    composed.register_composed(wdef)
+                # Always (re)register from disk so the popup doubles as a
+                # JSON hot-reload: editing a live widget's file and re-opening
+                # the panel rebuilds it with the new rows. Position and
+                # visibility survive the rebuild — both live in the module
+                # state dict (ui/widgets/state.py), not on the instance, and
+                # register_composed re-seeds the fresh panel from that state
+                # (composed.register_composed), so already-placed widgets do
+                # not jump to the default corner.
+                composed.register_composed(wdef)
                 found.append((wdef["name"], wdef.get("title") or wdef["name"]))
         iops.widget_list.clear()
         for name, title in sorted(found, key=lambda t: t[1].lower()):
