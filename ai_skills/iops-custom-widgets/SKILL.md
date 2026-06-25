@@ -56,6 +56,9 @@ Row types:
 | `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
 | `SWATCH` | `prop` (RNA color path), `op` (operator idname), `op_kwargs`, `label` | shows a color, fires an operator on click |
+| `DROPDOWN` | `prop` (RNA enum path), `label`, `labels` (id→display map) | an enum prop, edited via an in-overlay item list |
+| `INPUT` | `prop` (RNA scalar path), `value_type`, `label`, `fmt` | a string/number/angle prop, edited via an in-overlay text caret |
+| `BUTTONS` | `prop` (RNA number/enum path), `value_type`, `values` (number mode) or `items` (enum mode), `unit`, `fmt` | radio row writing a preset value to the prop |
 | `ROW` | `cells` (list of the above, no nested ROW) | lays its cells on one panel line |
 
 Any top-level row (not cells inside a `ROW`) may carry an optional `"show_if"` key — see [Conditional row rendering (`show_if`)](#conditional-row-rendering-show_if) below.
@@ -81,6 +84,26 @@ Key capabilities:
   the widget polls EDIT_MESH and its buttons/presets gray out with no edge
   selection. A widget with no edge `target` (e.g. all `prop` flipboxes)
   polls always-True and keeps its buttons enabled.
+- **`DROPDOWN` / `INPUT` / `BUTTONS`** bind an **arbitrary scalar RNA prop**
+  (any datablock, not just edge data), generalizing the `prop`-flipbox binding.
+  The author **declares** the value type with `value_type` (`STRING` / `INT` /
+  `FLOAT` / `DEGREES` / `RADIANS` / `ENUM`) — the binding never introspects the
+  live RNA property. All three are absence-safe (missing path → disabled, click
+  no-ops) and scalar (single owner, never mixed). They are **not** edge-bound,
+  so a widget made only of them polls always-visible. Full field reference + the
+  value-type/angle table + the in-overlay editing contract are in
+  [schema-reference.md](schema-reference.md).
+- **`DROPDOWN` and `INPUT` edit in-overlay (no popups)** — the interact modal
+  owns input for the edit: `INPUT` starts a text caret (immediate typing; arrows/
+  Home/End, Ctrl+A/C/X/V, Enter/click-away commits, Esc cancels); `DROPDOWN` opens
+  an item list in the panel (click/drag-release picks). Numbers parse on commit
+  (bad input discarded); one undo per edit. `BUTTONS` likewise writes directly on
+  click (radio
+  behavior — at most one button active, none when the value is off-grid).
+- **Angles are declared, never guessed.** Blender stores angles in radians; a
+  `value_type: "DEGREES"` row lets the author write degrees in JSON, with deg↔rad
+  conversion on write/read so the end-user only ever sees degrees (a `"°"` suffix
+  is auto-added to `BUTTONS` labels when `unit` is omitted). `RADIANS` is identity.
 
 Example (toggle + per-item export, stacked + paired), mirroring a sidebar
 panel:
@@ -172,6 +195,47 @@ rows appear only while the Advanced flipbox is on. The last two sections
 gate on context: one appears only in Edit Mesh mode, the other only when
 the active object is a mesh.
 
+### Worked example — input controls (rename widget)
+
+A panel exercising every input control against live RNA on `scene.IOPS.rename.*`
+(an `INPUT` string, a number-mode `BUTTONS`, and a `DROPDOWN` enum), then an
+operator button that reads those settings and runs:
+
+```json
+{
+  "version": 1, "name": "rename_objects", "title": "Rename Objects", "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Name"},
+    {"type": "INPUT",  "prop": "scene.IOPS.rename.new_name", "value_type": "STRING", "label": "New Name"},
+    {"type": "INPUT",  "prop": "scene.IOPS.rename.pattern",  "value_type": "STRING", "label": "Pattern"},
+    {"type": "SECTION", "label": "Counter"},
+    {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits", "value_type": "INT", "values": [2, 3, 4]},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.rename.counter_shift", "label": "+1 Shift"},
+    {"type": "SECTION", "label": "Order"},
+    {"type": "DROPDOWN", "prop": "scene.IOPS.rename.order", "label": "Order",
+     "labels": {"DISTANCE": "By Distance", "SELECTION": "By Selection"}},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_active",    "label": "Include Active"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_mesh_data", "label": "Mesh Data"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_linked",    "label": "Linked"},
+    {"type": "BUTTON",  "label": "Apply", "op": "iops.object_name_from_active_apply"}
+  ]
+}
+```
+
+- The two `INPUT` rows show `New Name`/`Pattern` left, the current string right;
+  a click starts an in-overlay text caret (type immediately, Enter/click-away commits).
+- The `BUTTONS` row draws three cells `2 | 3 | 4`; the one equal to the live
+  `counter_digits` is highlighted, and clicking another writes it (radio).
+- The `DROPDOWN` shows `By Distance`/`By Selection` (via `labels`) for the raw
+  `DISTANCE`/`SELECTION` enum identifiers; a click opens an in-overlay list to pick.
+- No control is edge-bound, so the widget polls always-visible (object-mode
+  rename), and the prop-flipboxes/buttons stay enabled.
+- For an **angle** preset row instead, author in degrees and let the system store
+  radians: `{"type": "BUTTONS", "prop": "object.data.....angle",
+  "value_type": "DEGREES", "values": [0, 15, 45, 60, 90, 180]}` — the buttons
+  read `0° 15° …` (auto `"°"` since `unit` is omitted) and the match/highlight
+  works in degrees while storage stays radians.
+
 ## Authoring a new widget (agent guide)
 
 Step-by-step when building a NEW widget from scratch. Full field details are
@@ -190,6 +254,9 @@ stem must match `name`. Drop it next to the existing widgets.
 | A boolean the user flips | `FLIPBOX` — `target` (edge attr), `prop` (scene/RNA bool), or `switch` (local panel state) |
 | Reveal/hide other rows from a toggle | `FLIPBOX` `switch` + `show_if: {switch: …}` on the gated rows |
 | Edit a bevel/crease value | `SLIDER` / `PRESETS` (edge floats; auto edit-mesh gating) |
+| Pick one of N named choices (enum) | `DROPDOWN` (in-overlay list), or `BUTTONS` with `value_type: ENUM` + `items` for a visible radio row |
+| Free text / number / angle entry | `INPUT` (`value_type` STRING/INT/FLOAT/DEGREES/RADIANS; in-overlay text caret) |
+| Pick one preset number (counter, angle) | `BUTTONS` with `values` (number mode; not clamped to 0..1) |
 | Show a color + apply it | `SWATCH` |
 | Two controls side by side | `ROW` with `cells` |
 
@@ -291,6 +358,9 @@ PresetRow(values, set, fmt="{:g}", enabled_get=None)
 FlipBox(label, get, set)
 ActionButton(label, op, kwargs=None, role="default", enabled_get=None)
 Swatch(get, op, kwargs=None, label="", enabled_get=None)
+Dropdown(get, path, labels=None, label="")
+InputField(get, path, fmt="{}", label="")
+ButtonGroup(get, set, options, enabled_get=None)
 Row(children)
 ```
 

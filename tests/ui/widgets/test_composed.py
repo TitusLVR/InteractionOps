@@ -2,8 +2,11 @@
 helpers, preset parsing and the flipbox row-merge. No bpy/bmesh needed:
 the module defers those imports to call time."""
 import importlib.util
+import math
 import os
 import sys
+
+import pytest
 
 _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__),
                                       "..", "..", ".."))
@@ -450,3 +453,316 @@ def test_build_controls_switch_flipbox_uses_store():
     assert fb.get(None) == (False, False)
     fb.set(None, True)
     assert store["adv"] is True
+
+
+# ======================================================================
+# Input controls — DROPDOWN / INPUT / BUTTONS
+# ======================================================================
+
+# ---- _coerce / _to_display (every value_type) --------------------------
+def test_coerce_string():
+    assert composed._coerce("STRING", 5) == "5"
+    assert composed._coerce("STRING", "hi") == "hi"
+
+
+def test_coerce_int():
+    assert composed._coerce("INT", "3") == 3
+    assert composed._coerce("INT", 4.0) == 4
+    assert isinstance(composed._coerce("INT", 4.0), int)
+
+
+def test_coerce_float():
+    assert composed._coerce("FLOAT", "0.5") == pytest.approx(0.5)
+    assert isinstance(composed._coerce("FLOAT", 2), float)
+
+
+def test_coerce_enum_is_str():
+    assert composed._coerce("ENUM", "SOLID") == "SOLID"
+
+
+def test_coerce_radians_identity():
+    assert composed._coerce("RADIANS", 1.5) == pytest.approx(1.5)
+    assert composed._coerce("RADIANS", "0.25") == pytest.approx(0.25)
+
+
+def test_coerce_degrees_converts_to_radians():
+    # Author space (degrees) -> storage space (radians) on write.
+    assert composed._coerce("DEGREES", 90) == pytest.approx(math.radians(90))
+    assert composed._coerce("DEGREES", "180") == pytest.approx(math.pi)
+
+
+def test_to_display_degrees_converts_to_degrees():
+    # Storage space (radians) -> author space (degrees) on read.
+    assert composed._to_display("DEGREES", math.radians(90)) == \
+        pytest.approx(90)
+
+
+def test_to_display_radians_identity():
+    assert composed._to_display("RADIANS", 1.25) == pytest.approx(1.25)
+
+
+def test_to_display_non_converting_types_are_identity():
+    for vt in ("STRING", "INT", "FLOAT", "ENUM"):
+        assert composed._to_display(vt, 42) == 42
+    assert composed._to_display("STRING", "x") == "x"
+
+
+def test_degrees_round_trip():
+    # _to_display(_coerce(deg)) == deg, and _coerce(_to_display(rad)) == rad.
+    assert composed._to_display(
+        "DEGREES", composed._coerce("DEGREES", 90)) == pytest.approx(90)
+    rad = math.radians(45)
+    assert composed._coerce(
+        "DEGREES", composed._to_display("DEGREES", rad)) == pytest.approx(rad)
+
+
+# ---- rna_value_adapter against a PLAIN fake object (no bl_rna) ----------
+class _Plain:
+    """A bare settable holder — deliberately no bl_rna scaffolding, to prove
+    the adapter never introspects RNA."""
+
+
+def _fake_rename_ctx(**attrs):
+    ctx = _Plain()
+    ctx.scene = _Plain()
+    ctx.scene.IOPS = _Plain()
+    ctx.scene.IOPS.rename = _Plain()
+    for k, v in attrs.items():
+        setattr(ctx.scene.IOPS.rename, k, v)
+    return ctx
+
+
+def test_rna_value_adapter_string_get_set():
+    ctx = _fake_rename_ctx(pattern="[N]_[C]")
+    ad = composed.rna_value_adapter("scene.IOPS.rename.pattern", "STRING")
+    assert ad["get"](ctx) == ("[N]_[C]", False)
+    ad["set"](ctx, 7)                          # coerced to str on write
+    assert ctx.scene.IOPS.rename.pattern == "7"
+
+
+def test_rna_value_adapter_int_get_set():
+    ctx = _fake_rename_ctx(counter_digits=2)
+    ad = composed.rna_value_adapter("scene.IOPS.rename.counter_digits", "INT")
+    assert ad["get"](ctx) == (2, False)
+    ad["set"](ctx, "4")
+    assert ctx.scene.IOPS.rename.counter_digits == 4
+
+
+def test_rna_value_adapter_degrees_get_returns_degrees_set_stores_radians():
+    # get() returns author space (degrees); set() stores radians.
+    ctx = _fake_rename_ctx(angle=math.radians(90))
+    ad = composed.rna_value_adapter("scene.IOPS.rename.angle", "DEGREES")
+    val, mixed = ad["get"](ctx)
+    assert mixed is False
+    assert val == pytest.approx(90)
+    ad["set"](ctx, 45)
+    assert ctx.scene.IOPS.rename.angle == pytest.approx(math.radians(45))
+
+
+def test_rna_value_adapter_is_mixed_always_false():
+    ctx = _fake_rename_ctx(pattern="x")
+    ad = composed.rna_value_adapter("scene.IOPS.rename.pattern", "STRING")
+    _val, mixed = ad["get"](ctx)
+    assert mixed is False
+
+
+def test_rna_value_adapter_absent_path_is_disabled_and_set_noops():
+    ctx = _fake_rename_ctx()        # no attribute set
+    ad = composed.rna_value_adapter("scene.IOPS.rename.missing", "STRING")
+    assert ad["get"](ctx) == (None, False)
+    ad["set"](ctx, "v")             # must not raise
+    assert not hasattr(ctx.scene.IOPS.rename, "missing")
+    # Unresolvable intermediate segment.
+    bad = composed.rna_value_adapter("scene.NOPE.attr", "STRING")
+    assert bad["get"](ctx) == (None, False)
+    bad["set"](ctx, "v")            # no-op, no raise
+
+
+# ---- validate_def: DROPDOWN / INPUT / BUTTONS accept + repair ----------
+def test_validate_dropdown_minimal():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "DROPDOWN", "prop": "scene.IOPS.rename.order"}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["type"] == "DROPDOWN"
+    assert r["prop"] == "scene.IOPS.rename.order"
+    assert r["value_type"] == "ENUM"            # forced
+    assert r["label"] == "order"                # last path segment
+
+
+def test_validate_dropdown_with_label_and_labels():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "DROPDOWN", "prop": "scene.IOPS.rename.order", "label": "Order",
+         "labels": {"DISTANCE": "By Distance", "SELECTION": "By Selection"}}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["label"] == "Order"
+    assert r["labels"] == {"DISTANCE": "By Distance",
+                           "SELECTION": "By Selection"}
+
+
+def test_validate_dropdown_missing_prop_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "DROPDOWN", "label": "Order"}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_input_defaults():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "INPUT", "prop": "scene.IOPS.rename.pattern"}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["value_type"] == "STRING"          # default
+    assert r["label"] == "pattern"              # last segment
+    assert r["fmt"] == "{}"                      # default
+
+
+def test_validate_input_explicit_int_and_fmt():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "INPUT", "prop": "scene.IOPS.rename.trim_prefix",
+         "value_type": "int", "label": "Prefix", "fmt": "{:d}"}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["value_type"] == "INT"             # upper-cased
+    assert r["label"] == "Prefix"
+    assert r["fmt"] == "{:d}"
+
+
+def test_validate_input_missing_prop_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "INPUT", "value_type": "STRING"}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_input_bad_value_type_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "INPUT", "prop": "scene.IOPS.rename.pattern",
+         "value_type": "BOGUS"}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_buttons_number_presets():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits",
+         "value_type": "INT", "values": [2, 3, 4]}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["type"] == "BUTTONS"
+    assert r["value_type"] == "INT"
+    # values coerced to floats and NOT clamped to [0,1] (counters exceed 1).
+    assert r["values"] == [2.0, 3.0, 4.0]
+
+
+def test_validate_buttons_angle_degrees_not_clamped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "prop": "object.data.angle",
+         "value_type": "DEGREES", "values": [0, 15, 45, 60, 90, 180]}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["value_type"] == "DEGREES"
+    assert r["values"] == [0.0, 15.0, 45.0, 60.0, 90.0, 180.0]
+
+
+def test_validate_buttons_enum_items():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "prop": "space_data.shading.type",
+         "value_type": "ENUM",
+         "items": ["SOLID", "MATERIAL", ["RENDERED", "Render"]]}]})
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["value_type"] == "ENUM"
+    assert r["items"] == ["SOLID", "MATERIAL", ["RENDERED", "Render"]]
+
+
+def test_validate_buttons_enum_without_items_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "prop": "space_data.shading.type",
+         "value_type": "ENUM"}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_buttons_number_without_values_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits",
+         "value_type": "INT", "values": []}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_buttons_missing_prop_dropped():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "BUTTONS", "value_type": "INT", "values": [2, 3]}]})
+    assert wdef["rows"] == []
+    assert errors
+
+
+# ---- build_controls produces the right kinds, threads metadata --------
+def test_build_controls_input_kind_and_path_not_edge_bound():
+    rows = [{"type": "INPUT", "prop": "scene.IOPS.rename.pattern",
+             "value_type": "STRING", "label": "Pattern", "fmt": "{}"}]
+    ctrls = composed.build_controls(rows)
+    assert composed._binds_edges(rows) is False
+    c = ctrls[0]
+    assert c.kind == "input"
+    assert c.path == "scene.IOPS.rename.pattern"
+    assert c.label == "Pattern"
+
+
+def test_build_controls_dropdown_kind_threads_labels():
+    labels = {"DISTANCE": "By Distance", "SELECTION": "By Selection"}
+    rows = [{"type": "DROPDOWN", "prop": "scene.IOPS.rename.order",
+             "value_type": "ENUM", "label": "Order", "labels": labels}]
+    ctrls = composed.build_controls(rows)
+    c = ctrls[0]
+    assert c.kind == "dropdown"
+    assert c.path == "scene.IOPS.rename.order"
+    assert c.labels == labels
+
+
+def test_build_controls_buttons_number_kind_and_options():
+    rows = [{"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits",
+             "value_type": "INT", "values": [2.0, 3.0, 4.0]}]
+    ctrls = composed.build_controls(rows)
+    c = ctrls[0]
+    assert c.kind == "buttons"
+    # Number-mode options: (value, label) pairs threaded from values.
+    assert [v for v, _label in c.options] == [2.0, 3.0, 4.0]
+
+
+def test_build_controls_buttons_enum_kind_and_options():
+    rows = [{"type": "BUTTONS", "prop": "space_data.shading.type",
+             "value_type": "ENUM",
+             "items": ["SOLID", ["RENDERED", "Render"]]}]
+    ctrls = composed.build_controls(rows)
+    c = ctrls[0]
+    assert c.kind == "buttons"
+    assert c.options == [("SOLID", "SOLID"), ("RENDERED", "Render")]
+
+
+def test_build_controls_input_value_type_threaded_via_adapter():
+    # A DEGREES INPUT must read degrees from a radian-stored prop, proving
+    # build_controls wired rna_value_adapter(prop, value_type) into get.
+    rows = [{"type": "INPUT", "prop": "scene.IOPS.rename.angle",
+             "value_type": "DEGREES", "label": "Angle", "fmt": "{:g}"}]
+    ctrls = composed.build_controls(rows)
+    c = ctrls[0]
+    ctx = _fake_rename_ctx(angle=math.radians(90))
+    val, mixed = c.get(ctx)
+    assert mixed is False
+    assert val == pytest.approx(90)
+
+
+def test_build_controls_new_rows_not_edge_bound():
+    rows = [
+        {"type": "DROPDOWN", "prop": "scene.IOPS.rename.order",
+         "value_type": "ENUM", "label": "Order"},
+        {"type": "INPUT", "prop": "scene.IOPS.rename.pattern",
+         "value_type": "STRING", "label": "Pattern", "fmt": "{}"},
+        {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits",
+         "value_type": "INT", "values": [2.0, 3.0]},
+    ]
+    assert composed._binds_edges(rows) is False

@@ -241,4 +241,47 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
             col.prop(self, "rename_active", text="Include Active Object")
             col.prop(self, "use_distance", text="Sort by Distance to Active")
             col.prop(self, "rename_mesh_data", text="Object's Mesh Data")
-            col.prop(self, "rename_linked", text="Linked Objects")  
+            col.prop(self, "rename_linked", text="Linked Objects")
+
+
+class IOPS_OT_Object_Name_From_Active_Apply(bpy.types.Operator):
+    """Apply Rename Objects using the persistent scene.IOPS.rename settings.
+
+    Thin wrapper for the Rename Objects widget: reads scene.IOPS.rename.*,
+    maps ``order`` to the base operator's ``use_distance`` flag, fills
+    ``active_name`` from the active object, then delegates to
+    ``iops.object_name_from_active`` (one source of truth for the rename
+    logic).
+    """
+
+    bl_idname = "iops.object_name_from_active_apply"
+    bl_label = "IOPS Rename Objects (Apply)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.view_layer.objects.active is not None
+            and len(context.selected_objects) >= 1
+        )
+
+    def execute(self, context):
+        s = context.scene.IOPS.rename
+        active_name = context.view_layer.objects.active.name
+        bpy.ops.iops.object_name_from_active(
+            "EXEC_DEFAULT",
+            new_name=s.new_name,
+            active_name=active_name,
+            pattern=s.pattern,
+            counter_digits=s.counter_digits,
+            counter_shift=s.counter_shift,
+            use_distance=(s.order == "DISTANCE"),
+            rename_active=s.rename_active,
+            rename_mesh_data=s.rename_mesh_data,
+            rename_linked=s.rename_linked,
+            copy_to_clipboard=s.copy_to_clipboard,
+            use_trim=s.use_trim,
+            trim_prefix=s.trim_prefix,
+            trim_suffix=s.trim_suffix,
+        )
+        return {"FINISHED"}

@@ -1,5 +1,5 @@
 """Widget controls — Control base + Slider, PresetRow, FlipBox,
-ActionButton, Section, Row, Swatch.
+ActionButton, Section, Row, Swatch, Dropdown, InputField, ButtonGroup.
 
 IMPORTANT: this module must stay importable WITHOUT bpy. All value<->pixel
 math lives in module-level functions so it can be unit-tested with plain
@@ -325,3 +325,281 @@ class Row(Control):
         super().mark_dirty()
         for child in self.children:
             child.mark_dirty()
+
+
+# ----------------------------------------------------------------------
+# RNA-bound input controls (Dropdown / InputField / ButtonGroup)
+#
+# These are plain Control subclasses (NOT _ValueControl): their value can be
+# changed by an external native popup (Dropdown/InputField delegate editing
+# to iops.widget_edit_prop) that never triggers the widget's mark_dirty, so
+# they read their getter LIVE on each draw rather than via the dirty cache.
+# A scalar getattr per draw is cheap and they always poll in-context (RNA,
+# not edge data), so the draw path is always live.
+# ----------------------------------------------------------------------
+class Dropdown(Control):
+    """Enum-bound display box edited IN-OVERLAY: clicking opens a clickable
+    item list drawn in the panel (no native popup). Collapsed, it shows the
+    current value.
+
+    `get(context) -> (value, is_mixed)` reads the bound enum identifier live;
+    `set(context, value)` writes the chosen identifier. `labels` is an
+    optional {identifier: display} map (declared in JSON); `items_get(context)
+    -> [(identifier, display), ...]` is the runtime fallback list (live enum
+    introspection) used when no labels are declared."""
+
+    kind = "dropdown"
+    interactive = True
+
+    def __init__(self, get, set, path, items_get=None, labels=None, label=""):
+        super().__init__()
+        self.get = get
+        self.set = set
+        self.path = path
+        self.items_get = items_get
+        self.labels = dict(labels) if labels else {}
+        self.label = label
+
+    def items(self, context):
+        """Selectable (identifier, display) list. Declared `labels` win (their
+        keys ARE the items, in declared order); else the live enum via
+        `items_get`; else empty."""
+        if self.labels:
+            return list(self.labels.items())
+        if self.items_get is not None:
+            return list(self.items_get(context))
+        return []
+
+    def display(self, context):
+        """Current-value display string: declared label / live item name for
+        the current identifier, else the raw identifier; "—" when None."""
+        value, _mixed = self.get(context)
+        if value is None:
+            return "—"
+        if self.labels:
+            return self.labels.get(value, value)
+        if self.items_get is not None:
+            for ident, disp in self.items_get(context):
+                if ident == value:
+                    return disp
+        return value
+
+    def write(self, context, value):
+        self.set(context, value)
+
+
+class InputField(Control):
+    """Number/string-bound field edited IN-OVERLAY: clicking starts a text
+    caret in the field (no native popup). `get(context) -> (value, is_mixed)`
+    reads the live author-space value (degrees for an angle); `set(context,
+    text)` writes it (the bound adapter coerces the text to the prop type —
+    int/float/degrees->radians/str). `fmt` formats numbers for display."""
+
+    kind = "input"
+    interactive = True
+
+    def __init__(self, get, set, path, fmt="{}", label=""):
+        super().__init__()
+        self.get = get
+        self.set = set
+        self.path = path
+        self.fmt = fmt
+        self.label = label
+
+    def display(self, context):
+        """Current-value display string: fmt.format(value) for numbers /
+        str(value) for strings, "—" when value is None."""
+        value, _mixed = self.get(context)
+        if value is None:
+            return "—"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return self.fmt.format(value)
+        return str(value)
+
+    def edit_string(self, context):
+        """Seed string for a fresh edit: the current value rendered as text
+        ("" when None)."""
+        value, _mixed = self.get(context)
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return self.fmt.format(value)
+        return str(value)
+
+    def write(self, context, text):
+        """Commit edited text. The bound adapter's set coerces to the prop
+        type and may raise (ValueError/TypeError) on unparseable numbers —
+        the caller discards on failure."""
+        self.set(context, text)
+
+
+class ButtonGroup(Control):
+    """Segmented radio row: an author-defined set of buttons, each holding
+    one predefined value. At most one is active — the one whose value matches
+    the live bound property. Clicking a button writes its value.
+
+    `options` is a normalized list of (value, label) pairs (see
+    `button_group_options`). `get(context) -> (value, is_mixed)` reads the
+    live bound value; `set(context, value)` writes a clicked option's value.
+    Cell math is shared with PresetRow via `preset_index`."""
+
+    kind = "buttons"
+    interactive = True
+
+    def __init__(self, get, set, options, enabled_get=None):
+        super().__init__()
+        self.get = get
+        self.set = set
+        self.options = list(options)   # [(value, label), ...]
+        self.enabled_get = enabled_get
+
+    def active_index(self, context):
+        """Index of the option matching the live bound value; -1 when no
+        option matches (honest off-grid state — no button forced on).
+        Numbers match within abs<=1e-6, everything else by equality. Read
+        live each draw."""
+        value, _mixed = self.get(context)
+        if value is None:
+            return -1
+        for i, (opt_value, _label) in enumerate(self.options):
+            if (isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and isinstance(opt_value, (int, float))
+                    and not isinstance(opt_value, bool)):
+                if abs(value - opt_value) <= 1e-6:
+                    return i
+            elif value == opt_value:
+                return i
+        return -1
+
+    def index_at(self, mx, rect_x, rect_w):
+        return preset_index(mx, rect_x, rect_w, len(self.options))
+
+    def write(self, context, value):
+        self.set(context, value)
+
+
+def button_group_options(values, items, fmt="{:g}", unit=""):
+    """Normalize a button group's options into [(value, label), ...].
+
+    Number mode (driven by `values`): each value becomes (value,
+    fmt.format(value) + unit). Enum mode (driven by `items`, used when
+    `values` is empty/None): each item is either an identifier string ->
+    (id, id), or an [identifier, label] pair -> (identifier, label).
+    Declared in JSON, never introspected. Pure stdlib."""
+    if values:
+        return [(v, fmt.format(v) + unit) for v in values]
+    out = []
+    for item in (items or []):
+        if isinstance(item, str):
+            out.append((item, item))
+        else:
+            ident = item[0]
+            label = item[1] if len(item) > 1 else item[0]
+            out.append((ident, label))
+    return out
+
+
+def dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n):
+    """Geometry for an open dropdown list: n cells stacked DOWNWARD from a
+    field's bottom edge (`rect_y`). Returns [(x, y, w, h)] in display order
+    (item 0 directly below the field). Shared by render (draw) and events
+    (hit-test) so the two never disagree. Pure."""
+    return [(rect_x, rect_y - (i + 1) * item_h, rect_w, item_h)
+            for i in range(n)]
+
+
+def dropdown_index_at(my, rect_x, rect_y, rect_w, item_h, n):
+    """Which open-dropdown item a pixel y falls in; -1 when outside the
+    list. (x is not tested — the list spans the field width.) Pure."""
+    for i, (_x, y, _w, h) in enumerate(
+            dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n)):
+        if y <= my <= y + h:
+            return i
+    return -1
+
+
+class TextEditState:
+    """In-overlay text-field edit buffer with caret + selection. Pure (no
+    bpy / no rendering) so the modal stays a thin key->method mapping and the
+    editing logic is fully pytest-covered.
+
+    `caret` is the insertion index; `anchor` marks the other end of the
+    selection (anchor == caret means no selection). Movement methods take
+    `extend` (Shift) to grow the selection instead of collapsing it."""
+
+    def __init__(self, text=""):
+        self.text = str(text)
+        self.caret = len(self.text)
+        self.anchor = self.caret
+
+    @property
+    def has_sel(self):
+        return self.caret != self.anchor
+
+    def sel_range(self):
+        """Normalized (start, end) of the current selection."""
+        return (self.anchor, self.caret) if self.anchor <= self.caret \
+            else (self.caret, self.anchor)
+
+    def _delete_sel(self):
+        a, b = self.sel_range()
+        self.text = self.text[:a] + self.text[b:]
+        self.caret = self.anchor = a
+
+    def insert(self, s):
+        s = str(s)
+        if not s:
+            return
+        if self.has_sel:
+            self._delete_sel()
+        self.text = self.text[:self.caret] + s + self.text[self.caret:]
+        self.caret += len(s)
+        self.anchor = self.caret
+
+    def backspace(self):
+        if self.has_sel:
+            self._delete_sel()
+            return
+        if self.caret > 0:
+            self.text = self.text[:self.caret - 1] + self.text[self.caret:]
+            self.caret -= 1
+        self.anchor = self.caret
+
+    def delete(self):
+        if self.has_sel:
+            self._delete_sel()
+            return
+        if self.caret < len(self.text):
+            self.text = self.text[:self.caret] + self.text[self.caret + 1:]
+        self.anchor = self.caret
+
+    def left(self, extend=False):
+        if self.caret > 0:
+            self.caret -= 1
+        if not extend:
+            self.anchor = self.caret
+
+    def right(self, extend=False):
+        if self.caret < len(self.text):
+            self.caret += 1
+        if not extend:
+            self.anchor = self.caret
+
+    def home(self, extend=False):
+        self.caret = 0
+        if not extend:
+            self.anchor = self.caret
+
+    def end(self, extend=False):
+        self.caret = len(self.text)
+        if not extend:
+            self.anchor = self.caret
+
+    def select_all(self):
+        self.anchor = 0
+        self.caret = len(self.text)
+
+    def selected_text(self):
+        a, b = self.sel_range()
+        return self.text[a:b]

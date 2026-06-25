@@ -19,7 +19,8 @@ from __future__ import annotations
 from ..draw import primitives, draw_scope
 from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
-from .controls import Row, pixel_from_value, preset_cell_rects
+from .controls import (Row, pixel_from_value, preset_cell_rects,
+                       dropdown_item_rects)
 from .panel import Rect
 
 # Layout constants (pixels). Heights derive from theme text sizes at
@@ -41,6 +42,14 @@ MAX_TICKS = 32
 CLOSE_GLYPH = "×"
 OUT_OF_CONTEXT_TEXT = "Go back to Edit Mode"
 MIXED_TEXT = "<mixed>"
+DROPDOWN_GLYPH = "▾"
+CELL_INSET = 6.0            # horizontal text inset inside dropdown/input box
+EMPTY_TEXT = "—"
+DROPDOWN_ITEM_H = 22.0      # height of one open-dropdown list item (px)
+CARET_GLYPH = "|"
+INPUT_VALUE_MAX_W = 150.0   # cap the value text's contribution to panel width;
+                            # longer values are middle-truncated on display
+ELLIPSIS = "…"
 
 
 def _fade(color, mul):
@@ -79,6 +88,25 @@ def _text_left(text, rect, x, *, theme, color, size_token="hud_label"):
                   theme=theme, color=color, size_token=size_token)
 
 
+def _truncate_middle(text, max_w, theme, size_token="hud_label"):
+    """Shorten `text` to fit `max_w` px with a middle ellipsis
+    (`very lo…_end`), keeping both ends so a leading name and trailing
+    counter stay visible. Returns `text` unchanged when it already fits."""
+    def m(s):
+        return hud_text.measure(s, theme=theme, size_token=size_token)[0]
+    if max_w <= 0 or m(text) <= max_w:
+        return text
+    n = len(text)
+    # Shrink the kept character count until head+…+tail fits.
+    for keep in range(n - 1, 0, -1):
+        head = (keep + 1) // 2
+        tail = keep // 2
+        cand = text[:head] + ELLIPSIS + (text[n - tail:] if tail else "")
+        if m(cand) <= max_w:
+            return cand
+    return ELLIPSIS
+
+
 # ----------------------------------------------------------------------
 # Layout
 # ----------------------------------------------------------------------
@@ -88,11 +116,13 @@ def _row_height(control, theme):
         return label_h + ROW_PAD_SECTION
     if control.kind == "swatch":
         return label_h * SWATCH_HEIGHT_FACTOR + ROW_PAD_CONTROL
+    # dropdown / input / buttons are single-line control-height rows.
     return label_h + ROW_PAD_CONTROL
 
 
-def _control_min_width(control, theme):
-    """Content width a control needs to render without clipping."""
+def _control_min_width(control, theme, context=None):
+    """Content width a control needs to render without clipping. `context`
+    (when given) lets value-bearing controls size to their live value."""
     def tw(text, token="hud_label"):
         return hud_text.measure(text, theme=theme, size_token=token)[0]
 
@@ -113,9 +143,28 @@ def _control_min_width(control, theme):
         return SWATCH_MIN_W
     if control.kind == "button":
         return tw(control.label) + 24.0
+    if control.kind == "dropdown":
+        # widest declared display + glyph + insets. Display labels come
+        # from the optional `labels` map; fall back to the raw identifiers.
+        labels = getattr(control, "labels", None) or {}
+        names = list(labels.values()) or list(labels.keys())
+        widest = max((tw(n) for n in names), default=0.0)
+        widest = max(widest, tw(EMPTY_TEXT))
+        return widest + tw(DROPDOWN_GLYPH) + CELL_INSET * 3.0
+    if control.kind == "input":
+        # label (left) + value region (right) + insets. The value grows the
+        # panel only up to INPUT_VALUE_MAX_W; beyond that it is truncated on
+        # draw, so a long string never balloons the panel.
+        val_w = tw(control.display(context)) if context is not None else 0.0
+        val_w = min(val_w, INPUT_VALUE_MAX_W)
+        val_w = max(val_w, tw(EMPTY_TEXT))
+        return tw(control.label) + val_w + CELL_INSET * 3.0
+    if control.kind == "buttons":
+        labels_w = sum(tw(label) + 12.0 for _v, label in control.options)
+        return labels_w + PRESET_GAP * max(0, len(control.options) - 1)
     if control.kind == "row":
         n = max(1, len(control.children))
-        widest = max((_control_min_width(c, theme)
+        widest = max((_control_min_width(c, theme, context)
                       for c in control.children), default=0.0)
         return widest * n + 6.0 * (n - 1)
     return 0.0
@@ -145,7 +194,8 @@ def compute_layout(context, widget, theme=None):
                 rows.append((height, control.columns))
             else:
                 rows.append((_row_height(control, th), 1))
-        min_content = max((_control_min_width(c, th) for c in widget.rows(context)),
+        min_content = max((_control_min_width(c, th, context)
+                           for c in widget.rows(context)),
                           default=0.0)
     else:
         rows.append((th.text_size("hud_label") + ROW_PAD_CONTROL, 1))
@@ -326,7 +376,103 @@ def _draw_swatch(control, rect, theme, dim, context, live):
                        color=_col(theme, Role.HUD_LABEL, eff))
 
 
-def _draw_control(control, rect, theme, dim, context, live, pressed=False):
+def _active_fill(theme):
+    """Pressed-tint fill: 25% of the active-value color pre-mixed over the
+    panel bg, matching `_draw_button`'s held-press feedback (the filled-tri
+    shader doesn't honor a low-alpha color, so it's pre-mixed at bg alpha)."""
+    bg = theme.hud.bg_color
+    hot = theme.color_for(Role.HUD_ACTIVE_VALUE)
+    t = 0.25
+    return (bg[0] * (1.0 - t) + hot[0] * t,
+            bg[1] * (1.0 - t) + hot[1] * t,
+            bg[2] * (1.0 - t) + hot[2] * t,
+            bg[3])
+
+
+def _draw_dropdown(control, rect, theme, dim, context, pressed=False):
+    # Always in-context (RNA-bound): read the getter live each draw.
+    text = control.display(context)
+    disabled = text is None or text == EMPTY_TEXT
+    eff = dim * (DISABLED_ALPHA if disabled else 1.0)
+    line_color = _col(theme, Role.LINE, eff)
+    label_color = _col(theme, Role.HUD_LABEL, eff)
+    glyph_color = _col(theme, Role.HUD_ACTIVE_VALUE, eff)
+    if pressed:
+        primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
+                           color=_active_fill(theme), theme=theme)
+    _outline(rect, line_color, theme)
+    _text_left(EMPTY_TEXT if text is None else text, rect, rect.x + CELL_INSET,
+               theme=theme, color=label_color)
+    gw, _ = hud_text.measure(DROPDOWN_GLYPH, theme=theme)
+    _text_left(DROPDOWN_GLYPH, rect, rect.x2 - CELL_INSET - gw,
+               theme=theme, color=glyph_color)
+
+
+def _draw_input(control, rect, theme, dim, context, pressed=False, edit=None):
+    label_color = _col(theme, Role.HUD_LABEL, dim)
+    value_color = _col(theme, Role.HUD_ACTIVE_VALUE, dim)
+    if edit is not None:
+        # Focused edit: active outline + live buffer with selection + caret,
+        # drawn left-aligned just past the label so caret math is simple.
+        _outline(rect, _col(theme, Role.HUD_ACTIVE_VALUE, dim), theme)
+        _text_left(control.label, rect, rect.x + CELL_INSET,
+                   theme=theme, color=label_color)
+        lw, _ = hud_text.measure((control.label or "") + "  ", theme=theme)
+        bx = rect.x + CELL_INSET + lw
+        buf = edit.text
+        ch = float(theme.text_size("hud_label"))
+        if edit.has_sel:
+            a, b = edit.sel_range()
+            ax = bx + hud_text.measure(buf[:a], theme=theme)[0]
+            sw = hud_text.measure(buf[a:b], theme=theme)[0]
+            primitives.rect_2d(ax, rect.cy - ch * 0.5, max(1.0, sw), ch,
+                               color=_active_fill(theme), theme=theme)
+        _text_left(buf, rect, bx, theme=theme, color=value_color)
+        cx = bx + hud_text.measure(buf[:edit.caret], theme=theme)[0]
+        _text_left(CARET_GLYPH, rect, cx - 1.0, theme=theme, color=value_color)
+        return
+
+    value_text = control.display(context)
+    disabled = value_text is None or value_text == EMPTY_TEXT
+    eff = dim * (DISABLED_ALPHA if disabled else 1.0)
+    line_color = _col(theme, Role.LINE, eff)
+    if pressed:
+        primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
+                           color=_active_fill(theme), theme=theme)
+    _outline(rect, line_color, theme)
+    _text_left(control.label, rect, rect.x + CELL_INSET,
+               theme=theme, color=_col(theme, Role.HUD_LABEL, eff))
+    shown = EMPTY_TEXT if value_text is None else value_text
+    # Value region = field minus the label and both insets; middle-truncate
+    # so a long value never overruns the label / panel edge.
+    label_w, _ = hud_text.measure(control.label, theme=theme)
+    avail = rect.w - CELL_INSET * 3.0 - label_w
+    shown = _truncate_middle(shown, avail, theme)
+    vw, _ = hud_text.measure(shown, theme=theme)
+    _text_left(shown, rect, rect.x2 - CELL_INSET - vw,
+               theme=theme, color=_col(theme, Role.HUD_ACTIVE_VALUE, eff))
+
+
+def _draw_buttons(control, rect, theme, dim, context):
+    eff = dim * (1.0 if control.enabled else DISABLED_ALPHA)
+    line_color = _col(theme, Role.LINE, eff)
+    label_color = _col(theme, Role.HUD_LABEL, eff)
+    active = control.active_index(context)
+    fill = _active_fill(theme)
+    for i, ((cx, cw), (_value, label)) in enumerate(zip(
+            preset_cell_rects(rect.x, rect.w, len(control.options),
+                              PRESET_GAP),
+            control.options)):
+        cell = Rect(cx, rect.y + 1.0, cw, rect.h - 2.0)
+        if i == active:
+            primitives.rect_2d(cell.x, cell.y, cell.w, cell.h,
+                               color=fill, theme=theme)
+        _outline(cell, line_color, theme)
+        _text_centered(label, cell, theme=theme, color=label_color)
+
+
+def _draw_control(control, rect, theme, dim, context, live, pressed=False,
+                  edit=None):
     # Live enabled resolution (dirty-cached): presets/Clear gray out and
     # go inert with no selection (spec) — only touched while in context,
     # out-of-context draws keep the last cached flag.
@@ -345,6 +491,33 @@ def _draw_control(control, rect, theme, dim, context, live, pressed=False):
         _draw_button(control, rect, theme, dim, pressed)
     elif kind == "swatch":
         _draw_swatch(control, rect, theme, dim, context, live)
+    elif kind == "dropdown":
+        _draw_dropdown(control, rect, theme, dim, context, pressed)
+    elif kind == "input":
+        _draw_input(control, rect, theme, dim, context, pressed, edit)
+    elif kind == "buttons":
+        _draw_buttons(control, rect, theme, dim, context)
+
+
+def _draw_dropdown_list(panel, where, items, hover, theme):
+    """Draw an open dropdown's item list below its field (on top of the
+    panel). `where` = (row, col) of the field; `hover` = highlighted index
+    (-1 = none). Geometry matches events' dropdown_index_at via
+    dropdown_item_rects / DROPDOWN_ITEM_H."""
+    field = panel.row_rects[where[0]][where[1]]
+    rects = dropdown_item_rects(field.x, field.y, field.w,
+                                DROPDOWN_ITEM_H, len(items))
+    bg = theme.hud.bg_color
+    line_color = _col(theme, Role.BBOX, 1.0)
+    label_color = _col(theme, Role.HUD_LABEL, 1.0)
+    fill = _active_fill(theme)
+    for i, ((x, y, w, h), (_ident, disp)) in enumerate(zip(rects, items)):
+        cell = Rect(x, y, w, h)
+        primitives.rect_2d(x, y, w, h, color=bg, theme=theme)
+        if i == hover:
+            primitives.rect_2d(x, y, w, h, color=fill, theme=theme)
+        _outline(cell, line_color, theme)
+        _text_left(disp, cell, x + CELL_INSET, theme=theme, color=label_color)
 
 
 # ----------------------------------------------------------------------
@@ -391,14 +564,26 @@ def draw_widget(context, widget):
                                           1.0))
                 return
             press = getattr(widget, "_press_cell", None)
+            editing = getattr(widget, "_editing", None)
+            edit_where = editing[0] if editing else None
+            edit_state = editing[1] if editing else None
             for r, control in enumerate(widget.rows(context)):
                 cells = panel.row_rects[r]
                 if isinstance(control, Row):
                     for c, child in enumerate(control.children):
                         _draw_control(child, cells[c], theme, dim,
                                       context, in_context,
-                                      pressed=(press == (r, c)))
+                                      pressed=(press == (r, c)),
+                                      edit=(edit_state
+                                            if edit_where == (r, c) else None))
                 else:
                     _draw_control(control, cells[0], theme, dim,
                                   context, in_context,
-                                  pressed=(press == (r, 0)))
+                                  pressed=(press == (r, 0)),
+                                  edit=(edit_state
+                                        if edit_where == (r, 0) else None))
+            # Open dropdown list draws last so it sits on top of the panel.
+            dd = getattr(widget, "_dropdown", None)
+            if dd is not None:
+                where, items, hover = dd
+                _draw_dropdown_list(panel, where, items, hover, theme)

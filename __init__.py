@@ -100,7 +100,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.theme import classes as _theme_classes
 from .prefs.addon_properties import IOPS_AddonProperties
-from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem, IOPS_WidgetListItem
+from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem, IOPS_WidgetListItem, IOPS_RenameSettings
 
 from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAssign,
@@ -183,7 +183,7 @@ from .operators.easy_mod_array import (
 from .operators.object_radial_array import IOPS_OT_Object_Radial_Array
 from .operators.object_aligner import IOPS_OT_Object_Aligner
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
-from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active
+from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active, IOPS_OT_Object_Name_From_Active_Apply
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
 
 from .operators.object_uvmaps_cleaner import (
@@ -329,6 +329,7 @@ classes = (
     IOPS_ExecutorScriptItem,
     IOPS_AddonProperties,
     IOPS_WidgetListItem,
+    IOPS_RenameSettings,  # PointerProperty target — must register before IOPS_SceneProperties
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
@@ -459,6 +460,7 @@ classes = (
     IOPS_OT_Active_UVMap_by_Active,
     IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
+    IOPS_OT_Object_Name_From_Active_Apply,
     IOPS_OT_SelectSimilarName,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,

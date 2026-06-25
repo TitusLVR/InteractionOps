@@ -163,7 +163,88 @@ class IOPS_AddonProperties(PropertyGroup):
     )
 
 
+class IOPS_RenameSettings(PropertyGroup):
+    """Persistent settings backing the Rename Objects widget.
+
+    Maps onto the props of ``iops.object_name_from_active`` (the Apply
+    operator reads these and forwards them). ``order`` maps to the
+    operator's ``use_distance`` bool.
+    """
+    new_name: StringProperty(
+        name="New Name",
+        description="Base name applied via the [N] pattern token",
+        default="",
+    )
+    pattern: StringProperty(
+        name="Pattern",
+        description="""Naming Syntaxis:
+    [N] - Name
+    [C] - Counter
+    [T] - Object Type
+    [COL] - Collection Name
+    """,
+        default="[N]_[C]",
+    )
+    counter_digits: IntProperty(
+        name="Counter Digits",
+        description="Number Of Digits For Counter",
+        default=2,
+        min=2,
+        max=10,
+    )
+    counter_shift: BoolProperty(
+        name="+1 Shift",
+        description="+1 shift for counter, useful when we need to rename active object too",
+        default=True,
+    )
+    order: EnumProperty(
+        name="Order",
+        description="Order in which selected objects are numbered",
+        items=[
+            ("DISTANCE", "By Distance", "Sort by distance to the active object"),
+            ("SELECTION", "By Selection", "Keep the selection order"),
+        ],
+        default="DISTANCE",
+    )
+    rename_active: BoolProperty(
+        name="Include Active", description="Rename active object also", default=True
+    )
+    rename_mesh_data: BoolProperty(
+        name="Mesh Data", description="Rename Mesh Data", default=True
+    )
+    rename_linked: BoolProperty(
+        name="Linked", description="Rename Linked Objects", default=False
+    )
+    copy_to_clipboard: BoolProperty(
+        name="Copy to Clipboard",
+        description="Copy the active object name to the clipboard",
+        default=True,
+    )
+    use_trim: BoolProperty(
+        name="Trim", description="Trim Name Prefix/Suffix", default=False
+    )
+    trim_prefix: IntProperty(
+        name="Prefix",
+        description="Number Of Digits for Prefix trim",
+        default=0,
+        min=0,
+        max=100,
+    )
+    trim_suffix: IntProperty(
+        name="Suffix",
+        description="Number Of Digits for Suffix trim",
+        default=0,
+        min=0,
+        max=100,
+    )
+
+
 class IOPS_SceneProperties(PropertyGroup):
+    rename: bpy.props.PointerProperty(
+        type=IOPS_RenameSettings,
+        name="Rename Settings",
+        description="Persistent settings for the Rename Objects widget",
+    )
     executor_scripts: CollectionProperty(
         type=IOPS_ExecutorScriptItem,
         name="Executor scripts",

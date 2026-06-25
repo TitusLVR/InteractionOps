@@ -1,7 +1,8 @@
 """JSON-composed widgets — the runtime behind the prefs "Widgets" tab.
 
 A composed widget is a JSON definition built from the known block palette
-(Section / Slider / Presets / FlipBox / Button / Swatch) with value rows bound to
+(Section / Slider / Presets / FlipBox / Button / Swatch / Dropdown / Input /
+Buttons) with value rows bound to
 the adapter registry (adapters.ADAPTERS). One file per widget in
 `bpy.utils.script_path_user()/presets/IOPS/widgets/<name>.json`:
 
@@ -28,9 +29,12 @@ bpy/bmesh-free and pytest-covered; everything touching bpy/bmesh defers
 its import to call time.
 """
 import json
+import math
 import os
 
-ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON", "ROW", "SWATCH")
+ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON", "ROW",
+             "SWATCH", "DROPDOWN", "INPUT", "BUTTONS")
+VALUE_TYPES = ("STRING", "INT", "FLOAT", "DEGREES", "RADIANS", "ENUM")
 FLOAT_TARGETS = ("BEVEL", "CREASE")
 BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
 SCHEMA_VERSION = 1
@@ -197,6 +201,60 @@ def rna_color_adapter(path):
     return {"get": get}
 
 
+def _coerce(value_type, value):
+    """Author space -> storage space, by declared type. Pure stdlib."""
+    if value_type == "INT":      return int(value)
+    if value_type == "FLOAT":    return float(value)
+    if value_type == "DEGREES":  return math.radians(float(value))
+    if value_type == "RADIANS":  return float(value)
+    return str(value)            # STRING / ENUM
+
+
+def _to_display(value_type, value):
+    """Storage space -> author space. Only DEGREES converts."""
+    return math.degrees(value) if value_type == "DEGREES" else value
+
+
+def rna_value_adapter(path, value_type="STRING"):
+    """get/set bundle for an arbitrary RNA scalar resolved against
+    context. Absence-safe. Scalar, so is_mixed is always False. Works in
+    AUTHOR/DISPLAY space: get() returns the author-space value (degrees
+    when value_type is DEGREES), set() coerces back to storage space
+    (radians for DEGREES) by the DECLARED value_type — no RNA
+    introspection."""
+    def get(context):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is None or not hasattr(owner, attr):
+            return (None, False)
+        return (_to_display(value_type, getattr(owner, attr)), False)
+
+    def set(context, value):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is not None and hasattr(owner, attr):
+            setattr(owner, attr, _coerce(value_type, value))
+
+    return {"get": get, "set": set}
+
+
+def rna_enum_items(path):
+    """Runtime fallback list for a DROPDOWN with no declared `labels`:
+    items_get(context) -> [(identifier, display), ...] by reading the live
+    enum's `bl_rna.properties[attr].enum_items`. Returns [] when the path /
+    owner / property is missing or not an enum. getattr-only, so plain fake
+    objects (no bl_rna) yield [] under pytest — never the source of truth,
+    only a convenience when items aren't declared in JSON."""
+    def items_get(context):
+        owner, attr = resolve_rna_owner(context, path)
+        if owner is None:
+            return []
+        try:
+            prop = owner.bl_rna.properties[attr]
+            return [(it.identifier, it.name) for it in prop.enum_items]
+        except (AttributeError, KeyError, TypeError):
+            return []
+    return items_get
+
+
 def switch_adapter(store, name, on_change=None):
     """get/set bundle for a local widget switch held in `store` (a dict
     on the live widget). set() mutates the store and fires on_change so
@@ -294,6 +352,84 @@ def _clean_row_body(row):
         if not cells:
             return None, "row has no usable cells"
         out["cells"] = cells
+        return out, None
+    if rtype == "DROPDOWN":
+        prop = str(row.get("prop", "")).strip()
+        if not prop:
+            return None, "dropdown needs a prop (RNA enum path)"
+        out["prop"] = prop
+        out["value_type"] = "ENUM"   # forced — dropdowns bind enums
+        out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
+        labels = row.get("labels", {})
+        out["labels"] = {str(k): str(v) for k, v in labels.items()} \
+            if isinstance(labels, dict) else {}
+        return out, None
+    if rtype == "INPUT":
+        prop = str(row.get("prop", "")).strip()
+        if not prop:
+            return None, "input needs a prop (RNA path)"
+        out["prop"] = prop
+        vt = str(row.get("value_type", "STRING")).strip().upper()
+        if vt not in VALUE_TYPES:
+            return None, f"input value_type '{vt}' invalid"
+        out["value_type"] = vt
+        out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
+        out["fmt"] = str(row.get("fmt", "{}"))
+        return out, None
+    if rtype == "BUTTONS":
+        prop = str(row.get("prop", "")).strip()
+        if not prop:
+            return None, "buttons needs a prop (RNA path)"
+        out["prop"] = prop
+        vt = str(row.get("value_type", "FLOAT")).strip().upper()
+        if vt not in VALUE_TYPES:
+            return None, f"buttons value_type '{vt}' invalid"
+        out["value_type"] = vt
+        out["fmt"] = str(row.get("fmt", "{:g}"))
+        if vt == "ENUM":
+            # Enum mode: declared items, identifier or [id, label] pairs.
+            items_in = row.get("items", [])
+            items = []
+            if isinstance(items_in, list):
+                for it in items_in:
+                    if isinstance(it, (list, tuple)):
+                        # [id, label] pair, or a 1-element [id] list — use
+                        # the first element as the identifier either way
+                        # (never stringify the whole list into a garbage id).
+                        if not it:
+                            continue
+                        ident = str(it[0]).strip()
+                        if ident:
+                            items.append([ident, str(it[1])] if len(it) >= 2
+                                         else ident)
+                    else:
+                        # Bare identifier kept as a plain string; the
+                        # (value, label) pairing happens later in
+                        # button_group_options.
+                        ident = str(it).strip()
+                        if ident:
+                            items.append(ident)
+            if not items:
+                return None, "buttons (ENUM) without items"
+            out["items"] = items
+        else:
+            # Number mode: values coerced to floats, NOT clamped.
+            vals = []
+            values = row.get("values", [])
+            if isinstance(values, list):
+                for v in values:
+                    try:
+                        vals.append(float(v))
+                    except (TypeError, ValueError):
+                        pass
+            if not vals:
+                return None, "buttons without values"
+            out["values"] = vals
+            unit = row.get("unit", None)
+            if unit is None:
+                out["unit"] = "°" if vt == "DEGREES" else ""
+            else:
+                out["unit"] = str(unit)
         return out, None
     if rtype == "SWATCH":
         prop = str(row.get("prop", "")).strip()
@@ -431,10 +567,14 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
     # is beyond the package boundary but `ui` is on sys.path via _ROOT).
     try:
         from ..ui.widgets import (Section, Slider, PresetRow, FlipBox,
-                                  ActionButton, Row, Swatch)
+                                  ActionButton, Row, Swatch, Dropdown,
+                                  InputField, ButtonGroup)
+        from ..ui.widgets.controls import button_group_options
     except ImportError:
         from ui.widgets import (Section, Slider, PresetRow, FlipBox,
-                                ActionButton, Row, Swatch)
+                                ActionButton, Row, Swatch, Dropdown,
+                                InputField, ButtonGroup)
+        from ui.widgets.controls import button_group_options
 
     if switch_store is None:
         switch_store = {}
@@ -477,6 +617,24 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
             return Swatch(get=ad["get"], op=row["op"],
                           kwargs=row.get("op_kwargs") or {},
                           label=row.get("label", ""))
+        if rtype == "DROPDOWN":
+            ad = rna_value_adapter(row["prop"], row["value_type"])
+            return Dropdown(get=ad["get"], set=ad["set"], path=row["prop"],
+                            items_get=rna_enum_items(row["prop"]),
+                            labels=row.get("labels") or {},
+                            label=row.get("label", ""))
+        if rtype == "INPUT":
+            ad = rna_value_adapter(row["prop"], row["value_type"])
+            return InputField(get=ad["get"], set=ad["set"], path=row["prop"],
+                              fmt=row.get("fmt", "{}"),
+                              label=row.get("label", ""))
+        if rtype == "BUTTONS":
+            ad = rna_value_adapter(row["prop"], row["value_type"])
+            options = button_group_options(row.get("values"),
+                                           row.get("items"),
+                                           row.get("fmt", "{:g}"),
+                                           row.get("unit", ""))
+            return ButtonGroup(get=ad["get"], set=ad["set"], options=options)
         if rtype == "BUTTON":
             return ActionButton(row["label"], op=row["op"],
                                 kwargs=row.get("op_kwargs") or {},

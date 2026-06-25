@@ -24,6 +24,7 @@ import bpy
 from bpy.props import BoolProperty, StringProperty
 
 from . import state
+from .controls import TextEditState, dropdown_index_at
 
 
 def _tag_redraw(context):
@@ -135,6 +136,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         self._control = None
         self._mode = "swallow"         # consume press+release, no action
         widget._press_cell = None      # clear any stale pressed highlight
+        widget._editing = None         # (where, TextEditState) while typing
+        widget._dropdown = None        # (where, items, hover) while open
 
         if kind == "close":
             state.hide_widget(widget.name)
@@ -213,6 +216,46 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             self._mode = "release_undo"
             return self._begin_modal(context)
 
+        if control.kind == "buttons":
+            # Radio-button group: write the clicked option's value on
+            # press (like PRESETS), one undo_push on release. Gap clicks
+            # (index < 0) swallow.
+            index = control.index_at(mx, self._rect.x, self._rect.w)
+            if index < 0:
+                return None            # gap between buttons — swallow
+            control.write(context, control.options[index][0])
+            self._widget.mark_dirty()
+            self._control = control
+            self._mode = "release_undo"
+            return self._begin_modal(context)
+
+        if control.kind == "input":
+            # In-overlay text entry: seed the buffer from the live value and
+            # select-all so the first keystroke replaces it (immediate focus,
+            # no popup). The modal stays open until Enter/Esc/click-away.
+            self._control = control
+            self._edit = TextEditState(control.edit_string(context))
+            self._edit.select_all()
+            self._mode = "text_edit"
+            self._widget._editing = (self._where, self._edit)
+            return self._begin_modal(context)
+
+        if control.kind == "dropdown":
+            # In-overlay item list: opens below the field, click/drag-release
+            # to pick (no popup). Empty list (no items, no labels) -> swallow.
+            items = control.items(context)
+            if not items:
+                return None
+            cur, _ = control.get(context)
+            hover = next((i for i, (ident, _d) in enumerate(items)
+                          if ident == cur), 0)
+            self._control = control
+            self._dd_items = items
+            self._dd_field = self._rect
+            self._mode = "dropdown_open"
+            self._widget._dropdown = (self._where, items, hover)
+            return self._begin_modal(context)
+
         if control.kind in ("button", "swatch"):
             # Swatch fires its operator on release-inside, exactly like a
             # button (one ed.undo_push, mark_dirty afterwards).
@@ -225,6 +268,13 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
 
     # ------------------------------------------------------------------
     def modal(self, context, event):
+        # Text-edit and dropdown modes own their own event handling (they
+        # stay open across mouse-release, unlike the one-gesture modes).
+        if self._mode == "text_edit":
+            return self._modal_text(context, event)
+        if self._mode == "dropdown_open":
+            return self._modal_dropdown(context, event)
+
         mx, my = event.mouse_region_x, event.mouse_region_y
         panel = self._widget.panel
 
@@ -270,6 +320,16 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                     self.report({"ERROR"}, f"IOPS widget action failed: {e}")
                 self._widget.mark_dirty()
                 self._undo_push()
+        elif mode == "edit_button":
+            # Dropdown / input: pop the native editor on release-inside.
+            # NO _undo_push — the native field edit pushes its own undo
+            # step. No mark_dirty either: these controls read their getter
+            # live each draw (the external popup never triggers mark_dirty).
+            if self._rect.contains(mx, my):
+                try:
+                    self._control.execute(context)
+                except Exception as e:
+                    self.report({"ERROR"}, f"IOPS widget action failed: {e}")
         self._widget._press_cell = None
         _tag_redraw(context)
         return {"FINISHED"}
@@ -306,6 +366,113 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                 message=f"IOPS {self._widget.panel.title}")
         except Exception as e:
             print("IOPS widgets: undo_push failed:", e)
+
+    # ------------------------------------------------------------------
+    # In-overlay text edit (mode "text_edit")
+    # ------------------------------------------------------------------
+    def _modal_text(self, context, event):
+        ed = self._edit
+        et, ev = event.type, event.value
+
+        if et == "ESC" and ev == "PRESS":
+            return self._end_edit(context)                 # discard
+        if et in {"RET", "NUMPAD_ENTER"} and ev == "PRESS":
+            return self._commit_text(context)
+        if et == "LEFTMOUSE" and ev == "PRESS":
+            # Click inside the field keeps editing; click anywhere else
+            # commits (and the click is swallowed so it can't deselect).
+            return {"RUNNING_MODAL"} if self._rect.contains(
+                event.mouse_region_x, event.mouse_region_y) \
+                else self._commit_text(context)
+
+        if ev == "PRESS":
+            handled = True
+            if et == "BACK_SPACE":
+                ed.backspace()
+            elif et == "DEL":
+                ed.delete()
+            elif et == "LEFT_ARROW":
+                ed.left(extend=event.shift)
+            elif et == "RIGHT_ARROW":
+                ed.right(extend=event.shift)
+            elif et == "HOME":
+                ed.home(extend=event.shift)
+            elif et == "END":
+                ed.end(extend=event.shift)
+            elif et == "A" and event.ctrl:
+                ed.select_all()
+            elif et in {"C", "X"} and event.ctrl:
+                sel = ed.selected_text()
+                if sel:
+                    context.window_manager.clipboard = sel
+                    if et == "X":
+                        ed.backspace()                     # delete selection
+            elif et == "V" and event.ctrl:
+                ed.insert(context.window_manager.clipboard or "")
+            elif event.unicode and not event.ctrl and not event.alt:
+                ed.insert(event.unicode)                   # printable char
+            else:
+                handled = False
+            if handled:
+                _tag_redraw(context)
+                return {"RUNNING_MODAL"}
+
+        return {"RUNNING_MODAL"}
+
+    def _commit_text(self, context):
+        try:
+            self._control.write(context, self._edit.text)
+            self._undo_push()
+        except (ValueError, TypeError):
+            pass            # unparseable (e.g. number from text) — discard
+        return self._end_edit(context)
+
+    def _end_edit(self, context):
+        self._widget._editing = None
+        _tag_redraw(context)
+        return {"FINISHED"}
+
+    # ------------------------------------------------------------------
+    # In-overlay dropdown list (mode "dropdown_open")
+    # ------------------------------------------------------------------
+    def _dd_index_at(self, mx, my):
+        from . import render
+        r = self._dd_field
+        return dropdown_index_at(my, r.x, r.y, r.w, render.DROPDOWN_ITEM_H,
+                                 len(self._dd_items))
+
+    def _modal_dropdown(self, context, event):
+        mx, my = event.mouse_region_x, event.mouse_region_y
+        et, ev = event.type, event.value
+
+        if et == "ESC" and ev == "PRESS":
+            return self._close_dropdown(context)
+
+        if et in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            idx = self._dd_index_at(mx, my)
+            where, items, _hover = self._widget._dropdown
+            self._widget._dropdown = (where, items, idx)
+            _tag_redraw(context)
+            return {"RUNNING_MODAL"}
+
+        if et == "LEFTMOUSE":
+            idx = self._dd_index_at(mx, my)
+            if idx >= 0:
+                # Pick on either the opening drag-release or a later click.
+                self._control.write(context, self._dd_items[idx][0])
+                self._widget.mark_dirty()
+                self._undo_push()
+                return self._close_dropdown(context)
+            if ev == "PRESS" and not self._rect.contains(mx, my):
+                return self._close_dropdown(context)   # click-away cancels
+            return {"RUNNING_MODAL"}                   # opening release etc.
+
+        return {"RUNNING_MODAL"}
+
+    def _close_dropdown(self, context):
+        self._widget._dropdown = None
+        _tag_redraw(context)
+        return {"FINISHED"}
 
 
 # ----------------------------------------------------------------------
