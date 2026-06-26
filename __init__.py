@@ -76,6 +76,7 @@ from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
 from .operators.mesh_copy_edges_angle import IOPS_MESH_OT_CopyEdgesAngle
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
+from .operators.uv_info import IOPS_OT_UVInfoRect
 from .operators.uv_visual_cursor import IOPS_OT_VisualCursorUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
 from .operators.object_normalize import IOPS_OT_object_normalize
@@ -429,6 +430,7 @@ classes = (
     IOPS_OT_Mesh_Quick_Connect,
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
+    IOPS_OT_UVInfoRect,
     IOPS_OT_VisualCursorUV,
     IOPS_OT_DragSnapCursor,
     IOPS_OT_ActiveObject_Scroll_UP,
