@@ -76,6 +76,7 @@ from .operators.mesh_copy_edges_length import IOPS_MESH_OT_CopyEdgesLength
 from .operators.mesh_copy_edges_angle import IOPS_MESH_OT_CopyEdgesAngle
 from .operators.drag_snap import IOPS_OT_DragSnap
 from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
+from .operators.uv_info import IOPS_OT_UVInfoRect
 from .operators.uv_visual_cursor import IOPS_OT_VisualCursorUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
 from .operators.object_normalize import IOPS_OT_object_normalize
@@ -112,6 +113,7 @@ from .operators.object_color import (
     IOPS_OT_ObjectColor_ApplyRecent,
 )
 from .ui.iops_object_color_panel import IOPS_PT_Object_Color_Panel
+from .ui.iops_uv_panel import IOPS_PT_UV_Panel
 from .operators.object_drop_it import IOPS_OT_Drop_It
 from .operators.object_kitbash_grid import IOPS_OT_KitBash_Grid
 from .operators.align_between_two import IOPS_OT_Align_between_two
@@ -430,6 +432,7 @@ classes = (
     IOPS_OT_Mesh_Quick_Connect,
     IOPS_OT_DragSnap,
     IOPS_OT_DragSnapUV,
+    IOPS_OT_UVInfoRect,
     IOPS_OT_VisualCursorUV,
     IOPS_OT_DragSnapCursor,
     IOPS_OT_ActiveObject_Scroll_UP,
@@ -441,6 +444,7 @@ classes = (
     IOPS_OT_ObjectColor_CopyFromActive,
     IOPS_OT_ObjectColor_ApplyRecent,
     IOPS_PT_Object_Color_Panel,
+    IOPS_PT_UV_Panel,
     IOPS_OT_SplitScreenArea,
     IOPS_OT_SwitchScreenArea,
     IOPS_OT_SaveSpaceData,
