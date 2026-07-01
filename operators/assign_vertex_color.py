@@ -2,6 +2,81 @@ import bpy
 import bmesh
 from bpy.props import FloatProperty, BoolProperty
 
+VC_PREVIEW_MAT = "IOPS_VC_Preview"
+
+
+def _active_view3d_space(context):
+    """Return the active VIEW_3D space to switch shading on, or None."""
+    sd = getattr(context, "space_data", None)
+    if sd is not None and sd.type == "VIEW_3D":
+        return sd
+    screen = getattr(context, "screen", None)
+    if screen is not None:
+        for area in screen.areas:
+            if area.type == "VIEW_3D":
+                return area.spaces.active
+    return None
+
+
+def _build_vc_preview_material(layer_name):
+    """Create or refresh the IOPS_VC_Preview material: a Color Attribute node
+    feeding an Emission into the Material Output (unlit, engine-agnostic)."""
+    mat = bpy.data.materials.get(VC_PREVIEW_MAT)
+    if mat is None:
+        mat = bpy.data.materials.new(VC_PREVIEW_MAT)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    vcol = nt.nodes.new("ShaderNodeVertexColor")
+    vcol.layer_name = layer_name or ""
+    vcol.location = (-300.0, 0.0)
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.location = (0.0, 0.0)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    out.location = (300.0, 0.0)
+    nt.links.new(emit.inputs["Color"], vcol.outputs["Color"])
+    nt.links.new(out.inputs["Surface"], emit.outputs["Emission"])
+    return mat
+
+
+def vc_preview_set(context, enable):
+    """Toggle the vertex-color preview via view_layer.material_override.
+
+    enable=True: build/reuse IOPS_VC_Preview from the active object's active
+    color attribute, set it as the view-layer override, and — only if the
+    active VIEW_3D is in Solid/Wireframe — switch it to EEVEE Material Preview
+    (storing the previous shading); Rendered/Material Preview viewports are
+    left as-is. enable=False: clear the override and restore the stored shading
+    if one was stored. Safe from a UI property update (data-API only, no
+    operator calls)."""
+    scene_props = context.scene.IOPS
+    view_layer = context.view_layer
+    if enable:
+        obj = context.object
+        layer_name = ""
+        if obj is not None and obj.type == "MESH":
+            active = obj.data.color_attributes.active_color
+            if active is not None:
+                layer_name = active.name
+        view_layer.material_override = _build_vc_preview_material(layer_name)
+        space = _active_view3d_space(context)
+        if space is not None and space.shading.type in {"SOLID", "WIREFRAME"}:
+            # Respect an existing rendered/material preview (EEVEE or Cycles);
+            # only pull a non-preview viewport into EEVEE Material Preview.
+            if not scene_props.iops_vc_preview_prev_shading:
+                scene_props.iops_vc_preview_prev_shading = space.shading.type
+            space.shading.type = "MATERIAL"
+    else:
+        view_layer.material_override = None
+        space = _active_view3d_space(context)
+        if space is not None and scene_props.iops_vc_preview_prev_shading:
+            space.shading.type = scene_props.iops_vc_preview_prev_shading
+        scene_props.iops_vc_preview_prev_shading = ""
+    area = getattr(context, "area", None)
+    if area is not None:
+        area.tag_redraw()
+
+
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in edit mode to selected vertices"""
 
@@ -30,6 +105,20 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         name="Fill Grey",
         default=False
     )
+    use_override_color: BoolProperty(
+        name="Use Override Color",
+        description="Fill with override_color instead of the picker / fill flags",
+        default=False
+    )
+    override_color: bpy.props.FloatVectorProperty(
+        name="Override Color",
+        description="Explicit RGBA fill color used when Use Override Color is on",
+        size=4,
+        subtype="COLOR",
+        min=0.0,
+        max=1.0,
+        default=(1.0, 0.0, 0.0, 1.0)
+    )
 
     domain: bpy.props.EnumProperty(
         name="Domain",
@@ -57,14 +146,18 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
 
         # Determine color BEFORE processing objects
         color = color_picker
-        if self.fill_color_black:
+        if self.use_override_color:
+            color = tuple(self.override_color)
+        elif self.fill_color_black:
             color = color_black
         elif self.fill_color_grey:
             color = color_grey
         elif self.fill_color_white:
             color = color_white
-        
-        # Reset the fill flags after determining color
+
+        # Reset the one-shot fill flags after determining color.
+        # use_override_color is NOT reset: it is driven per-click by the
+        # widget's op_kwargs, not a sticky redo-panel toggle.
         self.fill_color_black = False
         self.fill_color_grey = False
         self.fill_color_white = False
@@ -223,6 +316,8 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         col.prop(self, "fill_color_black", text="Fill Black")
         col.prop(self, "fill_color_grey", text="Fill Grey")
         col.prop(self, "fill_color_white", text="Fill White")
+        col.prop(self, "use_override_color", text="Use Override Color")
+        col.prop(self, "override_color", text="Override Color")
 
 
 class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):

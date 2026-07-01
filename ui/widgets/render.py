@@ -36,6 +36,10 @@ BOX_INSET = 3.0             # flipbox check inset
 SWATCH_INSET = 2.0          # color-fill inset inside the swatch outline
 SWATCH_MIN_W = 28.0         # min swatch cell width (clickable target)
 SWATCH_HEIGHT_FACTOR = 1.8  # swatch row height = factor * label height
+CHECKER_COLS = 4            # transparency-checker cells across an alpha swatch
+CHECKER_ROWS = 2
+CHECKER_LIGHT = (0.55, 0.55, 0.55, 1.0)
+CHECKER_DARK = (0.30, 0.30, 0.30, 1.0)
 PRESET_GAP = 4.0
 TICK_H = 4.0
 MAX_TICKS = 32
@@ -357,18 +361,44 @@ def _draw_button(control, rect, theme, dim, pressed=False):
     _text_centered(control.label, rect, theme=theme, color=text_color)
 
 
+def _draw_checker(x, y, w, h, theme):
+    """Opaque transparency checker filling a swatch's inset rect (two greys).
+    Drawn at full opacity so it shows through wherever the alpha fill above
+    it is < 1.0 — used by show_alpha swatches to read alpha as transparency."""
+    cw = w / CHECKER_COLS
+    ch = h / CHECKER_ROWS
+    for r in range(CHECKER_ROWS):
+        for c in range(CHECKER_COLS):
+            col = CHECKER_LIGHT if (r + c) % 2 == 0 else CHECKER_DARK
+            primitives.rect_2d(x + c * cw, y + r * ch, cw, ch,
+                               color=col, theme=theme)
+
+
 def _draw_swatch(control, rect, theme, dim, context, live):
     value, _ = control.value(context) if live else control.cached()
     disabled = (value is None) or not control.enabled
     eff = dim * (DISABLED_ALPHA if disabled else 1.0)
+    show_alpha = getattr(control, "show_alpha", False)
     if value is not None:
         # subtype=COLOR props are scene-linear; encode to sRGB to match the
-        # native color field. Force opaque fill so a low-alpha stored color
-        # is still visible (alpha is not part of the swatch's job here).
+        # native color field.
         enc = _srgb_encode(value)
-        primitives.rect_2d(rect.x + SWATCH_INSET, rect.y + SWATCH_INSET,
-                           rect.w - SWATCH_INSET * 2.0, rect.h - SWATCH_INSET * 2.0,
-                           color=(enc[0], enc[1], enc[2], 1.0), theme=theme)
+        ix, iy = rect.x + SWATCH_INSET, rect.y + SWATCH_INSET
+        iw, ih = rect.w - SWATCH_INSET * 2.0, rect.h - SWATCH_INSET * 2.0
+        if show_alpha:
+            # Checker behind, fill honoring the color's real alpha on top.
+            # Alpha 0 => checker only (transparent); 1 => solid over checker.
+            _draw_checker(ix, iy, iw, ih, theme)
+            a = value[3]
+            if a > 0.0:
+                primitives.rect_2d(ix, iy, iw, ih,
+                                   color=(enc[0], enc[1], enc[2], a),
+                                   theme=theme)
+        else:
+            # Force opaque so a low-alpha stored color is still visible
+            # (alpha is not part of a normal swatch's job).
+            primitives.rect_2d(ix, iy, iw, ih,
+                               color=(enc[0], enc[1], enc[2], 1.0), theme=theme)
     # Outline/label carry the disabled fade; the fill stays readable.
     _outline(rect, _col(theme, Role.LINE, eff), theme)
     if control.label:

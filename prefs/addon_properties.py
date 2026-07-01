@@ -239,6 +239,13 @@ class IOPS_RenameSettings(PropertyGroup):
     )
 
 
+def _iops_vc_preview_update(self, context):
+    # Lazy import avoids a circular import at module load; assign_vertex_color
+    # imports only bpy, so this is safe.
+    from ..operators.assign_vertex_color import vc_preview_set
+    vc_preview_set(context, self.iops_vc_preview)
+
+
 class IOPS_SceneProperties(PropertyGroup):
     rename: bpy.props.PointerProperty(
         type=IOPS_RenameSettings,
@@ -284,6 +291,20 @@ class IOPS_SceneProperties(PropertyGroup):
         max=1.0,
         subtype="COLOR",
         size=4,
+    )
+
+    iops_vc_preview: BoolProperty(
+        name="Preview VC",
+        description="Preview vertex color in the viewport via a temporary "
+                    "emission material override (EEVEE and Cycles)",
+        default=False,
+        update=_iops_vc_preview_update,
+    )
+    iops_vc_preview_prev_shading: StringProperty(
+        name="VC Preview Previous Shading",
+        description="Viewport shading type to restore when the preview is off",
+        default="",
+        options={"HIDDEN"},
     )
 
     # Object Color picker + 8 recent swatches. ``iops_object_color`` is the

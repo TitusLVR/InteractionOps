@@ -55,7 +55,7 @@ Row types:
 | `PRESETS` | `target` (BEVEL/CREASE), `values` (list 0..1) | edge float attribute |
 | `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
-| `SWATCH` | `prop` (RNA color path), `op` (operator idname), `op_kwargs`, `label` | shows a color, fires an operator on click |
+| `SWATCH` | EXACTLY ONE of `prop` (RNA color path) or `color` (literal RGBA list); `op` (operator idname), `op_kwargs`, `label`, `show_alpha` | shows a color (live or fixed), fires an operator on click |
 | `DROPDOWN` | `prop` (RNA enum path), `label`, `labels` (id→display map) | an enum prop, edited via an in-overlay item list |
 | `INPUT` | `prop` (RNA scalar path), `value_type`, `label`, `fmt` | a string/number/angle prop, edited via an in-overlay text caret |
 | `BUTTONS` | `prop` (RNA number/enum path), `value_type`, `values` (number mode) or `items` (enum mode), `unit`, `fmt` | radio row writing a preset value to the prop |

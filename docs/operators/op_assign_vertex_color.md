@@ -32,6 +32,8 @@ If the target object has no color attribute, a new one is created using `Color A
 | `fill_color_grey` | Bool | `False` | One-shot override: fill with `(0.5, 0.5, 0.5, 1)`. Auto-resets after execution. |
 | `domain` | Enum | `POINT` | Domain for newly created attributes. Items: `POINT` (Point), `CORNER` (Corner). |
 | `attr_type` | Enum | `FLOAT_COLOR` | Data type for newly created attributes. Items: `FLOAT_COLOR` (Float Color), `BYTE_COLOR` (Byte Color). |
+| `use_override_color` | Bool | `False` | Fill with `override_color` instead of the picker / black-grey-white flags. Not auto-reset (driven by callers like the Vertex Color widget). |
+| `override_color` | Float[4] | `(1, 0, 0, 1)` | Explicit RGBA fill color used when `use_override_color` is on. Wins over the scene picker and the fill flags. |
 
 The base color comes from `context.scene.IOPS.iops_vertex_color`. The fill toggles take precedence in order black > grey > white.
 
@@ -72,6 +74,31 @@ Writes only the alpha channel of the active color attribute on selected vertices
 - If there is no active color attribute but at least one exists, the first attribute becomes active and is used.
 - POINT domain: alpha is written per selected vertex. CORNER domain: alpha is written for every loop whose vertex is selected.
 - Wrapped in a try/except — on failure the operator attempts to restore Edit Mode and reports an `ERROR`.
+
+## Vertex Color Preview (viewport)
+
+A reversible viewport preview of the active color attribute, driven by the
+Vertex Color widget's **Preview VC** toggle (`scene.IOPS.iops_vc_preview`).
+
+- Turning it on builds/reuses a temporary material `IOPS_VC_Preview`
+  (Color Attribute → Emission → Material Output) and assigns it to
+  `view_layer.material_override`. Emission is unlit, so the raw vertex color
+  reads correctly in both **EEVEE** and **Cycles**. The shading switch is
+  context-aware: if the active 3D viewport is already in **Rendered**
+  (EEVEE or Cycles) or **Material Preview**, it is left unchanged, respecting
+  whatever engine/mode is already active. Only a **Solid** (or Wireframe)
+  viewport is switched to **Material Preview** (EEVEE-based, which shows the
+  override regardless of the scene's render engine).
+- Turning it off clears the override and restores the previous viewport shading
+  if one was stored (stored in `scene.IOPS.iops_vc_preview_prev_shading`,
+  only when the viewport was switched on enable).
+- Implemented by `vc_preview_set(context, enable)` in
+  `operators/assign_vertex_color.py`; the toggle is view-layer-wide (every
+  object renders as its vertex color while active) and mutates no user materials.
+
+The widget's **Black** and **White** fill swatches use the same explicit-color
+override as R/G/B (`use_override_color` with `override_color` `(0,0,0,1)` /
+`(1,1,1,1)`).
 
 ## Related
 - [Vertex Color Picker / scene IOPS color](../index.md) — supplies `scene.IOPS.iops_vertex_color`.

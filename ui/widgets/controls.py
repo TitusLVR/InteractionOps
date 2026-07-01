@@ -296,12 +296,14 @@ class Swatch(_ValueControl):
     kind = "swatch"
     interactive = True
 
-    def __init__(self, get, op, kwargs=None, label="", enabled_get=None):
+    def __init__(self, get, op, kwargs=None, label="", enabled_get=None,
+                 show_alpha=False):
         super().__init__(get, None)
         self.op = op            # operator idname, e.g. "iops.object_color_apply"
         self.kwargs = dict(kwargs) if kwargs else {}
         self.label = label      # optional centered glyph/text on the fill
         self.enabled_get = enabled_get
+        self.show_alpha = bool(show_alpha)
 
     def execute(self, context):
         return _invoke_operator(self.op, self.kwargs)

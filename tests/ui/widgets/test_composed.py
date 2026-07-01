@@ -373,6 +373,59 @@ def test_show_if_equals_preserved():
     assert clean == {"switch": "n", "equals": False}
 
 
+def test_validate_swatch_literal_color():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [1, 0, 0, 1], "op": "iops.x.y",
+         "label": "R"}]}
+    wdef, errors = composed.validate_def(data)
+    assert errors == []
+    r = wdef["rows"][0]
+    assert r["color"] == [1.0, 0.0, 0.0, 1.0]
+    assert "prop" not in r
+    assert r["op"] == "iops.x.y"
+    assert r["label"] == "R"
+
+
+def test_validate_swatch_color_and_prop_dropped():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [1, 0, 0, 1],
+         "prop": "scene.IOPS.iops_object_color", "op": "iops.x.y"}]}
+    wdef, errors = composed.validate_def(data)
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_swatch_neither_color_nor_prop_dropped():
+    data = {"name": "vc", "rows": [{"type": "SWATCH", "op": "iops.x.y"}]}
+    wdef, errors = composed.validate_def(data)
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_swatch_bad_color_dropped():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [1, 0, 0], "op": "iops.x.y"}]}
+    wdef, errors = composed.validate_def(data)
+    assert wdef["rows"] == []
+    assert errors
+
+
+def test_validate_swatch_show_alpha():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [0.5, 0.5, 0.5, 0], "op": "iops.x.y",
+         "show_alpha": True}]}
+    wdef, errors = composed.validate_def(data)
+    assert errors == []
+    assert wdef["rows"][0]["show_alpha"] is True
+
+
+def test_validate_swatch_no_show_alpha_key_when_absent():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [1, 0, 0, 1], "op": "iops.x.y"}]}
+    wdef, errors = composed.validate_def(data)
+    assert "show_alpha" not in wdef["rows"][0]
+
+
 # ---- switch flipbox + switches map -------------------------------------
 def test_flipbox_switch_binding():
     wdef, errors = composed.validate_def({
@@ -766,3 +819,18 @@ def test_build_controls_new_rows_not_edge_bound():
          "value_type": "INT", "values": [2.0, 3.0]},
     ]
     assert composed._binds_edges(rows) is False
+
+
+def test_build_swatch_literal_color_constant_getter():
+    data = {"name": "vc", "rows": [
+        {"type": "SWATCH", "color": [1, 0, 0, 1], "op": "iops.x.y",
+         "label": "R", "show_alpha": True}]}
+    clean, errors = composed.validate_def(data)
+    assert errors == []
+    ctrls = composed.build_controls(clean["rows"])
+    sw = ctrls[0]
+    assert sw.kind == "swatch"
+    assert sw.show_alpha is True
+    value, mixed = sw.get(None)          # constant getter, context ignored
+    assert value == (1.0, 0.0, 0.0, 1.0)
+    assert mixed is False

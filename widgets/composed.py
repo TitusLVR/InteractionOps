@@ -433,16 +433,28 @@ def _clean_row_body(row):
         return out, None
     if rtype == "SWATCH":
         prop = str(row.get("prop", "")).strip()
-        if not prop:
-            return None, "swatch needs a prop (RNA color path)"
+        color = row.get("color", None)
+        has_color = color is not None
+        if prop and has_color:
+            return None, "swatch needs exactly one of prop or color, not both"
+        if not prop and not has_color:
+            return None, "swatch needs a prop (RNA color path) or a literal color"
         op = str(row.get("op", "")).strip()
         if "." not in op:
             return None, f"swatch op '{op}' is not an operator idname"
-        out["prop"] = prop
+        if has_color:
+            if (not isinstance(color, (list, tuple)) or len(color) != 4
+                    or not all(isinstance(c, (int, float)) for c in color)):
+                return None, "swatch color must be a list of 4 numbers"
+            out["color"] = [float(c) for c in color]
+        else:
+            out["prop"] = prop
         out["op"] = op
         out["label"] = str(row.get("label", ""))
         kwargs = row.get("op_kwargs", {})
         out["op_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
+        if bool(row.get("show_alpha", False)):
+            out["show_alpha"] = True
         return out, None
     # BUTTON
     op = str(row.get("op", "")).strip()
@@ -613,10 +625,15 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
             a = ADAPTERS[row["target"]]
             return FlipBox(row["label"], get=a["get"], set=a["set"])
         if rtype == "SWATCH":
-            ad = rna_color_adapter(row["prop"])
-            return Swatch(get=ad["get"], op=row["op"],
+            if "color" in row:
+                const = tuple(row["color"])
+                get = lambda context, _c=const: (_c, False)
+            else:
+                get = rna_color_adapter(row["prop"])["get"]
+            return Swatch(get=get, op=row["op"],
                           kwargs=row.get("op_kwargs") or {},
-                          label=row.get("label", ""))
+                          label=row.get("label", ""),
+                          show_alpha=bool(row.get("show_alpha", False)))
         if rtype == "DROPDOWN":
             ad = rna_value_adapter(row["prop"], row["value_type"])
             return Dropdown(get=ad["get"], set=ad["set"], path=row["prop"],

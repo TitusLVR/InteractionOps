@@ -68,13 +68,20 @@ Fires `op("INVOKE_DEFAULT", **op_kwargs)`.
 Read-only color preview (no setter) that fires `op` on click, like a button.
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA color path (FloatVector subtype COLOR) | **yes** | — |
+| `prop` | dotted RNA color path (FloatVector subtype COLOR) | one of `prop`/`color` | — |
+| `color` | list of 4 numbers `0..1` (literal RGBA) | one of `prop`/`color` | — |
 | `op` | operator idname (must contain `.`) | **yes** | — |
 | `op_kwargs` | object | no | `{}` |
 | `label` | str | no | `""` (centered glyph on the fill) |
+| `show_alpha` | bool | no | `false` (true → checker bg + honor the color's alpha) |
 
 Color is read absence-safe (missing path → faded/disabled). subtype=COLOR
 values are scene-linear and sRGB-encoded for display.
+
+A SWATCH takes **exactly one** of `prop` (live RNA color, absence-safe) or
+`color` (fixed literal RGBA). With `show_alpha: true` the swatch draws a
+transparency checker and honors the color's alpha (alpha 0 = checker only,
+1 = solid) — used for alpha-set buttons.
 
 ### `DROPDOWN` — enum RNA prop, edited in-overlay
 | key | type | required | default |
