@@ -65,8 +65,8 @@ class IOPS_OT_widget_toggle(bpy.types.Operator):
             # Anchor to the invoking area when it matches the widget's
             # space; otherwise fall back to the largest one.
             area = context.area
-            if area is None or area.type != widget.space:
-                area = state.find_largest_area(widget.space)
+            if area is None or area.type not in widget.spaces:
+                area = state.find_largest_area(widget.spaces)
                 mouse = None
             if area is None:
                 self.report({"ERROR"},
@@ -93,7 +93,7 @@ class IOPS_OT_widget_toggle(bpy.types.Operator):
         if (self.use_cursor and context.area is not None
                 and context.region is not None
                 and context.region.type == "WINDOW"
-                and context.area.type == "VIEW_3D"):
+                and context.area.type in state.SPACE_TYPES):
             mouse = (event.mouse_region_x, event.mouse_region_y)
         return self._toggle(context, mouse)
 
@@ -487,34 +487,47 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
 _keymap_items = []
 
 
+def _ensure_interact_kmi(kc, keymap_name, space_type):
+    """Add the LEFTMOUSE PRESS any=True -> iops.widget_interact entry to
+    `keymap_name` if it isn't there already. any=True: fires with every
+    modifier so Ctrl (smooth slider drag) reaches the modal; off-panel
+    clicks PASS_THROUGH."""
+    km = kc.keymaps.new(keymap_name, space_type=space_type)
+    for kmi in km.keymap_items:
+        if kmi.idname == IOPS_OT_widget_interact.bl_idname:
+            return
+    kmi = km.keymap_items.new(IOPS_OT_widget_interact.bl_idname,
+                              "LEFTMOUSE", "PRESS", any=True)
+    _keymap_items.append((km, kmi))
+
+
+# Keymaps that legitimately host the interact entry (name -> space_type).
+_INTERACT_KEYMAPS = (
+    ("3D View", "VIEW_3D"),
+    ("Image", "IMAGE_EDITOR"),
+)
+
+
 def register_keymap():
     """Single registration at addon register (guarded — re-running is a
     no-op, matching the register_ui_toggle_keymaps pattern)."""
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:
         return
+    legit = {name for name, _ in _INTERACT_KEYMAPS}
     # Hotkey files saved before iops.widget_interact was excluded from
     # save_hotkeys may have re-created the entry in other addon keymaps
     # ("Window", without any=True) — sweep those strays first so the user
     # never ends up with a duplicate global LMB binding.
     for other in kc.keymaps:
-        if other.name == "3D View":
+        if other.name in legit:
             continue
         stray = [kmi for kmi in other.keymap_items
                  if kmi.idname == IOPS_OT_widget_interact.bl_idname]
         for kmi in stray:
             other.keymap_items.remove(kmi)
-    # "3D View" needs an explicit space_type (the name-only keymaps the
-    # addon creates elsewhere are all space-agnostic "Window"-likes).
-    km = kc.keymaps.new("3D View", space_type="VIEW_3D")
-    for kmi in km.keymap_items:
-        if kmi.idname == IOPS_OT_widget_interact.bl_idname:
-            return
-    # any=True: fires with every modifier combination so Ctrl (smooth
-    # slider drag) reaches the modal; off-panel clicks PASS_THROUGH.
-    kmi = km.keymap_items.new(IOPS_OT_widget_interact.bl_idname,
-                              "LEFTMOUSE", "PRESS", any=True)
-    _keymap_items.append((km, kmi))
+    for name, space_type in _INTERACT_KEYMAPS:
+        _ensure_interact_kmi(kc, name, space_type)
     print("IOPS Widget keymap registered")
 
 

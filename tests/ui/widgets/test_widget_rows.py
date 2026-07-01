@@ -164,3 +164,19 @@ def test_real_widget_control_at_indexes_filtered_list():
     assert inst.control_at(fake_ctx, 0, 0) is alpha
     assert inst.control_at(fake_ctx, 1, 0) is beta    # now beta is at index 1
     assert inst.control_at(fake_ctx, 2, 0) is gamma
+
+
+def test_widget_spaces_from_string():
+    from ui.widgets import Widget
+    class W(Widget):
+        name = "w_str"
+        space = "VIEW_3D"
+    assert W().spaces == frozenset({"VIEW_3D"})
+
+
+def test_widget_spaces_from_list():
+    from ui.widgets import Widget
+    class W(Widget):
+        name = "w_list"
+        space = ["VIEW_3D", "IMAGE_EDITOR"]
+    assert W().spaces == frozenset({"VIEW_3D", "IMAGE_EDITOR"})

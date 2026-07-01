@@ -38,6 +38,11 @@ VALUE_TYPES = ("STRING", "INT", "FLOAT", "DEGREES", "RADIANS", "ENUM")
 FLOAT_TARGETS = ("BEVEL", "CREASE")
 BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
 SCHEMA_VERSION = 1
+
+# Editor space types a widget panel may anchor in. Kept as a plain tuple
+# (composed.py is bpy-free) — must stay in sync with ui/widgets/state.py
+# SPACE_TYPES.
+WIDGET_SPACES = ("VIEW_3D", "IMAGE_EDITOR")
 _EXT = ".json"
 
 # Composer-editable mirror of widgets/edge_data.py — the template behind
@@ -90,6 +95,19 @@ def parse_values(text):
         except ValueError:
             pass
     return vals
+
+
+def clean_spaces(raw):
+    """Validate a def's `space` field -> a non-empty list of valid space
+    types, order-preserving and de-duped. A string or a list is accepted;
+    unknown types are dropped; empty/all-invalid falls back to
+    ["VIEW_3D"]. Pure — pytest-covered."""
+    items = _as_str_list(raw) if raw else []
+    out = []
+    for s in items:
+        if s in WIDGET_SPACES and s not in out:
+            out.append(s)
+    return out or ["VIEW_3D"]
 
 
 def resolve_rna_owner(root, path):
@@ -255,6 +273,27 @@ def rna_enum_items(path):
     return items_get
 
 
+# ----------------------------------------------------------------------
+# Live DROPDOWN item providers. A DROPDOWN row may set "items_from": NAME
+# to source its (identifier, label) items from a registered provider
+# instead of an RNA enum's bl_rna.enum_items. Needed for dynamic lists
+# (e.g. bpy.data.images): a dynamic, items-callback EnumProperty does NOT
+# expose its items through bl_rna in script context, so rna_enum_items
+# reads an empty list. provider(context) -> [(identifier, label), ...].
+# ----------------------------------------------------------------------
+DROPDOWN_ITEM_PROVIDERS = {}
+
+
+def register_dropdown_items(name, provider):
+    """Register a live items provider for a DROPDOWN `items_from`.
+    `provider` is a callable(context) -> [(identifier, label), ...]."""
+    DROPDOWN_ITEM_PROVIDERS[str(name)] = provider
+
+
+def unregister_dropdown_items(name):
+    DROPDOWN_ITEM_PROVIDERS.pop(str(name), None)
+
+
 def switch_adapter(store, name, on_change=None):
     """get/set bundle for a local widget switch held in `store` (a dict
     on the live widget). set() mutates the store and fires on_change so
@@ -363,6 +402,9 @@ def _clean_row_body(row):
         labels = row.get("labels", {})
         out["labels"] = {str(k): str(v) for k, v in labels.items()} \
             if isinstance(labels, dict) else {}
+        items_from = str(row.get("items_from", "")).strip()
+        if items_from:
+            out["items_from"] = items_from
         return out, None
     if rtype == "INPUT":
         prop = str(row.get("prop", "")).strip()
@@ -501,7 +543,7 @@ def validate_def(data):
         "version": SCHEMA_VERSION,
         "name": name,
         "title": str(data.get("title", "")) or name,
-        "space": "VIEW_3D",   # IMAGE_EDITOR widgets come later (spec)
+        "space": clean_spaces(data.get("space")),
         "rows": [],
     }
     clean["switches"] = {}
@@ -636,8 +678,11 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
                           show_alpha=bool(row.get("show_alpha", False)))
         if rtype == "DROPDOWN":
             ad = rna_value_adapter(row["prop"], row["value_type"])
+            src = row.get("items_from")
+            items_get = (DROPDOWN_ITEM_PROVIDERS.get(src) if src else None) \
+                or rna_enum_items(row["prop"])
             return Dropdown(get=ad["get"], set=ad["set"], path=row["prop"],
-                            items_get=rna_enum_items(row["prop"]),
+                            items_get=items_get,
                             labels=row.get("labels") or {},
                             label=row.get("label", ""))
         if rtype == "INPUT":

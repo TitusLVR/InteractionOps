@@ -57,6 +57,15 @@ class Widget:
     def poll(self, context):
         return True
 
+    @property
+    def spaces(self):
+        """Normalized set of editor space types this widget can live in.
+        `space` may be a single string or an iterable of strings."""
+        sp = self.space
+        if isinstance(sp, str):
+            return frozenset((sp,))
+        return frozenset(sp)
+
     def rows(self, context=None):
         """Visible top-level controls. With a context, rows are filtered by
         each control's show_if predicate (one visual row each: Row = 1 row,

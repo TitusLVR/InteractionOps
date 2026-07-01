@@ -86,14 +86,20 @@ class WidgetPanel:
                row_gap: float = 4.0, col_gap: float = 6.0) -> "WidgetPanel":
         """Compute panel size and all per-cell rects from the top-left anchor.
 
-        `rows` — sequence of (height_px, n_columns); one entry per visual
-        row. n_columns > 1 splits the content width equally (Row controls).
+        `rows` — sequence of (height_px, n_columns) or
+        (height_px, n_columns, col_spec); one entry per visual row.
+        n_columns > 1 splits the content width equally (Row controls)
+        unless `col_spec` is given: a list of per-column widths where a
+        float is a FIXED pixel width (a button hugging its label) and
+        None is FLEX (shares the remaining width equally). All-fixed
+        specs scale proportionally to fill; a spec whose length doesn't
+        match n_columns falls back to the equal split.
         """
         rows = list(rows)
         self.padding = float(padding)
         self.title_h = float(title_h)
         self.width = float(content_width) + padding * 2.0
-        inner_h = sum(h for h, _ in rows)
+        inner_h = sum(entry[0] for entry in rows)
         if rows:
             inner_h += row_gap * (len(rows) - 1)
         self.height = title_h + padding + inner_h + padding
@@ -106,12 +112,29 @@ class WidgetPanel:
                                title_h, title_h)
         cy = top - title_h - padding
         self.row_rects = []
-        for height, ncols in rows:
+        for entry in rows:
+            height, ncols = entry[0], entry[1]
+            spec = entry[2] if len(entry) > 2 else None
             cy -= height
             n = max(1, int(ncols))
-            cell_w = (content_width - col_gap * (n - 1)) / n
-            cells = [Rect(left + padding + i * (cell_w + col_gap), cy,
-                          cell_w, height) for i in range(n)]
+            avail = content_width - col_gap * (n - 1)
+            if spec is not None and len(spec) == n:
+                fixed = sum(w for w in spec if w is not None)
+                nflex = sum(1 for w in spec if w is None)
+                if nflex:
+                    flex_w = max(0.0, avail - fixed) / nflex
+                    widths = [w if w is not None else flex_w for w in spec]
+                else:
+                    # All fixed: scale proportionally to fill the row.
+                    scale = avail / fixed if fixed > 0 else 0.0
+                    widths = [w * scale for w in spec]
+            else:
+                widths = [avail / n] * n
+            cells = []
+            cx = left + padding
+            for w in widths:
+                cells.append(Rect(cx, cy, w, height))
+                cx += w + col_gap
             self.row_rects.append(cells)
             cy -= row_gap
         return self

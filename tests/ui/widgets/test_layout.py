@@ -243,3 +243,49 @@ def test_update_drag_without_start_is_noop():
     panel.update_drag(500.0, 100.0)
     assert panel.x == pytest.approx(80.0)
     assert panel.y == pytest.approx(400.0)
+
+
+# ----------------------------------------------------------------------
+# Per-column width specs — (height, ncols, spec) row entries: fixed px
+# cells (e.g. a button hugging its label) + None = flex (share the rest)
+# ----------------------------------------------------------------------
+def test_layout_col_spec_fixed_and_flex():
+    # content 200, col_gap 6 -> avail 194; fixed 50 -> flex gets 144
+    panel = make_panel([(20.0, 2, [None, 50.0])], content_width=200.0,
+                       col_gap=6.0)
+    cells = panel.row_rects[0]
+    assert cells[0].w == pytest.approx(144.0)
+    assert cells[1].w == pytest.approx(50.0)
+    # cells stay adjacent with the gap between them
+    assert cells[1].x == pytest.approx(cells[0].x + 144.0 + 6.0)
+
+
+def test_layout_col_spec_two_flex_split_equally():
+    panel = make_panel([(20.0, 2, [None, None])], content_width=200.0,
+                       col_gap=6.0)
+    cells = panel.row_rects[0]
+    assert cells[0].w == pytest.approx(97.0)
+    assert cells[1].w == pytest.approx(97.0)
+
+
+def test_layout_col_spec_all_fixed_scales_to_fill():
+    # all-fixed columns scale proportionally to fill the content width
+    panel = make_panel([(20.0, 2, [50.0, 50.0])], content_width=206.0,
+                       col_gap=6.0)
+    cells = panel.row_rects[0]
+    assert cells[0].w == pytest.approx(100.0)
+    assert cells[1].w == pytest.approx(100.0)
+
+
+def test_layout_two_tuple_rows_keep_equal_split():
+    panel = make_panel([(20.0, 2)], content_width=200.0, col_gap=6.0)
+    cells = panel.row_rects[0]
+    assert cells[0].w == pytest.approx(97.0)
+    assert cells[1].w == pytest.approx(97.0)
+
+
+def test_layout_col_spec_wrong_length_falls_back_to_equal():
+    panel = make_panel([(20.0, 2, [50.0])], content_width=200.0, col_gap=6.0)
+    cells = panel.row_rects[0]
+    assert cells[0].w == pytest.approx(97.0)
+    assert cells[1].w == pytest.approx(97.0)

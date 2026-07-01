@@ -15,7 +15,7 @@ library folder (`composed.widgets_folder()`, default
 | `version` | int | no | Schema version, always normalized to `1`. |
 | `name` | str | **yes** | Registry key + filename stem. Sanitized: `<>:"/\|?*` → `_`. Empty name → whole def rejected. |
 | `title` | str | no | Title-bar text. Defaults to `name`. |
-| `space` | str | no | Editor space. Only `"VIEW_3D"` is supported; always forced to it. |
+| `space` | str or list of str | no | Editor space(s) the panel can anchor in: `"VIEW_3D"` and/or `"IMAGE_EDITOR"`. A string or a list is accepted; unknown values are dropped; defaults to `"VIEW_3D"`. A multi-space widget anchors to whichever listed editor it is toggled from (one at a time). |
 | `switches` | object `{name: bool}` | no | Non-false defaults for local panel switches. See [Switches](#switches). |
 | `rows` | list of row objects | no | The panel body, top to bottom. Non-list → empty + reported. |
 
@@ -89,14 +89,27 @@ transparency checker and honors the color's alpha (alpha 0 = checker only,
 | `prop` | dotted RNA path to an enum property | **yes** | — (empty/missing → dropped) |
 | `label` | str | no | last segment of `prop` |
 | `labels` | object `{identifier: display}` | no | `{}` (raw identifier shown) |
+| `items_from` | str (registered provider name) | no | — (use RNA enum items) |
 | `value_type` | (ignored — forced to `ENUM`) | no | `ENUM` |
 
-Shows the current enum value (mapped through `labels` for a prettier display,
+Shows the current value (mapped through `labels` for a prettier display,
 falling back to the raw identifier; `"—"` when the path is unresolvable).
 Clicking opens an **in-overlay item list** drawn in the panel (no native popup);
 move and click/drag-release to pick, Esc or a click-away closes. The selectable
-items come from `labels` (its keys, in declared order) when declared, else from
-the live enum's items (`enum_items`, read only as a convenience — never required).
+items come from `labels` (its keys, in declared order) when declared; else from
+an `items_from` **live provider** when set; else from the live enum's items
+(`enum_items`, read only as a convenience — never required).
+
+`items_from` names a provider registered in Python via
+`widgets.composed.register_dropdown_items(name, provider)`, where
+`provider(context) -> [(identifier, label), ...]`. Use it for **dynamic**
+lists that `bl_rna` can't expose — e.g. a dynamic (items-callback)
+`EnumProperty`'s items are empty via `bl_rna`, and a live list like
+`bpy.data.images` isn't an enum at all. The DROPDOWN's `prop` (the stored
+value) can then be a plain `StringProperty` holding the chosen identifier;
+the provider supplies what's shown. Unknown/unregistered `items_from` falls
+back to the RNA enum reader. (Example: the `uv_image_slots` widget uses
+provider `"uv_images"` and binds each row to `window_manager.iops_uv_slot_N_name`.)
 Absence-safe: a missing path renders disabled and the click no-ops.
 
 ### `INPUT` — string / number / angle RNA prop, edited in-overlay

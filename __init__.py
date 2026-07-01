@@ -209,6 +209,7 @@ from .operators.executor import (
     IOPS_OT_Call_MT_Executor,
 )
 from .operators.widgets_panel import classes as _widgets_panel_classes
+from .operators.uv_image_slots import classes as _uv_image_slots_classes
 from .operators.render_asset_thumbnail import IOPS_OT_RenderAssetThumbnail
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (
@@ -522,6 +523,7 @@ classes = (
     # GPU widget operators (iops.widget_toggle / iops.widget_interact)
     *ui_widgets.classes,
     *_widgets_panel_classes,
+    *_uv_image_slots_classes,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)
@@ -599,6 +601,8 @@ def register():
         type=IOPS_AddonProperties
     )
 
+    from .operators.uv_image_slots import register_slot_props
+    register_slot_props()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
@@ -692,6 +696,11 @@ def unregister():
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.Scene.iops_material_override_settings
+    try:
+        from .operators.uv_image_slots import unregister_slot_props
+        unregister_slot_props()
+    except Exception as e:
+        print("IOPS: UV image slot props unregister failed:", e)
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
 

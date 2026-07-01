@@ -148,10 +148,21 @@ def _control_min_width(control, theme, context=None):
     if control.kind == "button":
         return tw(control.label) + 24.0
     if control.kind == "dropdown":
-        # widest declared display + glyph + insets. Display labels come
-        # from the optional `labels` map; fall back to the raw identifiers.
+        # widest display among declared labels, LIVE items and the current
+        # value + glyph + insets — the field (and the open list, which
+        # reuses the field width) fits the longest name untruncated.
         labels = getattr(control, "labels", None) or {}
         names = list(labels.values()) or list(labels.keys())
+        if context is not None:
+            items_get = getattr(control, "items_get", None)
+            if items_get is not None:
+                try:
+                    names = names + [d for _i, d in items_get(context)]
+                except Exception:
+                    pass   # provider hiccup -> size from what we have
+            val = control.display(context)
+            if val:
+                names = names + [val]
         widest = max((tw(n) for n in names), default=0.0)
         widest = max(widest, tw(EMPTY_TEXT))
         return widest + tw(DROPDOWN_GLYPH) + CELL_INSET * 3.0
@@ -167,10 +178,21 @@ def _control_min_width(control, theme, context=None):
         labels_w = sum(tw(label) + 12.0 for _v, label in control.options)
         return labels_w + PRESET_GAP * max(0, len(control.options) - 1)
     if control.kind == "row":
+        # Fixed cells (buttons hug their label) contribute their own min;
+        # flex cells end up equal-width, so each must fit the widest one.
         n = max(1, len(control.children))
-        widest = max((_control_min_width(c, theme, context)
-                      for c in control.children), default=0.0)
-        return widest * n + 6.0 * (n - 1)
+        fixed = flex = 0.0
+        widest_flex = 0.0
+        n_flex = 0
+        for c in control.children:
+            w = _control_min_width(c, theme, context)
+            if c.kind == "button":
+                fixed += w
+            else:
+                widest_flex = max(widest_flex, w)
+                n_flex += 1
+        flex = widest_flex * n_flex
+        return fixed + flex + 6.0 * (n - 1)
     return 0.0
 
 
@@ -195,7 +217,15 @@ def compute_layout(context, widget, theme=None):
             if isinstance(control, Row):
                 height = max((_row_height(c, th) for c in control.children),
                              default=_row_height(control, th))
-                rows.append((height, control.columns))
+                # Buttons hug their label (fixed cell); everything else
+                # flexes over the remaining width. No buttons -> equal split.
+                spec = [_control_min_width(c, th, context)
+                        if c.kind == "button" else None
+                        for c in control.children]
+                if any(w is not None for w in spec):
+                    rows.append((height, control.columns, spec))
+                else:
+                    rows.append((height, control.columns))
             else:
                 rows.append((_row_height(control, th), 1))
         min_content = max((_control_min_width(c, th, context)
@@ -431,9 +461,13 @@ def _draw_dropdown(control, rect, theme, dim, context, pressed=False):
         primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
                            color=_active_fill(theme), theme=theme)
     _outline(rect, line_color, theme)
-    _text_left(EMPTY_TEXT if text is None else text, rect, rect.x + CELL_INSET,
-               theme=theme, color=label_color)
     gw, _ = hud_text.measure(DROPDOWN_GLYPH, theme=theme)
+    # Value region = field minus the glyph and insets; middle-truncate so a
+    # long value (e.g. an image name) never overruns the glyph / panel edge.
+    shown = EMPTY_TEXT if text is None else text
+    shown = _truncate_middle(shown, rect.w - CELL_INSET * 3.0 - gw, theme)
+    _text_left(shown, rect, rect.x + CELL_INSET,
+               theme=theme, color=label_color)
     _text_left(DROPDOWN_GLYPH, rect, rect.x2 - CELL_INSET - gw,
                theme=theme, color=glyph_color)
 
@@ -547,6 +581,7 @@ def _draw_dropdown_list(panel, where, items, hover, theme):
         if i == hover:
             primitives.rect_2d(x, y, w, h, color=fill, theme=theme)
         _outline(cell, line_color, theme)
+        disp = _truncate_middle(disp, w - CELL_INSET * 2.0, theme)
         _text_left(disp, cell, x + CELL_INSET, theme=theme, color=label_color)
 
 

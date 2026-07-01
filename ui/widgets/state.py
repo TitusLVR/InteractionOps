@@ -33,7 +33,7 @@ _PREFS_PROP = "widgets_state"
 
 # name -> {"visible", "x", "y", "anchor_area_ptr"}
 _states: dict[str, dict] = {}
-# space type string -> draw handler handle (VIEW_3D now; IMAGE_EDITOR later)
+# space type string -> draw handler handle (one per space with a visible widget)
 _draw_handles: dict[str, object] = {}
 # Widgets whose draw already raised — log once, then skip silently.
 _draw_error_logged: set[str] = set()
@@ -42,9 +42,12 @@ _draw_error_logged: set[str] = set()
 _draw_guard_logged = False
 _app_handlers_installed = False
 
-# Space-type parameterization (spec: IMAGE_EDITOR widgets can come later).
+# Space-type parameterization. Each entry: area.type -> the bpy Space
+# subclass the POST_PIXEL draw handler attaches to. Keep in sync with
+# widgets/composed.py WIDGET_SPACES.
 SPACE_TYPES = {
     "VIEW_3D": bpy.types.SpaceView3D,
+    "IMAGE_EDITOR": bpy.types.SpaceImageEditor,
 }
 
 
@@ -124,27 +127,31 @@ def store_switches(name, switches):
 # Anchor resolution
 # ----------------------------------------------------------------------
 def _area_exists(ptr, space):
-    """True when the area with pointer `ptr` still exists AND is still of
-    `space` type — the user switching the anchored area to another editor
-    counts as the anchor disappearing (so the widget re-anchors instead
-    of drawing nowhere)."""
+    """True when the area with pointer `ptr` still exists AND is still one
+    of `space` (a single space-type string or an iterable of them) — the
+    user switching the anchored area to another editor counts as the
+    anchor disappearing (so the widget re-anchors instead of drawing
+    nowhere)."""
     if not ptr:
         return False
+    spaces = {space} if isinstance(space, str) else set(space)
     for win in bpy.context.window_manager.windows:
         for area in win.screen.areas:
             if area.as_pointer() == ptr:
-                return area.type == space
+                return area.type in spaces
     return False
 
 
 def find_largest_area(space="VIEW_3D"):
-    """Largest open area of `space` type that has a WINDOW region, or None.
-    The re-anchor fallback when a widget's summon area disappears."""
+    """Largest open area among `space` (a single space-type string or an
+    iterable of them) that has a WINDOW region, or None. The re-anchor
+    fallback when a widget's summon area disappears."""
+    spaces = {space} if isinstance(space, str) else set(space)
     best = None
     biggest = 0
     for win in bpy.context.window_manager.windows:
         for area in win.screen.areas:
-            if area.type != space:
+            if area.type not in spaces:
                 continue
             size = area.width * area.height
             if size <= biggest:
@@ -163,9 +170,9 @@ def _resolve_anchor(widget, st, area_ptr):
     anchor = st.get("anchor_area_ptr", 0)
     if anchor == area_ptr:
         return True
-    if _area_exists(anchor, widget.space):
+    if _area_exists(anchor, widget.spaces):
         return False
-    largest = find_largest_area(widget.space)
+    largest = find_largest_area(widget.spaces)
     if largest is None:
         return False
     st["anchor_area_ptr"] = largest.as_pointer()
@@ -183,7 +190,7 @@ def widgets_in_area(area):
         if not st.get("visible"):
             continue
         widget = get_widget(name)
-        if widget is None or widget.space != area.type:
+        if widget is None or area.type not in widget.spaces:
             continue
         if _resolve_anchor(widget, st, ptr):
             found.append(widget)
@@ -319,8 +326,11 @@ def ensure_draw_handler():
         if not st.get("visible"):
             continue
         widget = get_widget(name)
-        if widget is not None and widget.space in SPACE_TYPES:
-            needed.add(widget.space)
+        if widget is None:
+            continue
+        for sp in widget.spaces:
+            if sp in SPACE_TYPES:
+                needed.add(sp)
     for space in needed:
         if space in _draw_handles:
             continue

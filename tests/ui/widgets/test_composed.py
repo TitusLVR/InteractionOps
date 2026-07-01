@@ -834,3 +834,75 @@ def test_build_swatch_literal_color_constant_getter():
     value, mixed = sw.get(None)          # constant getter, context ignored
     assert value == (1.0, 0.0, 0.0, 1.0)
     assert mixed is False
+
+
+def test_clean_spaces_defaults_to_view3d():
+    assert composed.clean_spaces(None) == ["VIEW_3D"]
+    assert composed.clean_spaces("") == ["VIEW_3D"]
+
+
+def test_clean_spaces_accepts_string():
+    assert composed.clean_spaces("IMAGE_EDITOR") == ["IMAGE_EDITOR"]
+
+
+def test_clean_spaces_accepts_list():
+    assert composed.clean_spaces(["VIEW_3D", "IMAGE_EDITOR"]) == \
+        ["VIEW_3D", "IMAGE_EDITOR"]
+
+
+def test_clean_spaces_drops_invalid_and_dedupes():
+    assert composed.clean_spaces(["VIEW_3D", "BOGUS", "VIEW_3D"]) == ["VIEW_3D"]
+
+
+def test_clean_spaces_all_invalid_falls_back():
+    assert composed.clean_spaces(["NOPE"]) == ["VIEW_3D"]
+
+
+def test_validate_def_space_list():
+    clean, errors = composed.validate_def({
+        "name": "x", "space": ["VIEW_3D", "IMAGE_EDITOR"],
+        "rows": [],
+    })
+    assert clean["space"] == ["VIEW_3D", "IMAGE_EDITOR"]
+
+
+def test_validate_def_space_string_normalized_to_list():
+    clean, _ = composed.validate_def({"name": "x", "rows": []})
+    assert clean["space"] == ["VIEW_3D"]
+
+
+# ----------------------------------------------------------------------
+# DROPDOWN live item providers (items_from) — for dynamic lists that
+# bl_rna enum_items can't expose (e.g. bpy.data.images).
+# ----------------------------------------------------------------------
+def test_validate_def_dropdown_items_from():
+    clean, errors = composed.validate_def({"name": "d", "rows": [
+        {"type": "DROPDOWN", "prop": "window_manager.foo",
+         "items_from": "myprov"}]})
+    assert errors == []
+    assert clean["rows"][0]["items_from"] == "myprov"
+
+
+def test_build_dropdown_uses_registered_items_provider():
+    items = [("", "— none —"), ("a", "a")]
+    composed.register_dropdown_items("test_prov", lambda ctx: list(items))
+    try:
+        rows = [{"type": "DROPDOWN", "prop": "window_manager.foo",
+                 "value_type": "ENUM", "items_from": "test_prov", "labels": {}}]
+        dd = composed.build_controls(rows)[0]
+        assert dd.items_get(None) == items
+    finally:
+        composed.unregister_dropdown_items("test_prov")
+
+
+def test_build_dropdown_unregistered_provider_falls_back_to_enum():
+    # items_from naming a provider that isn't registered -> fall back to the
+    # rna_enum_items reader (which yields [] for an unresolvable path).
+    rows = [{"type": "DROPDOWN", "prop": "window_manager.foo",
+             "value_type": "ENUM", "items_from": "nope", "labels": {}}]
+    dd = composed.build_controls(rows)[0]
+
+    class _Ctx:
+        pass
+
+    assert dd.items_get(_Ctx()) == []
