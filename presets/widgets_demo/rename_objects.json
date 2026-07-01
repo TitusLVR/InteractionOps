@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "rename_objects",
+  "title": "Rename Objects",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Name"},
+    {"type": "INPUT",  "prop": "scene.IOPS.rename.new_name", "value_type": "STRING", "label": "New Name"},
+    {"type": "INPUT",  "prop": "scene.IOPS.rename.pattern",  "value_type": "STRING", "label": "Pattern"},
+    {"type": "SECTION", "label": "Counter"},
+    {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits", "value_type": "INT", "values": [2, 3, 4]},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.rename.counter_shift", "label": "+1 Shift"},
+    {"type": "SECTION", "label": "Order"},
+    {"type": "DROPDOWN", "prop": "scene.IOPS.rename.order", "label": "Order",
+     "labels": {"DISTANCE": "By Distance", "SELECTION": "By Selection"}},
+    {"type": "ROW", "cells": [{"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_active",    "label": "Include Active"}]},
+    {"type": "ROW", "cells": [{"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_mesh_data", "label": "Mesh Data"}]},
+    {"type": "ROW", "cells": [{"type": "FLIPBOX", "prop": "scene.IOPS.rename.rename_linked",    "label": "Linked"}]},
+    {"type": "BUTTON",  "label": "Apply", "op": "iops.object_name_from_active_apply"}
+  ]
+}

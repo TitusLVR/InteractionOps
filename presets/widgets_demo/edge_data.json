@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "edge_data",
+  "title": "Edge Data",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Bevel Weight"},
+    {"type": "SLIDER", "target": "BEVEL", "snap": 0.125},
+    {"type": "PRESETS", "target": "BEVEL", "values": [0, 0.25, 0.5, 1.0]},
+    {"type": "SECTION", "label": "Crease"},
+    {"type": "SLIDER", "target": "CREASE", "snap": 0.125},
+    {"type": "PRESETS", "target": "CREASE", "values": [0, 0.5, 0.9, 1.0]},
+    {"type": "SECTION", "label": "Flags"},
+    {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
+    {"type": "FLIPBOX", "target": "SEAM", "label": "Seam"},
+    {"type": "FLIPBOX", "target": "FREESTYLE", "label": "Freestyle"},
+    {"type": "BUTTON", "label": "Clear", "op": "iops.executor",
+     "op_kwargs": {"script": "B:\\scripts\\iops_exec\\CLEAN_Edge_Data_Clear.py"},
+     "role": "error"}
+  ]
+}

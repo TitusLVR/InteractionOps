@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "vertex_color",
+  "title": "Vertex Color",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Fill RGB"},
+    {"type": "ROW", "cells": [
+      {"type": "SWATCH", "color": [1, 0, 0, 1], "label": "",
+       "op": "iops.mesh_assign_vertex_color",
+       "op_kwargs": {"use_override_color": true, "override_color": [1, 0, 0, 1]}},
+      {"type": "SWATCH", "color": [0, 1, 0, 1], "label": "",
+       "op": "iops.mesh_assign_vertex_color",
+       "op_kwargs": {"use_override_color": true, "override_color": [0, 1, 0, 1]}},
+      {"type": "SWATCH", "color": [0, 0, 1, 1], "label": "",
+       "op": "iops.mesh_assign_vertex_color",
+       "op_kwargs": {"use_override_color": true, "override_color": [0, 0, 1, 1]}}
+    ]},
+    {"type": "ROW", "cells": [
+      {"type": "SWATCH", "color": [0, 0, 0, 1], "label": "",
+       "op": "iops.mesh_assign_vertex_color",
+       "op_kwargs": {"use_override_color": true, "override_color": [0, 0, 0, 1]}},
+      {"type": "SWATCH", "color": [1, 1, 1, 1], "label": "",
+       "op": "iops.mesh_assign_vertex_color",
+       "op_kwargs": {"use_override_color": true, "override_color": [1, 1, 1, 1]}}
+    ]},
+    {"type": "SECTION", "label": "Alpha", "show_if": {"mode": "EDIT_MESH"}},
+    {"type": "ROW", "show_if": {"mode": "EDIT_MESH"}, "cells": [
+      {"type": "SWATCH", "color": [0.5, 0.5, 0.5, 0], "show_alpha": true, "label": "A0",
+       "op": "iops.mesh_assign_vertex_color_alpha",
+       "op_kwargs": {"vertex_color_alpha": 0.0}},
+      {"type": "SWATCH", "color": [0.5, 0.5, 0.5, 1], "show_alpha": true, "label": "A1",
+       "op": "iops.mesh_assign_vertex_color_alpha",
+       "op_kwargs": {"vertex_color_alpha": 1.0}}
+    ]},
+    {"type": "SECTION", "label": "Preview"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.iops_vc_preview", "label": "Preview VC"}
+  ]
+}

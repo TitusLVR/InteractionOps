@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "name": "context_demo",
+  "title": "Context Demo",
+  "space": "VIEW_3D",
+  "rows": [
+    {
+      "type": "FLIPBOX",
+      "switch": "extras",
+      "label": "Show extras"
+    },
+    {
+      "type": "SECTION",
+      "label": "Mesh - Object",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "MESH"
+        ]
+      }
+    },
+    {
+      "type": "ROW",
+      "cells": [
+        {
+          "type": "BUTTON",
+          "op": "object.shade_smooth",
+          "label": "Shade Smooth",
+          "op_kwargs": {},
+          "role": "default"
+        },
+        {
+          "type": "BUTTON",
+          "op": "object.shade_flat",
+          "label": "Shade Flat",
+          "op_kwargs": {},
+          "role": "default"
+        }
+      ],
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "MESH"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "object.transform_apply",
+      "label": "Apply Transforms",
+      "op_kwargs": {
+        "location": true,
+        "rotation": true,
+        "scale": true
+      },
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "MESH"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "object.origin_set",
+      "label": "Origin -> Geometry",
+      "op_kwargs": {
+        "type": "ORIGIN_GEOMETRY"
+      },
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "MESH"
+        ],
+        "switch": "extras"
+      }
+    },
+    {
+      "type": "SECTION",
+      "label": "Mesh - Edit",
+      "show_if": {
+        "mode": [
+          "EDIT_MESH"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "mesh.select_all",
+      "label": "Select All",
+      "op_kwargs": {
+        "action": "SELECT"
+      },
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "EDIT_MESH"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "mesh.subdivide",
+      "label": "Subdivide",
+      "op_kwargs": {},
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "EDIT_MESH"
+        ],
+        "selection": "edges"
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "mesh.normals_make_consistent",
+      "label": "Recalc Normals",
+      "op_kwargs": {},
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "EDIT_MESH"
+        ],
+        "switch": "extras"
+      }
+    },
+    {
+      "type": "SECTION",
+      "label": "Curve - Object",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "CURVE"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "object.shade_smooth",
+      "label": "Shade Smooth",
+      "op_kwargs": {},
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "CURVE"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "object.convert",
+      "label": "Convert to Mesh",
+      "op_kwargs": {
+        "target": "MESH"
+      },
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "OBJECT"
+        ],
+        "object_type": [
+          "CURVE"
+        ],
+        "switch": "extras"
+      }
+    },
+    {
+      "type": "SECTION",
+      "label": "Curve - Edit",
+      "show_if": {
+        "mode": [
+          "EDIT_CURVE"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "curve.select_all",
+      "label": "Select All",
+      "op_kwargs": {
+        "action": "SELECT"
+      },
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "EDIT_CURVE"
+        ]
+      }
+    },
+    {
+      "type": "BUTTON",
+      "op": "curve.subdivide",
+      "label": "Subdivide",
+      "op_kwargs": {},
+      "role": "default",
+      "show_if": {
+        "mode": [
+          "EDIT_CURVE"
+        ]
+      }
+    },
+    {
+      "type": "ROW",
+      "cells": [
+        {
+          "type": "BUTTON",
+          "op": "curve.smooth",
+          "label": "Smooth",
+          "op_kwargs": {},
+          "role": "default"
+        },
+        {
+          "type": "BUTTON",
+          "op": "curve.cyclic_toggle",
+          "label": "Toggle Cyclic",
+          "op_kwargs": {},
+          "role": "default"
+        }
+      ],
+      "show_if": {
+        "mode": [
+          "EDIT_CURVE"
+        ],
+        "switch": "extras"
+      }
+    }
+  ],
+  "switches": {
+    "extras": false
+  }
+}

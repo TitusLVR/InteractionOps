@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "name": "object_color",
+  "title": "IOPS Object Color",
+  "space": "VIEW_3D",
+  "rows": [
+    {
+      "type": "SECTION",
+      "label": "Picked Color"
+    },
+    {
+      "type": "SWATCH",
+      "prop": "scene.IOPS.iops_object_color",
+      "op": "iops.object_color_apply",
+      "label": "",
+      "op_kwargs": {}
+    },
+    {
+      "type": "ROW",
+      "cells": [
+        {
+          "type": "BUTTON",
+          "label": "Pick from Active",
+          "op": "iops.object_color_copy_from_active",
+          "op_kwargs": {},
+          "role": "default"
+        },
+        {
+          "type": "BUTTON",
+          "label": "Apply",
+          "op": "iops.object_color_apply",
+          "op_kwargs": {},
+          "role": "default"
+        }
+      ]
+    },
+    {
+      "type": "SECTION",
+      "label": "Recent"
+    },
+    {
+      "type": "ROW",
+      "cells": [
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_0",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 0
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_1",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 1
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_2",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 2
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_3",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 3
+          },
+          "label": ""
+        }
+      ]
+    },
+    {
+      "type": "ROW",
+      "cells": [
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_4",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 4
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_5",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 5
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_6",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 6
+          },
+          "label": ""
+        },
+        {
+          "type": "SWATCH",
+          "prop": "scene.IOPS.iops_object_color_recent_7",
+          "op": "iops.object_color_apply_recent",
+          "op_kwargs": {
+            "index": 7
+          },
+          "label": ""
+        }
+      ]
+    }
+  ]
+}
