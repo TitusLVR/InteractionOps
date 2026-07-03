@@ -133,23 +133,6 @@ def _draw_ring(cx, cy, radius, *, role=None, color=None,
     _draw_polyline(pts, role=role, color=color, width=width)
 
 
-def _draw_diamond(cx, cy, half, *, role=None, color=None):
-    """Filled diamond handle (2 triangles + antialiased rim: the fill
-    shader has no AA, the polyline outline smooths the edges)."""
-    if color is None:
-        color = get_theme(bpy.context).color_for(role)
-    verts = [_v3((cx, cy - half)),
-             _v3((cx + half, cy)),
-             _v3((cx, cy + half)),
-             _v3((cx - half, cy))]
-    coords = [verts[0], verts[1], verts[2],
-              verts[0], verts[2], verts[3]]
-    draw_prim.tris(coords, color=color, context=bpy.context)
-    _draw_polyline([(cx, cy - half), (cx + half, cy), (cx, cy + half),
-                    (cx - half, cy), (cx, cy - half)],
-                   color=color, width="default")
-
-
 # ---------------------------------------------------------------------------
 # 3D helpers
 # ---------------------------------------------------------------------------
@@ -553,9 +536,9 @@ def draw_pixel_callback(op, context):
             h = handles[name]
             hovered = op.hover_handle == name
             hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
-            _draw_diamond(h.x, h.y,
-                          (hsize_hover if hovered else hsize) * 0.5,
-                          role=hc_role)
+            _draw_circle(h.x, h.y,
+                         (hsize_hover if hovered else hsize) * 0.8,
+                         role=hc_role)
 
     # UV Cursor
     if op.cursor_3d is not None:
