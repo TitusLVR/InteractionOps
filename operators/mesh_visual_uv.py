@@ -117,10 +117,11 @@ def _draw_polyline(pts, *, role=None, color=None, width="default"):
                        context=bpy.context)
 
 
-def _draw_circle(cx, cy, radius, *, role=None, color=None):
-    """Antialiased filled disc in pixel space (point_disc shader)."""
+def _draw_circle(cx, cy, size, *, role=None, color=None):
+    """Antialiased filled disc in pixel space (point_disc shader).
+    *size* is the diameter in px, matching theme point sizes."""
     draw_prim.points([_v3((cx, cy))], role=role, color=color,
-                     size=radius * 2.0, context=bpy.context)
+                     size=size, context=bpy.context)
 
 
 def _draw_ring(cx, cy, radius, *, role=None, color=None,
@@ -491,10 +492,10 @@ def draw_pixel_callback(op, context):
         # cursor pivot the UV cursor crosshair marks the pivot instead.)
         if (idx == op.active_island_idx and csp
                 and op.pivot_mode == PIVOT_CENTER):
-            pvs = theme.point_size_pivot
+            pvs = theme.point_size_for(Role.PIVOT)
             _draw_ring(csp.x, csp.y, pvs * 0.75, role=Role.PIVOT,
                        width="active")
-            _draw_circle(csp.x, csp.y, pvs * 0.25, role=Role.PIVOT)
+            _draw_circle(csp.x, csp.y, pvs * 0.5, role=Role.PIVOT)
 
         if not op._clean_view:
             td = idata.get('texel_density')
@@ -504,11 +505,12 @@ def draw_pixel_callback(op, context):
                 blf.position(0, csp.x + 14, csp.y - 6, 0)
                 blf.draw(0, f"TD:{td:.3f}")
 
-    # Gizmo sizes come from the theme's Gizmos section (sliders act as
-    # pixel radii for these screen-space shapes)
-    hsize = theme.point_size_handle
-    hsize_hover = theme.point_size_handle_hover
-    pvs = theme.point_size_pivot
+    # Gizmo sizes reuse the theme's 5-state Point sizes (diameters, same
+    # as every other point in the addon): handle = Default, hover =
+    # Closest, pivot = Active, cursor = Locked
+    hsize = theme.point_size_for(Role.HANDLE)
+    hsize_hover = theme.point_size_for(Role.HANDLE_HOVER)
+    pvs = theme.point_size_for(Role.PIVOT)
 
     # Move handle (gizmo box center) + rotation handle
     handles = _compute_screen_handles(op, context)
@@ -516,8 +518,7 @@ def draw_pixel_callback(op, context):
         csp = handles['_C']
         hovered = op.hover_handle == 'CENTER'
         hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
-        _draw_circle(csp.x, csp.y,
-                     (hsize_hover if hovered else hsize) * 0.6,
+        _draw_circle(csp.x, csp.y, hsize_hover if hovered else hsize,
                      role=hc_role)
         rsp = handles.get('_ROT')
         if rsp:
@@ -527,7 +528,7 @@ def draw_pixel_callback(op, context):
                            width="default")
             rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
                        else Role.PIVOT)
-            _draw_circle(rsp.x, rsp.y, pvs * 0.5, role=rc_role)
+            _draw_circle(rsp.x, rsp.y, pvs, role=rc_role)
 
     # Bounding box + handles (active island)
     if handles and op.state in (STATE_IDLE, STATE_HANDLE_SCALE,
@@ -553,22 +554,22 @@ def draw_pixel_callback(op, context):
             hovered = op.hover_handle == name
             hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
             _draw_diamond(h.x, h.y,
-                          (hsize_hover if hovered else hsize) * 0.875,
+                          (hsize_hover if hovered else hsize) * 0.5,
                           role=hc_role)
 
     # UV Cursor
     if op.cursor_3d is not None:
         csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
         if csp:
-            csize = theme.point_size_cursor
-            arm = csize * 1.75
+            csize = theme.point_size_for(Role.CURSOR)
+            arm = csize * 1.25
             coords = [_v3(p) for p in [
                 (csp.x - arm, csp.y), (csp.x + arm, csp.y),
                 (csp.x, csp.y - arm), (csp.x, csp.y + arm),
             ]]
             draw_prim.edges_3d(coords, role=Role.CURSOR, width="active",
                                context=bpy.context)
-            _draw_circle(csp.x, csp.y, max(2.0, csize * 0.375),
+            _draw_circle(csp.x, csp.y, max(4.0, csize * 0.5),
                          role=Role.CURSOR)
 
     # Axis-lock preview: rail through the pivot along the UV axis the
@@ -921,7 +922,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             # Hit radius follows the themed handle size so bigger
             # handles stay clickable edge to edge
             theme = get_theme(context)
-            hit_r = max(HIT_RADIUS, theme.point_size_handle + 6)
+            hit_r = max(HIT_RADIUS,
+                        theme.point_size_for(Role.HANDLE) * 0.5 + 8)
             for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
                 if name in handles and (mouse - handles[name]).length <= hit_r:
                     self.hover_handle = name

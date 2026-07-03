@@ -204,31 +204,23 @@ class Theme:
     stats_offset_y: int = 220
     stats_row_spacing: float = 1.5
     stats_column_spacing: float = 5.0
-    # Per-widget sizes (don't follow the 5-state default/closest/... split).
-    point_size_handle: float = 8.0
-    point_size_handle_hover: float = 10.0
-    point_size_pivot: float = 12.0
-    point_size_cursor: float = 8.0
-    line_width_bbox: float = 1.5
-
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
 
     def point_size_for(self, role: Role) -> float:
-        # Widget roles bypass the state map — each widget has its own size.
+        # Gizmo roles reuse the 5-state Point sizes: handle = default,
+        # hover = closest, pivot = active, cursor = locked.
         if role is Role.HANDLE:
-            return self.point_size_handle
+            return self.point_sizes["default"]
         if role is Role.HANDLE_HOVER:
-            return self.point_size_handle_hover
+            return self.point_sizes["closest"]
         if role is Role.PIVOT:
-            return self.point_size_pivot
+            return self.point_sizes["active"]
         if role is Role.CURSOR:
-            return self.point_size_cursor
+            return self.point_sizes["locked"]
         return self.point_sizes[state_from_role(role)]
 
     def line_width_for(self, role: Role) -> float:
-        if role is Role.BBOX:
-            return self.line_width_bbox
         return self.line_widths[state_from_role(role)]
 
     def text_size_for(self, role: Role) -> int:
@@ -301,11 +293,14 @@ def get_theme(context) -> "Theme":
 
             Role.POINT_OUTLINE:      c("color_point_outline",  _DEFAULT_COLORS[Role.POINT_OUTLINE]),
 
-            Role.HANDLE:             c("color_handle",         _DEFAULT_COLORS[Role.HANDLE]),
-            Role.HANDLE_HOVER:       c("color_handle_hover",   _DEFAULT_COLORS[Role.HANDLE_HOVER]),
-            Role.PIVOT:              c("color_pivot",          _DEFAULT_COLORS[Role.PIVOT]),
-            Role.BBOX:               c("color_bbox",           _DEFAULT_COLORS[Role.BBOX]),
-            Role.CURSOR:             c("color_cursor",         _DEFAULT_COLORS[Role.CURSOR]),
+            # Gizmo roles reuse the 5-state Point/Line colors:
+            # handle = default point, hover = closest, pivot = active,
+            # cursor = locked, bbox = default line.
+            Role.HANDLE:             c("color_point",          _DEFAULT_COLORS[Role.HANDLE]),
+            Role.HANDLE_HOVER:       c("color_closest_point",  _DEFAULT_COLORS[Role.HANDLE_HOVER]),
+            Role.PIVOT:              c("color_active_point",   _DEFAULT_COLORS[Role.PIVOT]),
+            Role.BBOX:               c("color_line",           _DEFAULT_COLORS[Role.BBOX]),
+            Role.CURSOR:             c("color_locked_point",   _DEFAULT_COLORS[Role.CURSOR]),
 
             Role.GHOST_EDGE:         c("color_ghost_edge",     _DEFAULT_COLORS[Role.GHOST_EDGE]),
             Role.GHOST_DEFAULT:      c("color_ghost",          _DEFAULT_COLORS[Role.GHOST_DEFAULT]),
@@ -378,11 +373,6 @@ def get_theme(context) -> "Theme":
         stats_offset_y=int(getattr(t, "stats_offset_y", 12)),
         stats_row_spacing=float(getattr(t, "stats_row_spacing", 1.5)),
         stats_column_spacing=float(getattr(t, "stats_column_spacing", 9.0)),
-        point_size_handle=fl("point_size_handle", 8.0),
-        point_size_handle_hover=fl("point_size_handle_hover", 10.0),
-        point_size_pivot=fl("point_size_pivot", 8.0),
-        point_size_cursor=fl("point_size_cursor", 8.0),
-        line_width_bbox=fl("line_width_bbox", 1.5),
     )
 
 

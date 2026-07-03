@@ -45,12 +45,8 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # have been removed. All HUD/stats text now flows through a small
     # set of HUD-specific roles defined below.)
 
-    # --- Gizmos ---
-    color_handle:          _color((1.000, 1.000, 1.000, 0.85), "Handle")
-    color_handle_hover:    _color((0.302, 0.816, 1.000, 0.90), "Handle (hover)")
-    color_pivot:           _color((1.000, 0.872, 0.174, 0.90), "Pivot")
-    color_bbox:            _color((0.650, 0.650, 0.650, 0.30), "Selection bbox")
-    color_cursor:          _color((1.000, 0.200, 0.600, 1.00), "Cursor (2D)")
+    # (Gizmo roles — handle/pivot/bbox/cursor — reuse the 5-state
+    # Point/Line colors and sizes; see ui/draw/theme.py role mapping.)
 
     # --- Ghost / Surfaces --- (per-state table like Point/Line; +edge row)
     color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.349), "Ghost Edge")
@@ -60,11 +56,6 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_locked_ghost:    _color((1.000, 0.345, 0.608, 0.149), "Locked")
     color_preview_ghost:   _color((1.000, 0.941, 0.455, 0.149), "Result Preview")
     color_error_ghost:     _color((1.000, 0.627, 0.627, 0.502), "Error")
-    point_size_handle:       FloatProperty(name="Handle size",        default=8.0,  min=1.0, max=64.0)
-    point_size_handle_hover: FloatProperty(name="Handle (hover) size", default=10.0, min=1.0, max=64.0)
-    point_size_pivot:        FloatProperty(name="Pivot size",         default=12.0, min=1.0, max=64.0)
-    point_size_cursor:       FloatProperty(name="Cursor size",        default=8.0,  min=1.0, max=64.0)
-    line_width_bbox:         FloatProperty(name="Bbox width",         default=1.5,  min=0.5, max=12.0)
 
     # --- HUD text roles (live under the "Dynamic Overlay" rollout in
     # the Theme tab). These are the only text styles used anywhere in
@@ -304,7 +295,6 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     show_line: BoolProperty(default=False)
     show_text: BoolProperty(default=False)
     show_surfaces: BoolProperty(default=False)
-    show_widgets: BoolProperty(default=False)
     show_islands: BoolProperty(default=False)
     show_font: BoolProperty(default=False)
     show_hud: BoolProperty(default=False)
@@ -508,24 +498,9 @@ def draw_theme_tab(layout, theme):
         sub.separator()
         _state_table(sub, theme, "ghost")
 
-    # Gizmos — each row: name | size | color. Handle has two color
-    # swatches (idle + hover) sharing one size — it's the same gizmo in
-    # two interaction states. Bbox uses line width, the rest use point
-    # size.
-    sub = _theme_section(layout, theme, "show_widgets",
-                         "Gizmos", icon="MOD_HUE_SATURATION")
-    if sub is not None:
-        for color_attr, size_attr, label in (
-                ("color_handle",       "point_size_handle",       "Handle"),
-                ("color_handle_hover", "point_size_handle_hover", "Handle (hover)"),
-                ("color_pivot",        "point_size_pivot",        "Pivot"),
-                ("color_bbox",         "line_width_bbox",         "Selection bbox"),
-                ("color_cursor",       "point_size_cursor",       "2D cursor"),
-        ):
-            row = sub.row(align=True)
-            row.label(text=label)
-            row.prop(theme, size_attr,  text="")
-            row.prop(theme, color_attr, text="")
+    # (No Gizmos section: gizmo roles follow the Points/Lines state
+    # colors and sizes — handle=Default, hover=Closest, pivot=Active,
+    # cursor=Locked, bbox=Line Default.)
 
     # HUD — parent rollout. Contains three shared-style sub-sections
     # (text, panel+shadow, font) used by every HUD overlay, followed by
