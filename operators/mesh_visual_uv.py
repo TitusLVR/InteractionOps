@@ -117,18 +117,10 @@ def _draw_polyline(pts, *, role=None, color=None, width="default"):
                        context=bpy.context)
 
 
-def _draw_circle(cx, cy, radius, *, role=None, color=None, segs=16):
-    """Filled disc in pixel space. Uses primitives.tris with a fan."""
-    verts = [_v3((cx, cy))]
-    for i in range(segs + 1):
-        a = 2 * math.pi * i / segs
-        verts.append(_v3((cx + math.cos(a) * radius,
-                          cy + math.sin(a) * radius)))
-    tris_flat = []
-    for i in range(1, segs + 1):
-        nxt = i + 1 if i + 1 <= segs else 1
-        tris_flat.extend([verts[0], verts[i], verts[nxt]])
-    draw_prim.tris(tris_flat, role=role, color=color, context=bpy.context)
+def _draw_circle(cx, cy, radius, *, role=None, color=None):
+    """Antialiased filled disc in pixel space (point_disc shader)."""
+    draw_prim.points([_v3((cx, cy))], role=role, color=color,
+                     size=radius * 2.0, context=bpy.context)
 
 
 def _draw_ring(cx, cy, radius, *, role=None, color=None,
@@ -141,14 +133,20 @@ def _draw_ring(cx, cy, radius, *, role=None, color=None,
 
 
 def _draw_diamond(cx, cy, half, *, role=None, color=None):
-    """Filled diamond handle (4-vert quad as 2 triangles)."""
+    """Filled diamond handle (2 triangles + antialiased rim: the fill
+    shader has no AA, the polyline outline smooths the edges)."""
+    if color is None:
+        color = get_theme(bpy.context).color_for(role)
     verts = [_v3((cx, cy - half)),
              _v3((cx + half, cy)),
              _v3((cx, cy + half)),
              _v3((cx - half, cy))]
     coords = [verts[0], verts[1], verts[2],
               verts[0], verts[2], verts[3]]
-    draw_prim.tris(coords, role=role, color=color, context=bpy.context)
+    draw_prim.tris(coords, color=color, context=bpy.context)
+    _draw_polyline([(cx, cy - half), (cx + half, cy), (cx, cy + half),
+                    (cx - half, cy), (cx, cy - half)],
+                   color=color, width="default")
 
 
 # ---------------------------------------------------------------------------
