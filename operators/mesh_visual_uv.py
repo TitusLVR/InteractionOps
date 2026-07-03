@@ -1244,18 +1244,28 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         geo = idata.get('geo3d')
         if not geo:
             return False
+        if pivot_uv is None:
+            # Freeze the pivot for the whole drag: islands_data refreshes
+            # from the transformed UVs on every mouse move, so re-reading
+            # the center mid-drag makes the pivot chase the rotation and
+            # the island drifts away.
+            pivot_uv = _get_pivot_uv(self, idata)
         region, rv3d = context.region, context.region_data
         handles = _compute_screen_handles(self, context)
         if pivot_screen is not None:
             csp = pivot_screen
-        elif handles:
-            csp = handles.get('_C')
         else:
+            # Angles/scales are measured around the screen projection of
+            # the actual UV pivot (island center), NOT the gizmo box
+            # center — they differ on curved islands and a mismatch
+            # makes rotation orbit instead of spin.
             prefs = bpy.context.preferences.addons[
                 "InteractionOps"].preferences
             noff = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
             center = _island_center_3d(idata) + geo['normal_avg'] * noff
             csp = location_3d_to_region_2d(region, rv3d, center)
+            if csp is None and handles:
+                csp = handles.get('_C')
         if not csp:
             return False
 
