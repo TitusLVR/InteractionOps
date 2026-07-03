@@ -490,6 +490,14 @@ def draw_pixel_callback(op, context):
 
         csp = location_3d_to_region_2d(region, rv3d, center_off)
 
+        # Pivot ring sits where the UV-center pivot actually lies on the
+        # mesh, so rotation visually spins around the marker. (With the
+        # cursor pivot the UV cursor crosshair marks the pivot instead.)
+        if (idx == op.active_island_idx and csp
+                and op.pivot_mode == PIVOT_CENTER):
+            _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
+            _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
+
         if not op._clean_view:
             td = idata.get('texel_density')
             if td is not None and csp:
@@ -498,12 +506,13 @@ def draw_pixel_callback(op, context):
                 blf.position(0, csp.x + 14, csp.y - 6, 0)
                 blf.draw(0, f"TD:{td:.3f}")
 
-    # Center pivot + rotation handle (active island, screen space)
+    # Move handle (gizmo box center) + rotation handle
     handles = _compute_screen_handles(op, context)
     if handles:
         csp = handles['_C']
-        _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
-        _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
+        hc_role = (Role.HANDLE_HOVER if op.hover_handle == 'CENTER'
+                   else Role.HANDLE)
+        _draw_circle(csp.x, csp.y, 5, role=hc_role)
         rsp = handles.get('_ROT')
         if rsp:
             pivot = theme.color_for(Role.PIVOT)
