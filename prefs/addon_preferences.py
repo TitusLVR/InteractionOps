@@ -127,6 +127,54 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    show_dimensions_stat: BoolProperty(
+        name="Dimensions",
+        description="Show active object dimensions in scene units",
+        default=True,
+    )
+
+    show_instances_stat: BoolProperty(
+        name="Instances",
+        description="Warn when the active object's data is shared by other objects",
+        default=False,
+    )
+
+    show_modifiers_stat: BoolProperty(
+        name="Modifiers",
+        description="Show modifier count and warn on viewport/render visibility mismatch",
+        default=False,
+    )
+
+    show_material_stat: BoolProperty(
+        name="Material",
+        description="Show active material name, slot usage and empty-slot warnings",
+        default=False,
+    )
+
+    show_material_users_stat: BoolProperty(
+        name="Material Users",
+        description="Append the active material's user count when it is shared",
+        default=False,
+    )
+
+    show_parent_stat: BoolProperty(
+        name="Parent / Constraints",
+        description="Show parent name and constraint count of the active object",
+        default=False,
+    )
+
+    show_units_stat: BoolProperty(
+        name="Units Warning",
+        description="Warn when the scene unit scale is not 1.0",
+        default=False,
+    )
+
+    show_view_position_stat: BoolProperty(
+        name="Position / Distance",
+        description="Show active object world position and distance to the viewpoint",
+        default=False,
+    )
+
     # Persistent GPU widget panels (ui/widgets) — JSON blob with each
     # widget's visibility/position, read/written by ui/widgets/state.py.
     # Internal storage only, intentionally not drawn in the prefs UI.
@@ -812,6 +860,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
                 body.prop(self, "show_filename_stat", toggle=True)
+                grid = body.grid_flow(columns=2, align=True)
+                grid.prop(self, "show_dimensions_stat", toggle=True)
+                grid.prop(self, "show_view_position_stat", toggle=True)
+                grid.prop(self, "show_material_stat", toggle=True)
+                grid.prop(self, "show_material_users_stat", toggle=True)
+                grid.prop(self, "show_modifiers_stat", toggle=True)
+                grid.prop(self, "show_instances_stat", toggle=True)
+                grid.prop(self, "show_parent_stat", toggle=True)
+                grid.prop(self, "show_units_stat", toggle=True)
                 body.separator()
                 body.label(text="Colors, sizes and text positioning live in the Theme tab.")
 

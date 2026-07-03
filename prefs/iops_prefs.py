@@ -160,6 +160,14 @@ def get_iops_prefs():
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
+            "show_dimensions_stat": safe("show_dimensions_stat", True),
+            "show_instances_stat": safe("show_instances_stat", False),
+            "show_modifiers_stat": safe("show_modifiers_stat", False),
+            "show_material_stat": safe("show_material_stat", False),
+            "show_material_users_stat": safe("show_material_users_stat", False),
+            "show_parent_stat": safe("show_parent_stat", False),
+            "show_units_stat": safe("show_units_stat", False),
+            "show_view_position_stat": safe("show_view_position_stat", False),
         },
         "TEXTURE_TO_MATERIAL": {
             "texture_to_material_prefixes": safe("texture_to_material_prefixes", "env_"),

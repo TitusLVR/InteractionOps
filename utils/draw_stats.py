@@ -5,6 +5,13 @@ from ..ui.draw.theme import get_theme, Role
 from ..ui.hud import text as hud_text
 from ..ui.hud.text import draw as hud_text_draw, measure as hud_text_measure
 
+# Object types whose data block carries material slots — gates the material
+# stat line so empties/lights/cameras don't show a useless "No material".
+_MATERIAL_OBJECT_TYPES = frozenset(
+    {"MESH", "CURVE", "SURFACE", "META", "FONT",
+     "GREASEPENCIL", "GPENCIL", "VOLUME", "POINTCLOUD"}
+)
+
 
 def draw_iops_statistics():
     context = bpy.context
@@ -71,6 +78,101 @@ def draw_iops_statistics():
             _t("File:", role=Role.HUD_LABEL)
             value_role = Role.HUD_LABEL_ACTIVE if (file_saved and not file_dirty) else Role.HUD_STATS_ERROR
             _t(file_status, role=value_role, x=base_column_x)
+            offset_y -= row_step
+
+        unit_settings = context.scene.unit_settings
+
+        def _fmt_len(value):
+            if unit_settings.system != "NONE":
+                return bpy.utils.units.to_string(
+                    unit_settings.system, "LENGTH",
+                    value * unit_settings.scale_length, precision=2)
+            return f"{value:.2f}"
+
+        if active_object:
+            if prefs.show_dimensions_stat:
+                dims = active_object.dimensions
+                if dims.x or dims.y or dims.z:
+                    _t("Dims:", role=Role.HUD_LABEL)
+                    _t(" x ".join(_fmt_len(d) for d in dims),
+                       role=Role.HUD_LABEL_ACTIVE, x=base_column_x)
+                    offset_y -= row_step
+
+            if prefs.show_view_position_stat:
+                loc = active_object.matrix_world.translation
+                value = f"{loc.x:.2f}, {loc.y:.2f}, {loc.z:.2f}"
+                rv3d = space_3d.region_3d if space_3d else None
+                if rv3d:
+                    dist = (rv3d.view_matrix @ loc).length
+                    value += f"   Dist: {_fmt_len(dist)}"
+                _t("Pos:", role=Role.HUD_LABEL)
+                _t(value, role=Role.HUD_LABEL_ACTIVE, x=base_column_x)
+                offset_y -= row_step
+
+            if (prefs.show_material_stat
+                    and active_object.type in _MATERIAL_OBJECT_TYPES):
+                slots = active_object.material_slots
+                filled = sum(1 for slot in slots if slot.material)
+                mat = active_object.active_material
+                segments = []
+                if mat:
+                    name = mat.name
+                    if prefs.show_material_users_stat and mat.users > 1:
+                        name += f" ({mat.users} users)"
+                    segments.append((f"{name} [{filled}/{len(slots)}]",
+                                     Role.HUD_LABEL_ACTIVE))
+                else:
+                    segments.append(("No material", Role.HUD_STATS_ERROR))
+                if slots and filled < len(slots):
+                    segments.append(("Empty slots", Role.HUD_STATS_ERROR))
+                _t("Mat:", role=Role.HUD_LABEL)
+                col_x = base_column_x
+                for seg_text, seg_role in segments:
+                    _t(seg_text, role=seg_role, x=col_x)
+                    w, _h = _dim(seg_text)
+                    col_x += w + 6
+                offset_y -= row_step
+
+            if prefs.show_modifiers_stat and active_object.modifiers:
+                mods = active_object.modifiers
+                count = str(len(mods))
+                _t("Mods:", role=Role.HUD_LABEL)
+                _t(count, role=Role.HUD_LABEL_ACTIVE, x=base_column_x)
+                if any(m.show_viewport != m.show_render for m in mods):
+                    w, _h = _dim(count)
+                    _t("viewport ≠ render", role=Role.HUD_STATS_ERROR,
+                       x=base_column_x + w + 6)
+                offset_y -= row_step
+
+            if prefs.show_instances_stat:
+                obj_data = getattr(active_object, "data", None)
+                if obj_data is not None:
+                    users = obj_data.users - (1 if obj_data.use_fake_user else 0)
+                    if users > 1:
+                        _t("Instances:", role=Role.HUD_LABEL)
+                        _t(str(users), role=Role.HUD_STATS_ERROR,
+                           x=base_column_x)
+                        offset_y -= row_step
+
+            if prefs.show_parent_stat and (active_object.parent
+                                           or active_object.constraints):
+                _t("Parent:", role=Role.HUD_LABEL)
+                col_x = base_column_x
+                if active_object.parent:
+                    parent_name = active_object.parent.name
+                    _t(parent_name, role=Role.HUD_LABEL_ACTIVE, x=col_x)
+                    w, _h = _dim(parent_name)
+                    col_x += w + 6
+                constraint_count = len(active_object.constraints)
+                if constraint_count:
+                    _t(f"+{constraint_count} constraints",
+                       role=Role.HUD_LABEL_ACTIVE, x=col_x)
+                offset_y -= row_step
+
+        if prefs.show_units_stat and unit_settings.scale_length != 1.0:
+            _t("Units:", role=Role.HUD_LABEL)
+            _t(f"scale {unit_settings.scale_length:g}",
+               role=Role.HUD_STATS_ERROR, x=base_column_x)
             offset_y -= row_step
 
         if active_object and active_object.type == "MESH":

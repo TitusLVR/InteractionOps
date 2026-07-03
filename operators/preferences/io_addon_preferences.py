@@ -224,6 +224,18 @@ def load_iops_preferences():
                             defaults = default_prefs.get("UI_TEXT_STAT", {})
                             prefs.iops_stat = safe_get(value, "iops_stat", defaults.get("iops_stat", True))
                             prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
+                            for key_, default_ in (
+                                ("show_dimensions_stat", True),
+                                ("show_instances_stat", False),
+                                ("show_modifiers_stat", False),
+                                ("show_material_stat", False),
+                                ("show_material_users_stat", False),
+                                ("show_parent_stat", False),
+                                ("show_units_stat", False),
+                                ("show_view_position_stat", False),
+                            ):
+                                setattr(prefs, key_,
+                                        safe_get(value, key_, defaults.get(key_, default_)))
 
                     case "TEXTURE_TO_MATERIAL":
                         if isinstance(value, dict):
