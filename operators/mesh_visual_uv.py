@@ -278,6 +278,19 @@ def _nearest_3d_for_uv(geo, tu, tv):
     return pos
 
 
+def _island_center_3d(idata):
+    """3D anchor for the island's center handle: the UV bbox center
+    mapped onto the mesh surface — the same mapping the bbox handles
+    use — so the marker lands inside the drawn rectangle (the 3D vertex
+    centroid drifts away from it on uneven UV density)."""
+    geo = idata.get('geo3d')
+    if not geo:
+        return None
+    c = idata['center']
+    pos = _nearest_3d_for_uv(geo, c.x, c.y)
+    return pos if pos is not None else geo['center_3d']
+
+
 def _compute_screen_handles(op, context):
     """Project UV bbox corners through the mesh surface to screen space
     so handles always correspond to the UV editor layout."""
@@ -436,7 +449,7 @@ def draw_pixel_callback(op, context):
         is_active = (idx == op.active_island_idx)
         island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
-        center_off = geo['center_3d'] + nrm * nrm_off
+        center_off = _island_center_3d(idata) + nrm * nrm_off
 
         csp = location_3d_to_region_2d(region, rv3d, center_off)
         if csp and is_active:
@@ -794,13 +807,15 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     return
 
         if 0 <= self.active_island_idx < len(self.islands_data):
-            geo = self.islands_data[self.active_island_idx].get('geo3d')
+            idata = self.islands_data[self.active_island_idx]
+            geo = idata.get('geo3d')
             if geo:
                 prefs = bpy.context.preferences.addons[
                     "InteractionOps"].preferences
                 noff = getattr(prefs, 'visual_uv_normal_offset',
                                NORMAL_OFFSET)
-                center_off = geo['center_3d'] + geo['normal_avg'] * noff
+                center_off = (_island_center_3d(idata)
+                              + geo['normal_avg'] * noff)
                 rp = center_off + geo['normal_avg'] * ROTATION_HANDLE_DISTANCE
                 rsp = location_3d_to_region_2d(region, rv3d, rp)
                 if rsp and (mouse - rsp).length <= HIT_RADIUS:
@@ -1199,7 +1214,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if not (0 <= self.active_island_idx < len(self.islands_data)):
             return False
         self.selected_islands.add(self.active_island_idx)
-        geo = self.islands_data[self.active_island_idx].get('geo3d')
+        idata = self.islands_data[self.active_island_idx]
+        geo = idata.get('geo3d')
         if not geo:
             return False
         region, rv3d = context.region, context.region_data
@@ -1209,7 +1225,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             prefs = bpy.context.preferences.addons[
                 "InteractionOps"].preferences
             noff = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
-            center = geo['center_3d'] + geo['normal_avg'] * noff
+            center = _island_center_3d(idata) + geo['normal_avg'] * noff
             csp = location_3d_to_region_2d(region, rv3d, center)
         if not csp:
             return False
