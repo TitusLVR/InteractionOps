@@ -673,6 +673,48 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if self.active_island_idx >= n:
             self.active_island_idx = max(0, n - 1)
         self.selected_islands = set(range(n))
+        self._sync_uv_editor(context)
+
+    def _sync_uv_editor(self, context):
+        """Make every island fully visible in the UV editor and mirror
+        the active island into the UV selection there.
+
+        The UV editor only shows UVs of selected, visible mesh faces —
+        islands expanded past the original selection (or with hidden
+        faces) would otherwise appear cut off."""
+        if not (0 <= self.active_island_idx < len(self.islands_data)):
+            return
+        face_lookup = {f.index: f for f in self.bm.faces}
+        for isl in self.islands:
+            for fi in isl:
+                f = face_lookup.get(fi)
+                if f is None:
+                    continue
+                if f.hide:
+                    f.hide_set(False)
+                if not f.select:
+                    f.select_set(True)
+        active_loops = set()
+        for lp in self.islands_data[self.active_island_idx]['loops']:
+            active_loops.add(lp)
+        use_new = hasattr(next(iter(active_loops)), 'uv_select_vert') \
+            if active_loops else False
+        for f in self.bm.faces:
+            if not f.select:
+                continue
+            for lp in f.loops:
+                state = lp in active_loops
+                if use_new:
+                    lp.uv_select_vert = state
+                    lp.uv_select_edge = state
+                else:
+                    lp[self.uv_layer].select = state
+        bmesh.update_edit_mesh(context.active_object.data,
+                               loop_triangles=False, destructive=False)
+        for win in context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type == 'IMAGE_EDITOR':
+                    area.tag_redraw()
 
     def _update_cursor_3d(self):
         best_dist, best_pos = 1e10, None
@@ -1467,6 +1509,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         # Click island to set active
         if self.hover_island_idx >= 0:
             self.active_island_idx = self.hover_island_idx
+            self._sync_uv_editor(context)
             return {'RUNNING_MODAL'}
 
         return {'PASS_THROUGH'}
@@ -1656,6 +1699,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             if self.islands_data:
                 self.active_island_idx = (
                     (self.active_island_idx + 1) % len(self.islands_data))
+                self._sync_uv_editor(context)
             return {'RUNNING_MODAL'}
 
         return {'RUNNING_MODAL'}
