@@ -2,7 +2,7 @@ import bpy
 import blf
 import bmesh
 import math
-from mathutils import Vector
+from mathutils import Color, Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw.theme import get_theme, Role, axis_color
@@ -76,6 +76,34 @@ HANDLE_OPPOSITE = {
 # Per-island identification colors and widget palette live in the
 # unified IOPS_Theme (theme.island_palette). State-like edge colors
 # are sourced from the 5-state Line/Point/Text roles via Role.*.
+# Island fills come from Blender's own theme (Edit Mode face select /
+# active face) so the overlay reads like native edit-mode selection.
+
+_FILL_SELECT_FALLBACK = (0.8, 0.36, 0.23, 0.4)
+_FILL_ACTIVE_FALLBACK = (1.0, 1.0, 1.0, 0.4)
+
+
+def _blender_fill_colors():
+    """(face_select, editmesh_active) RGBA from Blender's theme.
+
+    Theme stores display sRGB; POST_VIEW drawing expects scene-linear,
+    so decode RGB and keep the theme's own alpha."""
+    try:
+        v3d = bpy.context.preferences.themes[0].view_3d
+        sel, act = tuple(v3d.face_select), tuple(v3d.editmesh_active)
+    except (IndexError, AttributeError):
+        return _FILL_SELECT_FALLBACK, _FILL_ACTIVE_FALLBACK
+
+    def _lin(src, fallback):
+        if len(src) < 4:
+            return fallback
+        c = Color(src[:3]).from_srgb_to_scene_linear()
+        # Theme alphas can be fully opaque (editmesh_active is often 1.0);
+        # clamp so the mesh always stays visible under the fill.
+        return (c.r, c.g, c.b, min(float(src[3]), 0.6))
+
+    return (_lin(sel, _FILL_SELECT_FALLBACK),
+            _lin(act, _FILL_ACTIVE_FALLBACK))
 
 def _v3(p):
     """Lift a 2D pixel-space point into a Vector for primitives.*"""
@@ -342,41 +370,42 @@ def draw_3d_callback(op, context):
     import gpu
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
-    theme = get_theme(context)
     gpu.state.blend_set('ALPHA')
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(False)
 
+    fill_select, fill_active = _blender_fill_colors()
     for idx, idata in enumerate(op.islands_data):
         geo = idata.get('geo3d')
         if not geo:
             continue
         is_active = (idx == op.active_island_idx)
         is_selected = idx in op.selected_islands
-        island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
 
-        # Fill alpha is driven by the palette swatch's own alpha. State
-        # only modulates it — and we clamp so even "active" stays clearly
-        # translucent (selected/active used to compound to fully opaque).
-        base_a = island_col[3]
-        fa = min(0.85, base_a * (1.4 if is_active
-                                 else 1.1 if is_selected else 0.8))
+        # Fill mirrors native edit-mode selection: active island uses
+        # the active-face tint, the rest the face-select tint; islands
+        # outside the working set fade out.
+        fill = fill_active if is_active else fill_select
+        if not (is_active or is_selected):
+            fill = (fill[0], fill[1], fill[2], fill[3] * 0.35)
         tv = []
         for v0, v1, v2 in geo['face_tris']:
             tv.extend([_off(v0, nrm, nrm_off), _off(v1, nrm, nrm_off),
                        _off(v2, nrm, nrm_off)])
         if tv:
-            draw_prim.tris(tv, color=(*island_col[:3], fa), context=context)
+            draw_prim.tris(tv, color=fill, context=context)
 
+        # Outline only the island's UV boundary — inner edges stay clean.
         edge_role = (Role.ACTIVE_LINE if is_active
                      else Role.CLOSEST_LINE if is_selected else Role.LINE)
         ep = []
-        for pa, pb in geo['edges_3d']:
+        for pa, pb in geo['boundary_edges_3d']:
             ep.extend([_off(pa, nrm, nrm_off * 1.5),
                        _off(pb, nrm, nrm_off * 1.5)])
         if ep:
-            draw_prim.edges_3d(ep, role=edge_role, context=context)
+            draw_prim.edges_3d(ep, role=edge_role, width="active",
+                               context=context)
 
     if op.hover_edge_3d is not None:
         hover_role = (Role.PREVIEW_LINE if op.state == STATE_PICK_ALIGN_EDGE
@@ -1411,8 +1440,16 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.state = STATE_IDLE
             return {'RUNNING_MODAL'}
 
+        # Center handle drag -- move (it has no opposite handle to
+        # pivot a scale on, so treat it as grab)
+        if self.hover_handle == 'CENTER':
+            self.scale_handle_name = None
+            self.grab_axis = None
+            if self._begin_transform(context, STATE_GRAB):
+                return {'RUNNING_MODAL'}
+
         # Handle drag -- scale with opposite handle as pivot
-        if self.hover_handle is not None:
+        if self.hover_handle in HANDLE_OPPOSITE:
             self.scale_handle_name = self.hover_handle
             piv_uv, piv_scr, h_scr = self._handle_pivot_data(
                 context, self.hover_handle)
@@ -1471,7 +1508,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if event.type == 'S' and not event.ctrl and not event.alt:
             self.grab_axis = None
             piv_uv, piv_scr, h_scr = None, None, None
-            if (self.hover_handle
+            if (self.hover_handle in HANDLE_OPPOSITE
                     and 0 <= self.active_island_idx
                     < len(self.islands_data)):
                 self.scale_handle_name = self.hover_handle

@@ -195,6 +195,8 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
     center, average normal -- everything needed to draw ON the mesh.
     Returns dict with:
       - 'edges_3d': list of (world_pos_a, world_pos_b) per face edge
+      - 'boundary_edges_3d': subset of edges_3d lying on the island's
+        UV boundary (no island face shares the edge with continuous UVs)
       - 'edge_uv_pairs': list of ((uv_a, uv_b), (pos3d_a, pos3d_b))
       - 'verts_3d': dict mapping UV key -> world-space 3D position
       - 'center_3d': average world-space position of island vertices
@@ -203,8 +205,26 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
       - 'face_colors': per-triangle island index (for batching)
     """
     face_lookup = {f.index: f for f in bm.faces}
+    island_set = set(island_face_indices)
     edges_3d = []
+    boundary_edges_3d = []
     edge_uv_pairs = []
+
+    def _uv_match(a, b):
+        return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 < 1e-10
+
+    def _is_uv_boundary(loop, uv_a, uv_b):
+        """A face edge is a UV-island boundary unless another island
+        face shares the mesh edge with continuous UVs across it."""
+        for other in loop.edge.link_loops:
+            if other is loop or other.face.index not in island_set:
+                continue
+            o_a = other[uv_layer].uv
+            o_b = other.link_loop_next[uv_layer].uv
+            if ((_uv_match(o_a, uv_b) and _uv_match(o_b, uv_a))
+                    or (_uv_match(o_a, uv_a) and _uv_match(o_b, uv_b))):
+                return False
+        return True
     verts_3d = {}
     normals = []
     all_positions = []
@@ -243,6 +263,8 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
 
             edges_3d.append((pos_a, pos_b))
             edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
+            if _is_uv_boundary(loop, uv, uv_next):
+                boundary_edges_3d.append((pos_a, pos_b))
 
             uv_key = (round(uv.x, 5), round(uv.y, 5))
             if uv_key not in verts_3d:
@@ -261,6 +283,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
 
     return {
         'edges_3d': edges_3d,
+        'boundary_edges_3d': boundary_edges_3d,
         'edge_uv_pairs': edge_uv_pairs,
         'verts_3d': verts_3d,
         'center_3d': center_3d,
