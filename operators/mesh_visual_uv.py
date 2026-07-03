@@ -1061,10 +1061,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.selected_islands = set(range(len(self.islands_data)))
 
         self._overlay_was_on = context.space_data.overlay.show_overlays
-        # Blender's own overlays start hidden so textures stay readable;
-        # the operator's visuals remain. Q cycles the full clean view.
-        # Restored on exit.
-        self._clean_view = False
+        # Clean view (the Q mode) is on by default: Blender overlays and
+        # the island fills stay hidden so textures are readable, only
+        # the gizmo remains. Q toggles it all back. Restored on exit.
+        self._clean_view = True
         context.space_data.overlay.show_overlays = False
 
         self._hud, self._help = _build_visual_uv_hud(context)
