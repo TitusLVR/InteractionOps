@@ -2,7 +2,7 @@ import bpy
 import blf
 import bmesh
 import math
-from mathutils import Color, Vector
+from mathutils import Color, Matrix, Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw.theme import get_theme, Role, axis_color
@@ -40,7 +40,7 @@ HIT_RADIUS = 14
 NORMAL_OFFSET = 0.002
 CORNER_SIZE = 8
 MID_SIZE = 7
-ROTATION_HANDLE_DISTANCE = 0.15
+ROT_HANDLE_OFFSET = 28  # px past the top-mid handle
 
 GRAB_SENS_DEFAULT = 1.0
 GRAB_SENS_MIN = 0.05
@@ -291,9 +291,51 @@ def _island_center_3d(idata):
     return pos if pos is not None else geo['center_3d']
 
 
+def _uv_screen_affine(geo, region, rv3d, nrm, nrm_off):
+    """Least-squares affine map UV -> screen fitted on the island's own
+    vertices.  Returns (rx, ry) Vectors such that
+    screen = (rx.dot(u, v, 1), ry.dot(u, v, 1)), or None when the fit is
+    degenerate (too few points, collinear UVs, offscreen island)."""
+    pts = []
+    for (u, v), pos in geo['verts_3d'].items():
+        sp = location_3d_to_region_2d(region, rv3d, pos + nrm * nrm_off)
+        if sp is not None:
+            pts.append((u, v, sp.x, sp.y))
+    if len(pts) < 3:
+        return None
+
+    su = sv = suu = suv = svv = 0.0
+    sx = sy = sux = svx = suy = svy = 0.0
+    for u, v, x, y in pts:
+        su += u
+        sv += v
+        suu += u * u
+        suv += u * v
+        svv += v * v
+        sx += x
+        sy += y
+        sux += u * x
+        svx += v * x
+        suy += u * y
+        svy += v * y
+    n = float(len(pts))
+    a = Matrix(((suu, suv, su),
+                (suv, svv, sv),
+                (su, sv, n)))
+    if abs(a.determinant()) < 1e-9:
+        return None
+    ai = a.inverted()
+    rx = ai @ Vector((sux, svx, sx))
+    ry = ai @ Vector((suy, svy, sy))
+    return rx, ry
+
+
 def _compute_screen_handles(op, context):
-    """Project UV bbox corners through the mesh surface to screen space
-    so handles always correspond to the UV editor layout."""
+    """UV bbox corners in screen space via an affine UV->screen fit on
+    the island's vertices, so handles correspond to the UV editor
+    layout.  A linear fit stays stable for curved / concave islands
+    where mapping through the mesh surface would extrapolate corners
+    far off the geometry."""
     if not (0 <= op.active_island_idx < len(op.islands_data)):
         return {}
     idata = op.islands_data[op.active_island_idx]
@@ -310,64 +352,56 @@ def _compute_screen_handles(op, context):
     bmin, bmax = idata['bbox_min'], idata['bbox_max']
     cu = (bmin.x + bmax.x) * 0.5
     cv = (bmin.y + bmax.y) * 0.5
+    uv_w = max(bmax.x - bmin.x, 1e-8)
+    uv_h = max(bmax.y - bmin.y, 1e-8)
 
-    uv_pts = {
-        'BL': (bmin.x, bmin.y), 'BR': (bmax.x, bmin.y),
-        'TL': (bmin.x, bmax.y), 'TR': (bmax.x, bmax.y),
-        'B': (cu, bmin.y), 'T': (cu, bmax.y),
-        'L': (bmin.x, cv), 'R': (bmax.x, cv),
-        '_C': (cu, cv),
-    }
+    aff = _uv_screen_affine(geo, region, rv3d, nrm, nrm_off)
+    if aff is None:
+        return {}
+    rx, ry = aff
+    c = Vector((rx.x * cu + rx.y * cv + rx.z,
+                ry.x * cu + ry.y * cv + ry.z))
+    u_vec = Vector((rx.x, ry.x)) * uv_w
+    v_vec = Vector((rx.y, ry.y)) * uv_h
 
-    result = {}
-    for name, (hu, hv) in uv_pts.items():
-        pos3d = _nearest_3d_for_uv(geo, hu, hv)
-        if pos3d is None:
-            continue
-        sp = location_3d_to_region_2d(region, rv3d,
-                                      pos3d + nrm * nrm_off)
-        if sp is None:
-            continue
-        result[name] = sp
-
-    if not all(n in result for n in HANDLE_CORNERS):
+    # The affine image of the UV bbox is a parallelogram; keep the U
+    # axis and rebuild V perpendicular to it so the gizmo is always a
+    # true rectangle on screen.
+    if u_vec.length > 1e-6:
+        u_hat = u_vec.normalized()
+        perp = Vector((-u_hat.y, u_hat.x))
+        v_vec = perp * v_vec.dot(perp)
+    if u_vec.length < 1.0 or v_vec.length < 1.0:
         return {}
 
-    if 'L' in result and 'R' in result:
-        result['_u_dir'] = result['R'] - result['L']
-    if 'B' in result and 'T' in result:
-        result['_v_dir'] = result['T'] - result['B']
+    half_u, half_v = u_vec * 0.5, v_vec * 0.5
+    result = {
+        'BL': c - half_u - half_v, 'BR': c + half_u - half_v,
+        'TL': c - half_u + half_v, 'TR': c + half_u + half_v,
+        'B': c - half_v, 'T': c + half_v,
+        'L': c - half_u, 'R': c + half_u,
+        '_C': c,
+        '_u_dir': u_vec, '_v_dir': v_vec,
+    }
 
-    # Push handles outward along the UV axes so the gap is equal on all sides
-    u_dir = result.get('_u_dir')
-    v_dir = result.get('_v_dir')
+    # Push handles outward along the axes so the gap is equal on all sides
     pad = 14
-    if u_dir and v_dir and u_dir.length > 1 and v_dir.length > 1:
-        u_hat = u_dir.normalized()
-        v_hat = v_dir.normalized()
-        for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
-            if name not in result:
-                continue
-            off = Vector((0.0, 0.0))
-            if name in ('BL', 'TL', 'L'):
-                off -= u_hat * pad
-            elif name in ('BR', 'TR', 'R'):
-                off += u_hat * pad
-            if name in ('BL', 'BR', 'B'):
-                off -= v_hat * pad
-            elif name in ('TL', 'TR', 'T'):
-                off += v_hat * pad
-            result[name] = result[name] + off
-    else:
-        csp = result.get('_C')
-        if csp:
-            for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
-                if name not in result:
-                    continue
-                d = result[name] - csp
-                if d.length > 1.0:
-                    result[name] = result[name] + d.normalized() * pad
+    u_hat = u_vec.normalized()
+    v_hat = v_vec.normalized()
+    for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
+        off = Vector((0.0, 0.0))
+        if name in ('BL', 'TL', 'L'):
+            off -= u_hat * pad
+        elif name in ('BR', 'TR', 'R'):
+            off += u_hat * pad
+        if name in ('BL', 'BR', 'B'):
+            off -= v_hat * pad
+        elif name in ('TL', 'TR', 'T'):
+            off += v_hat * pad
+        result[name] = result[name] + off
 
+    # Rotation handle sits just past the top-mid handle
+    result['_ROT'] = result['T'] + v_hat * ROT_HANDLE_OFFSET
     return result
 
 
@@ -446,26 +480,11 @@ def draw_pixel_callback(op, context):
         geo = idata.get('geo3d')
         if not geo:
             continue
-        is_active = (idx == op.active_island_idx)
         island_col = theme.island_palette[idx % 8]
         nrm = geo['normal_avg']
         center_off = _island_center_3d(idata) + nrm * nrm_off
 
         csp = location_3d_to_region_2d(region, rv3d, center_off)
-        if csp and is_active:
-            _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
-            _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
-
-            rot_pos = center_off + nrm * ROTATION_HANDLE_DISTANCE
-            rsp = location_3d_to_region_2d(region, rv3d, rot_pos)
-            if rsp:
-                pivot = theme.color_for(Role.PIVOT)
-                _draw_polyline([csp, rsp],
-                               color=(pivot[0], pivot[1], pivot[2], 0.35),
-                               width="default")
-                rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
-                           else Role.PIVOT)
-                _draw_circle(rsp.x, rsp.y, 6, role=rc_role)
 
         if not op._clean_view:
             td = idata.get('texel_density')
@@ -475,8 +494,23 @@ def draw_pixel_callback(op, context):
                 blf.position(0, csp.x + 14, csp.y - 6, 0)
                 blf.draw(0, f"TD:{td:.3f}")
 
-    # Bounding box + handles (active island)
+    # Center pivot + rotation handle (active island, screen space)
     handles = _compute_screen_handles(op, context)
+    if handles:
+        csp = handles['_C']
+        _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
+        _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
+        rsp = handles.get('_ROT')
+        if rsp:
+            pivot = theme.color_for(Role.PIVOT)
+            _draw_polyline([csp, rsp],
+                           color=(pivot[0], pivot[1], pivot[2], 0.35),
+                           width="default")
+            rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
+                       else Role.PIVOT)
+            _draw_circle(rsp.x, rsp.y, 6, role=rc_role)
+
+    # Bounding box + handles (active island)
     if handles and op.state in (STATE_IDLE, STATE_HANDLE_SCALE,
                                  STATE_PICK_ALIGN_EDGE):
         if all(n in handles for n in HANDLE_CORNERS):
@@ -805,26 +839,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 if name in handles and (mouse - handles[name]).length <= HIT_RADIUS:
                     self.hover_handle = name
                     return
-
-        if 0 <= self.active_island_idx < len(self.islands_data):
-            idata = self.islands_data[self.active_island_idx]
-            geo = idata.get('geo3d')
-            if geo:
-                prefs = bpy.context.preferences.addons[
-                    "InteractionOps"].preferences
-                noff = getattr(prefs, 'visual_uv_normal_offset',
-                               NORMAL_OFFSET)
-                center_off = (_island_center_3d(idata)
-                              + geo['normal_avg'] * noff)
-                rp = center_off + geo['normal_avg'] * ROTATION_HANDLE_DISTANCE
-                rsp = location_3d_to_region_2d(region, rv3d, rp)
-                if rsp and (mouse - rsp).length <= HIT_RADIUS:
-                    self.hover_rotate_handle = True
-                    return
-                csp = location_3d_to_region_2d(region, rv3d, center_off)
-                if csp and (mouse - csp).length <= HIT_RADIUS:
-                    self.hover_handle = 'CENTER'
-                    return
+            rsp = handles.get('_ROT')
+            if rsp and (mouse - rsp).length <= HIT_RADIUS:
+                self.hover_rotate_handle = True
+                return
+            csp = handles.get('_C')
+            if csp and (mouse - csp).length <= HIT_RADIUS:
+                self.hover_handle = 'CENTER'
+                return
 
         # Vertices
         bd, bi, bk = HIT_RADIUS + 1, -1, None
@@ -1219,8 +1241,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if not geo:
             return False
         region, rv3d = context.region, context.region_data
+        handles = _compute_screen_handles(self, context)
         if pivot_screen is not None:
             csp = pivot_screen
+        elif handles:
+            csp = handles.get('_C')
         else:
             prefs = bpy.context.preferences.addons[
                 "InteractionOps"].preferences
@@ -1241,7 +1266,6 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.current_scale_x = 1.0
         self.current_scale_y = 1.0
 
-        handles = _compute_screen_handles(self, context)
         self.uv_screen_u = handles.get('_u_dir')
         self.uv_screen_v = handles.get('_v_dir')
 
