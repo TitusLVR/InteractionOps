@@ -558,6 +558,21 @@ def draw_pixel_callback(op, context):
                                context=bpy.context)
             _draw_circle(csp.x, csp.y, 3, role=Role.CURSOR)
 
+    # Axis-lock preview: rail through the pivot along the UV axis the
+    # transform is constrained to, in Blender's axis colors
+    if (op.state in (STATE_GRAB, STATE_SCALE, STATE_HANDLE_SCALE)
+            and op.grab_axis in ('X', 'Y')
+            and op.drag_center_screen is not None):
+        d = op.uv_screen_u if op.grab_axis == 'X' else op.uv_screen_v
+        if d is not None and d.length > 1e-3:
+            dn = d.normalized()
+            c = op.drag_center_screen
+            ext = 4000.0
+            col = axis_color(op.grab_axis)
+            _draw_polyline([c - dn * ext, c + dn * ext],
+                           color=(col[0], col[1], col[2], 0.6),
+                           width="default")
+
     _draw_transform_feedback(op)
     gpu.state.blend_set('NONE')
 
