@@ -631,6 +631,7 @@ def _build_visual_uv_hud(context):
         HUDItem("Unwrap (seams)",       "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Straighten chain",     "T",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Toggle overlays",      "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Align view to island", "V",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Pivot",                "P",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Undo / Redo",          "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Confirm",              "Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -749,6 +750,47 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.active_island_idx = max(0, n - 1)
         self.selected_islands = set(range(n))
         self._sync_uv_editor(context)
+
+    def _align_view_to_island(self, context):
+        """Point the viewport straight at the active island (view axis
+        along the island normal) and roll it so the UV axes match the
+        screen axes — the gizmo box becomes minimal. Centers and fits
+        the island."""
+        if not (0 <= self.active_island_idx < len(self.islands_data)):
+            return False
+        geo = self.islands_data[self.active_island_idx].get('geo3d')
+        if not geo or not geo['verts_3d']:
+            return False
+        z = geo['normal_avg'].normalized()
+
+        # 3D direction of the UV u axis (average surface tangent)
+        t_acc = Vector((0.0, 0.0, 0.0))
+        for (ua, ub, uc), (pa, pb, pc) in geo.get('uv_tris', []):
+            e1, e2 = pb - pa, pc - pa
+            du1, dv1 = ub[0] - ua[0], ub[1] - ua[1]
+            du2, dv2 = uc[0] - ua[0], uc[1] - ua[1]
+            det = du1 * dv2 - du2 * dv1
+            if abs(det) < 1e-12:
+                continue
+            t_acc += (e1 * dv2 - e2 * dv1) / det
+        t = t_acc - z * t_acc.dot(z)
+        if t.length < 1e-6:
+            t = Vector((1.0, 0.0, 0.0)) - z * z.x
+        if t.length < 1e-6:
+            t = Vector((0.0, 1.0, 0.0)) - z * z.y
+        x = t.normalized()
+        y = z.cross(x)
+
+        rv3d = context.region_data
+        # Columns = world directions of the view right/up/backward axes
+        rv3d.view_rotation = Matrix((x, y, z)).transposed().to_quaternion()
+        pts = list(geo['verts_3d'].values())
+        center = sum(pts, Vector((0.0, 0.0, 0.0))) / len(pts)
+        radius = max((p - center).length for p in pts)
+        rv3d.view_location = center
+        if radius > 1e-6:
+            rv3d.view_distance = radius * 2.0
+        return True
 
     def _sync_uv_editor(self, context):
         """Make every island fully visible in the UV editor and mirror
@@ -1019,7 +1061,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.selected_islands = set(range(len(self.islands_data)))
 
         self._overlay_was_on = context.space_data.overlay.show_overlays
+        # Blender's own overlays start hidden so textures stay readable;
+        # the operator's visuals remain. Q cycles the full clean view.
+        # Restored on exit.
         self._clean_view = False
+        context.space_data.overlay.show_overlays = False
 
         self._hud, self._help = _build_visual_uv_hud(context)
         self._hud.bind_region(context.region)
@@ -1763,6 +1809,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             context.space_data.overlay.show_overlays = not self._clean_view
             state = "ON" if self._clean_view else "OFF"
             self.report({'INFO'}, f"Clean view {state}")
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'V':
+            if self._align_view_to_island(context):
+                self.report({'INFO'}, "View aligned to island")
             return {'RUNNING_MODAL'}
 
         if event.type == 'P':
