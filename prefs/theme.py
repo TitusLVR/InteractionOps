@@ -45,7 +45,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # have been removed. All HUD/stats text now flows through a small
     # set of HUD-specific roles defined below.)
 
-    # --- Widgets ---
+    # --- Gizmos ---
     color_handle:          _color((1.000, 1.000, 1.000, 0.85), "Handle")
     color_handle_hover:    _color((0.302, 0.816, 1.000, 0.90), "Handle (hover)")
     color_pivot:           _color((1.000, 0.872, 0.174, 0.90), "Pivot")
@@ -508,12 +508,12 @@ def draw_theme_tab(layout, theme):
         sub.separator()
         _state_table(sub, theme, "ghost")
 
-    # Widgets — each row: name | size | color. Handle has two color
-    # swatches (idle + hover) sharing one size — it's the same widget in
+    # Gizmos — each row: name | size | color. Handle has two color
+    # swatches (idle + hover) sharing one size — it's the same gizmo in
     # two interaction states. Bbox uses line width, the rest use point
     # size.
     sub = _theme_section(layout, theme, "show_widgets",
-                         "Widgets", icon="MOD_HUE_SATURATION")
+                         "Gizmos", icon="MOD_HUE_SATURATION")
     if sub is not None:
         for color_attr, size_attr, label in (
                 ("color_handle",       "point_size_handle",       "Handle"),

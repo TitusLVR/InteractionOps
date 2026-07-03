@@ -38,8 +38,6 @@ from ..utils.uv_utils import (
 
 HIT_RADIUS = 14
 NORMAL_OFFSET = 0.002
-CORNER_SIZE = 8
-MID_SIZE = 7
 ROT_HANDLE_OFFSET = 28  # px past the top-mid handle
 
 GRAB_SENS_DEFAULT = 1.0
@@ -495,8 +493,10 @@ def draw_pixel_callback(op, context):
         # cursor pivot the UV cursor crosshair marks the pivot instead.)
         if (idx == op.active_island_idx and csp
                 and op.pivot_mode == PIVOT_CENTER):
-            _draw_ring(csp.x, csp.y, 8, role=Role.PIVOT, width="active")
-            _draw_circle(csp.x, csp.y, 3, role=Role.PIVOT)
+            pvs = theme.point_size_pivot
+            _draw_ring(csp.x, csp.y, pvs * 0.75, role=Role.PIVOT,
+                       width="active")
+            _draw_circle(csp.x, csp.y, pvs * 0.25, role=Role.PIVOT)
 
         if not op._clean_view:
             td = idata.get('texel_density')
@@ -506,13 +506,21 @@ def draw_pixel_callback(op, context):
                 blf.position(0, csp.x + 14, csp.y - 6, 0)
                 blf.draw(0, f"TD:{td:.3f}")
 
+    # Gizmo sizes come from the theme's Gizmos section (sliders act as
+    # pixel radii for these screen-space shapes)
+    hsize = theme.point_size_handle
+    hsize_hover = theme.point_size_handle_hover
+    pvs = theme.point_size_pivot
+
     # Move handle (gizmo box center) + rotation handle
     handles = _compute_screen_handles(op, context)
     if handles:
         csp = handles['_C']
-        hc_role = (Role.HANDLE_HOVER if op.hover_handle == 'CENTER'
-                   else Role.HANDLE)
-        _draw_circle(csp.x, csp.y, 5, role=hc_role)
+        hovered = op.hover_handle == 'CENTER'
+        hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
+        _draw_circle(csp.x, csp.y,
+                     (hsize_hover if hovered else hsize) * 0.6,
+                     role=hc_role)
         rsp = handles.get('_ROT')
         if rsp:
             pivot = theme.color_for(Role.PIVOT)
@@ -521,7 +529,7 @@ def draw_pixel_callback(op, context):
                            width="default")
             rc_role = (Role.HANDLE_HOVER if op.hover_rotate_handle
                        else Role.PIVOT)
-            _draw_circle(rsp.x, rsp.y, 6, role=rc_role)
+            _draw_circle(rsp.x, rsp.y, pvs * 0.5, role=rc_role)
 
     # Bounding box + handles (active island)
     if handles and op.state in (STATE_IDLE, STATE_HANDLE_SCALE,
@@ -529,34 +537,41 @@ def draw_pixel_callback(op, context):
         if all(n in handles for n in HANDLE_CORNERS):
             box = [(handles[n].x, handles[n].y)
                    for n in ('BL', 'BR', 'TR', 'TL', 'BL')]
-            _draw_polyline(box, role=Role.BBOX, width="default")
+            _draw_polyline(box, role=Role.BBOX)
 
         for name in HANDLE_CORNERS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
-            _draw_circle(h.x, h.y, CORNER_SIZE, role=hc_role)
+            hovered = op.hover_handle == name
+            hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
+            _draw_circle(h.x, h.y, hsize_hover if hovered else hsize,
+                         role=hc_role)
 
         for name in HANDLE_MIDS:
             if name not in handles:
                 continue
             h = handles[name]
-            hc_role = Role.HANDLE_HOVER if op.hover_handle == name else Role.HANDLE
-            _draw_diamond(h.x, h.y, MID_SIZE, role=hc_role)
+            hovered = op.hover_handle == name
+            hc_role = Role.HANDLE_HOVER if hovered else Role.HANDLE
+            _draw_diamond(h.x, h.y,
+                          (hsize_hover if hovered else hsize) * 0.875,
+                          role=hc_role)
 
     # UV Cursor
     if op.cursor_3d is not None:
         csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
         if csp:
-            arm = 14
+            csize = theme.point_size_cursor
+            arm = csize * 1.75
             coords = [_v3(p) for p in [
                 (csp.x - arm, csp.y), (csp.x + arm, csp.y),
                 (csp.x, csp.y - arm), (csp.x, csp.y + arm),
             ]]
             draw_prim.edges_3d(coords, role=Role.CURSOR, width="active",
                                context=bpy.context)
-            _draw_circle(csp.x, csp.y, 3, role=Role.CURSOR)
+            _draw_circle(csp.x, csp.y, max(2.0, csize * 0.375),
+                         role=Role.CURSOR)
 
     # Axis-lock preview: rail through the pivot along the UV axis the
     # transform is constrained to, in Blender's axis colors
@@ -905,16 +920,20 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         handles = _compute_screen_handles(self, context)
 
         if handles:
+            # Hit radius follows the themed handle size so bigger
+            # handles stay clickable edge to edge
+            theme = get_theme(context)
+            hit_r = max(HIT_RADIUS, theme.point_size_handle + 6)
             for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
-                if name in handles and (mouse - handles[name]).length <= HIT_RADIUS:
+                if name in handles and (mouse - handles[name]).length <= hit_r:
                     self.hover_handle = name
                     return
             rsp = handles.get('_ROT')
-            if rsp and (mouse - rsp).length <= HIT_RADIUS:
+            if rsp and (mouse - rsp).length <= hit_r:
                 self.hover_rotate_handle = True
                 return
             csp = handles.get('_C')
-            if csp and (mouse - csp).length <= HIT_RADIUS:
+            if csp and (mouse - csp).length <= hit_r:
                 self.hover_handle = 'CENTER'
                 return
 
