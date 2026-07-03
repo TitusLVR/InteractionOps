@@ -331,11 +331,13 @@ def _uv_screen_affine(geo, region, rv3d, nrm, nrm_off):
 
 
 def _compute_screen_handles(op, context):
-    """UV bbox corners in screen space via an affine UV->screen fit on
-    the island's vertices, so handles correspond to the UV editor
-    layout.  A linear fit stays stable for curved / concave islands
-    where mapping through the mesh surface would extrapolate corners
-    far off the geometry."""
+    """Screen-space gizmo for the active island: a tight axis-aligned
+    rectangle around the island's projected vertices, so the box always
+    hugs the island regardless of how curved its UV layout is.  Handle
+    names stay UV-semantic (R = UV u max, T = UV v max, ...) — an
+    affine UV->screen fit decides which rectangle side each handle sits
+    on and provides the axes used to decompose mouse motion back into
+    UV space."""
     if not (0 <= op.active_island_idx < len(op.islands_data)):
         return {}
     idata = op.islands_data[op.active_island_idx]
@@ -349,59 +351,61 @@ def _compute_screen_handles(op, context):
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
 
+    pts = []
+    for pos in geo['verts_3d'].values():
+        sp = location_3d_to_region_2d(region, rv3d, pos + nrm * nrm_off)
+        if sp is not None:
+            pts.append(sp)
+    if len(pts) < 3:
+        return {}
+    pad = 14
+    xmin = min(p.x for p in pts) - pad
+    xmax = max(p.x for p in pts) + pad
+    ymin = min(p.y for p in pts) - pad
+    ymax = max(p.y for p in pts) + pad
+    cx, cy = (xmin + xmax) * 0.5, (ymin + ymax) * 0.5
+    hw, hh = (xmax - xmin) * 0.5, (ymax - ymin) * 0.5
+
     bmin, bmax = idata['bbox_min'], idata['bbox_max']
-    cu = (bmin.x + bmax.x) * 0.5
-    cv = (bmin.y + bmax.y) * 0.5
     uv_w = max(bmax.x - bmin.x, 1e-8)
     uv_h = max(bmax.y - bmin.y, 1e-8)
 
+    u_scr = v_scr = None
     aff = _uv_screen_affine(geo, region, rv3d, nrm, nrm_off)
-    if aff is None:
-        return {}
-    rx, ry = aff
-    c = Vector((rx.x * cu + rx.y * cv + rx.z,
-                ry.x * cu + ry.y * cv + ry.z))
-    u_vec = Vector((rx.x, ry.x)) * uv_w
-    v_vec = Vector((rx.y, ry.y)) * uv_h
+    if aff is not None:
+        rx, ry = aff
+        u_scr = Vector((rx.x, ry.x)) * uv_w
+        v_scr = Vector((rx.y, ry.y)) * uv_h
 
-    # The affine image of the UV bbox is a parallelogram; keep the U
-    # axis and rebuild V perpendicular to it so the gizmo is always a
-    # true rectangle on screen.
-    if u_vec.length > 1e-6:
-        u_hat = u_vec.normalized()
-        perp = Vector((-u_hat.y, u_hat.x))
-        v_vec = perp * v_vec.dot(perp)
-    if u_vec.length < 1.0 or v_vec.length < 1.0:
-        return {}
+    # Which rectangle side does UV u / v grow toward?
+    u_axis, v_axis = 0, 1          # default: UV u along screen x
+    su = sv = 1.0
+    if u_scr is not None and v_scr is not None:
+        if abs(u_scr.x) + abs(v_scr.y) < abs(u_scr.y) + abs(v_scr.x):
+            u_axis, v_axis = 1, 0  # island lies sideways on screen
+        su = 1.0 if u_scr[u_axis] >= 0 else -1.0
+        sv = 1.0 if v_scr[v_axis] >= 0 else -1.0
 
-    half_u, half_v = u_vec * 0.5, v_vec * 0.5
+    def anchor(us, vs):
+        d = [0.0, 0.0]
+        d[u_axis] = su * us
+        d[v_axis] = sv * vs
+        return Vector((cx + d[0] * hw, cy + d[1] * hh))
+
     result = {
-        'BL': c - half_u - half_v, 'BR': c + half_u - half_v,
-        'TL': c - half_u + half_v, 'TR': c + half_u + half_v,
-        'B': c - half_v, 'T': c + half_v,
-        'L': c - half_u, 'R': c + half_u,
-        '_C': c,
-        '_u_dir': u_vec, '_v_dir': v_vec,
+        'BL': anchor(-1, -1), 'BR': anchor(1, -1),
+        'TL': anchor(-1, 1), 'TR': anchor(1, 1),
+        'B': anchor(0, -1), 'T': anchor(0, 1),
+        'L': anchor(-1, 0), 'R': anchor(1, 0),
+        '_C': Vector((cx, cy)),
     }
+    if (u_scr is not None and v_scr is not None
+            and u_scr.length > 1 and v_scr.length > 1):
+        result['_u_dir'] = u_scr
+        result['_v_dir'] = v_scr
 
-    # Push handles outward along the axes so the gap is equal on all sides
-    pad = 14
-    u_hat = u_vec.normalized()
-    v_hat = v_vec.normalized()
-    for name in list(HANDLE_CORNERS) + list(HANDLE_MIDS):
-        off = Vector((0.0, 0.0))
-        if name in ('BL', 'TL', 'L'):
-            off -= u_hat * pad
-        elif name in ('BR', 'TR', 'R'):
-            off += u_hat * pad
-        if name in ('BL', 'BR', 'B'):
-            off -= v_hat * pad
-        elif name in ('TL', 'TR', 'T'):
-            off += v_hat * pad
-        result[name] = result[name] + off
-
-    # Rotation handle sits just past the top-mid handle
-    result['_ROT'] = result['T'] + v_hat * ROT_HANDLE_OFFSET
+    # Rotation handle sits just above the rectangle
+    result['_ROT'] = Vector((cx, ymax + ROT_HANDLE_OFFSET))
     return result
 
 
