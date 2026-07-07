@@ -106,6 +106,7 @@ from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, I
 from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAssign,
     IOPS_OT_VertexColorAlphaAssign,
+    IOPS_OT_VertexColorChannel,
 )
 from .operators.object_color import (
     IOPS_OT_ObjectColor_Apply,
@@ -439,6 +440,7 @@ classes = (
     IOPS_OT_ActiveObject_Scroll_DOWN,
     IOPS_OT_VertexColorAssign,
     IOPS_OT_VertexColorAlphaAssign,
+    IOPS_OT_VertexColorChannel,
     IOPS_PT_VCol_Panel,
     IOPS_OT_ObjectColor_Apply,
     IOPS_OT_ObjectColor_CopyFromActive,

@@ -437,3 +437,112 @@ class IOPS_OT_VertexColorAlphaAssign(bpy.types.Operator):
         layout = self.layout
         row = layout.row()
         row.prop(self, "vertex_color_alpha", slider=True, text="Alpha value")
+
+
+CHANNEL_INDEX = {"R": 0, "G": 1, "B": 2}
+
+
+def _channel_transform(rgba, ch_idx, mode, amount):
+    """Pure per-element transform for one RGB channel; alpha always preserved.
+
+    SET: zero all RGB, set the chosen channel to 1.0 (pure color).
+    ADD: chosen = min(1.0, chosen + amount); other channels unchanged.
+    SUB: chosen = max(0.0, chosen - amount); other channels unchanged.
+    """
+    r, g, b, a = rgba[0], rgba[1], rgba[2], rgba[3]
+    rgb = [r, g, b]
+    if mode == "SET":
+        rgb = [0.0, 0.0, 0.0]
+        rgb[ch_idx] = 1.0
+    elif mode == "ADD":
+        rgb[ch_idx] = min(1.0, rgb[ch_idx] + amount)
+    elif mode == "SUB":
+        rgb[ch_idx] = max(0.0, rgb[ch_idx] - amount)
+    return (rgb[0], rgb[1], rgb[2], a)
+
+
+class IOPS_OT_VertexColorChannel(bpy.types.Operator):
+    """Set (=), add (+) or subtract (-) a single R/G/B vertex-color channel on
+    the selection; other channels and alpha are preserved (SET zeros the other
+    two RGB channels)."""
+
+    bl_idname = "iops.mesh_vertex_color_channel"
+    bl_label = "Vertex Color Channel"
+    bl_options = {"REGISTER", "UNDO"}
+
+    channel: bpy.props.EnumProperty(
+        name="Channel",
+        items=[("R", "R", "Red"), ("G", "G", "Green"), ("B", "B", "Blue")],
+        default="R",
+    )
+    mode: bpy.props.EnumProperty(
+        name="Mode",
+        items=[("SET", "=", "Set channel to 1.0, zero the other two RGB channels"),
+               ("ADD", "+", "Add amount to the channel (clamped 0-1)"),
+               ("SUB", "-", "Subtract amount from the channel (clamped 0-1)")],
+        default="SET",
+    )
+    amount: bpy.props.FloatProperty(name="Amount", default=1.0)
+
+    @classmethod
+    def poll(cls, context):
+        return context.object and context.object.type == "MESH"
+
+    def execute(self, context):
+        ch = CHANNEL_INDEX[self.channel]
+        sel = [o for o in context.selected_objects if o.type == "MESH"]
+        if context.object and context.object.type == "MESH" and context.object not in sel:
+            sel.append(context.object)
+        if not sel:
+            return {"CANCELLED"}
+
+        # Ensure the active object has an active color attribute (create a
+        # default one if missing), then propagate its name/type/domain.
+        me0 = context.object.data
+        if me0.color_attributes.active_color is None:
+            me0.color_attributes.new("Color", "FLOAT_COLOR", "POINT")
+            me0.color_attributes.active_color = me0.color_attributes["Color"]
+        active = me0.color_attributes.active_color
+        attr_name, attr_domain, attr_type = active.name, active.domain, active.data_type
+
+        for obj in sel:
+            if attr_name not in obj.data.color_attributes:
+                obj.data.color_attributes.new(attr_name, attr_type, attr_domain)
+            obj.data.color_attributes.active_color = obj.data.color_attributes[attr_name]
+
+        if context.mode == "EDIT_MESH":
+            for obj in sel:
+                bm = bmesh.from_edit_mesh(obj.data)
+                if attr_domain == "POINT":
+                    layers = (bm.verts.layers.float_color if attr_type == "FLOAT_COLOR"
+                              else bm.verts.layers.color)
+                    if attr_name not in layers:
+                        continue
+                    lyr = layers[attr_name]
+                    for v in bm.verts:
+                        if v.select:
+                            v[lyr] = _channel_transform(tuple(v[lyr]), ch, self.mode, self.amount)
+                elif attr_domain == "CORNER":
+                    layers = (bm.loops.layers.float_color if attr_type == "FLOAT_COLOR"
+                              else bm.loops.layers.color)
+                    if attr_name not in layers:
+                        continue
+                    lyr = layers[attr_name]
+                    for f in bm.faces:
+                        if any(v.select for v in f.verts):
+                            for loop in f.loops:
+                                loop[lyr] = _channel_transform(tuple(loop[lyr]), ch, self.mode, self.amount)
+                bmesh.update_edit_mesh(obj.data)
+        elif context.mode == "OBJECT":
+            for obj in sel:
+                ca = obj.data.color_attributes.get(attr_name)
+                if ca is None:
+                    continue
+                for d in ca.data:
+                    d.color = _channel_transform(tuple(d.color), ch, self.mode, self.amount)
+                obj.data.update()
+                obj.update_tag()
+
+        if context.area:
+            context.area.tag_redraw()
+        return {"FINISHED"}
