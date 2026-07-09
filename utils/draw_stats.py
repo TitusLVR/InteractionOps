@@ -230,6 +230,19 @@ def draw_iops_statistics():
                     w, _h = _dim(s)
                     col_x += w + 6
                 offset_y -= row_step
+
+            # Non-Planar Faces Overlay counter — only while the mode is on
+            # and its count is live (it only rebuilds in Edit Mode).
+            from ..operators.mesh_nonplanar_overlay import (
+                nonplanar_count, overlay_enabled)
+            if overlay_enabled() and context.mode == "EDIT_MESH":
+                count = nonplanar_count()
+                _t("Non-Planar:", role=Role.HUD_LABEL)
+                _t(str(count),
+                   role=(Role.HUD_STATS_ERROR if count
+                         else Role.HUD_LABEL_ACTIVE),
+                   x=base_column_x)
+                offset_y -= row_step
         else:
             _t("- - -", role=Role.HUD_LABEL)
 

@@ -2,10 +2,11 @@
 non-planar quads/ngons in real time.
 
 Toggle operator, not modal: module-level state owns one POST_VIEW handler
-(deviation-tinted face fills, cached GPU batch) and one POST_PIXEL handler
-(`Non-Planar: N` corner label). `bpy.app.handlers` hooks only set a dirty
-flag; the batch rebuilds lazily inside the draw callback, so orbit/pan
-redraws cost one `batch.draw()`.
+(deviation-tinted face fills, cached GPU batch). `bpy.app.handlers` hooks
+only set a dirty flag; the batch rebuilds lazily inside the draw callback,
+so orbit/pan redraws cost one `batch.draw()`. The `Non-Planar: N` counter
+is a row in the iOps statistics overlay (utils/draw_stats.py), which reads
+it via `nonplanar_count()`.
 """
 import bpy
 import bmesh
@@ -16,7 +17,6 @@ from mathutils import Vector
 
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
-from ..ui.hud import text as hud_text
 from ..utils.planarity import deviation_alpha, face_deviation_deg
 
 NORMAL_OFFSET = 0.002  # world-space push along the face normal (z-fight)
@@ -25,12 +25,9 @@ DEPTH_SHRINK = 0.005   # pull verts toward the eye by 0.5% of their view
                        # falls below depth precision on large/far meshes)
                        # and shifts nothing on screen — points move along
                        # their own view ray
-LABEL_X = 20
-LABEL_Y_FROM_TOP = 60
 
 _STATE = {
     "handle_view": None,    # POST_VIEW draw handle
-    "handle_pixel": None,   # POST_PIXEL draw handle
     "batch": None,          # (shader, GPUBatch) or None
     "count": 0,             # non-planar faces at last rebuild
     "dirty": True,
@@ -188,20 +185,10 @@ def _draw_view():
         batch.draw(shader)
 
 
-def _draw_pixel():
-    context = bpy.context
-    if context.mode != 'EDIT_MESH' or context.edit_object is None:
-        return
-    region = context.region
-    if region is None:
-        return
-    theme = get_theme(context)
-    count = _STATE["count"]
-    role = Role.HUD_STATS_ERROR if count else Role.HUD_LABEL
-    with hud_text.isolated(theme) as font_id:
-        hud_text.draw(f"Non-Planar: {count}", LABEL_X,
-                      region.height - LABEL_Y_FROM_TOP,
-                      theme=theme, role=role, font_id=font_id)
+def nonplanar_count() -> int:
+    """Non-planar face count at the last rebuild — read by the iOps
+    statistics overlay for its Non-Planar row."""
+    return _STATE["count"]
 
 
 def _enable():
@@ -210,8 +197,6 @@ def _enable():
     _STATE["dirty"] = True
     _STATE["handle_view"] = safe_handler_add(
         bpy.types.SpaceView3D, _draw_view, (), "WINDOW", "POST_VIEW")
-    _STATE["handle_pixel"] = safe_handler_add(
-        bpy.types.SpaceView3D, _draw_pixel, (), "WINDOW", "POST_PIXEL")
     for lst in _app_handler_lists():
         if _mark_dirty not in lst:
             lst.append(_mark_dirty)
@@ -221,11 +206,10 @@ def disable_overlay():
     """Idempotent. Also called from the addon's unregister(); removes only
     this module's handlers."""
     safe_handler_remove(_STATE["handle_view"], bpy.types.SpaceView3D, "WINDOW")
-    safe_handler_remove(_STATE["handle_pixel"], bpy.types.SpaceView3D, "WINDOW")
     for lst in _app_handler_lists():
         while _mark_dirty in lst:
             lst.remove(_mark_dirty)
-    _STATE.update(handle_view=None, handle_pixel=None, batch=None,
+    _STATE.update(handle_view=None, batch=None,
                   count=0, dirty=True, obj_ptr=0, threshold=None)
 
 

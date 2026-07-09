@@ -14,7 +14,7 @@ Toggles a sticky viewport overlay that highlights every non-planar face of the a
 
 - Checks every visible quad/ngon of the active object (triangles are always planar and skipped). A face is non-planar when any corner's plane deviates from the face's best-fit plane by more than the **Non-Planar Angle** threshold.
 - Non-planar faces are filled with the theme's error color. Fill intensity scales with the deviation: faces just past the threshold are faint, faces warped 15° or more draw at full strength.
-- A `Non-Planar: N` counter in the top-left corner of the viewport shows the current count and confirms the mode is on even when everything is planar.
+- A **Non-Planar** row in the iOps statistics overlay shows the current count while the mode is on — red when faces need fixing, green at 0 (which also confirms the mode is active when everything is planar).
 - The overlay is **sticky**: it survives object switches and mode changes (it only draws in Edit Mode) and stays active until toggled off.
 
 ## How to use
