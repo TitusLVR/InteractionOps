@@ -251,6 +251,7 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 # from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
+from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
@@ -516,6 +517,7 @@ classes = (
     IOPS_OT_straight_bevel,
     IOPS_OT_mesh_shear,
     IOPS_OT_MeshVisualUV,
+    IOPS_OT_MeshNonPlanarOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
     # IOPS_OT_polygon_bevel,  # WIP
     IOPS_MaterialOverrideSettings,
@@ -687,6 +689,13 @@ def unregister():
         cleanup_live_installs()
     except Exception as e:
         print("IOPS: theme-preview cleanup failed:", e)
+    # Kill the non-planar overlay's draw + app handlers before classes go
+    # away. Removes only this addon's handlers.
+    try:
+        from .operators.mesh_nonplanar_overlay import disable_overlay
+        disable_overlay()
+    except Exception as e:
+        print("IOPS: non-planar overlay cleanup failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.remove(object_copy_match_dimensions)
