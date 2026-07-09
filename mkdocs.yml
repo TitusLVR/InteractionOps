@@ -136,6 +136,7 @@ nav:
           - UV Channel Hop: operators/op_mesh_uv_channel_hop.md
           - Assign Vertex Color: operators/op_assign_vertex_color.md
           - Mesh Visual UV: operators/op_mesh_visual_uv.md
+          - Non-Planar Overlay: operators/op_mesh_nonplanar_overlay.md
           - UV Shortest Mark: operators/op_mesh_uv_shortest_mark.md
       - Snap & Transform:
           - Drag Snap: operators/op_drag_snap.md
