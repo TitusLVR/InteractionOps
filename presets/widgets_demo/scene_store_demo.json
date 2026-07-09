@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "scene_store_demo",
+  "title": "Scene Store Demo",
+  "space": "VIEW_3D",
+  "rows": [
+    { "type": "SECTION", "label": "Per-.blend Data" },
+    { "type": "INPUT", "data": "note", "value_type": "STRING", "label": "Note" },
+    { "type": "BUTTONS", "data": "level", "value_type": "INT", "values": [1, 2, 3] },
+    { "type": "FLIPBOX", "data": "enabled", "label": "Enabled" },
+    { "type": "BUTTON", "label": "Purge This Widget", "op": "iops.purge_widget_data",
+      "op_kwargs": { "widget": "scene_store_demo" }, "role": "error" }
+  ]
+}

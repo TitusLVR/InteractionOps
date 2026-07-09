@@ -42,13 +42,14 @@ upper). Unknown types are dropped + reported.
 | `values` | list of float in `[0,1]` | **yes** | — (empty/none → row dropped) |
 
 ### `FLIPBOX` — checkbox bound to a boolean
-Needs **exactly one** of `target` / `prop` / `switch` (zero or two+ → dropped).
+Needs **exactly one** of `target` / `prop` / `switch` / `data` (zero or two+ → dropped).
 | key | type | required | default |
 |---|---|---|---|
 | `target` | `"SHARP"` \| `"SEAM"` \| `"FREESTYLE"` | one-of | — |
 | `prop` | dotted RNA bool path (e.g. `scene.foo.bar`) | one-of | — |
 | `switch` | local switch name | one-of | — |
-| `label` | str | no | derived from target/prop/switch |
+| `data` | scene-store key (string) | one-of | — |
+| `label` | str | no | derived from target/prop/switch/data |
 
 - `prop` is resolved against `context` per draw; **absence-safe** — a missing
   path renders the box **disabled**, never errors.
@@ -86,8 +87,9 @@ transparency checker and honors the color's alpha (alpha 0 = checker only,
 ### `DROPDOWN` — enum RNA prop, edited in-overlay
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA path to an enum property | **yes** | — (empty/missing → dropped) |
-| `label` | str | no | last segment of `prop` |
+| `prop` | dotted RNA path to an enum property | one-of | — (empty/missing → dropped) |
+| `data` | scene-store key (string) | one-of | — |
+| `label` | str | no | last segment of `prop` or `data` key |
 | `labels` | object `{identifier: display}` | no | `{}` (raw identifier shown) |
 | `items_from` | str (registered provider name) | no | — (use RNA enum items) |
 | `value_type` | (ignored — forced to `ENUM`) | no | `ENUM` |
@@ -115,9 +117,10 @@ Absence-safe: a missing path renders disabled and the click no-ops.
 ### `INPUT` — string / number / angle RNA prop, edited in-overlay
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA path to a scalar property | **yes** | — (empty/missing → dropped) |
+| `prop` | dotted RNA path to a scalar property | one-of | — (empty/missing → dropped) |
+| `data` | scene-store key (string) | one-of | — |
 | `value_type` | `STRING` \| `INT` \| `FLOAT` \| `DEGREES` \| `RADIANS` | no | `STRING` |
-| `label` | str | no | last segment of `prop` |
+| `label` | str | no | last segment of `prop` or `data` key |
 | `fmt` | Python format string for the value display | no | `"{}"` |
 
 Shows `label` left-aligned and the current value (`fmt.format(value)`,
@@ -142,7 +145,8 @@ Two modes, selected by `value_type`:
 **Number mode** (`value_type` ∈ `INT` \| `FLOAT` \| `DEGREES` \| `RADIANS`, default `FLOAT`):
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA path to a number property | **yes** | — |
+| `prop` | dotted RNA path to a number property | one-of | — |
+| `data` | scene-store key (string) | one-of | — |
 | `value_type` | `INT` \| `FLOAT` \| `DEGREES` \| `RADIANS` | no | `FLOAT` |
 | `values` | list of numbers (author space) | **yes** | — (empty/none → row dropped) |
 | `unit` | display suffix appended to each label | no | `""` (auto `"°"` for `DEGREES`) |
@@ -154,7 +158,8 @@ exceed 1. Active match uses a float epsilon (`abs(a-b) <= 1e-6`).
 **Enum mode** (`value_type` = `ENUM`):
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA path to an enum property | **yes** | — |
+| `prop` | dotted RNA path to an enum property | one-of | — |
+| `data` | scene-store key (string) | one-of | — |
 | `value_type` | `ENUM` | **yes** | — |
 | `items` | list of `identifier` strings or `[identifier, label]` pairs | **yes** | — (empty/none → row dropped) |
 
@@ -176,6 +181,43 @@ auto-merge of adjacent bare flipboxes). `INPUT`/`DROPDOWN`/`BUTTONS` lay out one
 per row on their own, but also work inside a `ROW` cell (the cell splits width).
 The new types are **not** part of the flipbox auto-merge (only adjacent
 `FLIPBOX`es merge).
+
+## `data` — per-.blend storage binding
+
+FLIPBOX / DROPDOWN / INPUT / BUTTONS accept `data: "<key>"` as an
+alternative to `prop`. The value is stored in the scene
+(`Scene.IOPS.widget_data`) and saved/loaded with the .blend file. The key
+is scoped to the owning widget — two widgets using `"data": "slot_0"`
+never collide.
+
+- Exactly one binding per control: `data` is mutually exclusive with
+  `prop` (and `target`/`switch` on FLIPBOX).
+- Values are stored as strings; interpretation is DECLARED by
+  `value_type`, same rules as `prop` bindings (DEGREES authors degrees,
+  stores radians). FLIPBOX stores `"1"`/`"0"`.
+- Unset key = "not set yet": the control shows the type's default
+  (`""`/`0`/`0.0`/off) and stays enabled — unlike a broken `prop` path,
+  which renders disabled.
+- DROPDOWN with `data` has no RNA enum to introspect: give it
+  `items_from` (a registered provider) or it lists nothing.
+- Storage is per-SCENE (Blender's convention for per-file data);
+  multi-scene files keep one store per scene.
+- Data is keyed by WIDGET NAME: renaming or deleting a widget orphans its
+  stored block — the renamed widget starts from defaults, and the old
+  block stays in the .blend until a purge-all.
+- Purge: `iops.purge_widget_data` (`widget` kwarg: empty = all widgets).
+  Useful as a BUTTON row:
+  `{"type": "BUTTON", "label": "Reset", "op": "iops.purge_widget_data",
+    "op_kwargs": {"widget": "my_widget"}, "role": "error"}`
+
+Example:
+
+```json
+{ "type": "ROW", "cells": [
+  { "type": "DROPDOWN", "data": "slot_0", "items_from": "uv_images", "label": "1" },
+  { "type": "INPUT", "data": "note", "value_type": "STRING", "label": "Note" }
+]}
+```
 
 ## Value types & angle handling
 

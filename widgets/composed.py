@@ -363,10 +363,15 @@ def _clean_row_body(row):
         prop = str(row.get("prop", "")).strip()
         target = str(row.get("target", "")).strip().upper()
         switch = str(row.get("switch", "")).strip()
-        bound = [b for b in (prop, target, switch) if b]
+        data = str(row.get("data", "")).strip()
+        bound = [b for b in (prop, target, switch, data) if b]
         if len(bound) != 1:
-            return None, "flipbox needs exactly one of prop/target/switch"
-        if switch:
+            return None, ("flipbox needs exactly one of"
+                          " prop/target/switch/data")
+        if data:
+            out["data"] = data
+            out["label"] = str(row.get("label", "")) or data
+        elif switch:
             out["switch"] = switch
             out["label"] = str(row.get("label", "")) or switch
         elif prop:
@@ -394,11 +399,17 @@ def _clean_row_body(row):
         return out, None
     if rtype == "DROPDOWN":
         prop = str(row.get("prop", "")).strip()
-        if not prop:
-            return None, "dropdown needs a prop (RNA enum path)"
-        out["prop"] = prop
+        data = str(row.get("data", "")).strip()
+        if bool(prop) == bool(data):
+            return None, ("dropdown needs exactly one of prop (RNA enum"
+                          " path) / data (scene-store key)")
+        if data:
+            out["data"] = data
+        else:
+            out["prop"] = prop
         out["value_type"] = "ENUM"   # forced — dropdowns bind enums
-        out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
+        out["label"] = (str(row.get("label", ""))
+                        or data or prop.rsplit(".", 1)[-1])
         labels = row.get("labels", {})
         out["labels"] = {str(k): str(v) for k, v in labels.items()} \
             if isinstance(labels, dict) else {}
@@ -408,21 +419,32 @@ def _clean_row_body(row):
         return out, None
     if rtype == "INPUT":
         prop = str(row.get("prop", "")).strip()
-        if not prop:
-            return None, "input needs a prop (RNA path)"
-        out["prop"] = prop
+        data = str(row.get("data", "")).strip()
+        if bool(prop) == bool(data):
+            return None, ("input needs exactly one of prop (RNA path)"
+                          " / data (scene-store key)")
+        if data:
+            out["data"] = data
+        else:
+            out["prop"] = prop
         vt = str(row.get("value_type", "STRING")).strip().upper()
         if vt not in VALUE_TYPES:
             return None, f"input value_type '{vt}' invalid"
         out["value_type"] = vt
-        out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
+        out["label"] = (str(row.get("label", ""))
+                        or data or prop.rsplit(".", 1)[-1])
         out["fmt"] = str(row.get("fmt", "{}"))
         return out, None
     if rtype == "BUTTONS":
         prop = str(row.get("prop", "")).strip()
-        if not prop:
-            return None, "buttons needs a prop (RNA path)"
-        out["prop"] = prop
+        data = str(row.get("data", "")).strip()
+        if bool(prop) == bool(data):
+            return None, ("buttons needs exactly one of prop (RNA path)"
+                          " / data (scene-store key)")
+        if data:
+            out["data"] = data
+        else:
+            out["prop"] = prop
         vt = str(row.get("value_type", "FLOAT")).strip().upper()
         if vt not in VALUE_TYPES:
             return None, f"buttons value_type '{vt}' invalid"
@@ -610,7 +632,7 @@ def collect_switches(wdef):
 # ----------------------------------------------------------------------
 # Control building (bpy/bmesh deferred)
 # ----------------------------------------------------------------------
-def build_controls(row_defs, switch_store=None, on_switch=None):
+def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
     """Materialize a validated `rows` list into framework controls.
     `switch_store` (a dict) backs switch flipboxes; `on_switch(name, value)`
     fires on a switch write (persist + redraw). Each produced top-level
@@ -657,6 +679,10 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
             a = ADAPTERS[row["target"]]
             return PresetRow(row["values"], set=a["set"], enabled_get=gate)
         if rtype == "FLIPBOX":
+            if row.get("data"):
+                from . import scene_store
+                ad = scene_store.store_bool_adapter(widget_name, row["data"])
+                return FlipBox(row["label"], get=ad["get"], set=ad["set"])
             if row.get("switch"):
                 ad = switch_adapter(switch_store, row["switch"], on_switch)
                 return FlipBox(row["label"], get=ad["get"], set=ad["set"])
@@ -677,21 +703,45 @@ def build_controls(row_defs, switch_store=None, on_switch=None):
                           label=row.get("label", ""),
                           show_alpha=bool(row.get("show_alpha", False)))
         if rtype == "DROPDOWN":
-            ad = rna_value_adapter(row["prop"], row["value_type"])
             src = row.get("items_from")
-            items_get = (DROPDOWN_ITEM_PROVIDERS.get(src) if src else None) \
-                or rna_enum_items(row["prop"])
-            return Dropdown(get=ad["get"], set=ad["set"], path=row["prop"],
+            if row.get("data"):
+                from . import scene_store
+                ad = scene_store.store_value_adapter(
+                    widget_name, row["data"], row["value_type"])
+                path = f"{widget_name}:{row['data']}"
+                # No RNA enum to introspect for a data binding — a missing
+                # provider yields an empty dropdown, matching the existing
+                # unknown-provider behavior.
+                items_get = (DROPDOWN_ITEM_PROVIDERS.get(src) if src
+                             else None) or (lambda context: [])
+            else:
+                ad = rna_value_adapter(row["prop"], row["value_type"])
+                path = row["prop"]
+                items_get = (DROPDOWN_ITEM_PROVIDERS.get(src) if src
+                             else None) or rna_enum_items(row["prop"])
+            return Dropdown(get=ad["get"], set=ad["set"], path=path,
                             items_get=items_get,
                             labels=row.get("labels") or {},
                             label=row.get("label", ""))
         if rtype == "INPUT":
-            ad = rna_value_adapter(row["prop"], row["value_type"])
-            return InputField(get=ad["get"], set=ad["set"], path=row["prop"],
+            if row.get("data"):
+                from . import scene_store
+                ad = scene_store.store_value_adapter(
+                    widget_name, row["data"], row["value_type"])
+                path = f"{widget_name}:{row['data']}"
+            else:
+                ad = rna_value_adapter(row["prop"], row["value_type"])
+                path = row["prop"]
+            return InputField(get=ad["get"], set=ad["set"], path=path,
                               fmt=row.get("fmt", "{}"),
                               label=row.get("label", ""))
         if rtype == "BUTTONS":
-            ad = rna_value_adapter(row["prop"], row["value_type"])
+            if row.get("data"):
+                from . import scene_store
+                ad = scene_store.store_value_adapter(
+                    widget_name, row["data"], row["value_type"])
+            else:
+                ad = rna_value_adapter(row["prop"], row["value_type"])
             options = button_group_options(row.get("values"),
                                            row.get("items"),
                                            row.get("fmt", "{:g}"),
@@ -755,7 +805,8 @@ def make_widget(wdef):
     inst.poll = (lambda context: context.mode == "EDIT_MESH") if edge_bound \
         else (lambda context: True)
     inst.controls = build_controls(wdef["rows"], switch_store=inst.switches,
-                                   on_switch=on_switch)
+                                   on_switch=on_switch,
+                                   widget_name=wdef["name"])
     from ..ui.widgets.panel import WidgetPanel
     inst.panel = WidgetPanel(title=inst.title or inst.name)
     return inst

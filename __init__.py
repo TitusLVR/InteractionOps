@@ -101,7 +101,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.theme import classes as _theme_classes
 from .prefs.addon_properties import IOPS_AddonProperties
-from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem, IOPS_WidgetListItem, IOPS_RenameSettings
+from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem, IOPS_WidgetListItem, IOPS_RenameSettings, IOPS_WidgetDataKV, IOPS_WidgetDataBlock
 
 from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAssign,
@@ -213,6 +213,7 @@ from .operators.executor import (
 )
 from .operators.widgets_panel import classes as _widgets_panel_classes
 from .operators.uv_image_slots import classes as _uv_image_slots_classes
+from .operators.purge_widget_data import classes as _purge_widget_data_classes
 from .operators.render_asset_thumbnail import IOPS_OT_RenderAssetThumbnail
 from .operators.run_text import IOPS_OT_RunText
 from .operators.ui_prop_switch import (
@@ -335,6 +336,8 @@ classes = (
     IOPS_AddonProperties,
     IOPS_WidgetListItem,
     IOPS_RenameSettings,  # PointerProperty target — must register before IOPS_SceneProperties
+    IOPS_WidgetDataKV,     # CollectionProperty targets — same rule
+    IOPS_WidgetDataBlock,
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
@@ -532,6 +535,7 @@ classes = (
     *ui_widgets.classes,
     *_widgets_panel_classes,
     *_uv_image_slots_classes,
+    *_purge_widget_data_classes,
 )
 
 reg_cls, unreg_cls = bpy.utils.register_classes_factory(classes)

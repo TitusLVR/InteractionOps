@@ -246,6 +246,20 @@ def _iops_vc_preview_update(self, context):
     vc_preview_set(context, self.iops_vc_preview)
 
 
+class IOPS_WidgetDataKV(PropertyGroup):
+    """One scene-stored value for a composed widget; .name is the data key."""
+    value: StringProperty(name="Value", default="")
+
+
+class IOPS_WidgetDataBlock(PropertyGroup):
+    """Per-widget scene data block; .name is the widget name."""
+    entries: CollectionProperty(
+        type=IOPS_WidgetDataKV,
+        name="Entries",
+        description="Key/value entries stored by the widget",
+    )
+
+
 class IOPS_SceneProperties(PropertyGroup):
     rename: bpy.props.PointerProperty(
         type=IOPS_RenameSettings,
@@ -266,6 +280,12 @@ class IOPS_SceneProperties(PropertyGroup):
         type=IOPS_WidgetListItem,
         name="Widget list",
         description="Widgets found in the library folder for the popup",
+    )
+    widget_data: CollectionProperty(
+        type=IOPS_WidgetDataBlock,
+        name="Widget data",
+        description="Per-.blend data stored by composed widgets"
+                    " (see widgets/scene_store.py)",
     )
     dragsnap_point_a: FloatVectorProperty(
         name="DragSnap Point A",

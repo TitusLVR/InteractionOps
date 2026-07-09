@@ -323,6 +323,11 @@ def draw_widgets_tab(layout, context, prefs):
     ops.separator()
     ops.operator("iops.widgets_open_folder", text="", icon="FILE_FOLDER")
 
+    layout.separator(type="LINE")
+    row = layout.row()
+    row.operator("iops.purge_widget_data",
+                 text="Purge Widgets Data (this scene)", icon="TRASH")
+
 
 classes = (
     IOPS_WidgetRowItem,

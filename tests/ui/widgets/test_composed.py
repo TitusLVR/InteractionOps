@@ -906,3 +906,154 @@ def test_build_dropdown_unregistered_provider_falls_back_to_enum():
         pass
 
     assert dd.items_get(_Ctx()) == []
+
+
+# ----------------------------------------------------------------------
+# `data` binding (scene store)
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("row", [
+    {"type": "FLIPBOX", "data": "flag", "label": "Flag"},
+    {"type": "DROPDOWN", "data": "slot_0", "items_from": "uv_images"},
+    {"type": "INPUT", "data": "note", "value_type": "STRING"},
+    {"type": "BUTTONS", "data": "level", "value_type": "INT",
+     "values": [1, 2, 3]},
+])
+def test_data_binding_accepted(row):
+    out, err = composed._clean_row_body(row)
+    assert err is None
+    assert out["data"] == row["data"]
+    assert "prop" not in out
+
+
+@pytest.mark.parametrize("row", [
+    {"type": "FLIPBOX", "data": "flag", "prop": "scene.x"},
+    {"type": "FLIPBOX", "data": "flag", "switch": "s"},
+    {"type": "FLIPBOX", "data": "flag", "target": "SHARP"},
+    {"type": "DROPDOWN", "data": "slot_0", "prop": "scene.x"},
+    {"type": "INPUT", "data": "note", "prop": "scene.x"},
+    {"type": "BUTTONS", "data": "level", "prop": "scene.x",
+     "values": [1]},
+])
+def test_data_plus_other_binding_rejected(row):
+    out, err = composed._clean_row_body(row)
+    assert out is None
+
+
+@pytest.mark.parametrize("row", [
+    {"type": "FLIPBOX", "data": "  "},
+    {"type": "DROPDOWN", "data": ""},
+    {"type": "INPUT", "data": " "},
+    {"type": "BUTTONS", "data": "", "values": [1]},
+])
+def test_blank_data_rejected(row):
+    out, err = composed._clean_row_body(row)
+    assert out is None
+
+
+def test_data_label_defaults_to_key():
+    out, _ = composed._clean_row_body({"type": "INPUT", "data": "note"})
+    assert out["label"] == "note"
+    out, _ = composed._clean_row_body({"type": "FLIPBOX", "data": "flag"})
+    assert out["label"] == "flag"
+    out, _ = composed._clean_row_body(
+        {"type": "DROPDOWN", "data": "slot_0"})
+    assert out["label"] == "slot_0"
+
+
+def test_data_dropdown_keeps_forced_enum_and_items_from():
+    out, err = composed._clean_row_body(
+        {"type": "DROPDOWN", "data": "slot_0", "items_from": "uv_images"})
+    assert err is None
+    assert out["value_type"] == "ENUM"
+    assert out["items_from"] == "uv_images"
+
+
+def test_prop_rows_unchanged():
+    out, err = composed._clean_row_body(
+        {"type": "INPUT", "prop": "scene.IOPS.rename.new_name"})
+    assert err is None
+    assert out["prop"] == "scene.IOPS.rename.new_name"
+    assert "data" not in out
+
+
+# ----------------------------------------------------------------------
+# build_controls with `data` rows (scene-store routing)
+# ----------------------------------------------------------------------
+from tests.ui.widgets.test_scene_store import FakeContext
+
+
+def test_build_controls_data_input_roundtrip():
+    rows, errors = composed.validate_def({
+        "name": "demo_w",
+        "rows": [{"type": "INPUT", "data": "note",
+                  "value_type": "STRING"}],
+    })
+    assert not errors
+    controls = composed.build_controls(rows["rows"], widget_name="demo_w")
+    assert len(controls) == 1
+    ctrl = controls[0]
+    ctx = FakeContext()
+    assert ctrl.get(ctx) == ("", False)            # unset -> default, enabled
+    ctrl.set(ctx, "hello")
+    assert ctrl.get(ctx) == ("hello", False)
+    # scoped to the widget's own block
+    block = ctx.scene.IOPS.widget_data.get("demo_w")
+    assert block.entries.get("note").value == "hello"
+
+
+def test_build_controls_data_flipbox_bool():
+    rows, _ = composed.validate_def({
+        "name": "demo_w",
+        "rows": [{"type": "FLIPBOX", "data": "flag", "label": "Flag"}],
+    })
+    controls = composed.build_controls(rows["rows"], widget_name="demo_w")
+    ctx = FakeContext()
+    ctrl = controls[0]
+    assert ctrl.get(ctx) == (False, False)
+    ctrl.set(ctx, True)
+    assert ctrl.get(ctx) == (True, False)
+    assert ctx.scene.IOPS.widget_data.get("demo_w") \
+              .entries.get("flag").value == "1"
+
+
+def test_build_controls_data_dropdown_uses_provider_and_empty_fallback():
+    composed.register_dropdown_items(
+        "test_items", lambda context: [("A", "Option A"), ("B", "Option B")])
+    try:
+        rows, _ = composed.validate_def({
+            "name": "demo_w",
+            "rows": [
+                {"type": "DROPDOWN", "data": "slot", "items_from": "test_items"},
+                {"type": "DROPDOWN", "data": "bare"},   # no items_from
+            ],
+        })
+        controls = composed.build_controls(rows["rows"],
+                                           widget_name="demo_w")
+        ctx = FakeContext()
+        assert controls[0].items_get(ctx) == [("A", "Option A"),
+                                              ("B", "Option B")]
+        assert controls[1].items_get(ctx) == []        # empty fallback
+        controls[0].set(ctx, "B")
+        assert controls[0].get(ctx) == ("B", False)
+    finally:
+        composed.unregister_dropdown_items("test_items")
+
+
+def test_build_controls_data_buttons():
+    rows, _ = composed.validate_def({
+        "name": "demo_w",
+        "rows": [{"type": "BUTTONS", "data": "level", "value_type": "INT",
+                  "values": [1, 2, 3]}],
+    })
+    controls = composed.build_controls(rows["rows"], widget_name="demo_w")
+    ctx = FakeContext()
+    controls[0].set(ctx, 2)
+    assert controls[0].get(ctx) == (2, False)
+
+
+def test_data_rows_do_not_bind_edges():
+    rows, _ = composed.validate_def({
+        "name": "demo_w",
+        "rows": [{"type": "INPUT", "data": "note"}],
+    })
+    assert composed._binds_edges(rows["rows"]) is False
