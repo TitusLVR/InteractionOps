@@ -13,7 +13,6 @@ import gpu
 from bpy.app.handlers import persistent
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
-from mathutils.geometry import tessellate_polygon
 
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
@@ -21,6 +20,11 @@ from ..ui.hud import text as hud_text
 from ..utils.planarity import deviation_alpha, face_deviation_deg
 
 NORMAL_OFFSET = 0.002  # world-space push along the face normal (z-fight)
+DEPTH_SHRINK = 0.005   # pull verts toward the eye by 0.5% of their view
+                       # depth: scales with distance (a fixed world offset
+                       # falls below depth precision on large/far meshes)
+                       # and shifts nothing on screen — points move along
+                       # their own view ray
 LABEL_X = 20
 LABEL_Y_FROM_TOP = 60
 
@@ -33,6 +37,37 @@ _STATE = {
     "obj_ptr": 0,           # as_pointer() of the object last built
     "threshold": None,      # threshold used at last rebuild
 }
+
+
+_SHADER = None
+
+
+def _get_shader():
+    """SMOOTH_COLOR clone with a clip-space depth bias. Lazy — creating
+    shaders needs a GPU context, which background mode doesn't have."""
+    global _SHADER
+    if _SHADER is None:
+        info = gpu.types.GPUShaderCreateInfo()
+        info.vertex_in(0, 'VEC3', "pos")
+        info.vertex_in(1, 'VEC4', "color")
+        iface = gpu.types.GPUStageInterfaceInfo("iops_nonplanar_iface")
+        iface.smooth('VEC4', "fcol")
+        info.vertex_out(iface)
+        info.fragment_out(0, 'VEC4', "fragColor")
+        info.push_constant('MAT4', "viewMat")
+        info.push_constant('MAT4', "projMat")
+        info.push_constant('FLOAT', "depthShrink")
+        info.vertex_source(
+            "void main() {\n"
+            "  vec4 vp = viewMat * vec4(pos, 1.0);\n"
+            "  vp.xyz *= (1.0 - depthShrink);\n"
+            "  gl_Position = projMat * vp;\n"
+            "  fcol = color;\n"
+            "}\n")
+        info.fragment_source(
+            "void main() { fragColor = fcol; }\n")
+        _SHADER = gpu.shader.create_from_info(info)
+    return _SHADER
 
 
 def overlay_enabled() -> bool:
@@ -93,19 +128,28 @@ def _rebuild(context):
     theme = get_theme(context)
     r, g, b, _a = theme.color_for(Role.ERROR_LINE)
     normal_mat = obj.matrix_world.inverted_safe().transposed().to_3x3()
+    # Fill with Blender's own render tessellation (loop triangles) — a
+    # generic tessellator can pick the opposite diagonal on a warped face,
+    # and two differently-diagonalized saddles intersect mid-face, which
+    # z-fights at any offset.
+    tris_by_face = {}
+    for lt in bm.calc_loop_triangles():
+        tris_by_face.setdefault(lt[0].face.index, []).append(lt)
+    mw = obj.matrix_world
     pos, col = [], []
-    for f, dev, coords in hits:
+    for f, dev, _coords in hits:
         alpha = deviation_alpha(dev, threshold)
         world_n = (normal_mat @ f.normal)
         world_n = (world_n.normalized() if world_n.length_squared > 0.0
                    else Vector((0.0, 0.0, 0.0)))
         offset = world_n * NORMAL_OFFSET
-        pts = [Vector(c) + offset for c in coords]
         rgba = (r, g, b, alpha)
-        for i0, i1, i2 in tessellate_polygon([pts]):
-            pos.extend((pts[i0], pts[i1], pts[i2]))
+        for lt in tris_by_face.get(f.index, ()):
+            pos.extend((mw @ lt[0].vert.co + offset,
+                        mw @ lt[1].vert.co + offset,
+                        mw @ lt[2].vert.co + offset))
             col.extend((rgba, rgba, rgba))
-    shader = gpu.shader.from_builtin('SMOOTH_COLOR')
+    shader = _get_shader()
     _STATE["batch"] = (shader,
                        batch_for_shader(shader, 'TRIS',
                                         {"pos": pos, "color": col}))
@@ -137,6 +181,10 @@ def _draw_view():
         return
     shader, batch = _STATE["batch"]
     with draw_scope(blend='ALPHA', depth='LESS_EQUAL', depth_mask=False):
+        shader.bind()
+        shader.uniform_float("viewMat", gpu.matrix.get_model_view_matrix())
+        shader.uniform_float("projMat", gpu.matrix.get_projection_matrix())
+        shader.uniform_float("depthShrink", DEPTH_SHRINK)
         batch.draw(shader)
 
 
