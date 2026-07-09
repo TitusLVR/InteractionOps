@@ -196,6 +196,9 @@ def get_iops_prefs():
             "cursor_bisect_snap_threshold": safe("cursor_bisect_snap_threshold", 30.0),
             "cursor_bisect_snap_use_modifiers": safe("cursor_bisect_snap_use_modifiers", True),
         },
+        "NONPLANAR_OVERLAY": {
+            "nonplanar_angle": safe("nonplanar_angle", 0.5),
+        },
     }
 
     return iops_prefs

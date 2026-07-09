@@ -218,7 +218,15 @@ def load_iops_preferences():
                                 if hasattr(prefs, key_):
                                     setattr(prefs, key_,
                                             safe_get(value, key_, defaults.get(key_, default_)))
-                    
+
+                    case "NONPLANAR_OVERLAY":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("NONPLANAR_OVERLAY", {})
+                            if hasattr(prefs, "nonplanar_angle"):
+                                prefs.nonplanar_angle = safe_get(
+                                    value, "nonplanar_angle",
+                                    defaults.get("nonplanar_angle", 0.5))
+
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})

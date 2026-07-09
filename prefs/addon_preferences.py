@@ -192,6 +192,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_executor: BoolProperty(default=False)
     show_section_textures: BoolProperty(default=False)
     show_section_bisect: BoolProperty(default=False)
+    show_section_nonplanar: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
     show_section_io: BoolProperty(default=False)
@@ -592,7 +593,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     description="Calculate snap points on mesh with modifiers applied (slower but more accurate)",
     default=True
     )
-    
+
+    # Non-Planar Faces Overlay (iops.mesh_nonplanar_overlay)
+    nonplanar_angle: bpy.props.FloatProperty(
+        name="Non-Planar Angle",
+        description="Faces whose corners deviate from the face plane by more "
+                    "than this angle (degrees) are highlighted by the "
+                    "Non-Planar Faces Overlay",
+        default=0.5,
+        min=0.001,
+        max=90.0,
+        step=10,  # 0.1 degree
+        precision=2,
+    )
+
     # Window creation method
     modifier_window_method: EnumProperty(
         name="Window Creation Method",
@@ -904,6 +918,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_bisect_merge_distance")
                 row.prop(self, "cursor_bisect_rotation_step")
                 row.prop(self, "cursor_bisect_coplanar_angle")
+
+            # Non-Planar Faces Overlay
+            body = _section(column_main, self, "show_section_nonplanar",
+                            "Non-Planar Overlay", icon="MOD_TRIANGULATE")
+            if body is not None:
+                body.prop(self, "nonplanar_angle")
 
             # Snap Combos
             body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")
