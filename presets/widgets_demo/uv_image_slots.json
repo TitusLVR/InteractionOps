@@ -6,15 +6,15 @@
   "rows": [
     { "type": "SECTION", "label": "UV Image Slots" },
     { "type": "ROW", "cells": [
-      { "type": "DROPDOWN", "prop": "window_manager.iops_uv_slot_0_name", "items_from": "uv_images", "label": "1" },
+      { "type": "DROPDOWN", "data": "slot_0", "items_from": "uv_images", "label": "1" },
       { "type": "BUTTON", "label": "Set", "op": "iops.uv_image_slot_flip", "op_kwargs": { "slot": 0 } }
     ]},
     { "type": "ROW", "cells": [
-      { "type": "DROPDOWN", "prop": "window_manager.iops_uv_slot_1_name", "items_from": "uv_images", "label": "2" },
+      { "type": "DROPDOWN", "data": "slot_1", "items_from": "uv_images", "label": "2" },
       { "type": "BUTTON", "label": "Set", "op": "iops.uv_image_slot_flip", "op_kwargs": { "slot": 1 } }
     ]},
     { "type": "ROW", "cells": [
-      { "type": "DROPDOWN", "prop": "window_manager.iops_uv_slot_2_name", "items_from": "uv_images", "label": "3" },
+      { "type": "DROPDOWN", "data": "slot_2", "items_from": "uv_images", "label": "3" },
       { "type": "BUTTON", "label": "Set", "op": "iops.uv_image_slot_flip", "op_kwargs": { "slot": 2 } }
     ]}
   ]

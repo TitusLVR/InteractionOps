@@ -111,7 +111,8 @@ lists that `bl_rna` can't expose — e.g. a dynamic (items-callback)
 value) can then be a plain `StringProperty` holding the chosen identifier;
 the provider supplies what's shown. Unknown/unregistered `items_from` falls
 back to the RNA enum reader. (Example: the `uv_image_slots` widget uses
-provider `"uv_images"` and binds each row to `window_manager.iops_uv_slot_N_name`.)
+provider `"uv_images"` and binds each row to `data: "slot_N"` — the scene
+store, so slot choices persist in the .blend.)
 Absence-safe: a missing path renders disabled and the click no-ops.
 
 ### `INPUT` — string / number / angle RNA prop, edited in-overlay

@@ -1,14 +1,15 @@
-"""UV image slots: per-slot WindowManager StringProperty (the stored image
-name, session-only) + the DROPDOWN items provider + the one-click flip
+"""UV image slots: per-slot image names in the widget scene store (saved
+with the .blend) + the DROPDOWN items provider + the one-click flip
 operator behind the uv_image_slots widget.
 
-Each slot stores an image NAME in ``iops_uv_slot_N_name`` on WindowManager
-(SKIP_SAVE — never written to the .blend). The widget's DROPDOWN lists its
-choices via the ``"uv_images"`` items provider registered here: a dynamic
+Each slot stores an image NAME under the widget's block in
+``Scene.IOPS.widget_data`` (keys ``slot_0..slot_N`` — see
+widgets/scene_store.py), written by the widget's DROPDOWN rows via their
+``data`` binding and read back here. The DROPDOWN lists its choices via
+the ``"uv_images"`` items provider registered here: a dynamic
 (items-callback) EnumProperty does NOT expose its items through ``bl_rna``
 in script context, so the custom GPU dropdown reads them from this live
-provider instead and writes the chosen image name straight into the
-StringProperty.
+provider instead.
 
 The flip operator reads a slot's stored name and sets it as the active
 image of an Image/UV editor — the invoking one if the click happened
@@ -16,10 +17,12 @@ there, otherwise the largest Image editor open in the window (so it works
 when toggled from the 3D viewport).
 """
 import bpy
-from bpy.props import IntProperty, StringProperty
+from bpy.props import IntProperty
 
+from ..widgets import scene_store
 from ..widgets.uv_slots_logic import SENTINEL
 
+WIDGET_NAME = "uv_image_slots"
 SLOT_COUNT = 3
 ITEMS_PROVIDER = "uv_images"
 
@@ -33,29 +36,17 @@ def uv_image_items(context):
 
 
 def register_slot_props():
-    """Define the per-slot WindowManager StringProperties (session-only) and
-    register the live image-items provider the widget's dropdowns read.
+    """Register the live image-items provider the widget's dropdowns read.
     Runs before the composed widgets are built (see __init__.register), so
-    the dropdowns pick up the provider rather than the empty enum fallback."""
+    the dropdowns pick up the provider rather than the empty enum fallback.
+    (Slot values live in the scene store — no RNA props to define.)"""
     from ..widgets import composed
-    for slot in range(SLOT_COUNT):
-        setattr(bpy.types.WindowManager, "iops_uv_slot_%d_name" % slot,
-                StringProperty(
-                    name="UV Slot %d Image" % slot,
-                    description="Stored image name for UV image slot %d" % slot,
-                    default="",
-                    options={"SKIP_SAVE"},
-                ))
     composed.register_dropdown_items(ITEMS_PROVIDER, uv_image_items)
 
 
 def unregister_slot_props():
     from ..widgets import composed
     composed.unregister_dropdown_items(ITEMS_PROVIDER)
-    for slot in range(SLOT_COUNT):
-        attr = "iops_uv_slot_%d_name" % slot
-        if hasattr(bpy.types.WindowManager, attr):
-            delattr(bpy.types.WindowManager, attr)
 
 
 def _target_image_space(context):
@@ -82,8 +73,8 @@ class IOPS_OT_uv_image_slot_flip(bpy.types.Operator):
     slot: IntProperty(name="Slot", default=0, min=0)
 
     def execute(self, context):
-        wm = context.window_manager
-        name = getattr(wm, "iops_uv_slot_%d_name" % self.slot, "")
+        name = scene_store.get(context, WIDGET_NAME,
+                               "slot_%d" % self.slot, default="")
         if not name:
             self.report({"INFO"}, "IOPS: slot %d is empty" % self.slot)
             return {"CANCELLED"}
