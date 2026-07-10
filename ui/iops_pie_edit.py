@@ -572,7 +572,13 @@ class IOPS_MT_Pie_Edit(Menu):
             pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
             pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
             pie.separator()
-            pie.operator("iops.function_f4", text="2D Cursor", icon="CURSOR")
+            pie.prop(
+                context.tool_settings,
+                "use_uv_select_island",
+                text="Island Selection",
+                icon="UV_ISLANDSEL",
+                toggle=True,
+            )
 
             draw_open_asset_in_pie_if_poll(pie, context)
 

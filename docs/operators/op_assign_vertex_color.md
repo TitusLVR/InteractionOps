@@ -100,5 +100,26 @@ The widget's **Black** and **White** fill swatches use the same explicit-color
 override as R/G/B (`use_override_color` with `override_color` `(0,0,0,1)` /
 `(1,1,1,1)`).
 
+## Vertex Color Channel (bl_idname: iops.mesh_vertex_color_channel)
+
+Sets, adds to, or subtracts from a single R/G/B channel of the active color
+attribute on the selection, preserving the other channels and alpha.
+
+### Properties
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `channel` | Enum | `R` | Target channel: `R` / `G` / `B`. |
+| `mode` | Enum | `SET` | `SET` (=): set channel to 1.0 and zero the other two RGB channels; `ADD` (+): `min(1, channel + amount)`; `SUB` (−): `max(0, channel − amount)`. |
+| `amount` | Float | `1.0` | Step for `ADD` / `SUB`. |
+
+Alpha is always preserved. Works in Edit Mesh (selected verts / corners of faces
+with a selected vert) and Object Mode (whole attribute), on POINT/CORNER domains
+and FLOAT_COLOR/BYTE_COLOR types. If the active object has no color attribute, a
+default `Color` (FLOAT_COLOR, POINT) is created.
+
+The Vertex Color widget's "Fill RGB" section drives this operator: each channel
+is a row of a colored swatch (`=`, pure fill via `mode=SET`) plus `+` (`ADD`) and
+`−` (`SUB`) buttons.
+
 ## Related
 - [Vertex Color Picker / scene IOPS color](../index.md) — supplies `scene.IOPS.iops_vertex_color`.
