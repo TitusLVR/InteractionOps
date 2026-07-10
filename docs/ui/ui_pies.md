@@ -99,7 +99,7 @@ For MESH + EDIT mode, an extra `iops.mesh_visual_uv` button (icon `UV`) is appen
 
 ### IMAGE_EDITOR
 
-Cardinals: `iops.function_f1` Vertex, `iops.function_f2` Edge, `iops.function_f3` Face, `iops.function_esc`. When `tool_settings.use_uv_select_sync` is OFF an extra slot adds `iops.function_f4` Island.
+Cardinals: `iops.function_f1` Vertex, `iops.function_f2` Edge, `iops.function_f3` Face, `iops.function_esc`. An extra slot holds a toggle for `tool_settings.use_uv_select_island` (Island Selection, icon `UV_ISLANDSEL`).
 
 ### Shared Empty block (`draw_empty_pie_size_display_and_image`)
 

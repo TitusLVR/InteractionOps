@@ -572,13 +572,23 @@ class IOPS_MT_Pie_Edit(Menu):
             pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
             pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
             pie.separator()
-            pie.prop(
-                context.tool_settings,
-                "use_uv_select_island",
-                text="Island Selection",
-                icon="UV_ISLANDSEL",
-                toggle=True,
-            )
+            if bpy.app.version >= (5, 0, 0):
+                pie.prop(
+                    context.tool_settings,
+                    "use_uv_select_island",
+                    text="Island Selection",
+                    icon="UV_ISLANDSEL",
+                    toggle=True,
+                )
+            else:
+                # Blender 4.x: island is a uv_select_mode enum value
+                pie.prop_enum(
+                    context.tool_settings,
+                    "uv_select_mode",
+                    "ISLAND",
+                    text="Island Selection",
+                    icon="UV_ISLANDSEL",
+                )
 
             draw_open_asset_in_pie_if_poll(pie, context)
 
