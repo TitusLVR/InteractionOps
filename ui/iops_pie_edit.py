@@ -15,6 +15,39 @@ def draw_open_asset_in_pie_if_poll(pie, context):
     )
 
 
+def _empty_display_size_get(self):
+    obj = bpy.context.object
+    if obj and obj.type == "EMPTY":
+        return obj.empty_display_size
+    return 1.0
+
+
+def _empty_display_size_set(self, value):
+    ctx = bpy.context
+    empties = [o for o in ctx.selected_objects if o.type == "EMPTY"]
+    if ctx.object and ctx.object.type == "EMPTY" and ctx.object not in empties:
+        empties.append(ctx.object)
+    for o in empties:
+        o.empty_display_size = value
+
+
+def register_empty_size_prop():
+    bpy.types.WindowManager.iops_empty_display_size = bpy.props.FloatProperty(
+        name="Custom Size",
+        description="Empty display size, applied to all selected empties",
+        min=0.0001,
+        max=1000.0,
+        subtype="DISTANCE",
+        get=_empty_display_size_get,
+        set=_empty_display_size_set,
+    )
+
+
+def unregister_empty_size_prop():
+    if hasattr(bpy.types.WindowManager, "iops_empty_display_size"):
+        del bpy.types.WindowManager.iops_empty_display_size
+
+
 def draw_empty_pie_size_display_and_image(pie, context):
     """Shared EMPTY pie UI: size column, display grid, optional image-empty row."""
     obj = context.object
@@ -34,7 +67,7 @@ def draw_empty_pie_size_display_and_image(pie, context):
     row.operator("iops.set_empty_size", text="5.0").size = 5.0
     row.operator("iops.set_empty_size", text="10.0").size = 10.0
     col.separator()
-    col.prop(obj, "empty_display_size", text="Custom Size")
+    col.prop(context.window_manager, "iops_empty_display_size", text="Custom Size")
     col.separator()
     col.operator("iops.copy_empty_size_from_active", text="Copy Size from Active", icon="COPYDOWN")
 

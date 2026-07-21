@@ -5,7 +5,8 @@ import ui.widgets.controls as controls
 from ui.widgets.controls import (ActionButton, Swatch, Dropdown, InputField,
                                  ButtonGroup, button_group_options,
                                  preset_index, TextEditState,
-                                 dropdown_item_rects, dropdown_index_at)
+                                 dropdown_layout, dropdown_item_rects, dropdown_index_at,
+                                 dropdown_filter, DropdownState)
 
 
 def test_action_button_execute_delegates_to_invoke_operator(monkeypatch):
@@ -344,3 +345,139 @@ def test_dropdown_index_at_hits_and_misses():
     assert dropdown_index_at(45.0, 10.0, 100.0, 50.0, 20.0, 3) == 2
     assert dropdown_index_at(120.0, 10.0, 100.0, 50.0, 20.0, 3) == -1  # above
     assert dropdown_index_at(10.0, 10.0, 100.0, 50.0, 20.0, 3) == -1   # below
+
+
+def test_dropdown_layout_fits_below_opens_down():
+    # below = field_y = 100 -> 3*20=60 fits: open down, all visible.
+    assert dropdown_layout(100.0, 20.0, 20.0, 3, 400.0) == (False, 3, 0)
+
+
+def test_dropdown_layout_flips_up_when_more_room_above():
+    # below=60, above=400-60-20=320; 10 items don't fit below but do above.
+    assert dropdown_layout(60.0, 20.0, 20.0, 10, 400.0) == (True, 10, 0)
+
+
+def test_dropdown_layout_scrolls_when_nowhere_fits():
+    # below=100 (5 cells), above=280 (14 cells), n=20 -> up, 14 visible.
+    assert dropdown_layout(100.0, 20.0, 20.0, 20, 400.0) == (True, 14, 6)
+
+
+def test_dropdown_layout_visible_floor_three():
+    # below=30, above=70-30-20=20: nothing fits; floor of 3 still applies.
+    assert dropdown_layout(30.0, 20.0, 20.0, 10, 70.0) == (False, 3, 7)
+
+
+def test_dropdown_layout_zero_items_is_one_placeholder_cell():
+    # n=0 lays out ONE cell (the "no match" placeholder).
+    assert dropdown_layout(100.0, 20.0, 20.0, 0, 400.0) == (False, 1, 0)
+
+
+def test_dropdown_item_rects_flipped_stack_up_reading_order():
+    rects = dropdown_item_rects(10.0, 100.0, 50.0, 20.0, 3,
+                                flipped=True, field_h=20.0)
+    # Field top = 120. rects[0] is the visually TOPMOST cell (reading
+    # order top->bottom matches the non-flipped list); rects[-1] sits
+    # directly above the field.
+    assert rects[0] == (10.0, 160.0, 50.0, 20.0)
+    assert rects[1] == (10.0, 140.0, 50.0, 20.0)
+    assert rects[2] == (10.0, 120.0, 50.0, 20.0)
+
+
+def test_dropdown_index_at_flipped():
+    args = (10.0, 100.0, 50.0, 20.0, 3)
+    assert dropdown_index_at(170.0, *args, flipped=True, field_h=20.0) == 0
+    assert dropdown_index_at(125.0, *args, flipped=True, field_h=20.0) == 2
+    assert dropdown_index_at(90.0, *args, flipped=True, field_h=20.0) == -1
+
+
+# ----------------------------------------------------------------------
+# DropdownState (open-dropdown scroll/filter state)
+# ----------------------------------------------------------------------
+DD_ITEMS = [("A", "Alpha"), ("B", "Bravo"), ("C", "Charlie"),
+            ("D", "Delta"), ("E", "Echo"), ("F", "Foxtrot"),
+            ("G", "Golf"), ("H", "Hotel"), ("I", "India"),
+            ("J", "Juliett")]
+
+
+def test_dropdown_filter_case_insensitive_substring():
+    assert dropdown_filter(DD_ITEMS, "OT") == [("F", "Foxtrot"),
+                                               ("H", "Hotel")]
+    assert dropdown_filter(DD_ITEMS, "") == DD_ITEMS
+    assert dropdown_filter(DD_ITEMS, "zz") == []
+
+
+def test_dd_state_fits_below_shows_all():
+    dd = DropdownState(DD_ITEMS, (10.0, 300.0, 50.0, 20.0), 400.0, 20.0)
+    assert (dd.flipped, dd.visible, dd.max_offset) == (False, 10, 0)
+    assert dd.hover == -1 and dd.offset == 0
+
+
+def test_dd_state_open_centers_current_value():
+    # below=60 (3), above=160-80=80 (4) -> flipped, visible 4, max 6.
+    dd = DropdownState(DD_ITEMS, (10.0, 60.0, 50.0, 20.0), 160.0, 20.0,
+                       current="H")
+    assert (dd.flipped, dd.visible, dd.max_offset) == (True, 4, 6)
+    assert dd.hover == 7
+    assert dd.offset == 5              # 7 - 4//2, clamped to [0, 6]
+    assert dd.window()[0][0] == "F"
+
+
+def test_dd_state_scroll_clamps():
+    dd = DropdownState(DD_ITEMS, (10.0, 60.0, 50.0, 20.0), 160.0, 20.0)
+    dd.scroll(100)
+    assert dd.offset == 6
+    assert dd.clipped_above() and not dd.clipped_below()
+    dd.scroll(-100)
+    assert dd.offset == 0
+    assert dd.clipped_below() and not dd.clipped_above()
+
+
+def test_dd_state_type_filters_and_resets_window():
+    dd = DropdownState(DD_ITEMS, (10.0, 60.0, 50.0, 20.0), 160.0, 20.0)
+    dd.scroll(3)
+    dd.type_char("o")
+    # displays containing "o": Bravo Echo Foxtrot Golf Hotel
+    assert [i for i, _ in dd.filtered()] == ["B", "E", "F", "G", "H"]
+    assert dd.offset == 0 and dd.hover == 0
+    assert dd.visible == 4             # relayout against 5 filtered items
+    dd.type_char("t")                  # Foxtrot, Hotel
+    assert len(dd.filtered()) == 2
+    assert (dd.flipped, dd.visible) == (False, 2)   # 2 cells now fit below
+    dd.backspace()
+    assert len(dd.filtered()) == 5
+    dd.clear_filter()
+    assert dd.filter == "" and len(dd.filtered()) == 10
+
+
+def test_dd_state_no_match_placeholder():
+    dd = DropdownState(DD_ITEMS, (10.0, 300.0, 50.0, 20.0), 400.0, 20.0)
+    dd.type_char("z")
+    dd.type_char("z")
+    assert dd.filtered() == []
+    assert dd.hover == -1 and dd.hovered() is None
+    assert dd.index_at(290.0) == -1    # placeholder cell not pickable
+    assert dd.in_list(290.0)           # ...but still swallows the click
+    assert len(dd.rects()) == 1        # one "no match" cell drawn
+
+
+def test_dd_state_index_at_maps_through_offset():
+    dd = DropdownState(DD_ITEMS, (10.0, 300.0, 50.0, 20.0), 400.0, 20.0)
+    # Down-stacked from y=300: window[0] spans 280-300, window[1] 260-280.
+    assert dd.index_at(290.0) == 0
+    assert dd.index_at(265.0) == 1
+    assert dd.index_at(310.0) == -1    # inside the field itself
+
+
+def test_dd_state_index_at_flipped_with_offset():
+    dd = DropdownState(DD_ITEMS, (10.0, 60.0, 50.0, 20.0), 160.0, 20.0)
+    dd.scroll(2)                       # window = items 2..5, flipped
+    # field top=80; rects[0] topmost at 140-160 -> window[0] -> item 2.
+    assert dd.index_at(150.0) == 2
+    assert dd.index_at(85.0) == 5      # bottom cell -> window[3] -> item 5
+    assert dd.in_list(100.0) and not dd.in_list(170.0)
+
+
+def test_dd_state_hovered_returns_pair():
+    dd = DropdownState(DD_ITEMS, (10.0, 300.0, 50.0, 20.0), 400.0, 20.0,
+                       current="C")
+    assert dd.hovered() == ("C", "Charlie")

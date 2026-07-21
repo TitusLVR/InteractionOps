@@ -73,9 +73,10 @@ Key capabilities:
   per call; absence-safe → renders **disabled** when the path is missing
   (e.g. the owning addon isn't loaded). Edge `target` flipboxes still work.
 - **`FLIPBOX` `switch`** binds a *local panel switch* — lightweight boolean
-  state stored per-widget in `widgets_state` JSON (like position). The top-level
-  `"switches"` map sets non-false defaults; any switch referenced but absent
-  there defaults to `false`. A FLIPBOX needs EXACTLY ONE of `target`/`prop`/`switch`.
+  state stored per-widget in the .blend (`widgets_ui_state`, like position).
+  The top-level `"switches"` map sets non-false defaults; any switch
+  referenced but absent there defaults to `false`. A FLIPBOX needs EXACTLY
+  ONE of `target`/`prop`/`switch`.
 - **`ROW`** puts a toggle next to its Export button (the 2-column look).
   A **single-cell ROW forces one-per-row** — needed because consecutive
   bare `FLIPBOX` rows implicitly merge into one multi-column row
@@ -133,9 +134,10 @@ Optional. Sets non-false defaults for local panel switches:
 
 Any switch name referenced by a `FLIPBOX` `switch` binding or a `show_if`
 `switch` key defaults to `false` unless listed here. Switch state persists
-per-widget in `widgets_state` JSON (same file as position) and survives
-addon reload. A switch with no defining `FLIPBOX` (used only in `show_if`)
-is valid — it stays at its default until changed programmatically.
+per-widget in the .blend (`Scene.IOPS.widgets_ui_state`, snapshotted at
+save with position/visibility) — each file keeps its own. A switch with no
+defining `FLIPBOX` (used only in `show_if`) is valid — it stays at its
+default until changed programmatically.
 
 ### Conditional row rendering (`show_if`)
 
@@ -344,7 +346,7 @@ Then `python -m pytest tests -q` stays green (`composed.py` is bpy-free).
 | Toggle hotkey absent from Keymaps tab | Intentional — drawn only in the Widgets-tab list, excluded from hotkey save (`NEVER_SAVE`) |
 | `show_if` flipbox merged into a multi-col row | Auto-merge skips flipboxes carrying `show_if`; they stand alone so the predicate hides exactly that box |
 | Row with a typo'd `show_if` shows always | Invalid `show_if` is dropped + reported; the row stays visible (never silently vanishes) — check `load_def` errors |
-| Switch state lost on reload | Switches persist in `widgets_state` like position; a switch with no defining FLIPBOX stays at its default |
+| Switch state lost on reload | Switches persist in the .blend (`widgets_ui_state`) at save time; an unsaved file restores nothing — save first. A switch with no defining FLIPBOX stays at its default |
 | Row visibility doesn't update | `show_if` is evaluated live each draw; if context changed without a depsgraph tick, nudge the viewport (same as value cache) |
 
 ## Control signatures (ui/widgets/controls.py)

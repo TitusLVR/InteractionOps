@@ -502,23 +502,175 @@ def button_group_options(values, items, fmt="{:g}", unit=""):
     return out
 
 
-def dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n):
-    """Geometry for an open dropdown list: n cells stacked DOWNWARD from a
-    field's bottom edge (`rect_y`). Returns [(x, y, w, h)] in display order
-    (item 0 directly below the field). Shared by render (draw) and events
-    (hit-test) so the two never disagree. Pure."""
-    return [(rect_x, rect_y - (i + 1) * item_h, rect_w, item_h)
+def dropdown_layout(field_y, field_h, item_h, n, region_h):
+    """(flipped, visible, max_offset) for an open list of n filtered items.
+
+    Space below the field = field_y (cells stack down toward y=0); space
+    above = region_h - field_y - field_h. If everything fits below, open
+    downward with no scroll. Otherwise open toward the larger side and
+    clamp `visible` to what fits (floored at 3 so a cramped region still
+    shows a usable list). n=0 lays out ONE cell — the "no match"
+    placeholder. Pure."""
+    n_cells = max(1, n)
+    below = field_y
+    above = region_h - field_y - field_h
+    if n_cells * item_h <= below:
+        return (False, n_cells, 0)
+    flipped = above > below
+    space = above if flipped else below
+    visible = min(n_cells, max(3, int(space // item_h)))
+    return (flipped, visible, max(0, n_cells - visible))
+
+
+def dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n,
+                        flipped=False, field_h=0.0):
+    """Geometry for an open dropdown list of n cells. Not flipped: cells
+    stack DOWNWARD from the field's bottom edge (`rect_y`), item 0
+    directly below the field. Flipped: cells stack UPWARD from the
+    field's top edge (`rect_y + field_h`), but rects[0] is still the
+    visually TOPMOST cell so reading order (top->bottom) matches the
+    non-flipped list. Returns [(x, y, w, h)] in item order. Shared by
+    render (draw) and events (hit-test) so the two never disagree.
+    Pure."""
+    if not flipped:
+        return [(rect_x, rect_y - (i + 1) * item_h, rect_w, item_h)
+                for i in range(n)]
+    top = rect_y + field_h
+    return [(rect_x, top + (n - 1 - i) * item_h, rect_w, item_h)
             for i in range(n)]
 
 
-def dropdown_index_at(my, rect_x, rect_y, rect_w, item_h, n):
+def dropdown_index_at(my, rect_x, rect_y, rect_w, item_h, n,
+                      flipped=False, field_h=0.0):
     """Which open-dropdown item a pixel y falls in; -1 when outside the
     list. (x is not tested — the list spans the field width.) Pure."""
     for i, (_x, y, _w, h) in enumerate(
-            dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n)):
+            dropdown_item_rects(rect_x, rect_y, rect_w, item_h, n,
+                                flipped=flipped, field_h=field_h)):
         if y <= my <= y + h:
             return i
     return -1
+
+
+def dropdown_filter(items, needle):
+    """Filter (identifier, display) pairs by case-insensitive substring
+    match on the DISPLAY name; empty needle returns everything. Pure."""
+    if not needle:
+        return list(items)
+    low = needle.lower()
+    return [(ident, disp) for ident, disp in items if low in disp.lower()]
+
+
+class DropdownState:
+    """Pure state of one open dropdown: the full item list, the typed
+    filter, and the scroll window + hover over the filtered view. Owns
+    all list math (layout/flip, filtering, scrolling, hit-testing) so the
+    events modal stays a thin event->method mapping and render just draws
+    `window()` at `rects()`. `hover`/`offset`/`index_at` all index into
+    `filtered()`, never into `items`. No bpy — fully pytest-covered, same
+    pattern as TextEditState. `field` is the owning field's rect as plain
+    (x, y, w, h) floats, captured at open time (the panel cannot move
+    while the dropdown modal owns input)."""
+
+    def __init__(self, items, field, region_h, item_h, current=None):
+        self.items = list(items)       # full [(ident, display), ...]
+        self.field = tuple(field)      # (x, y, w, h)
+        self.region_h = float(region_h)
+        self.item_h = float(item_h)
+        self.filter = ""
+        self.offset = 0                # first visible index in filtered()
+        self.hover = -1                # hovered index in filtered(); -1 none
+        self.flipped = False
+        self.visible = 0
+        self.max_offset = 0
+        self.relayout()
+        if current is not None:
+            for i, (ident, _disp) in enumerate(self.items):
+                if ident == current:
+                    # Start hovering the current value, window centered
+                    # on it so it's visible even deep in a long list.
+                    self.hover = i
+                    self.offset = max(0, min(self.max_offset,
+                                             i - self.visible // 2))
+                    break
+
+    # -- filtered view ---------------------------------------------------
+    def filtered(self):
+        return dropdown_filter(self.items, self.filter)
+
+    def window(self):
+        """The visible slice of filtered() — exactly what render draws."""
+        return self.filtered()[self.offset:self.offset + self.visible]
+
+    # -- geometry ----------------------------------------------------------
+    def relayout(self):
+        _x, y, _w, h = self.field
+        self.flipped, self.visible, self.max_offset = dropdown_layout(
+            y, h, self.item_h, len(self.filtered()), self.region_h)
+        self.offset = max(0, min(self.offset, self.max_offset))
+
+    def rects(self):
+        """Cell rects for the visible window (one placeholder cell when
+        the filter matches nothing). rects()[i] belongs to window()[i]."""
+        x, y, w, h = self.field
+        n = max(1, len(self.window()))
+        return dropdown_item_rects(x, y, w, self.item_h, n,
+                                   flipped=self.flipped, field_h=h)
+
+    def clipped_above(self):
+        return self.offset > 0
+
+    def clipped_below(self):
+        return self.offset + self.visible < len(self.filtered())
+
+    # -- interaction -------------------------------------------------------
+    def scroll(self, delta):
+        """+1 reveals later items, -1 earlier; clamped."""
+        self.offset = max(0, min(self.offset + delta, self.max_offset))
+
+    def index_at(self, my):
+        """filtered() index under pixel y; -1 outside the list or on the
+        no-match placeholder cell."""
+        if not self.filtered():
+            return -1
+        x, y, w, h = self.field
+        i = dropdown_index_at(my, x, y, w, self.item_h,
+                              len(self.window()),
+                              flipped=self.flipped, field_h=h)
+        return self.offset + i if i >= 0 else -1
+
+    def in_list(self, my):
+        """y within the open list's vertical span (including the no-match
+        placeholder) — used to swallow clicks instead of closing."""
+        rs = self.rects()
+        lo = min(r[1] for r in rs)
+        hi = max(r[1] + r[3] for r in rs)
+        return lo <= my <= hi
+
+    def type_char(self, ch):
+        self.filter += ch
+        self._filter_changed()
+
+    def backspace(self):
+        if self.filter:
+            self.filter = self.filter[:-1]
+            self._filter_changed()
+
+    def clear_filter(self):
+        self.filter = ""
+        self._filter_changed()
+
+    def _filter_changed(self):
+        self.offset = 0
+        self.hover = 0 if self.filtered() else -1
+        self.relayout()
+
+    def hovered(self):
+        """(ident, display) under hover, or None."""
+        flt = self.filtered()
+        if 0 <= self.hover < len(flt):
+            return flt[self.hover]
+        return None
 
 
 class TextEditState:

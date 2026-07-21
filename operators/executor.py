@@ -46,6 +46,11 @@ class IOPS_OT_Executor(bpy.types.Operator):
         name="Script path",
         default="",
     )
+    args: StringProperty(
+        name="Args",
+        description="Optional argument string; the script reads it as self.args",
+        default="",
+    )
 
     def execute(self, context):
         filename = self.script

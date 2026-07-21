@@ -19,8 +19,7 @@ from __future__ import annotations
 from ..draw import primitives, draw_scope
 from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
-from .controls import (Row, pixel_from_value, preset_cell_rects,
-                       dropdown_item_rects)
+from .controls import (Row, pixel_from_value, preset_cell_rects)
 from .panel import Rect
 
 # Layout constants (pixels). Heights derive from theme text sizes at
@@ -50,6 +49,9 @@ DROPDOWN_GLYPH = "▾"
 CELL_INSET = 6.0            # horizontal text inset inside dropdown/input box
 EMPTY_TEXT = "—"
 DROPDOWN_ITEM_H = 22.0      # height of one open-dropdown list item (px)
+SCROLL_UP_GLYPH = "▲"       # clipped-items hint at the list's top edge
+SCROLL_DOWN_GLYPH = "▼"     # clipped-items hint at the list's bottom edge
+NO_MATCH_TEXT = "(no match)"
 CARET_GLYPH = "|"
 INPUT_VALUE_MAX_W = 150.0   # cap the value text's contribution to panel width;
                             # longer values are middle-truncated on display
@@ -563,26 +565,70 @@ def _draw_control(control, rect, theme, dim, context, live, pressed=False,
         _draw_buttons(control, rect, theme, dim, context)
 
 
-def _draw_dropdown_list(panel, where, items, hover, theme):
-    """Draw an open dropdown's item list below its field (on top of the
-    panel). `where` = (row, col) of the field; `hover` = highlighted index
-    (-1 = none). Geometry matches events' dropdown_index_at via
-    dropdown_item_rects / DROPDOWN_ITEM_H."""
-    field = panel.row_rects[where[0]][where[1]]
-    rects = dropdown_item_rects(field.x, field.y, field.w,
-                                DROPDOWN_ITEM_H, len(items))
+def _draw_dropdown_list(dd, theme):
+    """Draw an open dropdown (a controls.DropdownState) on top of the
+    panel: the visible window of filtered items, ▲/▼ hints when the list
+    is clipped, and the typed filter over the field cell. Geometry comes
+    from dd.rects(), the same source events hit-tests against, so draw
+    and pick can never disagree."""
+    window = dd.window()
+    rects = dd.rects()
     bg = theme.hud.bg_color
     line_color = _col(theme, Role.BBOX, 1.0)
     label_color = _col(theme, Role.HUD_LABEL, 1.0)
+    hint_color = _col(theme, Role.HUD_LABEL_INACTIVE, 1.0)
     fill = _active_fill(theme)
-    for i, ((x, y, w, h), (_ident, disp)) in enumerate(zip(rects, items)):
+
+    if not window:
+        # Filter matched nothing: one dimmed placeholder cell.
+        x, y, w, h = rects[0]
         cell = Rect(x, y, w, h)
         primitives.rect_2d(x, y, w, h, color=bg, theme=theme)
-        if i == hover:
-            primitives.rect_2d(x, y, w, h, color=fill, theme=theme)
         _outline(cell, line_color, theme)
-        disp = _truncate_middle(disp, w - CELL_INSET * 2.0, theme)
-        _text_left(disp, cell, x + CELL_INSET, theme=theme, color=label_color)
+        _text_left(NO_MATCH_TEXT, cell, x + CELL_INSET,
+                   theme=theme, color=hint_color)
+    else:
+        for i, ((x, y, w, h), (_ident, disp)) in enumerate(
+                zip(rects, window)):
+            cell = Rect(x, y, w, h)
+            primitives.rect_2d(x, y, w, h, color=bg, theme=theme)
+            if dd.offset + i == dd.hover:
+                primitives.rect_2d(x, y, w, h, color=fill, theme=theme)
+            _outline(cell, line_color, theme)
+            disp = _truncate_middle(disp, w - CELL_INSET * 3.0
+                                    - hud_text.measure(SCROLL_UP_GLYPH,
+                                                       theme=theme)[0],
+                                    theme)
+            _text_left(disp, cell, x + CELL_INSET,
+                       theme=theme, color=label_color)
+        # Clip hints: rects[0] is the visually topmost cell in BOTH
+        # orientations (reading order is preserved when flipped), so
+        # "more before the window" is always the top edge.
+        if dd.clipped_above():
+            x, y, w, h = rects[0]
+            gw, _ = hud_text.measure(SCROLL_UP_GLYPH, theme=theme)
+            _text_left(SCROLL_UP_GLYPH, Rect(x, y, w, h),
+                       x + w - CELL_INSET - gw,
+                       theme=theme, color=hint_color)
+        if dd.clipped_below():
+            x, y, w, h = rects[-1]
+            gw, _ = hud_text.measure(SCROLL_DOWN_GLYPH, theme=theme)
+            _text_left(SCROLL_DOWN_GLYPH, Rect(x, y, w, h),
+                       x + w - CELL_INSET - gw,
+                       theme=theme, color=hint_color)
+
+    if dd.filter:
+        # Typed filter replaces the field's value text while open (with a
+        # trailing underscore as a caret hint), in the active-value color
+        # so it reads as "editing".
+        x, y, w, h = dd.field
+        cell = Rect(x, y, w, h)
+        active = _col(theme, Role.HUD_ACTIVE_VALUE, 1.0)
+        primitives.rect_2d(x, y, w, h, color=bg, theme=theme)
+        _outline(cell, active, theme)
+        shown = _truncate_middle(dd.filter + "_", w - CELL_INSET * 2.0,
+                                 theme)
+        _text_left(shown, cell, x + CELL_INSET, theme=theme, color=active)
 
 
 # ----------------------------------------------------------------------
@@ -650,5 +696,4 @@ def draw_widget(context, widget):
             # Open dropdown list draws last so it sits on top of the panel.
             dd = getattr(widget, "_dropdown", None)
             if dd is not None:
-                where, items, hover = dd
-                _draw_dropdown_list(panel, where, items, hover, theme)
+                _draw_dropdown_list(dd, theme)

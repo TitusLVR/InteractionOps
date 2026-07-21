@@ -794,6 +794,7 @@ def make_widget(wdef):
     inst.space = wdef.get("space", "VIEW_3D")
     inst.composed_def = wdef
     inst.switches = collect_switches(wdef)
+    inst.default_switches = dict(inst.switches)
 
     def on_switch(_name, _value):
         # Persist the new switch state and repaint (visible rows change).
@@ -929,6 +930,10 @@ def load_all():
         seen.add(wdef["name"])
     for name in tuple(_live - seen):
         unregister_composed(name)
+    from ..ui.widgets import state
+    if state.any_visible():
+        state.ensure_draw_handler()
+    state.tag_redraw_all()
     return problems
 
 

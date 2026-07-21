@@ -175,16 +175,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=False,
     )
 
-    # Persistent GPU widget panels (ui/widgets) — JSON blob with each
-    # widget's visibility/position, read/written by ui/widgets/state.py.
-    # Internal storage only, intentionally not drawn in the prefs UI.
-    widgets_state: StringProperty(
-        name="Widgets State",
-        description="Internal: GPU widget visibility/positions (JSON)",
-        default="{}",
-        options={"HIDDEN"},
-    )
-
     # --- Collapsible section toggles (UI only) ---
     show_section_general: BoolProperty(default=True)
     show_section_stats: BoolProperty(default=False)

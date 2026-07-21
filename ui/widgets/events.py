@@ -24,7 +24,7 @@ import bpy
 from bpy.props import BoolProperty, StringProperty
 
 from . import state
-from .controls import TextEditState, dropdown_index_at
+from .controls import TextEditState, DropdownState
 
 
 def _tag_redraw(context):
@@ -137,7 +137,7 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         self._mode = "swallow"         # consume press+release, no action
         widget._press_cell = None      # clear any stale pressed highlight
         widget._editing = None         # (where, TextEditState) while typing
-        widget._dropdown = None        # (where, items, hover) while open
+        widget._dropdown = None        # DropdownState while open
 
         if kind == "close":
             state.hide_widget(widget.name)
@@ -241,19 +241,21 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             return self._begin_modal(context)
 
         if control.kind == "dropdown":
-            # In-overlay item list: opens below the field, click/drag-release
-            # to pick (no popup). Empty list (no items, no labels) -> swallow.
+            # In-overlay item list: opens below/above the field (whichever
+            # fits), scrolls when clipped, filters as you type. Empty list
+            # (no items, no labels) -> swallow.
             items = control.items(context)
             if not items:
                 return None
+            from . import render
             cur, _ = control.get(context)
-            hover = next((i for i, (ident, _d) in enumerate(items)
-                          if ident == cur), 0)
+            r = self._rect
             self._control = control
-            self._dd_items = items
-            self._dd_field = self._rect
+            self._dd = DropdownState(items, (r.x, r.y, r.w, r.h),
+                                     context.region.height,
+                                     render.DROPDOWN_ITEM_H, current=cur)
             self._mode = "dropdown_open"
-            self._widget._dropdown = (self._where, items, hover)
+            self._widget._dropdown = self._dd
             return self._begin_modal(context)
 
         if control.kind in ("button", "swatch"):
@@ -435,42 +437,67 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
     # ------------------------------------------------------------------
     # In-overlay dropdown list (mode "dropdown_open")
     # ------------------------------------------------------------------
-    def _dd_index_at(self, mx, my):
-        from . import render
-        r = self._dd_field
-        return dropdown_index_at(my, r.x, r.y, r.w, render.DROPDOWN_ITEM_H,
-                                 len(self._dd_items))
-
     def _modal_dropdown(self, context, event):
+        dd = self._dd
         mx, my = event.mouse_region_x, event.mouse_region_y
         et, ev = event.type, event.value
 
         if et == "ESC" and ev == "PRESS":
+            if dd.filter:
+                dd.clear_filter()          # first ESC clears the filter
+                _tag_redraw(context)
+                return {"RUNNING_MODAL"}
             return self._close_dropdown(context)
 
+        if et in {"RET", "NUMPAD_ENTER"} and ev == "PRESS":
+            picked = dd.hovered()
+            if picked is not None:
+                return self._dd_pick(context, picked[0])
+            return {"RUNNING_MODAL"}
+
+        if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and ev == "PRESS":
+            dd.scroll(1 if et == "WHEELDOWNMOUSE" else -1)
+            dd.hover = dd.index_at(my)     # window moved under the mouse
+            _tag_redraw(context)
+            return {"RUNNING_MODAL"}
+
         if et in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
-            idx = self._dd_index_at(mx, my)
-            where, items, _hover = self._widget._dropdown
-            self._widget._dropdown = (where, items, idx)
+            dd.hover = dd.index_at(my)
             _tag_redraw(context)
             return {"RUNNING_MODAL"}
 
         if et == "LEFTMOUSE":
-            idx = self._dd_index_at(mx, my)
+            idx = dd.index_at(my)
             if idx >= 0:
                 # Pick on either the opening drag-release or a later click.
-                self._control.write(context, self._dd_items[idx][0])
-                self._widget.mark_dirty()
-                self._undo_push()
-                return self._close_dropdown(context)
-            if ev == "PRESS" and not self._rect.contains(mx, my):
+                return self._dd_pick(context, dd.filtered()[idx][0])
+            if (ev == "PRESS" and not self._rect.contains(mx, my)
+                    and not dd.in_list(my)):
                 return self._close_dropdown(context)   # click-away cancels
             return {"RUNNING_MODAL"}                   # opening release etc.
 
+        if ev == "PRESS":
+            # Type-to-filter: printable chars append, backspace pops.
+            if et == "BACK_SPACE":
+                dd.backspace()
+                _tag_redraw(context)
+                return {"RUNNING_MODAL"}
+            if event.unicode and not event.ctrl and not event.alt:
+                dd.type_char(event.unicode)
+                _tag_redraw(context)
+                return {"RUNNING_MODAL"}
+
         return {"RUNNING_MODAL"}
+
+    def _dd_pick(self, context, ident):
+        self._control.write(context, ident)
+        self._widget.mark_dirty()
+        self._undo_push()
+        return self._close_dropdown(context)
 
     def _close_dropdown(self, context):
         self._widget._dropdown = None
+        self._dd = None
         _tag_redraw(context)
         return {"FINISHED"}
 

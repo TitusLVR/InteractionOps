@@ -204,6 +204,8 @@ from .operators.object_uvmaps_add_remove import (
     IOPS_OT_Add_UVMap,
     IOPS_OT_Remove_UVMap_by_Active_Name,
     IOPS_OT_Active_UVMap_by_Active,
+    IOPS_OT_Active_UVMap_by_Active_Name,
+    IOPS_OT_Sort_UVMaps_by_Name,
 )
 
 from .operators.executor import (
@@ -469,6 +471,8 @@ classes = (
     IOPS_OT_Add_UVMap,
     IOPS_OT_Remove_UVMap_by_Active_Name,
     IOPS_OT_Active_UVMap_by_Active,
+    IOPS_OT_Active_UVMap_by_Active_Name,
+    IOPS_OT_Sort_UVMaps_by_Name,
     IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
     IOPS_OT_Object_Name_From_Active_Apply,
@@ -616,6 +620,9 @@ def register():
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
 
+    from .ui.iops_pie_edit import register_empty_size_prop
+    register_empty_size_prop()
+
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
     try:
@@ -720,6 +727,11 @@ def unregister():
         unregister_slot_props()
     except Exception as e:
         print("IOPS: UV image slot props unregister failed:", e)
+    try:
+        from .ui.iops_pie_edit import unregister_empty_size_prop
+        unregister_empty_size_prop()
+    except Exception as e:
+        print("IOPS: empty size prop unregister failed:", e)
     del bpy.types.WindowManager.IOPS_AddonProperties
     unregister_keymaps()
 

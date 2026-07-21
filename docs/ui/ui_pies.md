@@ -105,7 +105,7 @@ Cardinals: `iops.function_f1` Vertex, `iops.function_f2` Edge, `iops.function_f3
 
 Box 1 — Size:
 - Quick-set buttons calling `iops.set_empty_size` with sizes 0.1, 0.5, 1.0, 2.0, 5.0, 10.0.
-- `empty_display_size` prop slider.
+- Custom Size slider bound to `WindowManager.iops_empty_display_size` — a proxy prop whose getter reads the active empty and whose setter applies the size to all selected empties (plus the active one, even if deselected).
 - `iops.copy_empty_size_from_active` (icon `COPYDOWN`).
 
 Box 2 — Display:

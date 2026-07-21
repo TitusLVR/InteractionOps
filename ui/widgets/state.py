@@ -2,18 +2,19 @@
 the persistent POST_PIXEL draw handler, and app handlers.
 
 State per widget is plain data only:
-    {"visible": bool, "x": float, "y": float, "anchor_area_ptr": int}
+    {"visible": bool, "x": float, "y": float, "anchor_area_ptr": int,
+     "switches": dict}
 (x, y) is the panel's top-left in region pixels. `anchor_area_ptr` is the
 `area.as_pointer()` of the area the widget was summoned in — NOT persisted
 (pointers are meaningless across sessions/loads); when the anchor area no
 longer exists the widget re-anchors to the largest matching viewport.
 
-Persistence: visible/x/y serialize as JSON into a single StringProperty
-`widgets_state` on the addon preferences. The property itself is added by
-the prefs wiring (plus a WIDGETS section in `prefs/iops_prefs.py` /
-`operators/preferences/io_addon_preferences.py` for the JSON prefs
-round-trip); every access here is defensive so the framework degrades to
-session-only state when the property is missing.
+Persistence: visible/x/y/switches serialize as JSON into
+`Scene.IOPS.widgets_ui_state` — per .blend, written ONLY during save_pre
+(open/close/drag events never dirty the file) and restored wholesale at
+load_post. A file with no stored record opens with all widgets closed.
+Every access is defensive so the framework degrades to session-only
+state when the property is missing.
 
 The draw handler is added only while at least one widget is visible and is
 removed when the last one hides — idle cost is zero. The callback is
@@ -21,17 +22,16 @@ wrapped so an exception skips the frame (logged once per widget), never
 breaking the viewport.
 """
 from __future__ import annotations
-import json
 
 import bpy
 from bpy.app.handlers import persistent
 
 from ..draw import safe_handler_add, safe_handler_remove
+from .persistence import dumps_states, parse_states
 
-_PREFS_ADDON_KEY = "InteractionOps"
-_PREFS_PROP = "widgets_state"
+_SCENE_PROP = "widgets_ui_state"
 
-# name -> {"visible", "x", "y", "anchor_area_ptr"}
+# name -> {"visible", "x", "y", "anchor_area_ptr", "switches"}
 _states: dict[str, dict] = {}
 # space type string -> draw handler handle (one per space with a visible widget)
 _draw_handles: dict[str, object] = {}
@@ -70,7 +70,7 @@ def any_visible():
 def show_widget(name, area=None, x=None, y=None):
     """Make a widget visible: anchor it to `area`, place its panel at
     (x, y) top-left (edge clamping happens at first layout), start the
-    draw handler, persist."""
+    draw handler."""
     global _draw_guard_logged
     from . import get_widget
     st = get_state(name)
@@ -89,12 +89,12 @@ def show_widget(name, area=None, x=None, y=None):
     _draw_error_logged.discard(name)
     _draw_guard_logged = False
     ensure_draw_handler()
-    save_states()
 
 
 def hide_widget(name):
-    """Hide a widget, persisting its current panel position. Removes the
-    draw handler when nothing is left visible."""
+    """Hide a widget, recording its current panel position (runtime only —
+    persisted at next save). Removes the draw handler when nothing is
+    left visible."""
     from . import get_widget
     st = get_state(name)
     widget = get_widget(name)
@@ -102,25 +102,22 @@ def hide_widget(name):
         st["x"] = widget.panel.x
         st["y"] = widget.panel.y
     st["visible"] = False
-    save_states()
     if not any_visible():
         remove_draw_handler()
     tag_redraw_all()
 
 
 def store_position(name, x, y):
-    """Persist a new panel position (drag finished)."""
+    """Record a new panel position (drag finished; runtime only — persisted at next save)."""
     st = get_state(name)
     st["x"] = float(x)
     st["y"] = float(y)
-    save_states()
 
 
 def store_switches(name, switches):
-    """Persist a widget's local switch state (a {name: bool} dict)."""
+    """Record a widget's local switch state (runtime only — persisted at next save)."""
     st = get_state(name)
     st["switches"] = {str(k): bool(v) for k, v in switches.items()}
-    save_states()
 
 
 # ----------------------------------------------------------------------
@@ -207,74 +204,89 @@ def widget_under_mouse(area, mx, my):
 
 
 # ----------------------------------------------------------------------
-# Persistence (JSON in prefs StringProperty `widgets_state`)
+# Persistence (JSON in Scene.IOPS.widgets_ui_state — per .blend)
 # ----------------------------------------------------------------------
-def _prefs():
-    try:
-        return bpy.context.preferences.addons[_PREFS_ADDON_KEY].preferences
-    except (KeyError, AttributeError):
-        return None
-
-
-def save_states():
-    prefs = _prefs()
-    if prefs is None or not hasattr(prefs, _PREFS_PROP):
-        return
-    data = {
-        name: {"visible": bool(st.get("visible")),
-               "x": float(st.get("x", 80.0)),
-               "y": float(st.get("y", 400.0)),
-               "switches": {str(k): bool(v)
-                            for k, v in st.get("switches", {}).items()}}
-        for name, st in _states.items()
-    }
-    try:
-        setattr(prefs, _PREFS_PROP, json.dumps(data))
-    except Exception as e:
-        print("IOPS widgets: state save failed:", e)
-
-
-def load_states():
-    """Merge persisted visible/x/y into the runtime states. Anchors start
-    unset (0) so the first draw/interaction re-anchors to the largest
-    viewport. Defensive: missing/invalid prefs leave session defaults."""
+def _refresh_runtime_states():
+    """Pull live panel positions and switch maps into _states so a
+    snapshot reflects what's on screen."""
     from . import get_widget
-    prefs = _prefs()
-    if prefs is None:
-        return
-    raw = getattr(prefs, _PREFS_PROP, "")
-    if not raw:
-        return
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        print("IOPS widgets: invalid widgets_state JSON — ignored")
-        return
-    if not isinstance(data, dict):
-        return
-    for name, entry in data.items():
-        if not isinstance(entry, dict):
-            continue
-        st = get_state(name)
-        st["visible"] = bool(entry.get("visible", False))
-        try:
-            st["x"] = float(entry.get("x", st["x"]))
-            st["y"] = float(entry.get("y", st["y"]))
-        except (TypeError, ValueError):
-            pass
-        sw = entry.get("switches", {})
-        if isinstance(sw, dict):
-            st["switches"] = {str(k): bool(v) for k, v in sw.items()}
-            widget = get_widget(name)
-            if widget is not None and getattr(widget, "switches", None):
-                for k, v in st["switches"].items():
-                    if k in widget.switches:
-                        widget.switches[k] = bool(v)
-        st["anchor_area_ptr"] = 0
+    for name, st in _states.items():
         widget = get_widget(name)
-        if widget is not None:
-            widget.panel.x = st["x"]
-            widget.panel.y = st["y"]
+        if widget is None:
+            continue
+        st["x"] = float(widget.panel.x)
+        st["y"] = float(widget.panel.y)
+        if getattr(widget, "switches", None):
+            st["switches"] = {str(k): bool(v)
+                              for k, v in widget.switches.items()}
+
+
+def save_states_to_scenes():
+    """Snapshot runtime state into EVERY scene (multi-scene files stay
+    consistent regardless of the active scene at load). Called from
+    save_pre — the write lands inside the save, so no dirty flag — and
+    from unregister (dev reload; may dirty, accepted)."""
+    _refresh_runtime_states()
+    raw = dumps_states(_states)
+    try:
+        scenes = list(bpy.data.scenes)
+    except AttributeError:
+        return
+    for scene in scenes:
+        if getattr(scene, "library", None) is not None:
+            continue
+        iops = getattr(scene, "IOPS", None)
+        if iops is None or not hasattr(iops, _SCENE_PROP):
+            continue
+        try:
+            setattr(iops, _SCENE_PROP, raw)
+        except Exception as e:
+            print("IOPS widgets: scene state save failed:", e)
+
+
+def load_states_from_scene():
+    """Replace runtime states WHOLESALE from the stored scene snapshot.
+    Missing property / empty / invalid → all widgets closed (the
+    per-file record is the only source of truth). Anchors come back 0
+    so the first draw re-anchors to the largest viewport."""
+    from . import get_widget, iter_widgets
+    # Read via bpy.data, NOT bpy.context: context is restricted during ANY
+    # addon registration (including live re-enable, where no load_post
+    # follows to repair an empty restore). Every non-linked scene carries
+    # the same snapshot, so the first one is authoritative. bpy.data is
+    # restricted only during startup registration — degrading to "" there
+    # is fine because startup always fires load_post afterwards.
+    raw = ""
+    try:
+        scene = next((s for s in bpy.data.scenes
+                      if getattr(s, "library", None) is None), None)
+    except AttributeError:
+        scene = None
+    if scene is not None:
+        iops = getattr(scene, "IOPS", None)
+        raw = getattr(iops, _SCENE_PROP, "") if iops is not None else ""
+    _states.clear()
+    _states.update(parse_states(raw))
+    # Live widget objects survive the load — reset every widget's switches
+    # to its defaults IN PLACE (identity must be preserved: controls close
+    # over this dict via switch_store=inst.switches) before applying any
+    # stored values on top. Widgets with no stored entry thereby return to
+    # defaults instead of keeping the previous file's values.
+    for widget in iter_widgets():
+        defaults = getattr(widget, "default_switches", None)
+        if defaults is not None:
+            widget.switches.clear()
+            widget.switches.update(defaults)
+    for name, st in _states.items():
+        widget = get_widget(name)
+        if widget is None:
+            continue
+        widget.panel.x = st["x"]
+        widget.panel.y = st["y"]
+        if getattr(widget, "switches", None):
+            for k, v in st["switches"].items():
+                if k in widget.switches:
+                    widget.switches[k] = bool(v)
 
 
 # ----------------------------------------------------------------------
@@ -368,17 +380,24 @@ def mark_all_dirty():
 
 @persistent
 def _on_load_post(_dummy):
-    # Area pointers are invalid after a file load — drop anchors so the
-    # next draw re-anchors to the largest viewport, and re-ensure the
-    # draw handler in case it was lost with the old wm state.
+    # Restore this file's widget set. Area pointers are invalid after a
+    # load — parse_states returns anchors as 0, so the next draw
+    # re-anchors to the largest viewport.
     global _draw_guard_logged
-    for st in _states.values():
-        st["anchor_area_ptr"] = 0
     _draw_error_logged.clear()
     _draw_guard_logged = False
+    load_states_from_scene()
     mark_all_dirty()
     if any_visible():
         ensure_draw_handler()
+    else:
+        remove_draw_handler()
+    tag_redraw_all()
+
+
+@persistent
+def _on_save_pre(_dummy):
+    save_states_to_scenes()
 
 
 @persistent
@@ -400,15 +419,37 @@ def _on_undo_redo(*_args):
 
 _APP_HANDLER_SLOTS = (
     ("load_post", _on_load_post),
+    ("save_pre", _on_save_pre),
     ("depsgraph_update_post", _on_depsgraph_update),
     ("undo_post", _on_undo_redo),
     ("redo_post", _on_undo_redo),
 )
 
 
+def _deferred_restore():
+    """One-shot bpy.app.timers callback scheduled by register().
+
+    Registration runs under Blender's restricted context AND restricted
+    data — even for a live re-enable — so the scene read must wait for
+    the first main-loop tick. By then the whole addon (composed widgets
+    included) is registered and bpy.data is real. Returning None
+    unregisters the timer."""
+    load_states_from_scene()
+    mark_all_dirty()
+    if any_visible():
+        ensure_draw_handler()
+    else:
+        remove_draw_handler()
+    tag_redraw_all()
+    return None
+
+
 def register():
-    """Install app handlers, load persisted state, start drawing if a
-    widget was left visible. Call AFTER load_iops_preferences()."""
+    """Install app handlers and defer this file's widget-state restore to
+    a one-shot bpy.app.timers callback. (Registration — including a live
+    mid-session re-enable — sees restricted context AND restricted data,
+    so no synchronous scene read can work here; the restore runs once the
+    first main-loop tick makes bpy.data real again.)"""
     global _app_handlers_installed
     if not _app_handlers_installed:
         for slot, fn in _APP_HANDLER_SLOTS:
@@ -416,15 +457,25 @@ def register():
             if fn not in handler_list:
                 handler_list.append(fn)
         _app_handlers_installed = True
-    load_states()
-    if any_visible():
-        ensure_draw_handler()
+    if not bpy.app.timers.is_registered(_deferred_restore):
+        bpy.app.timers.register(_deferred_restore, first_interval=0.0)
 
 
 def unregister():
     """Persist state and remove ONLY our own handlers. Idempotent."""
     global _app_handlers_installed
-    save_states()
+    # If the deferred restore never fired (enable → immediate disable),
+    # _states is still empty — persisting it would clobber the real
+    # snapshot in the scenes. Skip the write in that case.
+    restore_pending = False
+    try:
+        restore_pending = bpy.app.timers.is_registered(_deferred_restore)
+        if restore_pending:
+            bpy.app.timers.unregister(_deferred_restore)
+    except Exception:
+        pass
+    if not restore_pending:
+        save_states_to_scenes()
     remove_draw_handler()
     for slot, fn in _APP_HANDLER_SLOTS:
         handler_list = getattr(bpy.app.handlers, slot)

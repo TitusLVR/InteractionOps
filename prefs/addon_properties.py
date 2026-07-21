@@ -287,6 +287,15 @@ class IOPS_SceneProperties(PropertyGroup):
         description="Per-.blend data stored by composed widgets"
                     " (see widgets/scene_store.py)",
     )
+    # Per-.blend GPU widget UI state (ui/widgets/state.py) — JSON with
+    # each widget's visibility/position/switches, snapshotted at save_pre
+    # and restored at load_post. Internal storage, not drawn anywhere.
+    widgets_ui_state: StringProperty(
+        name="Widgets UI State",
+        description="Internal: per-file GPU widget visibility/positions (JSON)",
+        default="",
+        options={"HIDDEN"},
+    )
     dragsnap_point_a: FloatVectorProperty(
         name="DragSnap Point A",
         description="DragSnap Point A",

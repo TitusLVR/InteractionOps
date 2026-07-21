@@ -305,8 +305,10 @@ data. Declared/seeded by the top-level `switches` map and/or referenced by a
 - Any referenced switch defaults to `false` unless the `switches` map lists it.
 - A switch used only in `show_if` (no defining `FLIPBOX`) is valid — it stays
   at its default until set programmatically.
-- State **persists** per-widget in the `widgets_state` prefs JSON (same file
-  as panel position) and survives addon reload.
+- State **persists** per-widget in the .blend file (`Scene.IOPS.
+  widgets_ui_state`, snapshotted at save alongside visibility and panel
+  position). Each .blend keeps its own widget state; unsaved changes are
+  session-only.
 
 ## Context vocabulary (for `show_if`)
 
