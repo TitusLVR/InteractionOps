@@ -433,6 +433,114 @@ def apply_inset(bm, region, tl, t, depth, use_collapse):
     return made_faces, True
 
 
+def _outset_positions(region, weights, t_abs):
+    """Per-loop outward-displaced 2D positions at ``t_abs``.
+
+    Naive dual of the wavefront math ``core.build_timeline`` uses at each
+    vertex: same ``vertex_velocity(n_prev, n_next, w_prev, w_next)`` solve,
+    but with both incident edge normals negated first (outward instead of
+    inward), and no wavefront/events -- every vertex just moves straight out
+    by its own velocity times ``t_abs``. That means it mirrors native
+    mesh.inset's "outset" checkbox: no collapse handling, so a reflex corner
+    or a large enough ``t_abs`` can make the outer contour self-intersect --
+    acceptable and out of scope by design (task-10 brief).
+
+    ``weights`` is the resolved per-loop weight list (see
+    ``resolve_weights``); ``weights[li][i]`` is the weight of edge i->i+1,
+    matching ``region.loops2d``/``region.weights``. Returns
+    ``list[list[(x, y)]]`` parallel to ``region.loops2d``.
+    """
+    out = []
+    for loop2d, ws in zip(region.loops2d, weights):
+        n = len(loop2d)
+        pts = []
+        for i in range(n):
+            p_prev, p, p_next = loop2d[i - 1], loop2d[i], loop2d[(i + 1) % n]
+            n_prev = core.edge_normal(p_prev, p)
+            n_next = core.edge_normal(p, p_next)
+            w_prev, w_next = ws[i - 1], ws[i]
+            v = core.vertex_velocity((-n_prev[0], -n_prev[1]),
+                                      (-n_next[0], -n_next[1]),
+                                      w_prev, w_next)
+            pts.append((p[0] + v[0] * t_abs, p[1] + v[1] * t_abs))
+        out.append(pts)
+    return out
+
+
+def _apply_outset(bm, region, weights, t_abs, depth):
+    """Build a naive outward offset of the region boundary. Mutates ``bm``.
+
+    Unlike ``apply_inset`` the original region faces are left untouched --
+    only an outer contour and the wall quads connecting it to the existing
+    boundary are added. The outer verts are lifted to the region plane
+    *without* a BVH surface snap: they lie outside the region by
+    construction, so snapping them onto the region's own surface (the only
+    thing the BVH knows about) would incorrectly pull them back toward the
+    original boundary. This only matters for curved regions -- on a planar
+    region lift_to_3d is exact either way.
+
+    Returns ``(faces_created, mutated)``, same convention as ``apply_inset``.
+    """
+    if t_abs <= EPS:
+        return 0, False
+
+    def key_of(p2d):
+        return (round(p2d[0], WELD_DIGITS), round(p2d[1], WELD_DIGITS))
+
+    # Same weld-seeding trick as apply_inset: a boundary vert whose outward
+    # velocity is zero (both incident edges frozen by use_boundary=False)
+    # must land on its own original position and reuse the real BMVert
+    # rather than spawn a coincident duplicate.
+    made = {}
+    for loop2d, loop3d in zip(region.loops2d, region.loops3d):
+        for p2d, vt in zip(loop2d, loop3d):
+            made.setdefault(key_of(p2d), vt)
+
+    fresh = []   # only the verts this call created -- `depth` moves these
+
+    def bmvert(p2d):
+        key = key_of(p2d)
+        vt = made.get(key)
+        if vt is None:
+            vt = bm.verts.new(lift_to_3d(region, p2d))
+            made[key] = vt
+            fresh.append(vt)
+        return vt
+
+    def new_face(poly):
+        poly = [vt for i, vt in enumerate(poly) if vt not in poly[:i]]
+        if len(poly) < 3 or _is_sliver(poly):
+            return 0
+        try:
+            bm.faces.new(poly)
+        except ValueError:
+            return 0
+        return 1
+
+    made_faces = 0
+    outer_loops = _outset_positions(region, weights, t_abs)
+    for loop3d, outer2d in zip(region.loops3d, outer_loops):
+        n = len(loop3d)
+        outer3d = [bmvert(p) for p in outer2d]
+        for i in range(n):
+            a3, b3 = loop3d[i], loop3d[(i + 1) % n]
+            oa, ob = outer3d[i], outer3d[(i + 1) % n]
+            # a -> oa -> ob -> b keeps the wall's winding consistent with
+            # the (untouched) region faces it borders -- see task-10 report.
+            made_faces += new_face([a3, oa, ob, b3])
+
+    if abs(depth) > 1e-9:
+        n_axis = region.basis[2]
+        for vt in fresh:
+            vt.co += n_axis * depth
+
+    orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
+    if orphans:
+        bmesh.ops.delete(bm, geom=orphans, context='VERTS')
+    bm.normal_update()
+    return made_faces, True
+
+
 # --------------------------------------------------------------------------
 # Operator
 # --------------------------------------------------------------------------
@@ -453,9 +561,13 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
 
     thickness: FloatProperty(
         name="Thickness",
-        description="Inward offset distance of the region boundary",
+        description=(
+            "Inward offset distance of the region boundary. Negative "
+            "values outset instead: boundary verts move outward and no "
+            "wavefront/collapse handling applies"
+        ),
         default=0.05,
-        soft_min=0.0,
+        soft_min=-10.0,
         soft_max=10.0,
         step=1,
         precision=4,
@@ -985,8 +1097,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         front_segs, seam_segs = [], []
         clamped = False
         t = float(self.thickness)
-        if t <= EPS:
-            return front_segs, seam_segs, clamped   # negative/zero: no-op
+        if abs(t) <= EPS:
+            return front_segs, seam_segs, clamped   # zero: no-op
+
+        if t < 0.0:
+            return self._build_outset_preview_layers(-t), seam_segs, clamped
 
         for region, tl in getattr(self, "_regions", ()):
             t_eff = effective_t(tl, t, self.use_collapse)
@@ -1033,6 +1148,31 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                         seam_segs.append(to_world(q))
 
         return front_segs, seam_segs, clamped
+
+    def _build_outset_preview_layers(self, t_abs):
+        """Front-loop segments for the naive outset preview (t < 0).
+
+        No timeline/wavefront involved -- just the same per-vertex outward
+        offset ``_apply_outset``/``_outset_positions`` would build, lifted to
+        world space (no BVH snap, see ``_apply_outset``'s docstring) and
+        pushed along the region normal by ``depth``. No seams, no clamp
+        flag: those only mean something for the collapsing wavefront.
+        """
+        front_segs = []
+        for region, _tl in getattr(self, "_regions", ()):
+            weights = resolve_weights(region, self.use_boundary)
+            n = region.basis[2]
+            offset = n * self.depth if abs(self.depth) > 1e-9 else None
+            for loop2d in _outset_positions(region, weights, t_abs):
+                pts = [lift_to_3d(region, p) for p in loop2d]
+                if offset is not None:
+                    pts = [p + offset for p in pts]
+                if len(pts) < 2:
+                    continue
+                for i, p in enumerate(pts):
+                    front_segs.append(p)
+                    front_segs.append(pts[(i + 1) % len(pts)])
+        return front_segs
 
     def _draw_callback(self, context):
         region_ui = context.region
@@ -1113,8 +1253,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
 
-        # Negative thickness is a no-op in this task (outset lands later).
-        t = max(0.0, float(self.thickness))
+        t = float(self.thickness)
 
         regions, warnings = collect_regions(bm, self.mode)
         for msg in warnings:
@@ -1123,21 +1262,27 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             if not warnings:
                 self.report({'WARNING'}, "Smart Inset: no faces selected")
             return {'CANCELLED'}
-        if t <= EPS:
-            # Silence here reads as "the operator did nothing and won't say
-            # why". The property is deliberately left unclamped -- negative
-            # thickness becomes outset later.
+        if abs(t) <= EPS:
             self.report({'WARNING'},
                         "Smart Inset: zero thickness — nothing to apply")
             return {'CANCELLED'}
 
         changed = 0
         mutated = False
-        for region, tl in self._build_timelines(regions):
-            n_faces, did = apply_inset(bm, region, tl, t, self.depth,
-                                       self.use_collapse)
-            changed += n_faces
-            mutated = mutated or did
+        if t < 0.0:
+            # Naive outset, no skeleton/timeline needed -- see _apply_outset.
+            for region in regions:
+                weights = resolve_weights(region, self.use_boundary)
+                n_faces, did = _apply_outset(bm, region, weights, -t,
+                                             self.depth)
+                changed += n_faces
+                mutated = mutated or did
+        else:
+            for region, tl in self._build_timelines(regions):
+                n_faces, did = apply_inset(bm, region, tl, t, self.depth,
+                                           self.use_collapse)
+                changed += n_faces
+                mutated = mutated or did
 
         if not mutated:
             return {'CANCELLED'}
