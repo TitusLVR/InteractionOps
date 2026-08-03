@@ -2,7 +2,7 @@ import math
 import pytest
 
 from utils.smart_inset_core import (
-    edge_normal, vertex_velocity, EPS,
+    edge_normal, vertex_velocity, EPS, norm, sub,
 )
 
 
@@ -134,3 +134,55 @@ def test_rect_walls_before_any_event_are_offset_edges():
     chain = walls[0]
     assert len(chain) == 2
     assert all(p[1] == pytest.approx(0.25) for p in chain)
+
+
+LSHAPE = [[(0.0, 0.0), (4.0, 0.0), (4.0, 1.0), (1.0, 1.0),
+           (1.0, 3.0), (0.0, 3.0)]]  # CCW, reflex at (1,1)
+
+SQUARE_WITH_HOLE = [
+    [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],          # outer CCW
+    [(1.5, 1.5), (1.5, 2.5), (2.5, 2.5), (2.5, 1.5)],          # hole CW
+]
+
+
+def test_lshape_splits_into_two_fronts():
+    tl = build_timeline(LSHAPE)
+    # first events collapse the two 1-wide arms at t=0.5;
+    # front at t=0.4 must still be a single loop
+    assert len(tl.front_at(0.4)) == 1
+    assert tl.max_t == pytest.approx(0.5, abs=1e-6)
+
+
+def test_star_reflex_survives():
+    # 4-point star: reflex verts trigger splits, everything dies eventually
+    outer, inner = 2.0, 0.6
+    pts = []
+    for i in range(8):
+        r = outer if i % 2 == 0 else inner
+        a = math.pi * i / 4.0
+        pts.append((r * math.cos(a), r * math.sin(a)))
+    tl = build_timeline([pts])
+    assert tl.max_t > 0.0
+    assert tl.front_at(tl.max_t + 0.1) == []
+    # front just before first event is one loop of 8
+    t = tl.first_event_t * 0.5
+    loops = tl.front_at(t)
+    assert len(loops) == 1 and len(loops[0]) == 8
+
+
+def test_hole_wave_meets_outer_wave():
+    tl = build_timeline(SQUARE_WITH_HOLE)
+    # band between hole and outer is 1.5 wide -> fronts meet at t=0.75
+    assert tl.max_t == pytest.approx(0.75, abs=1e-3)
+    # before that: two loops (outer shrinking, hole growing)
+    loops = tl.front_at(0.3)
+    assert len(loops) == 2
+
+
+def test_playback_positions_continuous_across_events():
+    tl = build_timeline(LSHAPE)
+    t_ev = tl.first_event_t
+    for vid in {v for loop in tl.front_at(t_ev - 1e-4) for v in loop}:
+        p_before = tl.pos_at(vid, t_ev - 1e-4)
+        p_after = tl.pos_at(vid, t_ev + 1e-4)  # clamped to death pos
+        assert norm(sub(p_after, p_before)) < 1e-2

@@ -230,6 +230,33 @@ def _edge_collapse_time(A, B):
     return max(t, t0)
 
 
+def _orig_edge_endpoints(tl, e):
+    a_vid, b_vid = tl.orig_edges[e]
+    return tl.orig_pos[a_vid], tl.orig_pos[b_vid]
+
+
+def _orig_edge_normal(tl, e):
+    a, b = _orig_edge_endpoints(tl, e)
+    return edge_normal(a, b)
+
+
+def _orig_edge_dir(tl, e):
+    a, b = _orig_edge_endpoints(tl, e)
+    return normalize(sub(b, a))
+
+
+def _is_reflex(tl, left_edge, right_edge):
+    """Convexity of a front vertex from its two original edge directions.
+
+    Same test as the initial-LAV setup (cross of incoming/outgoing edge
+    direction), but expressed in terms of edge ids so it also works for
+    event-born vertices, whose incident original edges are no longer
+    consecutive in the input loop.
+    """
+    return cross(_orig_edge_dir(tl, left_edge),
+                 _orig_edge_dir(tl, right_edge)) < -EPS
+
+
 def build_timeline(loops, weights=None):
     tl = Timeline()
     # -- build initial LAV(s) -------------------------------------------
@@ -276,12 +303,155 @@ def build_timeline(loops, weights=None):
             heapq.heappush(heap, (t, seq, "collapse", (a_vid, b_vid)))
             seq += 1
 
+    def push_splits(r_vid):
+        """Queue split candidates of reflex vert `r_vid` against every edge.
+
+        A reflex vertex R can hit the moving front descended from *any*
+        original edge of the region -- including edges of a different input
+        loop, which is exactly how a hole's outward wave meets the outer
+        wave. Only R's own two incident edges are skipped.
+
+        Timing: the front line of edge e at time t is
+        {X : dot(n_e, X - ea) == w_e * t}. With R(t) = P0 + V*(t - birth_t),
+        the signed gap
+            gap(t) = dot(n_e, R(t) - ea) - w_e * t
+        is affine in t with slope -(w_e - dot(n_e, V)) = -denom, so
+            gap(t) = d0 - denom * (t - birth_t),
+            d0 = gap(birth_t) = dot(n_e, P0 - ea) - w_e * birth_t.
+        The hit is at t = birth_t + d0 / denom, and only exists in the
+        future when the gap is currently positive (d0 > 0) and closing
+        (denom > 0).
+        """
+        nonlocal seq
+        R = tl.verts[r_vid]
+        if not R.reflex or R.death_t != INF:
+            return
+        P0 = R.pos(R.birth_t)
+        for e in range(tl.edge_count):
+            if e in (R.left_edge, R.right_edge):
+                continue
+            ea = _orig_edge_endpoints(tl, e)[0]
+            n_e = _orig_edge_normal(tl, e)
+            w_e = tl.edge_weight[e]
+            denom = w_e - dot(n_e, R.V)
+            if denom < EPS:
+                continue
+            d0 = dot(n_e, sub(P0, ea)) - w_e * R.birth_t
+            if d0 <= EPS:
+                continue
+            t_hit = R.birth_t + d0 / denom
+            if t_hit <= R.birth_t + EPS:
+                continue
+            heapq.heappush(heap, (t_hit, seq, "split", (r_vid, e)))
+            seq += 1
+
+    def find_host_edge(R, e, t, X):
+        """Live front edge descended from original edge `e` spanning X at t."""
+        for vid2, v2 in tl.verts.items():
+            if v2.death_t != INF or v2.birth_t > t + EPS:
+                continue
+            if v2.right_edge != e or vid2 == R.vid:
+                continue
+            if v2.next is None or v2.next < 0:
+                continue
+            w = tl.verts[v2.next]
+            if w.death_t != INF or w.vid == R.vid:
+                continue
+            pa, pb = v2.pos(t), w.pos(t)
+            seg = sub(pb, pa)
+            L2 = dot(seg, seg)
+            if L2 < EPS:
+                continue
+            u = dot(sub(X, pa), seg) / L2
+            off = norm(sub(X, add(pa, mul(seg, u))))
+            if -1e-6 <= u <= 1.0 + 1e-6 and off < 1e-4 * max(1.0, norm(seg)):
+                return v2, w
+        return None
+
     for v in list(tl.verts.values()):
         push_collapse(v.vid, v.next)
+    for v in list(tl.verts.values()):
+        push_splits(v.vid)
 
     next_vid = vid
+    # Safety valve: every event kills at least one vertex, and each event
+    # creates at most two, so the count is bounded in theory; the cap only
+    # protects against pathological float feedback loops.
+    budget = 64 * (len(tl.verts) + tl.edge_count) ** 2 + 1000
     while heap:
+        budget -= 1
+        if budget <= 0:
+            break
         t, _, kind, payload = heapq.heappop(heap)
+
+        if kind == "split":
+            r_vid, e = payload
+            R = tl.verts[r_vid]
+            if R.death_t != INF:
+                continue
+            X = R.pos(t)
+            host = find_host_edge(R, e, t, X)
+            if host is None:
+                continue  # stale event: that piece of e's front is gone
+            EA, EB = host
+            tl.first_event_t = min(tl.first_event_t, t)
+            tl.max_t = max(tl.max_t, t)
+            R.death_t = t
+            P, N = tl.verts[R.prev], tl.verts[R.next]
+            n_l = _orig_edge_normal(tl, R.left_edge)
+            n_r = _orig_edge_normal(tl, R.right_edge)
+            n_e = _orig_edge_normal(tl, e)
+            R1 = FrontVert(next_vid, X,
+                           vertex_velocity(n_l, n_e,
+                                           tl.edge_weight[R.left_edge],
+                                           tl.edge_weight[e]),
+                           t, R.left_edge, e)
+            R2 = FrontVert(next_vid + 1, X,
+                           vertex_velocity(n_e, n_r,
+                                           tl.edge_weight[e],
+                                           tl.edge_weight[R.right_edge]),
+                           t, e, R.right_edge)
+            next_vid += 2
+            # birth_parent == "whoever occupied my slot, seen from my prev".
+            # P.next was R; EA.next was EB.
+            R1.birth_parent = R.vid
+            R2.birth_parent = EB.vid
+            R1.reflex = _is_reflex(tl, R.left_edge, e)
+            R2.reflex = _is_reflex(tl, e, R.right_edge)
+            # loop 1: ... P -> R1 -> EB ...   loop 2: ... EA -> R2 -> N ...
+            R1.prev, R1.next = P.vid, EB.vid
+            R2.prev, R2.next = EA.vid, N.vid
+            P.next = R1.vid
+            EB.prev = R1.vid
+            EA.next = R2.vid
+            N.prev = R2.vid
+            # walking CCW from P must continue onto R1; the backwards
+            # direction (unused by playback) resolves onto R2
+            R.succ_next = R1.vid
+            R.succ_prev = R2.vid
+            tl.verts[R1.vid] = R1
+            tl.verts[R2.vid] = R2
+            tl.nodes.append(Node(t, X, {R.left_edge, R.right_edge, e}))
+            for nv in (R1, R2):
+                if nv.next == nv.prev:
+                    # The new loop has only two vertices, and both are the
+                    # intersection of the *same* pair of moving edge lines,
+                    # so they are already coincident at X: the loop has zero
+                    # extent and dies immediately (same terminal-bigon
+                    # handling as the collapse path).
+                    peer = tl.verts[nv.next]
+                    nv.death_t = t
+                    if peer.death_t == INF:
+                        peer.death_t = t
+                    tl.nodes.append(Node(t, X, {nv.left_edge, nv.right_edge,
+                                                peer.left_edge,
+                                                peer.right_edge}))
+                    continue
+                push_collapse(nv.prev, nv.vid)
+                push_collapse(nv.vid, nv.next)
+                push_splits(nv.vid)
+            continue
+
         a_vid, b_vid = payload
         A, B = tl.verts[a_vid], tl.verts[b_vid]
         # lazy invalidation: both alive and still adjacent
@@ -310,6 +480,7 @@ def build_timeline(loops, weights=None):
                             tl.edge_weight[B.right_edge])
         C = FrontVert(next_vid, pos, V, t, A.left_edge, B.right_edge)
         C.birth_parent = A.vid
+        C.reflex = _is_reflex(tl, A.left_edge, B.right_edge)
         next_vid += 1
         C.prev, C.next = P.vid, N.vid
         P.next = C.vid
@@ -337,6 +508,7 @@ def build_timeline(loops, weights=None):
             continue
         push_collapse(P.vid, C.vid)
         push_collapse(C.vid, N.vid)
+        push_splits(C.vid)
 
     if tl.first_event_t is INF:
         tl.first_event_t = 0.0
