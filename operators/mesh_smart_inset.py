@@ -69,7 +69,7 @@ class Region:
     """Everything the bridge needs to know about one inset region."""
 
     __slots__ = ("faces", "loops3d", "plane_origin", "basis", "weights",
-                 "loops2d", "edge_orig_verts", "bvh")
+                 "loops2d", "edge_orig_verts", "edge_orig_faces", "bvh")
 
     def __init__(self, faces):
         self.faces = list(faces)
@@ -81,6 +81,9 @@ class Region:
         self.weights = []          # weights[li][i] — weight of edge i->i+1
         self.loops2d = []          # list[list[(x, y)]]
         self.edge_orig_verts = []  # core edge id -> (BMVert a, BMVert b)
+        # core edge id -> the region BMFace that owned that boundary edge.
+        # Source of material_index / loop data for the wall built on it.
+        self.edge_orig_faces = []
         self.bvh = None
 
 
@@ -130,10 +133,15 @@ def _boundary_loops(faces):
     A face's own loops run CCW around its normal, so the region is on the
     left of ``loop.vert -> loop.link_loop_next.vert``. Following that
     direction gives a CCW outer loop and CW hole loops.
+
+    Returns ``(loops3d, borders, owners)``, all three parallel per vertex:
+    ``borders[li][i]`` flags an open mesh border, ``owners[li][i]`` is the
+    region face that owns the *outgoing* boundary edge of ``loops3d[li][i]``.
     """
     fset = set(faces)
     nxt = {}
     border = {}
+    owner = {}
     for f in faces:
         for loop in f.loops:
             e = loop.edge
@@ -146,12 +154,14 @@ def _boundary_loops(faces):
             # True for an open mesh border (the region edge has no
             # neighbouring face at all).
             border[a] = len(e.link_faces) == 1
+            owner[a] = f
 
-    loops3d, borders = [], []
+    loops3d, borders, owners = [], [], []
     while nxt:
         start = next(iter(nxt))
         loop = []
         flags = []
+        srcs = []
         cur = start
         while True:
             if cur not in nxt:
@@ -159,6 +169,7 @@ def _boundary_loops(faces):
             nx = nxt.pop(cur)
             loop.append(cur)
             flags.append(border[cur])
+            srcs.append(owner[cur])
             cur = nx
             if cur is start:
                 break
@@ -166,9 +177,10 @@ def _boundary_loops(faces):
             raise RegionError("boundary loop shorter than 3 verts")
         loops3d.append(loop)
         borders.append(flags)
+        owners.append(srcs)
     if not loops3d:
         raise RegionError("no boundary edges")
-    return loops3d, borders
+    return loops3d, borders, owners
 
 
 def _fit_plane(faces):
@@ -204,10 +216,31 @@ def _make_basis(normal, loops3d):
     return u, v, normal
 
 
+def _check_planar_enough(faces, normal):
+    """Reject regions whose projection onto their own plane folds over.
+
+    The whole wavefront runs in 2D on the fitted plane, and it assumes the
+    projected boundary loops are simple. A selection that bends more than 90°
+    away from its own average normal (a half-cylinder, a strongly bent strip)
+    projects to a self-intersecting outline, and mixed/flipped face normals do
+    the same. The core then leaves immortal fronts behind and reports a bogus
+    ``max_t``: geometry comes out silently wrong rather than failing. A face
+    whose normal has a non-positive dot with the region normal is exactly the
+    fold condition, so test that up front and skip the region instead.
+    """
+    for f in faces:
+        if f.normal.dot(normal) <= 0.0:
+            raise RegionError("region folds relative to its plane")
+
+
 def _build_region(faces):
     region = Region(faces)
-    loops3d, borders = _boundary_loops(faces)
+    loops3d, borders, owners = _boundary_loops(faces)
     origin, normal = _fit_plane(faces)
+    # Checked against the *fitted* normal, before the winding flip below:
+    # that is the axis the loops are projected along, and it is the one the
+    # face normals are aligned with by construction for a sane region.
+    _check_planar_enough(faces, normal)
     u, v, n = _make_basis(normal, loops3d)
 
     def project(co, u, v):
@@ -229,25 +262,29 @@ def _build_region(faces):
 
     # Pre-filter the 3D loops exactly the way core.sanitize_loops filters the
     # 2D ones, so core edge id j maps 1:1 onto (loop3d[j], loop3d[j+1]).
-    for loop, flags in zip(loops3d, borders):
-        pts2d, verts, ws = [], [], []
-        for vt, is_border in zip(loop, flags):
+    for loop, flags, srcs in zip(loops3d, borders, owners):
+        pts2d, verts, ws, fs = [], [], [], []
+        for vt, is_border, src in zip(loop, flags, srcs):
             p = project(vt.co, u, v)
             w = 1.0 if not is_border else None   # resolved by caller flag
             if pts2d and _dist2d(p, pts2d[-1]) < MIN_EDGE_2D:
                 # This vert is merged into the previous kept one; the edge
                 # that physically survives is *this* vert's outgoing edge,
-                # so carry its weight forward (mirrors sanitize_loops).
+                # so carry its weight (and its owner face) forward -- mirrors
+                # sanitize_loops.
                 if ws:
                     ws[-1] = w
+                    fs[-1] = src
                 continue
             pts2d.append(p)
             verts.append(vt)
             ws.append(w)
+            fs.append(src)
         if len(pts2d) > 1 and _dist2d(pts2d[0], pts2d[-1]) < MIN_EDGE_2D:
             pts2d.pop()
             verts.pop()
             ws.pop()
+            fs.pop()
         if len(pts2d) < 3:
             raise RegionError("degenerate boundary loop")
         region.loops2d.append(pts2d)
@@ -255,6 +292,7 @@ def _build_region(faces):
         region.weights.append(ws)
         for i, vt in enumerate(verts):
             region.edge_orig_verts.append((vt, verts[(i + 1) % len(verts)]))
+            region.edge_orig_faces.append(fs[i])
 
     region.bvh = _build_bvh(faces)
     return region
@@ -359,6 +397,18 @@ def _is_sliver(verts):
     return 0.5 * n.length <= 1e-7 * perim * perim
 
 
+def clamp_cap(tl):
+    """Largest thickness a no-collapse inset may use on this timeline.
+
+    Stop just shy of the first event: exactly at ``first_event_t`` the
+    colliding front verts are already dead, so ``front_at()`` would come back
+    empty and the region would collapse -- the opposite of what "no collapse"
+    promises. Shared by ``effective_t``, the HUD readout and the preview so
+    all three agree on where the clamp sits.
+    """
+    return tl.first_event_t * (1.0 - 1e-6)
+
+
 def effective_t(tl, t, use_collapse):
     """Clamp the requested thickness to what this timeline can deliver.
 
@@ -367,11 +417,49 @@ def effective_t(tl, t, use_collapse):
     """
     if use_collapse:
         return min(t, tl.max_t)
-    # Stop just shy of the first event: exactly at first_event_t the
-    # colliding front verts are already dead, so front_at() would come
-    # back empty and the region would collapse -- the opposite of what
-    # "no collapse" promises.
-    return min(t, tl.first_event_t * (1.0 - 1e-6))
+    return min(t, clamp_cap(tl))
+
+
+def _copy_face_attrs(face, src):
+    """Give a freshly built face the material and loop data of ``src``.
+
+    Native ``mesh.inset`` preserves both; without this every wall, cap and
+    clipped face comes out on material slot 0 with zeroed UVs. ``src`` is the
+    original region face the new one derives from (the face that owned the
+    boundary edge for a wall, the clipped face's own original for a clip, a
+    representative region face for a cap ngon).
+
+    ``vert=False``: the vertex-level customdata layers belong to verts that
+    may be shared with untouched geometry outside the region, so only the
+    per-loop (UV, colour, ...) layers are interpolated.
+    """
+    if src is None or not src.is_valid:
+        return
+    face.material_index = src.material_index
+    face.smooth = src.smooth
+    try:
+        face.copy_from_face_interp(src, False)
+    except (RuntimeError, ValueError, TypeError):
+        pass
+
+
+def _apply_selection(inner, walls):
+    """Leave the new inner surface selected and the walls not.
+
+    Mirrors native ``mesh.inset``, which hands back the inner faces selected
+    so the operation can be chained. Walls are cleared *first*: they share the
+    front verts/edges with the inner faces, so clearing them afterwards would
+    strip the selection straight back off. An inner face never touches an
+    original boundary vert (those are consumed by definition), so every wall
+    keeps at least one unselected vert and no later select flush can resurrect
+    it.
+    """
+    for f in walls:
+        if f.is_valid:
+            f.select_set(False)
+    for f in inner:
+        if f.is_valid:
+            f.select_set(True)
 
 
 def _point_in_poly(pts, p):
@@ -782,7 +870,7 @@ def _fill_front_loops(front, bmvert, new_face, report=None):
     for o in outers:
         hs = holes.get(o, ())
         if not hs:
-            made += new_face([bmvert(p) for p in front[o]])
+            made += 1 if new_face([bmvert(p) for p in front[o]]) else 0
             continue
         try:
             seqs = [[Vector((p[0], p[1], 0.0)) for p in front[o]]]
@@ -798,12 +886,12 @@ def _fill_front_loops(front, bmvert, new_face, report=None):
                 report({'WARNING'},
                        "Smart Inset: hole fill failed, ngon fill used")
             for li in (o,) + tuple(hs):
-                made += new_face([bmvert(p) for p in front[li]])
+                made += 1 if new_face([bmvert(p) for p in front[li]]) else 0
             continue
         for pts in tris:
             if _signed_area(pts) < 0.0:
                 pts.reverse()
-            made += new_face([bmvert(p) for p in pts])
+            made += 1 if new_face([bmvert(p) for p in pts]) else 0
     return made
 
 
@@ -847,15 +935,21 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
             fresh.append(vt)
         return vt
 
-    def new_face(poly):
+    wall_faces = []   # deselected at the end (native inset does the same)
+    inner_faces = []  # the new inner surface -- left selected
+
+    def new_face(poly, src=None, bucket=None):
         poly = [vt for i, vt in enumerate(poly) if vt not in poly[:i]]
         if len(poly) < 3 or _is_sliver(poly):
-            return 0
+            return None
         try:
-            bm.faces.new(poly)
+            f = bm.faces.new(poly)
         except ValueError:
-            return 0
-        return 1
+            return None
+        _copy_face_attrs(f, src)
+        if bucket is not None:
+            bucket.append(f)
+        return f
 
     walls = tl.walls_at(t_eff)
     chains = {j: list(walls.get(j, ())) for j in range(tl.edge_count)}
@@ -879,13 +973,21 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     for j in range(tl.edge_count):
         a3, b3 = region.edge_orig_verts[j]
         chain = [bmvert(p) for p in chains.get(j, ())]
-        made_faces += new_face([a3, b3] + chain)
+        src = region.edge_orig_faces[j]
+        if new_face([a3, b3] + chain, src, wall_faces) is not None:
+            made_faces += 1
 
     if plan is None:
         front = [[tl.pos_at(vid, t_eff) for vid in loop]
                  for loop in tl.front_at(t_eff)]
         if front:
-            made_faces += _fill_front_loops(front, bmvert, new_face, report)
+            # No original face maps onto a cap ngon (the front consumed the
+            # interior outright), so any region face is as good a donor as
+            # another -- take the first for a stable, non-zeroed result.
+            cap_src = region.faces[0] if region.faces else None
+            made_faces += _fill_front_loops(
+                front, bmvert,
+                lambda poly: new_face(poly, cap_src, inner_faces), report)
     else:
         # The clipped faces' chords already close every front loop, so no
         # cap ngon is needed -- the preserved interior *is* the cap.
@@ -899,7 +1001,9 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
                     verts.append(bmvert(plan.crossings[val].p2d))
                 else:
                     verts.append(bmvert(val))
-            n_ok = new_face(verts)
+            # A clipped face is literally the surviving part of `_f`, so it
+            # inherits that face's material and loop data exactly.
+            n_ok = 1 if new_face(verts, _f, inner_faces) is not None else 0
             made_faces += n_ok
             lost += 1 - n_ok
         if lost and report is not None:
@@ -932,6 +1036,11 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     orphans = [vt for vt in loose if vt.is_valid and not vt.link_faces]
     if orphans:
         bmesh.ops.delete(bm, geom=orphans, context='VERTS')
+    # Preserved interior faces are part of the new inner surface too, so they
+    # stay selected alongside the freshly built caps/clips.
+    if plan is not None:
+        inner_faces.extend(plan.kept)
+    _apply_selection(inner_faces, wall_faces)
     bm.normal_update()
     return made_faces, True
 
@@ -1010,27 +1119,35 @@ def _apply_outset(bm, region, weights, t_abs, depth):
             fresh.append(vt)
         return vt
 
-    def new_face(poly):
+    ring_faces = []   # the new outer ring -- left selected
+
+    def new_face(poly, src=None):
         poly = [vt for i, vt in enumerate(poly) if vt not in poly[:i]]
         if len(poly) < 3 or _is_sliver(poly):
-            return 0
+            return None
         try:
-            bm.faces.new(poly)
+            f = bm.faces.new(poly)
         except ValueError:
-            return 0
-        return 1
+            return None
+        _copy_face_attrs(f, src)
+        ring_faces.append(f)
+        return f
 
     made_faces = 0
     outer_loops = _outset_positions(region, weights, t_abs)
+    base = 0   # core edge id of loop3d[0] -- ids run loop-major, in order
     for loop3d, outer2d in zip(region.loops3d, outer_loops):
         n = len(loop3d)
         outer3d = [bmvert(p) for p in outer2d]
         for i in range(n):
             a3, b3 = loop3d[i], loop3d[(i + 1) % n]
             oa, ob = outer3d[i], outer3d[(i + 1) % n]
+            src = region.edge_orig_faces[base + i]
             # a -> oa -> ob -> b keeps the wall's winding consistent with
             # the (untouched) region faces it borders -- see task-10 report.
-            made_faces += new_face([a3, oa, ob, b3])
+            if new_face([a3, oa, ob, b3], src) is not None:
+                made_faces += 1
+        base += n
 
     if abs(depth) > 1e-9:
         n_axis = region.basis[2]
@@ -1040,6 +1157,9 @@ def _apply_outset(bm, region, weights, t_abs, depth):
     orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
     if orphans:
         bmesh.ops.delete(bm, geom=orphans, context='VERTS')
+    # Outset keeps the original faces, so the roles swap relative to inset:
+    # the new ring is what stays selected, the untouched region drops out.
+    _apply_selection(ring_faces, region.faces)
     bm.normal_update()
     return made_faces, True
 
@@ -1163,6 +1283,13 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
 
         self._mouse_start_x = event.mouse_region_x
         self._initial_thickness = self.thickness
+        # Cancel snapshot. Distinct from _initial_thickness on purpose: that
+        # one is a *drag anchor* and is re-anchored on the current value every
+        # time Shift/Ctrl is released or numeric entry is cleared, so
+        # restoring from it on ESC would hand back a mid-drag value. These two
+        # are written once, here, and never touched again.
+        self._cancel_thickness = self.thickness
+        self._cancel_depth = self.depth
         # Shift-precision works off a second anchor captured at Shift-press,
         # so entering/leaving precise mode never jumps the value.
         self._shift_anchor_x = None
@@ -1372,7 +1499,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 return self._run(context)
 
             if event.type in {"RIGHTMOUSE", "ESC"}:
-                self.thickness = self._initial_thickness
+                self.thickness = self._cancel_thickness
+                self.depth = self._cancel_depth
                 self._finish(context)
                 return {'CANCELLED'}
 
@@ -1558,8 +1686,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         t = float(self.thickness)
         if self.use_collapse or t <= EPS:
             return t
-        caps = [tl.first_event_t * (1.0 - 1e-6)
-                for _region, tl in getattr(self, "_regions", ())]
+        caps = [clamp_cap(tl) for _region, tl in getattr(self, "_regions", ())]
         return min([t] + caps) if caps else t
 
     # ------------------------------------------------------------------
@@ -1610,7 +1737,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             t_eff = effective_t(tl, t, self.use_collapse)
             if t_eff <= EPS:
                 continue
-            if not self.use_collapse and t > tl.first_event_t * (1.0 - 1e-6):
+            if not self.use_collapse and t > clamp_cap(tl):
                 clamped = True
 
             n = region.basis[2]
@@ -1788,6 +1915,14 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 mutated = mutated or did
 
         if not mutated:
+            # Every region's effective thickness degenerated to zero, so bm was
+            # left untouched. That is a legitimate outcome (collapse off on a
+            # region whose first event is at t=0, an all-frozen boundary, ...)
+            # but returning CANCELLED without a word looks like a dead hotkey.
+            self.report({'WARNING'},
+                        "Smart Inset: effective thickness is zero for every "
+                        "region — nothing to apply (try Collapse/Boundary on, "
+                        "or a larger thickness)")
             return {'CANCELLED'}
 
         # Any mutation must be reported as FINISHED so Blender pushes an undo
@@ -1796,5 +1931,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if not changed:
             self.report({'WARNING'},
                         "Smart Inset: no faces produced for this thickness")
+        # apply_inset/_apply_outset set the face-level selection; propagate it
+        # to whatever the mesh's actual select mode needs.
+        bm.select_flush_mode()
         bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
         return {'FINISHED'}
