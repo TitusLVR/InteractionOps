@@ -300,3 +300,54 @@ def test_sanitize_carries_dropped_points_weight_when_dropped_edge_differs():
     )
     assert len(loops[0]) == 4
     assert ws[0] == [5.0, 1.0, 1.0, 1.0]
+
+
+from utils.smart_inset_core import boundary_distance
+
+SQUARE2 = [[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]]
+
+
+def test_boundary_distance_square_center():
+    # centre of a 2x2 square: half the side length away from every edge
+    assert boundary_distance(SQUARE2, (1.0, 1.0)) == pytest.approx(1.0)
+
+
+def test_boundary_distance_on_boundary_is_zero():
+    assert boundary_distance(SQUARE2, (2.0, 0.7)) == pytest.approx(0.0)
+    assert boundary_distance(SQUARE2, (0.0, 0.0)) == pytest.approx(0.0)
+
+
+def test_boundary_distance_near_corner_uses_endpoint():
+    # (-1,-1) projects outside both incident edges, so the nearest point on
+    # the boundary is the corner vertex itself, not a perpendicular foot
+    assert boundary_distance(SQUARE2, (-1.0, -1.0)) == pytest.approx(math.sqrt(2.0))
+
+
+def test_boundary_distance_respects_holes():
+    # a hole shrinks the empty disc around the outer square's centre
+    hole = [(0.8, 0.8), (1.2, 0.8), (1.2, 1.2), (0.8, 1.2)]
+    assert boundary_distance(SQUARE2 + [hole], (1.0, 0.5)) == pytest.approx(0.3)
+
+
+from utils.smart_inset_core import BoundaryLevel
+
+HOLED = SQUARE2 + [[(0.8, 0.8), (1.2, 0.8), (1.2, 1.2), (0.8, 1.2)]]
+
+
+def test_boundary_level_matches_boundary_distance():
+    # the bucketed predicate must agree with the reference distance on every
+    # sample, inside the region, in the hole and outside altogether
+    for r in (0.05, 0.3, 1.0):
+        lvl = BoundaryLevel(HOLED, r)
+        for i in range(37):
+            for j in range(37):
+                p = (-0.5 + 3.0 * i / 36.0, -0.5 + 3.0 * j / 36.0)
+                assert lvl.beyond(p) == (boundary_distance(HOLED, p) > r), (r, p)
+
+
+def test_boundary_level_handles_long_edges():
+    # r far smaller than the region: cell clamping must not lose segments
+    loops = [[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]]
+    lvl = BoundaryLevel(loops, 1e-3)
+    assert lvl.beyond((50.0, 50.0)) is True
+    assert lvl.beyond((50.0, 0.0005)) is False

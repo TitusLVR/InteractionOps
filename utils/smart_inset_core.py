@@ -78,6 +78,93 @@ def vertex_velocity(n_prev, n_next, w_prev=1.0, w_next=1.0):
 INF = float("inf")
 
 
+def point_segment_distance(a, b, p):
+    """Distance from ``p`` to segment ``a``-``b`` (endpoint clamped)."""
+    d = sub(b, a)
+    L2 = dot(d, d)
+    if L2 < EPS * EPS:
+        return norm(sub(p, a))
+    u = dot(sub(p, a), d) / L2
+    if u <= 0.0:
+        return norm(sub(p, a))
+    if u >= 1.0:
+        return norm(sub(p, b))
+    return norm(sub(p, add(a, mul(d, u))))
+
+
+def boundary_distance(loops, p):
+    """Min distance from ``p`` to the closed polylines in ``loops``.
+
+    Unsigned: 0.0 on the boundary, and it grows the same way whether ``p``
+    is inside or outside. For a point strictly inside a region this is the
+    radius of the largest empty disc centred at ``p``, i.e. exactly the
+    time at which the unit-speed wavefront reaches it -- which is what the
+    apply side uses to decide whether an interior vertex survives an inset.
+    """
+    best = INF
+    for loop in loops:
+        n = len(loop)
+        if n < 2:
+            if n == 1:
+                best = min(best, norm(sub(p, loop[0])))
+            continue
+        for i in range(n):
+            d = point_segment_distance(loop[i], loop[(i + 1) % n], p)
+            if d < best:
+                best = d
+    return best
+
+
+class BoundaryLevel:
+    """Bucketed 'is this point farther than ``r`` from the boundary?' test.
+
+    Exactly equivalent to ``boundary_distance(loops, p) > r`` (see the unit
+    tests), but it only measures the segments bucketed into ``p``'s own cell.
+    That is sound: a segment closer than ``r`` to ``p`` puts ``p`` inside
+    that segment's bounding box grown by ``r``, and every cell such a box
+    touches gets the segment. Both users of the level -- the survival test
+    for interior verts and the bisection for the crossing points -- run over
+    thousands of points against hundreds of segments, where the brute-force
+    O(points x segments) loop costs seconds.
+    """
+
+    __slots__ = ("r", "cell", "buckets")
+
+    def __init__(self, loops, r):
+        self.r = r
+        pts = [p for loop in loops for p in loop]
+        if pts:
+            span = max(max(p[0] for p in pts) - min(p[0] for p in pts),
+                       max(p[1] for p in pts) - min(p[1] for p in pts))
+        else:
+            span = 0.0
+        # Cells smaller than ~1/64 of the region would make a long boundary
+        # edge register in a silly number of them; bigger cells only cost a
+        # few extra distance tests per query.
+        self.cell = max(r, span / 64.0, EPS)
+        self.buckets = {}
+        c = self.cell
+        for loop in loops:
+            n = len(loop)
+            for i in range(n):
+                a, b = loop[i], loop[(i + 1) % n]
+                x0 = int(math.floor((min(a[0], b[0]) - r) / c))
+                x1 = int(math.floor((max(a[0], b[0]) + r) / c))
+                y0 = int(math.floor((min(a[1], b[1]) - r) / c))
+                y1 = int(math.floor((max(a[1], b[1]) + r) / c))
+                for cx in range(x0, x1 + 1):
+                    for cy in range(y0, y1 + 1):
+                        self.buckets.setdefault((cx, cy), []).append((a, b))
+
+    def beyond(self, p):
+        c = self.cell
+        key = (int(math.floor(p[0] / c)), int(math.floor(p[1] / c)))
+        for a, b in self.buckets.get(key, ()):
+            if point_segment_distance(a, b, p) <= self.r:
+                return False
+        return True
+
+
 class FrontVert:
     __slots__ = ("vid", "P0", "V", "birth_t", "death_t",
                  "left_edge", "right_edge", "prev", "next",

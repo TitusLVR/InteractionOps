@@ -10,8 +10,10 @@ bridge:
 3. fit a plane, project the loops to 2D (outer loop CCW when viewed down the
    region normal — the winding the core requires),
 4. run the core timeline and rebuild geometry at the requested thickness:
-   one wall face per original boundary edge plus an ngon per surviving front
-   loop.
+   one wall face per original boundary edge, the region's interior kept
+   wherever the wavefront has not reached it yet (faces the front cuts
+   through are clipped against it), and an ngon fill only where the front
+   consumed the interior outright.
 
 Curved regions are handled approximately by design: new verts are pulled back
 onto the original surface with a BVH nearest-point query.
@@ -20,6 +22,7 @@ import bpy
 import bmesh
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.geometry import tessellate_polygon
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, BoolProperty, EnumProperty
 
@@ -308,6 +311,13 @@ def region_to_2d(region):
     return region.loops2d
 
 
+def project_to_2d(region, co):
+    """Object-space point -> (u, v) coordinates on the region plane."""
+    u, v, _ = region.basis
+    d = co - region.plane_origin
+    return (d.dot(u), d.dot(v))
+
+
 def lift_to_3d(region, p2d):
     u, v, _ = region.basis
     return region.plane_origin + u * p2d[0] + v * p2d[1]
@@ -364,8 +374,384 @@ def effective_t(tl, t, use_collapse):
     return min(t, tl.first_event_t * (1.0 - 1e-6))
 
 
-def apply_inset(bm, region, tl, t, depth, use_collapse):
+def _point_in_poly(pts, p):
+    """Even-odd ray cast; points exactly on an edge are unspecified."""
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        if (a[1] > p[1]) != (b[1] > p[1]):
+            x = a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+            if p[0] < x:
+                inside = not inside
+    return inside
+
+
+def _nearest_on_loops(loops, p):
+    """Closest point on a set of closed 2D polylines.
+
+    Returns ``(loop_index, seg_index, u, point, distance)`` where ``u`` is
+    the parameter along segment ``seg_index -> seg_index + 1``.
+    """
+    best = None
+    for li, pts in enumerate(loops):
+        n = len(pts)
+        if n < 2:
+            continue
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L2 = dx * dx + dy * dy
+            if L2 < MIN_EDGE_2D * MIN_EDGE_2D:
+                u = 0.0
+            else:
+                u = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2
+                u = min(1.0, max(0.0, u))
+            q = (a[0] + dx * u, a[1] + dy * u)
+            d = _dist2d(p, q)
+            if best is None or d < best[4]:
+                best = (li, i, u, q, d)
+    return best
+
+
+class _Crossing:
+    """One point where the front crosses an original interior edge."""
+
+    __slots__ = ("p2d", "loop", "seg", "u", "splice")
+
+    def __init__(self, p2d, loop, seg, u, splice):
+        self.p2d = p2d
+        self.loop = loop      # front loop index it was snapped onto
+        self.seg = seg        # segment index within that loop
+        self.u = u            # parameter along the segment
+        self.splice = splice  # False when it landed on a front vert itself
+
+
+def _front_span(front, ca, cb):
+    """Front verts passed walking forward from crossing ``ca`` to ``cb``.
+
+    Both the original faces and the front loops wind CCW around the region
+    normal, and both keep the surviving material on the left, so a cut
+    polygon traverses the front in the *same* direction as the front loop's
+    own order. The front verts in between must be part of the cut polygon:
+    the wall faces meet the front at them, and short-cutting them with a
+    straight chord would tear the surface at every front corner.
+    """
+    if ca.loop != cb.loop:
+        raise RuntimeError("chord spans two front loops")
+    pts = front[ca.loop]
+    n = len(pts)
+    if ca.seg == cb.seg:
+        if cb.u >= ca.u:
+            return []
+        raise RuntimeError("face encloses a whole front loop")
+    out = []
+    i = (ca.seg + 1) % n
+    for _ in range(n):
+        out.append(pts[i])
+        if i == cb.seg:
+            return out
+        i = (i + 1) % n
+    raise RuntimeError("front span walk failed")
+
+
+class _ClipPlan:
+    """Everything ``apply_inset`` needs to preserve the region's interior.
+
+    Built before any bmesh mutation and fully validated, so a region that
+    cannot be clipped consistently falls back to the plain ngon fill with
+    the mesh still untouched.
+    """
+
+    __slots__ = ("kept", "clipped", "consumed", "survivors", "crossings",
+                 "chains")
+
+    def __init__(self):
+        self.kept = []        # faces left exactly as they are
+        # (face, entries) where an entry is ('v', BMVert) for a surviving
+        # vert, ('x', weld key) for a front crossing, ('f', p2d) for a front
+        # vert the cut polygon has to pass through.
+        self.clipped = []
+        self.consumed = []    # faces to delete (fully eaten + clipped ones)
+        self.survivors = []   # interior verts that keep their position
+        self.crossings = {}   # weld key -> _Crossing
+        self.chains = {}      # edge id -> wall chain with crossings spliced in
+
+
+def _clip_eligible(tl):
+    """Interior clipping needs the plain unit-speed metric.
+
+    ``boundary_distance`` measures the unweighted distance to the boundary,
+    which only equals the wavefront arrival time when every edge moves at
+    speed 1. With a frozen border (``use_boundary`` off, weight 0) the two
+    disagree, so clipping is skipped and Task 6's ngon fill is used.
+    """
+    return all(abs(w - 1.0) <= 1e-12 for w in tl.edge_weight.values())
+
+
+def _plan_interior_clip(region, tl, t_eff, chains, key_of):
+    """Decide which region faces survive the front and how they are cut.
+
+    Returns a validated ``_ClipPlan``, or None when nothing survives (the
+    whole region was consumed -- Task 6's fill is exactly right then).
+    Raises RuntimeError when the clip cannot be made watertight; the caller
+    is expected to fall back.
+    """
+    loops2d = region.loops2d
+    boundary = set()
+    for loop in region.loops3d:
+        boundary.update(loop)
+
+    # Survival band. A vertex whose distance to the boundary is only a hair
+    # above t_eff would spawn crossing points a hair away from *itself*:
+    # coincident verts for any practical merge threshold. Treating the whole
+    # band as consumed avoids that -- the crossings then land near a vertex
+    # that is being deleted anyway. The band is relative to the region size
+    # so it stays negligible at any scale.
+    lo = [min(p[i] for loop in loops2d for p in loop) for i in (0, 1)]
+    hi = [max(p[i] for loop in loops2d for p in loop) for i in (0, 1)]
+    diag = _dist2d(lo, hi)
+    tol = max(MIN_EDGE_2D, 1e-4 * diag)
+    # One single iso-level for both the survival test and the crossing
+    # bisection: mixing t_eff with a shifted test would leave edges whose
+    # endpoints "disagree" about which side of the level they are on.
+    level = t_eff + tol
+    # Bucketed equivalent of ``core.boundary_distance(...) > level``; a dense
+    # selection asks this thousands of times.
+    lvl = core.BoundaryLevel(loops2d, level)
+    survive = {}
+    for f in region.faces:
+        for vt in f.verts:
+            if vt in survive:
+                continue
+            if vt in boundary:
+                survive[vt] = False
+                continue
+            survive[vt] = lvl.beyond(project_to_2d(region, vt.co))
+
+    plan = _ClipPlan()
+    plan.survivors = [vt for vt, ok in survive.items() if ok]
+    if not plan.survivors:
+        return None
+
+    front_vids = tl.front_at(t_eff)
+    if not front_vids:
+        raise RuntimeError("interior survives but the front is empty")
+    front = [[tl.pos_at(vid, t_eff) for vid in loop] for loop in front_vids]
+
+    cache = {}
+    chords = []
+
+    def crossing(a, b):
+        """Weld key of the front crossing on edge a-b (memoised, symmetric)."""
+        ck = (id(a), id(b)) if id(a) < id(b) else (id(b), id(a))
+        hit = cache.get(ck)
+        if hit is not None:
+            return hit
+        # Canonical direction so both incident faces get bit-identical
+        # results out of the bisection.
+        if id(a) > id(b):
+            a, b = b, a
+        pa = project_to_2d(region, a.co)
+        pb = project_to_2d(region, b.co)
+        ga = lvl.beyond(pa)
+        if ga == lvl.beyond(pb):
+            raise RuntimeError("edge does not straddle the front")
+        # Bisect the piecewise-linear min-distance along the edge. 20 halvings
+        # pin the level crossing down to ~1e-6 of the edge length.
+        lo, hi = 0.0, 1.0
+        for _ in range(20):
+            mid = 0.5 * (lo + hi)
+            pm = (pa[0] + (pb[0] - pa[0]) * mid, pa[1] + (pb[1] - pa[1]) * mid)
+            if lvl.beyond(pm) == ga:
+                lo = mid
+            else:
+                hi = mid
+        s = 0.5 * (lo + hi)
+        p = (pa[0] + (pb[0] - pa[0]) * s, pa[1] + (pb[1] - pa[1]) * s)
+
+        # The distance iso-level and the straight-skeleton front agree
+        # everywhere except around reflex corners, where the true offset is
+        # a circular arc and the skeleton miters it. Snapping the crossing
+        # onto the front polyline is what keeps the clipped faces, the walls
+        # and the front welded into one watertight surface.
+        near = _nearest_on_loops(front, p)
+        if near is None:
+            raise RuntimeError("no front polyline to snap to")
+        li, si, u, q, dist = near
+        # tol shows up here because the bisected level sits tol inside the
+        # front by construction.
+        if dist > tol + max(1e-4, 0.5 * t_eff):
+            raise RuntimeError("front crossing too far off the front")
+        pts = front[li]
+        a2, b2 = pts[si], pts[(si + 1) % len(pts)]
+        seg_len = _dist2d(a2, b2)
+        splice = True
+        # Land it exactly on a front vert when it is within welding distance:
+        # splitting a wall's top edge that close to its end would leave a
+        # duplicate vert instead of a usable one.
+        if u * seg_len <= tol:
+            q, splice = a2, False
+        elif (1.0 - u) * seg_len <= tol:
+            q, splice = b2, False
+            si = (si + 1) % len(pts)
+            u = 0.0
+        key = key_of(q)
+        plan.crossings[key] = _Crossing(q, li, si, u, splice)
+        cache[ck] = key
+        return key
+
+    for f in region.faces:
+        vs = list(f.verts)
+        flags = [survive[vt] for vt in vs]
+        if all(flags):
+            plan.kept.append(f)
+            continue
+        if not any(flags):
+            plan.consumed.append(f)
+            continue
+        poly = []
+        n = len(vs)
+        for i in range(n):
+            a, b = vs[i], vs[(i + 1) % n]
+            if flags[i]:
+                poly.append(("v", a))
+            if flags[i] != flags[(i + 1) % n]:
+                poly.append(("x", crossing(a, b)))
+        if len(poly) < 3:
+            raise RuntimeError("degenerate clipped face")
+        # Every dead span collapses to a pair of neighbouring crossings in
+        # the cut polygon -- that pair is one chord along the front, and the
+        # front verts it passes are spliced back in.
+        m = len(poly)
+        walked = []
+        for i in range(m):
+            walked.append(poly[i])
+            j = (i + 1) % m
+            if poly[i][0] == "x" and poly[j][0] == "x":
+                chords.append((poly[i][1], poly[j][1]))
+                ca = plan.crossings[poly[i][1]]
+                cb = plan.crossings[poly[j][1]]
+                for p in _front_span(front, ca, cb):
+                    walked.append(("f", p))
+        poly = walked
+        plan.clipped.append((f, poly))
+        plan.consumed.append(f)
+
+    # -- validation: the chords must close the front exactly -------------
+    # Every crossing sits on an interior edge shared by two faces, so it
+    # must be an endpoint of exactly two chords. A degree of 1 means the
+    # front cut through a face whose every vertex was already consumed --
+    # nothing would cover that stretch and the result would be a hole.
+    deg = {}
+    for ka, kb in chords:
+        if ka == kb:
+            raise RuntimeError("degenerate chord")
+        deg[ka] = deg.get(ka, 0) + 1
+        deg[kb] = deg.get(kb, 0) + 1
+    if set(deg) != set(plan.crossings):
+        raise RuntimeError("crossing not bounded by a chord")
+    if any(d != 2 for d in deg.values()):
+        raise RuntimeError("front not closed by the clipped faces")
+    covered = {c.loop for c in plan.crossings.values()}
+    if len(covered) != len(front):
+        raise RuntimeError("front loop left uncovered")
+
+    # -- splice the crossings into the wall chains -----------------------
+    # A crossing that landed in the middle of a front segment splits the top
+    # edge of that segment's wall face; without inserting it there the wall
+    # keeps a T-junction against the clipped face.
+    per_seg = {}
+    for key, c in plan.crossings.items():
+        if c.splice:
+            per_seg.setdefault((c.loop, c.seg), []).append((c.u, c.p2d))
+    for (li, si), items in per_seg.items():
+        items.sort()
+        pts = front[li]
+        vids = front_vids[li]
+        a2, b2 = pts[si], pts[(si + 1) % len(pts)]
+        e = tl.verts[vids[si]].right_edge
+        chain = chains.get(e)
+        if not chain:
+            raise RuntimeError("front segment has no wall chain")
+        at = None
+        for k in range(len(chain) - 1):
+            if (_dist2d(chain[k], a2) <= MIN_EDGE_2D
+                    and _dist2d(chain[k + 1], b2) <= MIN_EDGE_2D):
+                at, forward = k, True
+                break
+            if (_dist2d(chain[k], b2) <= MIN_EDGE_2D
+                    and _dist2d(chain[k + 1], a2) <= MIN_EDGE_2D):
+                at, forward = k, False
+                break
+        if at is None:
+            raise RuntimeError("front segment not found in its wall chain")
+        ins = [p for _u, p in items] if forward else [p for _u, p in reversed(items)]
+        chain[at + 1:at + 1] = ins
+    plan.chains = chains
+    return plan
+
+
+def _fill_front_loops(front, bmvert, new_face):
+    """Cap the front loops, keeping holes as holes.
+
+    A front loop's winding tells what it bounds: the region-on-the-left
+    convention makes outer loops CCW (positive signed area) and hole loops
+    CW. A CW loop nested inside a CCW one is a genuine hole in the surviving
+    material, so that pair is tessellated as a polygon-with-hole instead of
+    being capped by two overlapping ngons (which is what a naive per-loop
+    ngon fill produces).
+    """
+    areas = [_signed_area(pts) for pts in front]
+    outers = [i for i, a in enumerate(areas) if a >= 0.0]
+    holes = {}
+    orphans = []
+    for h, a in enumerate(areas):
+        if a >= 0.0:
+            continue
+        host = None
+        for o in outers:
+            if not _point_in_poly(front[o], front[h][0]):
+                continue
+            if host is None or areas[o] < areas[host]:
+                host = o
+        if host is None:
+            # No surviving loop encloses it. Not a hole in anything then, so
+            # cap it on its own (reversed, to face the way the region does)
+            # rather than leave the area it bounds unfilled.
+            orphans.append(h)
+        else:
+            holes.setdefault(host, []).append(h)
+
+    made = 0
+    for h in orphans:
+        made += new_face([bmvert(p) for p in reversed(front[h])])
+    for o in outers:
+        hs = holes.get(o, ())
+        if not hs:
+            made += new_face([bmvert(p) for p in front[o]])
+            continue
+        seqs = [[Vector((p[0], p[1], 0.0)) for p in front[o]]]
+        flat = list(front[o])
+        for h in hs:
+            seqs.append([Vector((p[0], p[1], 0.0)) for p in front[h]])
+            flat.extend(front[h])
+        for tri in tessellate_polygon(seqs):
+            pts = [flat[i] for i in tri]
+            if _signed_area(pts) < 0.0:
+                pts.reverse()
+            made += new_face([bmvert(p) for p in pts])
+    return made
+
+
+def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     """Rebuild the region at thickness ``t``. Mutates ``bm``.
+
+    Interior faces the front has not reached yet are preserved: their verts
+    keep their original positions and the faces the front cuts through are
+    clipped against it (see ``_plan_interior_clip``). If that cannot be done
+    watertight the whole region degrades to the plain ngon fill and
+    ``report`` is warned.
 
     Returns ``(faces_created, mutated)``. ``mutated`` is False only when the
     effective thickness degenerated to zero and ``bm`` was left untouched.
@@ -408,22 +794,69 @@ def apply_inset(bm, region, tl, t, depth, use_collapse):
             return 0
         return 1
 
-    made_faces = 0
     walls = tl.walls_at(t_eff)
+    chains = {j: list(walls.get(j, ())) for j in range(tl.edge_count)}
+
+    # -- interior preservation plan (nothing is mutated yet) -------------
+    plan = None
+    if _clip_eligible(tl):
+        try:
+            plan = _plan_interior_clip(
+                region, tl, t_eff,
+                {j: list(c) for j, c in chains.items()}, key_of)
+        except Exception:
+            plan = None
+            if report is not None:
+                report({'WARNING'},
+                       "Smart Inset: interior clip failed, ngon fill used")
+        if plan is not None:
+            chains = plan.chains
+
+    made_faces = 0
     for j in range(tl.edge_count):
         a3, b3 = region.edge_orig_verts[j]
-        chain = [bmvert(p) for p in walls.get(j, ())]
+        chain = [bmvert(p) for p in chains.get(j, ())]
         made_faces += new_face([a3, b3] + chain)
 
-    for loop in tl.front_at(t_eff):
-        made_faces += new_face([bmvert(tl.pos_at(vid, t_eff)) for vid in loop])
+    if plan is None:
+        front = [[tl.pos_at(vid, t_eff) for vid in loop]
+                 for loop in tl.front_at(t_eff)]
+        if front:
+            made_faces += _fill_front_loops(front, bmvert, new_face)
+    else:
+        # The clipped faces' chords already close every front loop, so no
+        # cap ngon is needed -- the preserved interior *is* the cap.
+        lost = 0
+        for _f, poly in plan.clipped:
+            verts = []
+            for kind, val in poly:
+                if kind == "v":
+                    verts.append(val)
+                elif kind == "x":
+                    verts.append(bmvert(plan.crossings[val].p2d))
+                else:
+                    verts.append(bmvert(val))
+            n_ok = new_face(verts)
+            made_faces += n_ok
+            lost += 1 - n_ok
+        if lost and report is not None:
+            report({'WARNING'},
+                   "Smart Inset: %d clipped face(s) dropped as degenerate"
+                   % lost)
 
     if abs(depth) > 1e-9:
         n = region.basis[2]
+        # The preserved interior is part of the new inner surface, so it has
+        # to travel with the fresh verts or the surface tears at the clip.
         for vt in fresh:
             vt.co += n * depth
+        if plan is not None:
+            for vt in plan.survivors:
+                vt.co += n * depth
 
-    bmesh.ops.delete(bm, geom=region.faces, context='FACES')
+    doomed = plan.consumed if plan is not None else region.faces
+    if doomed:
+        bmesh.ops.delete(bm, geom=doomed, context='FACES')
     # A vert created for a wall that turned out degenerate would be left
     # dangling; drop the ones nothing ended up using.
     orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
@@ -1280,7 +1713,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         else:
             for region, tl in self._build_timelines(regions):
                 n_faces, did = apply_inset(bm, region, tl, t, self.depth,
-                                           self.use_collapse)
+                                           self.use_collapse, self.report)
                 changed += n_faces
                 mutated = mutated or did
 
