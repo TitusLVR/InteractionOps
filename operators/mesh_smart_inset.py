@@ -635,6 +635,22 @@ def _plan_interior_clip(region, tl, t_eff, chains, key_of):
                 for p in _front_span(front, ca, cb):
                     walked.append(("f", p))
         poly = walked
+        # Orientation guard. The crossings are allowed to be snapped a fair
+        # way onto the front (see the tolerance above), and a bad snap could
+        # in principle turn the cut polygon inside out or make it
+        # self-intersect. The original faces project CCW onto the region
+        # plane, so anything not strictly CCW here is wrong -- raise into the
+        # per-region fallback rather than build it.
+        cut_2d = []
+        for kind, val in poly:
+            if kind == "v":
+                cut_2d.append(project_to_2d(region, val.co))
+            elif kind == "x":
+                cut_2d.append(plan.crossings[val].p2d)
+            else:
+                cut_2d.append(val)
+        if _signed_area(cut_2d) <= 0.0:
+            raise RuntimeError("clipped face lost its orientation")
         plan.clipped.append((f, poly))
         plan.consumed.append(f)
 
@@ -692,7 +708,37 @@ def _plan_interior_clip(region, tl, t_eff, chains, key_of):
     return plan
 
 
-def _fill_front_loops(front, bmvert, new_face):
+def _bbox_2d(pts):
+    return (min(p[0] for p in pts), min(p[1] for p in pts),
+            max(p[0] for p in pts), max(p[1] for p in pts))
+
+
+def _loop_encloses(outer, inner):
+    """Is closed polyline ``inner`` nested inside closed polyline ``outer``?
+
+    Voted over several of ``inner``'s verts instead of trusting one: a hole
+    loop can touch its container (tangency at a pinch point), and
+    ``_point_in_poly`` is undefined for a point exactly on an edge. The
+    bounding box breaks a tie -- a nested loop's box is always inside the
+    container's box, which is cheap and decides the tangent case.
+    """
+    votes_in = 0
+    votes_out = 0
+    n = len(inner)
+    step = max(1, n // 8)
+    for i in range(0, n, step):
+        if _point_in_poly(outer, inner[i]):
+            votes_in += 1
+        else:
+            votes_out += 1
+    if votes_in != votes_out:
+        return votes_in > votes_out
+    ox0, oy0, ox1, oy1 = _bbox_2d(outer)
+    ix0, iy0, ix1, iy1 = _bbox_2d(inner)
+    return ox0 <= ix0 and oy0 <= iy0 and ix1 <= ox1 and iy1 <= oy1
+
+
+def _fill_front_loops(front, bmvert, new_face, report=None):
     """Cap the front loops, keeping holes as holes.
 
     A front loop's winding tells what it bounds: the region-on-the-left
@@ -701,43 +747,60 @@ def _fill_front_loops(front, bmvert, new_face):
     material, so that pair is tessellated as a polygon-with-hole instead of
     being capped by two overlapping ngons (which is what a naive per-loop
     ngon fill produces).
+
+    This is the *fallback* path, so it must never be the thing that raises:
+    if the polygon-with-hole tessellation fails for a group, that group
+    degrades to one plain ngon per loop -- pre-Task-11 behaviour.
     """
     areas = [_signed_area(pts) for pts in front]
     outers = [i for i, a in enumerate(areas) if a >= 0.0]
     holes = {}
-    orphans = []
+    unhosted = []
     for h, a in enumerate(areas):
         if a >= 0.0:
             continue
         host = None
         for o in outers:
-            if not _point_in_poly(front[o], front[h][0]):
+            if not _loop_encloses(front[o], front[h]):
                 continue
             if host is None or areas[o] < areas[host]:
                 host = o
         if host is None:
-            # No surviving loop encloses it. Not a hole in anything then, so
-            # cap it on its own (reversed, to face the way the region does)
-            # rather than leave the area it bounds unfilled.
-            orphans.append(h)
+            # A CW loop bounds material on its *outside*; capping it (in
+            # either winding) would fill the very area it is a hole in. With
+            # no container to tessellate it against there is nothing safe to
+            # build, so leave it alone.
+            unhosted.append(h)
         else:
             holes.setdefault(host, []).append(h)
+    if unhosted and report is not None:
+        report({'WARNING'},
+               "Smart Inset: %d front hole loop(s) left unfilled"
+               % len(unhosted))
 
     made = 0
-    for h in orphans:
-        made += new_face([bmvert(p) for p in reversed(front[h])])
     for o in outers:
         hs = holes.get(o, ())
         if not hs:
             made += new_face([bmvert(p) for p in front[o]])
             continue
-        seqs = [[Vector((p[0], p[1], 0.0)) for p in front[o]]]
-        flat = list(front[o])
-        for h in hs:
-            seqs.append([Vector((p[0], p[1], 0.0)) for p in front[h]])
-            flat.extend(front[h])
-        for tri in tessellate_polygon(seqs):
-            pts = [flat[i] for i in tri]
+        try:
+            seqs = [[Vector((p[0], p[1], 0.0)) for p in front[o]]]
+            flat = list(front[o])
+            for h in hs:
+                seqs.append([Vector((p[0], p[1], 0.0)) for p in front[h]])
+                flat.extend(front[h])
+            tris = [[flat[i] for i in tri] for tri in tessellate_polygon(seqs)]
+            if not tris:
+                raise RuntimeError("hole tessellation produced nothing")
+        except Exception:
+            if report is not None:
+                report({'WARNING'},
+                       "Smart Inset: hole fill failed, ngon fill used")
+            for li in (o,) + tuple(hs):
+                made += new_face([bmvert(p) for p in front[li]])
+            continue
+        for pts in tris:
             if _signed_area(pts) < 0.0:
                 pts.reverse()
             made += new_face([bmvert(p) for p in pts])
@@ -822,7 +885,7 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
         front = [[tl.pos_at(vid, t_eff) for vid in loop]
                  for loop in tl.front_at(t_eff)]
         if front:
-            made_faces += _fill_front_loops(front, bmvert, new_face)
+            made_faces += _fill_front_loops(front, bmvert, new_face, report)
     else:
         # The clipped faces' chords already close every front loop, so no
         # cap ngon is needed -- the preserved interior *is* the cap.
@@ -858,8 +921,15 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     if doomed:
         bmesh.ops.delete(bm, geom=doomed, context='FACES')
     # A vert created for a wall that turned out degenerate would be left
-    # dangling; drop the ones nothing ended up using.
-    orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
+    # dangling; drop the ones nothing ended up using. Preserved interior verts
+    # go through the same sweep: if the clipped face that was supposed to hold
+    # one got dropped as degenerate, it is loose now. They are safe to delete
+    # because an interior vert of a region has no faces outside it by
+    # definition -- that is what put it in `survivors` in the first place.
+    loose = list(fresh)
+    if plan is not None:
+        loose.extend(plan.survivors)
+    orphans = [vt for vt in loose if vt.is_valid and not vt.link_faces]
     if orphans:
         bmesh.ops.delete(bm, geom=orphans, context='VERTS')
     bm.normal_update()
