@@ -569,6 +569,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # Preview is cached in 3D and only re-projected per redraw -- see
         # _rebuild_preview.
         self._preview_segs = []
+        self._seam_segs = []
+        self._clamped = False
         self._preview_key = None
         self._rebuild_preview()
 
@@ -906,6 +908,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # reload from dealloc'ing them against freed mesh data.
         self._regions = []
         self._preview_segs = []
+        self._seam_segs = []
+        self._clamped = False
         self._preview_key = None
         self._bm = None
         self._obj = None
@@ -963,39 +967,72 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if key == self._preview_key:
             return
         self._preview_key = key
-        self._preview_segs = self._front_segments()
+        segs, seams, clamped = self._build_preview_layers()
+        self._preview_segs = segs
+        self._seam_segs = seams
+        self._clamped = clamped
 
-    def _front_segments(self):
-        """Flat list of world-space segment endpoints for every front loop.
+    def _build_preview_layers(self):
+        """Compute the three preview layers in world space.
 
         Mirrors what ``apply_inset`` would build at the current thickness:
-        the 2D front positions lifted back onto the original surface and
-        pushed along the region normal by ``depth``.
+        the 2D positions lifted back onto the original surface and pushed
+        along the region normal by ``depth``. Returns
+        ``(front_segs, seam_segs, clamped)`` where each ``*_segs`` is a flat
+        list of segment endpoints (pairs) and ``clamped`` is True when any
+        region's requested thickness ran past its no-collapse cap.
         """
-        segs = []
+        front_segs, seam_segs = [], []
+        clamped = False
         t = float(self.thickness)
         if t <= EPS:
-            return segs   # negative/zero is a no-op until outset lands
+            return front_segs, seam_segs, clamped   # negative/zero: no-op
+
         for region, tl in getattr(self, "_regions", ()):
             t_eff = effective_t(tl, t, self.use_collapse)
             if t_eff <= EPS:
                 continue
+            if not self.use_collapse and t > tl.first_event_t * (1.0 - 1e-6):
+                clamped = True
+
             n = region.basis[2]
             offset = n * self.depth if abs(self.depth) > 1e-9 else None
+
+            def to_world(p2d):
+                co = surface_snap(region, lift_to_3d(region, p2d))
+                return co + offset if offset is not None else co
+
+            # -- front loops --------------------------------------------
             for loop in tl.front_at(t_eff):
-                pts = []
-                for vid in loop:
-                    co = surface_snap(
-                        region, lift_to_3d(region, tl.pos_at(vid, t_eff)))
-                    if offset is not None:
-                        co = co + offset
-                    pts.append(co)
+                pts = [to_world(tl.pos_at(vid, t_eff)) for vid in loop]
                 if len(pts) < 2:
                     continue
                 for i, p in enumerate(pts):
-                    segs.append(p)
-                    segs.append(pts[(i + 1) % len(pts)])
-        return segs
+                    front_segs.append(p)
+                    front_segs.append(pts[(i + 1) % len(pts)])
+
+            # -- medial seams --------------------------------------------
+            # Wall-top chain segments whose both endpoints sit exactly on
+            # a skeleton node born at or before t_eff: these are the
+            # already-collapsed sections of the wavefront, so highlighting
+            # them shows the user where collapse actually happened.
+            node_keys = {
+                (round(node.pos[0], WELD_DIGITS), round(node.pos[1], WELD_DIGITS))
+                for node in tl.nodes if node.t <= t_eff + EPS
+            }
+            if not node_keys:
+                continue
+            walls = tl.walls_at(t_eff)
+            for chain in walls.values():
+                for i in range(len(chain) - 1):
+                    p, q = chain[i], chain[i + 1]
+                    pk = (round(p[0], WELD_DIGITS), round(p[1], WELD_DIGITS))
+                    qk = (round(q[0], WELD_DIGITS), round(q[1], WELD_DIGITS))
+                    if pk in node_keys and qk in node_keys:
+                        seam_segs.append(to_world(p))
+                        seam_segs.append(to_world(q))
+
+        return front_segs, seam_segs, clamped
 
     def _draw_callback(self, context):
         region_ui = context.region
@@ -1020,9 +1057,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # Cached 3D segments -- this path only projects them. Any exception
         # escaping a draw handler repeats every single frame and can wedge the
         # UI, so the whole projection falls back to drawing nothing.
-        pts_2d = []
-        try:
-            segs = getattr(self, "_preview_segs", None) or ()
+        def _project(segs):
+            pts = []
             for i in range(0, len(segs) - 1, 2):
                 pa = view3d_utils.location_3d_to_region_2d(
                     region_ui, rv3d, mw @ segs[i])
@@ -1030,14 +1066,29 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                     region_ui, rv3d, mw @ segs[i + 1])
                 if pa is None or pb is None:
                     continue
-                pts_2d.append(Vector((pa[0], pa[1], 0.0)))
-                pts_2d.append(Vector((pb[0], pb[1], 0.0)))
-        except Exception:
-            pts_2d = []
+                pts.append(Vector((pa[0], pa[1], 0.0)))
+                pts.append(Vector((pb[0], pb[1], 0.0)))
+            return pts
 
-        if pts_2d:
+        front_2d, seam_2d = [], []
+        try:
+            front_2d = _project(getattr(self, "_preview_segs", None) or ())
+            seam_2d = _project(getattr(self, "_seam_segs", None) or ())
+        except Exception:
+            front_2d, seam_2d = [], []
+
+        if front_2d or seam_2d:
+            # Clamp feedback: with collapse disallowed and the requested
+            # thickness past the region's first-event cap, the front is
+            # already sitting at the clamp -- flag it in the warning colour
+            # instead of the normal preview cyan.
+            front_role = (Role.ERROR_LINE if getattr(self, "_clamped", False)
+                          else Role.PREVIEW_LINE)
             with draw_scope(blend="ALPHA"):
-                draw.edges_3d(pts_2d, role=Role.PREVIEW_LINE, context=context)
+                if front_2d:
+                    draw.edges_3d(front_2d, role=front_role, context=context)
+                if seam_2d:
+                    draw.edges_3d(seam_2d, role=Role.LOCKED_LINE, context=context)
 
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
