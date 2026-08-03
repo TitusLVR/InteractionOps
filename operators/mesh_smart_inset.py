@@ -220,17 +220,56 @@ def _check_planar_enough(faces, normal):
     """Reject regions whose projection onto their own plane folds over.
 
     The whole wavefront runs in 2D on the fitted plane, and it assumes the
-    projected boundary loops are simple. A selection that bends more than 90°
-    away from its own average normal (a half-cylinder, a strongly bent strip)
-    projects to a self-intersecting outline, and mixed/flipped face normals do
-    the same. The core then leaves immortal fronts behind and reports a bogus
-    ``max_t``: geometry comes out silently wrong rather than failing. A face
-    whose normal has a non-positive dot with the region normal is exactly the
-    fold condition, so test that up front and skip the region instead.
+    projected boundary loops are simple. A face whose normal has a
+    non-positive dot with the region normal projects with reversed
+    orientation — the outline is guaranteed to self-intersect, and the core
+    then leaves immortal fronts behind and reports a bogus ``max_t``. In
+    practice this fires once the selection's normals sweep past ~180°
+    (wrap-around selections, flipped faces); gentler bends project
+    injectively per-face and stay on the documented approximate-curved
+    path. Degenerate faces have a zero normal and no say either way, so
+    they are skipped rather than allowed to poison the whole region.
+    Non-reversing overlaps (helical strips) are caught separately by the
+    loop-simplicity check in ``_build_region``.
     """
     for f in faces:
-        if f.normal.dot(normal) <= 0.0:
+        if f.normal.length_squared > 0.0 and f.normal.dot(normal) <= 0.0:
             raise RegionError("region folds relative to its plane")
+
+
+def _segments_cross(p1, p2, p3, p4):
+    """True when open segments (p1,p2) and (p3,p4) properly cross."""
+    d1 = _signed_area([p3, p4, p1])
+    d2 = _signed_area([p3, p4, p2])
+    d3 = _signed_area([p1, p2, p3])
+    d4 = _signed_area([p1, p2, p4])
+    return ((d1 > 0.0) != (d2 > 0.0)) and ((d3 > 0.0) != (d4 > 0.0))
+
+
+def _check_loops_simple(loops2d):
+    """Reject projections whose boundary outline self-intersects.
+
+    The fold check above only catches orientation reversal; a helical or
+    spiralling selection projects every face right side up yet still lays
+    the outline over itself. The core cannot survive that input, so test
+    every pair of boundary segments (skipping same-loop neighbours, which
+    legitimately share an endpoint) before feeding it to the skeleton.
+    O(n²) over boundary segments — invoke-time only, n is small.
+    """
+    segs = []
+    for li, loop in enumerate(loops2d):
+        n = len(loop)
+        for i in range(n):
+            segs.append((li, i, n, loop[i], loop[(i + 1) % n]))
+    for a in range(len(segs)):
+        la, ia, na, a1, a2 = segs[a]
+        for b in range(a + 1, len(segs)):
+            lb, ib, nb, b1, b2 = segs[b]
+            if la == lb and (ib == (ia + 1) % na or ia == (ib + 1) % nb):
+                continue
+            if _segments_cross(a1, a2, b1, b2):
+                raise RegionError(
+                    "boundary projects to a self-intersecting outline")
 
 
 def _build_region(faces):
@@ -294,6 +333,7 @@ def _build_region(faces):
             region.edge_orig_verts.append((vt, verts[(i + 1) % len(verts)]))
             region.edge_orig_faces.append(fs[i])
 
+    _check_loops_simple(region.loops2d)
     region.bvh = _build_bvh(faces)
     return region
 
@@ -1290,6 +1330,9 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # are written once, here, and never touched again.
         self._cancel_thickness = self.thickness
         self._cancel_depth = self.depth
+        self._cancel_mode = self.mode
+        self._cancel_use_collapse = self.use_collapse
+        self._cancel_use_boundary = self.use_boundary
         # Shift-precision works off a second anchor captured at Shift-press,
         # so entering/leaving precise mode never jumps the value.
         self._shift_anchor_x = None
@@ -1499,8 +1542,13 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 return self._run(context)
 
             if event.type in {"RIGHTMOUSE", "ESC"}:
+                # Cancel means cancel: every prop the modal can touch goes
+                # back to its invoke-time value, toggles included.
                 self.thickness = self._cancel_thickness
                 self.depth = self._cancel_depth
+                self.mode = self._cancel_mode
+                self.use_collapse = self._cancel_use_collapse
+                self.use_boundary = self._cancel_use_boundary
                 self._finish(context)
                 return {'CANCELLED'}
 
