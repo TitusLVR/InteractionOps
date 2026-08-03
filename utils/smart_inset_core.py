@@ -73,3 +73,184 @@ def vertex_velocity(n_prev, n_next, w_prev=1.0, w_next=1.0):
     if norm(v) > SPEED_CAP:
         v = mul(normalize(v), SPEED_CAP)
     return v
+
+
+INF = float("inf")
+
+
+class FrontVert:
+    __slots__ = ("vid", "P0", "V", "birth_t", "death_t",
+                 "left_edge", "right_edge", "prev", "next",
+                 "succ_next", "succ_prev", "reflex")
+
+    def __init__(self, vid, P0, V, birth_t, left_edge, right_edge):
+        self.vid = vid
+        self.P0 = P0
+        self.V = V
+        self.birth_t = birth_t
+        self.death_t = INF
+        self.left_edge = left_edge    # original edge id ending at this vert
+        self.right_edge = right_edge  # original edge id starting here
+        self.prev = -1
+        self.next = -1
+        self.succ_next = None  # vid replacing self as `next` of self.prev
+        self.succ_prev = None  # vid replacing self as `prev` of self.next
+        self.reflex = False
+
+    def pos(self, t):
+        dt = t - self.birth_t
+        return (self.P0[0] + self.V[0] * dt, self.P0[1] + self.V[1] * dt)
+
+
+class Node:
+    __slots__ = ("t", "pos", "edges")
+
+    def __init__(self, t, pos, edges):
+        self.t = t
+        self.pos = pos
+        self.edges = set(edges)
+
+
+class Timeline:
+    def __init__(self):
+        self.verts = {}
+        self.nodes = []
+        self.loops0 = []
+        self.orig_pos = {}
+        self.orig_edges = {}   # edge id -> (a_vid, b_vid) original endpoints
+        self.edge_weight = {}
+        self.edge_count = 0
+        self.first_event_t = INF
+        self.max_t = 0.0
+
+
+def _edge_collapse_time(A, B):
+    """Earliest approach time of two front verts; None if they never meet."""
+    t0 = max(A.birth_t, B.birth_t)
+    pa, pb = A.pos(t0), B.pos(t0)
+    dp = sub(pb, pa)
+    dv = sub(B.V, A.V)
+    dv2 = dot(dv, dv)
+    if dv2 < EPS:
+        return None
+    t = t0 - dot(dp, dv) / dv2
+    if t < t0 - EPS:
+        return None
+    # verify they actually meet (relative tolerance vs distance travelled)
+    pa2, pb2 = A.pos(t), B.pos(t)
+    scale = max(norm(dp), 1.0)
+    if norm(sub(pb2, pa2)) > 1e-5 * scale:
+        return None
+    return max(t, t0)
+
+
+def build_timeline(loops, weights=None):
+    tl = Timeline()
+    # -- build initial LAV(s) -------------------------------------------
+    vid = 0
+    eid = 0
+    for li, loop in enumerate(loops):
+        n = len(loop)
+        ids = list(range(vid, vid + n))
+        tl.loops0.append(ids)
+        for i in range(n):
+            a, b = loop[i], loop[(i + 1) % n]
+            w = 1.0 if weights is None else weights[li][i]
+            tl.edge_weight[eid + i] = w
+            tl.orig_edges[eid + i] = (ids[i], ids[(i + 1) % n])
+        for i in range(n):
+            p = loop[i]
+            n_prev = edge_normal(loop[i - 1], p)
+            n_next = edge_normal(p, loop[(i + 1) % n])
+            w_prev = tl.edge_weight[eid + (i - 1) % n]
+            w_next = tl.edge_weight[eid + i]
+            v = FrontVert(ids[i], p, vertex_velocity(n_prev, n_next, w_prev, w_next),
+                          0.0, eid + (i - 1) % n, eid + i)
+            e_in = normalize(sub(p, loop[i - 1]))
+            e_out = normalize(sub(loop[(i + 1) % n], p))
+            v.reflex = cross(e_in, e_out) < -EPS
+            tl.verts[ids[i]] = v
+            tl.orig_pos[ids[i]] = p
+        for i in range(n):
+            tl.verts[ids[i]].prev = ids[(i - 1) % n]
+            tl.verts[ids[i]].next = ids[(i + 1) % n]
+        vid += n
+        eid += n
+    tl.edge_count = eid
+
+    # -- event queue -----------------------------------------------------
+    heap = []  # (t, seq, kind, payload)
+    seq = 0
+
+    def push_collapse(a_vid, b_vid):
+        nonlocal seq
+        A, B = tl.verts[a_vid], tl.verts[b_vid]
+        t = _edge_collapse_time(A, B)
+        if t is not None:
+            heapq.heappush(heap, (t, seq, "collapse", (a_vid, b_vid)))
+            seq += 1
+
+    for v in list(tl.verts.values()):
+        push_collapse(v.vid, v.next)
+
+    next_vid = vid
+    while heap:
+        t, _, kind, payload = heapq.heappop(heap)
+        a_vid, b_vid = payload
+        A, B = tl.verts[a_vid], tl.verts[b_vid]
+        # lazy invalidation: both alive and still adjacent
+        if A.death_t != INF or B.death_t != INF or A.next != b_vid:
+            continue
+        tl.first_event_t = min(tl.first_event_t, t)
+        tl.max_t = max(tl.max_t, t)
+        pos = mul(add(A.pos(t), B.pos(t)), 0.5)
+
+        if B.next == a_vid:
+            # loop down to 2 verts -> whole loop dies into one node
+            A.death_t = B.death_t = t
+            tl.nodes.append(Node(t, pos, {A.left_edge, A.right_edge,
+                                          B.left_edge, B.right_edge}))
+            continue
+
+        # merge A,B -> C
+        A.death_t = B.death_t = t
+        P, N = tl.verts[A.prev], tl.verts[B.next]
+        n_prev = edge_normal(tl.orig_pos[tl.orig_edges[A.left_edge][0]],
+                             tl.orig_pos[tl.orig_edges[A.left_edge][1]])
+        n_next = edge_normal(tl.orig_pos[tl.orig_edges[B.right_edge][0]],
+                             tl.orig_pos[tl.orig_edges[B.right_edge][1]])
+        V = vertex_velocity(n_prev, n_next,
+                            tl.edge_weight[A.left_edge],
+                            tl.edge_weight[B.right_edge])
+        C = FrontVert(next_vid, pos, V, t, A.left_edge, B.right_edge)
+        next_vid += 1
+        C.prev, C.next = P.vid, N.vid
+        P.next = C.vid
+        N.prev = C.vid
+        A.succ_next = A.succ_prev = C.vid
+        B.succ_next = B.succ_prev = C.vid
+        tl.verts[C.vid] = C
+        tl.nodes.append(Node(t, pos, {A.left_edge, A.right_edge, B.right_edge}))
+
+        if P.vid == N.vid:
+            # P and C are now mutual sole neighbours: the LAV has reached a
+            # 2-vertex degenerate state as a *result* of this merge (rather
+            # than by directly processing an edge event with B.next==a_vid).
+            # This happens e.g. when two opposite short edges of an
+            # elongated rect collapse simultaneously, leaving a pinched
+            # ridge between two already-recorded nodes. C's velocity here
+            # comes from two anti-parallel constraint normals (the
+            # spike/bisector branch of vertex_velocity), which is only a
+            # capped placeholder, not a meaningful direction -- computing a
+            # further collapse from it would inject spurious high-speed
+            # motion and a bogus extra node. Freeze both verts instead of
+            # queuing another collapse event.
+            C.death_t = t
+            P.death_t = t
+            continue
+        push_collapse(P.vid, C.vid)
+        push_collapse(C.vid, N.vid)
+
+    if tl.first_event_t is INF:
+        tl.first_event_t = 0.0
+    return tl
