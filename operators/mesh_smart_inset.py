@@ -36,6 +36,14 @@ MIN_EDGE_2D = 1e-6
 # Rounding used to weld skeleton nodes shared by several walls.
 WELD_DIGITS = 6
 
+DIGIT_TYPES = {
+    "ZERO": "0", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4",
+    "FIVE": "5", "SIX": "6", "SEVEN": "7", "EIGHT": "8", "NINE": "9",
+    "NUMPAD_0": "0", "NUMPAD_1": "1", "NUMPAD_2": "2", "NUMPAD_3": "3",
+    "NUMPAD_4": "4", "NUMPAD_5": "5", "NUMPAD_6": "6", "NUMPAD_7": "7",
+    "NUMPAD_8": "8", "NUMPAD_9": "9",
+}
+
 
 _ACTIVE_HANDLES = set()
 
@@ -544,6 +552,13 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # so entering/leaving precise mode never jumps the value.
         self._shift_anchor_x = None
         self._shift_anchor_t = 0.0
+        # Ctrl held: mouse X drives depth instead of thickness. Same
+        # re-anchor trick as Shift so toggling Ctrl never jumps either value.
+        self._ctrl_anchor_x = None
+        self._ctrl_anchor_depth = 0.0
+        # Numeric entry: digits/./-/Backspace build this; non-empty overrides
+        # mouse-driven thickness (see _sync_typed_thickness).
+        self._input_str = ""
 
         # Preview is cached in 3D and only re-projected per redraw -- see
         # _rebuild_preview.
@@ -555,10 +570,10 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._hud.title = "Smart Inset"
         self._hud.bind_region(context.region)
         self._hud.add_param(HUDParam(
-            "Thickness", lambda: self.thickness, "float", fmt="{:.4f}"))
+            "Thickness", self._hud_thickness, "float", fmt="{:.4f}"))
         self._hud.add_param(HUDParam(
             "Depth", lambda: self.depth, "float", fmt="{:.4f}"))
-        self._hud.add_param(HUDParam("Mode", lambda: self.mode, "enum"))
+        self._hud.add_param(HUDParam("Mode (I)", lambda: self.mode, "enum"))
         self._hud.add_param(HUDParam(
             "Collapse (C)", lambda: self.use_collapse, "bool"))
         self._hud.add_param(HUDParam(
@@ -655,12 +670,74 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         if event.type == "MOUSEMOVE":
-            self._update_thickness(event)
+            if event.ctrl:
+                self._update_depth(event)
+            else:
+                if self._ctrl_anchor_x is not None:
+                    # Leaving depth mode: re-anchor the thickness baseline on
+                    # the current mouse position/value, mirroring the Shift
+                    # re-anchor above, so releasing Ctrl never snaps.
+                    self._ctrl_anchor_x = None
+                    self._mouse_start_x = event.mouse_region_x
+                    self._initial_thickness = self.thickness
+                if not self._input_str:
+                    self._update_thickness(event)
             self._rebuild_preview()
             context.workspace.status_text_set(self._status_text())
             return {'RUNNING_MODAL'}
 
         if event.value == "PRESS":
+            if event.type in DIGIT_TYPES:
+                self._input_str += DIGIT_TYPES[event.type]
+                self._sync_typed_thickness()
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type in {"PERIOD", "NUMPAD_PERIOD"}:
+                if "." not in self._input_str:
+                    self._input_str += "."
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type in {"MINUS", "NUMPAD_MINUS"}:
+                if self._input_str.startswith("-"):
+                    self._input_str = self._input_str[1:]
+                else:
+                    self._input_str = "-" + self._input_str
+                self._sync_typed_thickness()
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type == "BACK_SPACE":
+                self._input_str = self._input_str[:-1]
+                self._sync_typed_thickness()
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type == "I":
+                self._toggle_mode()
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type == "C":
+                self.use_collapse = not self.use_collapse
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
+            if event.type == "B":
+                self.use_boundary = not self.use_boundary
+                regions = [region for region, _tl in self._regions]
+                self._regions = self._build_timelines(regions)
+                self._preview_key = None
+                self._rebuild_preview()
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"}:
                 self._finish(context)
                 return self._run(context)
@@ -695,6 +772,55 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         delta = event.mouse_region_x - self._mouse_start_x
         self.thickness = self._initial_thickness + delta * self._pixel_to_t
 
+    def _update_depth(self, event):
+        """Map horizontal mouse travel onto ``depth`` while Ctrl is held.
+
+        Anchored on the mouse position/depth at the moment Ctrl went down
+        (mirrors ``_shift_anchor_*``) so entering/leaving depth mode never
+        jumps the value. Shift still applies its precision scale on top.
+        """
+        if self._ctrl_anchor_x is None:
+            self._ctrl_anchor_x = event.mouse_region_x
+            self._ctrl_anchor_depth = self.depth
+        delta = event.mouse_region_x - self._ctrl_anchor_x
+        sensitivity = self._pixel_to_t * (0.1 if event.shift else 1.0)
+        self.depth = self._ctrl_anchor_depth + delta * sensitivity
+
+    def _sync_typed_thickness(self):
+        """Push a valid numeric ``_input_str`` into ``self.thickness``.
+
+        Silently ignored while the string is not yet a parseable float (e.g.
+        just "-" or "."), so partial input never raises mid-typing.
+        """
+        if self._input_str and self._input_str not in ("-", "."):
+            try:
+                self.thickness = float(self._input_str)
+            except ValueError:
+                pass
+
+    def _toggle_mode(self):
+        """Flip REGION<->INDIVIDUAL, rebuilding regions + timelines in place.
+
+        Uses the same collection/timeline code path as ``invoke``. If the
+        new mode yields no usable regions (e.g. an INDIVIDUAL selection that
+        was only valid as one connected REGION), the mode reverts and a
+        warning is reported instead of leaving the operator with an empty
+        region list.
+        """
+        new_mode = "INDIVIDUAL" if self.mode == "REGION" else "REGION"
+        regions, warnings = collect_regions(self._bm, new_mode)
+        built = self._build_timelines(regions)
+        for msg in warnings:
+            self.report({'WARNING'}, "Smart Inset: region skipped (%s)" % msg)
+        if not built:
+            self.report({'WARNING'},
+                        "Smart Inset: mode change left no usable regions "
+                        "— reverted")
+            return
+        self.mode = new_mode
+        self._regions = built
+        self._preview_key = None
+
     def _finish(self, context):
         h = getattr(self, "_handle", None)
         if h is not None:
@@ -719,12 +845,35 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._help = None
 
     def _status_text(self):
+        typed = f" | typing: {self._input_str}" if self._input_str else ""
         return (
-            f"Smart Inset: thickness = {self.thickness:.4f} | "
+            f"Smart Inset: thickness = {self.thickness:.4f}{typed} | "
             f"depth = {self.depth:.4f} | "
-            "[Mouse] drag | [Shift] precise | "
+            f"mode = {self.mode} (I) | "
+            f"collapse = {'on' if self.use_collapse else 'off'} (C) | "
+            f"boundary = {'on' if self.use_boundary else 'off'} (B) | "
+            "[Mouse] drag | [Ctrl+Mouse] depth | [Shift] precise | "
             "[Enter/LMB] confirm | [Esc/RMB] cancel"
         )
+
+    def _hud_thickness(self):
+        """Thickness value shown in the HUD.
+
+        With ``use_collapse`` off, ``apply_inset``/the preview clamp each
+        region to its own ``first_event_t`` — the requested thickness can
+        keep climbing past that with no visible effect. Showing the
+        requested value there would silently lie about what the preview
+        displays, so the HUD instead shows the effective (capped) value:
+        the smallest per-region cap, or the requested thickness itself when
+        that is lower (or when collapse is allowed, in which case there is
+        no cap to speak of).
+        """
+        t = float(self.thickness)
+        if self.use_collapse or t <= EPS:
+            return t
+        caps = [tl.first_event_t * (1.0 - 1e-6)
+                for _region, tl in getattr(self, "_regions", ())]
+        return min([t] + caps) if caps else t
 
     # ------------------------------------------------------------------
     # Preview
@@ -741,7 +890,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         animations -- so the fix is to cache instead of dropping the tick.
         Recomputation is keyed on every input the segments depend on.
         """
-        key = (self.thickness, self.depth, self.use_collapse, self.use_boundary)
+        key = (self.thickness, self.depth, self.mode,
+               self.use_collapse, self.use_boundary)
         if key == self._preview_key:
             return
         self._preview_key = key
