@@ -81,7 +81,7 @@ INF = float("inf")
 class FrontVert:
     __slots__ = ("vid", "P0", "V", "birth_t", "death_t",
                  "left_edge", "right_edge", "prev", "next",
-                 "succ_next", "succ_prev", "reflex")
+                 "succ_next", "succ_prev", "reflex", "birth_parent")
 
     def __init__(self, vid, P0, V, birth_t, left_edge, right_edge):
         self.vid = vid
@@ -96,6 +96,12 @@ class FrontVert:
         self.succ_next = None  # vid replacing self as `next` of self.prev
         self.succ_prev = None  # vid replacing self as `prev` of self.next
         self.reflex = False
+        # For a merge-created vert: the vid that occupied this vert's slot
+        # (as seen from the `prev` side) before it was born. Needed because
+        # a still-alive predecessor's `.next` is mutated to point at this
+        # vert immediately when it is created, even for query times before
+        # its birth_t -- see Timeline._resolve_next.
+        self.birth_parent = None
 
     def pos(self, t):
         dt = t - self.birth_t
@@ -122,6 +128,86 @@ class Timeline:
         self.edge_count = 0
         self.first_event_t = INF
         self.max_t = 0.0
+
+    # ---- playback -------------------------------------------------------
+
+    def pos_at(self, vid, t):
+        v = self.verts[vid]
+        return v.pos(min(t, v.death_t))
+
+    def _alive(self, vid, t):
+        v = self.verts[vid]
+        return v.birth_t <= t < v.death_t
+
+    def _resolve_next(self, vid, t):
+        """Follow the chain until a vert alive at t (or None).
+
+        A live vert's `.next` is mutated in place the instant its neighbour
+        merges away, even for query times before the merge-created vert's
+        birth_t. So a `.next` target can be either already-dead (jump
+        forward via succ_next, Task 2's mechanism) or not-yet-born (jump
+        backward via birth_parent to the vert it is replacing).
+        """
+        cur = self.verts[vid].next
+        guard = 0
+        while cur is not None and cur >= 0:
+            v = self.verts[cur]
+            if t < v.birth_t:
+                cur = v.birth_parent
+            elif t >= v.death_t:
+                cur = v.succ_next
+            else:
+                return cur
+            guard += 1
+            if guard > len(self.verts):
+                return None
+        return None
+
+    def front_at(self, t):
+        alive = [vid for vid, v in self.verts.items() if self._alive(vid, t)]
+        seen = set()
+        loops = []
+        for start in alive:
+            if start in seen:
+                continue
+            loop = []
+            cur = start
+            guard = 0
+            while cur is not None and cur not in seen:
+                seen.add(cur)
+                loop.append(cur)
+                cur = self._resolve_next(cur, t)
+                guard += 1
+                if guard > len(self.verts):
+                    break
+            if len(loop) >= 3 and cur == start:
+                loops.append(loop)
+        return loops
+
+    def walls_at(self, t):
+        walls = {}
+        live_by_edge = {}
+        for vid, v in self.verts.items():
+            if self._alive(vid, t):
+                for e in (v.left_edge, v.right_edge):
+                    live_by_edge.setdefault(e, []).append(v.pos(t))
+        for j in range(self.edge_count):
+            a_vid, b_vid = self.orig_edges[j]
+            a, b = self.orig_pos[a_vid], self.orig_pos[b_vid]
+            d = normalize(sub(b, a))
+            items = list(live_by_edge.get(j, []))
+            for node in self.nodes:
+                if j in node.edges and node.t <= t + EPS:
+                    items.append(node.pos)
+            # sort by projection onto edge dir, descending (b-side first)
+            items.sort(key=lambda p: -dot(sub(p, a), d))
+            chain = []
+            for p in items:
+                if chain and norm(sub(p, chain[-1])) < 1e-6:
+                    continue
+                chain.append(p)
+            walls[j] = chain
+        return walls
 
 
 def _edge_collapse_time(A, B):
@@ -223,6 +309,7 @@ def build_timeline(loops, weights=None):
                             tl.edge_weight[A.left_edge],
                             tl.edge_weight[B.right_edge])
         C = FrontVert(next_vid, pos, V, t, A.left_edge, B.right_edge)
+        C.birth_parent = A.vid
         next_vid += 1
         C.prev, C.next = P.vid, N.vid
         P.next = C.vid

@@ -80,3 +80,57 @@ def test_vertex_positions_linear_before_first_event():
     t = 0.25
     pos = (v.P0[0] + v.V[0] * t, v.P0[1] + v.V[1] * t)
     assert pos == pytest.approx((0.25, 0.25))
+
+
+def _perp_dist(p, a, b):
+    n = edge_normal(a, b)
+    return n[0] * (p[0] - a[0]) + n[1] * (p[1] - a[1])
+
+
+def test_square_front_at_half():
+    tl = build_timeline(SQUARE)
+    loops = tl.front_at(0.5)
+    assert len(loops) == 1 and len(loops[0]) == 4
+    for vid in loops[0]:
+        p = tl.pos_at(vid, 0.5)
+        # even-offset invariant: distance to every original edge >= t,
+        # to the two defining edges == t
+        d = _perp_dist(p, (0.0, 0.0), (2.0, 0.0))
+        assert d >= 0.5 - 1e-6
+
+
+def test_square_front_empty_after_collapse():
+    tl = build_timeline(SQUARE)
+    assert tl.front_at(1.5) == []
+
+
+def test_even_offset_invariant_square():
+    tl = build_timeline(SQUARE)
+    t = 0.7
+    sq = SQUARE[0]
+    for vid in tl.front_at(t)[0]:
+        p = tl.pos_at(vid, t)
+        dists = [_perp_dist(p, sq[i], sq[(i + 1) % 4]) for i in range(4)]
+        assert min(dists) == pytest.approx(t, abs=1e-6)
+
+
+def test_rect_walls_at_full_collapse():
+    tl = build_timeline(RECT41)
+    walls = tl.walls_at(0.5)
+    # bottom edge (id 0, from (0,0) to (4,0)): top chain is the medial
+    # segment endpoints, ordered from the b side: (3.5,.5) then (0.5,.5)
+    chain = walls[0]
+    assert len(chain) == 2
+    assert chain[0] == pytest.approx((3.5, 0.5), abs=1e-6)
+    assert chain[1] == pytest.approx((0.5, 0.5), abs=1e-6)
+    # short left edge (id 3): collapses into a single node
+    assert len(walls[3]) == 1
+    assert walls[3][0] == pytest.approx((0.5, 0.5), abs=1e-6)
+
+
+def test_rect_walls_before_any_event_are_offset_edges():
+    tl = build_timeline(RECT41)
+    walls = tl.walls_at(0.25)
+    chain = walls[0]
+    assert len(chain) == 2
+    assert all(p[1] == pytest.approx(0.25) for p in chain)
