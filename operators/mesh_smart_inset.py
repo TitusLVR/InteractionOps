@@ -556,6 +556,12 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # re-anchor trick as Shift so toggling Ctrl never jumps either value.
         self._ctrl_anchor_x = None
         self._ctrl_anchor_depth = 0.0
+        # Depth's own Shift-precision anchor, independent of the thickness
+        # one above -- mirrors _shift_anchor_x/_t so toggling Shift while
+        # Ctrl is held re-anchors instead of re-multiplying the whole
+        # accumulated delta by the new sensitivity.
+        self._depth_shift_anchor_x = None
+        self._depth_shift_anchor_v = 0.0
         # Numeric entry: digits/./-/Backspace build this; non-empty overrides
         # mouse-driven thickness (see _sync_typed_thickness).
         self._input_str = ""
@@ -676,8 +682,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 if self._ctrl_anchor_x is not None:
                     # Leaving depth mode: re-anchor the thickness baseline on
                     # the current mouse position/value, mirroring the Shift
-                    # re-anchor above, so releasing Ctrl never snaps.
+                    # re-anchor above, so releasing Ctrl never snaps. Also
+                    # drop depth's own Shift anchor so a later Ctrl-press
+                    # doesn't resume it from a stale position.
                     self._ctrl_anchor_x = None
+                    self._depth_shift_anchor_x = None
                     self._mouse_start_x = event.mouse_region_x
                     self._initial_thickness = self.thickness
                 if not self._input_str:
@@ -701,18 +710,24 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
             if event.type in {"MINUS", "NUMPAD_MINUS"}:
+                had_input = bool(self._input_str)
                 if self._input_str.startswith("-"):
                     self._input_str = self._input_str[1:]
                 else:
                     self._input_str = "-" + self._input_str
                 self._sync_typed_thickness()
+                if had_input and not self._input_str:
+                    self._reanchor_thickness_mouse(event)
                 self._rebuild_preview()
                 context.workspace.status_text_set(self._status_text())
                 return {'RUNNING_MODAL'}
 
             if event.type == "BACK_SPACE":
+                had_input = bool(self._input_str)
                 self._input_str = self._input_str[:-1]
                 self._sync_typed_thickness()
+                if had_input and not self._input_str:
+                    self._reanchor_thickness_mouse(event)
                 self._rebuild_preview()
                 context.workspace.status_text_set(self._status_text())
                 return {'RUNNING_MODAL'}
@@ -730,10 +745,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
             if event.type == "B":
-                self.use_boundary = not self.use_boundary
-                regions = [region for region, _tl in self._regions]
-                self._regions = self._build_timelines(regions)
-                self._preview_key = None
+                self._toggle_boundary()
                 self._rebuild_preview()
                 context.workspace.status_text_set(self._status_text())
                 return {'RUNNING_MODAL'}
@@ -775,16 +787,34 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
     def _update_depth(self, event):
         """Map horizontal mouse travel onto ``depth`` while Ctrl is held.
 
-        Anchored on the mouse position/depth at the moment Ctrl went down
-        (mirrors ``_shift_anchor_*``) so entering/leaving depth mode never
-        jumps the value. Shift still applies its precision scale on top.
+        Anchored on the mouse position/depth at the moment Ctrl went down,
+        exactly like ``_update_thickness`` is anchored on Shift-press: a
+        second anchor (``_depth_shift_anchor_*``) is captured the instant
+        Shift's state changes during the Ctrl-hold, so toggling Shift
+        re-anchors the delta instead of re-multiplying the whole
+        accumulated-since-Ctrl-press delta by the new sensitivity (which
+        would jump depth ~10x on that frame).
         """
+        if event.shift:
+            if self._depth_shift_anchor_x is None:
+                self._depth_shift_anchor_x = event.mouse_region_x
+                self._depth_shift_anchor_v = self.depth
+            delta = event.mouse_region_x - self._depth_shift_anchor_x
+            self.depth = self._depth_shift_anchor_v + delta * self._pixel_to_t * 0.1
+            return
+        if self._depth_shift_anchor_x is not None:
+            # Leaving precise mode: re-anchor the coarse (Ctrl) baseline on
+            # the current value instead of snapping back to the
+            # Ctrl-press-time one.
+            self._depth_shift_anchor_x = None
+            self._ctrl_anchor_x = event.mouse_region_x
+            self._ctrl_anchor_depth = self.depth
+            return
         if self._ctrl_anchor_x is None:
             self._ctrl_anchor_x = event.mouse_region_x
             self._ctrl_anchor_depth = self.depth
         delta = event.mouse_region_x - self._ctrl_anchor_x
-        sensitivity = self._pixel_to_t * (0.1 if event.shift else 1.0)
-        self.depth = self._ctrl_anchor_depth + delta * sensitivity
+        self.depth = self._ctrl_anchor_depth + delta * self._pixel_to_t
 
     def _sync_typed_thickness(self):
         """Push a valid numeric ``_input_str`` into ``self.thickness``.
@@ -797,6 +827,20 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 self.thickness = float(self._input_str)
             except ValueError:
                 pass
+
+    def _reanchor_thickness_mouse(self, event):
+        """Re-anchor mouse-driven thickness on the here-and-now.
+
+        Called whenever ``_input_str`` empties back out (Backspace or Minus
+        clearing the last character). While numeric entry had focus the
+        mouse baseline (``_mouse_start_x``/``_initial_thickness``) sat
+        frozen at whatever it was when typing started; handing control back
+        to it unchanged would apply however far the mouse drifted in the
+        meantime as an instant jump. Re-anchoring on the current mouse
+        position/value makes the handoff a no-op instead.
+        """
+        self._mouse_start_x = event.mouse_region_x
+        self._initial_thickness = self.thickness
 
     def _toggle_mode(self):
         """Flip REGION<->INDIVIDUAL, rebuilding regions + timelines in place.
@@ -818,6 +862,30 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                         "— reverted")
             return
         self.mode = new_mode
+        self._regions = built
+        self._preview_key = None
+
+    def _toggle_boundary(self):
+        """Flip ``use_boundary``, rebuilding timelines (weights depend on it).
+
+        Mirrors ``_toggle_mode``'s revert-on-failure guard: rebuilding with
+        the flipped flag can legitimately empty out ``_regions`` (e.g. a
+        single triangle whose only non-border edges can't sustain a
+        timeline once its border edges freeze), and committing that would
+        permanently blank the preview for the rest of the session with no
+        way back via B. So the flag only commits once the rebuild is
+        confirmed non-empty; otherwise it reverts and reports a warning.
+        """
+        prev_use_boundary = self.use_boundary
+        self.use_boundary = not prev_use_boundary
+        regions = [region for region, _tl in self._regions]
+        built = self._build_timelines(regions)
+        if not built:
+            self.use_boundary = prev_use_boundary
+            self.report({'WARNING'},
+                        "Smart Inset: boundary toggle left no usable "
+                        "regions — reverted")
+            return
         self._regions = built
         self._preview_key = None
 
