@@ -186,3 +186,60 @@ def test_playback_positions_continuous_across_events():
         p_before = tl.pos_at(vid, t_ev - 1e-4)
         p_after = tl.pos_at(vid, t_ev + 1e-4)  # clamped to death pos
         assert norm(sub(p_after, p_before)) < 1e-2
+
+
+# 8x4 plate with a 1x1 hole off-centre near the lower-left corner. The hole's
+# outward wave reaches the outer wave at the (0,0) corner first, so the two
+# LAVs *merge* into one loop -- the split event's loop-merging direction.
+OFFCENTRE_HOLE = [
+    [(0.0, 0.0), (8.0, 0.0), (8.0, 4.0), (0.0, 4.0)],   # outer CCW
+    [(1.0, 1.0), (1.0, 2.0), (2.0, 2.0), (2.0, 1.0)],   # hole CW
+]
+
+# A 1-wide notch cut 2.5 deep into the top edge. Both notch corners are reflex
+# and hit the bottom edge's front at t=0.75, splitting the single LAV into two
+# independent loops -- the split event's loop-splitting direction.
+NOTCH = [[(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (3.5, 4.0), (3.5, 1.5),
+          (2.5, 1.5), (2.5, 4.0), (0.0, 4.0)]]
+
+
+def _loop_lens(tl, t):
+    return sorted(len(loop) for loop in tl.front_at(t))
+
+
+def test_offcentre_hole_front_merges_into_single_loop():
+    tl = build_timeline(OFFCENTRE_HOLE)
+    # before the split: outer loop + hole loop, 4 verts each
+    assert len(tl.front_at(0.4)) == 2
+    assert _loop_lens(tl, 0.4) == [4, 4]
+    # hole corner (1,1) travels at (-1,-1) and meets the bottom/left fronts
+    # at (0.5,0.5) -> t=0.5; the two loops become one loop of 6
+    assert tl.first_event_t == pytest.approx(0.5, abs=1e-6)
+    assert len(tl.front_at(0.5)) == 1
+    assert _loop_lens(tl, 0.5) == [6]
+    assert _loop_lens(tl, 0.7) == [6]
+    # everything finally collapses onto the 8x4 plate's medial axis at t=2
+    assert tl.max_t == pytest.approx(2.0, abs=1e-6)
+    assert tl.front_at(2.0 + 1e-6) == []
+
+
+def test_notch_splits_front_into_two_loops():
+    tl = build_timeline(NOTCH)
+    # before the split: one loop of 8
+    assert len(tl.front_at(0.7)) == 1
+    assert _loop_lens(tl, 0.7) == [8]
+    # both notch corners sit 1.5 above the bottom edge and close at rate 2
+    assert tl.first_event_t == pytest.approx(0.75, abs=1e-6)
+    # region is cut in two: 4 verts each side of the notch wall
+    assert len(tl.front_at(0.75)) == 2
+    assert _loop_lens(tl, 0.75) == [4, 4]
+    assert _loop_lens(tl, 1.2) == [4, 4]
+    # each 2.5-wide half collapses onto its own medial segment at t=1.25
+    assert tl.max_t == pytest.approx(1.25, abs=1e-6)
+    assert tl.front_at(1.25 + 1e-6) == []
+
+
+def test_timeline_not_truncated_for_normal_input():
+    for loops in (SQUARE, RECT41, LSHAPE, SQUARE_WITH_HOLE, OFFCENTRE_HOLE,
+                  NOTCH):
+        assert build_timeline(loops).truncated is False

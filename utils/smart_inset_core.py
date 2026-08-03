@@ -128,6 +128,11 @@ class Timeline:
         self.edge_count = 0
         self.first_event_t = INF
         self.max_t = 0.0
+        # Set when the event loop hit its safety budget and bailed out early.
+        # A truncated timeline has an understated max_t and may contain
+        # immortal (never-dying) front verts, so callers should warn rather
+        # than trust it.
+        self.truncated = False
 
     # ---- playback -------------------------------------------------------
 
@@ -376,11 +381,13 @@ def build_timeline(loops, weights=None):
     next_vid = vid
     # Safety valve: every event kills at least one vertex, and each event
     # creates at most two, so the count is bounded in theory; the cap only
-    # protects against pathological float feedback loops.
+    # protects against pathological float feedback loops. Tripping it is
+    # reported via tl.truncated, never silently.
     budget = 64 * (len(tl.verts) + tl.edge_count) ** 2 + 1000
     while heap:
         budget -= 1
         if budget <= 0:
+            tl.truncated = True
             break
         t, _, kind, payload = heapq.heappop(heap)
 
