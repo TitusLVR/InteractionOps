@@ -501,6 +501,10 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def invoke(self, context, event):
+        # Purge first, before any early bail: a handler leaked by a crashed
+        # session must go even when this invoke turns out to have nothing to do.
+        _purge_handles()
+
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
@@ -541,7 +545,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._shift_anchor_x = None
         self._shift_anchor_t = 0.0
 
-        _purge_handles()
+        # Preview is cached in 3D and only re-projected per redraw -- see
+        # _rebuild_preview.
+        self._preview_segs = []
+        self._preview_key = None
+        self._rebuild_preview()
 
         self._hud = HUDOverlay("smart_inset")
         self._hud.title = "Smart Inset"
@@ -648,6 +656,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
 
         if event.type == "MOUSEMOVE":
             self._update_thickness(event)
+            self._rebuild_preview()
             context.workspace.status_text_set(self._status_text())
             return {'RUNNING_MODAL'}
 
@@ -702,6 +711,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # Dropping every bmesh-derived reference here stops a later addon
         # reload from dealloc'ing them against freed mesh data.
         self._regions = []
+        self._preview_segs = []
+        self._preview_key = None
         self._bm = None
         self._obj = None
         self._hud = None
@@ -718,6 +729,23 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
     # ------------------------------------------------------------------
     # Preview
     # ------------------------------------------------------------------
+
+    def _rebuild_preview(self):
+        """Refresh the cached 3D preview segments if a parameter moved.
+
+        Walking the wavefront (``front_at`` + ``pos_at``) and snapping every
+        front vert onto the surface through the region BVH is far too heavy for
+        a draw callback: the HUD keeps a ~``hud_anim_fps`` tick timer alive, so
+        the handler fires continuously even with the mouse idle. The timer is
+        still wanted -- it drives the HUD cursor-follow and the Help overlay
+        animations -- so the fix is to cache instead of dropping the tick.
+        Recomputation is keyed on every input the segments depend on.
+        """
+        key = (self.thickness, self.depth, self.use_collapse, self.use_boundary)
+        if key == self._preview_key:
+            return
+        self._preview_key = key
+        self._preview_segs = self._front_segments()
 
     def _front_segments(self):
         """Flat list of world-space segment endpoints for every front loop.
@@ -771,21 +799,23 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                     pass
             return
 
-        try:
-            segs = self._front_segments()
-        except ReferenceError:
-            segs = []
-
+        # Cached 3D segments -- this path only projects them. Any exception
+        # escaping a draw handler repeats every single frame and can wedge the
+        # UI, so the whole projection falls back to drawing nothing.
         pts_2d = []
-        for i in range(0, len(segs) - 1, 2):
-            pa = view3d_utils.location_3d_to_region_2d(
-                region_ui, rv3d, mw @ segs[i])
-            pb = view3d_utils.location_3d_to_region_2d(
-                region_ui, rv3d, mw @ segs[i + 1])
-            if pa is None or pb is None:
-                continue
-            pts_2d.append(Vector((pa[0], pa[1], 0.0)))
-            pts_2d.append(Vector((pb[0], pb[1], 0.0)))
+        try:
+            segs = getattr(self, "_preview_segs", None) or ()
+            for i in range(0, len(segs) - 1, 2):
+                pa = view3d_utils.location_3d_to_region_2d(
+                    region_ui, rv3d, mw @ segs[i])
+                pb = view3d_utils.location_3d_to_region_2d(
+                    region_ui, rv3d, mw @ segs[i + 1])
+                if pa is None or pb is None:
+                    continue
+                pts_2d.append(Vector((pa[0], pa[1], 0.0)))
+                pts_2d.append(Vector((pb[0], pb[1], 0.0)))
+        except Exception:
+            pts_2d = []
 
         if pts_2d:
             with draw_scope(blend="ALPHA"):
@@ -825,6 +855,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 self.report({'WARNING'}, "Smart Inset: no faces selected")
             return {'CANCELLED'}
         if t <= EPS:
+            # Silence here reads as "the operator did nothing and won't say
+            # why". The property is deliberately left unclamped -- negative
+            # thickness becomes outset later.
+            self.report({'WARNING'},
+                        "Smart Inset: zero thickness — nothing to apply")
             return {'CANCELLED'}
 
         changed = 0
