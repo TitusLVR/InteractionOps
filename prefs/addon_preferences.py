@@ -127,6 +127,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    show_filename_full_path: BoolProperty(
+        name="Full Path",
+        description="Show the full .blend file path instead of just the filename",
+        default=False,
+    )
+
     show_dimensions_stat: BoolProperty(
         name="Dimensions",
         description="Show active object dimensions in scene units",
@@ -863,7 +869,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
-                body.prop(self, "show_filename_stat", toggle=True)
+                row = body.row(align=True)
+                row.prop(self, "show_filename_stat", toggle=True)
+                sub = row.row(align=True)
+                sub.enabled = self.show_filename_stat
+                sub.prop(self, "show_filename_full_path", toggle=True)
                 grid = body.grid_flow(columns=2, align=True)
                 grid.prop(self, "show_dimensions_stat", toggle=True)
                 grid.prop(self, "show_view_position_stat", toggle=True)
