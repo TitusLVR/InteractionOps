@@ -66,7 +66,7 @@ def collect_regions(bm, mode):
     Returns ``(regions, warnings)`` so the caller can report per-region
     failures without aborting the whole operation.
     """
-    sel = [f for f in bm.faces if f.select]
+    sel = [f for f in bm.faces if f.select and not f.hide]
     if mode == 'INDIVIDUAL':
         groups = [[f] for f in sel]
     else:
@@ -81,7 +81,7 @@ def collect_regions(bm, mode):
                 comp.append(cur)
                 for e in cur.edges:
                     for lf in e.link_faces:
-                        if lf.select and lf not in seen:
+                        if lf.select and not lf.hide and lf not in seen:
                             seen.add(lf)
                             stack.append(lf)
             groups.append(comp)
@@ -302,29 +302,71 @@ def surface_snap(region, co3d):
 # --------------------------------------------------------------------------
 
 
+def _is_sliver(verts):
+    """True for a polygon with no meaningful area (collinear points).
+
+    A frozen boundary edge (weight 0, ``use_boundary=False``) does not move,
+    yet the interior wavefront can still drop a skeleton node onto its line.
+    The resulting "wall" is then three collinear points. The test is scale
+    free: area normalised by squared perimeter, which is ~0.048 for an
+    equilateral triangle and 0 for a degenerate one.
+    """
+    n = Vector((0.0, 0.0, 0.0))
+    perim = 0.0
+    o = verts[0].co
+    for i, vt in enumerate(verts):
+        nxt = verts[(i + 1) % len(verts)]
+        n += (vt.co - o).cross(nxt.co - o)
+        perim += (nxt.co - vt.co).length
+    if perim <= EPS:
+        return True
+    return 0.5 * n.length <= 1e-7 * perim * perim
+
+
 def apply_inset(bm, region, tl, t, depth, use_collapse):
     """Rebuild the region at thickness ``t``. Mutates ``bm``.
 
     Returns ``(faces_created, mutated)``. ``mutated`` is False only when the
     effective thickness degenerated to zero and ``bm`` was left untouched.
     """
-    limit = tl.max_t if use_collapse else tl.first_event_t
-    t_eff = min(t, limit)
+    if use_collapse:
+        t_eff = min(t, tl.max_t)
+    else:
+        # Stop just shy of the first event: exactly at first_event_t the
+        # colliding front verts are already dead, so front_at() would come
+        # back empty and the region would collapse -- the opposite of what
+        # "no collapse" promises.
+        t_eff = min(t, tl.first_event_t * (1.0 - 1e-6))
     if t_eff <= EPS:
         return 0, False
+
+    def key_of(p2d):
+        return (round(p2d[0], WELD_DIGITS), round(p2d[1], WELD_DIGITS))
+
+    # Seed the weld table with the original boundary verts. A front vert that
+    # never moves (both incident edges frozen by use_boundary=False) sits
+    # exactly on its original position, and must reuse the real BMVert rather
+    # than spawn a coincident duplicate -- otherwise the wall face there is
+    # zero-area and the inner ngon detaches from the border.
     made = {}
+    for loop2d, loop3d in zip(region.loops2d, region.loops3d):
+        for p2d, vt in zip(loop2d, loop3d):
+            made.setdefault(key_of(p2d), vt)
+
+    fresh = []   # only the verts this call created -- `depth` moves these
 
     def bmvert(p2d):
-        key = (round(p2d[0], WELD_DIGITS), round(p2d[1], WELD_DIGITS))
+        key = key_of(p2d)
         vt = made.get(key)
         if vt is None:
             vt = bm.verts.new(surface_snap(region, lift_to_3d(region, p2d)))
             made[key] = vt
+            fresh.append(vt)
         return vt
 
     def new_face(poly):
         poly = [vt for i, vt in enumerate(poly) if vt not in poly[:i]]
-        if len(poly) < 3:
+        if len(poly) < 3 or _is_sliver(poly):
             return 0
         try:
             bm.faces.new(poly)
@@ -344,10 +386,15 @@ def apply_inset(bm, region, tl, t, depth, use_collapse):
 
     if abs(depth) > 1e-9:
         n = region.basis[2]
-        for vt in made.values():
+        for vt in fresh:
             vt.co += n * depth
 
     bmesh.ops.delete(bm, geom=region.faces, context='FACES')
+    # A vert created for a wall that turned out degenerate would be left
+    # dangling; drop the ones nothing ended up using.
+    orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
+    if orphans:
+        bmesh.ops.delete(bm, geom=orphans, context='VERTS')
     bm.normal_update()
     return made_faces, True
 
@@ -464,5 +511,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if not mutated:
             return {'CANCELLED'}
 
+        # Any mutation must be reported as FINISHED so Blender pushes an undo
+        # step -- returning CANCELLED after geometry was already deleted would
+        # leave the change unundoable.
+        if not changed:
+            self.report({'WARNING'},
+                        "Smart Inset: no faces produced for this thickness")
         bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
-        return {'FINISHED'} if changed else {'CANCELLED'}
+        return {'FINISHED'}
