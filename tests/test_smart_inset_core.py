@@ -243,3 +243,37 @@ def test_timeline_not_truncated_for_normal_input():
     for loops in (SQUARE, RECT41, LSHAPE, SQUARE_WITH_HOLE, OFFCENTRE_HOLE,
                   NOTCH):
         assert build_timeline(loops).truncated is False
+
+
+from utils.smart_inset_core import sanitize_loops
+
+
+def test_sanitize_drops_zero_edges():
+    loops, _ = sanitize_loops([[(0, 0), (0, 0), (2, 0), (2, 2), (0, 2)]])
+    assert len(loops[0]) == 4
+
+
+def test_sanitize_rejects_degenerate_loop():
+    with pytest.raises(ValueError):
+        sanitize_loops([[(0, 0), (1, 0), (1e-9, 1e-10)]], min_edge=1e-3)
+
+
+def test_timeline_survives_duplicate_points():
+    tl = build_timeline([[(0, 0), (2, 0), (2, 0), (2, 2), (0, 2)]])
+    assert tl.max_t == pytest.approx(1.0)
+
+
+def test_clamp_equals_first_event():
+    tl = build_timeline(RECT41)
+    assert tl.first_event_t == pytest.approx(0.5)
+    # clamp contract: front at first_event_t*0.999 is intact (4 verts)
+    loops = tl.front_at(tl.first_event_t * 0.999)
+    assert len(loops) == 1 and len(loops[0]) == 4
+
+
+def test_spike_triangle_no_nan():
+    # extremely acute triangle
+    tl = build_timeline([[(0.0, 0.0), (10.0, 0.0), (10.0, 0.05)]])
+    assert math.isfinite(tl.max_t)
+    for n in tl.nodes:
+        assert all(math.isfinite(c) for c in n.pos)

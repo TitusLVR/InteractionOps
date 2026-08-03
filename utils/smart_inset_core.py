@@ -262,7 +262,36 @@ def _is_reflex(tl, left_edge, right_edge):
                  _orig_edge_dir(tl, right_edge)) < -EPS
 
 
+def sanitize_loops(loops, weights=None, min_edge=1e-6):
+    """Drop zero-length edges (merging their endpoints) from each loop.
+
+    A dropped point's outgoing-edge weight is dropped along with it, so
+    per-edge weights stay aligned to the surviving points. Raises
+    ValueError("degenerate loop") if any loop ends up with fewer than 3
+    vertices (including the closing-edge check, since a loop whose first
+    and last surviving points coincide is really one point short).
+    """
+    out_loops, out_weights = [], []
+    for li, loop in enumerate(loops):
+        w = list(weights[li]) if weights is not None else [1.0] * len(loop)
+        pts, ws = [], []
+        for i, p in enumerate(loop):
+            if pts and norm(sub(p, pts[-1])) < min_edge:
+                continue
+            pts.append(tuple(p))
+            ws.append(w[i])
+        if len(pts) > 1 and norm(sub(pts[0], pts[-1])) < min_edge:
+            pts.pop()
+            ws.pop()
+        if len(pts) < 3:
+            raise ValueError("degenerate loop")
+        out_loops.append(pts)
+        out_weights.append(ws)
+    return out_loops, out_weights
+
+
 def build_timeline(loops, weights=None):
+    loops, weights = sanitize_loops(loops, weights)
     tl = Timeline()
     # -- build initial LAV(s) -------------------------------------------
     vid = 0
