@@ -277,3 +277,26 @@ def test_spike_triangle_no_nan():
     assert math.isfinite(tl.max_t)
     for n in tl.nodes:
         assert all(math.isfinite(c) for c in n.pos)
+
+
+def test_sanitize_carries_dropped_points_weight_when_kept_edge_degenerate():
+    # p0==p1 (degenerate edge index 0, weight 9.0); the surviving edge
+    # p0->p2 must take the DROPPED point's outgoing weight w[1] = 1.0,
+    # not the stale weight recorded for the kept point.
+    loops, ws = sanitize_loops(
+        [[(0, 0), (0, 0), (2, 0), (2, 2), (0, 2)]],
+        weights=[[9.0, 1.0, 1.0, 1.0, 1.0]],
+    )
+    assert len(loops[0]) == 4
+    assert ws[0] == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_sanitize_carries_dropped_points_weight_when_dropped_edge_differs():
+    # p1==p0 (degenerate edge index 1, weight 5.0, belongs to the dropped
+    # point p1). Surviving edge p0->p2 must take w[1] = 5.0.
+    loops, ws = sanitize_loops(
+        [[(0, 0), (0, 0), (2, 0), (2, 2), (0, 2)]],
+        weights=[[1.0, 5.0, 1.0, 1.0, 1.0]],
+    )
+    assert len(loops[0]) == 4
+    assert ws[0] == [5.0, 1.0, 1.0, 1.0]

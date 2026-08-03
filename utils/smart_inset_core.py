@@ -265,11 +265,13 @@ def _is_reflex(tl, left_edge, right_edge):
 def sanitize_loops(loops, weights=None, min_edge=1e-6):
     """Drop zero-length edges (merging their endpoints) from each loop.
 
-    A dropped point's outgoing-edge weight is dropped along with it, so
-    per-edge weights stay aligned to the surviving points. Raises
-    ValueError("degenerate loop") if any loop ends up with fewer than 3
-    vertices (including the closing-edge check, since a loop whose first
-    and last surviving points coincide is really one point short).
+    When a point is merged into the previously kept point, the edge that
+    physically survives is the dropped point's outgoing edge, so its weight
+    (not the stale weight already recorded for the kept point) is carried
+    forward onto the surviving edge. Raises ValueError("degenerate loop")
+    if any loop ends up with fewer than 3 vertices (including the
+    closing-edge check, since a loop whose first and last surviving points
+    coincide is really one point short).
     """
     out_loops, out_weights = [], []
     for li, loop in enumerate(loops):
@@ -277,6 +279,12 @@ def sanitize_loops(loops, weights=None, min_edge=1e-6):
         pts, ws = [], []
         for i, p in enumerate(loop):
             if pts and norm(sub(p, pts[-1])) < min_edge:
+                # p is merged into the previously kept point. The edge that
+                # physically survives is the dropped point's outgoing edge
+                # (weight w[i]), not the stale weight already recorded for
+                # the kept point -- carry it forward.
+                if ws:
+                    ws[-1] = w[i]
                 continue
             pts.append(tuple(p))
             ws.append(w[i])
