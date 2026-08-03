@@ -125,6 +125,7 @@ nav:
       - Mesh — Editing:
           - Mesh to Grid: operators/op_mesh_to_grid.md
           - Cursor Bisect: operators/op_mesh_cursor_bisect.md
+          - Smart Inset: operators/op_mesh_smart_inset.md
           - Straight Bevel: operators/op_mesh_straight_bevel.md
           - Shear: operators/op_mesh_shear.md
           - Quick Connect: operators/op_mesh_quick_connect.md
