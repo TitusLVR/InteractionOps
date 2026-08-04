@@ -127,6 +127,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    iops_ss_header: BoolProperty(
+        name="Selection Sets in 3D View Header",
+        description="Show the Selection Sets dropdown and buttons in the 3D View header",
+        default=True,
+    )
+
     show_filename_full_path: BoolProperty(
         name="Full Path",
         description="Show the full .blend file path instead of just the filename",
@@ -869,6 +875,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
+                body.prop(self, "iops_ss_header", toggle=True)
                 row = body.row(align=True)
                 row.prop(self, "show_filename_stat", toggle=True)
                 sub = row.row(align=True)

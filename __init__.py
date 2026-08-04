@@ -254,6 +254,31 @@ from .operators.mesh_smart_inset import IOPS_OT_smart_inset
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 # from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
 
+from .operators.mesh_selection_sets import (
+    IOPS_SS_ObjectRef,
+    IOPS_SS_SceneSet,
+    IOPS_OT_SSNew,
+    IOPS_OT_SSRecall,
+    IOPS_OT_SSReplace,
+    IOPS_OT_SSDelete,
+    IOPS_OT_SSDeleteAll,
+    IOPS_OT_SSUnion,
+    IOPS_OT_SSDifference,
+    IOPS_OT_SSRename,
+    IOPS_OT_SSBool,
+)
+from .ui.iops_selection_sets_panel import (
+    IOPS_SS_MirrorItem,
+    IOPS_OT_SSRefresh,
+    IOPS_OT_SSPreview,
+    IOPS_OT_SSPreviewAll,
+    IOPS_UL_SelectionSets,
+    IOPS_PT_SelectionSets_Panel,
+    draw_iops_ss_header,
+    register_selection_sets_ui,
+    unregister_selection_sets_ui,
+)
+
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
@@ -525,6 +550,23 @@ classes = (
     IOPS_OT_straight_bevel,
     IOPS_OT_smart_inset,
     IOPS_OT_mesh_shear,
+    IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
+    IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
+    IOPS_OT_SSNew,
+    IOPS_OT_SSRecall,
+    IOPS_OT_SSReplace,
+    IOPS_OT_SSDelete,
+    IOPS_OT_SSDeleteAll,
+    IOPS_OT_SSUnion,
+    IOPS_OT_SSDifference,
+    IOPS_OT_SSRename,
+    IOPS_OT_SSBool,
+    IOPS_SS_MirrorItem,   # CollectionProperty target — before rest of the UI classes
+    IOPS_OT_SSRefresh,
+    IOPS_OT_SSPreview,
+    IOPS_OT_SSPreviewAll,
+    IOPS_UL_SelectionSets,
+    IOPS_PT_SelectionSets_Panel,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
@@ -621,12 +663,16 @@ def register():
 
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
+    register_selection_sets_ui()
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
+    bpy.types.Scene.iops_selection_sets = bpy.props.CollectionProperty(
+        type=IOPS_SS_SceneSet
+    )
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
@@ -638,6 +684,7 @@ def register():
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
+    bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
     register_select_similar_name_menu()
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
@@ -676,6 +723,7 @@ def register():
 
 
 def unregister():
+    unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its
     # own keymap entry and app/draw handlers. Guarded so a failure here
@@ -719,11 +767,19 @@ def unregister():
     except Exception as e:
         print(e)
         pass
+    try:
+        bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_ss_header)
+    except Exception:
+        pass
     unregister_select_similar_name_menu()
     unregister_pool_menus()
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.Scene.iops_material_override_settings
+    try:
+        del bpy.types.Scene.iops_selection_sets
+    except AttributeError:
+        pass
     try:
         from .operators.uv_image_slots import unregister_slot_props
         unregister_slot_props()

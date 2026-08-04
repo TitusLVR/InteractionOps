@@ -122,6 +122,7 @@ nav:
           - Z Ops (Loop/Ring, Connect, Delete, etc.): operators/op_z_ops.md
           - Mouseover Fill Select: operators/op_mouseover_fill_select.md
           - Convert Selection: operators/op_mesh_convert_selection.md
+          - Selection Sets: operators/op_selection_sets.md
       - Mesh — Editing:
           - Mesh to Grid: operators/op_mesh_to_grid.md
           - Cursor Bisect: operators/op_mesh_cursor_bisect.md
