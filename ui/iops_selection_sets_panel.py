@@ -312,7 +312,7 @@ def _preview_disable():
 class IOPS_OT_SSPreview(bpy.types.Operator):
     """Highlight this set in the viewport — the active set in the
     theme's Active colors, others in Result Preview colors.
-    Click again to hide"""
+    Click again to hide. Alt: show/hide all sets"""
     bl_idname = "iops.ss_preview"
     bl_label = "Preview Selection Set"
 
@@ -321,6 +321,11 @@ class IOPS_OT_SSPreview(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.mode in {"EDIT_MESH", "OBJECT"}
+
+    def invoke(self, context, event):
+        if event.alt:
+            return bpy.ops.iops.ss_preview_all()
+        return self.execute(context)
 
     def execute(self, context):
         names = _PREVIEW["names"]
@@ -430,10 +435,6 @@ class IOPS_PT_SelectionSets_Panel(bpy.types.Panel):
         sub.operator("iops.ss_rename", text="",
                      icon="OUTLINER_OB_FONT").set_name = active
         col.separator()
-        any_preview = bool(preview_names())
-        col.operator("iops.ss_preview_all", text="",
-                     icon="HIDE_OFF" if any_preview else "HIDE_ON",
-                     depress=any_preview)
         col.operator("iops.ss_refresh", text="", icon="FILE_REFRESH")
         col.separator()
         col.operator("iops.ss_delete_all", text="", icon="TRASH")
