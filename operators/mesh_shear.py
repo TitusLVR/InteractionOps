@@ -31,8 +31,9 @@ from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
                       handle_hud_toggle, handle_help_toggle, capture_event)
+from ..utils.hinge_core import flush_angle
 from bpy_extras import view3d_utils
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 
@@ -110,6 +111,21 @@ def _find_face_adjacent_rail(vert, edge, face):
             continue
         return e, anchor, rail_vec / L, L
     return None
+
+
+def _gather_double_verts(seed_verts, dist):
+    """Grow `seed_verts` across link_loops to every vert closer than
+    `dist` to an already-collected vert. Recursion via list growth."""
+    verts = list(seed_verts)
+    seen = set(verts)
+    for v in verts:
+        co = v.co
+        for loop in v.link_loops:
+            nv = loop.link_loop_next.vert
+            if nv not in seen and (nv.co - co).length < dist:
+                seen.add(nv)
+                verts.append(nv)
+    return verts
 
 
 def build_edge_record(edge, hist_vert):
@@ -742,6 +758,13 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_start_x = 0
         self._extrude_start_y = 0
 
+        # Hinge sub-modal state. Q enters; selected faces rotate around
+        # the active edge from select_history. Preview is pure vert
+        # rotation; bmesh.ops.spin runs once at confirm (Task 3).
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
+
         # Align sub-modal state. A enters; mouse hovers a face which
         # gets a 35% red overlay; LMB picks it and sets axis_dir to the
         # intersection line of the current face plane and the picked
@@ -774,6 +797,7 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude perp",       "E",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Hinge around active edge", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         if self.mode == "face":
             items.append(HUDItem("Align axis to face", "A",   ItemState.ON, default_state=ItemState.OFF, always_show=True))
@@ -784,6 +808,15 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ])
         self._help.add_section(HUDSection("Shear", items))
+        hinge_items = [
+            HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm",        "Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel hinge",   "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]
+        self._help.add_section(HUDSection("Hinge (Q)", hinge_items))
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
@@ -1187,6 +1220,278 @@ cancels. LMB clicks only pick widget handles."""
         self._hotspots = []
         self._hover_idx = None
 
+    def _enter_hinge(self, context, event):
+        """Q: begin the hinge sub-modal. Selected faces rotate around
+        the active edge (select_history), like the classic hinge tool.
+        Captures current coords as the rotation base — an in-progress
+        shear pose is treated as ground truth, mirroring E-extrude."""
+        hist_edge = None
+        try:
+            for item in self.bm.select_history:
+                if isinstance(item, bmesh.types.BMEdge):
+                    hist_edge = item
+        except (TypeError, RuntimeError):
+            pass
+        sel_faces = [f for f in self.bm.faces if f.select]
+        if hist_edge is None or not hist_edge.is_valid or not sel_faces:
+            self.report({"INFO"},
+                        "hinge: needs selected faces and an active edge")
+            return False
+        v0, v1 = hist_edge.verts
+        axis = v1.co - v0.co
+        if axis.length < 1e-9:
+            self.report({"INFO"}, "hinge: active edge has zero length")
+            return False
+        axis = axis.normalized()
+        center = (v0.co + v1.co) * 0.5
+
+        vert_set = set()
+        for f in sel_faces:
+            vert_set.update(f.verts)
+        verts = list(vert_set)
+        orig_cos = [v.co.copy() for v in verts]
+
+        # Average selection normal at entry — the flush reference (A).
+        n_sum = Vector((0.0, 0.0, 0.0))
+        for f in sel_faces:
+            n_sum += _face_normal_safe(f)
+        orig_normal = (n_sum.normalized() if n_sum.length > 1e-9
+                       else _face_normal_safe(sel_faces[0]))
+
+        # Arc radius: fraction of the max vert distance to the axis line.
+        max_d = 0.0
+        for co in orig_cos:
+            rel = co - center
+            d = (rel - rel.dot(axis) * axis).length
+            if d > max_d:
+                max_d = d
+        radius = max_d * 0.35 if max_d > 1e-6 else axis.length * 0.5
+
+        self._hinge_data = {
+            "faces": sel_faces,
+            "verts": verts,
+            "orig_cos": orig_cos,
+            "orig_co_map": {v: c for v, c in zip(verts, orig_cos)},
+            "center": center.copy(),
+            "axis": axis.copy(),
+            "edge": hist_edge,
+            "orig_normal": orig_normal.copy(),
+            "steps": 1,
+            "radius": radius,
+        }
+        self._hinge_active = True
+        self._hinge_angle_deg = 0.0
+        self.angle_deg = self._effective_angle()  # typed-but-uncommitted shear angle must be committed
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+        self._align_active = False  # latched align highlight must not draw over hinge preview
+        self._align_face = None
+        return True
+
+    def _hinge_effective_angle(self):
+        if self.input_str and self.input_str not in ("-", ".", "-."):
+            try:
+                return float(self.input_str)
+            except ValueError:
+                return self._hinge_angle_deg
+        return self._hinge_angle_deg
+
+    def _hinge_apply(self):
+        d = self._hinge_data
+        rot = Matrix.Rotation(
+            math.radians(self._hinge_effective_angle()), 4, d["axis"])
+        c = d["center"]
+        for v, oc in zip(d["verts"], d["orig_cos"]):
+            if v.is_valid:
+                v.co = c + rot @ (oc - c)
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data)
+
+    def _hinge_restore(self):
+        d = self._hinge_data
+        for v, oc in zip(d["verts"], d["orig_cos"]):
+            if v.is_valid:
+                v.co = oc
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data)
+
+    def _hinge_modal(self, context, event):
+        # Navigation passes through (Q sub-modal owns Ctrl+wheel only).
+        if (event.type == "MIDDLEMOUSE" or event.type.startswith("NDOF")
+                or (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
+                    and not event.ctrl)):
+            return {"PASS_THROUGH"}
+
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.ctrl:
+            d = self._hinge_data
+            delta = 1 if event.type == "WHEELUPMOUSE" else -1
+            d["steps"] = max(1, min(64, d["steps"] + delta))
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+
+        if event.type == "MOUSEMOVE":
+            self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+            return {"RUNNING_MODAL"}
+
+        if event.value == "PRESS":
+            if event.type in DIGIT_TYPES:
+                self.input_str += DIGIT_TYPES[event.type]
+                self._hinge_apply()
+            elif event.type in {"PERIOD", "NUMPAD_PERIOD"}:
+                if "." not in self.input_str:
+                    self.input_str += "."
+            elif event.type in {"MINUS", "NUMPAD_MINUS"}:
+                if self.input_str.startswith("-"):
+                    self.input_str = self.input_str[1:]
+                else:
+                    self.input_str = "-" + self.input_str
+                self._hinge_apply()
+            elif event.type == "BACK_SPACE":
+                self.input_str = self.input_str[:-1]
+                self._hinge_apply()
+            elif event.type == "D":
+                if self.input_str:
+                    if self.input_str.startswith("-"):
+                        self.input_str = self.input_str[1:]
+                    else:
+                        self.input_str = "-" + self.input_str
+                else:
+                    self._hinge_angle_deg = -self._hinge_angle_deg
+                self._hinge_apply()
+            elif event.type == "A":
+                self._hinge_flush_pick(context, event)   # Task 4
+            elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
+                return self._confirm_hinge(context)      # Task 3
+            elif event.type in {"RIGHTMOUSE", "ESC"}:
+                self._cancel_hinge(context)
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        return {"RUNNING_MODAL"}
+
+    def _cancel_hinge(self, context):
+        self._hinge_restore()
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+        return {"RUNNING_MODAL"}
+
+    def _confirm_hinge(self, context):
+        """Enter/Space: bake the hinge. Restore the preview pose, run
+        bmesh.ops.spin with the chosen steps (real segment geometry),
+        merge doubles at the hinge line, select the resulting cap and
+        rebuild shear records on it so the modal chains back to shear.
+        Zero angle is a clean no-op exit back to shear."""
+        d = self._hinge_data
+        angle_rad = math.radians(self._hinge_effective_angle())
+        self._hinge_restore()
+        if abs(angle_rad) < 1e-6:
+            return self._cancel_hinge(context)
+
+        edge = d["edge"]
+        # Flap case (all faces at the hinge edge are selected): drop the
+        # edge from the selection so spin bends the flap instead of
+        # extruding a new wall from the hinge line. Mirrors forgotten
+        # hinge.
+        if (edge.is_valid and edge.link_faces
+                and all(f.select for f in edge.link_faces)):
+            edge.select = False
+            edge.verts[0].select = False
+            edge.verts[1].select = False
+
+        faces = [f for f in self.bm.faces if f.select]
+        edges = [e for e in self.bm.edges if e.select]
+        verts = [v for v in self.bm.verts if v.select]
+        geom = edges + faces + verts
+        if not geom:
+            self.report({"WARNING"}, "hinge: nothing to spin")
+            return self._cancel_hinge(context)
+        for g in geom:
+            g.select = False
+
+        result = bmesh.ops.spin(
+            self.bm, geom=geom, cent=d["center"], axis=d["axis"],
+            angle=angle_rad, steps=d["steps"], use_merge=False)
+        last = result["geom_last"]
+
+        dist = 0.001
+        seed = [g for g in last if isinstance(g, bmesh.types.BMVert)]
+        if seed:
+            bmesh.ops.remove_doubles(
+                self.bm, verts=_gather_double_verts(seed, dist), dist=dist)
+
+        for g in last:
+            if g.is_valid:
+                g.select_set(True)
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data, loop_triangles=True,
+                               destructive=True)
+
+        # Exit the sub-modal before rebuilding shear records.
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+
+        cap_faces = [g for g in last
+                     if isinstance(g, bmesh.types.BMFace) and g.is_valid]
+        new_records = []
+        for f in cap_faces:
+            pa, _ = face_principal_axes(f)
+            if pa is None:
+                continue
+            rec, _ = build_face_record(f, pa)
+            if rec is not None:
+                new_records.append(rec)
+        if new_records:
+            self.records = new_records
+            self.mode = "face"
+            self.angle_deg = 0.0
+            context.workspace.status_text_set(self._status_text())
+            return {"RUNNING_MODAL"}
+        # No usable cap (e.g. rails gone after merge) — finish cleanly
+        # rather than leaving shear pointed at dead records.
+        bpy.ops.ed.undo_push(message="Shear")
+        self._finish(context)
+        return {"FINISHED"}
+
+    def _hinge_flush_pick(self, context, event):
+        """A: raycast the face under the cursor; set the hinge angle so
+        the selection's ORIGINAL plane lands coplanar with the picked
+        face's plane (smallest-magnitude solution). Picking one of the
+        hinged faces or empty space is a no-op."""
+        d = self._hinge_data
+        self.bm.normal_update()
+        self.bm.faces.ensure_lookup_table()
+        self._align_bvh = BVHTree.FromBMesh(self.bm)
+        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        picked = self._raycast_face_under_cursor(context)
+        self._align_bvh = None
+        if picked is None or picked in set(d["faces"]):
+            self.report({"INFO"}, "hinge flush: pick a face outside the selection")
+            return
+        n_t = _face_normal_safe(picked)
+        if n_t.length < 1e-9:
+            self.report({"INFO"}, "hinge flush: degenerate target face")
+            return
+        ang = flush_angle(tuple(d["orig_normal"]), tuple(n_t),
+                          tuple(d["axis"]))
+        if ang is None:
+            self.report({"INFO"}, "hinge flush: target parallel to hinge axis")
+            return
+        self._hinge_angle_deg = math.degrees(ang)
+        self.input_str = ""
+        self._hinge_apply()
+
     def _toggle_align_highlight(self, context, event):
         """A: raycast the face under the cursor and latch it. If a
         face is hit, axis_dir aligns to the intersection line of the
@@ -1474,6 +1779,15 @@ cancels. LMB clicks only pick widget handles."""
     # ----------------------------------------------------------------------
 
     def _status_text(self):
+        if self._hinge_active:
+            d = self._hinge_data
+            typed = f" | typing: {self.input_str}" if self.input_str else ""
+            return (
+                f"Hinge: {self._hinge_effective_angle():.2f}° | "
+                f"steps: {d['steps']}{typed} | [0-9 . -] type | "
+                "[Ctrl+Wheel] steps | [D] flip | [A] flush to face | "
+                "[Enter] confirm | [Esc/RMB] cancel hinge"
+            )
         if self._extrude_active:
             return (
                 f"Extrude ({self.mode}): {self._extrude_distance:.4f} | "
@@ -1530,6 +1844,9 @@ cancels. LMB clicks only pick widget handles."""
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
 
+        if self._hinge_active:
+            return self._hinge_modal(context, event)
+
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
             return {"PASS_THROUGH"}
@@ -1577,6 +1894,11 @@ cancels. LMB clicks only pick widget handles."""
 
             if event.type == "E":
                 if self._enter_extrude(event):
+                    context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "Q":
+                if self._enter_hinge(context, event):
                     context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
@@ -1715,6 +2037,8 @@ cancels. LMB clicks only pick widget handles."""
         self._hover_idx = None
         self._extrude_data = None
         self._extrude_active = False
+        self._hinge_active = False
+        self._hinge_data = None
         self._align_active = False
         self._align_face = None
         self._align_bvh = None
@@ -1763,12 +2087,15 @@ cancels. LMB clicks only pick widget handles."""
         # Rebuild hotspot list each draw — view changes & axis edits
         # invalidate prior screen positions.
         self._hotspots = []
-        for ri, r in enumerate(self.records):
-            if r["type"] == "edge":
-                self._draw_edge_record(region, rv3d, mw, r, ri, context=context, theme=theme)
-            else:
-                self._draw_face_record(region, rv3d, mw, r, ri, context=context, theme=theme)
-        self._update_hover()
+        if self._hinge_active:
+            self._draw_hinge(region, rv3d, mw, context=context, theme=theme)
+        else:
+            for ri, r in enumerate(self.records):
+                if r["type"] == "edge":
+                    self._draw_edge_record(region, rv3d, mw, r, ri, context=context, theme=theme)
+                else:
+                    self._draw_face_record(region, rv3d, mw, r, ri, context=context, theme=theme)
+            self._update_hover()
         # Draw hover highlight on top.
         if self._hover_idx is not None and self._hover_idx < len(self._hotspots):
             rp = self._hotspots[self._hover_idx].get("region_pt")
@@ -1857,6 +2184,100 @@ cancels. LMB clicks only pick widget handles."""
         draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
         self._draw_dot(p_t, radius=4.0,
                        color=theme.color_for(Role.ACTIVE_POINT), context=context)
+
+    def _draw_hinge(self, region, rv3d, mw, *, context, theme):
+        """Ghost of the original face outlines, current outlines, the
+        hinge axis (amber), and an angle arc with per-segment ticks
+        around the edge midpoint."""
+        d = self._hinge_data
+        if d is None:
+            return
+
+        def s2d(co):
+            return view3d_utils.location_3d_to_region_2d(
+                region, rv3d, mw @ co)
+
+        ghost_segs = []
+        curr_segs = []
+        for f in d["faces"]:
+            if not f.is_valid:
+                continue
+            loops = list(f.verts)
+            n = len(loops)
+            for i in range(n):
+                a, b = loops[i], loops[(i + 1) % n]
+                oa = d["orig_co_map"].get(a)
+                ob = d["orig_co_map"].get(b)
+                if oa is not None and ob is not None:
+                    pa, pb = s2d(oa), s2d(ob)
+                    if pa is not None and pb is not None:
+                        ghost_segs.extend([pa, pb])
+                pa, pb = s2d(a.co), s2d(b.co)
+                if pa is not None and pb is not None:
+                    curr_segs.extend([pa, pb])
+        if ghost_segs:
+            draw_prim.edges_3d(ghost_segs, color=(0.45, 0.45, 0.45, 0.55),
+                               context=context)
+        if curr_segs:
+            draw_prim.edges_3d(curr_segs, role=Role.ACTIVE_LINE, context=context)
+
+        # Hinge axis along the active edge — amber (locked role).
+        edge = d["edge"]
+        if edge.is_valid:
+            p0 = s2d(edge.verts[0].co)
+            p1 = s2d(edge.verts[1].co)
+            if p0 is not None and p1 is not None:
+                draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE,
+                                   context=context)
+
+        # Angle arc + segment ticks in the plane perpendicular to the
+        # axis. Basis u points from the axis toward the selection's
+        # original centroid so the arc starts on the flap.
+        angle_rad = math.radians(self._hinge_effective_angle())
+        axis = d["axis"]
+        center = d["center"]
+        centroid = center * 0.0
+        for oc in d["orig_cos"]:
+            centroid = centroid + oc
+        centroid = centroid / max(1, len(d["orig_cos"]))
+        u = centroid - center
+        u = u - u.dot(axis) * axis
+        if u.length < 1e-9:
+            return
+        u = u.normalized()
+        w = axis.cross(u)
+        r = d["radius"]
+        n_seg = max(12, int(abs(math.degrees(angle_rad)) / 5.0))
+        arc_pts = []
+        for i in range(n_seg + 1):
+            t = angle_rad * (i / n_seg)
+            p = s2d(center + (u * math.cos(t) + w * math.sin(t)) * r)
+            if p is None:
+                arc_pts = []
+                break
+            arc_pts.append(p)
+        if arc_pts:
+            segs = []
+            for i in range(len(arc_pts) - 1):
+                segs.extend([arc_pts[i], arc_pts[i + 1]])
+            draw_prim.edges_3d(segs, role=Role.ACTIVE_LINE, context=context)
+        # Ticks at each spin-segment boundary (steps > 1 only).
+        steps = d["steps"]
+        if steps > 1 and abs(angle_rad) > 1e-6:
+            for k in range(1, steps):
+                t = angle_rad * (k / steps)
+                dir_v = u * math.cos(t) + w * math.sin(t)
+                pa = s2d(center + dir_v * (r * 0.9))
+                pb = s2d(center + dir_v * (r * 1.1))
+                if pa is not None and pb is not None:
+                    draw_prim.edges_3d([pa, pb], role=Role.LOCKED_LINE,
+                                       context=context)
+        # Center dot at the hinge midpoint.
+        pc = s2d(center)
+        if pc is not None:
+            self._draw_dot(pc, radius=5.0,
+                           color=theme.color_for(Role.LOCKED_POINT),
+                           context=context)
 
     def _draw_edge_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
         if not (r["active"].is_valid and r["fixed"].is_valid):
@@ -2058,8 +2479,13 @@ cancels. LMB clicks only pick widget handles."""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        lines = [f"Mode: {self.mode}",
-                 f"Angle: {self._effective_angle():.2f}°"]
+        if self._hinge_active and self._hinge_data is not None:
+            lines = [f"Mode: hinge",
+                     f"Angle: {self._hinge_effective_angle():.2f}°",
+                     f"Steps: {self._hinge_data['steps']}"]
+        else:
+            lines = [f"Mode: {self.mode}",
+                     f"Angle: {self._effective_angle():.2f}°"]
         if self.input_str:
             lines.append(f"Typing: {self.input_str}")
         hud.set_header(*lines)
