@@ -797,7 +797,7 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude perp",       "E",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Hinge around active edge", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Hinge around active edge / pivot side", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         if self.mode == "face":
             items.append(HUDItem("Align axis to face", "A",   ItemState.ON, default_state=ItemState.OFF, always_show=True))
@@ -1220,11 +1220,66 @@ cancels. LMB clicks only pick widget handles."""
         self._hotspots = []
         self._hover_idx = None
 
+    def _hinge_line_from_shear(self):
+        """Hinge line from the active shear record's pivot side — the
+        amber saw-entry line the widget draws (perp to axis_dir through
+        pivot_point). Returns (center, axis, edge_or_None, (a, b)) or
+        None. `edge` is the real pivot BMEdge when the pivot side is a
+        boundary edge (enables the flap case at confirm); (a, b) are
+        world-space endpoints for drawing the axis."""
+        if self.mode != "face" or not self.records:
+            return None
+        rec = self.records[0]
+        try:
+            active = self.bm.select_history.active
+        except (TypeError, RuntimeError):
+            active = None
+        if isinstance(active, bmesh.types.BMFace):
+            for r in self.records:
+                if r["face"] is active:
+                    rec = r
+                    break
+        face = rec["face"]
+        if not face.is_valid:
+            return None
+
+        # Pivot verts have projection ~0 (same tolerance the widget
+        # uses to highlight the pivot boundary).
+        projs = rec["projections"]
+        max_p = max(projs) if projs else 0.0
+        pivot_tol = max(max_p * 0.001, 1e-5)
+        proj_of = {v: p for v, p in zip(rec["active_verts"], projs)}
+        for e in face.edges:
+            ev0, ev1 = e.verts
+            if (proj_of.get(ev0, 1.0) < pivot_tol
+                    and proj_of.get(ev1, 1.0) < pivot_tol):
+                axis = ev1.co - ev0.co
+                if axis.length < 1e-9:
+                    continue
+                axis = axis.normalized()
+                a, b = ev0.co.copy(), ev1.co.copy()
+                return (a + b) * 0.5, axis, e, (a, b)
+
+        # No boundary edge on the pivot side (pivot is a single corner
+        # of an n-gon): abstract line through pivot_point, in-plane
+        # perpendicular to axis_dir, spanning the face extent.
+        normal = _face_normal_safe(face)
+        axis = normal.cross(rec["axis_dir"])
+        if axis.length < 1e-9:
+            return None
+        axis = axis.normalized()
+        center = rec["pivot_point"].copy()
+        ts = [(oc - center).dot(axis) for oc in rec["orig_active_cos"]]
+        t0, t1 = (min(ts), max(ts)) if ts else (0.0, 0.0)
+        return center, axis, None, (center + axis * t0, center + axis * t1)
+
     def _enter_hinge(self, context, event):
         """Q: begin the hinge sub-modal. Selected faces rotate around
-        the active edge (select_history), like the classic hinge tool.
-        Captures current coords as the rotation base — an in-progress
-        shear pose is treated as ground truth, mirroring E-extrude."""
+        the active edge (select_history) when one exists, otherwise
+        around the active shear record's pivot side — the same amber
+        line the shear widget shows. Captures current coords as the
+        rotation base — an in-progress shear pose is treated as ground
+        truth, mirroring E-extrude."""
         hist_edge = None
         try:
             for item in self.bm.select_history:
@@ -1233,17 +1288,26 @@ cancels. LMB clicks only pick widget handles."""
         except (TypeError, RuntimeError):
             pass
         sel_faces = [f for f in self.bm.faces if f.select]
-        if hist_edge is None or not hist_edge.is_valid or not sel_faces:
-            self.report({"INFO"},
-                        "hinge: needs selected faces and an active edge")
+        if not sel_faces:
+            self.report({"INFO"}, "hinge: needs selected faces")
             return False
-        v0, v1 = hist_edge.verts
-        axis = v1.co - v0.co
-        if axis.length < 1e-9:
-            self.report({"INFO"}, "hinge: active edge has zero length")
-            return False
-        axis = axis.normalized()
-        center = (v0.co + v1.co) * 0.5
+        if hist_edge is not None and hist_edge.is_valid:
+            v0, v1 = hist_edge.verts
+            axis = v1.co - v0.co
+            if axis.length < 1e-9:
+                self.report({"INFO"}, "hinge: active edge has zero length")
+                return False
+            axis = axis.normalized()
+            center = (v0.co + v1.co) * 0.5
+            hinge_edge = hist_edge
+            axis_pts = (v0.co.copy(), v1.co.copy())
+        else:
+            line = self._hinge_line_from_shear()
+            if line is None:
+                self.report({"INFO"},
+                            "hinge: needs an active edge or a shear pivot side")
+                return False
+            center, axis, hinge_edge, axis_pts = line
 
         vert_set = set()
         for f in sel_faces:
@@ -1274,7 +1338,8 @@ cancels. LMB clicks only pick widget handles."""
             "orig_co_map": {v: c for v, c in zip(verts, orig_cos)},
             "center": center.copy(),
             "axis": axis.copy(),
-            "edge": hist_edge,
+            "edge": hinge_edge,       # None when axis came from the pivot line
+            "axis_pts": axis_pts,
             "orig_normal": orig_normal.copy(),
             "steps": 1,
             "radius": radius,
@@ -1400,7 +1465,7 @@ cancels. LMB clicks only pick widget handles."""
         # edge from the selection so spin bends the flap instead of
         # extruding a new wall from the hinge line. Mirrors forgotten
         # hinge.
-        if (edge.is_valid and edge.link_faces
+        if (edge is not None and edge.is_valid and edge.link_faces
                 and all(f.select for f in edge.link_faces)):
             edge.select = False
             edge.verts[0].select = False
@@ -2221,14 +2286,13 @@ cancels. LMB clicks only pick widget handles."""
         if curr_segs:
             draw_prim.edges_3d(curr_segs, role=Role.ACTIVE_LINE, context=context)
 
-        # Hinge axis along the active edge — amber (locked role).
-        edge = d["edge"]
-        if edge.is_valid:
-            p0 = s2d(edge.verts[0].co)
-            p1 = s2d(edge.verts[1].co)
-            if p0 is not None and p1 is not None:
-                draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE,
-                                   context=context)
+        # Hinge axis line — amber (locked role). Endpoints captured at
+        # entry; axis points don't move (they're on the rotation axis).
+        pa, pb = d["axis_pts"]
+        p0, p1 = s2d(pa), s2d(pb)
+        if p0 is not None and p1 is not None:
+            draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE,
+                               context=context)
 
         # Angle arc + segment ticks in the plane perpendicular to the
         # axis. Basis u points from the axis toward the selection's
