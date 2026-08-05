@@ -1277,9 +1277,10 @@ cancels. LMB clicks only pick widget handles."""
         """Q: begin the hinge sub-modal. Selected faces rotate around
         the active edge (select_history) when one exists, otherwise
         around the active shear record's pivot side — the same amber
-        line the shear widget shows. Captures current coords as the
-        rotation base — an in-progress shear pose is treated as ground
-        truth, mirroring E-extrude."""
+        line the shear widget shows. Q is a mode switch, not a confirm:
+        any in-progress shear preview (including the auto-45° kick from
+        an axis-pick click) is dropped so the hinge rotates the
+        unsheared pose."""
         hist_edge = None
         try:
             for item in self.bm.select_history:
@@ -1291,6 +1292,13 @@ cancels. LMB clicks only pick widget handles."""
         if not sel_faces:
             self.report({"INFO"}, "hinge: needs selected faces")
             return False
+        # Restore BEFORE deriving axis/center — the shear preview may
+        # have moved the very verts the hinge line passes through.
+        if self.records:
+            restore_records(self.records)
+            self.bm.normal_update()
+            bmesh.update_edit_mesh(self.obj.data)
+        self.angle_deg = 0.0
         if hist_edge is not None and hist_edge.is_valid:
             v0, v1 = hist_edge.verts
             axis = v1.co - v0.co
@@ -1346,7 +1354,6 @@ cancels. LMB clicks only pick widget handles."""
         }
         self._hinge_active = True
         self._hinge_angle_deg = 0.0
-        self.angle_deg = self._effective_angle()  # typed-but-uncommitted shear angle must be committed
         self.input_str = ""
         self._hotspots = []
         self._hover_idx = None
