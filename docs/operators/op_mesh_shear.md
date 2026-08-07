@@ -36,7 +36,7 @@ Edge mode shears the "active" endpoint of each selected edge along its rail by `
 | <kbd>D</kbd> | If typing: flip sign of input. Else face mode: flip axis_dir (pivot moves to opposite face edge). Edge mode: negate current angle |
 | <kbd>R</kbd> | Snap perpendicular to rails (resets to 0, rebuilds records at the snapped pose) |
 | <kbd>E</kbd> | Enter the extrude sub-modal (rail-mirrored saw-off extrude) |
-| <kbd>Q</kbd> | Enter the hinge sub-modal (rotate selected faces around the active edge / shear pivot side); drops any in-progress shear preview |
+| <kbd>Q</kbd> | Enter the hinge sub-modal (rotate selected faces around the active edge / shear pivot side); drops any in-progress shear preview but carries its angle over as the initial hinge angle |
 | <kbd>A</kbd> | Face mode: raycast face under cursor, align axis to the intersection of the two face planes (highlights picked face 35% red) |
 | <kbd>B</kbd> | Face mode: set axis to the longer side of the face's minimum OBB |
 | <kbd>H</kbd> | Toggle HUD / help overlay |
@@ -59,13 +59,13 @@ Hinge sub-modal (after <kbd>Q</kbd>):
 | Key | Action |
 | --- | --- |
 | <kbd>0</kbd>-<kbd>9</kbd> <kbd>.</kbd> <kbd>-</kbd> | Type the hinge angle |
-| <kbd>Ctrl</kbd>+Wheel | Spin segments (1-64) |
+| <kbd>Ctrl</kbd>+Wheel | Spin segments (1-64, default 3) |
 | <kbd>D</kbd> | Flip direction |
 | <kbd>A</kbd> | Flush: raycast a face and set the angle so the selection lands coplanar with it |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm — bake with `bmesh.ops.spin`, merge doubles at the hinge line, chain back to shear on the new cap |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel hinge, back to shear |
 
-The hinge preview is a draw-only ghost of the final spin result, themed like the rest of the addon: the cap at the target angle is filled with `GHOST_ACTIVE` and outlined with `ACTIVE_LINE`, intermediate segment rings and per-vert sweep arcs use `PREVIEW_LINE`, and spin-segment boundaries show as `LOCKED_POINT` dots on the angle arc. The real mesh does not move until confirm (a live-vert preview would drag unselected neighbor faces that share the boundary verts — something the baked spin never does).
+The hinge preview is a draw-only ghost of the final spin result, themed like the rest of the addon: the cap at the target angle is filled with `GHOST_ACTIVE` and outlined with `ACTIVE_LINE`; intermediate segment rings and per-vert sweep arcs use `PREVIEW_LINE`. The real mesh does not move until confirm (a live-vert preview would drag unselected neighbor faces that share the boundary verts — something the baked spin never does).
 
 ## HUD
 On-screen overlay shows:

@@ -1329,7 +1329,8 @@ cancels. LMB clicks only pick widget handles."""
         line the shear widget shows. Q is a mode switch, not a confirm:
         any in-progress shear preview (including the auto-45° kick from
         an axis-pick click) is dropped so the hinge rotates the
-        unsheared pose."""
+        unsheared pose — but its angle carries over as the initial
+        hinge angle so the ghost picks up where the shear left off."""
         hist_edge = None
         try:
             for item in self.bm.select_history:
@@ -1343,6 +1344,8 @@ cancels. LMB clicks only pick widget handles."""
             return False
         # Restore BEFORE deriving axis/center — the shear preview may
         # have moved the very verts the hinge line passes through.
+        # The shear angle (typed included) seeds the hinge angle.
+        seed_angle = self._effective_angle()
         if self.records:
             restore_records(self.records)
             self.bm.normal_update()
@@ -1379,15 +1382,6 @@ cancels. LMB clicks only pick widget handles."""
         orig_normal = (n_sum.normalized() if n_sum.length > 1e-9
                        else _face_normal_safe(sel_faces[0]))
 
-        # Arc radius: fraction of the max vert distance to the axis line.
-        max_d = 0.0
-        for co in orig_cos:
-            rel = co - center
-            d = (rel - rel.dot(axis) * axis).length
-            if d > max_d:
-                max_d = d
-        radius = max_d * 0.35 if max_d > 1e-6 else axis.length * 0.5
-
         self._hinge_data = {
             "faces": sel_faces,
             "verts": verts,
@@ -1398,11 +1392,10 @@ cancels. LMB clicks only pick widget handles."""
             "edge": hinge_edge,       # None when axis came from the pivot line
             "axis_pts": axis_pts,
             "orig_normal": orig_normal.copy(),
-            "steps": 1,
-            "radius": radius,
+            "steps": 3,
         }
         self._hinge_active = True
-        self._hinge_angle_deg = 0.0
+        self._hinge_angle_deg = seed_angle if abs(seed_angle) > 1e-6 else 0.0
         self.input_str = ""
         self._hotspots = []
         self._hover_idx = None
@@ -2394,45 +2387,8 @@ cancels. LMB clicks only pick widget handles."""
             draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE,
                                context=context)
 
-        # Angle arc + segment ticks in the plane perpendicular to the
-        # axis. Basis u points from the axis toward the selection's
-        # original centroid so the arc starts on the flap.
-        centroid = center * 0.0
-        for oc in d["orig_cos"]:
-            centroid = centroid + oc
-        centroid = centroid / max(1, len(d["orig_cos"]))
-        u = centroid - center
-        u = u - u.dot(axis) * axis
-        if u.length < 1e-9:
-            return
-        u = u.normalized()
-        w = axis.cross(u)
-        r = d["radius"]
-        n_seg = max(12, int(abs(math.degrees(angle_rad)) / 5.0))
-        arc_pts = []
-        for i in range(n_seg + 1):
-            t = angle_rad * (i / n_seg)
-            p = s2d(center + (u * math.cos(t) + w * math.sin(t)) * r)
-            if p is None:
-                arc_pts = []
-                break
-            arc_pts.append(p)
-        if arc_pts:
-            segs = []
-            for i in range(len(arc_pts) - 1):
-                segs.extend([arc_pts[i], arc_pts[i + 1]])
-            draw_prim.edges_3d(segs, role=Role.ACTIVE_LINE, context=context)
-        # Dots on the arc at each spin-segment boundary (steps > 1
-        # only) — segment count reads as points on the curve.
-        if steps > 1 and abs(angle_rad) > 1e-6:
-            locked = theme.color_for(Role.LOCKED_POINT)
-            for k in range(1, steps):
-                t = angle_rad * (k / steps)
-                dir_v = u * math.cos(t) + w * math.sin(t)
-                p = s2d(center + dir_v * r)
-                if p is not None:
-                    self._draw_dot(p, radius=4.0, color=locked,
-                                   context=context)
+        # No angle arc / segment dots — the mesh ghost itself shows
+        # the angle and the segment rings.
         # Center dot at the hinge midpoint.
         pc = s2d(center)
         if pc is not None:
