@@ -8,9 +8,10 @@ profiles — beveled squares, custom hand-built shapes, anything where
 
 
 - face selection (any face selected) → face shear: each face vert
-  slides along its non-face rail edge by `-(proj·tan(angle))` where
-  `proj` is the vert's offset from face centroid along the axis edge.
-  Face tilts around its centroid.
+  slides along its non-face rail edge by `proj·sin(angle)` where
+  `proj` is the vert's offset from the pivot side along the axis.
+  Verts sharing a projection (one profile cross-section) slide as a
+  rigid row along their averaged rail direction.
 
 - edge selection (any edge selected, no faces) → edge shear: each
   selected edge's "active" vert slides perpendicular to the edge
@@ -202,7 +203,7 @@ def flip_edge_record_active(rec):
 
 def build_face_record(face, axis_dir):
     """Face shear record. ALL face verts slide along their non-face
-    rail edges by `-(proj·tan(angle))`. `axis_dir` is a unit Vector in
+    rail edges by `proj·sin(angle)`. `axis_dir` is a unit Vector in
     the face plane along which projections are measured.
 
     The record caches the face's principal axes (PCA) so F can toggle
@@ -260,10 +261,42 @@ def build_face_record(face, axis_dir):
     # smallest (the "saw entry" edge). Shift so that pivot verts have
     # proj = 0 and the rest have proj > 0. At positive angle, every
     # vert slides along its rail away from the pivot edge by
-    # `proj * tan(angle)`.
+    # `proj * sin(angle)`.
     min_centroid_proj = min(centroid_projs)
     projections = [cp - min_centroid_proj for cp in centroid_projs]
     pivot_point = centroid + axis_dir * min_centroid_proj
+
+    # Row-rigid slide: verts sharing the same projection form one
+    # profile cross-section and must translate as a rigid unit —
+    # per-vert rails that diverge (the two long sides of a chamfer
+    # strip point along different world axes) would otherwise twist
+    # the cross-section into a bowtie. Each row slides along the
+    # normalized mean of its members' unit rail dirs: identical to
+    # the old behavior for parallel rails, a rigid diagonal slide
+    # for diverging ones.
+    max_p = max(projections) if projections else 0.0
+    row_tol = max(max_p * 1e-3, 1e-6)
+    order = sorted(range(len(projections)), key=lambda i: projections[i])
+    row = []
+    rows = []
+    for i in order:
+        if row and projections[i] - projections[row[-1]] > row_tol:
+            rows.append(row)
+            row = []
+        row.append(i)
+    if row:
+        rows.append(row)
+    for row in rows:
+        if len(row) < 2:
+            continue
+        mean_dir = rails[row[0]]["dir"] * 0.0
+        for i in row:
+            mean_dir = mean_dir + rails[i]["dir"]
+        if mean_dir.length < 1e-6:
+            continue  # opposing rails cancel — keep per-vert dirs
+        mean_dir = mean_dir / mean_dir.length
+        for i in row:
+            rails[i]["dir"] = mean_dir.copy()
 
     pa, pb = face_principal_axes(face)
     return {
@@ -415,7 +448,7 @@ def _min_obb_axis_for_face(face):
 
 
 def _fit_reset_for_axis(rec, axis_dir):
-    """Linear-regression fit of `offset_along_rail = -tan(θ) * proj +
+    """Linear-regression fit of `offset_along_rail = -sin(θ) * proj +
     C` for the given axis. Returns (slope, residual_sum_squares) so a
     caller can pick the best axis. None if the system is degenerate."""
     rails = rec["rails"]
@@ -471,7 +504,9 @@ def compute_reset_for_face_record(rec):
         if fit is None:
             continue
         slope, rss = fit
-        angle = math.degrees(math.atan(-slope))
+        # Slide model is proj·sin(angle) — invert with asin, clamping
+        # to the reachable range (|slide| can't exceed proj).
+        angle = math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
         if best is None or rss < best[2] - 1e-9:
             best = (axis, angle, rss)
     if best is None:
@@ -499,7 +534,7 @@ def compute_reset_angle_face(rec):
     projs = rec["projections"]
     offs = [(p - centroid).dot(R) for p in orig_cos]
 
-    # Linear-least-squares fit: solve `offs ≈ -tan(θ) * projs + C`
+    # Linear-least-squares fit: solve `offs ≈ -sin(θ) * projs + C`
     # across all verts. Picking a single best pair fails on beveled or
     # multi-vert faces where multiple pairs share the same proj
     # difference but have inconsistent offs differences. Fitting all
@@ -519,7 +554,8 @@ def compute_reset_angle_face(rec):
     if abs(den) < 1e-9:
         return 0.0
     slope = num / den
-    return math.degrees(math.atan(-slope))
+    # Slide model is proj·sin(angle) — invert with asin, clamped.
+    return math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
 
 
 def compute_reset_angle_edge(rec):
@@ -595,6 +631,12 @@ def compute_reset_angle(records):
 
 def apply_records(records, angle_deg):
     t = _angle_to_t(angle_deg)
+    # Face mode slides by proj·sin(angle): the reference results are
+    # "rotate the face by the typed angle around the pivot side, land
+    # the verts back on their rails" — the rail-projected displacement
+    # of that rotation. tan() overshoots on oblique rails (a 45°
+    # chamfer face would tilt 67.5° for a typed 45°).
+    s = math.sin(math.radians(angle_deg))
     for r in records:
         if r["type"] == "edge":
             if r["active"].is_valid and r["fixed"].is_valid:
@@ -608,7 +650,7 @@ def apply_records(records, angle_deg):
                     r["active_verts"], r["orig_active_cos"],
                     r["rails"], r["projections"]):
                 if av.is_valid:
-                    av.co = oc + rail["dir"] * (proj * t)
+                    av.co = oc + rail["dir"] * (proj * s)
 
 
 def restore_records(records):
@@ -759,8 +801,12 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_start_y = 0
 
         # Hinge sub-modal state. Q enters; selected faces rotate around
-        # the active edge from select_history. Preview is pure vert
-        # rotation; bmesh.ops.spin runs once at confirm (Task 3).
+        # the active edge from select_history. Preview is a draw-only
+        # ghost of the spin result — the mesh itself doesn't move until
+        # bmesh.ops.spin runs once at confirm. Mutating verts during
+        # preview would drag/shear the unselected neighbor faces that
+        # share them, which the baked spin never does (it extrudes
+        # walls instead) — the preview must not lie.
         self._hinge_active = False
         self._hinge_data = None
         self._hinge_angle_deg = 0.0
@@ -906,6 +952,7 @@ cancels. LMB clicks only pick widget handles."""
             # edge verts wait the longest. Mirrors the edge-mode saw-
             # off rule one-vert-at-a-time for every face vert.
             proj_max = max(projs) if projs else 0.0
+            sin_t = math.sin(math.radians(self.angle_deg))
             per_old_vert = {}
             for av, rail, proj in zip(active_verts, rails, projs):
                 side = mirror(rail["dir"], face_normal)
@@ -913,7 +960,9 @@ cancels. LMB clicks only pick widget handles."""
                     side = rail["dir"]  # rail parallel to normal — fallback
                 else:
                     side = side.normalized()
-                delay = (proj_max - proj) * t
+                # Same proj·sin(angle) rule as apply_records so the
+                # mirrored saw-off delays match the actual slides.
+                delay = (proj_max - proj) * sin_t
                 per_old_vert[av] = (av.co.copy(), side, delay)
 
             res = bmesh.ops.extrude_face_region(self.bm, geom=[face])
@@ -1369,25 +1418,6 @@ cancels. LMB clicks only pick widget handles."""
                 return self._hinge_angle_deg
         return self._hinge_angle_deg
 
-    def _hinge_apply(self):
-        d = self._hinge_data
-        rot = Matrix.Rotation(
-            math.radians(self._hinge_effective_angle()), 4, d["axis"])
-        c = d["center"]
-        for v, oc in zip(d["verts"], d["orig_cos"]):
-            if v.is_valid:
-                v.co = c + rot @ (oc - c)
-        self.bm.normal_update()
-        bmesh.update_edit_mesh(self.obj.data)
-
-    def _hinge_restore(self):
-        d = self._hinge_data
-        for v, oc in zip(d["verts"], d["orig_cos"]):
-            if v.is_valid:
-                v.co = oc
-        self.bm.normal_update()
-        bmesh.update_edit_mesh(self.obj.data)
-
     def _hinge_modal(self, context, event):
         # Navigation passes through (Q sub-modal owns Ctrl+wheel only).
         if (event.type == "MIDDLEMOUSE" or event.type.startswith("NDOF")
@@ -1411,7 +1441,6 @@ cancels. LMB clicks only pick widget handles."""
         if event.value == "PRESS":
             if event.type in DIGIT_TYPES:
                 self.input_str += DIGIT_TYPES[event.type]
-                self._hinge_apply()
             elif event.type in {"PERIOD", "NUMPAD_PERIOD"}:
                 if "." not in self.input_str:
                     self.input_str += "."
@@ -1420,10 +1449,8 @@ cancels. LMB clicks only pick widget handles."""
                     self.input_str = self.input_str[1:]
                 else:
                     self.input_str = "-" + self.input_str
-                self._hinge_apply()
             elif event.type == "BACK_SPACE":
                 self.input_str = self.input_str[:-1]
-                self._hinge_apply()
             elif event.type == "D":
                 if self.input_str:
                     if self.input_str.startswith("-"):
@@ -1432,7 +1459,6 @@ cancels. LMB clicks only pick widget handles."""
                         self.input_str = "-" + self.input_str
                 else:
                     self._hinge_angle_deg = -self._hinge_angle_deg
-                self._hinge_apply()
             elif event.type == "A":
                 self._hinge_flush_pick(context, event)   # Task 4
             elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
@@ -1446,7 +1472,7 @@ cancels. LMB clicks only pick widget handles."""
         return {"RUNNING_MODAL"}
 
     def _cancel_hinge(self, context):
-        self._hinge_restore()
+        # Preview is draw-only (ghost) — no geometry to restore.
         self._hinge_active = False
         self._hinge_data = None
         self._hinge_angle_deg = 0.0
@@ -1456,14 +1482,14 @@ cancels. LMB clicks only pick widget handles."""
         return {"RUNNING_MODAL"}
 
     def _confirm_hinge(self, context):
-        """Enter/Space: bake the hinge. Restore the preview pose, run
-        bmesh.ops.spin with the chosen steps (real segment geometry),
-        merge doubles at the hinge line, select the resulting cap and
-        rebuild shear records on it so the modal chains back to shear.
-        Zero angle is a clean no-op exit back to shear."""
+        """Enter/Space: bake the hinge. The preview is draw-only, so
+        the mesh is still in its original pose — run bmesh.ops.spin
+        with the chosen steps (real segment geometry), merge doubles
+        at the hinge line, select the resulting cap and rebuild shear
+        records on it so the modal chains back to shear. Zero angle is
+        a clean no-op exit back to shear."""
         d = self._hinge_data
         angle_rad = math.radians(self._hinge_effective_angle())
-        self._hinge_restore()
         if abs(angle_rad) < 1e-6:
             return self._cancel_hinge(context)
 
@@ -1562,7 +1588,6 @@ cancels. LMB clicks only pick widget handles."""
             return
         self._hinge_angle_deg = math.degrees(ang)
         self.input_str = ""
-        self._hinge_apply()
 
     def _toggle_align_highlight(self, context, event):
         """A: raycast the face under the cursor and latch it. If a
@@ -2258,9 +2283,12 @@ cancels. LMB clicks only pick widget handles."""
                        color=theme.color_for(Role.ACTIVE_POINT), context=context)
 
     def _draw_hinge(self, region, rv3d, mw, *, context, theme):
-        """Ghost of the original face outlines, current outlines, the
-        hinge axis (amber), and an angle arc with per-segment ticks
-        around the edge midpoint."""
+        """Ghost of the FINAL spin result: face outlines at the target
+        angle (bright), intermediate segment rings (dim), the swept
+        wall edges each vert will trace, the hinge axis (amber), and
+        an angle arc with per-segment ticks around the edge midpoint.
+        The real mesh doesn't move until confirm — this preview is the
+        only feedback, so it mirrors the baked spin's segmentation."""
         d = self._hinge_data
         if d is None:
             return
@@ -2269,29 +2297,68 @@ cancels. LMB clicks only pick widget handles."""
             return view3d_utils.location_3d_to_region_2d(
                 region, rv3d, mw @ co)
 
-        ghost_segs = []
-        curr_segs = []
-        for f in d["faces"]:
-            if not f.is_valid:
-                continue
-            loops = list(f.verts)
-            n = len(loops)
-            for i in range(n):
-                a, b = loops[i], loops[(i + 1) % n]
-                oa = d["orig_co_map"].get(a)
-                ob = d["orig_co_map"].get(b)
-                if oa is not None and ob is not None:
-                    pa, pb = s2d(oa), s2d(ob)
+        angle_rad = math.radians(self._hinge_effective_angle())
+        axis = d["axis"]
+        center = d["center"]
+        steps = max(1, d["steps"])
+
+        # Rotated copies of every hinged vert at each spin segment
+        # boundary: k=0 is the original pose, k=steps the final cap.
+        step_cos = []
+        for k in range(steps + 1):
+            rot = Matrix.Rotation(angle_rad * (k / steps), 4, axis)
+            step_cos.append({
+                v: center + rot @ (oc - center)
+                for v, oc in d["orig_co_map"].items()
+            })
+
+        ghost_dim = (0.45, 0.45, 0.45, 0.45)
+
+        def outline_segs(co_map):
+            segs = []
+            for f in d["faces"]:
+                if not f.is_valid:
+                    continue
+                loops = list(f.verts)
+                n = len(loops)
+                for i in range(n):
+                    a = co_map.get(loops[i])
+                    b = co_map.get(loops[(i + 1) % n])
+                    if a is None or b is None:
+                        continue
+                    pa, pb = s2d(a), s2d(b)
                     if pa is not None and pb is not None:
-                        ghost_segs.extend([pa, pb])
-                pa, pb = s2d(a.co), s2d(b.co)
-                if pa is not None and pb is not None:
-                    curr_segs.extend([pa, pb])
-        if ghost_segs:
-            draw_prim.edges_3d(ghost_segs, color=(0.45, 0.45, 0.45, 0.55),
+                        segs.extend([pa, pb])
+            return segs
+
+        moving = abs(angle_rad) > 1e-6
+        # Intermediate segment rings (dim) — only the in-between ones;
+        # the k=0 ring coincides with the real mesh already on screen.
+        if moving:
+            for k in range(1, steps):
+                segs = outline_segs(step_cos[k])
+                if segs:
+                    draw_prim.edges_3d(segs, color=ghost_dim, context=context)
+            # Swept wall edges: the arc polyline each vert travels,
+            # segmented exactly like the baked spin walls.
+            wall_segs = []
+            for v in d["verts"]:
+                for k in range(steps):
+                    a = step_cos[k].get(v)
+                    b = step_cos[k + 1].get(v)
+                    if a is None or b is None:
+                        continue
+                    pa, pb = s2d(a), s2d(b)
+                    if pa is not None and pb is not None:
+                        wall_segs.extend([pa, pb])
+            if wall_segs:
+                draw_prim.edges_3d(wall_segs, color=ghost_dim, context=context)
+        # Final cap outline — bright. At zero angle it sits on the
+        # original pose and doubles as the "hinge armed" highlight.
+        final_segs = outline_segs(step_cos[steps])
+        if final_segs:
+            draw_prim.edges_3d(final_segs, role=Role.ACTIVE_LINE,
                                context=context)
-        if curr_segs:
-            draw_prim.edges_3d(curr_segs, role=Role.ACTIVE_LINE, context=context)
 
         # Hinge axis line — amber (locked role). Endpoints captured at
         # entry; axis points don't move (they're on the rotation axis).
@@ -2304,9 +2371,6 @@ cancels. LMB clicks only pick widget handles."""
         # Angle arc + segment ticks in the plane perpendicular to the
         # axis. Basis u points from the axis toward the selection's
         # original centroid so the arc starts on the flap.
-        angle_rad = math.radians(self._hinge_effective_angle())
-        axis = d["axis"]
-        center = d["center"]
         centroid = center * 0.0
         for oc in d["orig_cos"]:
             centroid = centroid + oc
@@ -2333,7 +2397,6 @@ cancels. LMB clicks only pick widget handles."""
                 segs.extend([arc_pts[i], arc_pts[i + 1]])
             draw_prim.edges_3d(segs, role=Role.ACTIVE_LINE, context=context)
         # Ticks at each spin-segment boundary (steps > 1 only).
-        steps = d["steps"]
         if steps > 1 and abs(angle_rad) > 1e-6:
             for k in range(1, steps):
                 t = angle_rad * (k / steps)
