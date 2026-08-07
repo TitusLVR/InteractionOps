@@ -1236,10 +1236,17 @@ cancels. LMB clicks only pick widget handles."""
         except (TypeError, RuntimeError):
             pass
         if kind == "face" and target.is_valid:
+            # Full deselect (not just faces) — stray selected edges or
+            # verts left by earlier chained ops would otherwise keep
+            # accumulating in the selection.
+            for v in self.bm.verts:
+                v.select = False
+            for e in self.bm.edges:
+                e.select = False
             for f in self.bm.faces:
-                if f.select:
-                    f.select_set(False)
+                f.select = False
             target.select_set(True)
+            self.bm.select_flush_mode()
             pa, _ = face_principal_axes(target)
             if pa is not None:
                 new_rec, _ = build_face_record(target, pa)
@@ -1578,9 +1585,20 @@ cancels. LMB clicks only pick widget handles."""
             bmesh.ops.remove_doubles(
                 self.bm, verts=_gather_double_verts(seed, dist), dist=dist)
 
+        # Full deselect before selecting the new cap: the pre-spin
+        # `g.select = False` doesn't flush, so verts/edges of the old
+        # cap stay selected and accumulate across chained
+        # extrude/hinge rounds.
+        for v in self.bm.verts:
+            v.select = False
+        for e in self.bm.edges:
+            e.select = False
+        for f in self.bm.faces:
+            f.select = False
         for g in last:
             if g.is_valid:
                 g.select_set(True)
+        self.bm.select_flush_mode()
         self.bm.normal_update()
         bmesh.update_edit_mesh(self.obj.data, loop_triangles=True,
                                destructive=True)
