@@ -2312,8 +2312,6 @@ cancels. LMB clicks only pick widget handles."""
                 for v, oc in d["orig_co_map"].items()
             })
 
-        ghost_dim = (0.45, 0.45, 0.45, 0.45)
-
         def outline_segs(co_map):
             segs = []
             for f in d["faces"]:
@@ -2331,14 +2329,35 @@ cancels. LMB clicks only pick widget handles."""
                         segs.extend([pa, pb])
             return segs
 
+        def fill_tris(co_map):
+            tris = []
+            for f in d["faces"]:
+                if not f.is_valid:
+                    continue
+                pts = []
+                for v in f.verts:
+                    co = co_map.get(v)
+                    if co is None:
+                        pts = []
+                        break
+                    p = s2d(co)
+                    if p is None:
+                        pts = []
+                        break
+                    pts.append(p)
+                for i in range(1, len(pts) - 1):
+                    tris.extend([pts[0], pts[i], pts[i + 1]])
+            return tris
+
         moving = abs(angle_rad) > 1e-6
-        # Intermediate segment rings (dim) — only the in-between ones;
+        # Intermediate segment rings — preview tint from the theme;
         # the k=0 ring coincides with the real mesh already on screen.
         if moving:
             for k in range(1, steps):
                 segs = outline_segs(step_cos[k])
                 if segs:
-                    draw_prim.edges_3d(segs, color=ghost_dim, context=context)
+                    draw_prim.edges_3d(segs, role=Role.PREVIEW_LINE,
+                                       context=context)
             # Swept wall edges: the arc polyline each vert travels,
             # segmented exactly like the baked spin walls.
             wall_segs = []
@@ -2352,9 +2371,16 @@ cancels. LMB clicks only pick widget handles."""
                     if pa is not None and pb is not None:
                         wall_segs.extend([pa, pb])
             if wall_segs:
-                draw_prim.edges_3d(wall_segs, color=ghost_dim, context=context)
-        # Final cap outline — bright. At zero angle it sits on the
-        # original pose and doubles as the "hinge armed" highlight.
+                draw_prim.edges_3d(wall_segs, role=Role.PREVIEW_LINE,
+                                   context=context)
+        # Final cap — active fill + outline from the theme. At zero
+        # angle it sits on the original pose and doubles as the
+        # "hinge armed" highlight.
+        cap_tris = fill_tris(step_cos[steps])
+        if cap_tris:
+            draw_prim.tris(cap_tris,
+                           color=theme.color_for(Role.GHOST_ACTIVE),
+                           context=context)
         final_segs = outline_segs(step_cos[steps])
         if final_segs:
             draw_prim.edges_3d(final_segs, role=Role.ACTIVE_LINE,
@@ -2396,16 +2422,17 @@ cancels. LMB clicks only pick widget handles."""
             for i in range(len(arc_pts) - 1):
                 segs.extend([arc_pts[i], arc_pts[i + 1]])
             draw_prim.edges_3d(segs, role=Role.ACTIVE_LINE, context=context)
-        # Ticks at each spin-segment boundary (steps > 1 only).
+        # Dots on the arc at each spin-segment boundary (steps > 1
+        # only) — segment count reads as points on the curve.
         if steps > 1 and abs(angle_rad) > 1e-6:
+            locked = theme.color_for(Role.LOCKED_POINT)
             for k in range(1, steps):
                 t = angle_rad * (k / steps)
                 dir_v = u * math.cos(t) + w * math.sin(t)
-                pa = s2d(center + dir_v * (r * 0.9))
-                pb = s2d(center + dir_v * (r * 1.1))
-                if pa is not None and pb is not None:
-                    draw_prim.edges_3d([pa, pb], role=Role.LOCKED_LINE,
-                                       context=context)
+                p = s2d(center + dir_v * r)
+                if p is not None:
+                    self._draw_dot(p, radius=4.0, color=locked,
+                                   context=context)
         # Center dot at the hinge midpoint.
         pc = s2d(center)
         if pc is not None:

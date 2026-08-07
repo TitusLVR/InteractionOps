@@ -65,7 +65,7 @@ Hinge sub-modal (after <kbd>Q</kbd>):
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm — bake with `bmesh.ops.spin`, merge doubles at the hinge line, chain back to shear on the new cap |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel hinge, back to shear |
 
-The hinge preview is a draw-only ghost of the final spin result — the bright outline is the cap at the target angle, dim rings show the intermediate spin segments, and dim arcs trace the wall edges each vert will sweep. The real mesh does not move until confirm (a live-vert preview would drag unselected neighbor faces that share the boundary verts — something the baked spin never does).
+The hinge preview is a draw-only ghost of the final spin result, themed like the rest of the addon: the cap at the target angle is filled with `GHOST_ACTIVE` and outlined with `ACTIVE_LINE`, intermediate segment rings and per-vert sweep arcs use `PREVIEW_LINE`, and spin-segment boundaries show as `LOCKED_POINT` dots on the angle arc. The real mesh does not move until confirm (a live-vert preview would drag unselected neighbor faces that share the boundary verts — something the baked spin never does).
 
 ## HUD
 On-screen overlay shows:
