@@ -783,6 +783,9 @@ cancels. LMB clicks only pick widget handles."""
         self.angle_deg = 0.0
         self.input_str = ""
         self.skip_reasons = skip_reasons
+        # Last angle a shear actually used — seeds Q hinge after an
+        # extrude confirm has reset angle_deg on the new cap.
+        self._last_shear_angle = 0.0
         # Point-and-click state. Each entry: {"region_pt": (x,y),
         # "axis": Vector, "rec_idx": int}. Click on any hotspot
         # rebuilds that record with the picked axis (= switches both
@@ -1208,6 +1211,11 @@ cancels. LMB clicks only pick widget handles."""
         d = self._extrude_data
         target = d["target"]
         kind = d["kind"]
+        # Remember the shear angle that shaped this segment's miter —
+        # a following Q hinge seeds from it (the shear itself resets
+        # to 0 on the new cap).
+        if abs(self.angle_deg) > 1e-6:
+            self._last_shear_angle = self.angle_deg
         # Now that the user committed, the original face becomes an
         # interior face and must be removed. Side walls already share
         # its verts and edges so FACES_ONLY leaves the surrounding
@@ -1219,7 +1227,19 @@ cancels. LMB clicks only pick widget handles."""
             bmesh.ops.delete(
                 self.bm, geom=[orig_face], context="FACES_ONLY",
             )
+        # Move the selection (and select_history) onto the new cap:
+        # sub-modals entered from here (Q hinge) read the selection,
+        # and a stale pre-extrude edge in select_history would hand
+        # the hinge a distant axis.
+        try:
+            self.bm.select_history.clear()
+        except (TypeError, RuntimeError):
+            pass
         if kind == "face" and target.is_valid:
+            for f in self.bm.faces:
+                if f.select:
+                    f.select_set(False)
+            target.select_set(True)
             pa, _ = face_principal_axes(target)
             if pa is not None:
                 new_rec, _ = build_face_record(target, pa)
@@ -1227,6 +1247,7 @@ cancels. LMB clicks only pick widget handles."""
                     self.records = [new_rec]
                     self.mode = "face"
         elif kind == "edge" and target.is_valid:
+            target.select_set(True)
             new_rec, _ = build_edge_record(target, None)
             if new_rec is not None:
                 self.records = [new_rec]
@@ -1355,8 +1376,14 @@ cancels. LMB clicks only pick widget handles."""
             return False
         # Restore BEFORE deriving axis/center — the shear preview may
         # have moved the very verts the hinge line passes through.
-        # The shear angle (typed included) seeds the hinge angle.
+        # The shear angle (typed included) seeds the hinge angle; when
+        # the shear is at 0 (always the case right after an extrude
+        # confirm), fall back to the last angle a shear actually used.
         seed_angle = self._effective_angle()
+        if abs(seed_angle) < 1e-6:
+            seed_angle = getattr(self, "_last_shear_angle", 0.0)
+        else:
+            self._last_shear_angle = seed_angle
         if self.records:
             restore_records(self.records)
             self.bm.normal_update()
@@ -1392,6 +1419,28 @@ cancels. LMB clicks only pick widget handles."""
             n_sum += _face_normal_safe(f)
         orig_normal = (n_sum.normalized() if n_sum.length > 1e-9
                        else _face_normal_safe(sel_faces[0]))
+
+        # Match the hinge's positive direction to the shear's: a
+        # positive angle must swing the flap the way a positive shear
+        # slides it — along the record's rails. The tangential velocity
+        # of the selection centroid under +rotation is axis × (centroid
+        # - center); if it opposes the mean rail direction, flip the
+        # axis. Without this the sign of the inherited angle (and of
+        # typed input) depends on the arbitrary vert order of the
+        # active edge.
+        rec0 = self.records[0] if self.records else None
+        if rec0 is not None and rec0.get("type") == "face":
+            r_mean = Vector((0.0, 0.0, 0.0))
+            for rl in rec0["rails"]:
+                r_mean += rl["dir"]
+            sel_centroid = Vector((0.0, 0.0, 0.0))
+            for co in orig_cos:
+                sel_centroid += co
+            sel_centroid /= max(1, len(orig_cos))
+            tangent = axis.cross(sel_centroid - center)
+            if (r_mean.length > 1e-9 and tangent.length > 1e-9
+                    and tangent.dot(r_mean) < 0):
+                axis = -axis
 
         self._hinge_data = {
             "faces": sel_faces,
