@@ -953,13 +953,24 @@ cancels. LMB clicks only pick widget handles."""
             # off rule one-vert-at-a-time for every face vert.
             proj_max = max(projs) if projs else 0.0
             sin_t = math.sin(math.radians(self.angle_deg))
+            # Unsheared face (always the case right after a hinge
+            # confirm): the face is a square end, not a miter — extrude
+            # straight along its normal. The rail mirror only encodes a
+            # miter when there IS a shear; on oblique/diverging rails
+            # (chamfer profiles, post-hinge spin-wall chords) mirroring
+            # at zero angle collapses or twists the new face.
+            straight = abs(sin_t) < 1e-6
+            unit_normal = face_normal.normalized()
             per_old_vert = {}
             for av, rail, proj in zip(active_verts, rails, projs):
-                side = mirror(rail["dir"], face_normal)
-                if side.length < 1e-9:
-                    side = rail["dir"]  # rail parallel to normal — fallback
+                if straight:
+                    side = unit_normal.copy()
                 else:
-                    side = side.normalized()
+                    side = mirror(rail["dir"], face_normal)
+                    if side.length < 1e-9:
+                        side = rail["dir"]  # rail parallel to normal — fallback
+                    else:
+                        side = side.normalized()
                 # Same proj·sin(angle) rule as apply_records so the
                 # mirrored saw-off delays match the actual slides.
                 delay = (proj_max - proj) * sin_t
@@ -1392,7 +1403,7 @@ cancels. LMB clicks only pick widget handles."""
             "edge": hinge_edge,       # None when axis came from the pivot line
             "axis_pts": axis_pts,
             "orig_normal": orig_normal.copy(),
-            "steps": 3,
+            "steps": 6,
         }
         self._hinge_active = True
         self._hinge_angle_deg = seed_angle if abs(seed_angle) > 1e-6 else 0.0

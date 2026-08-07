@@ -59,7 +59,7 @@ Hinge sub-modal (after <kbd>Q</kbd>):
 | Key | Action |
 | --- | --- |
 | <kbd>0</kbd>-<kbd>9</kbd> <kbd>.</kbd> <kbd>-</kbd> | Type the hinge angle |
-| <kbd>Ctrl</kbd>+Wheel | Spin segments (1-64, default 3) |
+| <kbd>Ctrl</kbd>+Wheel | Spin segments (1-64, default 6) |
 | <kbd>D</kbd> | Flip direction |
 | <kbd>A</kbd> | Flush: raycast a face and set the angle so the selection lands coplanar with it |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm — bake with `bmesh.ops.spin`, merge doubles at the hinge line, chain back to shear on the new cap |
