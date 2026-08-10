@@ -137,10 +137,13 @@ def smart_apply_object(context, obj, mod_type=None, up_to=None):
       If no match exists on obj, nothing is applied.
     Handles multi-user data (auto single-user copy). Objects with shape
     keys are skipped. Disabled (show_viewport off) modifiers are skipped.
-    Returns (applied_count, skip_reason or None).
+    Returns (applied_count, skip_reason or None, failed_count) — a
+    per-modifier RuntimeError from bpy.ops.object.modifier_apply is
+    caught, printed with detail, and counted in failed_count; the batch
+    never aborts.
     """
     if obj.data is not None and getattr(obj.data, "shape_keys", None):
-        return 0, "shape keys"
+        return 0, "shape keys", 0
 
     names = []
     if up_to is not None:
@@ -152,17 +155,18 @@ def smart_apply_object(context, obj, mod_type=None, up_to=None):
                 found = True
                 break
         if not found:
-            return 0, "no matching modifier"
+            return 0, "no matching modifier", 0
     else:
         names = [md.name for md in obj.modifiers
                  if md.show_viewport and (mod_type is None or md.type == mod_type)]
 
     if not names:
-        return 0, None
+        return 0, None, 0
     if obj.data is not None and obj.data.users > 1:
         obj.data = obj.data.copy()
 
     applied = 0
+    failed = 0
     for name in names:
         try:
             with context.temp_override(object=obj, active_object=obj,
@@ -171,7 +175,8 @@ def smart_apply_object(context, obj, mod_type=None, up_to=None):
             applied += 1
         except RuntimeError as e:
             print(f"IOPS modifiers: apply {name!r} on {obj.name!r} failed: {e}")
-    return applied, None
+            failed += 1
+    return applied, None, failed
 
 
 # --- the grid click operator -----------------------------------------
@@ -237,13 +242,17 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
 
         elif self.mode == "APPLY":
             applied = 0
+            failed = 0
             skipped = {}
             for obj in objects:
-                count, reason = smart_apply_object(context, obj, mod_type=mt)
+                count, reason, fail_count = smart_apply_object(context, obj, mod_type=mt)
                 applied += count
+                failed += fail_count
                 if reason:
                     skipped[reason] = skipped.get(reason, 0) + 1
             msg = f"{mt}: applied {applied} modifier(s)"
+            if failed:
+                msg += f", {failed} failed (see console)"
             for reason, n in skipped.items():
                 msg += f", {n} object(s) skipped ({reason})"
             self.report({"INFO"}, msg)

@@ -57,21 +57,27 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         elif self.action == "APPLY_UP_TO":
             target = (md.type, md.name)
             applied = 0
+            failed = 0
             skipped = {}
             for o in context.selected_objects:
-                count, reason = iops_mod_registry.smart_apply_object(context, o,
-                                                        up_to=target)
+                count, reason, fail_count = iops_mod_registry.smart_apply_object(
+                    context, o, up_to=target)
                 applied += count
+                failed += fail_count
                 if reason:
                     skipped[reason] = skipped.get(reason, 0) + 1
             msg = f"Applied {applied} modifier(s) up to {md.name}"
+            if failed:
+                msg += f", {failed} failed (see console)"
             for reason, n in skipped.items():
                 msg += f", {n} object(s) skipped ({reason})"
             self.report({"INFO"}, msg)
         elif self.action == "REMOVE":
             obj.modifiers.remove(md)
         elif self.action == "SAVE_PRESET":
-            presets.save_default(md)
-            self.report({"INFO"},
-                        f"{md.type}: saved as default preset for the grid")
+            if presets.save_default(md):
+                self.report({"INFO"},
+                            f"{md.type}: saved as default preset for the grid")
+            else:
+                self.report({"WARNING"}, "Could not write preset file")
         return {"FINISHED"}

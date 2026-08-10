@@ -36,10 +36,18 @@ def _read_all():
 
 
 def _write_all(data):
+    """Write the preset file. Returns True on success, False on any I/O
+    error (read-only/missing path etc.) instead of raising — callers
+    surface the failure to the user."""
     path = _presets_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+        return True
+    except OSError as e:
+        print(f"IOPS modifiers: could not write preset file ({e})")
+        return False
 
 
 def snapshot(md):
@@ -56,6 +64,11 @@ def snapshot(md):
             value = list(value)
         elif p.type not in {"FLOAT", "INT", "BOOLEAN", "STRING"}:
             continue
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            continue  # exotic/non-round-trippable value (e.g. matrix-typed
+                      # float arrays on some modifiers) — skip it
         out[pid] = value
     return out
 
@@ -67,13 +80,12 @@ def load_default(mod_type):
 def save_default(md):
     data = _read_all()
     data[md.type] = snapshot(md)
-    _write_all(data)
+    return _write_all(data)
 
 
 def clear_default(mod_type):
     data = _read_all()
     if mod_type in data:
         del data[mod_type]
-        _write_all(data)
-        return True
+        return _write_all(data)
     return False
