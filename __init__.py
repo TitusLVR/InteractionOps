@@ -137,6 +137,32 @@ from .ui.iops_tm_panel import (
 
 from .ui.iops_data_panel import IOPS_PT_DATA_Panel, IOPS_OT_Call_Data_Panel
 from .ui.iops_mod_window import IOPS_OT_Modifier_Window
+from .ui.iops_modifiers_panel import IOPS_PT_Modifiers_Panel
+
+# iOps Modifiers module: descriptor files register themselves into
+# iops_mod_registry.REGISTRY on import; tool modules carry the operators.
+from .operators.modifiers import (
+    iops_mod_registry,
+    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array,
+    iops_mod_solidify, iops_mod_subsurf, iops_mod_screw, iops_mod_weld,
+    iops_mod_triangulate, iops_mod_decimate, iops_mod_remesh,
+    iops_mod_wireframe, iops_mod_curve, iops_mod_lattice,
+    iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,
+    iops_mod_weighted_normal,
+    iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
+    iops_mod_cursor_target, iops_mod_select_users, iops_mod_safe_apply,
+)
+
+_modifiers_classes = (
+    iops_mod_registry.IOPS_OT_ModGridClick,
+    iops_mod_stack.IOPS_OT_ModStackAction,
+    iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_cleanup.IOPS_OT_ModCleanup,
+    iops_mod_sync_vis.IOPS_OT_ModSyncVis,
+    iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
+    iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
+    iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
+)
 
 from .ui.iops_pie_split import (
     IOPS_OT_Split_Area_Pie_1,
@@ -546,6 +572,8 @@ classes = (
     IOPS_OT_ExpandInstanceCollection,
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
+    *_modifiers_classes,
+    IOPS_PT_Modifiers_Panel,
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
     IOPS_OT_smart_inset,
