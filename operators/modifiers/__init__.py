@@ -15,6 +15,9 @@ from . import (
     iops_mod_weighted_normal,
 )
 
+from . import iops_mod_stack
+
 classes = (
     iops_mod_registry.IOPS_OT_ModGridClick,
+    iops_mod_stack.IOPS_OT_ModStackAction,
 )
