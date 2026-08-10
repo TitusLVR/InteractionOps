@@ -20,6 +20,7 @@ from . import iops_mod_sort
 from . import iops_mod_cleanup
 from . import iops_mod_sync_vis
 from . import iops_mod_select_users
+from . import iops_mod_cursor_target
 
 classes = (
     iops_mod_registry.IOPS_OT_ModGridClick,
@@ -28,4 +29,5 @@ classes = (
     iops_mod_cleanup.IOPS_OT_ModCleanup,
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
     iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
+    iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
 )
