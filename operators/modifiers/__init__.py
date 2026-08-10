@@ -3,6 +3,7 @@ into iops_mod_registry.REGISTRY on import; tool operator files are added by late
 tasks. `classes` is consumed by the addon root __init__."""
 
 from . import iops_mod_registry
+from . import iops_mod_presets as presets
 
 # Descriptor files — import order defines grid order inside each group.
 from . import (
