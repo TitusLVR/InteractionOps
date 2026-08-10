@@ -78,6 +78,19 @@ register() at startup (restricted context). An emptied list stays empty
 - Migration of the old `mod_grid_show_*` toggle state.
 - Duplicates in the list.
 
+## Amendment (same day, user request)
+
+The UIList is replaced by a WYSIWYG grid preview: the prefs section
+draws the same icon grid as the panel (same columns), click = select
+(depressed button, `SELECT` action with index). Toolbar under the grid:
+Add / Remove / Move Earlier (TRIA_LEFT) / Move Later (TRIA_RIGHT) /
+Reset. Add is not a search popup but an Add-Modifier-style grouped menu
+(`IOPS_MT_ModGridAdd`, columns Edit/Generate/Deform/Normals/Physics +
+Other, `MENU_GROUPS` in iops_mod_list.py); already-present types are
+omitted. `iops.mod_grid_list_add` takes a plain string `mod_type` set
+by menu entries; duplicates are CANCELLED. `IOPS_UL_ModGridList` is
+gone.
+
 ## Testing (live Blender via MCP)
 
 - Reload addon → list seeded with 18 curated types.

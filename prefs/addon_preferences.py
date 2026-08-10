@@ -22,7 +22,10 @@ from ..operators.modifiers.iops_mod_list import (
     format_value,
     type_label,
 )
-from ..operators.modifiers.iops_mod_registry import REGISTRY as MOD_REGISTRY
+from ..operators.modifiers.iops_mod_registry import (
+    REGISTRY as MOD_REGISTRY,
+    type_icon as mod_type_icon,
+)
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -975,23 +978,30 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "modifiers_grid_columns")
                 row.prop(self, "modifiers_show_stack", toggle=True)
                 body.separator()
-                body.label(text="Grid buttons (list order = grid order):")
-                row = body.row()
-                row.template_list("IOPS_UL_ModGridList", "",
-                                  self, "modifiers_grid_items",
-                                  self, "modifiers_grid_index", rows=8)
-                side = row.column(align=True)
-                side.operator("iops.mod_grid_list_add", text="", icon="ADD")
-                side.operator("iops.mod_grid_list_action", text="",
-                              icon="REMOVE").action = "REMOVE"
-                side.separator()
-                side.operator("iops.mod_grid_list_action", text="",
-                              icon="TRIA_UP").action = "UP"
-                side.operator("iops.mod_grid_list_action", text="",
-                              icon="TRIA_DOWN").action = "DOWN"
-                side.separator()
-                side.operator("iops.mod_grid_list_action", text="",
-                              icon="FILE_REFRESH").action = "RESET"
+                body.label(text="Grid preview (click a button to select):")
+                grid = body.grid_flow(row_major=True,
+                                      columns=self.modifiers_grid_columns,
+                                      even_columns=True, align=True)
+                for i, it in enumerate(self.modifiers_grid_items):
+                    op = grid.operator(
+                        "iops.mod_grid_list_action", text="",
+                        icon=mod_type_icon(it.mod_type),
+                        depress=(i == self.modifiers_grid_index))
+                    op.action = "SELECT"
+                    op.index = i
+
+                tools = body.row(align=True)
+                tools.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
+                tools.operator("iops.mod_grid_list_action", text="",
+                               icon="REMOVE").action = "REMOVE"
+                tools.separator()
+                tools.operator("iops.mod_grid_list_action", text="",
+                               icon="TRIA_LEFT").action = "UP"
+                tools.operator("iops.mod_grid_list_action", text="",
+                               icon="TRIA_RIGHT").action = "DOWN"
+                tools.separator()
+                tools.operator("iops.mod_grid_list_action", text="",
+                               icon="FILE_REFRESH").action = "RESET"
 
                 items = self.modifiers_grid_items
                 idx = self.modifiers_grid_index

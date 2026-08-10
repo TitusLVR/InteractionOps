@@ -161,7 +161,7 @@ from .operators.modifiers import (
 )
 
 _modifiers_classes = (
-    iops_mod_list.IOPS_UL_ModGridList,
+    iops_mod_list.IOPS_MT_ModGridAdd,
     iops_mod_list.IOPS_OT_ModGridListAdd,
     iops_mod_list.IOPS_OT_ModGridListAction,
     iops_mod_registry.IOPS_OT_ModGridClick,

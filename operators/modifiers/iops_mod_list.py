@@ -2,9 +2,10 @@
 
 The grid in the iOps Modifiers panel is exactly the user's list stored
 in addon preferences (IOPS_ModGridItem collection): item count = button
-count, list order = button order. The prefs UI draws it as a UIList
-with add (search popup) / remove / move / reset, plus a read-only view
-of the active type's saved default preset.
+count, list order = button order. The prefs UI draws it as the same
+icon grid (WYSIWYG preview, click = select) with an add (search popup) /
+remove / move / reset toolbar, plus a read-only view of the active
+type's saved default preset.
 """
 
 import bpy
@@ -34,13 +35,6 @@ class IOPS_ModGridItem(bpy.types.PropertyGroup):
     mod_type: bpy.props.StringProperty()
 
 
-class IOPS_UL_ModGridList(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data,
-                  active_propname):
-        layout.label(text=type_label(item.mod_type),
-                     icon=type_icon(item.mod_type))
-
-
 def seed_grid_list_if_empty():
     """One-shot timer callback: fill an empty grid list with the curated
     set. Runs via bpy.app.timers because prefs can't be written from
@@ -56,44 +50,88 @@ def seed_grid_list_if_empty():
     return None
 
 
-# Enum-items callback results must stay referenced on the Python side
-# or Blender reads freed strings — module-level cache.
-_enum_cache = []
+# Grouping mirroring Blender's Add Modifier menu (OBJECT_MT_modifier_add
+# submenus). Types this Blender build doesn't have are skipped; enum
+# types not listed here land in "Other".
+MENU_GROUPS = (
+    ("Edit", ("DATA_TRANSFER", "MESH_CACHE", "MESH_SEQUENCE_CACHE",
+              "UV_PROJECT", "UV_WARP", "VERTEX_WEIGHT_EDIT",
+              "VERTEX_WEIGHT_MIX", "VERTEX_WEIGHT_PROXIMITY")),
+    ("Generate", ("ARRAY", "BEVEL", "BOOLEAN", "BUILD", "DECIMATE",
+                  "EDGE_SPLIT", "MASK", "MIRROR", "MESH_TO_VOLUME",
+                  "MULTIRES", "REMESH", "SCREW", "SKIN", "SOLIDIFY",
+                  "SUBSURF", "TRIANGULATE", "VOLUME_TO_MESH", "WELD",
+                  "WIREFRAME")),
+    ("Deform", ("ARMATURE", "CAST", "CURVE", "DISPLACE", "HOOK",
+                "LAPLACIANDEFORM", "LATTICE", "MESH_DEFORM",
+                "SHRINKWRAP", "SIMPLE_DEFORM", "SMOOTH",
+                "CORRECTIVE_SMOOTH", "LAPLACIANSMOOTH", "SURFACE_DEFORM",
+                "WARP", "WAVE", "VOLUME_DISPLACE")),
+    ("Normals", ("NORMAL_EDIT", "WEIGHTED_NORMAL")),
+    ("Physics", ("CLOTH", "COLLISION", "DYNAMIC_PAINT", "EXPLODE",
+                 "FLUID", "OCEAN", "PARTICLE_INSTANCE", "PARTICLE_SYSTEM",
+                 "SOFT_BODY", "SURFACE")),
+)
 
 
-def _available_types(self, context):
-    global _enum_cache
-    existing = {it.mod_type for it in _prefs(context).modifiers_grid_items}
-    _enum_cache = [
-        (ident, name, "", icon if icon != "NONE" else "MODIFIER", i)
-        for i, (ident, name, icon) in enumerate(all_mod_type_items())
-        if ident not in existing
-    ]
-    if not _enum_cache:
-        _enum_cache = [("NONE", "All types are already in the grid", "",
-                        "INFO", 0)]
-    return _enum_cache
+class IOPS_MT_ModGridAdd(bpy.types.Menu):
+    """Add-modifier-style menu: grouped columns of types to add"""
+
+    bl_idname = "IOPS_MT_ModGridAdd"
+    bl_label = "Add Modifier Type"
+
+    def draw(self, context):
+        existing = {it.mod_type
+                    for it in _prefs(context).modifiers_grid_items}
+        available = [(ident, name, icon)
+                     for ident, name, icon in all_mod_type_items()
+                     if ident not in existing]
+        by_ident = {ident: (name, icon) for ident, name, icon in available}
+
+        row = self.layout.row()
+        shown = set()
+        for group, group_types in MENU_GROUPS:
+            present = [t for t in group_types if t in by_ident]
+            shown.update(present)
+            if not present:
+                continue
+            col = row.column()
+            col.label(text=group)
+            col.separator()
+            for mod_type in present:
+                name, icon = by_ident[mod_type]
+                op = col.operator("iops.mod_grid_list_add", text=name,
+                                  icon=icon if icon != "NONE"
+                                  else "MODIFIER")
+                op.mod_type = mod_type
+        other = [t for t, _n, _i in available if t not in shown]
+        if other:
+            col = row.column()
+            col.label(text="Other")
+            col.separator()
+            for mod_type in other:
+                name, icon = by_ident[mod_type]
+                op = col.operator("iops.mod_grid_list_add", text=name,
+                                  icon=icon if icon != "NONE"
+                                  else "MODIFIER")
+                op.mod_type = mod_type
 
 
 class IOPS_OT_ModGridListAdd(bpy.types.Operator):
-    """Add a modifier type to the grid (search by name)"""
+    """Add this modifier type to the grid"""
 
     bl_idname = "iops.mod_grid_list_add"
     bl_label = "Add Modifier Type"
     bl_options = {"REGISTER"}
-    bl_property = "mod_type"
 
-    mod_type: bpy.props.EnumProperty(items=_available_types,
-                                     options={"SKIP_SAVE"})
-
-    def invoke(self, context, event):
-        context.window_manager.invoke_search_popup(self)
-        return {"FINISHED"}
+    mod_type: bpy.props.StringProperty(options={"SKIP_SAVE"})
 
     def execute(self, context):
-        if self.mod_type == "NONE":
-            return {"CANCELLED"}
         prefs = _prefs(context)
+        if not self.mod_type or any(
+                it.mod_type == self.mod_type
+                for it in prefs.modifiers_grid_items):
+            return {"CANCELLED"}
         prefs.modifiers_grid_items.add().mod_type = self.mod_type
         prefs.modifiers_grid_index = len(prefs.modifiers_grid_items) - 1
         return {"FINISHED"}
@@ -108,20 +146,40 @@ class IOPS_OT_ModGridListAction(bpy.types.Operator):
 
     action: bpy.props.EnumProperty(
         items=[
+            ("SELECT", "Select", "Make this grid button the active one"),
             ("REMOVE", "Remove", "Remove the active type from the grid"),
-            ("UP", "Move Up", "Move the active type up"),
-            ("DOWN", "Move Down", "Move the active type down"),
+            ("UP", "Move Earlier", "Move the active type earlier in the "
+             "grid order"),
+            ("DOWN", "Move Later", "Move the active type later in the "
+             "grid order"),
             ("RESET", "Reset", "Restore the default curated set"),
             ("CLEAR_PRESET", "Clear Preset",
              "Delete the saved default preset of the active type"),
         ],
         options={"SKIP_SAVE"},
     )
+    index: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.action == "SELECT":
+            prefs = _prefs(context)
+            idx = properties.index
+            if 0 <= idx < len(prefs.modifiers_grid_items):
+                return (f"{type_label(prefs.modifiers_grid_items[idx].mod_type)}\n"
+                        "Click: select to move / remove / inspect defaults")
+        return None
 
     def execute(self, context):
         prefs = _prefs(context)
         items = prefs.modifiers_grid_items
         idx = prefs.modifiers_grid_index
+
+        if self.action == "SELECT":
+            if 0 <= self.index < len(items):
+                prefs.modifiers_grid_index = self.index
+                return {"FINISHED"}
+            return {"CANCELLED"}
 
         if self.action == "RESET":
             items.clear()
