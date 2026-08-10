@@ -153,7 +153,8 @@ from .operators.modifiers import (
     iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,
     iops_mod_weighted_normal,
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
-    iops_mod_cursor_target, iops_mod_select_users, iops_mod_safe_apply,
+    iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
+    iops_mod_safe_apply,
 )
 
 _modifiers_classes = (
@@ -164,6 +165,7 @@ _modifiers_classes = (
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
     iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
     iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
+    iops_mod_active_target.IOPS_OT_ModActiveTarget,
     iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
 )
 

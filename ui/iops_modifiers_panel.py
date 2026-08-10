@@ -80,6 +80,9 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         row = tools.row(align=True)
         row.operator("iops.mod_cursor_target", text="Cursor Target",
                      icon="PIVOT_CURSOR")
+        row.operator("iops.mod_active_target", text="Active Target",
+                     icon="PIVOT_ACTIVE")
+        row = tools.row(align=True)
         row.operator("iops.mod_select_target_users", text="Users",
                      icon="RESTRICT_SELECT_OFF")
         row.operator("iops.mod_safe_apply_transform", text="Safe Apply",
