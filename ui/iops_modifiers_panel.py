@@ -1,9 +1,9 @@
 """iOps Modifiers micro-panel.
 
-Grid of modifier-type icons (grouped Generate/Deform/Utility) that add /
-apply / remove / toggle modifiers across the selection, a tools row, and
-a compact stack list for the active object. Draw-only: all logic lives in
-operators/modifiers/. Per the perf rules, draw() only ever inspects the
+Single grid of modifier-type icons (ordered Generate/Deform/Utility) that
+add / apply / remove / toggle modifiers across the selection, a tools row,
+and a compact stack list for the active object. Draw-only: all logic lives
+in operators/modifiers/. Per the perf rules, draw() only ever inspects the
 active object's modifiers — never the selection or the scene.
 """
 
@@ -15,12 +15,6 @@ from ..operators.modifiers.iops_mod_registry import (
     enabled_grid_types,
     type_icon,
 )
-
-_GROUP_LABELS = {
-    "GENERATE": "Generate",
-    "DEFORM": "Deform",
-    "UTILITY": "Utility",
-}
 
 
 class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
@@ -40,34 +34,22 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         active_types = {md.type for md in active.modifiers} if active else set()
 
         enabled = enabled_grid_types(prefs)
-        columns = prefs.modifiers_grid_columns
+        rows = prefs.modifiers_grid_rows
 
-        # --- icon grid, grouped ---
-        col = layout.column(align=True)
-        extras = [t for t in enabled if t not in REGISTRY]
-        for group in GROUP_ORDER:
-            group_types = [t for t in enabled
-                           if t in REGISTRY and REGISTRY[t].group == group]
-            if not group_types:
-                continue
-            col.label(text=_GROUP_LABELS[group])
-            grid = col.grid_flow(columns=columns, even_columns=True,
-                                 align=True)
-            for mod_type in group_types:
-                op = grid.operator("iops.mod_grid_click", text="",
-                                   icon=type_icon(mod_type),
-                                   depress=mod_type in active_types)
-                op.mod_type = mod_type
-            col.separator(factor=0.5)
-        if extras:
-            col.label(text="Other")
-            grid = col.grid_flow(columns=columns, even_columns=True,
-                                 align=True)
-            for mod_type in extras:
-                op = grid.operator("iops.mod_grid_click", text="",
-                                   icon=type_icon(mod_type),
-                                   depress=mod_type in active_types)
-                op.mod_type = mod_type
+        # --- icon grid: one flow, group order kept, no headers ---
+        ordered = [t for group in GROUP_ORDER
+                   for t in enabled
+                   if t in REGISTRY and REGISTRY[t].group == group]
+        ordered += [t for t in enabled if t not in REGISTRY]
+        # row_major=False makes `columns` mean a fixed number of rows,
+        # filling top-to-bottom then left-to-right.
+        grid = layout.grid_flow(row_major=False, columns=rows,
+                                even_columns=True, align=True)
+        for mod_type in ordered:
+            op = grid.operator("iops.mod_grid_click", text="",
+                               icon=type_icon(mod_type),
+                               depress=mod_type in active_types)
+            op.mod_type = mod_type
 
         # --- tools ---
         layout.separator(factor=0.5)

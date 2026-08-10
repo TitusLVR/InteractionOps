@@ -26,6 +26,30 @@ from ..utils.split_areas_dict import (
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
 
+# Modifier-type grouping mirroring Blender's Add Modifier menu
+# (OBJECT_MT_modifier_add submenus). Types missing from the running
+# Blender's RNA enum are skipped; enum types not listed here land in
+# an "Other" group.
+MOD_MENU_GROUPS = (
+    ("Edit", ("DATA_TRANSFER", "MESH_CACHE", "MESH_SEQUENCE_CACHE",
+              "UV_PROJECT", "UV_WARP", "VERTEX_WEIGHT_EDIT",
+              "VERTEX_WEIGHT_MIX", "VERTEX_WEIGHT_PROXIMITY")),
+    ("Generate", ("ARRAY", "BEVEL", "BOOLEAN", "BUILD", "DECIMATE",
+                  "EDGE_SPLIT", "MASK", "MIRROR", "MESH_TO_VOLUME",
+                  "MULTIRES", "REMESH", "SCREW", "SKIN", "SOLIDIFY",
+                  "SUBSURF", "TRIANGULATE", "VOLUME_TO_MESH", "WELD",
+                  "WIREFRAME")),
+    ("Deform", ("ARMATURE", "CAST", "CURVE", "DISPLACE", "HOOK",
+                "LAPLACIANDEFORM", "LATTICE", "MESH_DEFORM",
+                "SHRINKWRAP", "SIMPLE_DEFORM", "SMOOTH",
+                "CORRECTIVE_SMOOTH", "LAPLACIANSMOOTH", "SURFACE_DEFORM",
+                "WARP", "WAVE", "VOLUME_DISPLACE")),
+    ("Normals", ("NORMAL_EDIT", "WEIGHTED_NORMAL")),
+    ("Physics", ("CLOTH", "COLLISION", "DYNAMIC_PAINT", "EXPLODE",
+                 "FLUID", "OCEAN", "PARTICLE_INSTANCE", "PARTICLE_SYSTEM",
+                 "SOFT_BODY", "SURFACE")),
+)
+
 
 def _section(parent, prefs, prop_name, title, *, icon="NONE"):
     """Draw a collapsible section header. Returns the body column to draw
@@ -622,10 +646,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
 
     # iOps Modifiers panel (grid)
-    modifiers_grid_columns: IntProperty(
-        name="Grid Columns",
-        description="Number of icon columns in the iOps Modifiers panel",
-        default=6, min=2, max=12,
+    modifiers_grid_rows: IntProperty(
+        name="Grid Rows",
+        description="Number of icon rows (buttons stacked vertically) "
+                    "in the iOps Modifiers panel grid",
+        default=3, min=1, max=12,
     )
     modifiers_show_stack: BoolProperty(
         name="Show Stack List",
@@ -962,16 +987,30 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             "Modifiers Panel", icon="MODIFIER")
             if body is not None:
                 row = body.row(align=True)
-                row.prop(self, "modifiers_grid_columns")
+                row.prop(self, "modifiers_grid_rows")
                 row.prop(self, "modifiers_show_stack", toggle=True)
                 body.separator()
                 body.label(text="Modifier types shown in the grid:")
-                import bpy as _bpy
-                enum = _bpy.types.Modifier.bl_rna.properties["type"].enum_items
-                grid = body.grid_flow(columns=4, align=True)
-                for it in enum:
-                    grid.prop(self, f"mod_grid_show_{it.identifier.lower()}",
-                              toggle=True)
+                enum = bpy.types.Modifier.bl_rna.properties["type"].enum_items
+                idents = [it.identifier for it in enum]
+                grouped = set()
+                for label, group_types in MOD_MENU_GROUPS:
+                    present = [t for t in group_types if t in idents]
+                    if not present:
+                        continue
+                    grouped.update(present)
+                    body.label(text=label)
+                    grid = body.grid_flow(columns=4, align=True)
+                    for t in present:
+                        grid.prop(self, f"mod_grid_show_{t.lower()}",
+                                  toggle=True)
+                other = [t for t in idents if t not in grouped]
+                if other:
+                    body.label(text="Other")
+                    grid = body.grid_flow(columns=4, align=True)
+                    for t in other:
+                        grid.prop(self, f"mod_grid_show_{t.lower()}",
+                                  toggle=True)
 
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
