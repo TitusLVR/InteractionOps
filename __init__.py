@@ -137,7 +137,10 @@ from .ui.iops_tm_panel import (
 
 from .ui.iops_data_panel import IOPS_PT_DATA_Panel, IOPS_OT_Call_Data_Panel
 from .ui.iops_mod_window import IOPS_OT_Modifier_Window
-from .ui.iops_modifiers_panel import IOPS_PT_Modifiers_Panel
+from .ui.iops_modifiers_panel import (
+    IOPS_PT_Modifiers_Panel,
+    IOPS_OT_Call_Modifiers_Panel,
+)
 
 # iOps Modifiers module: descriptor files register themselves into
 # iops_mod_registry.REGISTRY on import; tool modules carry the operators.
@@ -574,6 +577,7 @@ classes = (
     IOPS_OT_Modifier_Window,
     *_modifiers_classes,
     IOPS_PT_Modifiers_Panel,
+    IOPS_OT_Call_Modifiers_Panel,
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
     IOPS_OT_smart_inset,

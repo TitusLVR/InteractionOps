@@ -112,3 +112,19 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                                   icon=icon, emboss=False)
                 op.index = i
                 op.action = action
+
+
+class IOPS_OT_Call_Modifiers_Panel(bpy.types.Operator):
+    """Call IOPS Modifiers panel"""
+
+    bl_idname = "iops.call_panel_modifiers"
+    is_bindable = True
+    bl_label = "IOPS Modifiers panel"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == "VIEW_3D"
+
+    def execute(self, context):
+        bpy.ops.wm.call_panel(name="IOPS_PT_Modifiers_Panel", keep_open=True)
+        return {"FINISHED"}
