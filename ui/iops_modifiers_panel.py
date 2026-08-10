@@ -16,6 +16,54 @@ from ..operators.modifiers.iops_mod_registry import (
     type_icon,
 )
 
+# --- universal modifier parameter reader ------------------------------
+# RNA introspection: every editable prop the modifier subclass adds on
+# top of the base Modifier type (name/type/show_* etc. excluded).
+# Cached per modifier type; draw() only reads the cache.
+
+_BASE_MOD_PROPS = None   # props of bpy.types.Modifier itself
+_PARAMS_CACHE = {}       # md.type -> tuple of prop identifiers
+
+
+def modifier_param_ids(md):
+    """Identifiers of md's own editable params, in RNA order."""
+    global _BASE_MOD_PROPS
+    ids = _PARAMS_CACHE.get(md.type)
+    if ids is not None:
+        return ids
+    if _BASE_MOD_PROPS is None:
+        _BASE_MOD_PROPS = {
+            p.identifier for p in bpy.types.Modifier.bl_rna.properties}
+    ids = []
+    for p in md.bl_rna.properties:
+        if p.identifier in _BASE_MOD_PROPS or p.is_hidden or p.is_readonly:
+            continue
+        if p.type == "COLLECTION":
+            continue  # no generic widget for collections
+        if p.type == "POINTER":
+            # only ID datablock pointers get a usable search field
+            target = getattr(bpy.types, p.fixed_type.identifier, None)
+            if target is None or not issubclass(target, bpy.types.ID):
+                continue
+        ids.append(p.identifier)
+    ids = tuple(ids)
+    _PARAMS_CACHE[md.type] = ids
+    return ids
+
+
+def draw_modifier_params(layout, md):
+    """Draw every own param of md as a property-split column."""
+    ids = modifier_param_ids(md)
+    box = layout.box()
+    if not ids:
+        box.label(text="No editable parameters", icon="INFO")
+        return
+    col = box.column()
+    col.use_property_split = True
+    col.use_property_decorate = False
+    for ident in ids:
+        col.prop(md, ident)
+
 
 class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
     """Modifier grid + tools + active stack"""
@@ -34,15 +82,18 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         active_types = {md.type for md in active.modifiers} if active else set()
 
         enabled = enabled_grid_types(prefs)
-        rows = prefs.modifiers_grid_rows
 
         # --- icon grid: one flow, group order kept, no headers ---
         ordered = [t for group in GROUP_ORDER
                    for t in enabled
                    if t in REGISTRY and REGISTRY[t].group == group]
         ordered += [t for t in enabled if t not in REGISTRY]
+        # Rows pref is the minimum height, columns pref the maximum
+        # width: overflow grows extra rows instead of hiding buttons.
         # row_major=False makes `columns` mean a fixed number of rows,
         # filling top-to-bottom then left-to-right.
+        rows = max(prefs.modifiers_grid_rows,
+                   -(-len(ordered) // prefs.modifiers_grid_columns))
         grid = layout.grid_flow(row_major=False, columns=rows,
                                 even_columns=True, align=True)
         for mod_type in ordered:
@@ -79,6 +130,7 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         box = layout.column(align=True)
         for i, md in enumerate(active.modifiers):
             row = box.row(align=True)
+            row.prop(md, "show_expanded", text="", emboss=False)
             row.label(text="", icon=type_icon(md.type))
             row.prop(md, "name", text="")
             row.prop(md, "show_viewport", text="", emboss=False)
@@ -97,6 +149,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                                   icon=icon, emboss=False)
                 op.index = i
                 op.action = action
+            if md.show_expanded:
+                draw_modifier_params(box, md)
 
 
 class IOPS_OT_Call_Modifiers_Panel(bpy.types.Operator):
