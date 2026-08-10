@@ -2,6 +2,15 @@ import bpy
 
 from . import iops_mod_registry, iops_mod_presets as presets
 
+# Params-expansion state for the panel's stack list. Modifiers don't
+# support IDProperties, so it lives here — session-only, everything
+# collapsed by default (and again after a restart).
+expanded_params = set()  # {(object session_uid, modifier name)}
+
+
+def params_key(obj, md):
+    return (obj.session_uid, md.name)
+
 
 class IOPS_OT_ModStackAction(bpy.types.Operator):
     """Row action in the active object's modifier stack list"""
@@ -23,6 +32,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             ("SAVE_PRESET", "Save As Default Preset",
              "Use this modifier's settings when adding this type "
              "from the grid"),
+            ("TOGGLE_PARAMS", "Show Parameters",
+             "Show/hide this modifier's parameters in the list"),
         ],
         options={"SKIP_SAVE"},
     )
@@ -74,6 +85,12 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             self.report({"INFO"}, msg)
         elif self.action == "REMOVE":
             obj.modifiers.remove(md)
+        elif self.action == "TOGGLE_PARAMS":
+            key = params_key(obj, md)
+            if key in expanded_params:
+                expanded_params.discard(key)
+            else:
+                expanded_params.add(key)
         elif self.action == "SAVE_PRESET":
             if presets.save_default(md):
                 self.report({"INFO"},

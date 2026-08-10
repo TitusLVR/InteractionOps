@@ -15,6 +15,10 @@ from ..operators.modifiers.iops_mod_registry import (
     enabled_grid_types,
     type_icon,
 )
+from ..operators.modifiers.iops_mod_stack import (
+    expanded_params,
+    params_key,
+)
 
 # --- universal modifier parameter reader ------------------------------
 # RNA introspection: every editable prop the modifier subclass adds on
@@ -130,10 +134,13 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         box = layout.column(align=True)
         for i, md in enumerate(active.modifiers):
             row = box.row(align=True)
-            row.prop(md, "show_expanded", text="",
-                     icon="DOWNARROW_HLT" if md.show_expanded
-                     else "RIGHTARROW",
-                     emboss=False)
+            expanded = params_key(active, md) in expanded_params
+            op = row.operator("iops.mod_stack_action", text="",
+                              icon="DOWNARROW_HLT" if expanded
+                              else "RIGHTARROW",
+                              emboss=False)
+            op.index = i
+            op.action = "TOGGLE_PARAMS"
             row.label(text="", icon=type_icon(md.type))
             row.prop(md, "name", text="")
             row.prop(md, "show_viewport", text="", emboss=False)
@@ -152,7 +159,7 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                                   icon=icon, emboss=False)
                 op.index = i
                 op.action = action
-            if md.show_expanded:
+            if expanded:
                 draw_modifier_params(box, md)
 
 
