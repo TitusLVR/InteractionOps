@@ -17,9 +17,11 @@ from . import (
 
 from . import iops_mod_stack
 from . import iops_mod_sort
+from . import iops_mod_cleanup
 
 classes = (
     iops_mod_registry.IOPS_OT_ModGridClick,
     iops_mod_stack.IOPS_OT_ModStackAction,
     iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_cleanup.IOPS_OT_ModCleanup,
 )
