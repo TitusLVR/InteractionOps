@@ -55,18 +55,11 @@ def all_mod_type_items():
 
 
 def enabled_grid_types(prefs):
-    """Modifier types enabled in the grid: registry order first, then any
-    extra types the user switched on, in RNA order."""
-    enabled = []
-    for mod_type in REGISTRY:
-        if getattr(prefs, f"mod_grid_show_{mod_type.lower()}", False):
-            enabled.append(mod_type)
-    for ident, _name, _icon in all_mod_type_items():
-        if ident in REGISTRY:
-            continue
-        if getattr(prefs, f"mod_grid_show_{ident.lower()}", False):
-            enabled.append(ident)
-    return enabled
+    """Grid content = the user's list in prefs, in list order, filtered
+    to types this Blender build actually has."""
+    valid = {ident for ident, _name, _icon in all_mod_type_items()}
+    return [it.mod_type for it in prefs.modifiers_grid_items
+            if it.mod_type in valid]
 
 
 def type_icon(mod_type):

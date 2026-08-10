@@ -157,10 +157,13 @@ from .operators.modifiers import (
     iops_mod_weighted_normal,
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
     iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
-    iops_mod_safe_apply,
+    iops_mod_safe_apply, iops_mod_list,
 )
 
 _modifiers_classes = (
+    iops_mod_list.IOPS_UL_ModGridList,
+    iops_mod_list.IOPS_OT_ModGridListAdd,
+    iops_mod_list.IOPS_OT_ModGridListAction,
     iops_mod_registry.IOPS_OT_ModGridClick,
     iops_mod_stack.IOPS_OT_ModStackAction,
     iops_mod_sort.IOPS_OT_ModSortStack,
@@ -389,6 +392,7 @@ bl_info = {
 classes = (
     *_theme_classes,
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
+    iops_mod_list.IOPS_ModGridItem,  # same rule — grid list item
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
@@ -738,6 +742,12 @@ def register():
 
     load_iops_preferences()
     keymap_registration()
+
+    # Seed the modifiers grid list with the curated set on first run.
+    # Deferred to a timer: prefs can't be written from register() while
+    # Blender is still starting up (restricted context).
+    bpy.app.timers.register(iops_mod_list.seed_grid_list_if_empty,
+                            first_interval=0.1)
 
     # GPU widget framework: app handlers + persisted widget state + the
     # LEFTMOUSE interact keymap entry. Must run after the operator classes

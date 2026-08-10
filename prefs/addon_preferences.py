@@ -16,6 +16,13 @@ from bpy.props import (
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
+from ..operators.modifiers import iops_mod_presets
+from ..operators.modifiers.iops_mod_list import (
+    IOPS_ModGridItem,
+    format_value,
+    type_label,
+)
+from ..operators.modifiers.iops_mod_registry import REGISTRY as MOD_REGISTRY
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -25,30 +32,6 @@ from ..utils.split_areas_dict import (
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
-
-# Modifier-type grouping mirroring Blender's Add Modifier menu
-# (OBJECT_MT_modifier_add submenus). Types missing from the running
-# Blender's RNA enum are skipped; enum types not listed here land in
-# an "Other" group.
-MOD_MENU_GROUPS = (
-    ("Edit", ("DATA_TRANSFER", "MESH_CACHE", "MESH_SEQUENCE_CACHE",
-              "UV_PROJECT", "UV_WARP", "VERTEX_WEIGHT_EDIT",
-              "VERTEX_WEIGHT_MIX", "VERTEX_WEIGHT_PROXIMITY")),
-    ("Generate", ("ARRAY", "BEVEL", "BOOLEAN", "BUILD", "DECIMATE",
-                  "EDGE_SPLIT", "MASK", "MIRROR", "MESH_TO_VOLUME",
-                  "MULTIRES", "REMESH", "SCREW", "SKIN", "SOLIDIFY",
-                  "SUBSURF", "TRIANGULATE", "VOLUME_TO_MESH", "WELD",
-                  "WIREFRAME")),
-    ("Deform", ("ARMATURE", "CAST", "CURVE", "DISPLACE", "HOOK",
-                "LAPLACIANDEFORM", "LATTICE", "MESH_DEFORM",
-                "SHRINKWRAP", "SIMPLE_DEFORM", "SMOOTH",
-                "CORRECTIVE_SMOOTH", "LAPLACIANSMOOTH", "SURFACE_DEFORM",
-                "WARP", "WAVE", "VOLUME_DISPLACE")),
-    ("Normals", ("NORMAL_EDIT", "WEIGHTED_NORMAL")),
-    ("Physics", ("CLOTH", "COLLISION", "DYNAMIC_PAINT", "EXPLODE",
-                 "FLUID", "OCEAN", "PARTICLE_INSTANCE", "PARTICLE_SYSTEM",
-                 "SOFT_BODY", "SURFACE")),
-)
 
 
 def _section(parent, prefs, prop_name, title, *, icon="NONE"):
@@ -652,6 +635,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "panel grid",
         default=6, min=1, max=12,
     )
+    modifiers_grid_items: bpy.props.CollectionProperty(type=IOPS_ModGridItem)
+    modifiers_grid_index: IntProperty(default=0)
     modifiers_show_stack: BoolProperty(
         name="Show Stack List",
         description="Show the active object's modifier stack under the grid",
@@ -990,27 +975,60 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "modifiers_grid_columns")
                 row.prop(self, "modifiers_show_stack", toggle=True)
                 body.separator()
-                body.label(text="Modifier types shown in the grid:")
-                enum = bpy.types.Modifier.bl_rna.properties["type"].enum_items
-                idents = [it.identifier for it in enum]
-                grouped = set()
-                for label, group_types in MOD_MENU_GROUPS:
-                    present = [t for t in group_types if t in idents]
-                    if not present:
-                        continue
-                    grouped.update(present)
-                    body.label(text=label)
-                    grid = body.grid_flow(columns=4, align=True)
-                    for t in present:
-                        grid.prop(self, f"mod_grid_show_{t.lower()}",
-                                  toggle=True)
-                other = [t for t in idents if t not in grouped]
-                if other:
-                    body.label(text="Other")
-                    grid = body.grid_flow(columns=4, align=True)
-                    for t in other:
-                        grid.prop(self, f"mod_grid_show_{t.lower()}",
-                                  toggle=True)
+                body.label(text="Grid buttons (list order = grid order):")
+                row = body.row()
+                row.template_list("IOPS_UL_ModGridList", "",
+                                  self, "modifiers_grid_items",
+                                  self, "modifiers_grid_index", rows=8)
+                side = row.column(align=True)
+                side.operator("iops.mod_grid_list_add", text="", icon="ADD")
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="REMOVE").action = "REMOVE"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_UP").action = "UP"
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_DOWN").action = "DOWN"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="FILE_REFRESH").action = "RESET"
+
+                items = self.modifiers_grid_items
+                idx = self.modifiers_grid_index
+                if 0 <= idx < len(items):
+                    mod_type = items[idx].mod_type
+                    box = body.box()
+                    preset = iops_mod_presets.load_default(mod_type)
+                    if preset:
+                        row = box.row()
+                        row.label(text=f"{type_label(mod_type)} — "
+                                       "saved default preset:",
+                                  icon="FILE_TICK")
+                        row.operator("iops.mod_grid_list_action",
+                                     text="Clear",
+                                     icon="X").action = "CLEAR_PRESET"
+                        col = box.column(align=True)
+                        for key in sorted(preset):
+                            col.label(text=f"{key}: "
+                                           f"{format_value(preset[key])}")
+                    else:
+                        desc = MOD_REGISTRY.get(mod_type)
+                        if desc is not None and desc.defaults:
+                            box.label(text=f"{type_label(mod_type)} — "
+                                           "smart defaults:",
+                                      icon="PRESET")
+                            col = box.column(align=True)
+                            for key in sorted(desc.defaults):
+                                col.label(
+                                    text=f"{key}: "
+                                         f"{format_value(desc.defaults[key])}")
+                        else:
+                            box.label(text=f"{type_label(mod_type)} — "
+                                           "Blender defaults",
+                                      icon="BLENDER")
+                    box.label(text="Save defaults from a live modifier "
+                                   "via the stack's save button",
+                              icon="INFO")
 
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
@@ -1077,20 +1095,3 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)
-
-
-# Per-modifier-type visibility toggles for the iOps Modifiers panel grid.
-# Generated for every modifier type Blender knows; curated set on by default.
-from ..operators.modifiers.iops_mod_registry import CURATED_TYPES as _MOD_CURATED
-
-
-def _register_mod_grid_toggles():
-    import bpy as _bpy
-    enum = _bpy.types.Modifier.bl_rna.properties["type"].enum_items
-    for it in enum:
-        IOPS_AddonPreferences.__annotations__[
-            f"mod_grid_show_{it.identifier.lower()}"
-        ] = BoolProperty(name=it.name, default=it.identifier in _MOD_CURATED)
-
-
-_register_mod_grid_toggles()

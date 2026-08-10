@@ -1,8 +1,8 @@
 """iOps Modifiers micro-panel.
 
-Single grid of modifier-type icons (ordered Generate/Deform/Utility) that
-add / apply / remove / toggle modifiers across the selection, a tools row,
-and a compact stack list for the active object. Draw-only: all logic lives
+Single grid of modifier-type icons — the user's list from addon prefs,
+order verbatim — that add / apply / remove / toggle modifiers across the
+selection, a tools row, and a compact stack list for the active object. Draw-only: all logic lives
 in operators/modifiers/. Per the perf rules, draw() only ever inspects the
 active object's modifiers — never the selection or the scene.
 """
@@ -10,8 +10,6 @@ active object's modifiers — never the selection or the scene.
 import bpy
 
 from ..operators.modifiers.iops_mod_registry import (
-    GROUP_ORDER,
-    REGISTRY,
     enabled_grid_types,
     type_icon,
 )
@@ -87,13 +85,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         active = context.active_object
         active_types = {md.type for md in active.modifiers} if active else set()
 
-        enabled = enabled_grid_types(prefs)
-
-        # --- icon grid: one flow, group order kept, no headers ---
-        ordered = [t for group in GROUP_ORDER
-                   for t in enabled
-                   if t in REGISTRY and REGISTRY[t].group == group]
-        ordered += [t for t in enabled if t not in REGISTRY]
+        # --- icon grid: the user's list from prefs, order verbatim ---
+        ordered = enabled_grid_types(prefs)
         grid = layout.grid_flow(row_major=True,
                                 columns=prefs.modifiers_grid_columns,
                                 even_columns=True, align=True)
