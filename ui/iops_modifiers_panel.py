@@ -130,7 +130,10 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         box = layout.column(align=True)
         for i, md in enumerate(active.modifiers):
             row = box.row(align=True)
-            row.prop(md, "show_expanded", text="", emboss=False)
+            row.prop(md, "show_expanded", text="",
+                     icon="DOWNARROW_HLT" if md.show_expanded
+                     else "RIGHTARROW",
+                     emboss=False)
             row.label(text="", icon=type_icon(md.type))
             row.prop(md, "name", text="")
             row.prop(md, "show_viewport", text="", emboss=False)
