@@ -1725,10 +1725,11 @@ git commit -m "feat(modifiers): grid prefs — columns, stack toggle, per-type v
 
 **Files:**
 - Create: `ui/iops_modifiers_panel.py`
+- Delete: `operators/modifiers/__init__.py` (repo convention: the ONLY `__init__.py` lives at the addon root; `operators/` subfolders are namespace packages — the root `__init__.py` imports their modules directly)
 - Modify: `__init__.py` (imports near line 116 where other ui panels import; `classes` tuple near line 480)
 
 **Interfaces:**
-- Consumes: `enabled_grid_types`, `REGISTRY`, `GROUP_ORDER`, `type_icon` from `operators.modifiers.iops_mod_registry`; `classes` from `operators.modifiers`.
+- Consumes: `enabled_grid_types`, `REGISTRY`, `GROUP_ORDER`, `type_icon` from `operators.modifiers.iops_mod_registry`; the operator classes from each `iops_mod_*` module.
 - Produces: `IOPS_PT_Modifiers_Panel` registered; all `iops.mod_*` operators registered.
 
 - [ ] **Step 1: Write `ui/iops_modifiers_panel.py`**
@@ -1850,13 +1851,42 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                 op.action = action
 ```
 
-- [ ] **Step 2: Wire into root `__init__.py`**
+- [ ] **Step 2: Delete `operators/modifiers/__init__.py`, wire into root `__init__.py`**
+
+First delete `operators/modifiers/__init__.py` (`git rm`): the repo keeps a
+single `__init__.py` at the addon root; `operators/` subfolders are
+namespace packages. Its imports and `classes` tuple merge into the root
+`__init__.py` as follows.
 
 Near the other ui imports (after `from .ui.iops_mod_window import IOPS_OT_Modifier_Window`):
 
 ```python
 from .ui.iops_modifiers_panel import IOPS_PT_Modifiers_Panel
-from .operators.modifiers import classes as _modifiers_classes
+
+# iOps Modifiers module: descriptor files register themselves into
+# iops_mod_registry.REGISTRY on import; tool modules carry the operators.
+from .operators.modifiers import (
+    iops_mod_registry,
+    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array,
+    iops_mod_solidify, iops_mod_subsurf, iops_mod_screw, iops_mod_weld,
+    iops_mod_triangulate, iops_mod_decimate, iops_mod_remesh,
+    iops_mod_wireframe, iops_mod_curve, iops_mod_lattice,
+    iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,
+    iops_mod_weighted_normal,
+    iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
+    iops_mod_cursor_target, iops_mod_select_users, iops_mod_safe_apply,
+)
+
+_modifiers_classes = (
+    iops_mod_registry.IOPS_OT_ModGridClick,
+    iops_mod_stack.IOPS_OT_ModStackAction,
+    iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_cleanup.IOPS_OT_ModCleanup,
+    iops_mod_sync_vis.IOPS_OT_ModSyncVis,
+    iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
+    iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
+    iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
+)
 ```
 
 In the `classes` tuple, right after `IOPS_OT_Modifier_Window,`:

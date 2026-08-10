@@ -130,8 +130,10 @@ finalized during implementation, listed here for intent):
 
 ```
 ui/iops_modifiers_panel.py      # the panel (draw only, no logic)
-operators/modifiers/
-    __init__.py                  # collects classes + descriptors for registration
+operators/modifiers/             # namespace package — NO __init__.py here;
+                                 # the addon-root __init__.py imports these
+                                 # modules directly (repo convention: a single
+                                 # __init__.py at the addon root)
     iops_mod_registry.py                      # type registry, batch helpers, generic
                                  # grid-click operator, Smart Apply core
     iops_mod_presets.py                   # default-preset JSON storage
