@@ -4,7 +4,7 @@
 
 **Goal:** Compact N-panel (iOps tab) with a grid of modifier-type icons for batch add/apply/remove/toggle across the selection, plus stack tools (sort, cleanup, vis-sync, cursor-target, select-users, safe apply transform) and an active-object stack list.
 
-**Architecture:** A descriptor registry (`operators/modifiers/base.py`) maps each modifier type to its icon, group, smart defaults, object-reference fields, sort weight and cleanup check. One file per modifier type registers a descriptor; one file per tool operator consumes the registry. The panel (`ui/iops_modifiers_panel.py`) is draw-only. Spec: `docs/superpowers/specs/2026-08-10-iops-modifiers-panel-design.md`.
+**Architecture:** A descriptor registry (`operators/modifiers/iops_mod_registry.py`) maps each modifier type to its icon, group, smart defaults, object-reference fields, sort weight and cleanup check. One file per modifier type registers a descriptor; one file per tool operator consumes the registry. The panel (`ui/iops_modifiers_panel.py`) is draw-only. Spec: `docs/superpowers/specs/2026-08-10-iops-modifiers-panel-design.md`.
 
 **Tech Stack:** Blender 4.x/5.x Python API (`bpy`), no external deps. Live testing via blender-mcp (`mcp__blender__execute_blender_python`).
 
@@ -26,16 +26,16 @@ print("reloaded OK")
 
 ---
 
-### Task 1: Registry + base helpers (`operators/modifiers/base.py`)
+### Task 1: Modifier registry + shared core (`operators/modifiers/iops_mod_registry.py`)
 
 **Files:**
-- Create: `operators/modifiers/base.py`
+- Create: `operators/modifiers/iops_mod_registry.py`
 - Create: `operators/modifiers/__init__.py` (stub, grows in later tasks)
 
 **Interfaces:**
 - Produces: `ModDescriptor` dataclass, `register_descriptor(desc)`, `REGISTRY` (dict `mod_type -> ModDescriptor`), `GROUP_ORDER`, `CURATED_TYPES`, `object_fields(md)`, `type_icon(mod_type)`, `all_mod_type_items()`, `add_with_defaults(obj, mod_type)`, `smart_apply_object(context, obj, mod_type=None, up_to=None) -> (applied:int, skip_reason:str|None)`.
 
-- [ ] **Step 1: Write `operators/modifiers/base.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_registry.py`**
 
 ```python
 """Modifier panel core: type registry and batch helpers.
@@ -126,7 +126,7 @@ def object_fields(md):
 def add_with_defaults(obj, mod_type):
     """Add a modifier with the saved default preset or the descriptor's
     smart defaults. Returns the modifier or None (incompatible object)."""
-    from . import presets
+    from . import iops_mod_presets as presets
     try:
         md = obj.modifiers.new(name=mod_type.title().replace("_", " "),
                                type=mod_type)
@@ -306,13 +306,13 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
 
 ```python
 """iOps Modifiers panel operators. Descriptor files register themselves
-into base.REGISTRY on import; tool operator files are added by later
+into iops_mod_registry.REGISTRY on import; tool operator files are added by later
 tasks. `classes` is consumed by the addon root __init__."""
 
-from . import base
+from . import iops_mod_registry
 
 classes = (
-    base.IOPS_OT_ModGridClick,
+    iops_mod_registry.IOPS_OT_ModGridClick,
 )
 ```
 
@@ -323,21 +323,21 @@ Run through `mcp__blender__execute_blender_python` (no addon reload needed yet �
 ```python
 import importlib, sys
 sys.modules.pop("InteractionOps.operators.modifiers", None)
-sys.modules.pop("InteractionOps.operators.modifiers.base", None)
-from InteractionOps.operators.modifiers import base
-assert base.CURATED_TYPES[0] == "BEVEL"
-assert base.type_icon("BEVEL") == "MOD_BEVEL" or base.type_icon("BEVEL") == "MODIFIER"
-items = base.all_mod_type_items()
+sys.modules.pop("InteractionOps.operators.modifiers.iops_mod_registry", None)
+from InteractionOps.operators.modifiers import iops_mod_registry
+assert iops_mod_registry.CURATED_TYPES[0] == "BEVEL"
+assert iops_mod_registry.type_icon("BEVEL") == "MOD_BEVEL" or iops_mod_registry.type_icon("BEVEL") == "MODIFIER"
+items = iops_mod_registry.all_mod_type_items()
 assert any(i[0] == "MIRROR" for i in items)
-print("base OK")
+print("registry OK")
 ```
 
-Expected: `base OK`. (Note: `presets` import inside `add_with_defaults` is deferred, so the missing presets module is fine until Task 3.)
+Expected: `registry OK`. (Note: `presets` import inside `add_with_defaults` is deferred, so the missing presets module is fine until Task 3.)
 
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/base.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_registry.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): descriptor registry, batch core and grid-click operator"
 ```
 
@@ -346,18 +346,18 @@ git commit -m "feat(modifiers): descriptor registry, batch core and grid-click o
 ### Task 2: 18 descriptor files
 
 **Files:**
-- Create: `operators/modifiers/iops_bevel.py`, `iops_boolean.py`, `iops_mirror.py`, `iops_array.py`, `iops_solidify.py`, `iops_subsurf.py`, `iops_screw.py`, `iops_weld.py`, `iops_triangulate.py`, `iops_decimate.py`, `iops_remesh.py`, `iops_wireframe.py`, `iops_curve.py`, `iops_lattice.py`, `iops_simple_deform.py`, `iops_displace.py`, `iops_shrinkwrap.py`, `iops_weighted_normal.py`
+- Create: `operators/modifiers/iops_mod_bevel.py`, `iops_mod_boolean.py`, `iops_mod_mirror.py`, `iops_mod_array.py`, `iops_mod_solidify.py`, `iops_mod_subsurf.py`, `iops_mod_screw.py`, `iops_mod_weld.py`, `iops_mod_triangulate.py`, `iops_mod_decimate.py`, `iops_mod_remesh.py`, `iops_mod_wireframe.py`, `iops_mod_curve.py`, `iops_mod_lattice.py`, `iops_mod_simple_deform.py`, `iops_mod_displace.py`, `iops_mod_shrinkwrap.py`, `iops_mod_weighted_normal.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
 - Consumes: `ModDescriptor`, `register_descriptor` from Task 1.
-- Produces: populated `base.REGISTRY` in curated grid order.
+- Produces: populated `iops_mod_registry.REGISTRY` in curated grid order.
 
 - [ ] **Step 1: Write all 18 files**
 
-`iops_bevel.py`:
+`iops_mod_bevel.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="BEVEL", icon="MOD_BEVEL", group="GENERATE",
@@ -372,9 +372,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_boolean.py`:
+`iops_mod_boolean.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="BOOLEAN", icon="MOD_BOOLEAN", group="GENERATE",
@@ -385,9 +385,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_mirror.py`:
+`iops_mod_mirror.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="MIRROR", icon="MOD_MIRROR", group="GENERATE",
@@ -397,9 +397,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_array.py`:
+`iops_mod_array.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="ARRAY", icon="MOD_ARRAY", group="GENERATE",
@@ -414,9 +414,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_solidify.py`:
+`iops_mod_solidify.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="SOLIDIFY", icon="MOD_SOLIDIFY", group="GENERATE",
@@ -427,9 +427,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_subsurf.py`:
+`iops_mod_subsurf.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="SUBSURF", icon="MOD_SUBSURF", group="GENERATE",
@@ -439,9 +439,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_screw.py`:
+`iops_mod_screw.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="SCREW", icon="MOD_SCREW", group="GENERATE",
@@ -452,9 +452,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_weld.py`:
+`iops_mod_weld.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="WELD", icon="AUTOMERGE_OFF", group="GENERATE",
@@ -464,9 +464,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_triangulate.py`:
+`iops_mod_triangulate.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="TRIANGULATE", icon="MOD_TRIANGULATE", group="GENERATE",
@@ -475,9 +475,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_decimate.py`:
+`iops_mod_decimate.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="DECIMATE", icon="MOD_DECIM", group="GENERATE",
@@ -487,9 +487,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_remesh.py`:
+`iops_mod_remesh.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="REMESH", icon="MOD_REMESH", group="GENERATE",
@@ -499,9 +499,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_wireframe.py`:
+`iops_mod_wireframe.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="WIREFRAME", icon="MOD_WIREFRAME", group="GENERATE",
@@ -512,9 +512,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_curve.py`:
+`iops_mod_curve.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="CURVE", icon="MOD_CURVE", group="DEFORM",
@@ -525,9 +525,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_lattice.py`:
+`iops_mod_lattice.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="LATTICE", icon="MOD_LATTICE", group="DEFORM",
@@ -538,9 +538,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_simple_deform.py`:
+`iops_mod_simple_deform.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="SIMPLE_DEFORM", icon="MOD_SIMPLEDEFORM", group="DEFORM",
@@ -551,9 +551,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_displace.py`:
+`iops_mod_displace.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="DISPLACE", icon="MOD_DISPLACE", group="DEFORM",
@@ -564,9 +564,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_shrinkwrap.py`:
+`iops_mod_shrinkwrap.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="SHRINKWRAP", icon="MOD_SHRINKWRAP", group="DEFORM",
@@ -577,9 +577,9 @@ register_descriptor(ModDescriptor(
 ))
 ```
 
-`iops_weighted_normal.py`:
+`iops_mod_weighted_normal.py`:
 ```python
-from .base import ModDescriptor, register_descriptor
+from .iops_mod_registry import ModDescriptor, register_descriptor
 
 register_descriptor(ModDescriptor(
     mod_type="WEIGHTED_NORMAL", icon="MOD_NORMALEDIT", group="UTILITY",
@@ -594,23 +594,23 @@ Replace the file content with:
 
 ```python
 """iOps Modifiers panel operators. Descriptor files register themselves
-into base.REGISTRY on import; tool operator files are added by later
+into iops_mod_registry.REGISTRY on import; tool operator files are added by later
 tasks. `classes` is consumed by the addon root __init__."""
 
-from . import base
+from . import iops_mod_registry
 
 # Descriptor files — import order defines grid order inside each group.
 from . import (
-    iops_bevel, iops_boolean, iops_mirror, iops_array, iops_solidify,
-    iops_subsurf, iops_screw, iops_weld, iops_triangulate, iops_decimate,
-    iops_remesh, iops_wireframe,
-    iops_curve, iops_lattice, iops_simple_deform, iops_displace,
-    iops_shrinkwrap,
-    iops_weighted_normal,
+    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array, iops_mod_solidify,
+    iops_mod_subsurf, iops_mod_screw, iops_mod_weld, iops_mod_triangulate, iops_mod_decimate,
+    iops_mod_remesh, iops_mod_wireframe,
+    iops_mod_curve, iops_mod_lattice, iops_mod_simple_deform, iops_mod_displace,
+    iops_mod_shrinkwrap,
+    iops_mod_weighted_normal,
 )
 
 classes = (
-    base.IOPS_OT_ModGridClick,
+    iops_mod_registry.IOPS_OT_ModGridClick,
 )
 ```
 
@@ -621,13 +621,13 @@ import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
 from InteractionOps.operators import modifiers
-from InteractionOps.operators.modifiers import base
-assert len(base.REGISTRY) == 18, len(base.REGISTRY)
-assert set(base.REGISTRY) == set(base.CURATED_TYPES)
-assert base.REGISTRY["MIRROR"].object_fields == ("mirror_object",)
-assert base.REGISTRY["SHRINKWRAP"].requires_target
-assert base.REGISTRY["BEVEL"].is_noop is not None
-groups = {d.group for d in base.REGISTRY.values()}
+from InteractionOps.operators.modifiers import iops_mod_registry
+assert len(iops_mod_registry.REGISTRY) == 18, len(iops_mod_registry.REGISTRY)
+assert set(iops_mod_registry.REGISTRY) == set(iops_mod_registry.CURATED_TYPES)
+assert iops_mod_registry.REGISTRY["MIRROR"].object_fields == ("mirror_object",)
+assert iops_mod_registry.REGISTRY["SHRINKWRAP"].requires_target
+assert iops_mod_registry.REGISTRY["BEVEL"].is_noop is not None
+groups = {d.group for d in iops_mod_registry.REGISTRY.values()}
 assert groups == {"GENERATE", "DEFORM", "UTILITY"}
 print("descriptors OK")
 ```
@@ -643,17 +643,17 @@ git commit -m "feat(modifiers): descriptor files for the 18 curated modifier typ
 
 ---
 
-### Task 3: Presets storage (`operators/modifiers/presets.py`)
+### Task 3: Presets storage (`operators/modifiers/iops_mod_presets.py`)
 
 **Files:**
-- Create: `operators/modifiers/presets.py`
+- Create: `operators/modifiers/iops_mod_presets.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
 - Produces: `load_default(mod_type) -> dict|None`, `save_default(md) -> None`, `clear_default(mod_type) -> bool`, `snapshot(md) -> dict`.
-- Consumed by: `base.add_with_defaults` (Task 1 already calls `presets.load_default`), stack ops (Task 5).
+- Consumed by: `iops_mod_registry.add_with_defaults` (Task 1 already calls `presets.load_default`), stack ops (Task 5).
 
-- [ ] **Step 1: Write `operators/modifiers/presets.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_presets.py`**
 
 ```python
 """Default-preset storage for the modifiers grid.
@@ -737,7 +737,7 @@ def clear_default(mod_type):
     return False
 ```
 
-- [ ] **Step 2: Add `from . import presets` to `operators/modifiers/__init__.py`** (after `from . import base`).
+- [ ] **Step 2: Add `from . import iops_mod_presets as presets` to `operators/modifiers/__init__.py`** (after `from . import iops_mod_registry`).
 
 - [ ] **Step 3: Verify via blender-mcp**
 
@@ -745,7 +745,7 @@ def clear_default(mod_type):
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import presets, base
+from InteractionOps.operators.modifiers import iops_mod_presets as presets, iops_mod_registry
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 obj = bpy.data.objects.new("t", bpy.data.meshes.new("t"))
@@ -761,10 +761,10 @@ assert abs(loaded["width"] - 0.123) < 1e-6
 # round-trip through add_with_defaults
 obj2 = bpy.data.objects.new("t2", bpy.data.meshes.new("t2"))
 bpy.context.collection.objects.link(obj2)
-md2 = base.add_with_defaults(obj2, "BEVEL")
+md2 = iops_mod_registry.add_with_defaults(obj2, "BEVEL")
 assert abs(md2.width - 0.123) < 1e-6
 assert presets.clear_default("BEVEL")
-md3 = base.add_with_defaults(obj2, "BEVEL")
+md3 = iops_mod_registry.add_with_defaults(obj2, "BEVEL")
 assert abs(md3.width - 0.02) < 1e-6  # back to smart defaults
 print("presets OK")
 ```
@@ -774,7 +774,7 @@ Expected: `presets OK`.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/presets.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_presets.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): JSON default-preset storage per modifier type"
 ```
 
@@ -791,7 +791,7 @@ git commit -m "feat(modifiers): JSON default-preset storage per modifier type"
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import base
+from InteractionOps.operators.modifiers import iops_mod_registry
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 
@@ -808,23 +808,23 @@ d.shape_key_add(name="Basis")
 
 # ADD with smart defaults
 for o in (a, b, c, d):
-    md = base.add_with_defaults(o, "BEVEL")
+    md = iops_mod_registry.add_with_defaults(o, "BEVEL")
     assert md is not None and abs(md.width - 0.02) < 1e-6
 
 # incompatible object -> None
 empty = bpy.data.objects.new("e", None)
 bpy.context.collection.objects.link(empty)
-assert base.add_with_defaults(empty, "BEVEL") is None
+assert iops_mod_registry.add_with_defaults(empty, "BEVEL") is None
 
 # Smart Apply: multi-user auto-copy, shape keys skipped
-n, reason = base.smart_apply_object(bpy.context, b, mod_type="BEVEL")
+n, reason = iops_mod_registry.smart_apply_object(bpy.context, b, mod_type="BEVEL")
 assert n == 1 and reason is None and b.data.users == 1
-n, reason = base.smart_apply_object(bpy.context, d, mod_type="BEVEL")
+n, reason = iops_mod_registry.smart_apply_object(bpy.context, d, mod_type="BEVEL")
 assert n == 0 and reason == "shape keys"
 
 # disabled modifiers are not applied
 a.modifiers[0].show_viewport = False
-n, reason = base.smart_apply_object(bpy.context, a, mod_type="BEVEL")
+n, reason = iops_mod_registry.smart_apply_object(bpy.context, a, mod_type="BEVEL")
 assert n == 0 and len(a.modifiers) == 1
 print("grid core OK")
 ```
@@ -840,22 +840,22 @@ git commit -m "fix(modifiers): grid-click core issues found by smoke tests"
 
 ---
 
-### Task 5: Stack-list actions (`operators/modifiers/iops_stack.py`)
+### Task 5: Stack-list actions (`operators/modifiers/iops_mod_stack.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_stack.py`
+- Create: `operators/modifiers/iops_mod_stack.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.smart_apply_object`, `presets.save_default`.
+- Consumes: `iops_mod_registry.smart_apply_object`, `presets.save_default`.
 - Produces: `IOPS_OT_ModStackAction` (`iops.mod_stack_action`) with `index: IntProperty`, `action: EnumProperty` in {MOVE_UP, MOVE_DOWN, APPLY, APPLY_UP_TO, REMOVE, SAVE_PRESET}.
 
-- [ ] **Step 1: Write `operators/modifiers/iops_stack.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_stack.py`**
 
 ```python
 import bpy
 
-from . import base, presets
+from . import iops_mod_registry, iops_mod_presets as presets
 
 
 class IOPS_OT_ModStackAction(bpy.types.Operator):
@@ -914,7 +914,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             applied = 0
             skipped = {}
             for o in context.selected_objects:
-                count, reason = base.smart_apply_object(context, o,
+                count, reason = iops_mod_registry.smart_apply_object(context, o,
                                                         up_to=target)
                 applied += count
                 if reason:
@@ -934,12 +934,12 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
 - [ ] **Step 2: Register in `operators/modifiers/__init__.py`**
 
-Add `from . import iops_stack` after the descriptor imports and extend:
+Add `from . import iops_mod_stack` after the descriptor imports and extend:
 
 ```python
 classes = (
-    base.IOPS_OT_ModGridClick,
-    iops_stack.IOPS_OT_ModStackAction,
+    iops_mod_registry.IOPS_OT_ModGridClick,
+    iops_mod_stack.IOPS_OT_ModStackAction,
 )
 ```
 
@@ -949,7 +949,7 @@ classes = (
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import base
+from InteractionOps.operators.modifiers import iops_mod_registry
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 bpy.ops.mesh.primitive_cube_add()
@@ -957,14 +957,14 @@ a = bpy.context.active_object
 for t, n in (("MIRROR", "Mirror"), ("BEVEL", "Bevel"), ("SUBSURF", "Sub")):
     a.modifiers.new(n, t)
 # up_to Bevel: Mirror + Bevel applied, Subsurf stays
-n, reason = base.smart_apply_object(bpy.context, a, up_to=("BEVEL", "Bevel"))
+n, reason = iops_mod_registry.smart_apply_object(bpy.context, a, up_to=("BEVEL", "Bevel"))
 assert n == 2 and reason is None, (n, reason)
 assert [m.type for m in a.modifiers] == ["SUBSURF"]
 # object without a match: untouched
 bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
 b = bpy.context.active_object
 b.modifiers.new("Solid", "SOLIDIFY")
-n, reason = base.smart_apply_object(bpy.context, b, up_to=("BEVEL", "Bevel"))
+n, reason = iops_mod_registry.smart_apply_object(bpy.context, b, up_to=("BEVEL", "Bevel"))
 assert n == 0 and reason == "no matching modifier"
 assert len(b.modifiers) == 1
 print("stack core OK")
@@ -975,28 +975,28 @@ Expected: `stack core OK`.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/iops_stack.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_stack.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): stack-list row actions incl. selection-wide Apply Up To Here"
 ```
 
 ---
 
-### Task 6: Sort (`operators/modifiers/iops_sort.py`)
+### Task 6: Sort (`operators/modifiers/iops_mod_sort.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_sort.py`
+- Create: `operators/modifiers/iops_mod_sort.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.REGISTRY`.
+- Consumes: `iops_mod_registry.REGISTRY`.
 - Produces: `IOPS_OT_ModSortStack` (`iops.mod_sort_stack`); helper `sort_weight(md) -> int` reused nowhere else but kept module-level for testing.
 
-- [ ] **Step 1: Write `operators/modifiers/iops_sort.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_sort.py`**
 
 ```python
 import bpy
 
-from . import base
+from . import iops_mod_registry
 
 # Geometry-nodes "Smooth by Angle" (Blender 4.1+ auto smooth) must stay
 # at the very end of the stack or shading breaks.
@@ -1010,7 +1010,7 @@ def sort_weight(md):
         if ng is not None and _SMOOTH_BY_ANGLE in ng.name.lower():
             return _TAIL_NODES_WEIGHT
         return 50
-    desc = base.REGISTRY.get(md.type)
+    desc = iops_mod_registry.REGISTRY.get(md.type)
     return desc.sort_weight if desc else 50
 
 
@@ -1048,7 +1048,7 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
 
 Note: `sorted()` is stable, so within a weight band the user's manual order survives.
 
-- [ ] **Step 2: Register** — add `from . import iops_sort` and `iops_sort.IOPS_OT_ModSortStack` to `classes`.
+- [ ] **Step 2: Register** — add `from . import iops_mod_sort` and `iops_mod_sort.IOPS_OT_ModSortStack` to `classes`.
 
 - [ ] **Step 3: Verify via blender-mcp** (operator not registered yet — test the pure logic):
 
@@ -1056,7 +1056,7 @@ Note: `sorted()` is stable, so within a weight band the user's manual order surv
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import iops_sort
+from InteractionOps.operators.modifiers import iops_mod_sort
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 bpy.ops.mesh.primitive_cube_add()
@@ -1065,9 +1065,9 @@ a.modifiers.new("WN", "WEIGHTED_NORMAL")
 a.modifiers.new("Tri", "TRIANGULATE")
 a.modifiers.new("Bevel", "BEVEL")
 a.modifiers.new("Mirror", "MIRROR")
-weights = [iops_sort.sort_weight(m) for m in a.modifiers]
+weights = [iops_mod_sort.sort_weight(m) for m in a.modifiers]
 assert weights == [85, 90, 50, 10], weights
-order = [m.name for m in sorted(a.modifiers, key=iops_sort.sort_weight)]
+order = [m.name for m in sorted(a.modifiers, key=iops_mod_sort.sort_weight)]
 assert order == ["Mirror", "Bevel", "WN", "Tri"], order
 print("sort OK")
 ```
@@ -1077,28 +1077,28 @@ Expected: `sort OK`.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/iops_sort.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_sort.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): rule-based stack sort across the selection"
 ```
 
 ---
 
-### Task 7: Cleanup (`operators/modifiers/iops_cleanup.py`)
+### Task 7: Cleanup (`operators/modifiers/iops_mod_cleanup.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_cleanup.py`
+- Create: `operators/modifiers/iops_mod_cleanup.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.REGISTRY`, `base.object_fields`.
+- Consumes: `iops_mod_registry.REGISTRY`, `iops_mod_registry.object_fields`.
 - Produces: `IOPS_OT_ModCleanup` (`iops.mod_cleanup`); module-level `is_dead(md) -> str|None` (reason or None) for testing.
 
-- [ ] **Step 1: Write `operators/modifiers/iops_cleanup.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_cleanup.py`**
 
 ```python
 import bpy
 
-from . import base
+from . import iops_mod_registry
 
 # Types outside the curated registry whose first object field is required
 _REQUIRED_FALLBACK = {"HOOK", "DATA_TRANSFER", "MESH_DEFORM",
@@ -1109,11 +1109,11 @@ def is_dead(md):
     """Reason string if the modifier does nothing, else None."""
     if not md.show_viewport and not md.show_render:
         return "disabled everywhere"
-    desc = base.REGISTRY.get(md.type)
+    desc = iops_mod_registry.REGISTRY.get(md.type)
     requires = (desc.requires_target if desc
                 else md.type in _REQUIRED_FALLBACK)
     if requires:
-        fields = base.object_fields(md)
+        fields = iops_mod_registry.object_fields(md)
         if fields and getattr(md, fields[0], None) is None:
             return "missing target"
     if desc is not None and desc.is_noop is not None:
@@ -1152,7 +1152,7 @@ class IOPS_OT_ModCleanup(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-- [ ] **Step 2: Register** — add `from . import iops_cleanup` and `iops_cleanup.IOPS_OT_ModCleanup` to `classes`.
+- [ ] **Step 2: Register** — add `from . import iops_mod_cleanup` and `iops_mod_cleanup.IOPS_OT_ModCleanup` to `classes`.
 
 - [ ] **Step 3: Verify via blender-mcp**
 
@@ -1160,7 +1160,7 @@ class IOPS_OT_ModCleanup(bpy.types.Operator):
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import iops_cleanup
+from InteractionOps.operators.modifiers import iops_mod_cleanup
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 bpy.ops.mesh.primitive_cube_add()
@@ -1170,10 +1170,10 @@ noop_bevel = a.modifiers.new("Bv", "BEVEL"); noop_bevel.width = 0.0
 off = a.modifiers.new("S", "SUBSURF")
 off.show_viewport = False; off.show_render = False
 alive = a.modifiers.new("Bv2", "BEVEL")              # default width > 0
-assert iops_cleanup.is_dead(dead_bool) == "missing target"
-assert iops_cleanup.is_dead(noop_bevel) == "no-op settings"
-assert iops_cleanup.is_dead(off) == "disabled everywhere"
-assert iops_cleanup.is_dead(alive) is None
+assert iops_mod_cleanup.is_dead(dead_bool) == "missing target"
+assert iops_mod_cleanup.is_dead(noop_bevel) == "no-op settings"
+assert iops_mod_cleanup.is_dead(off) == "disabled everywhere"
+assert iops_mod_cleanup.is_dead(alive) is None
 print("cleanup OK")
 ```
 
@@ -1182,24 +1182,24 @@ Expected: `cleanup OK`.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/iops_cleanup.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_cleanup.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): cleanup of dead and no-op modifiers across the selection"
 ```
 
 ---
 
-### Task 8: Sync Vis + Select Users (`iops_sync_vis.py`, `iops_select_users.py`)
+### Task 8: Sync Vis + Select Users (`iops_mod_sync_vis.py`, `iops_mod_select_users.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_sync_vis.py`
-- Create: `operators/modifiers/iops_select_users.py`
+- Create: `operators/modifiers/iops_mod_sync_vis.py`
+- Create: `operators/modifiers/iops_mod_select_users.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.object_fields`.
+- Consumes: `iops_mod_registry.object_fields`.
 - Produces: `IOPS_OT_ModSyncVis` (`iops.mod_sync_vis`), `IOPS_OT_ModSelectTargetUsers` (`iops.mod_select_target_users`); module-level `find_users(view_layer_objects, target) -> list` for testing.
 
-- [ ] **Step 1: Write `operators/modifiers/iops_sync_vis.py`**
+- [ ] **Step 1: Write `operators/modifiers/iops_mod_sync_vis.py`**
 
 ```python
 import bpy
@@ -1228,12 +1228,12 @@ class IOPS_OT_ModSyncVis(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-- [ ] **Step 2: Write `operators/modifiers/iops_select_users.py`**
+- [ ] **Step 2: Write `operators/modifiers/iops_mod_select_users.py`**
 
 ```python
 import bpy
 
-from . import base
+from . import iops_mod_registry
 
 
 def find_users(objects, target):
@@ -1245,7 +1245,7 @@ def find_users(objects, target):
             continue
         for md in obj.modifiers:
             hit = False
-            for fname in base.object_fields(md):
+            for fname in iops_mod_registry.object_fields(md):
                 if getattr(md, fname, None) is target:
                     hit = True
                     break
@@ -1277,7 +1277,7 @@ class IOPS_OT_ModSelectTargetUsers(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-- [ ] **Step 3: Register both** — `from . import iops_sync_vis, iops_select_users`; extend `classes` with `iops_sync_vis.IOPS_OT_ModSyncVis, iops_select_users.IOPS_OT_ModSelectTargetUsers`.
+- [ ] **Step 3: Register both** — `from . import iops_mod_sync_vis, iops_mod_select_users`; extend `classes` with `iops_mod_sync_vis.IOPS_OT_ModSyncVis, iops_mod_select_users.IOPS_OT_ModSelectTargetUsers`.
 
 - [ ] **Step 4: Verify via blender-mcp**
 
@@ -1285,7 +1285,7 @@ class IOPS_OT_ModSelectTargetUsers(bpy.types.Operator):
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import iops_select_users
+from InteractionOps.operators.modifiers import iops_mod_select_users
 import bpy
 bpy.ops.wm.read_homefile(use_empty=True)
 bpy.ops.mesh.primitive_cube_add()
@@ -1300,7 +1300,7 @@ bpy.ops.mesh.primitive_cube_add(location=(9, 0, 0))
 bystander = bpy.context.active_object
 # unknown-to-registry type via RNA fallback
 u2.modifiers.new("H", "HOOK").object = target
-users = iops_select_users.find_users(bpy.context.view_layer.objects, target)
+users = iops_mod_select_users.find_users(bpy.context.view_layer.objects, target)
 assert set(o.name for o in users) == {u1.name, u2.name}, users
 print("select users OK")
 ```
@@ -1310,20 +1310,20 @@ Expected: `select users OK`.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add operators/modifiers/iops_sync_vis.py operators/modifiers/iops_select_users.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_sync_vis.py operators/modifiers/iops_mod_select_users.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): render-vis sync and reverse target-user selection"
 ```
 
 ---
 
-### Task 9: Cursor → Target (`operators/modifiers/iops_cursor_target.py`)
+### Task 9: Cursor → Target (`operators/modifiers/iops_mod_cursor_target.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_cursor_target.py`
+- Create: `operators/modifiers/iops_mod_cursor_target.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.object_fields`.
+- Consumes: `iops_mod_registry.object_fields`.
 - Produces: `IOPS_OT_ModCursorTarget` (`iops.mod_cursor_target`).
 
 - [ ] **Step 1: Write the operator**
@@ -1331,7 +1331,7 @@ git commit -m "feat(modifiers): render-vis sync and reverse target-user selectio
 ```python
 import bpy
 
-from . import base
+from . import iops_mod_registry
 
 
 class IOPS_OT_ModCursorTarget(bpy.types.Operator):
@@ -1348,12 +1348,12 @@ class IOPS_OT_ModCursorTarget(bpy.types.Operator):
         obj = context.active_object
         return (context.mode == "OBJECT" and obj is not None
                 and obj.modifiers.active is not None
-                and base.object_fields(obj.modifiers.active))
+                and iops_mod_registry.object_fields(obj.modifiers.active))
 
     def execute(self, context):
         active = context.active_object
         md = active.modifiers.active
-        field = base.object_fields(md)[0]
+        field = iops_mod_registry.object_fields(md)[0]
 
         empty = bpy.data.objects.new(f"iops_target_{md.type.lower()}", None)
         empty.empty_display_type = "PLAIN_AXES"
@@ -1376,7 +1376,7 @@ class IOPS_OT_ModCursorTarget(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-- [ ] **Step 2: Register** — `from . import iops_cursor_target`; add `iops_cursor_target.IOPS_OT_ModCursorTarget` to `classes`.
+- [ ] **Step 2: Register** — `from . import iops_mod_cursor_target`; add `iops_mod_cursor_target.IOPS_OT_ModCursorTarget` to `classes`.
 
 - [ ] **Step 3: Verify via blender-mcp** (logic-level, operator registration comes in Task 12):
 
@@ -1384,7 +1384,7 @@ class IOPS_OT_ModCursorTarget(bpy.types.Operator):
 import sys
 for k in [k for k in sys.modules if "InteractionOps.operators.modifiers" in k]:
     sys.modules.pop(k)
-from InteractionOps.operators.modifiers import base
+from InteractionOps.operators.modifiers import iops_mod_registry
 import bpy, math
 from mathutils import Euler
 bpy.ops.wm.read_homefile(use_empty=True)
@@ -1396,7 +1396,7 @@ bpy.ops.mesh.primitive_cube_add()
 a = bpy.context.active_object
 md = a.modifiers.new("M", "MIRROR")
 a.modifiers.active = md
-assert base.object_fields(md) == ("mirror_object",)
+assert iops_mod_registry.object_fields(md) == ("mirror_object",)
 # cursor matrix carries rotation+location
 m = cur.matrix
 assert all(abs(m.translation[i] - (1, 2, 3)[i]) < 1e-6 for i in range(3))
@@ -1408,20 +1408,20 @@ Expected: `cursor target preconditions OK`. (Full operator run happens in Task 1
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/iops_cursor_target.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_cursor_target.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): cursor-placed empty as modifier target across selection"
 ```
 
 ---
 
-### Task 10: Safe Apply Transform (`operators/modifiers/iops_safe_apply.py`)
+### Task 10: Safe Apply Transform (`operators/modifiers/iops_mod_safe_apply.py`)
 
 **Files:**
-- Create: `operators/modifiers/iops_safe_apply.py`
+- Create: `operators/modifiers/iops_mod_safe_apply.py`
 - Modify: `operators/modifiers/__init__.py`
 
 **Interfaces:**
-- Consumes: `base.REGISTRY`, `base.object_fields`, `iops_select_users.find_users`.
+- Consumes: `iops_mod_registry.REGISTRY`, `iops_mod_registry.object_fields`, `iops_mod_select_users.find_users`.
 - Produces: `IOPS_OT_ModSafeApplyTransform` (`iops.mod_safe_apply_transform`) with `location/rotation/scale` BoolProperties (all default True).
 
 **Mechanics** (from spec, made concrete):
@@ -1435,8 +1435,8 @@ git commit -m "feat(modifiers): cursor-placed empty as modifier target across se
 ```python
 import bpy
 
-from . import base
-from .iops_select_users import find_users
+from . import iops_mod_registry
+from .iops_mod_select_users import find_users
 
 # Targets whose world matrix feeds the modifier directly
 _MATRIX_TARGET_TYPES = {"MIRROR", "ARRAY", "SIMPLE_DEFORM", "SCREW", "CAST"}
@@ -1477,7 +1477,7 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
             blocked = False
             for user in find_users(all_objects, obj):
                 for md in user.modifiers:
-                    for fname in base.object_fields(md):
+                    for fname in iops_mod_registry.object_fields(md):
                         if getattr(md, fname, None) is not obj:
                             continue
                         if md.type in _DATA_SPACE_TYPES:
@@ -1534,7 +1534,7 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
                             f"{obj.name}: non-uniform scale, distance "
                             f"settings rescaled by mean {factor:.3f}")
                     for md in obj.modifiers:
-                        desc = base.REGISTRY.get(md.type)
+                        desc = iops_mod_registry.REGISTRY.get(md.type)
                         if desc is None:
                             continue
                         for pname in desc.scale_props:
@@ -1559,7 +1559,7 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
         return {"FINISHED"}
 ```
 
-- [ ] **Step 2: Register** — `from . import iops_safe_apply`; add `iops_safe_apply.IOPS_OT_ModSafeApplyTransform` to `classes`.
+- [ ] **Step 2: Register** — `from . import iops_mod_safe_apply`; add `iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform` to `classes`.
 
 - [ ] **Step 3: Verify the pivot math via blender-mcp**
 
@@ -1601,7 +1601,7 @@ Expected: `safe apply pivot OK`.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add operators/modifiers/iops_safe_apply.py operators/modifiers/__init__.py
+git add operators/modifiers/iops_mod_safe_apply.py operators/modifiers/__init__.py
 git commit -m "feat(modifiers): safe apply transform with pivot compensation and setting rescale"
 ```
 
@@ -1613,8 +1613,8 @@ git commit -m "feat(modifiers): safe apply transform with pivot compensation and
 - Modify: `prefs/addon_preferences.py` (props near `modifier_window_method` ~line 613; draw section in the PREFS tab near the "Modifier Window" section ~line 941)
 
 **Interfaces:**
-- Consumes: `CURATED_TYPES`, `all_mod_type_items` from `operators.modifiers.base` (safe import: base only imports bpy).
-- Produces: `modifiers_grid_columns: IntProperty(default=6)`, `modifiers_show_stack: BoolProperty(default=True)`, per-type `mod_grid_show_<type_lower>: BoolProperty` (default True for curated types), `show_section_modifiers_panel: BoolProperty`. Helper `enabled_grid_types(prefs) -> list[str]` lives in `operators/modifiers/base.py`.
+- Consumes: `CURATED_TYPES`, `all_mod_type_items` from `operators.modifiers.iops_mod_registry` (safe import: registry only imports bpy).
+- Produces: `modifiers_grid_columns: IntProperty(default=6)`, `modifiers_show_stack: BoolProperty(default=True)`, per-type `mod_grid_show_<type_lower>: BoolProperty` (default True for curated types), `show_section_modifiers_panel: BoolProperty`. Helper `enabled_grid_types(prefs) -> list[str]` lives in `operators/modifiers/iops_mod_registry.py`.
 
 - [ ] **Step 1: Add props to `IOPS_AddonPreferences`**
 
@@ -1642,7 +1642,7 @@ After the class definition (module level), generate the per-type toggles:
 ```python
 # Per-modifier-type visibility toggles for the iOps Modifiers panel grid.
 # Generated for every modifier type Blender knows; curated set on by default.
-from ..operators.modifiers.base import CURATED_TYPES as _MOD_CURATED
+from ..operators.modifiers.iops_mod_registry import CURATED_TYPES as _MOD_CURATED
 
 def _register_mod_grid_toggles():
     import bpy as _bpy
@@ -1655,7 +1655,7 @@ def _register_mod_grid_toggles():
 _register_mod_grid_toggles()
 ```
 
-- [ ] **Step 2: Add `enabled_grid_types` helper to `operators/modifiers/base.py`**
+- [ ] **Step 2: Add `enabled_grid_types` helper to `operators/modifiers/iops_mod_registry.py`**
 
 ```python
 def enabled_grid_types(prefs):
@@ -1704,7 +1704,7 @@ assert prefs.modifiers_grid_columns == 6
 assert prefs.modifiers_show_stack
 assert prefs.mod_grid_show_bevel
 assert not prefs.mod_grid_show_cloth  # not curated -> off by default
-from InteractionOps.operators.modifiers.base import enabled_grid_types
+from InteractionOps.operators.modifiers.iops_mod_registry import enabled_grid_types
 types = enabled_grid_types(prefs)
 assert len(types) == 18 and types[0] == "BEVEL", types
 print("prefs OK")
@@ -1715,7 +1715,7 @@ Expected: `prefs OK`. NOTE: this requires Task 12's root-`__init__` wiring for t
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add prefs/addon_preferences.py operators/modifiers/base.py
+git add prefs/addon_preferences.py operators/modifiers/iops_mod_registry.py
 git commit -m "feat(modifiers): grid prefs — columns, stack toggle, per-type visibility"
 ```
 
@@ -1728,7 +1728,7 @@ git commit -m "feat(modifiers): grid prefs — columns, stack toggle, per-type v
 - Modify: `__init__.py` (imports near line 116 where other ui panels import; `classes` tuple near line 480)
 
 **Interfaces:**
-- Consumes: `enabled_grid_types`, `REGISTRY`, `GROUP_ORDER`, `type_icon` from `operators.modifiers.base`; `classes` from `operators.modifiers`.
+- Consumes: `enabled_grid_types`, `REGISTRY`, `GROUP_ORDER`, `type_icon` from `operators.modifiers.iops_mod_registry`; `classes` from `operators.modifiers`.
 - Produces: `IOPS_PT_Modifiers_Panel` registered; all `iops.mod_*` operators registered.
 
 - [ ] **Step 1: Write `ui/iops_modifiers_panel.py`**
@@ -1745,7 +1745,7 @@ active object's modifiers — never the selection or the scene.
 
 import bpy
 
-from ..operators.modifiers.base import (
+from ..operators.modifiers.iops_mod_registry import (
     GROUP_ORDER,
     REGISTRY,
     enabled_grid_types,

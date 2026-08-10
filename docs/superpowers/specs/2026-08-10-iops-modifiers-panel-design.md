@@ -132,37 +132,37 @@ finalized during implementation, listed here for intent):
 ui/iops_modifiers_panel.py      # the panel (draw only, no logic)
 operators/modifiers/
     __init__.py                  # collects classes + descriptors for registration
-    base.py                      # type registry, batch helpers, generic
+    iops_mod_registry.py                      # type registry, batch helpers, generic
                                  # grid-click operator, Smart Apply core
-    presets.py                   # default-preset JSON storage
-    iops_bevel.py                # one file per modifier type (18 files):
-    iops_boolean.py              #   descriptor: icon, group, smart defaults,
-    iops_mirror.py               #   object-field names, identity check for
-    iops_array.py                #   Cleanup, sort weight, optional custom
-    iops_solidify.py             #   add hook
-    iops_subsurf.py
-    iops_screw.py
-    iops_weld.py
-    iops_triangulate.py
-    iops_decimate.py
-    iops_remesh.py
-    iops_wireframe.py
-    iops_curve.py
-    iops_lattice.py
-    iops_simple_deform.py
-    iops_displace.py
-    iops_shrinkwrap.py
-    iops_weighted_normal.py
-    iops_sort.py                 # tool operators, one file each
-    iops_cleanup.py
-    iops_sync_vis.py
-    iops_cursor_target.py
-    iops_select_users.py
-    iops_safe_apply.py
-    iops_stack.py                # stack-list row actions
+    iops_mod_presets.py                   # default-preset JSON storage
+    iops_mod_bevel.py                # one file per modifier type (18 files):
+    iops_mod_boolean.py              #   descriptor: icon, group, smart defaults,
+    iops_mod_mirror.py               #   object-field names, identity check for
+    iops_mod_array.py                #   Cleanup, sort weight, optional custom
+    iops_mod_solidify.py             #   add hook
+    iops_mod_subsurf.py
+    iops_mod_screw.py
+    iops_mod_weld.py
+    iops_mod_triangulate.py
+    iops_mod_decimate.py
+    iops_mod_remesh.py
+    iops_mod_wireframe.py
+    iops_mod_curve.py
+    iops_mod_lattice.py
+    iops_mod_simple_deform.py
+    iops_mod_displace.py
+    iops_mod_shrinkwrap.py
+    iops_mod_weighted_normal.py
+    iops_mod_sort.py                 # tool operators, one file each
+    iops_mod_cleanup.py
+    iops_mod_sync_vis.py
+    iops_mod_cursor_target.py
+    iops_mod_select_users.py
+    iops_mod_safe_apply.py
+    iops_mod_stack.py                # stack-list row actions
 ```
 
-### Type registry (`base.py`)
+### Type registry (`iops_mod_registry.py`)
 
 Each per-type file registers a descriptor:
 
@@ -237,7 +237,7 @@ introspection and cached per type; defaults fall back to Blender's own.
   top-down through the matching type/name — order always respected),
   remove, save-as-default-preset.
 
-### Presets (`presets.py`)
+### Presets (`iops_mod_presets.py`)
 
 - v1: exactly one "default preset" per modifier type.
 - Stored as JSON at `bpy.utils.user_resource('CONFIG')` /
