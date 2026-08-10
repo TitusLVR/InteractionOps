@@ -92,13 +92,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                    for t in enabled
                    if t in REGISTRY and REGISTRY[t].group == group]
         ordered += [t for t in enabled if t not in REGISTRY]
-        # Rows pref is the minimum height, columns pref the maximum
-        # width: overflow grows extra rows instead of hiding buttons.
-        # row_major=False makes `columns` mean a fixed number of rows,
-        # filling top-to-bottom then left-to-right.
-        rows = max(prefs.modifiers_grid_rows,
-                   -(-len(ordered) // prefs.modifiers_grid_columns))
-        grid = layout.grid_flow(row_major=False, columns=rows,
+        grid = layout.grid_flow(row_major=True,
+                                columns=prefs.modifiers_grid_columns,
                                 even_columns=True, align=True)
         for mod_type in ordered:
             op = grid.operator("iops.mod_grid_click", text="",

@@ -648,16 +648,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # iOps Modifiers panel (grid)
     modifiers_grid_columns: IntProperty(
         name="Grid Columns",
-        description="Maximum number of icon columns in the iOps Modifiers "
-                    "panel grid; the grid grows extra rows when the enabled "
-                    "types don't fit",
+        description="Number of icon columns in the iOps Modifiers "
+                    "panel grid",
         default=6, min=1, max=12,
-    )
-    modifiers_grid_rows: IntProperty(
-        name="Grid Rows",
-        description="Minimum number of icon rows (buttons stacked "
-                    "vertically) in the iOps Modifiers panel grid",
-        default=3, min=1, max=12,
     )
     modifiers_show_stack: BoolProperty(
         name="Show Stack List",
@@ -995,7 +988,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 row = body.row(align=True)
                 row.prop(self, "modifiers_grid_columns")
-                row.prop(self, "modifiers_grid_rows")
                 row.prop(self, "modifiers_show_stack", toggle=True)
                 body.separator()
                 body.label(text="Modifier types shown in the grid:")
