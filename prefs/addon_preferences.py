@@ -200,6 +200,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_io: BoolProperty(default=False)
     show_section_debug: BoolProperty(default=False)
     show_section_pies: BoolProperty(default=False)
+    show_section_modifiers_panel: BoolProperty(default=False)
 
     # Legacy cage/snap/align color and size props removed.
     # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
@@ -619,7 +620,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         ],
         default="RENDER"
     )
-    
+
+    # iOps Modifiers panel (grid)
+    modifiers_grid_columns: IntProperty(
+        name="Grid Columns",
+        description="Number of icon columns in the iOps Modifiers panel",
+        default=6, min=2, max=12,
+    )
+    modifiers_show_stack: BoolProperty(
+        name="Show Stack List",
+        description="Show the active object's modifier stack under the grid",
+        default=True,
+    )
+
     # (Distance text is now rendered through the HUD header — no separate
     # position offsets needed.)
 
@@ -944,6 +957,22 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.alignment = "LEFT"
                 row.prop(self, "modifier_window_method", expand=True)
 
+            # iOps Modifiers panel
+            body = _section(column_main, self, "show_section_modifiers_panel",
+                            "Modifiers Panel", icon="MODIFIER")
+            if body is not None:
+                row = body.row(align=True)
+                row.prop(self, "modifiers_grid_columns")
+                row.prop(self, "modifiers_show_stack", toggle=True)
+                body.separator()
+                body.label(text="Modifier types shown in the grid:")
+                import bpy as _bpy
+                enum = _bpy.types.Modifier.bl_rna.properties["type"].enum_items
+                grid = body.grid_flow(columns=4, align=True)
+                for it in enum:
+                    grid.prop(self, f"mod_grid_show_{it.identifier.lower()}",
+                              toggle=True)
+
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
             if body is not None:
@@ -1009,3 +1038,20 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)
+
+
+# Per-modifier-type visibility toggles for the iOps Modifiers panel grid.
+# Generated for every modifier type Blender knows; curated set on by default.
+from ..operators.modifiers.iops_mod_registry import CURATED_TYPES as _MOD_CURATED
+
+
+def _register_mod_grid_toggles():
+    import bpy as _bpy
+    enum = _bpy.types.Modifier.bl_rna.properties["type"].enum_items
+    for it in enum:
+        IOPS_AddonPreferences.__annotations__[
+            f"mod_grid_show_{it.identifier.lower()}"
+        ] = BoolProperty(name=it.name, default=it.identifier in _MOD_CURATED)
+
+
+_register_mod_grid_toggles()
