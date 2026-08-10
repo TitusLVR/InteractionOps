@@ -1,3 +1,6 @@
+# ruff: noqa: I001 — import order is intentional here: thematic grouping,
+# and the .operators.modifiers descriptor import sequence defines the
+# REGISTRY (grid icon) order. Do not auto-sort.
 import bpy
 import json
 import os
@@ -332,40 +335,40 @@ except ModuleNotFoundError:
 
 # Asset Management
 from .operators.assets_management import (
-    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetClear,
     IOPS_OT_AssetCreateCatalog,
     IOPS_OT_AssetDeleteCatalog,
     IOPS_OT_AssetDeleteEmptyCatalogs,
-    IOPS_OT_AssetSearchMoveToCatalog,
-    IOPS_OT_AssetSearchDeleteCatalog,
     IOPS_OT_AssetMark,
-    IOPS_OT_AssetClear,
-    IOPS_OT_SetAssetLibrary,
-    IOPS_OT_SelectInAssetBrowser,
-    IOPS_OT_ClearAssetBrowserFilter,
-    IOPS_OT_RefreshAssetBrowser,
-    IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetSearchDeleteCatalog,
+    IOPS_OT_AssetSearchMoveToCatalog,
     IOPS_OT_Call_Pie_Assets,
+    IOPS_OT_ClearAssetBrowserFilter,
+    IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_SelectInAssetBrowser,
+    IOPS_OT_SetAssetLibrary,
     register_pool_menus,
     unregister_pool_menus,
-)
-from .ui.iops_pie_assets import (
-    IOPS_MT_AssetMarkSub,
-    IOPS_MT_CatalogBrowseActive,
-    IOPS_MT_AssetDeleteCatalogsSub,
-    IOPS_MT_Pie_Assets,
 )
 
 # Material Override
 from .operators.material_override import (
     IOPS_MaterialOverrideSettings,
-    IOPS_OT_Material_Override_Clear_Rendering_Flag,
-    IOPS_OT_Material_Override_Refresh_Previews,
-    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Call_Material_Override_Panel,
     IOPS_OT_Material_Override_Apply,
     IOPS_OT_Material_Override_Clear,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Material_Override_Refresh_Previews,
     IOPS_PT_Material_Override_Panel,
-    IOPS_OT_Call_Material_Override_Panel,
+)
+from .ui.iops_pie_assets import (
+    IOPS_MT_AssetDeleteCatalogsSub,
+    IOPS_MT_AssetMarkSub,
+    IOPS_MT_CatalogBrowseActive,
+    IOPS_MT_Pie_Assets,
 )
 
 bl_info = {
