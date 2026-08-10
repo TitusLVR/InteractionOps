@@ -78,6 +78,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "iOps"
     bl_options = {"DEFAULT_CLOSED"}
+    # popup width (wm.call_panel); the docked N-panel ignores this
+    bl_ui_units_x = 16
 
     def draw(self, context):
         layout = self.layout
