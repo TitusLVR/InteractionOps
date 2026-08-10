@@ -35,18 +35,26 @@ class IOPS_ModGridItem(bpy.types.PropertyGroup):
     mod_type: bpy.props.StringProperty()
 
 
+_seed_attempts = 0
+
+
 def seed_grid_list_if_empty():
-    """One-shot timer callback: fill an empty grid list with the curated
-    set. Runs via bpy.app.timers because prefs can't be written from
-    register() during Blender startup (restricted context)."""
+    """Timer callback: fill an empty grid list with the curated set and
+    migrate legacy json presets into the defaults groups. Runs via
+    bpy.app.timers because prefs can't be written from register()
+    during Blender startup — and retries while the context is still
+    restricted at that point (plain 0.1s delay fires too early)."""
+    global _seed_attempts
     try:
         prefs = bpy.context.preferences.addons[_ADDON].preferences
     except (KeyError, AttributeError):
-        return None
+        _seed_attempts += 1
+        return 0.5 if _seed_attempts < 20 else None
     if len(prefs.modifiers_grid_items) == 0:
         for mod_type in CURATED_TYPES:
             prefs.modifiers_grid_items.add().mod_type = mod_type
         prefs.modifiers_grid_index = 0
+    presets.migrate_legacy_json(prefs)
     return None
 
 
@@ -153,8 +161,8 @@ class IOPS_OT_ModGridListAction(bpy.types.Operator):
             ("DOWN", "Move Later", "Move the active type later in the "
              "grid order"),
             ("RESET", "Reset", "Restore the default curated set"),
-            ("CLEAR_PRESET", "Clear Preset",
-             "Delete the saved default preset of the active type"),
+            ("CLEAR_PRESET", "Reset Defaults",
+             "Reset the active type's default settings"),
         ],
         options={"SKIP_SAVE"},
     )
@@ -204,17 +212,8 @@ class IOPS_OT_ModGridListAction(bpy.types.Operator):
             mod_type = items[idx].mod_type
             if presets.clear_default(mod_type):
                 self.report({"INFO"},
-                            f"{mod_type}: default preset cleared")
+                            f"{mod_type}: defaults reset")
             else:
                 self.report({"WARNING"},
-                            f"{mod_type}: no saved preset to clear")
+                            f"{mod_type}: no defaults group for this type")
         return {"FINISHED"}
-
-
-def format_value(value):
-    """Compact human-readable preset value for the prefs read-only view."""
-    if isinstance(value, float):
-        return f"{value:.4g}"
-    if isinstance(value, (list, tuple)):
-        return "(" + ", ".join(format_value(v) for v in value) + ")"
-    return str(value)

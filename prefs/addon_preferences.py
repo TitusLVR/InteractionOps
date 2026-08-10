@@ -16,14 +16,12 @@ from bpy.props import (
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
-from ..operators.modifiers import iops_mod_presets
+from ..operators.modifiers import iops_mod_defaults
 from ..operators.modifiers.iops_mod_list import (
     IOPS_ModGridItem,
-    format_value,
     type_label,
 )
 from ..operators.modifiers.iops_mod_registry import (
-    REGISTRY as MOD_REGISTRY,
     type_icon as mod_type_icon,
 )
 # from ..utils.functions import ShowMessageBox
@@ -979,9 +977,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "modifiers_show_stack", toggle=True)
                 body.separator()
                 body.label(text="Grid preview (click a button to select):")
-                grid = body.grid_flow(row_major=True,
-                                      columns=self.modifiers_grid_columns,
-                                      even_columns=True, align=True)
+                row = body.row()
+                grid = row.grid_flow(row_major=True,
+                                     columns=self.modifiers_grid_columns,
+                                     even_columns=True, align=True)
                 for i, it in enumerate(self.modifiers_grid_items):
                     op = grid.operator(
                         "iops.mod_grid_list_action", text="",
@@ -989,56 +988,43 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         depress=(i == self.modifiers_grid_index))
                     op.action = "SELECT"
                     op.index = i
-
-                tools = body.row(align=True)
-                tools.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
-                tools.operator("iops.mod_grid_list_action", text="",
-                               icon="REMOVE").action = "REMOVE"
-                tools.separator()
-                tools.operator("iops.mod_grid_list_action", text="",
-                               icon="TRIA_LEFT").action = "UP"
-                tools.operator("iops.mod_grid_list_action", text="",
-                               icon="TRIA_RIGHT").action = "DOWN"
-                tools.separator()
-                tools.operator("iops.mod_grid_list_action", text="",
-                               icon="FILE_REFRESH").action = "RESET"
+                side = row.column(align=True)
+                side.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="REMOVE").action = "REMOVE"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_UP").action = "UP"
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_DOWN").action = "DOWN"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="FILE_REFRESH").action = "RESET"
 
                 items = self.modifiers_grid_items
                 idx = self.modifiers_grid_index
                 if 0 <= idx < len(items):
                     mod_type = items[idx].mod_type
                     box = body.box()
-                    preset = iops_mod_presets.load_default(mod_type)
-                    if preset:
-                        row = box.row()
-                        row.label(text=f"{type_label(mod_type)} — "
-                                       "saved default preset:",
-                                  icon="FILE_TICK")
-                        row.operator("iops.mod_grid_list_action",
-                                     text="Clear",
-                                     icon="X").action = "CLEAR_PRESET"
-                        col = box.column(align=True)
-                        for key in sorted(preset):
-                            col.label(text=f"{key}: "
-                                           f"{format_value(preset[key])}")
+                    group = iops_mod_defaults.get_group(self, mod_type)
+                    header = box.row()
+                    header.label(text=f"{type_label(mod_type)} — "
+                                      "default settings:",
+                                 icon="PRESET")
+                    if group is not None:
+                        header.operator("iops.mod_grid_list_action",
+                                        text="Reset",
+                                        icon="LOOP_BACK"
+                                        ).action = "CLEAR_PRESET"
+                        col = box.column()
+                        col.use_property_split = True
+                        col.use_property_decorate = False
+                        iops_mod_defaults.draw_props(
+                            col, group, type(group).__annotations__)
                     else:
-                        desc = MOD_REGISTRY.get(mod_type)
-                        if desc is not None and desc.defaults:
-                            box.label(text=f"{type_label(mod_type)} — "
-                                           "smart defaults:",
-                                      icon="PRESET")
-                            col = box.column(align=True)
-                            for key in sorted(desc.defaults):
-                                col.label(
-                                    text=f"{key}: "
-                                         f"{format_value(desc.defaults[key])}")
-                        else:
-                            box.label(text=f"{type_label(mod_type)} — "
-                                           "Blender defaults",
-                                      icon="BLENDER")
-                    box.label(text="Save defaults from a live modifier "
-                                   "via the stack's save button",
-                              icon="INFO")
+                        box.label(text="No editable parameters "
+                                       "(Blender defaults apply)",
+                                  icon="INFO")
 
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
@@ -1105,3 +1091,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)
+
+
+# One PointerProperty per generated modifier-defaults group. Must run
+# before the class registers (root __init__ registers the groups first).
+iops_mod_defaults.inject_pointer_props(IOPS_AddonPreferences)

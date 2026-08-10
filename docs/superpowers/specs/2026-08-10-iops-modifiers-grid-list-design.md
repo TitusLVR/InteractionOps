@@ -91,6 +91,36 @@ omitted. `iops.mod_grid_list_add` takes a plain string `mod_type` set
 by menu entries; duplicates are CANCELLED. `IOPS_UL_ModGridList` is
 gone.
 
+## Amendment 2 (same day, user request): editable defaults = option A
+
+Option B is superseded: defaults ARE editable in prefs after all.
+`iops_mod_defaults.py` generates one PropertyGroup per modifier type at
+import time by mirroring editable RNA props (pointers, collections,
+base Modifier props, oversized arrays excluded; subtype/unit sanitized
+against allowlists — invalid combos only explode at class registration
+time). Descriptor smart defaults are baked into the generated property
+definitions, so property_unset == smart defaults. One PointerProperty
+per type is injected into the prefs class annotations; the group
+classes register before the prefs class.
+
+iops_mod_presets keeps its API but the storage is now the groups
+(userpref.blend), not JSON; the legacy json file is migrated once by
+the seed timer and renamed *.migrated. The seed timer retries while
+the startup context is still restricted (0.5s, max 20 attempts) and is
+unregistered in unregister().
+
+apply_settings() applies ENUM props first: mode-like switches (Bevel
+offset_type) convert dependent values on set. Bevel width/width_pct
+are RNA aliases over one internal value in 5.2 — width_pct is skipped
+everywhere (_TYPE_SKIP_PROPS).
+
+Prefs UI: the defaults box is editable (property-split), Reset button
+restores baked defaults. Short boolean vectors (mirror axes etc.) draw
+as one heading row of labeled X/Y/Z toggles (`draw_props`, shared with
+the panel's expanded-params view). Grid toolbar is a vertical column
+on the right of the preview. Square (left-aligned compact) grid
+buttons were tried and reverted — buttons stretch as before.
+
 ## Testing (live Blender via MCP)
 
 - Reload addon → list seeded with 18 curated types.

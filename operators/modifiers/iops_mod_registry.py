@@ -111,7 +111,10 @@ def add_with_defaults(obj, mod_type):
 
 
 def apply_settings(md, settings):
-    for key, value in settings.items():
+    """Apply a settings dict to a modifier. Enums go first: mode-like
+    switches (e.g. Bevel's offset_type) convert dependent values on set
+    and would mangle numbers applied before them."""
+    def _set(key, value):
         try:
             prop = md.bl_rna.properties.get(key)
             if prop is not None and prop.type == "ENUM" and prop.is_enum_flag:
@@ -119,6 +122,16 @@ def apply_settings(md, settings):
             setattr(md, key, value)
         except Exception:
             pass  # renamed/removed prop from an old preset — skip
+
+    enum_keys = {key for key in settings
+                 if (p := md.bl_rna.properties.get(key)) is not None
+                 and p.type == "ENUM"}
+    for key in settings:
+        if key in enum_keys:
+            _set(key, settings[key])
+    for key in settings:
+        if key not in enum_keys:
+            _set(key, settings[key])
 
 
 def smart_apply_object(context, obj, mod_type=None, up_to=None):

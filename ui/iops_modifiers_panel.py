@@ -9,6 +9,7 @@ active object's modifiers — never the selection or the scene.
 
 import bpy
 
+from ..operators.modifiers.iops_mod_defaults import draw_props
 from ..operators.modifiers.iops_mod_registry import (
     enabled_grid_types,
     type_icon,
@@ -63,8 +64,7 @@ def draw_modifier_params(layout, md):
     col = box.column()
     col.use_property_split = True
     col.use_property_decorate = False
-    for ident in ids:
-        col.prop(md, ident)
+    draw_props(col, md, ids)
 
 
 class IOPS_PT_Modifiers_Panel(bpy.types.Panel):

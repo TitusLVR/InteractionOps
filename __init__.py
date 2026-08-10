@@ -157,7 +157,7 @@ from .operators.modifiers import (
     iops_mod_weighted_normal,
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
     iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
-    iops_mod_safe_apply, iops_mod_list,
+    iops_mod_safe_apply, iops_mod_list, iops_mod_defaults,
 )
 
 _modifiers_classes = (
@@ -393,6 +393,7 @@ classes = (
     *_theme_classes,
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
     iops_mod_list.IOPS_ModGridItem,  # same rule — grid list item
+    *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
@@ -770,6 +771,8 @@ def register():
 
 
 def unregister():
+    if bpy.app.timers.is_registered(iops_mod_list.seed_grid_list_if_empty):
+        bpy.app.timers.unregister(iops_mod_list.seed_grid_list_if_empty)
     unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its
