@@ -66,6 +66,8 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
                     setattr(md, fname, pivot)
 
             # --- apply ---
+            local_scale = obj.scale.copy()
+            orig_data = obj.data
             if obj.data is not None and obj.data.users > 1:
                 obj.data = obj.data.copy()
             try:
@@ -78,6 +80,11 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
                         scale=self.scale)
             except RuntimeError as e:
                 skipped[str(e)] = skipped.get(str(e), 0) + 1
+                if obj.data is not orig_data:
+                    new_data = obj.data
+                    obj.data = orig_data
+                    if new_data is not None and new_data.users == 0:
+                        bpy.data.batch_remove([new_data])
                 if pivot is not None:
                     for md, fname in matrix_refs:
                         setattr(md, fname, obj)
@@ -91,7 +98,11 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
 
             # --- scenario B: rescale distance-based settings ---
             if self.scale:
-                s = matrix_before.to_scale()
+                # Use the object's LOCAL scale (matrix_basis), not the world
+                # scale: transform_apply only bakes matrix_basis into the
+                # mesh, so a parent's scale contributes nothing to the
+                # rescale of the object's own modifier settings.
+                s = local_scale
                 if any(abs(c - 1.0) > 1e-6 for c in s):
                     factor = (s.x + s.y + s.z) / 3.0
                     if max(s) - min(s) > 1e-4:
