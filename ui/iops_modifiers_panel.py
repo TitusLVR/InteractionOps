@@ -54,16 +54,41 @@ def modifier_param_ids(md):
     return ids
 
 
+def draw_nodes_params(col, md):
+    """Geometry Nodes: the node-group picker plus the group's input
+    sockets, like the native Properties panel — not the modifier's raw
+    RNA. Blender 5.x keeps per-socket value groups on
+    md.properties.inputs; older builds keep ID custom props on md."""
+    col.prop(md, "node_group")
+    group = md.node_group
+    if group is None:
+        return
+    inputs = getattr(getattr(md, "properties", None), "inputs", None)
+    for item in group.interface.items_tree:
+        if item.item_type != "SOCKET" or item.in_out != "INPUT":
+            continue
+        if inputs is not None:
+            sock = getattr(inputs, item.identifier, None)
+            # geometry / field-only sockets carry no value prop
+            if sock is not None and hasattr(sock, "value"):
+                col.prop(sock, "value", text=item.name)
+        elif item.identifier in md:
+            col.prop(md, f'["{item.identifier}"]', text=item.name)
+
+
 def draw_modifier_params(layout, md):
     """Draw every own param of md as a property-split column."""
-    ids = modifier_param_ids(md)
     box = layout.box()
-    if not ids:
-        box.label(text="No editable parameters", icon="INFO")
-        return
     col = box.column()
     col.use_property_split = True
     col.use_property_decorate = False
+    if md.type == "NODES":
+        draw_nodes_params(col, md)
+        return
+    ids = modifier_param_ids(md)
+    if not ids:
+        box.label(text="No editable parameters", icon="INFO")
+        return
     draw_props(col, md, ids)
 
 
