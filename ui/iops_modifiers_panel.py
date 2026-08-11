@@ -172,15 +172,19 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
             op.action = "TOGGLE_PARAMS"
             row.label(text="", icon=type_icon(md.type))
             row.prop(md, "name", text="")
-            row.prop(md, "show_viewport", text="", emboss=False)
-            sub = row.row(align=True)
-            sub.alert = md.show_render != md.show_viewport
-            sub.prop(md, "show_render", text="", emboss=False)
+            vis = row.row(align=True)
+            vis.alert = md.show_render != md.show_viewport
+            op = vis.operator("iops.mod_stack_action", text="",
+                              icon="RESTRICT_VIEW_OFF" if md.show_viewport
+                              else "RESTRICT_VIEW_ON",
+                              emboss=False)
+            op.index = i
+            op.action = "TOGGLE_VIS"
             for action, icon in (
                 ("MOVE_UP", "TRIA_UP"),
                 ("MOVE_DOWN", "TRIA_DOWN"),
                 ("APPLY", "CHECKMARK"),
-                ("APPLY_UP_TO", "IMPORT"),
+                ("COPY_TO_SELECTED", "COPYDOWN"),
                 ("REMOVE", "X"),
                 ("SAVE_PRESET", "FILE_TICK"),
             ):
