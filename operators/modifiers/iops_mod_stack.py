@@ -84,10 +84,37 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         options={"SKIP_SAVE"},
     )
 
+    _DESCRIPTIONS = {
+        "MOVE_UP": "Move the modifier up\nAlt: move to the top",
+        "MOVE_DOWN": "Move the modifier down\nAlt: move to the bottom",
+        "APPLY": ("Apply the modifier\n"
+                  "Alt: apply the stack up to here (inclusive) on the "
+                  "whole selection, in stack order"),
+        "TOGGLE_VIS": ("Toggle viewport visibility\n"
+                       "Alt: toggle render visibility\n"
+                       "Red: viewport and render visibility differ"),
+        "COPY_TO_SELECTED": ("Copy the modifier to the selected "
+                             "objects, keeping its stack position and "
+                             "settings"),
+        "REMOVE": "Remove the modifier",
+        "SAVE_PRESET": ("Save these settings as the default preset "
+                        "used when adding this type from the grid"),
+        "TOGGLE_PARAMS": "Show/hide the modifier's parameters",
+    }
+
     @classmethod
     def poll(cls, context):
         return (context.mode == "OBJECT" and context.active_object
                 and context.active_object.modifiers)
+
+    @classmethod
+    def description(cls, context, properties):
+        obj = context.active_object
+        md = (obj.modifiers[properties.index]
+              if obj and 0 <= properties.index < len(obj.modifiers)
+              else None)
+        text = cls._DESCRIPTIONS.get(properties.action, "")
+        return f"{md.name}\n{text}" if md else text
 
     def invoke(self, context, event):
         self.alt = event.alt
