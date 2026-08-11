@@ -54,6 +54,27 @@ def modifier_param_ids(md):
     return ids
 
 
+def _draw_nodes_items(col, md, inputs, items):
+    """One level of a geometry-nodes interface tree: input sockets as
+    value props, nested panels as collapsible sub-panels (recursive)."""
+    for item in items:
+        if item.item_type == "PANEL":
+            header, body = col.panel(
+                f"iops_gn_{md.persistent_uid}_{item.persistent_uid}",
+                default_closed=item.default_closed)
+            header.label(text=item.name)
+            if body is not None:
+                _draw_nodes_items(body, md, inputs, item.interface_items)
+        elif item.in_out == "INPUT":
+            if inputs is not None:
+                sock = getattr(inputs, item.identifier, None)
+                # geometry / field-only sockets carry no value prop
+                if sock is not None and hasattr(sock, "value"):
+                    col.prop(sock, "value", text=item.name)
+            elif item.identifier in md:
+                col.prop(md, f'["{item.identifier}"]', text=item.name)
+
+
 def draw_nodes_params(col, md):
     """Geometry Nodes: the node-group picker plus the group's input
     sockets, like the native Properties panel — not the modifier's raw
@@ -64,16 +85,9 @@ def draw_nodes_params(col, md):
     if group is None:
         return
     inputs = getattr(getattr(md, "properties", None), "inputs", None)
-    for item in group.interface.items_tree:
-        if item.item_type != "SOCKET" or item.in_out != "INPUT":
-            continue
-        if inputs is not None:
-            sock = getattr(inputs, item.identifier, None)
-            # geometry / field-only sockets carry no value prop
-            if sock is not None and hasattr(sock, "value"):
-                col.prop(sock, "value", text=item.name)
-        elif item.identifier in md:
-            col.prop(md, f'["{item.identifier}"]', text=item.name)
+    root = [i for i in group.interface.items_tree
+            if i.parent is not None and i.parent.parent is None]
+    _draw_nodes_items(col, md, inputs, root)
 
 
 def draw_modifier_params(layout, md):
