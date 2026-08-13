@@ -251,6 +251,11 @@ from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
 from .operators.mesh_shear import IOPS_OT_mesh_shear
+from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
+                                           IOPS_OT_extrude_attr_fix_post,
+                                           IOPS_OT_mesh_extrude_ex_macro,
+                                           IOPS_OT_mesh_extrude_ex,
+                                           define_extrude_macro)
 # from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
@@ -523,6 +528,10 @@ classes = (
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
     IOPS_OT_mesh_shear,
+    IOPS_OT_extrude_attr_fix,
+    IOPS_OT_extrude_attr_fix_post,
+    IOPS_OT_mesh_extrude_ex_macro,
+    IOPS_OT_mesh_extrude_ex,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
@@ -603,6 +612,7 @@ def _sync_hud_from_blender_theme_if_pristine():
 
 def register():
     reg_cls()
+    define_extrude_macro()
     register_pool_menus()
     try:
         _ensure_default_theme_presets()

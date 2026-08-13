@@ -14,6 +14,7 @@ keys_default = [
     ("iops.mesh_to_edges", "F2", "PRESS", False, True, False, False),
     ("iops.mesh_to_faces", "F3", "PRESS", False, True, False, False),
     ("iops.mesh_align_origin_to_normal", "F5", "PRESS", False, True, False, False),
+    ("iops.mesh_extrude_ex", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_mouseover_fill_select", "F19", "PRESS", True, True, True, False),
     ("iops.mesh_to_grid", "UP_ARROW", "PRESS", False, False, False, False),    
     ("iops.mesh_cursor_bisect", "F19", "PRESS", False, False, False, False),
