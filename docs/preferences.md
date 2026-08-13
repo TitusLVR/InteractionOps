@@ -42,6 +42,7 @@ on the preferences class. The list below mirrors `draw()` top-to-bottom.
 | -------------------- | ------ | ------- | ----------------------------------------------------------------------------------------------------- |
 | `iops_stat`          | `Bool` | `True`  | Master toggle for the persistent viewport statistics overlay (active object name, UV maps, scale...). |
 | `show_filename_stat` | `Bool` | `True`  | Show / hide the current `.blend` filename inside the statistics overlay.                              |
+| `show_filename_full_path` | `Bool` | `False` | Show the full `.blend` file path instead of just the filename (needs `show_filename_stat`).      |
 | `show_dimensions_stat` | `Bool` | `True` | Active object dimensions in scene units (hidden when all zero, e.g. empties).                        |
 | `show_view_position_stat` | `Bool` | `False` | Active object world position + distance from the viewpoint.                                       |
 | `show_material_stat` | `Bool` | `False` | Active material name and filled/total slot count; warns on `No material` / `Empty slots`.            |
@@ -225,7 +226,7 @@ file takes precedence on every subsequent launch.
 | `IOPS_DEBUG`         | `IOPS_DEBUG`                                                                              |
 | `EXECUTOR`           | `executor_column_count`, `executor_scripts_folder`, `executor_name_length`, `executor_use_script_path_user`, `executor_scripts_subfolder` |
 | `SPLIT_AREA_PIES`    | One block per slot 1..9 (no 5) with `_factor`, `_pos`, `_ui`, `_alt_ui`                   |
-| `UI_TEXT_STAT`       | `iops_stat`, `show_filename_stat`, `show_dimensions_stat`, `show_view_position_stat`, `show_material_stat`, `show_material_users_stat`, `show_modifiers_stat`, `show_instances_stat`, `show_parent_stat`, `show_units_stat` |
+| `UI_TEXT_STAT`       | `iops_stat`, `show_filename_stat`, `show_filename_full_path`, `show_dimensions_stat`, `show_view_position_stat`, `show_material_stat`, `show_material_users_stat`, `show_modifiers_stat`, `show_instances_stat`, `show_parent_stat`, `show_units_stat` |
 | `TEXTURE_TO_MATERIAL`| `texture_to_material_prefixes`, `texture_to_material_suffixes`                            |
 | `SNAP_COMBOS`        | `snap_combo_1..8` — each with `SNAP_ELEMENTS`, `TOOL_SETTINGS`, `TRANSFORMATION`          |
 | `MODIFIER_WINDOW`    | `modifier_window_method`                                                                  |

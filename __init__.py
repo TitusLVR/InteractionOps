@@ -1,3 +1,6 @@
+# ruff: noqa: I001 — import order is intentional here: thematic grouping,
+# and the .operators.modifiers descriptor import sequence defines the
+# REGISTRY (grid icon) order. Do not auto-sort.
 import bpy
 import json
 import os
@@ -137,6 +140,40 @@ from .ui.iops_tm_panel import (
 
 from .ui.iops_data_panel import IOPS_PT_DATA_Panel, IOPS_OT_Call_Data_Panel
 from .ui.iops_mod_window import IOPS_OT_Modifier_Window
+from .ui.iops_modifiers_panel import (
+    IOPS_PT_Modifiers_Panel,
+    IOPS_OT_Call_Modifiers_Panel,
+)
+
+# iOps Modifiers module: descriptor files register themselves into
+# iops_mod_registry.REGISTRY on import; tool modules carry the operators.
+from .operators.modifiers import (
+    iops_mod_registry,
+    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array,
+    iops_mod_solidify, iops_mod_subsurf, iops_mod_screw, iops_mod_weld,
+    iops_mod_triangulate, iops_mod_decimate, iops_mod_remesh,
+    iops_mod_wireframe, iops_mod_curve, iops_mod_lattice,
+    iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,
+    iops_mod_weighted_normal,
+    iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
+    iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
+    iops_mod_safe_apply, iops_mod_list, iops_mod_defaults,
+)
+
+_modifiers_classes = (
+    iops_mod_list.IOPS_MT_ModGridAdd,
+    iops_mod_list.IOPS_OT_ModGridListAdd,
+    iops_mod_list.IOPS_OT_ModGridListAction,
+    iops_mod_registry.IOPS_OT_ModGridClick,
+    iops_mod_stack.IOPS_OT_ModStackAction,
+    iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_cleanup.IOPS_OT_ModCleanup,
+    iops_mod_sync_vis.IOPS_OT_ModSyncVis,
+    iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
+    iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
+    iops_mod_active_target.IOPS_OT_ModActiveTarget,
+    iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
+)
 
 from .ui.iops_pie_split import (
     IOPS_OT_Split_Area_Pie_1,
@@ -250,6 +287,7 @@ from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
+from .operators.mesh_smart_inset import IOPS_OT_smart_inset
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
@@ -257,6 +295,31 @@ from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_mesh_extrude_ex,
                                            define_extrude_macro)
 # from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
+
+from .operators.mesh_selection_sets import (
+    IOPS_SS_ObjectRef,
+    IOPS_SS_SceneSet,
+    IOPS_OT_SSNew,
+    IOPS_OT_SSRecall,
+    IOPS_OT_SSReplace,
+    IOPS_OT_SSDelete,
+    IOPS_OT_SSDeleteAll,
+    IOPS_OT_SSUnion,
+    IOPS_OT_SSDifference,
+    IOPS_OT_SSRename,
+    IOPS_OT_SSBool,
+)
+from .ui.iops_selection_sets_panel import (
+    IOPS_SS_MirrorItem,
+    IOPS_OT_SSRefresh,
+    IOPS_OT_SSPreview,
+    IOPS_OT_SSPreviewAll,
+    IOPS_UL_SelectionSets,
+    IOPS_PT_SelectionSets_Panel,
+    draw_iops_ss_header,
+    register_selection_sets_ui,
+    unregister_selection_sets_ui,
+)
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
@@ -280,40 +343,40 @@ except ModuleNotFoundError:
 
 # Asset Management
 from .operators.assets_management import (
-    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetClear,
     IOPS_OT_AssetCreateCatalog,
     IOPS_OT_AssetDeleteCatalog,
     IOPS_OT_AssetDeleteEmptyCatalogs,
-    IOPS_OT_AssetSearchMoveToCatalog,
-    IOPS_OT_AssetSearchDeleteCatalog,
     IOPS_OT_AssetMark,
-    IOPS_OT_AssetClear,
-    IOPS_OT_SetAssetLibrary,
-    IOPS_OT_SelectInAssetBrowser,
-    IOPS_OT_ClearAssetBrowserFilter,
-    IOPS_OT_RefreshAssetBrowser,
-    IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_AssetMoveToCatalog,
+    IOPS_OT_AssetSearchDeleteCatalog,
+    IOPS_OT_AssetSearchMoveToCatalog,
     IOPS_OT_Call_Pie_Assets,
+    IOPS_OT_ClearAssetBrowserFilter,
+    IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_RefreshAssetBrowser,
+    IOPS_OT_SelectInAssetBrowser,
+    IOPS_OT_SetAssetLibrary,
     register_pool_menus,
     unregister_pool_menus,
-)
-from .ui.iops_pie_assets import (
-    IOPS_MT_AssetMarkSub,
-    IOPS_MT_CatalogBrowseActive,
-    IOPS_MT_AssetDeleteCatalogsSub,
-    IOPS_MT_Pie_Assets,
 )
 
 # Material Override
 from .operators.material_override import (
     IOPS_MaterialOverrideSettings,
-    IOPS_OT_Material_Override_Clear_Rendering_Flag,
-    IOPS_OT_Material_Override_Refresh_Previews,
-    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Call_Material_Override_Panel,
     IOPS_OT_Material_Override_Apply,
     IOPS_OT_Material_Override_Clear,
+    IOPS_OT_Material_Override_Clear_Rendering_Flag,
+    IOPS_OT_Material_Override_Generate_Previews,
+    IOPS_OT_Material_Override_Refresh_Previews,
     IOPS_PT_Material_Override_Panel,
-    IOPS_OT_Call_Material_Override_Panel,
+)
+from .ui.iops_pie_assets import (
+    IOPS_MT_AssetDeleteCatalogsSub,
+    IOPS_MT_AssetMarkSub,
+    IOPS_MT_CatalogBrowseActive,
+    IOPS_MT_Pie_Assets,
 )
 
 bl_info = {
@@ -334,6 +397,8 @@ bl_info = {
 classes = (
     *_theme_classes,
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
+    iops_mod_list.IOPS_ModGridItem,  # same rule — grid list item
+    *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
@@ -525,9 +590,30 @@ classes = (
     IOPS_OT_ExpandInstanceCollection,
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_Modifier_Window,
+    *_modifiers_classes,
+    IOPS_PT_Modifiers_Panel,
+    IOPS_OT_Call_Modifiers_Panel,
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
+    IOPS_OT_smart_inset,
     IOPS_OT_mesh_shear,
+    IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
+    IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
+    IOPS_OT_SSNew,
+    IOPS_OT_SSRecall,
+    IOPS_OT_SSReplace,
+    IOPS_OT_SSDelete,
+    IOPS_OT_SSDeleteAll,
+    IOPS_OT_SSUnion,
+    IOPS_OT_SSDifference,
+    IOPS_OT_SSRename,
+    IOPS_OT_SSBool,
+    IOPS_SS_MirrorItem,   # CollectionProperty target — before rest of the UI classes
+    IOPS_OT_SSRefresh,
+    IOPS_OT_SSPreview,
+    IOPS_OT_SSPreviewAll,
+    IOPS_UL_SelectionSets,
+    IOPS_PT_SelectionSets_Panel,
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,
@@ -629,12 +715,16 @@ def register():
 
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
+    register_selection_sets_ui()
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
+    bpy.types.Scene.iops_selection_sets = bpy.props.CollectionProperty(
+        type=IOPS_SS_SceneSet
+    )
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
@@ -646,6 +736,7 @@ def register():
     bpy.types.OUTLINER_MT_collection.append(outliner_collection_ops)
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
+    bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
     register_select_similar_name_menu()
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
@@ -662,6 +753,12 @@ def register():
 
     load_iops_preferences()
     keymap_registration()
+
+    # Seed the modifiers grid list with the curated set on first run.
+    # Deferred to a timer: prefs can't be written from register() while
+    # Blender is still starting up (restricted context).
+    bpy.app.timers.register(iops_mod_list.seed_grid_list_if_empty,
+                            first_interval=0.1)
 
     # GPU widget framework: app handlers + persisted widget state + the
     # LEFTMOUSE interact keymap entry. Must run after the operator classes
@@ -684,6 +781,9 @@ def register():
 
 
 def unregister():
+    if bpy.app.timers.is_registered(iops_mod_list.seed_grid_list_if_empty):
+        bpy.app.timers.unregister(iops_mod_list.seed_grid_list_if_empty)
+    unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its
     # own keymap entry and app/draw handlers. Guarded so a failure here
@@ -727,11 +827,19 @@ def unregister():
     except Exception as e:
         print(e)
         pass
+    try:
+        bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_ss_header)
+    except Exception:
+        pass
     unregister_select_similar_name_menu()
     unregister_pool_menus()
     unreg_cls()
     del bpy.types.Scene.IOPS
     del bpy.types.Scene.iops_material_override_settings
+    try:
+        del bpy.types.Scene.iops_selection_sets
+    except AttributeError:
+        pass
     try:
         from .operators.uv_image_slots import unregister_slot_props
         unregister_slot_props()

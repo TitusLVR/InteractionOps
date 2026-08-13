@@ -16,6 +16,14 @@ from bpy.props import (
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
+from ..operators.modifiers import iops_mod_defaults
+from ..operators.modifiers.iops_mod_list import (
+    IOPS_ModGridItem,
+    type_label,
+)
+from ..operators.modifiers.iops_mod_registry import (
+    type_icon as mod_type_icon,
+)
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -127,6 +135,18 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    iops_ss_header: BoolProperty(
+        name="Selection Sets in 3D View Header",
+        description="Show the Selection Sets dropdown and buttons in the 3D View header",
+        default=True,
+    )
+
+    show_filename_full_path: BoolProperty(
+        name="Full Path",
+        description="Show the full .blend file path instead of just the filename",
+        default=False,
+    )
+
     show_dimensions_stat: BoolProperty(
         name="Dimensions",
         description="Show active object dimensions in scene units",
@@ -188,6 +208,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_io: BoolProperty(default=False)
     show_section_debug: BoolProperty(default=False)
     show_section_pies: BoolProperty(default=False)
+    show_section_modifiers_panel: BoolProperty(default=False)
 
     # Legacy cage/snap/align color and size props removed.
     # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
@@ -607,7 +628,22 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         ],
         default="RENDER"
     )
-    
+
+    # iOps Modifiers panel (grid)
+    modifiers_grid_columns: IntProperty(
+        name="Grid Columns",
+        description="Number of icon columns in the iOps Modifiers "
+                    "panel grid",
+        default=6, min=1, max=12,
+    )
+    modifiers_grid_items: bpy.props.CollectionProperty(type=IOPS_ModGridItem)
+    modifiers_grid_index: IntProperty(default=0)
+    modifiers_show_stack: BoolProperty(
+        name="Show Stack List",
+        description="Show the active object's modifier stack under the grid",
+        default=True,
+    )
+
     # (Distance text is now rendered through the HUD header — no separate
     # position offsets needed.)
 
@@ -863,7 +899,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             body = _section(column_main, self, "show_section_stats", "Statistics Overlay", icon="INFO")
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
-                body.prop(self, "show_filename_stat", toggle=True)
+                body.prop(self, "iops_ss_header", toggle=True)
+                row = body.row(align=True)
+                row.prop(self, "show_filename_stat", toggle=True)
+                sub = row.row(align=True)
+                sub.enabled = self.show_filename_stat
+                sub.prop(self, "show_filename_full_path", toggle=True)
                 grid = body.grid_flow(columns=2, align=True)
                 grid.prop(self, "show_dimensions_stat", toggle=True)
                 grid.prop(self, "show_view_position_stat", toggle=True)
@@ -926,6 +967,64 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row = body.row(align=True)
                 row.alignment = "LEFT"
                 row.prop(self, "modifier_window_method", expand=True)
+
+            # iOps Modifiers panel
+            body = _section(column_main, self, "show_section_modifiers_panel",
+                            "Modifiers Panel", icon="MODIFIER")
+            if body is not None:
+                row = body.row(align=True)
+                row.prop(self, "modifiers_grid_columns")
+                row.prop(self, "modifiers_show_stack", toggle=True)
+                body.separator()
+                body.label(text="Grid preview (click a button to select):")
+                row = body.row()
+                grid = row.grid_flow(row_major=True,
+                                     columns=self.modifiers_grid_columns,
+                                     even_columns=True, align=True)
+                for i, it in enumerate(self.modifiers_grid_items):
+                    op = grid.operator(
+                        "iops.mod_grid_list_action", text="",
+                        icon=mod_type_icon(it.mod_type),
+                        depress=(i == self.modifiers_grid_index))
+                    op.action = "SELECT"
+                    op.index = i
+                side = row.column(align=True)
+                side.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="REMOVE").action = "REMOVE"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_UP").action = "UP"
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="TRIA_DOWN").action = "DOWN"
+                side.separator()
+                side.operator("iops.mod_grid_list_action", text="",
+                              icon="FILE_REFRESH").action = "RESET"
+
+                items = self.modifiers_grid_items
+                idx = self.modifiers_grid_index
+                if 0 <= idx < len(items):
+                    mod_type = items[idx].mod_type
+                    box = body.box()
+                    group = iops_mod_defaults.get_group(self, mod_type)
+                    header = box.row()
+                    header.label(text=f"{type_label(mod_type)} — "
+                                      "default settings:",
+                                 icon="PRESET")
+                    if group is not None:
+                        header.operator("iops.mod_grid_list_action",
+                                        text="Reset",
+                                        icon="LOOP_BACK"
+                                        ).action = "CLEAR_PRESET"
+                        col = box.column()
+                        col.use_property_split = True
+                        col.use_property_decorate = False
+                        iops_mod_defaults.draw_props(
+                            col, group, type(group).__annotations__)
+                    else:
+                        box.label(text="No editable parameters "
+                                       "(Blender defaults apply)",
+                                  icon="INFO")
 
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")
@@ -992,3 +1091,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
         if self.tabs == "THEME":
             draw_theme_tab(layout, self.iops_theme)
+
+
+# One PointerProperty per generated modifier-defaults group. Must run
+# before the class registers (root __init__ registers the groups first).
+iops_mod_defaults.inject_pointer_props(IOPS_AddonPreferences)

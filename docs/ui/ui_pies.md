@@ -21,12 +21,14 @@ Source: `ui/iops_pie_menu.py`.
 
 Layout is not a classic radial — it uses `layout.menu_pie()` for cardinals but renders the W and S slots as full sub-panels (boxes), and N/E light up only when companion addons are present.
 
+Operator buttons are drawn through the `op_if_poll()` helper: a button is hidden entirely (not just greyed out) when the operator's `poll()` fails in the current context, so the menu only shows what can actually run.
+
 | Slot | Contents |
 |---|---|
-| W (4) | "IOPS" box. `scene.IOPS.iops_vertex_color` picker. `iops.mesh_assign_vertex_color` (Set Vertex Color). White / Grey / Black presets via the same operator with `fill_color_white/grey/black=True`. `iops.mesh_assign_vertex_color_alpha`. Then a stack of operators: `iops.materials_from_textures`, `iops.object_replace`, `iops.object_aligner`, `iops.object_radial_array`, `iops.object_align_between_two`, `iops.mesh_quick_snap`, `iops.mesh_quick_connect`, `iops.mesh_to_tris_to_quads`, `iops.object_drop_it`, `iops.object_kitbash_grid`, then the Easy Modifier group (`iops.modifier_easy_array_caps`, `_array_curve`, `_curve`, `_shwarp`), `iops.assets_render_asset_thumbnail`, `iops.reload_libraries`, `iops.reload_images`. |
+| W (4) | "IOPS" box. `scene.IOPS.iops_vertex_color` picker. `iops.mesh_assign_vertex_color` (Set Vertex Color). White / Grey / Black presets via the same operator with `fill_color_white/grey/black=True`. `iops.mesh_assign_vertex_color_alpha`. Then a stack of operators: `iops.materials_from_textures`, `iops.object_replace`, `iops.object_aligner`, `iops.object_radial_array`, `iops.object_align_between_two`, `iops.mesh_quick_snap`, `iops.mesh_quick_connect`, `iops.mesh_to_tris_to_quads`, `iops.mesh_smart_inset` (Smart Inset), `iops.mesh_straight_bevel` (Straight Bevel), `iops.mesh_shear` (Shear) — the last three are mesh-edit-mode only and hide otherwise, `iops.object_drop_it`, `iops.object_kitbash_grid`, then the Easy Modifier group (`iops.modifier_easy_array_caps`, `_array_curve`, `_curve`, `_shwarp`), `iops.assets_render_asset_thumbnail`, `iops.reload_libraries`, `iops.reload_images`. |
 | E (6) | "BMax" box if `BMAX Connector` is enabled — `bmax.export`/`bmax.import` (or USD variants depending on `prefs.file_format`), plus L/R/S reset-on-export toggles. "BMoI" box if `BMOI Connector` is enabled — `bmoi3d.export`/`bmoi3d.import`. |
-| S (2) | "B2RUVL" box. UV map mode + uvMap dropdowns from `wm.B2RUVL_PanelProperties`. `b2ruvl.send_to_uvlayout` (enabled when path is set), `b2ruvl.send_to_rizomuv`, `b2ruvl.retake_rizomuv`. |
-| N (8) | "ForgottenTools" box when `Forgotten Tools` is enabled AND mode is `EDIT_MESH` — `forgotten.mesh_connect_spread`, `forgotten.mesh_grid_fill_all`, `forgotten.mesh_dice_faces`, `forgotten.mesh_hinge`, `mesh.forgotten_separate_duplicate`, and a `wm.call_panel` opening `FORGOTTEN_PT_SelectionSetsPanel`. Otherwise empty. |
+| S (2) | "B2RUVL" box. `uvMap` index from `wm.B2RUVL_PanelProperties`. `b2ruvl.send_to_uvlayout` (enabled when path is set), `b2ruvl.send_to_rizomuv`, `b2ruvl.get_from_rizomuv`. |
+| N (8) | "ForgottenTools" box when `Forgotten Tools` is enabled AND mode is `EDIT_MESH` — `mesh.connect_spread`, `mesh.grid_fill_all`, `mesh.dice_faces`, `mesh.hinge`, `mesh.forgotten_separate_duplicate`, and a `wm.call_panel` opening `MESH_PT_selection_sets_panel_frgttn`. Otherwise empty. |
 | NW (7) | Empty. |
 | NE (9) | `mesh.optiloops` when `Optiloops` is enabled AND mode is `EDIT_MESH`. Otherwise empty. |
 | SW (1) | Empty. |

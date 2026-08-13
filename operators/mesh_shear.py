@@ -8,9 +8,10 @@ profiles — beveled squares, custom hand-built shapes, anything where
 
 
 - face selection (any face selected) → face shear: each face vert
-  slides along its non-face rail edge by `-(proj·tan(angle))` where
-  `proj` is the vert's offset from face centroid along the axis edge.
-  Face tilts around its centroid.
+  slides along its non-face rail edge by `proj·sin(angle)` where
+  `proj` is the vert's offset from the pivot side along the axis.
+  Verts sharing a projection (one profile cross-section) slide as a
+  rigid row along their averaged rail direction.
 
 - edge selection (any edge selected, no faces) → edge shear: each
   selected edge's "active" vert slides perpendicular to the edge
@@ -31,8 +32,9 @@ from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
                       handle_hud_toggle, handle_help_toggle, capture_event)
+from ..utils.hinge_core import flush_angle
 from bpy_extras import view3d_utils
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 
@@ -112,6 +114,21 @@ def _find_face_adjacent_rail(vert, edge, face):
     return None
 
 
+def _gather_double_verts(seed_verts, dist):
+    """Grow `seed_verts` across link_loops to every vert closer than
+    `dist` to an already-collected vert. Recursion via list growth."""
+    verts = list(seed_verts)
+    seen = set(verts)
+    for v in verts:
+        co = v.co
+        for loop in v.link_loops:
+            nv = loop.link_loop_next.vert
+            if nv not in seen and (nv.co - co).length < dist:
+                seen.add(nv)
+                verts.append(nv)
+    return verts
+
+
 def build_edge_record(edge, hist_vert):
     """Edge shear record using the saw-off model — the active endpoint
     slides along its non-face external edge ("rail") rather than
@@ -186,7 +203,7 @@ def flip_edge_record_active(rec):
 
 def build_face_record(face, axis_dir):
     """Face shear record. ALL face verts slide along their non-face
-    rail edges by `-(proj·tan(angle))`. `axis_dir` is a unit Vector in
+    rail edges by `proj·sin(angle)`. `axis_dir` is a unit Vector in
     the face plane along which projections are measured.
 
     The record caches the face's principal axes (PCA) so F can toggle
@@ -244,10 +261,42 @@ def build_face_record(face, axis_dir):
     # smallest (the "saw entry" edge). Shift so that pivot verts have
     # proj = 0 and the rest have proj > 0. At positive angle, every
     # vert slides along its rail away from the pivot edge by
-    # `proj * tan(angle)`.
+    # `proj * sin(angle)`.
     min_centroid_proj = min(centroid_projs)
     projections = [cp - min_centroid_proj for cp in centroid_projs]
     pivot_point = centroid + axis_dir * min_centroid_proj
+
+    # Row-rigid slide: verts sharing the same projection form one
+    # profile cross-section and must translate as a rigid unit —
+    # per-vert rails that diverge (the two long sides of a chamfer
+    # strip point along different world axes) would otherwise twist
+    # the cross-section into a bowtie. Each row slides along the
+    # normalized mean of its members' unit rail dirs: identical to
+    # the old behavior for parallel rails, a rigid diagonal slide
+    # for diverging ones.
+    max_p = max(projections) if projections else 0.0
+    row_tol = max(max_p * 1e-3, 1e-6)
+    order = sorted(range(len(projections)), key=lambda i: projections[i])
+    row = []
+    rows = []
+    for i in order:
+        if row and projections[i] - projections[row[-1]] > row_tol:
+            rows.append(row)
+            row = []
+        row.append(i)
+    if row:
+        rows.append(row)
+    for row in rows:
+        if len(row) < 2:
+            continue
+        mean_dir = rails[row[0]]["dir"] * 0.0
+        for i in row:
+            mean_dir = mean_dir + rails[i]["dir"]
+        if mean_dir.length < 1e-6:
+            continue  # opposing rails cancel — keep per-vert dirs
+        mean_dir = mean_dir / mean_dir.length
+        for i in row:
+            rails[i]["dir"] = mean_dir.copy()
 
     pa, pb = face_principal_axes(face)
     return {
@@ -399,7 +448,7 @@ def _min_obb_axis_for_face(face):
 
 
 def _fit_reset_for_axis(rec, axis_dir):
-    """Linear-regression fit of `offset_along_rail = -tan(θ) * proj +
+    """Linear-regression fit of `offset_along_rail = -sin(θ) * proj +
     C` for the given axis. Returns (slope, residual_sum_squares) so a
     caller can pick the best axis. None if the system is degenerate."""
     rails = rec["rails"]
@@ -455,7 +504,9 @@ def compute_reset_for_face_record(rec):
         if fit is None:
             continue
         slope, rss = fit
-        angle = math.degrees(math.atan(-slope))
+        # Slide model is proj·sin(angle) — invert with asin, clamping
+        # to the reachable range (|slide| can't exceed proj).
+        angle = math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
         if best is None or rss < best[2] - 1e-9:
             best = (axis, angle, rss)
     if best is None:
@@ -483,7 +534,7 @@ def compute_reset_angle_face(rec):
     projs = rec["projections"]
     offs = [(p - centroid).dot(R) for p in orig_cos]
 
-    # Linear-least-squares fit: solve `offs ≈ -tan(θ) * projs + C`
+    # Linear-least-squares fit: solve `offs ≈ -sin(θ) * projs + C`
     # across all verts. Picking a single best pair fails on beveled or
     # multi-vert faces where multiple pairs share the same proj
     # difference but have inconsistent offs differences. Fitting all
@@ -503,7 +554,8 @@ def compute_reset_angle_face(rec):
     if abs(den) < 1e-9:
         return 0.0
     slope = num / den
-    return math.degrees(math.atan(-slope))
+    # Slide model is proj·sin(angle) — invert with asin, clamped.
+    return math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
 
 
 def compute_reset_angle_edge(rec):
@@ -579,6 +631,12 @@ def compute_reset_angle(records):
 
 def apply_records(records, angle_deg):
     t = _angle_to_t(angle_deg)
+    # Face mode slides by proj·sin(angle): the reference results are
+    # "rotate the face by the typed angle around the pivot side, land
+    # the verts back on their rails" — the rail-projected displacement
+    # of that rotation. tan() overshoots on oblique rails (a 45°
+    # chamfer face would tilt 67.5° for a typed 45°).
+    s = math.sin(math.radians(angle_deg))
     for r in records:
         if r["type"] == "edge":
             if r["active"].is_valid and r["fixed"].is_valid:
@@ -592,7 +650,7 @@ def apply_records(records, angle_deg):
                     r["active_verts"], r["orig_active_cos"],
                     r["rails"], r["projections"]):
                 if av.is_valid:
-                    av.co = oc + rail["dir"] * (proj * t)
+                    av.co = oc + rail["dir"] * (proj * s)
 
 
 def restore_records(records):
@@ -725,6 +783,9 @@ cancels. LMB clicks only pick widget handles."""
         self.angle_deg = 0.0
         self.input_str = ""
         self.skip_reasons = skip_reasons
+        # Last angle a shear actually used — seeds Q hinge after an
+        # extrude confirm has reset angle_deg on the new cap.
+        self._last_shear_angle = 0.0
         # Point-and-click state. Each entry: {"region_pt": (x,y),
         # "axis": Vector, "rec_idx": int}. Click on any hotspot
         # rebuilds that record with the picked axis (= switches both
@@ -741,6 +802,17 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_distance = 0.0
         self._extrude_start_x = 0
         self._extrude_start_y = 0
+
+        # Hinge sub-modal state. Q enters; selected faces rotate around
+        # the active edge from select_history. Preview is a draw-only
+        # ghost of the spin result — the mesh itself doesn't move until
+        # bmesh.ops.spin runs once at confirm. Mutating verts during
+        # preview would drag/shear the unselected neighbor faces that
+        # share them, which the baked spin never does (it extrudes
+        # walls instead) — the preview must not lie.
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
 
         # Align sub-modal state. A enters; mouse hovers a face which
         # gets a 35% red overlay; LMB picks it and sets axis_dir to the
@@ -774,6 +846,7 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude perp",       "E",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Hinge around active edge / pivot side", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         if self.mode == "face":
             items.append(HUDItem("Align axis to face", "A",   ItemState.ON, default_state=ItemState.OFF, always_show=True))
@@ -784,6 +857,15 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ])
         self._help.add_section(HUDSection("Shear", items))
+        hinge_items = [
+            HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm",        "Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel hinge",   "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]
+        self._help.add_section(HUDSection("Hinge (Q)", hinge_items))
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
@@ -873,14 +955,28 @@ cancels. LMB clicks only pick widget handles."""
             # edge verts wait the longest. Mirrors the edge-mode saw-
             # off rule one-vert-at-a-time for every face vert.
             proj_max = max(projs) if projs else 0.0
+            sin_t = math.sin(math.radians(self.angle_deg))
+            # Unsheared face (always the case right after a hinge
+            # confirm): the face is a square end, not a miter — extrude
+            # straight along its normal. The rail mirror only encodes a
+            # miter when there IS a shear; on oblique/diverging rails
+            # (chamfer profiles, post-hinge spin-wall chords) mirroring
+            # at zero angle collapses or twists the new face.
+            straight = abs(sin_t) < 1e-6
+            unit_normal = face_normal.normalized()
             per_old_vert = {}
             for av, rail, proj in zip(active_verts, rails, projs):
-                side = mirror(rail["dir"], face_normal)
-                if side.length < 1e-9:
-                    side = rail["dir"]  # rail parallel to normal — fallback
+                if straight:
+                    side = unit_normal.copy()
                 else:
-                    side = side.normalized()
-                delay = (proj_max - proj) * t
+                    side = mirror(rail["dir"], face_normal)
+                    if side.length < 1e-9:
+                        side = rail["dir"]  # rail parallel to normal — fallback
+                    else:
+                        side = side.normalized()
+                # Same proj·sin(angle) rule as apply_records so the
+                # mirrored saw-off delays match the actual slides.
+                delay = (proj_max - proj) * sin_t
                 per_old_vert[av] = (av.co.copy(), side, delay)
 
             res = bmesh.ops.extrude_face_region(self.bm, geom=[face])
@@ -1115,6 +1211,11 @@ cancels. LMB clicks only pick widget handles."""
         d = self._extrude_data
         target = d["target"]
         kind = d["kind"]
+        # Remember the shear angle that shaped this segment's miter —
+        # a following Q hinge seeds from it (the shear itself resets
+        # to 0 on the new cap).
+        if abs(self.angle_deg) > 1e-6:
+            self._last_shear_angle = self.angle_deg
         # Now that the user committed, the original face becomes an
         # interior face and must be removed. Side walls already share
         # its verts and edges so FACES_ONLY leaves the surrounding
@@ -1126,7 +1227,26 @@ cancels. LMB clicks only pick widget handles."""
             bmesh.ops.delete(
                 self.bm, geom=[orig_face], context="FACES_ONLY",
             )
+        # Move the selection (and select_history) onto the new cap:
+        # sub-modals entered from here (Q hinge) read the selection,
+        # and a stale pre-extrude edge in select_history would hand
+        # the hinge a distant axis.
+        try:
+            self.bm.select_history.clear()
+        except (TypeError, RuntimeError):
+            pass
         if kind == "face" and target.is_valid:
+            # Full deselect (not just faces) — stray selected edges or
+            # verts left by earlier chained ops would otherwise keep
+            # accumulating in the selection.
+            for v in self.bm.verts:
+                v.select = False
+            for e in self.bm.edges:
+                e.select = False
+            for f in self.bm.faces:
+                f.select = False
+            target.select_set(True)
+            self.bm.select_flush_mode()
             pa, _ = face_principal_axes(target)
             if pa is not None:
                 new_rec, _ = build_face_record(target, pa)
@@ -1134,6 +1254,7 @@ cancels. LMB clicks only pick widget handles."""
                     self.records = [new_rec]
                     self.mode = "face"
         elif kind == "edge" and target.is_valid:
+            target.select_set(True)
             new_rec, _ = build_edge_record(target, None)
             if new_rec is not None:
                 self.records = [new_rec]
@@ -1186,6 +1307,358 @@ cancels. LMB clicks only pick widget handles."""
         bmesh.update_edit_mesh(self.obj.data)
         self._hotspots = []
         self._hover_idx = None
+
+    def _hinge_line_from_shear(self):
+        """Hinge line from the active shear record's pivot side — the
+        amber saw-entry line the widget draws (perp to axis_dir through
+        pivot_point). Returns (center, axis, edge_or_None, (a, b)) or
+        None. `edge` is the real pivot BMEdge when the pivot side is a
+        boundary edge (enables the flap case at confirm); (a, b) are
+        world-space endpoints for drawing the axis."""
+        if self.mode != "face" or not self.records:
+            return None
+        rec = self.records[0]
+        try:
+            active = self.bm.select_history.active
+        except (TypeError, RuntimeError):
+            active = None
+        if isinstance(active, bmesh.types.BMFace):
+            for r in self.records:
+                if r["face"] is active:
+                    rec = r
+                    break
+        face = rec["face"]
+        if not face.is_valid:
+            return None
+
+        # Pivot verts have projection ~0 (same tolerance the widget
+        # uses to highlight the pivot boundary).
+        projs = rec["projections"]
+        max_p = max(projs) if projs else 0.0
+        pivot_tol = max(max_p * 0.001, 1e-5)
+        proj_of = {v: p for v, p in zip(rec["active_verts"], projs)}
+        for e in face.edges:
+            ev0, ev1 = e.verts
+            if (proj_of.get(ev0, 1.0) < pivot_tol
+                    and proj_of.get(ev1, 1.0) < pivot_tol):
+                axis = ev1.co - ev0.co
+                if axis.length < 1e-9:
+                    continue
+                axis = axis.normalized()
+                a, b = ev0.co.copy(), ev1.co.copy()
+                return (a + b) * 0.5, axis, e, (a, b)
+
+        # No boundary edge on the pivot side (pivot is a single corner
+        # of an n-gon): abstract line through pivot_point, in-plane
+        # perpendicular to axis_dir, spanning the face extent.
+        normal = _face_normal_safe(face)
+        axis = normal.cross(rec["axis_dir"])
+        if axis.length < 1e-9:
+            return None
+        axis = axis.normalized()
+        center = rec["pivot_point"].copy()
+        ts = [(oc - center).dot(axis) for oc in rec["orig_active_cos"]]
+        t0, t1 = (min(ts), max(ts)) if ts else (0.0, 0.0)
+        return center, axis, None, (center + axis * t0, center + axis * t1)
+
+    def _enter_hinge(self, context, event):
+        """Q: begin the hinge sub-modal. Selected faces rotate around
+        the active edge (select_history) when one exists, otherwise
+        around the active shear record's pivot side — the same amber
+        line the shear widget shows. Q is a mode switch, not a confirm:
+        any in-progress shear preview (including the auto-45° kick from
+        an axis-pick click) is dropped so the hinge rotates the
+        unsheared pose — but its angle carries over as the initial
+        hinge angle so the ghost picks up where the shear left off."""
+        hist_edge = None
+        try:
+            for item in self.bm.select_history:
+                if isinstance(item, bmesh.types.BMEdge):
+                    hist_edge = item
+        except (TypeError, RuntimeError):
+            pass
+        sel_faces = [f for f in self.bm.faces if f.select]
+        if not sel_faces:
+            self.report({"INFO"}, "hinge: needs selected faces")
+            return False
+        # Restore BEFORE deriving axis/center — the shear preview may
+        # have moved the very verts the hinge line passes through.
+        # The shear angle (typed included) seeds the hinge angle; when
+        # the shear is at 0 (always the case right after an extrude
+        # confirm), fall back to the last angle a shear actually used.
+        seed_angle = self._effective_angle()
+        if abs(seed_angle) < 1e-6:
+            seed_angle = getattr(self, "_last_shear_angle", 0.0)
+        else:
+            self._last_shear_angle = seed_angle
+        if self.records:
+            restore_records(self.records)
+            self.bm.normal_update()
+            bmesh.update_edit_mesh(self.obj.data)
+        self.angle_deg = 0.0
+        if hist_edge is not None and hist_edge.is_valid:
+            v0, v1 = hist_edge.verts
+            axis = v1.co - v0.co
+            if axis.length < 1e-9:
+                self.report({"INFO"}, "hinge: active edge has zero length")
+                return False
+            axis = axis.normalized()
+            center = (v0.co + v1.co) * 0.5
+            hinge_edge = hist_edge
+            axis_pts = (v0.co.copy(), v1.co.copy())
+        else:
+            line = self._hinge_line_from_shear()
+            if line is None:
+                self.report({"INFO"},
+                            "hinge: needs an active edge or a shear pivot side")
+                return False
+            center, axis, hinge_edge, axis_pts = line
+
+        vert_set = set()
+        for f in sel_faces:
+            vert_set.update(f.verts)
+        verts = list(vert_set)
+        orig_cos = [v.co.copy() for v in verts]
+
+        # Average selection normal at entry — the flush reference (A).
+        n_sum = Vector((0.0, 0.0, 0.0))
+        for f in sel_faces:
+            n_sum += _face_normal_safe(f)
+        orig_normal = (n_sum.normalized() if n_sum.length > 1e-9
+                       else _face_normal_safe(sel_faces[0]))
+
+        # Match the hinge's positive direction to the shear's: a
+        # positive angle must swing the flap the way a positive shear
+        # slides it — along the record's rails. The tangential velocity
+        # of the selection centroid under +rotation is axis × (centroid
+        # - center); if it opposes the mean rail direction, flip the
+        # axis. Without this the sign of the inherited angle (and of
+        # typed input) depends on the arbitrary vert order of the
+        # active edge.
+        rec0 = self.records[0] if self.records else None
+        if rec0 is not None and rec0.get("type") == "face":
+            r_mean = Vector((0.0, 0.0, 0.0))
+            for rl in rec0["rails"]:
+                r_mean += rl["dir"]
+            sel_centroid = Vector((0.0, 0.0, 0.0))
+            for co in orig_cos:
+                sel_centroid += co
+            sel_centroid /= max(1, len(orig_cos))
+            tangent = axis.cross(sel_centroid - center)
+            if (r_mean.length > 1e-9 and tangent.length > 1e-9
+                    and tangent.dot(r_mean) < 0):
+                axis = -axis
+
+        self._hinge_data = {
+            "faces": sel_faces,
+            "verts": verts,
+            "orig_cos": orig_cos,
+            "orig_co_map": {v: c for v, c in zip(verts, orig_cos)},
+            "center": center.copy(),
+            "axis": axis.copy(),
+            "edge": hinge_edge,       # None when axis came from the pivot line
+            "axis_pts": axis_pts,
+            "orig_normal": orig_normal.copy(),
+            "steps": 6,
+        }
+        self._hinge_active = True
+        self._hinge_angle_deg = seed_angle if abs(seed_angle) > 1e-6 else 0.0
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+        self._align_active = False  # latched align highlight must not draw over hinge preview
+        self._align_face = None
+        return True
+
+    def _hinge_effective_angle(self):
+        if self.input_str and self.input_str not in ("-", ".", "-."):
+            try:
+                return float(self.input_str)
+            except ValueError:
+                return self._hinge_angle_deg
+        return self._hinge_angle_deg
+
+    def _hinge_modal(self, context, event):
+        # Navigation passes through (Q sub-modal owns Ctrl+wheel only).
+        if (event.type == "MIDDLEMOUSE" or event.type.startswith("NDOF")
+                or (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
+                    and not event.ctrl)):
+            return {"PASS_THROUGH"}
+
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.ctrl:
+            d = self._hinge_data
+            delta = 1 if event.type == "WHEELUPMOUSE" else -1
+            d["steps"] = max(1, min(64, d["steps"] + delta))
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+
+        if event.type == "MOUSEMOVE":
+            self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+            return {"RUNNING_MODAL"}
+
+        if event.value == "PRESS":
+            if event.type in DIGIT_TYPES:
+                self.input_str += DIGIT_TYPES[event.type]
+            elif event.type in {"PERIOD", "NUMPAD_PERIOD"}:
+                if "." not in self.input_str:
+                    self.input_str += "."
+            elif event.type in {"MINUS", "NUMPAD_MINUS"}:
+                if self.input_str.startswith("-"):
+                    self.input_str = self.input_str[1:]
+                else:
+                    self.input_str = "-" + self.input_str
+            elif event.type == "BACK_SPACE":
+                self.input_str = self.input_str[:-1]
+            elif event.type == "D":
+                if self.input_str:
+                    if self.input_str.startswith("-"):
+                        self.input_str = self.input_str[1:]
+                    else:
+                        self.input_str = "-" + self.input_str
+                else:
+                    self._hinge_angle_deg = -self._hinge_angle_deg
+            elif event.type == "A":
+                self._hinge_flush_pick(context, event)   # Task 4
+            elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
+                return self._confirm_hinge(context)      # Task 3
+            elif event.type in {"RIGHTMOUSE", "ESC"}:
+                self._cancel_hinge(context)
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        return {"RUNNING_MODAL"}
+
+    def _cancel_hinge(self, context):
+        # Preview is draw-only (ghost) — no geometry to restore.
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+        return {"RUNNING_MODAL"}
+
+    def _confirm_hinge(self, context):
+        """Enter/Space: bake the hinge. The preview is draw-only, so
+        the mesh is still in its original pose — run bmesh.ops.spin
+        with the chosen steps (real segment geometry), merge doubles
+        at the hinge line, select the resulting cap and rebuild shear
+        records on it so the modal chains back to shear. Zero angle is
+        a clean no-op exit back to shear."""
+        d = self._hinge_data
+        angle_rad = math.radians(self._hinge_effective_angle())
+        if abs(angle_rad) < 1e-6:
+            return self._cancel_hinge(context)
+
+        edge = d["edge"]
+        # Flap case (all faces at the hinge edge are selected): drop the
+        # edge from the selection so spin bends the flap instead of
+        # extruding a new wall from the hinge line. Mirrors forgotten
+        # hinge.
+        if (edge is not None and edge.is_valid and edge.link_faces
+                and all(f.select for f in edge.link_faces)):
+            edge.select = False
+            edge.verts[0].select = False
+            edge.verts[1].select = False
+
+        faces = [f for f in self.bm.faces if f.select]
+        edges = [e for e in self.bm.edges if e.select]
+        verts = [v for v in self.bm.verts if v.select]
+        geom = edges + faces + verts
+        if not geom:
+            self.report({"WARNING"}, "hinge: nothing to spin")
+            return self._cancel_hinge(context)
+        for g in geom:
+            g.select = False
+
+        result = bmesh.ops.spin(
+            self.bm, geom=geom, cent=d["center"], axis=d["axis"],
+            angle=angle_rad, steps=d["steps"], use_merge=False)
+        last = result["geom_last"]
+
+        dist = 0.001
+        seed = [g for g in last if isinstance(g, bmesh.types.BMVert)]
+        if seed:
+            bmesh.ops.remove_doubles(
+                self.bm, verts=_gather_double_verts(seed, dist), dist=dist)
+
+        # Full deselect before selecting the new cap: the pre-spin
+        # `g.select = False` doesn't flush, so verts/edges of the old
+        # cap stay selected and accumulate across chained
+        # extrude/hinge rounds.
+        for v in self.bm.verts:
+            v.select = False
+        for e in self.bm.edges:
+            e.select = False
+        for f in self.bm.faces:
+            f.select = False
+        for g in last:
+            if g.is_valid:
+                g.select_set(True)
+        self.bm.select_flush_mode()
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data, loop_triangles=True,
+                               destructive=True)
+
+        # Exit the sub-modal before rebuilding shear records.
+        self._hinge_active = False
+        self._hinge_data = None
+        self._hinge_angle_deg = 0.0
+        self.input_str = ""
+        self._hotspots = []
+        self._hover_idx = None
+
+        cap_faces = [g for g in last
+                     if isinstance(g, bmesh.types.BMFace) and g.is_valid]
+        new_records = []
+        for f in cap_faces:
+            pa, _ = face_principal_axes(f)
+            if pa is None:
+                continue
+            rec, _ = build_face_record(f, pa)
+            if rec is not None:
+                new_records.append(rec)
+        if new_records:
+            self.records = new_records
+            self.mode = "face"
+            self.angle_deg = 0.0
+            context.workspace.status_text_set(self._status_text())
+            return {"RUNNING_MODAL"}
+        # No usable cap (e.g. rails gone after merge) — finish cleanly
+        # rather than leaving shear pointed at dead records.
+        bpy.ops.ed.undo_push(message="Shear")
+        self._finish(context)
+        return {"FINISHED"}
+
+    def _hinge_flush_pick(self, context, event):
+        """A: raycast the face under the cursor; set the hinge angle so
+        the selection's ORIGINAL plane lands coplanar with the picked
+        face's plane (smallest-magnitude solution). Picking one of the
+        hinged faces or empty space is a no-op."""
+        d = self._hinge_data
+        self.bm.normal_update()
+        self.bm.faces.ensure_lookup_table()
+        self._align_bvh = BVHTree.FromBMesh(self.bm)
+        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        picked = self._raycast_face_under_cursor(context)
+        self._align_bvh = None
+        if picked is None or picked in set(d["faces"]):
+            self.report({"INFO"}, "hinge flush: pick a face outside the selection")
+            return
+        n_t = _face_normal_safe(picked)
+        if n_t.length < 1e-9:
+            self.report({"INFO"}, "hinge flush: degenerate target face")
+            return
+        ang = flush_angle(tuple(d["orig_normal"]), tuple(n_t),
+                          tuple(d["axis"]))
+        if ang is None:
+            self.report({"INFO"}, "hinge flush: target parallel to hinge axis")
+            return
+        self._hinge_angle_deg = math.degrees(ang)
+        self.input_str = ""
 
     def _toggle_align_highlight(self, context, event):
         """A: raycast the face under the cursor and latch it. If a
@@ -1474,6 +1947,15 @@ cancels. LMB clicks only pick widget handles."""
     # ----------------------------------------------------------------------
 
     def _status_text(self):
+        if self._hinge_active:
+            d = self._hinge_data
+            typed = f" | typing: {self.input_str}" if self.input_str else ""
+            return (
+                f"Hinge: {self._hinge_effective_angle():.2f}° | "
+                f"steps: {d['steps']}{typed} | [0-9 . -] type | "
+                "[Ctrl+Wheel] steps | [D] flip | [A] flush to face | "
+                "[Enter] confirm | [Esc/RMB] cancel hinge"
+            )
         if self._extrude_active:
             return (
                 f"Extrude ({self.mode}): {self._extrude_distance:.4f} | "
@@ -1530,6 +2012,9 @@ cancels. LMB clicks only pick widget handles."""
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
 
+        if self._hinge_active:
+            return self._hinge_modal(context, event)
+
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
             return {"PASS_THROUGH"}
@@ -1577,6 +2062,11 @@ cancels. LMB clicks only pick widget handles."""
 
             if event.type == "E":
                 if self._enter_extrude(event):
+                    context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "Q":
+                if self._enter_hinge(context, event):
                     context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
@@ -1715,6 +2205,8 @@ cancels. LMB clicks only pick widget handles."""
         self._hover_idx = None
         self._extrude_data = None
         self._extrude_active = False
+        self._hinge_active = False
+        self._hinge_data = None
         self._align_active = False
         self._align_face = None
         self._align_bvh = None
@@ -1763,12 +2255,15 @@ cancels. LMB clicks only pick widget handles."""
         # Rebuild hotspot list each draw — view changes & axis edits
         # invalidate prior screen positions.
         self._hotspots = []
-        for ri, r in enumerate(self.records):
-            if r["type"] == "edge":
-                self._draw_edge_record(region, rv3d, mw, r, ri, context=context, theme=theme)
-            else:
-                self._draw_face_record(region, rv3d, mw, r, ri, context=context, theme=theme)
-        self._update_hover()
+        if self._hinge_active:
+            self._draw_hinge(region, rv3d, mw, context=context, theme=theme)
+        else:
+            for ri, r in enumerate(self.records):
+                if r["type"] == "edge":
+                    self._draw_edge_record(region, rv3d, mw, r, ri, context=context, theme=theme)
+                else:
+                    self._draw_face_record(region, rv3d, mw, r, ri, context=context, theme=theme)
+            self._update_hover()
         # Draw hover highlight on top.
         if self._hover_idx is not None and self._hover_idx < len(self._hotspots):
             rp = self._hotspots[self._hover_idx].get("region_pt")
@@ -1857,6 +2352,127 @@ cancels. LMB clicks only pick widget handles."""
         draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
         self._draw_dot(p_t, radius=4.0,
                        color=theme.color_for(Role.ACTIVE_POINT), context=context)
+
+    def _draw_hinge(self, region, rv3d, mw, *, context, theme):
+        """Ghost of the FINAL spin result: face outlines at the target
+        angle (bright), intermediate segment rings (dim), the swept
+        wall edges each vert will trace, the hinge axis (amber), and
+        an angle arc with per-segment ticks around the edge midpoint.
+        The real mesh doesn't move until confirm — this preview is the
+        only feedback, so it mirrors the baked spin's segmentation."""
+        d = self._hinge_data
+        if d is None:
+            return
+
+        def s2d(co):
+            return view3d_utils.location_3d_to_region_2d(
+                region, rv3d, mw @ co)
+
+        angle_rad = math.radians(self._hinge_effective_angle())
+        axis = d["axis"]
+        center = d["center"]
+        steps = max(1, d["steps"])
+
+        # Rotated copies of every hinged vert at each spin segment
+        # boundary: k=0 is the original pose, k=steps the final cap.
+        step_cos = []
+        for k in range(steps + 1):
+            rot = Matrix.Rotation(angle_rad * (k / steps), 4, axis)
+            step_cos.append({
+                v: center + rot @ (oc - center)
+                for v, oc in d["orig_co_map"].items()
+            })
+
+        def outline_segs(co_map):
+            segs = []
+            for f in d["faces"]:
+                if not f.is_valid:
+                    continue
+                loops = list(f.verts)
+                n = len(loops)
+                for i in range(n):
+                    a = co_map.get(loops[i])
+                    b = co_map.get(loops[(i + 1) % n])
+                    if a is None or b is None:
+                        continue
+                    pa, pb = s2d(a), s2d(b)
+                    if pa is not None and pb is not None:
+                        segs.extend([pa, pb])
+            return segs
+
+        def fill_tris(co_map):
+            tris = []
+            for f in d["faces"]:
+                if not f.is_valid:
+                    continue
+                pts = []
+                for v in f.verts:
+                    co = co_map.get(v)
+                    if co is None:
+                        pts = []
+                        break
+                    p = s2d(co)
+                    if p is None:
+                        pts = []
+                        break
+                    pts.append(p)
+                for i in range(1, len(pts) - 1):
+                    tris.extend([pts[0], pts[i], pts[i + 1]])
+            return tris
+
+        moving = abs(angle_rad) > 1e-6
+        # Intermediate segment rings — preview tint from the theme;
+        # the k=0 ring coincides with the real mesh already on screen.
+        if moving:
+            for k in range(1, steps):
+                segs = outline_segs(step_cos[k])
+                if segs:
+                    draw_prim.edges_3d(segs, role=Role.PREVIEW_LINE,
+                                       context=context)
+            # Swept wall edges: the arc polyline each vert travels,
+            # segmented exactly like the baked spin walls.
+            wall_segs = []
+            for v in d["verts"]:
+                for k in range(steps):
+                    a = step_cos[k].get(v)
+                    b = step_cos[k + 1].get(v)
+                    if a is None or b is None:
+                        continue
+                    pa, pb = s2d(a), s2d(b)
+                    if pa is not None and pb is not None:
+                        wall_segs.extend([pa, pb])
+            if wall_segs:
+                draw_prim.edges_3d(wall_segs, role=Role.PREVIEW_LINE,
+                                   context=context)
+        # Final cap — active fill + outline from the theme. At zero
+        # angle it sits on the original pose and doubles as the
+        # "hinge armed" highlight.
+        cap_tris = fill_tris(step_cos[steps])
+        if cap_tris:
+            draw_prim.tris(cap_tris,
+                           color=theme.color_for(Role.GHOST_ACTIVE),
+                           context=context)
+        final_segs = outline_segs(step_cos[steps])
+        if final_segs:
+            draw_prim.edges_3d(final_segs, role=Role.ACTIVE_LINE,
+                               context=context)
+
+        # Hinge axis line — amber (locked role). Endpoints captured at
+        # entry; axis points don't move (they're on the rotation axis).
+        pa, pb = d["axis_pts"]
+        p0, p1 = s2d(pa), s2d(pb)
+        if p0 is not None and p1 is not None:
+            draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE,
+                               context=context)
+
+        # No angle arc / segment dots — the mesh ghost itself shows
+        # the angle and the segment rings.
+        # Center dot at the hinge midpoint.
+        pc = s2d(center)
+        if pc is not None:
+            self._draw_dot(pc, radius=5.0,
+                           color=theme.color_for(Role.LOCKED_POINT),
+                           context=context)
 
     def _draw_edge_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
         if not (r["active"].is_valid and r["fixed"].is_valid):
@@ -2058,8 +2674,13 @@ cancels. LMB clicks only pick widget handles."""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        lines = [f"Mode: {self.mode}",
-                 f"Angle: {self._effective_angle():.2f}°"]
+        if self._hinge_active and self._hinge_data is not None:
+            lines = [f"Mode: hinge",
+                     f"Angle: {self._hinge_effective_angle():.2f}°",
+                     f"Steps: {self._hinge_data['steps']}"]
+        else:
+            lines = [f"Mode: {self.mode}",
+                     f"Angle: {self._effective_angle():.2f}°"]
         if self.input_str:
             lines.append(f"Typing: {self.input_str}")
         hud.set_header(*lines)

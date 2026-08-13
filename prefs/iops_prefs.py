@@ -160,6 +160,7 @@ def get_iops_prefs():
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
+            "show_filename_full_path": safe("show_filename_full_path", False),
             "show_dimensions_stat": safe("show_dimensions_stat", True),
             "show_instances_stat": safe("show_instances_stat", False),
             "show_modifiers_stat": safe("show_modifiers_stat", False),

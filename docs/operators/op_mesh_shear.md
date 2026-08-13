@@ -13,7 +13,7 @@ Smart shear that auto-detects the active selection and dispatches to either a fa
 ## Overview
 The operator solves the "saw-off" shear case: when a face or edge needs to tilt while its corner verts stay anchored to the surrounding mesh, plain Blender shear moves verts off their incident edges and breaks the surrounding topology. Here each active vert is constrained to slide along a rail edge (an incident non-face edge, or a face-adjacent fallback), so the result stays welded to the rest of the mesh.
 
-Face mode shears every face vert by `-(proj_along_axis * tan(angle))` along its own rail. The axis can be steered with F (toggle between two world-aligned in-plane axes), A (align to the intersection line with a picked face), B (longer side of the face's minimum oriented bounding box), or by clicking one of the four orange axis handles on the widget.
+Face mode shears every face vert by `proj_along_axis * sin(angle)` along its rail — the rail-projected displacement of rotating the face by the typed angle around the pivot side. Verts that share a projection (one profile cross-section, e.g. the end edge of a chamfer strip) slide as a rigid row along the normalized mean of their rail directions, so diverging rails (the two sides of a chamfered corner) can't twist the face into a bowtie. The axis can be steered with F (toggle between two world-aligned in-plane axes), A (align to the intersection line with a picked face), B (longer side of the face's minimum oriented bounding box), or by clicking one of the four orange axis handles on the widget.
 
 Edge mode shears the "active" endpoint of each selected edge along its rail by `edge_length * tan(angle)`. The other endpoint is the fixed pivot.
 
@@ -36,6 +36,7 @@ Edge mode shears the "active" endpoint of each selected edge along its rail by `
 | <kbd>D</kbd> | If typing: flip sign of input. Else face mode: flip axis_dir (pivot moves to opposite face edge). Edge mode: negate current angle |
 | <kbd>R</kbd> | Snap perpendicular to rails (resets to 0, rebuilds records at the snapped pose) |
 | <kbd>E</kbd> | Enter the extrude sub-modal (rail-mirrored saw-off extrude) |
+| <kbd>Q</kbd> | Enter the hinge sub-modal (rotate selected faces around the active edge / shear pivot side); drops any in-progress shear preview but carries its angle over as the initial hinge angle |
 | <kbd>A</kbd> | Face mode: raycast face under cursor, align axis to the intersection of the two face planes (highlights picked face 35% red) |
 | <kbd>B</kbd> | Face mode: set axis to the longer side of the face's minimum OBB |
 | <kbd>H</kbd> | Toggle HUD / help overlay |
@@ -52,6 +53,19 @@ Extrude sub-modal (after <kbd>E</kbd>):
 | <kbd>Shift</kbd> | Precision (sensitivity x0.1) |
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> / <kbd>Numpad Enter</kbd> / <kbd>Space</kbd> | Confirm extrude, rebuild shear record on the new geometry, return to shear modal |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel extrude (deletes the new geometry, returns to shear modal) |
+
+Hinge sub-modal (after <kbd>Q</kbd>):
+
+| Key | Action |
+| --- | --- |
+| <kbd>0</kbd>-<kbd>9</kbd> <kbd>.</kbd> <kbd>-</kbd> | Type the hinge angle |
+| <kbd>Ctrl</kbd>+Wheel | Spin segments (1-64, default 6) |
+| <kbd>D</kbd> | Flip direction |
+| <kbd>A</kbd> | Flush: raycast a face and set the angle so the selection lands coplanar with it |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm — bake with `bmesh.ops.spin`, merge doubles at the hinge line, chain back to shear on the new cap |
+| <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel hinge, back to shear |
+
+The hinge preview is a draw-only ghost of the final spin result, themed like the rest of the addon: the cap at the target angle is filled with `GHOST_ACTIVE` and outlined with `ACTIVE_LINE`; intermediate segment rings and per-vert sweep arcs use `PREVIEW_LINE`. The real mesh does not move until confirm (a live-vert preview would drag unselected neighbor faces that share the boundary verts — something the baked spin never does).
 
 ## HUD
 On-screen overlay shows:
@@ -77,7 +91,7 @@ No `bl_props`. All state is internal to the modal (typed angle, selection record
 - Selection requirements: a face needs >=3 edges and at least one non-face external rail edge per corner (falls back to a face-adjacent rail for isolated faces). An edge needs at least one adjacent face. Verts/faces that fail these checks are skipped with a single-reason report.
 - Face axis seeding: world +Z projected onto the face plane (falls back to +Y, then +X). If the last `BMEdge` in `select_history` belongs to the selected face it is used as the seed direction instead.
 - Edge mode uses select_history's last `BMVert` to choose the active endpoint when one of the edge's two verts is in history; otherwise the second edge vert is active.
-- Extrude sub-modal mirrors the rail across the sheared face plane (edge mode: across the sheared edge direction) so the extruded segment forms matched mitred ends. Per-vert delays equal `(proj_max - proj) * tan(angle)`, so the pivot edge starts moving only after the saw-off offset is consumed. Confirm deletes the original (interior) face; cancel keeps it.
+- Extrude sub-modal mirrors the rail across the sheared face plane (edge mode: across the sheared edge direction) so the extruded segment forms matched mitred ends. Per-vert delays equal `(proj_max - proj) * sin(angle)` (matching the face-mode slide rule), so the pivot edge starts moving only after the saw-off offset is consumed. Confirm deletes the original (interior) face; cancel keeps it.
 - The operator catches `ReferenceError` mid-modal (e.g. external bmesh invalidation) and tears down the draw handler cleanly. `_finish` drops the bmesh wrapper and stored element refs so a later undo can free the operator instance without crashing Blender.
 - Only `IOPS_OT_mesh_shear` is registered by this module — no panels, menus, or PropertyGroups.
 

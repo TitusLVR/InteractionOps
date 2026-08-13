@@ -18,6 +18,7 @@ keys_default = [
     ("iops.mesh_mouseover_fill_select", "F19", "PRESS", True, True, True, False),
     ("iops.mesh_to_grid", "UP_ARROW", "PRESS", False, False, False, False),    
     ("iops.mesh_cursor_bisect", "F19", "PRESS", False, False, False, False),
+    ("iops.mesh_smart_inset", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_quick_connect", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_to_tris_to_quads", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_visual_uv", "U", "PRESS", True, True, False, False),
@@ -65,6 +66,7 @@ keys_default = [
     ("iops.call_panel_tps", "BUTTON4MOUSE", "PRESS", False, False, True, False),
     ("iops.call_panel_data", "BUTTON4MOUSE", "PRESS", True, False, True, False),
     ("iops.call_panel_tm", "T", "PRESS", True, True, True, False),
+    ("iops.call_panel_modifiers", "RIGHTMOUSE", "PRESS", False, True, True, False),
     
     # IOPS Windows
     ("iops.window_modifiers", "F19", "PRESS", True, True, True, False),

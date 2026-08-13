@@ -70,7 +70,10 @@ def draw_iops_statistics():
             file_saved = bpy.data.is_saved
             file_dirty = bpy.data.is_dirty
             if file_saved and bpy.data.filepath:
-                filename = os.path.basename(bpy.data.filepath)
+                if getattr(prefs, "show_filename_full_path", False):
+                    filename = bpy.data.filepath
+                else:
+                    filename = os.path.basename(bpy.data.filepath)
                 file_status = filename + "*" if file_dirty else filename
             else:
                 file_status = "Unsaved"
