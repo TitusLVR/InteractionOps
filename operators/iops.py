@@ -59,6 +59,10 @@ class IOPS_OT_Main(bpy.types.Operator):
         event = self.get_modifier_state()
         if bpy.context.area:
             type_area = bpy.context.area.type
+            if type_area == "IMAGE_EDITOR" and op in {"F1", "F2", "F3"}:
+                tool_settings = context.tool_settings
+                if hasattr(tool_settings, "use_uv_select_island"):
+                    tool_settings.use_uv_select_island = False
             if bpy.context.view_layer.objects.active:
                 tool_mesh = bpy.context.scene.tool_settings.mesh_select_mode
                 type_object = bpy.context.view_layer.objects.active.type
