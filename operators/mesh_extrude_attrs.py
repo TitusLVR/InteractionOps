@@ -78,25 +78,32 @@ class IOPS_OT_extrude_attr_fix(bpy.types.Operator):
     """Copy sharp/bevel weight/crease onto freshly extruded rail edges"""
     bl_idname = "iops.extrude_attr_fix"
     bl_label = "Extrude Attribute Fix"
-    bl_options = {"REGISTER", "INTERNAL"}
+    bl_options = {"REGISTER"}
+
+    use_selection_marks: bpy.props.BoolProperty(
+        name="From Selection",
+        description="Copy sharp/bevel weight/crease from the extruded (selected) edges onto the new rail edges",
+        default=True,
+    )
 
     @classmethod
     def poll(cls, context):
         return context.mode == "EDIT_MESH"
 
     def execute(self, context):
-        _fix_edit_objects(context, fix_extruded_attrs)
+        if self.use_selection_marks:
+            _fix_edit_objects(context, fix_extruded_attrs)
         return {"FINISHED"}
 
 
-def fix_extruded_attrs_post(bm):
+def fix_extruded_attrs_post(bm, cos_limit):
     """Rule B: rails inherit marks from pre-existing non-extruded edges they
-    geometrically continue (direction into old vert within CONTINUATION_ANGLE
-    of the rail's direction out of it). Runs after the translate; on a
-    cancelled translate rails are zero-length and this is a no-op."""
+    geometrically continue (direction into old vert within the caller-supplied
+    continuation angle, expressed as cos_limit, of the rail's direction out of
+    it). Runs after the translate; on a cancelled translate rails are
+    zero-length and this is a no-op."""
     bw = bm.edges.layers.float.get("bevel_weight_edge")
     cr = bm.edges.layers.float.get("crease_edge")
-    cos_limit = math.cos(CONTINUATION_ANGLE)
     changed = 0
     for rail in bm.edges:
         v0, v1 = rail.verts
@@ -153,14 +160,33 @@ class IOPS_OT_extrude_attr_fix_post(bpy.types.Operator):
     freshly translated rail edges (Rule B)"""
     bl_idname = "iops.extrude_attr_fix_post"
     bl_label = "Extrude Attribute Fix (Continuation)"
-    bl_options = {"REGISTER", "INTERNAL"}
+    bl_options = {"REGISTER"}
+
+    use_parent_marks: bpy.props.BoolProperty(
+        name="Continue Parents",
+        description="Continue sharp/bevel weight/crease from pre-existing marked edges that the new rail edges extend",
+        default=True,
+    )
+    continuation_angle: bpy.props.FloatProperty(
+        name="Continuation Angle",
+        description="Maximum angle between a rail and a pre-existing marked edge for the rail to count as its continuation",
+        subtype="ANGLE",
+        default=CONTINUATION_ANGLE,
+        min=0.0,
+        max=math.radians(90.0),
+    )
 
     @classmethod
     def poll(cls, context):
         return context.mode == "EDIT_MESH"
 
     def execute(self, context):
-        _fix_edit_objects(context, fix_extruded_attrs_post)
+        if self.use_parent_marks:
+            cos_limit = math.cos(self.continuation_angle)
+            _fix_edit_objects(
+                context,
+                lambda bm: fix_extruded_attrs_post(bm, cos_limit),
+            )
         return {"FINISHED"}
 
 
