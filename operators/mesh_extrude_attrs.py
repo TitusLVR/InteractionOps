@@ -78,7 +78,7 @@ class IOPS_OT_extrude_attr_fix(bpy.types.Operator):
     """Copy sharp/bevel weight/crease onto freshly extruded rail edges"""
     bl_idname = "iops.extrude_attr_fix"
     bl_label = "Extrude Attribute Fix"
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "INTERNAL"}
 
     use_selection_marks: bpy.props.BoolProperty(
         name="From Selection",
@@ -160,7 +160,7 @@ class IOPS_OT_extrude_attr_fix_post(bpy.types.Operator):
     freshly translated rail edges (Rule B)"""
     bl_idname = "iops.extrude_attr_fix_post"
     bl_label = "Extrude Attribute Fix (Continuation)"
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "INTERNAL"}
 
     use_parent_marks: bpy.props.BoolProperty(
         name="Continue Parents",
