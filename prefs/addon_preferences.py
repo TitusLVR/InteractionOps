@@ -778,7 +778,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_functions_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.cursor") or kmi.idname.startswith("iops.cursor_"):
@@ -788,7 +788,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_cursor_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.mesh") or kmi.idname.startswith("iops.z_"):
@@ -798,7 +798,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_mesh_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.uv"):
@@ -808,7 +808,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_uv_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.object"):
@@ -818,7 +818,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_object_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.call_panel"):
@@ -828,7 +828,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_panels_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.call_pie"):
@@ -838,7 +838,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_pie_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.scripts"):
@@ -848,7 +848,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_scripts_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname in {"iops.ui_help_toggle",
@@ -859,7 +859,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_ui_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname.startswith("iops.window"):
@@ -869,7 +869,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_scripts_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
                     elif kmi.idname == "iops.widget_toggle":
@@ -883,7 +883,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             )
                         except AttributeError:
                             km_other_col.label(
-                                text="No modal key maps attached to this operator ¯\_(ツ)_/¯",
+                                text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
 
