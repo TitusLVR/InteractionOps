@@ -163,7 +163,10 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
         self.fill_color_white = False
 
         sel = [obj for obj in context.selected_objects if obj.type == 'MESH']
-        
+        # The edited object may have its object-level select flag off; include it.
+        if context.object and context.object.type == "MESH" and context.object not in sel:
+            sel.append(context.object)
+
         # For edit mode, we need to determine the attribute name from active object
         if context.mode == "EDIT_MESH":
             attr_name = None
@@ -289,7 +292,7 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
                 print(f"Applied color to object: {obj.name}")
                 
         else:
-            self.report({"WARNING"}, context.object.name + " is not a MESH.")
+            self.report({"WARNING"}, "Vertex color assign works in Object or Edit mode only (current: " + context.mode + ").")
 
         # Force viewport update
         if context.area:
