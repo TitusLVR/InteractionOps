@@ -842,6 +842,7 @@ cancels. LMB clicks only pick widget handles."""
                       else "Flip active vert")
         items = [
             HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",          "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem(face_label,           "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -860,6 +861,7 @@ cancels. LMB clicks only pick widget handles."""
         self._help.add_section(HUDSection("Shear", items))
         hinge_items = [
             HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1480,11 +1482,21 @@ cancels. LMB clicks only pick widget handles."""
         return self._hinge_angle_deg
 
     def _hinge_modal(self, context, event):
-        # Navigation passes through (Q sub-modal owns Ctrl+wheel only).
+        # Navigation passes through (Q sub-modal owns Ctrl+wheel for
+        # segments and Alt+wheel for the angle).
         if (event.type == "MIDDLEMOUSE" or event.type.startswith("NDOF")
                 or (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
-                    and not event.ctrl)):
+                    and not event.ctrl and not event.alt)):
             return {"PASS_THROUGH"}
+
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.alt:
+            delta = 5.0 if event.type == "WHEELUPMOUSE" else -5.0
+            self._hinge_angle_deg = self._hinge_effective_angle() + delta
+            self.input_str = ""
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.ctrl:
             d = self._hinge_data
@@ -1966,7 +1978,8 @@ cancels. LMB clicks only pick widget handles."""
             return (
                 f"Hinge: {self._hinge_effective_angle():.2f}° | "
                 f"steps: {d['steps']}{typed} | [0-9 . -] type | "
-                "[Ctrl+Wheel] steps | [D] flip | [A] flush to face | "
+                "[Alt+Wheel] ±5° | [Ctrl+Wheel] steps | [D] flip | "
+                "[A] flush to face | "
                 "[Enter] confirm | [Q/Esc/RMB] cancel hinge"
             )
         if self._extrude_active:
@@ -1981,7 +1994,7 @@ cancels. LMB clicks only pick widget handles."""
         align_hint = " | [A] align axis to face" if self.mode == "face" else ""
         return (
             f"Shear ({self.mode}): {self._effective_angle():.2f}°{typed} | "
-            "[0-9 . -] type | [Backspace] del | "
+            "[0-9 . -] type | [Alt+Wheel] ±5° | [Backspace] del | "
             f"[F] {f_label} | [D] flip direction | "
             f"[R] perpendicular to rails | [E] extrude{align_hint} | "
             "[Enter] confirm | [Esc/RMB] cancel"
@@ -2027,6 +2040,18 @@ cancels. LMB clicks only pick widget handles."""
 
         if self._hinge_active:
             return self._hinge_modal(context, event)
+
+        if (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.alt
+                and not self._extrude_active):
+            # Alt+Wheel: nudge the angle in 5° steps. Typed input is
+            # committed first so the nudge continues from what the
+            # user sees on screen.
+            delta = 5.0 if event.type == "WHEELUPMOUSE" else -5.0
+            self.angle_deg = self._effective_angle() + delta
+            self.input_str = ""
+            self._apply()
+            context.workspace.status_text_set(self._status_text())
+            return {"RUNNING_MODAL"}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
