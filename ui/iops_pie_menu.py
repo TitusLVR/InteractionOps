@@ -1,6 +1,7 @@
 import bpy
 from bpy.types import Menu
 from ..utils.functions import get_addon
+from ..operators.mesh_nonplanar_overlay import overlay_enabled
 
 
 def op_if_poll(layout, idname, text=None, icon=None, **props):
@@ -139,24 +140,33 @@ class IOPS_MT_Pie_Menu(Menu):
         col_ruv.operator("b2ruvl.get_from_rizomuv")
 
         # 8 - TOP
-        if forgottentools and context.mode == "EDIT_MESH":
+        if context.mode == "EDIT_MESH":
             other = pie.column()
             gap = other.column()
             gap.separator()
             gap.scale_y = 7
             other_menu = other.box().column()
             other_menu.scale_y = 1
-            other_menu.label(text="ForgottenTools")
-            op_if_poll(other_menu, "mesh.connect_spread")
-            op_if_poll(other_menu, "mesh.grid_fill_all")
+            other_menu.label(text="IOPS")
+            # depress is a layout kwarg, not an operator prop, so this
+            # one bypasses op_if_poll (poll always passes in EDIT_MESH).
+            other_menu.operator("iops.mesh_nonplanar_overlay",
+                                text="Non-Planar Overlay",
+                                depress=overlay_enabled())
+            if forgottentools:
+                other_menu = other.box().column()
+                other_menu.scale_y = 1
+                other_menu.label(text="ForgottenTools")
+                op_if_poll(other_menu, "mesh.connect_spread")
+                op_if_poll(other_menu, "mesh.grid_fill_all")
 
-            op_if_poll(other_menu, "mesh.dice_faces")
-            op_if_poll(other_menu, "mesh.hinge")
+                op_if_poll(other_menu, "mesh.dice_faces")
+                op_if_poll(other_menu, "mesh.hinge")
 
-            op_if_poll(other_menu, "mesh.forgotten_separate_duplicate")
-            other_menu.operator(
-                "wm.call_panel", text="Selection Sets", icon="SELECT_SET"
-            ).name = "MESH_PT_selection_sets_panel_frgttn"
+                op_if_poll(other_menu, "mesh.forgotten_separate_duplicate")
+                other_menu.operator(
+                    "wm.call_panel", text="Selection Sets", icon="SELECT_SET"
+                ).name = "MESH_PT_selection_sets_panel_frgttn"
         else:
             pie.separator()
 
