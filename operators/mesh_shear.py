@@ -339,35 +339,36 @@ def build_face_record_from_edge(face, axis_edge):
 
 
 def face_principal_axes(face):
-    """Two unit axes in the face plane aligned to world axes (not to
-    the face's vertex distribution). axis_a is world +Z projected onto
-    the face plane; axis_b = normal × axis_a. When the face normal is
-    near-parallel to ±Z (so +Z projects to nothing), seeds fall back
-    to +Y, then +X.
+    """Two unit axes in the face plane aligned to the face's own
+    minimum oriented bounding box: axis_a is the OBB's longer side,
+    axis_b = normal × axis_a. This keeps the widget/pivot hugging the
+    face for faces rotated away from the world axes ("global bounds"
+    complaint) while still landing on the sides — not the diagonal —
+    for beveled squares (the OBB side is edge-colinear, unlike PCA).
+    For world-axis-aligned faces the result matches the old world-Z
+    projection exactly.
 
-    PCA on the vert distribution would lock onto the face's geometric
-    diagonal for shapes like a beveled square (where the bevel adds
-    variance along that diagonal), giving an axis the user almost
-    never wants. World-axis projection gives the intuitive "X and Y
-    when face normal is Z" behaviour for arbitrary profiles."""
+    Fallback when the OBB is degenerate: world +Z projected onto the
+    face plane, then +Y, then +X."""
     normal = _face_normal_safe(face)
     if normal.length < 1e-9:
         return None, None
 
-    seeds = (
-        Vector((0.0, 0.0, 1.0)),
-        Vector((0.0, 1.0, 0.0)),
-        Vector((1.0, 0.0, 0.0)),
-    )
-    axis_a = None
-    for s in seeds:
-        if abs(s.dot(normal)) > 0.99:
-            continue
-        proj = s - s.dot(normal) * normal
-        if proj.length < 1e-9:
-            continue
-        axis_a = proj.normalized()
-        break
+    axis_a = _min_obb_axis_for_face(face)
+    if axis_a is None:
+        seeds = (
+            Vector((0.0, 0.0, 1.0)),
+            Vector((0.0, 1.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+        )
+        for s in seeds:
+            if abs(s.dot(normal)) > 0.99:
+                continue
+            proj = s - s.dot(normal) * normal
+            if proj.length < 1e-9:
+                continue
+            axis_a = proj.normalized()
+            break
     if axis_a is None:
         return None, None
     axis_b = normal.cross(axis_a)
