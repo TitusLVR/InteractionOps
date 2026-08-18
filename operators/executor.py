@@ -1,6 +1,4 @@
 import os
-from os import listdir
-from os.path import isfile, join
 import bpy
 from bpy.props import StringProperty
 
@@ -116,9 +114,12 @@ class IOPS_OT_Call_MT_Executor(bpy.types.Operator):
         executor_scripts_folder = prefs.executor_scripts_folder
         scripts_folder = executor_scripts_folder  # TODO: Add user scripts folder
         # scripts_folder = os.path.join(scripts_folder, "custom")
-        _files = [f for f in listdir(scripts_folder) if isfile(join(scripts_folder, f))]
-        files = [os.path.join(scripts_folder, f) for f in _files]
-        scripts = [script for script in files if script[-2:] == "py"]
+        scripts = []
+        for root, dirs, filenames in os.walk(scripts_folder):
+            for f in filenames:
+                if f.endswith(".py"):
+                    scripts.append(os.path.join(root, f))
+        scripts.sort(key=lambda p: os.path.basename(p).lower())
         iops.executor_scripts.clear()
         for path in scripts:
             item = iops.executor_scripts.add()
