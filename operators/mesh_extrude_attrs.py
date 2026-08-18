@@ -259,7 +259,8 @@ def define_extrude_macro():
     normals_macro = IOPS_OT_mesh_extrude_ex_normals
     normals_macro.define("MESH_OT_extrude_region")
     normals_macro.define("IOPS_OT_extrude_attr_fix")
-    normals_macro.define("TRANSFORM_OT_shrink_fatten")
+    step = normals_macro.define("TRANSFORM_OT_shrink_fatten")
+    step.properties.use_even_offset = True
     normals_macro.define("IOPS_OT_extrude_attr_fix_post")
 
     indiv_macro = IOPS_OT_mesh_extrude_ex_indiv
@@ -314,6 +315,11 @@ class IOPS_OT_mesh_extrude_ex(bpy.types.Operator):
 
 def draw_extrude_menu(self, context):
     layout = self.layout
+    # The native draw ends with template_node_operator_asset_menu_items,
+    # which leaves the layout in EXEC_REGION_WIN — inherited by appended
+    # draw functions. Set the context we need or the entries won't invoke
+    # their modal transform.
+    layout.operator_context = "INVOKE_REGION_WIN"
     layout.separator()
     layout.operator("iops.mesh_extrude_ex", text="Extrude (Keep Edge Data)")
     layout.operator("iops.mesh_extrude_ex_normals", text="Extrude Along Normals (Keep Edge Data)")
