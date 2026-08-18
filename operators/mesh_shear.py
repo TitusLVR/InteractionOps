@@ -339,35 +339,36 @@ def build_face_record_from_edge(face, axis_edge):
 
 
 def face_principal_axes(face):
-    """Two unit axes in the face plane aligned to world axes (not to
-    the face's vertex distribution). axis_a is world +Z projected onto
-    the face plane; axis_b = normal × axis_a. When the face normal is
-    near-parallel to ±Z (so +Z projects to nothing), seeds fall back
-    to +Y, then +X.
+    """Two unit axes in the face plane aligned to the face's own
+    minimum oriented bounding box: axis_a is the OBB's longer side,
+    axis_b = normal × axis_a. This keeps the widget/pivot hugging the
+    face for faces rotated away from the world axes ("global bounds"
+    complaint) while still landing on the sides — not the diagonal —
+    for beveled squares (the OBB side is edge-colinear, unlike PCA).
+    For world-axis-aligned faces the result matches the old world-Z
+    projection exactly.
 
-    PCA on the vert distribution would lock onto the face's geometric
-    diagonal for shapes like a beveled square (where the bevel adds
-    variance along that diagonal), giving an axis the user almost
-    never wants. World-axis projection gives the intuitive "X and Y
-    when face normal is Z" behaviour for arbitrary profiles."""
+    Fallback when the OBB is degenerate: world +Z projected onto the
+    face plane, then +Y, then +X."""
     normal = _face_normal_safe(face)
     if normal.length < 1e-9:
         return None, None
 
-    seeds = (
-        Vector((0.0, 0.0, 1.0)),
-        Vector((0.0, 1.0, 0.0)),
-        Vector((1.0, 0.0, 0.0)),
-    )
-    axis_a = None
-    for s in seeds:
-        if abs(s.dot(normal)) > 0.99:
-            continue
-        proj = s - s.dot(normal) * normal
-        if proj.length < 1e-9:
-            continue
-        axis_a = proj.normalized()
-        break
+    axis_a = _min_obb_axis_for_face(face)
+    if axis_a is None:
+        seeds = (
+            Vector((0.0, 0.0, 1.0)),
+            Vector((0.0, 1.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+        )
+        for s in seeds:
+            if abs(s.dot(normal)) > 0.99:
+                continue
+            proj = s - s.dot(normal) * normal
+            if proj.length < 1e-9:
+                continue
+            axis_a = proj.normalized()
+            break
     if axis_a is None:
         return None, None
     axis_b = normal.cross(axis_a)
@@ -841,6 +842,7 @@ cancels. LMB clicks only pick widget handles."""
                       else "Flip active vert")
         items = [
             HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",          "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem(face_label,           "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -859,11 +861,12 @@ cancels. LMB clicks only pick widget handles."""
         self._help.add_section(HUDSection("Shear", items))
         hinge_items = [
             HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",        "Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel hinge",   "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel hinge",   "Q / Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         self._help.add_section(HUDSection("Hinge (Q)", hinge_items))
         self._help.bind_region(context.region)
@@ -1479,11 +1482,21 @@ cancels. LMB clicks only pick widget handles."""
         return self._hinge_angle_deg
 
     def _hinge_modal(self, context, event):
-        # Navigation passes through (Q sub-modal owns Ctrl+wheel only).
+        # Navigation passes through (Q sub-modal owns Ctrl+wheel for
+        # segments and Alt+wheel for the angle).
         if (event.type == "MIDDLEMOUSE" or event.type.startswith("NDOF")
                 or (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
-                    and not event.ctrl)):
+                    and not event.ctrl and not event.alt)):
             return {"PASS_THROUGH"}
+
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.alt:
+            delta = 5.0 if event.type == "WHEELUPMOUSE" else -5.0
+            self._hinge_angle_deg = self._hinge_effective_angle() + delta
+            self.input_str = ""
+            context.workspace.status_text_set(self._status_text())
+            if context.area:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.ctrl:
             d = self._hinge_data
@@ -1521,6 +1534,10 @@ cancels. LMB clicks only pick widget handles."""
                     self._hinge_angle_deg = -self._hinge_angle_deg
             elif event.type == "A":
                 self._hinge_flush_pick(context, event)   # Task 4
+            elif event.type == "Q":
+                # Q toggles the sub-modal: second press drops back to
+                # shear. Preview is draw-only, nothing to restore.
+                self._cancel_hinge(context)
             elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm_hinge(context)      # Task 3
             elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -1585,6 +1602,14 @@ cancels. LMB clicks only pick widget handles."""
             bmesh.ops.remove_doubles(
                 self.bm, verts=_gather_double_verts(seed, dist), dist=dist)
 
+        # Drop select_history — the old hinge edge survives the spin
+        # (it becomes a wall edge), so a following Q would hinge the
+        # new cap around that distant edge and the ghost preview would
+        # detach from the cap face. Same rule as _confirm_extrude.
+        try:
+            self.bm.select_history.clear()
+        except (TypeError, RuntimeError):
+            pass
         # Full deselect before selecting the new cap: the pre-spin
         # `g.select = False` doesn't flush, so verts/edges of the old
         # cap stay selected and accumulate across chained
@@ -1953,8 +1978,9 @@ cancels. LMB clicks only pick widget handles."""
             return (
                 f"Hinge: {self._hinge_effective_angle():.2f}° | "
                 f"steps: {d['steps']}{typed} | [0-9 . -] type | "
-                "[Ctrl+Wheel] steps | [D] flip | [A] flush to face | "
-                "[Enter] confirm | [Esc/RMB] cancel hinge"
+                "[Alt+Wheel] ±5° | [Ctrl+Wheel] steps | [D] flip | "
+                "[A] flush to face | "
+                "[Enter] confirm | [Q/Esc/RMB] cancel hinge"
             )
         if self._extrude_active:
             return (
@@ -1968,7 +1994,7 @@ cancels. LMB clicks only pick widget handles."""
         align_hint = " | [A] align axis to face" if self.mode == "face" else ""
         return (
             f"Shear ({self.mode}): {self._effective_angle():.2f}°{typed} | "
-            "[0-9 . -] type | [Backspace] del | "
+            "[0-9 . -] type | [Alt+Wheel] ±5° | [Backspace] del | "
             f"[F] {f_label} | [D] flip direction | "
             f"[R] perpendicular to rails | [E] extrude{align_hint} | "
             "[Enter] confirm | [Esc/RMB] cancel"
@@ -2014,6 +2040,18 @@ cancels. LMB clicks only pick widget handles."""
 
         if self._hinge_active:
             return self._hinge_modal(context, event)
+
+        if (event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"} and event.alt
+                and not self._extrude_active):
+            # Alt+Wheel: nudge the angle in 5° steps. Typed input is
+            # committed first so the nudge continues from what the
+            # user sees on screen.
+            delta = 5.0 if event.type == "WHEELUPMOUSE" else -5.0
+            self.angle_deg = self._effective_angle() + delta
+            self.input_str = ""
+            self._apply()
+            context.workspace.status_text_set(self._status_text())
+            return {"RUNNING_MODAL"}
 
         if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
                 or event.type.startswith("NDOF")):
