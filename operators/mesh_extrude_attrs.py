@@ -21,9 +21,10 @@ def _fix_edit_objects(context, fix_func):
             bmesh.update_edit_mesh(me)
 
 
-def fix_extruded_attrs(bm):
+def fix_extruded_attrs(bm, propagate=True, clear=False):
     """Propagate sharp / bevel weight / crease from extruded source edges
-    onto the rail edges created by MESH_OT_extrude_region.
+    onto the rail edges created by MESH_OT_extrude_region, and/or clear
+    those marks off the source edges themselves.
 
     Must run AFTER extrude_region and BEFORE any translation: it is purely
     topology-based. At that point new geometry is selected and original
@@ -32,15 +33,25 @@ def fix_extruded_attrs(bm):
     A rail edge has exactly one selected (new) vertex. Its sources are the
     edges of its linked faces (the new side quads) whose vertices are both
     unselected and include the rail's old vertex — i.e. the original
-    extruded edges left behind. Per attribute: OR for sharp, max for
-    bevel weight / crease. Layers are never created; values propagate only
-    through layers that already exist.
+    extruded edges left behind. Source identification always runs (it is
+    needed for `clear` even when `propagate` is off); the two effects are
+    gated independently:
 
-    Returns the number of rail edges that received data.
+    - `propagate`: per attribute, OR for sharp, max for bevel weight /
+      crease, applied onto the rail. Layers are never created; values
+      propagate only through layers that already exist.
+    - `clear`: zero sharp/bevel weight/crease on every identified source
+      edge (they become interior edges once the shape is extended), read
+      AFTER the propagation values have already been collected from them
+      so clearing can never starve Rule A of the marks it needs.
+
+    Returns the number of edges (rails written + sources cleared) that
+    were touched.
     """
     bw = bm.edges.layers.float.get("bevel_weight_edge")
     cr = bm.edges.layers.float.get("crease_edge")
     changed = 0
+    source_edges = set()
     for rail in bm.edges:
         v0, v1 = rail.verts
         if v0.select == v1.select:
@@ -57,12 +68,14 @@ def fix_extruded_attrs(bm):
                     continue
                 if old_v not in edge.verts:
                     continue
-                sharp = sharp or not edge.smooth
-                if bw is not None:
-                    weight = max(weight, edge[bw])
-                if cr is not None:
-                    crease = max(crease, edge[cr])
-        if not (sharp or weight > 0.0 or crease > 0.0):
+                source_edges.add(edge)
+                if propagate:
+                    sharp = sharp or not edge.smooth
+                    if bw is not None:
+                        weight = max(weight, edge[bw])
+                    if cr is not None:
+                        crease = max(crease, edge[cr])
+        if not propagate or not (sharp or weight > 0.0 or crease > 0.0):
             continue
         if sharp:
             rail.smooth = False
@@ -71,6 +84,14 @@ def fix_extruded_attrs(bm):
         if crease > 0.0:
             rail[cr] = crease
         changed += 1
+    if clear:
+        for edge in source_edges:
+            edge.smooth = True
+            if bw is not None:
+                edge[bw] = 0.0
+            if cr is not None:
+                edge[cr] = 0.0
+        changed += len(source_edges)
     return changed
 
 
@@ -85,14 +106,26 @@ class IOPS_OT_extrude_attr_fix(bpy.types.Operator):
         description="Copy sharp/bevel weight/crease from the extruded (selected) edges onto the new rail edges",
         default=True,
     )
+    clear_selection_marks: bpy.props.BoolProperty(
+        name="Clear Selected",
+        description="Remove sharp/bevel weight/crease from the original extruded edges after propagation (they become interior when extending shapes)",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context):
         return context.mode == "EDIT_MESH"
 
     def execute(self, context):
-        if self.use_selection_marks:
-            _fix_edit_objects(context, fix_extruded_attrs)
+        if self.use_selection_marks or self.clear_selection_marks:
+            _fix_edit_objects(
+                context,
+                lambda bm: fix_extruded_attrs(
+                    bm,
+                    propagate=self.use_selection_marks,
+                    clear=self.clear_selection_marks,
+                ),
+            )
         return {"FINISHED"}
 
 
@@ -197,6 +230,22 @@ class IOPS_OT_mesh_extrude_ex_macro(bpy.types.Macro):
     bl_options = {"REGISTER", "UNDO"}
 
 
+class IOPS_OT_mesh_extrude_ex_normals(bpy.types.Macro):
+    """Extrude region, fix edge attributes, then shrink/fatten along
+    per-vertex normals (native-style macro)"""
+    bl_idname = "iops.mesh_extrude_ex_normals"
+    bl_label = "Extrude Along Normals (Keep Edge Data)"
+    bl_options = {"REGISTER", "UNDO"}
+
+
+class IOPS_OT_mesh_extrude_ex_indiv(bpy.types.Macro):
+    """Extrude individual faces, fix edge attributes, then shrink/fatten
+    each face along its own normal (native-style macro)"""
+    bl_idname = "iops.mesh_extrude_ex_indiv"
+    bl_label = "Extrude Individual Faces (Keep Edge Data)"
+    bl_options = {"REGISTER", "UNDO"}
+
+
 def define_extrude_macro():
     """Populate the macro steps. Must be called once per registration,
     AFTER register_classes has run (Macro.define only works on a
@@ -206,6 +255,18 @@ def define_extrude_macro():
     macro.define("IOPS_OT_extrude_attr_fix")
     macro.define("TRANSFORM_OT_translate")
     macro.define("IOPS_OT_extrude_attr_fix_post")
+
+    normals_macro = IOPS_OT_mesh_extrude_ex_normals
+    normals_macro.define("MESH_OT_extrude_region")
+    normals_macro.define("IOPS_OT_extrude_attr_fix")
+    normals_macro.define("TRANSFORM_OT_shrink_fatten")
+    normals_macro.define("IOPS_OT_extrude_attr_fix_post")
+
+    indiv_macro = IOPS_OT_mesh_extrude_ex_indiv
+    indiv_macro.define("MESH_OT_extrude_faces_indiv")
+    indiv_macro.define("IOPS_OT_extrude_attr_fix")
+    indiv_macro.define("TRANSFORM_OT_shrink_fatten")
+    indiv_macro.define("IOPS_OT_extrude_attr_fix_post")
 
 
 class IOPS_OT_mesh_extrude_ex(bpy.types.Operator):
@@ -249,3 +310,11 @@ class IOPS_OT_mesh_extrude_ex(bpy.types.Operator):
         # (and any other non-CANCELLED result) to FINISHED. Only surface
         # an actual cancellation from the underlying macro/extrude call.
         return {"CANCELLED"} if "CANCELLED" in ret else {"FINISHED"}
+
+
+def draw_extrude_menu(self, context):
+    layout = self.layout
+    layout.separator()
+    layout.operator("iops.mesh_extrude_ex", text="Extrude (Keep Edge Data)")
+    layout.operator("iops.mesh_extrude_ex_normals", text="Extrude Along Normals (Keep Edge Data)")
+    layout.operator("iops.mesh_extrude_ex_indiv", text="Extrude Individual Faces (Keep Edge Data)")

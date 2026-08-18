@@ -292,8 +292,11 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
+                                           IOPS_OT_mesh_extrude_ex_normals,
+                                           IOPS_OT_mesh_extrude_ex_indiv,
                                            IOPS_OT_mesh_extrude_ex,
-                                           define_extrude_macro)
+                                           define_extrude_macro,
+                                           draw_extrude_menu)
 # from .operators.mesh_polygon_bevel import IOPS_OT_polygon_bevel  # WIP
 
 from .operators.mesh_selection_sets import (
@@ -617,6 +620,8 @@ classes = (
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,
+    IOPS_OT_mesh_extrude_ex_normals,
+    IOPS_OT_mesh_extrude_ex_indiv,
     IOPS_OT_mesh_extrude_ex,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
@@ -737,6 +742,7 @@ def register():
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
+    bpy.types.VIEW3D_MT_edit_mesh_extrude.append(draw_extrude_menu)
     register_select_similar_name_menu()
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
@@ -829,6 +835,10 @@ def unregister():
         pass
     try:
         bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_ss_header)
+    except Exception:
+        pass
+    try:
+        bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_extrude_menu)
     except Exception:
         pass
     unregister_select_similar_name_menu()
