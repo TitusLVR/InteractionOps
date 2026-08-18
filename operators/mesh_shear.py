@@ -863,7 +863,7 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",        "Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel hinge",   "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel hinge",   "Q / Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]
         self._help.add_section(HUDSection("Hinge (Q)", hinge_items))
         self._help.bind_region(context.region)
@@ -1521,6 +1521,10 @@ cancels. LMB clicks only pick widget handles."""
                     self._hinge_angle_deg = -self._hinge_angle_deg
             elif event.type == "A":
                 self._hinge_flush_pick(context, event)   # Task 4
+            elif event.type == "Q":
+                # Q toggles the sub-modal: second press drops back to
+                # shear. Preview is draw-only, nothing to restore.
+                self._cancel_hinge(context)
             elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm_hinge(context)      # Task 3
             elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -1585,6 +1589,14 @@ cancels. LMB clicks only pick widget handles."""
             bmesh.ops.remove_doubles(
                 self.bm, verts=_gather_double_verts(seed, dist), dist=dist)
 
+        # Drop select_history — the old hinge edge survives the spin
+        # (it becomes a wall edge), so a following Q would hinge the
+        # new cap around that distant edge and the ghost preview would
+        # detach from the cap face. Same rule as _confirm_extrude.
+        try:
+            self.bm.select_history.clear()
+        except (TypeError, RuntimeError):
+            pass
         # Full deselect before selecting the new cap: the pre-spin
         # `g.select = False` doesn't flush, so verts/edges of the old
         # cap stay selected and accumulate across chained
@@ -1954,7 +1966,7 @@ cancels. LMB clicks only pick widget handles."""
                 f"Hinge: {self._hinge_effective_angle():.2f}° | "
                 f"steps: {d['steps']}{typed} | [0-9 . -] type | "
                 "[Ctrl+Wheel] steps | [D] flip | [A] flush to face | "
-                "[Enter] confirm | [Esc/RMB] cancel hinge"
+                "[Enter] confirm | [Q/Esc/RMB] cancel hinge"
             )
         if self._extrude_active:
             return (
