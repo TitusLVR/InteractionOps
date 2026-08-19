@@ -12,16 +12,9 @@ def params_key(obj, md):
     return (obj.session_uid, md.name)
 
 
-def copy_modifier_to(md, index, obj):
-    """Recreate md on obj at the same stack position with the same
-    settings (enums first — some enum setters unit-convert siblings).
-    Returns False if obj can't take this modifier type."""
-    try:
-        new_md = obj.modifiers.new(md.name, md.type)
-    except TypeError:
-        return False
-    if new_md is None:
-        return False
+def copy_modifier_params(md, dst_md):
+    """Copy md's writable settings onto dst_md (enums first — some enum
+    setters unit-convert siblings)."""
     skip = {"name", "type"} | presets._TYPE_SKIP_PROPS.get(md.type, set())
     props = [p for p in md.bl_rna.properties
              if not p.is_readonly and p.identifier not in skip]
@@ -30,12 +23,12 @@ def copy_modifier_to(md, index, obj):
             if (p.type == "ENUM") is not want_enum:
                 continue
             try:
-                setattr(new_md, p.identifier, getattr(md, p.identifier))
+                setattr(dst_md, p.identifier, getattr(md, p.identifier))
             except (AttributeError, TypeError):
                 pass
     if md.type == "NODES":
         src = getattr(getattr(md, "properties", None), "inputs", None)
-        dst = getattr(getattr(new_md, "properties", None), "inputs", None)
+        dst = getattr(getattr(dst_md, "properties", None), "inputs", None)
         if src is not None and dst is not None:
             for key in src.keys():
                 s = getattr(src, key, None)
@@ -46,8 +39,39 @@ def copy_modifier_to(md, index, obj):
                         d.value = s.value
                     except (AttributeError, TypeError):
                         pass
+
+
+def copy_modifier_to(md, index, obj):
+    """Recreate md on obj at the same stack position with the same
+    settings. Returns False if obj can't take this modifier type."""
+    try:
+        new_md = obj.modifiers.new(md.name, md.type)
+    except TypeError:
+        return False
+    if new_md is None:
+        return False
+    copy_modifier_params(md, new_md)
     obj.modifiers.move(len(obj.modifiers) - 1,
                        min(index, len(obj.modifiers) - 1))
+    return True
+
+
+def sync_modifier_to(md, obj):
+    """Copy md's settings into obj's matching modifier in place: same
+    type + same name first, else the first modifier of the same type.
+    Stack position is untouched. Returns False if nothing matches."""
+    target = None
+    for o_md in obj.modifiers:
+        if o_md.type != md.type:
+            continue
+        if o_md.name == md.name:
+            target = o_md
+            break
+        if target is None:
+            target = o_md
+    if target is None:
+        return False
+    copy_modifier_params(md, target)
     return True
 
 
@@ -73,7 +97,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
              "visibility"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
-             "stack position and settings"),
+             "stack position and settings. Alt: copy settings into a "
+             "matching existing modifier instead"),
             ("REMOVE", "Remove", "Remove this modifier"),
             ("SAVE_PRESET", "Save As Default Preset",
              "Use this modifier's settings when adding this type "
@@ -95,7 +120,10 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                        "Red: viewport and render visibility differ"),
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
                              "objects, keeping its stack position and "
-                             "settings"),
+                             "settings\n"
+                             "Alt: copy the settings into a matching "
+                             "existing modifier (same name, else same "
+                             "type) instead of adding a new one"),
         "REMOVE": "Remove the modifier",
         "SAVE_PRESET": ("Save these settings as the default preset "
                         "used when adding this type from the grid"),
@@ -150,13 +178,22 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             for o in context.selected_objects:
                 if o is obj:
                     continue
-                if copy_modifier_to(md, self.index, o):
+                if self.alt:
+                    ok = sync_modifier_to(md, o)
+                else:
+                    ok = copy_modifier_to(md, self.index, o)
+                if ok:
                     copied += 1
                 else:
                     skipped += 1
-            msg = f"Copied {md.name} to {copied} object(s)"
-            if skipped:
-                msg += f", {skipped} skipped (incompatible type)"
+            if self.alt:
+                msg = f"Updated {md.name} on {copied} object(s)"
+                if skipped:
+                    msg += f", {skipped} skipped (no matching modifier)"
+            else:
+                msg = f"Copied {md.name} to {copied} object(s)"
+                if skipped:
+                    msg += f", {skipped} skipped (incompatible type)"
             self.report({"INFO"} if copied else {"WARNING"}, msg)
         elif self.action == "APPLY" and not self.alt:
             name = md.name
