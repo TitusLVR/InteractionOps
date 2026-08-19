@@ -1,0 +1,20 @@
+# Ruff config for InteractionOps (Blender addon)
+
+[lint]
+select = ["E4", "E7", "E9", "F", "W", "N", "UP", "BLE", "C4", "PIE", "S"]
+ignore = [
+    "E402",   # addon __init__ interleaves imports with registration tables by design
+    "N999",   # addon folder is CamelCase for historical reasons; renaming breaks installs
+    "BLE001", # blanket excepts are deliberate in register/unregister robustness code
+    "S110",   # try-except-pass is the same deliberate pattern
+    # Blender API conventions, not fixable:
+    "N801",   # class names follow IOPS_OT_*/IOPS_PT_* bl_idname convention
+    "N802",   # bpy callback names (execute, invoke, draw wrappers) mirror API casing
+    "N803",   # math-heavy code uses M/T/V argument names for matrices/vectors
+    "N804",   # bpy poll/draw classmethods use Blender's argument naming
+    "N806",   # same for local matrix/vector variables
+    "S101",   # asserts are used as dev-time invariant checks, addon never runs with -O
+    "S105",   # false positives: enum-ish string constants matched as "passwords"
+    "S106",
+    "S107",
+]

@@ -149,12 +149,12 @@ from .ui.iops_modifiers_panel import (
 # iops_mod_registry.REGISTRY on import; tool modules carry the operators.
 from .operators.modifiers import (
     iops_mod_registry,
-    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array,
-    iops_mod_solidify, iops_mod_subsurf, iops_mod_screw, iops_mod_weld,
-    iops_mod_triangulate, iops_mod_decimate, iops_mod_remesh,
-    iops_mod_wireframe, iops_mod_curve, iops_mod_lattice,
-    iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,
-    iops_mod_weighted_normal,
+    iops_mod_bevel, iops_mod_boolean, iops_mod_mirror, iops_mod_array,  # noqa: F401
+    iops_mod_solidify, iops_mod_subsurf, iops_mod_screw, iops_mod_weld,  # noqa: F401
+    iops_mod_triangulate, iops_mod_decimate, iops_mod_remesh,  # noqa: F401
+    iops_mod_wireframe, iops_mod_curve, iops_mod_lattice,  # noqa: F401
+    iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,  # noqa: F401
+    iops_mod_weighted_normal,  # noqa: F401
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
     iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
     iops_mod_safe_apply, iops_mod_list, iops_mod_defaults,
@@ -668,7 +668,7 @@ def keymap_registration():
             # Merge in any defaults the saved file predates, so operators added
             # since the user last saved become bindable (in-memory only).
             register_keymaps(merge_missing_defaults(keys_user))
-        except (json.JSONDecodeError, IOError, UnicodeDecodeError, Exception) as e:
+        except Exception as e:
             print(f"IOPS: Error loading user hotkeys - {e}, using defaults")
             register_keymaps(build_bindable_defaults())
     else:
@@ -751,7 +751,7 @@ def register():
         from .ui.draw import safe_handler_add
         draw_handler = safe_handler_add(
             bpy.types.SpaceView3D,
-            draw_iops_statistics, tuple(), "WINDOW", "POST_PIXEL",
+            draw_iops_statistics, (), "WINDOW", "POST_PIXEL",
         )
         print("IOPS Statistics Registered!")
     else:
@@ -832,7 +832,6 @@ def unregister():
         bpy.types.VIEW3D_MT_object_apply.remove(object_apply_change_scale)
     except Exception as e:
         print(e)
-        pass
     try:
         bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_ss_header)
     except Exception:
