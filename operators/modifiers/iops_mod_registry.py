@@ -208,7 +208,7 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "OBJECT" and context.selected_objects
+        return bool(context.selected_objects)
 
     @classmethod
     def description(cls, context, properties):
@@ -247,6 +247,10 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
             self.report({"INFO"}, msg)
 
         elif self.mode == "APPLY":
+            if context.mode != "OBJECT":
+                self.report({"ERROR"},
+                            "Modifiers cannot be applied in edit mode")
+                return {"CANCELLED"}
             applied = 0
             failed = 0
             skipped = {}

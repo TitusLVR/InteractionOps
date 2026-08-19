@@ -104,7 +104,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == "OBJECT" and context.active_object
+        return (context.active_object
                 and context.active_object.modifiers)
 
     @classmethod
@@ -126,6 +126,10 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             self.report({"WARNING"}, "Modifier index out of range")
             return {"CANCELLED"}
         md = obj.modifiers[self.index]
+        if self.action == "APPLY" and context.mode != "OBJECT":
+            self.report({"ERROR"},
+                        "Modifiers cannot be applied in edit mode")
+            return {"CANCELLED"}
 
         if self.action == "MOVE_UP":
             obj.modifiers.move(self.index,

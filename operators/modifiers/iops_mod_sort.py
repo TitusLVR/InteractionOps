@@ -28,7 +28,7 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "OBJECT" and context.selected_objects
+        return bool(context.selected_objects)
 
     def execute(self, context):
         changed = 0

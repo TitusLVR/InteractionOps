@@ -14,7 +14,7 @@ class IOPS_OT_ModActiveTarget(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == "OBJECT" and context.active_object
+        return (context.active_object
                 and len(context.selected_objects) > 1)
 
     def execute(self, context):

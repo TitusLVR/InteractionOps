@@ -38,7 +38,7 @@ class IOPS_OT_ModCleanup(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "OBJECT" and context.selected_objects
+        return bool(context.selected_objects)
 
     def execute(self, context):
         removed = 0

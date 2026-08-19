@@ -15,7 +15,7 @@ class IOPS_OT_ModCursorTarget(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return (context.mode == "OBJECT" and obj is not None
+        return (obj is not None
                 and obj.modifiers.active is not None
                 and iops_mod_registry.object_fields(obj.modifiers.active))
 
