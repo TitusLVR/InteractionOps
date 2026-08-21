@@ -17,7 +17,7 @@ from . import iops_mod_gn_lib as gn_lib
 # Detail Merge Distance (white).
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 48  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 52  # bump when the tree layout changes to force rebuild
 
 FALLOFF_ATTR = "iops_ad_falloff"
 MASK_ATTR = "iops_ad_mask"
@@ -82,18 +82,6 @@ def ensure_attr_preview_material(name=PREVIEW_MAT, attr=MASK_ATTR):
     mat["iops_preview_version"] = PREVIEW_MAT_VERSION
     return mat
 
-# The mask drives the merge distance: every vertex has a target
-# distance lerp(Merge Distance, Detail Merge Distance, mask), mapped
-# LOGARITHMICALLY so mid-grey reads as mid density. The cascade
-# approaches the targets with a geometric distance ramp so no region
-# ever jumps more than ~2x per pass (bigger jumps fold face flaps over
-# each other): gentle whole-mesh warm-up at fractions of Detail Merge
-# Distance...
-_DETAIL_STEPS = (0.33, 0.66, 1.0)
-# ...then fractions of Merge Distance (geometric, ratio sqrt(2)); 24
-# steps span a 4096x range so the ramp reaches down to Detail Merge
-# Distance even on huge Merge/Detail ratios (giant assets).
-_RAMP_STEPS = tuple(2.0 ** (-k / 2.0) for k in range(23, -1, -1))
 
 
 def _build_group():
@@ -496,84 +484,158 @@ def _build_group():
     x = 1100
     preview_falloff = falloff_attr(900, -400)
 
-    def _merge_pass(distance_socket, selection_socket):
-        nonlocal geo, x
-        n_merge = ng.nodes.new("GeometryNodeMergeByDistance")
-        # Connected mode: never welds across gaps. Blender 5.x exposes
-        # it as a menu socket; older builds as a node property.
-        if "Mode" in n_merge.inputs:
-            n_merge.inputs["Mode"].default_value = "Connected"
-        else:
-            n_merge.mode = "CONNECTED"
-        n_merge.location = (x + 270, 0)
-        ln(geo, n_merge.inputs["Geometry"])
-        if selection_socket is not None:
-            ln(selection_socket, n_merge.inputs["Selection"])
-        ln(distance_socket, n_merge.inputs["Distance"])
-        geo = n_merge.outputs["Geometry"]
-        x += 520
-
     _s = _snap()
-    # warm-up: whole mesh at fractions of Detail Merge Distance (every
-    # vertex's target is at least the detail distance)
-    for frac in _DETAIL_STEPS:
-        n_d = ng.nodes.new("ShaderNodeMath")
-        n_d.operation = "MULTIPLY"
-        n_d.inputs[1].default_value = frac
-        n_d.location = (x + 90, -260)
-        ln(n_in.outputs["Min Merge Distance"], n_d.inputs[0])
-        _merge_pass(n_d.outputs["Value"], None)
-
-    _s = _frame("Warm-up Merges (Min Merge Distance)", _s)
-
-    # ramp: distance = Merge Distance * frac; the mask maps to the
-    # target distance LOGARITHMICALLY — target = Merge^(1-m) * Detail^m
-    # — so mid-grey really reads as mid density. Select vertices whose
-    # target >= D, i.e. mask <= -ln(frac) / ln(Merge / Detail)
-    import math as _math
-    n_dsafe0 = ng.nodes.new("ShaderNodeMath")
-    n_dsafe0.operation = "MAXIMUM"
-    n_dsafe0.inputs[1].default_value = 1e-9
-    n_dsafe0.location = (x - 360, -580)
-    ln(n_in.outputs["Min Merge Distance"], n_dsafe0.inputs[0])
-    n_ratio = ng.nodes.new("ShaderNodeMath")
-    n_ratio.operation = "DIVIDE"
-    n_ratio.location = (x - 270, -580)
-    ln(n_in.outputs["Max Merge Distance"], n_ratio.inputs[0])
-    ln(n_dsafe0.outputs["Value"], n_ratio.inputs[1])
+    # --- ONE repeat zone instead of a chain of merge nodes. Each
+    # iteration i merges at D_i = 0.33*Min * 2^(i/4) (geometric ramp,
+    # capped at Max — quarter-octave steps so nothing folds and every
+    # region converges), and
+    # selects only vertices whose log-mapped target distance
+    # Max^(1-mask) * Min^mask is >= D_i, i.e.
+    # mask <= ln(Max / D_i) / ln(Max / Min). Early small-distance
+    # iterations give level >= 1 -> whole mesh warm-up for free. The
+    # iteration count is computed from the Max/Min ratio, so the ramp
+    # always reaches from Min to Max on any asset scale.
+    n_mins = ng.nodes.new("ShaderNodeMath")
+    n_mins.operation = "MAXIMUM"
+    n_mins.inputs[1].default_value = 1e-9
+    n_mins.location = (x - 360, -580)
+    n_mins.label = "Min (safe)"
+    ln(n_in.outputs["Min Merge Distance"], n_mins.inputs[0])
+    n_maxs = ng.nodes.new("ShaderNodeMath")
+    n_maxs.operation = "MAXIMUM"
+    n_maxs.inputs[1].default_value = 1e-9
+    n_maxs.location = (x - 360, -720)
+    n_maxs.label = "Max (safe)"
+    ln(n_in.outputs["Max Merge Distance"], n_maxs.inputs[0])
+    n_start = ng.nodes.new("ShaderNodeMath")
+    n_start.operation = "MULTIPLY"
+    n_start.inputs[1].default_value = 0.33
+    n_start.location = (x - 270, -580)
+    n_start.label = "Ramp Start (Min/3)"
+    ln(n_mins.outputs["Value"], n_start.inputs[0])
     n_lnr = ng.nodes.new("ShaderNodeMath")
-    n_lnr.operation = "LOGARITHM"
-    n_lnr.inputs[1].default_value = 2.718281828
-    n_lnr.location = (x - 180, -580)
-    ln(n_ratio.outputs["Value"], n_lnr.inputs[0])
+    n_lnr.operation = "DIVIDE"
+    n_lnr.location = (x - 270, -720)
+    ln(n_maxs.outputs["Value"], n_lnr.inputs[0])
+    ln(n_mins.outputs["Value"], n_lnr.inputs[1])
+    n_lnr2 = ng.nodes.new("ShaderNodeMath")
+    n_lnr2.operation = "LOGARITHM"
+    n_lnr2.inputs[1].default_value = 2.718281828
+    n_lnr2.location = (x - 180, -720)
+    n_lnr2.label = "ln(Max/Min)"
+    ln(n_lnr.outputs["Value"], n_lnr2.inputs[0])
     n_lnsafe = ng.nodes.new("ShaderNodeMath")
     n_lnsafe.operation = "MAXIMUM"
     n_lnsafe.inputs[1].default_value = 1e-6
-    n_lnsafe.location = (x - 90, -580)
-    ln(n_lnr.outputs["Value"], n_lnsafe.inputs[0])
-    ln_merge_detail = n_lnsafe.outputs["Value"]
+    n_lnsafe.location = (x - 90, -720)
+    ln(n_lnr2.outputs["Value"], n_lnsafe.inputs[0])
 
-    for frac in _RAMP_STEPS:
-        falloff = falloff_attr(x - 180)
-        n_d = ng.nodes.new("ShaderNodeMath")
-        n_d.operation = "MULTIPLY"
-        n_d.inputs[1].default_value = frac
-        n_d.location = (x, -260)
-        ln(n_in.outputs["Max Merge Distance"], n_d.inputs[0])
-        n_level = ng.nodes.new("ShaderNodeMath")
-        n_level.operation = "DIVIDE"
-        n_level.inputs[0].default_value = -_math.log(frac) if frac < 1 else 0.0
-        n_level.location = (x + 90, -420)
-        ln(ln_merge_detail, n_level.inputs[1])
-        n_sel = ng.nodes.new("FunctionNodeCompare")
-        n_sel.data_type = "FLOAT"
-        n_sel.operation = "LESS_EQUAL"
-        n_sel.location = (x + 90, -180)
-        ln(falloff, n_sel.inputs["A"])
-        ln(n_level.outputs["Value"], n_sel.inputs["B"])
-        _merge_pass(n_d.outputs["Value"], n_sel.outputs["Result"])
+    # iterations = ceil(4 * log2(Max / start)) + 1, at least 1
+    # (quarter-octave distance steps: gentle enough that every region
+    # converges instead of jumping)
+    n_itr = ng.nodes.new("ShaderNodeMath")
+    n_itr.operation = "DIVIDE"
+    n_itr.location = (x - 180, -880)
+    ln(n_maxs.outputs["Value"], n_itr.inputs[0])
+    ln(n_start.outputs["Value"], n_itr.inputs[1])
+    n_itl = ng.nodes.new("ShaderNodeMath")
+    n_itl.operation = "LOGARITHM"
+    n_itl.inputs[1].default_value = 2.0
+    n_itl.location = (x - 90, -880)
+    n_itl.label = "log2(Max/Start)"
+    ln(n_itr.outputs["Value"], n_itl.inputs[0])
+    n_it2 = ng.nodes.new("ShaderNodeMath")
+    n_it2.operation = "MULTIPLY_ADD"
+    n_it2.inputs[1].default_value = 4.0
+    n_it2.inputs[2].default_value = 1.0
+    n_it2.location = (x, -880)
+    ln(n_itl.outputs["Value"], n_it2.inputs[0])
+    n_itc = ng.nodes.new("ShaderNodeMath")
+    n_itc.operation = "CEIL"
+    n_itc.location = (x + 90, -880)
+    ln(n_it2.outputs["Value"], n_itc.inputs[0])
+    n_itmin = ng.nodes.new("ShaderNodeMath")
+    n_itmin.operation = "MAXIMUM"
+    n_itmin.inputs[1].default_value = 1.0
+    n_itmin.location = (x + 180, -880)
+    n_itmin.label = "Iterations"
+    ln(n_itc.outputs["Value"], n_itmin.inputs[0])
 
-    _s = _frame("Distance Ramp Merges (24 steps)", _s)
+    # the repeat zone: state = geometry
+    n_rin = ng.nodes.new("GeometryNodeRepeatInput")
+    n_rin.location = (x + 90, 0)
+    n_rout = ng.nodes.new("GeometryNodeRepeatOutput")
+    n_rout.location = (x + 900, 0)
+    n_rin.pair_with_output(n_rout)
+    if not len(n_rout.repeat_items):
+        n_rout.repeat_items.new("GEOMETRY", "Geometry")
+    ln(n_itmin.outputs["Value"], n_rin.inputs["Iterations"])
+    ln(geo, n_rin.inputs["Geometry"])
+
+    # per-iteration distance: D = start * 2^(i/4), capped at Max
+    n_half = ng.nodes.new("ShaderNodeMath")
+    n_half.operation = "MULTIPLY"
+    n_half.inputs[1].default_value = 0.25
+    n_half.location = (x + 270, -420)
+    ln(n_rin.outputs["Iteration"], n_half.inputs[0])
+    n_p2 = ng.nodes.new("ShaderNodeMath")
+    n_p2.operation = "POWER"
+    n_p2.inputs[0].default_value = 2.0
+    n_p2.location = (x + 360, -420)
+    n_p2.label = "2^(i/4)"
+    ln(n_half.outputs["Value"], n_p2.inputs[1])
+    n_draw = ng.nodes.new("ShaderNodeMath")
+    n_draw.operation = "MULTIPLY"
+    n_draw.location = (x + 450, -420)
+    ln(n_start.outputs["Value"], n_draw.inputs[0])
+    ln(n_p2.outputs["Value"], n_draw.inputs[1])
+    n_d = ng.nodes.new("ShaderNodeMath")
+    n_d.operation = "MINIMUM"
+    n_d.location = (x + 540, -420)
+    n_d.label = "Pass Distance"
+    ln(n_draw.outputs["Value"], n_d.inputs[0])
+    ln(n_maxs.outputs["Value"], n_d.inputs[1])
+
+    # selection level: mask <= ln(Max / D) / ln(Max / Min)
+    n_md = ng.nodes.new("ShaderNodeMath")
+    n_md.operation = "DIVIDE"
+    n_md.location = (x + 540, -580)
+    ln(n_maxs.outputs["Value"], n_md.inputs[0])
+    ln(n_d.outputs["Value"], n_md.inputs[1])
+    n_lnd = ng.nodes.new("ShaderNodeMath")
+    n_lnd.operation = "LOGARITHM"
+    n_lnd.inputs[1].default_value = 2.718281828
+    n_lnd.location = (x + 630, -580)
+    ln(n_md.outputs["Value"], n_lnd.inputs[0])
+    n_level = ng.nodes.new("ShaderNodeMath")
+    n_level.operation = "DIVIDE"
+    n_level.location = (x + 720, -580)
+    n_level.label = "Selection Level"
+    ln(n_lnd.outputs["Value"], n_level.inputs[0])
+    ln(n_lnsafe.outputs["Value"], n_level.inputs[1])
+    n_sel = ng.nodes.new("FunctionNodeCompare")
+    n_sel.data_type = "FLOAT"
+    n_sel.operation = "LESS_EQUAL"
+    n_sel.location = (x + 720, -260)
+    ln(falloff_attr(x + 540, -260), n_sel.inputs["A"])
+    ln(n_level.outputs["Value"], n_sel.inputs["B"])
+
+    n_merge = ng.nodes.new("GeometryNodeMergeByDistance")
+    # Connected mode: never welds across gaps. Blender 5.x exposes
+    # it as a menu socket; older builds as a node property.
+    if "Mode" in n_merge.inputs:
+        n_merge.inputs["Mode"].default_value = "Connected"
+    else:
+        n_merge.mode = "CONNECTED"
+    n_merge.location = (x + 720, 0)
+    ln(n_rin.outputs["Geometry"], n_merge.inputs["Geometry"])
+    ln(n_sel.outputs["Result"], n_merge.inputs["Selection"])
+    ln(n_d.outputs["Value"], n_merge.inputs["Distance"])
+    ln(n_merge.outputs["Geometry"], n_rout.inputs["Geometry"])
+    geo = n_rout.outputs["Geometry"]
+    x += 1200
+
+    _s = _frame("Merge Loop (geometric distance ramp)", _s)
 
     # shrinkwrap: snap merged vertices to the nearest point on the
     # ORIGINAL surface, so collapsed areas don't sink the silhouette.
