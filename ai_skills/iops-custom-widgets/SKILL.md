@@ -51,7 +51,7 @@ Row types:
 | type | keys | binds |
 |---|---|---|
 | `SECTION` | `label` | — (non-interactive header) |
-| `SLIDER` | `target` (BEVEL/CREASE), `snap` | edge float attribute |
+| `SLIDER` | EXACTLY ONE of `target` (BEVEL/CREASE) or `prop` (dotted RNA path, + `value_type`, `min`, `max`, `fmt`); `snap` | edge float attribute, or arbitrary scalar RNA number/angle |
 | `PRESETS` | `target` (BEVEL/CREASE), `values` (list 0..1) | edge float attribute |
 | `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
@@ -256,6 +256,7 @@ stem must match `name`. Drop it next to the existing widgets.
 | A boolean the user flips | `FLIPBOX` — `target` (edge attr), `prop` (scene/RNA bool), or `switch` (local panel state) |
 | Reveal/hide other rows from a toggle | `FLIPBOX` `switch` + `show_if: {switch: …}` on the gated rows |
 | Edit a bevel/crease value | `SLIDER` / `PRESETS` (edge floats; auto edit-mesh gating) |
+| Drag a number/angle prop over a range | `SLIDER` with `prop` + `value_type` + `min`/`max` (e.g. HDRI rotation in degrees) |
 | Pick one of N named choices (enum) | `DROPDOWN` (in-overlay list), or `BUTTONS` with `value_type: ENUM` + `items` for a visible radio row |
 | Free text / number / angle entry | `INPUT` (`value_type` STRING/INT/FLOAT/DEGREES/RADIANS; in-overlay text caret) |
 | Pick one preset number (counter, angle) | `BUTTONS` with `values` (number mode; not clamped to 0..1) |

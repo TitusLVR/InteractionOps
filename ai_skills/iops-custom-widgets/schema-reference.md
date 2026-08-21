@@ -29,11 +29,33 @@ upper). Unknown types are dropped + reported.
 |---|---|---|---|
 | `label` | str | no | `""` |
 
-### `SLIDER` — edge float attribute (drag)
+### `SLIDER` — edge float attribute OR scalar RNA prop (drag)
+
+Two modes, EXACTLY ONE of `target`/`prop` (both → dropped).
+
+**Target mode** (edge attribute, auto edit-mesh gating):
 | key | type | required | default |
 |---|---|---|---|
 | `target` | `"BEVEL"` \| `"CREASE"` | **yes** | — (other targets rejected) |
 | `snap` | float ≥ 0 | no | `0.125` (0 disables snapping) |
+
+**Prop mode** (arbitrary scalar RNA path, absence-safe → disabled; NOT
+edge-bound, author-declared range in author space — degrees for `DEGREES`):
+| key | type | required | default |
+|---|---|---|---|
+| `prop` | dotted RNA path | **yes** | — |
+| `value_type` | `INT` \| `FLOAT` \| `DEGREES` \| `RADIANS` | no | `FLOAT` (STRING/ENUM rejected) |
+| `min` / `max` | float, `max > min` | no | `0.0` / `1.0` (equal/inverted → dropped) |
+| `snap` | float ≥ 0 | no | `0.0` (free; Ctrl-drag is always smooth) |
+| `fmt` | format string | no | `"{:.2f}"` |
+
+Cancel (Esc/right-click mid-drag) restores the pre-drag value; no
+per-edge snapshot/restore in prop mode. Example:
+
+```json
+{"type": "SLIDER", "prop": "space_data.shading.studiolight_rotate_z",
+ "value_type": "DEGREES", "min": -180, "max": 180, "snap": 15, "fmt": "{:.0f}°"}
+```
 
 ### `PRESETS` — edge float attribute (preset buttons)
 | key | type | required | default |
