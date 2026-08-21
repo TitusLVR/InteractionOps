@@ -1,16 +1,14 @@
-import math
-
 import bpy
 
 # Geometry-nodes adaptive decimate: curvature/cavity survives, flat and
-# sloped regions collapse. Curvature (edge angle / edge length) ->
-# protection mask -> blurred into a 0..1 falloff -> cascaded Merge by
+# sloped regions collapse. Smoothed whole-object curvature field ->
+# threshold -> blurred into a 0..1 falloff -> cascaded Merge by
 # Distance passes (Connected) that get more aggressive further from
 # detail, so the transition is gradual. All knobs are group inputs, so
 # they show up in the modifier UI like any GN setup.
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 16  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 17  # bump when the tree layout changes to force rebuild
 
 MASK_ATTR = "iops_ad_mask"
 PREVIEW_MAT = "iOps_AdaptiveDecimate_Preview"
@@ -62,17 +60,6 @@ def _build_group():
         "counts as flat and gets decimated; detail curvier than "
         "1/threshold meters radius is preserved regardless of mesh "
         "density")
-    s_floor = iface.new_socket("Noise Floor", in_out="INPUT",
-                               socket_type="NodeSocketFloat")
-    s_floor.subtype = "ANGLE"
-    s_floor.default_value = math.radians(1.0)
-    s_floor.min_value = 0.0
-    s_floor.max_value = math.pi
-    s_floor.description = (
-        "Ignore edges bending less than this angle no matter how short "
-        "they are: on dense meshes tiny shading-invisible angles over "
-        "tiny edge lengths otherwise read as high curvature (white "
-        "noise islands in the mask)")
     s_csm = iface.new_socket("Curvature Smooth", in_out="INPUT",
                              socket_type="NodeSocketInt")
     s_csm.default_value = 2
@@ -96,13 +83,6 @@ def _build_group():
     s_ddist.description = ("Gentle merge inside the protected detail "
                            "(mask) zone, for optimizing dense curvature "
                            "without losing its shape; 0 disables")
-    s_guard = iface.new_socket("Detail Guard", in_out="INPUT",
-                               socket_type="NodeSocketInt")
-    s_guard.default_value = 2
-    s_guard.min_value = 0
-    s_guard.max_value = 32
-    s_guard.description = ("How many rings around curvature/cavity "
-                           "detail stay fully protected")
     s_blur = iface.new_socket("Transition Blur", in_out="INPUT",
                               socket_type="NodeSocketInt")
     s_blur.default_value = 4
@@ -135,9 +115,9 @@ def _build_group():
 
     def _falloff(x):
         """Protection falloff field: 1 on detail, fading to 0 with
-        distance from it. Threshold FIRST, then blur the 0/1 mask —
-        blurring raw curvature would flatten its peaks and eat the
-        borders of the detail."""
+        distance from it. Curvature smoothed into a continuous field,
+        thresholded, then the 0/1 mask blurred into the transition
+        gradient."""
         n_angle = ng.nodes.new("GeometryNodeInputMeshEdgeAngle")
         n_angle.location = (x, -180)
         # curvature (rad/m) = angle / width ACROSS the edge. The
@@ -163,15 +143,6 @@ def _build_group():
         n_div = ng.nodes.new("ShaderNodeMath")
         n_div.operation = "DIVIDE"
         n_div.location = (x + 430, -260)
-        # noise floor: a shading-invisible angle over a tiny edge still
-        # reads as high curvature — zero those edges out before smoothing
-        n_floor = ng.nodes.new("FunctionNodeCompare")
-        n_floor.data_type = "FLOAT"
-        n_floor.operation = "GREATER_EQUAL"
-        n_floor.location = (x + 430, -420)
-        n_gate = ng.nodes.new("ShaderNodeMath")
-        n_gate.operation = "MULTIPLY"
-        n_gate.location = (x + 520, -260)
         # force the metric onto the EDGE domain: evaluated at points the
         # leaves would average angle over ALL edges around a point, and
         # along-the-crest edges (angle ~0) dilute across-the-crest ones
@@ -189,21 +160,10 @@ def _build_group():
         n_protect = ng.nodes.new("FunctionNodeCompare")
         n_protect.data_type = "FLOAT"
         n_protect.operation = "GREATER_EQUAL"
-        n_protect.location = (x + 610, -100)
-        # dilate first (blur -> any influence counts), THEN build the
-        # gradient with a second blur: the falloff then lives entirely
-        # outside the detail instead of eroding its borders
-        n_blur1 = ng.nodes.new("GeometryNodeBlurAttribute")
-        n_blur1.data_type = "FLOAT"
-        n_blur1.location = (x + 700, -180)
-        n_dil = ng.nodes.new("FunctionNodeCompare")
-        n_dil.data_type = "FLOAT"
-        n_dil.operation = "GREATER_THAN"
-        n_dil.inputs["B"].default_value = 0.0
-        n_dil.location = (x + 880, -180)
+        n_protect.location = (x + 790, -260)
         n_blur = ng.nodes.new("GeometryNodeBlurAttribute")
         n_blur.data_type = "FLOAT"
-        n_blur.location = (x + 1060, -180)
+        n_blur.location = (x + 970, -260)
 
         ln = ng.links.new
         ln(n_ev.outputs["Position 1"], n_len.inputs[0])
@@ -213,19 +173,12 @@ def _build_group():
         ln(n_area.outputs["Area"], n_safe.inputs[0])
         ln(n_mul.outputs["Value"], n_div.inputs[0])
         ln(n_safe.outputs["Value"], n_div.inputs[1])
-        ln(n_angle.outputs["Unsigned Angle"], n_floor.inputs["A"])
-        ln(n_in.outputs["Noise Floor"], n_floor.inputs["B"])
-        ln(n_div.outputs["Value"], n_gate.inputs[0])
-        ln(n_floor.outputs["Result"], n_gate.inputs[1])
-        ln(n_gate.outputs["Value"], n_eod.inputs["Value"])
+        ln(n_div.outputs["Value"], n_eod.inputs["Value"])
         ln(n_eod.outputs["Value"], n_csmooth.inputs["Value"])
         ln(n_in.outputs["Curvature Smooth"], n_csmooth.inputs["Iterations"])
         ln(n_csmooth.outputs["Value"], n_protect.inputs["A"])
         ln(n_in.outputs["Curvature Threshold"], n_protect.inputs["B"])
-        ln(n_protect.outputs["Result"], n_blur1.inputs["Value"])
-        ln(n_in.outputs["Detail Guard"], n_blur1.inputs["Iterations"])
-        ln(n_blur1.outputs["Value"], n_dil.inputs["A"])
-        ln(n_dil.outputs["Result"], n_blur.inputs["Value"])
+        ln(n_protect.outputs["Result"], n_blur.inputs["Value"])
         ln(n_in.outputs["Transition Blur"], n_blur.inputs["Iterations"])
         return n_blur.outputs["Value"]
 
