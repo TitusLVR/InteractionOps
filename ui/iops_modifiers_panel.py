@@ -153,6 +153,9 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                      icon="RESTRICT_SELECT_OFF")
         row.operator("iops.mod_safe_apply_transform", text="Safe Apply",
                      icon="CHECKMARK")
+        row = tools.row(align=True)
+        row.operator("iops.mod_adaptive_decimate", text="Adaptive Decimate",
+                     icon="MOD_DECIM")
 
         # --- active object stack list ---
         if not prefs.modifiers_show_stack or active is None:
