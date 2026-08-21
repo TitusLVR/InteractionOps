@@ -10,25 +10,25 @@ import bpy
 # they show up in the modifier UI like any GN setup.
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 15  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 16  # bump when the tree layout changes to force rebuild
 
 MASK_ATTR = "iops_ad_mask"
 PREVIEW_MAT = "iOps_AdaptiveDecimate_Preview"
 
 
-def _ensure_preview_material():
-    """Flat B/W emission material reading the mask attribute, so the
-    preview is visible in Material Preview / Rendered shading too."""
-    mat = bpy.data.materials.get(PREVIEW_MAT)
+def ensure_attr_preview_material(name=PREVIEW_MAT, attr=MASK_ATTR):
+    """Flat emission material reading a color attribute, so attribute
+    previews are visible in Material Preview / Rendered shading too."""
+    mat = bpy.data.materials.get(name)
     if mat is not None:
         return mat
-    mat = bpy.data.materials.new(PREVIEW_MAT)
+    mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
     n_attr = nt.nodes.new("ShaderNodeAttribute")
     n_attr.attribute_type = "GEOMETRY"
-    n_attr.attribute_name = MASK_ATTR
+    n_attr.attribute_name = attr
     n_attr.location = (-400, 0)
     n_emit = nt.nodes.new("ShaderNodeEmission")
     n_emit.location = (-180, 0)
@@ -73,6 +73,15 @@ def _build_group():
         "they are: on dense meshes tiny shading-invisible angles over "
         "tiny edge lengths otherwise read as high curvature (white "
         "noise islands in the mask)")
+    s_csm = iface.new_socket("Curvature Smooth", in_out="INPUT",
+                             socket_type="NodeSocketInt")
+    s_csm.default_value = 2
+    s_csm.min_value = 0
+    s_csm.max_value = 64
+    s_csm.description = (
+        "Blur steps smoothing per-edge curvature into a continuous "
+        "whole-object field before thresholding — the detect selects "
+        "coherent regions instead of local noise")
     s_dist = iface.new_socket("Merge Distance", in_out="INPUT",
                               socket_type="NodeSocketFloat")
     s_dist.subtype = "DISTANCE"
@@ -154,29 +163,33 @@ def _build_group():
         n_div = ng.nodes.new("ShaderNodeMath")
         n_div.operation = "DIVIDE"
         n_div.location = (x + 430, -260)
-        n_protect = ng.nodes.new("FunctionNodeCompare")
-        n_protect.data_type = "FLOAT"
-        n_protect.operation = "GREATER_EQUAL"
-        n_protect.location = (x + 520, -180)
         # noise floor: a shading-invisible angle over a tiny edge still
-        # reads as high curvature — require a real bend too
+        # reads as high curvature — zero those edges out before smoothing
         n_floor = ng.nodes.new("FunctionNodeCompare")
         n_floor.data_type = "FLOAT"
         n_floor.operation = "GREATER_EQUAL"
-        n_floor.location = (x + 520, -340)
-        n_and = ng.nodes.new("FunctionNodeBooleanMath")
-        n_and.operation = "AND"
-        n_and.location = (x + 610, -260)
-        # force the detect onto the EDGE domain: evaluated at points the
+        n_floor.location = (x + 430, -420)
+        n_gate = ng.nodes.new("ShaderNodeMath")
+        n_gate.operation = "MULTIPLY"
+        n_gate.location = (x + 520, -260)
+        # force the metric onto the EDGE domain: evaluated at points the
         # leaves would average angle over ALL edges around a point, and
         # along-the-crest edges (angle ~0) dilute across-the-crest ones
-        # below the noise floor — a black slit along every bevel crest.
-        # Edge-domain result interpolates to points as a mean of 0/1, so
-        # "any adjacent detail edge" survives the >0 tests downstream.
+        # — a black slit along every bevel crest otherwise.
         n_eod = ng.nodes.new("GeometryNodeFieldOnDomain")
         n_eod.domain = "EDGE"
         n_eod.data_type = "FLOAT"
-        n_eod.location = (x + 610, -400)
+        n_eod.location = (x + 610, -260)
+        # smooth curvature into a continuous whole-object field FIRST,
+        # threshold after: the detect picks coherent regions instead of
+        # per-edge noise
+        n_csmooth = ng.nodes.new("GeometryNodeBlurAttribute")
+        n_csmooth.data_type = "FLOAT"
+        n_csmooth.location = (x + 700, -420)
+        n_protect = ng.nodes.new("FunctionNodeCompare")
+        n_protect.data_type = "FLOAT"
+        n_protect.operation = "GREATER_EQUAL"
+        n_protect.location = (x + 610, -100)
         # dilate first (blur -> any influence counts), THEN build the
         # gradient with a second blur: the falloff then lives entirely
         # outside the detail instead of eroding its borders
@@ -200,14 +213,16 @@ def _build_group():
         ln(n_area.outputs["Area"], n_safe.inputs[0])
         ln(n_mul.outputs["Value"], n_div.inputs[0])
         ln(n_safe.outputs["Value"], n_div.inputs[1])
-        ln(n_div.outputs["Value"], n_protect.inputs["A"])
-        ln(n_in.outputs["Curvature Threshold"], n_protect.inputs["B"])
         ln(n_angle.outputs["Unsigned Angle"], n_floor.inputs["A"])
         ln(n_in.outputs["Noise Floor"], n_floor.inputs["B"])
-        ln(n_protect.outputs["Result"], n_and.inputs[0])
-        ln(n_floor.outputs["Result"], n_and.inputs[1])
-        ln(n_and.outputs["Boolean"], n_eod.inputs["Value"])
-        ln(n_eod.outputs["Value"], n_blur1.inputs["Value"])
+        ln(n_div.outputs["Value"], n_gate.inputs[0])
+        ln(n_floor.outputs["Result"], n_gate.inputs[1])
+        ln(n_gate.outputs["Value"], n_eod.inputs["Value"])
+        ln(n_eod.outputs["Value"], n_csmooth.inputs["Value"])
+        ln(n_in.outputs["Curvature Smooth"], n_csmooth.inputs["Iterations"])
+        ln(n_csmooth.outputs["Value"], n_protect.inputs["A"])
+        ln(n_in.outputs["Curvature Threshold"], n_protect.inputs["B"])
+        ln(n_protect.outputs["Result"], n_blur1.inputs["Value"])
         ln(n_in.outputs["Detail Guard"], n_blur1.inputs["Iterations"])
         ln(n_blur1.outputs["Value"], n_dil.inputs["A"])
         ln(n_dil.outputs["Result"], n_blur.inputs["Value"])
@@ -330,7 +345,7 @@ def _build_group():
     ln(n_in.outputs["Geometry"], n_store.inputs["Geometry"])
     ln(preview_falloff, n_store.inputs["Value"])
     n_mat = ng.nodes.new("GeometryNodeSetMaterial")
-    n_mat.inputs["Material"].default_value = _ensure_preview_material()
+    n_mat.inputs["Material"].default_value = ensure_attr_preview_material()
     n_mat.location = (x + 180, -220)
     ln(n_store.outputs["Geometry"], n_mat.inputs["Geometry"])
     n_switch = ng.nodes.new("GeometryNodeSwitch")
