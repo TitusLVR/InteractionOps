@@ -17,7 +17,7 @@ from . import iops_mod_gn_lib as gn_lib
 # Detail Merge Distance (white).
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 47  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 48  # bump when the tree layout changes to force rebuild
 
 FALLOFF_ATTR = "iops_ad_falloff"
 MASK_ATTR = "iops_ad_mask"
@@ -103,8 +103,14 @@ def _build_group():
     iface = ng.interface
     iface.new_socket("Geometry", in_out="INPUT",
                      socket_type="NodeSocketGeometry")
+    # collapsible parameter panels in the modifier UI
+    p_detect = iface.new_panel("Detect")
+    p_range = iface.new_panel("Range")
+    p_merge = iface.new_panel("Merge")
+    p_out = iface.new_panel("Output")
     s_nb = iface.new_socket("Normal Blur", in_out="INPUT",
-                            socket_type="NodeSocketInt")
+                            socket_type="NodeSocketInt",
+                            parent=p_detect)
     s_nb.default_value = 4
     s_nb.min_value = 1
     s_nb.max_value = 64
@@ -113,7 +119,8 @@ def _build_group():
         "small = only sharp features read as detail, large = broad "
         "gentle bends and slopes count too")
     s_gi = iface.new_socket("Gaussian Influence", in_out="INPUT",
-                            socket_type="NodeSocketFloat")
+                            socket_type="NodeSocketFloat",
+                            parent=p_detect)
     s_gi.default_value = 1.0
     s_gi.min_value = 0.0
     s_gi.max_value = 10.0
@@ -122,7 +129,8 @@ def _build_group():
         "corners, spikes and peaks that the normal difference "
         "underrates. 0 = pure normal blur difference")
     s_cav = iface.new_socket("Cavity Weight", in_out="INPUT",
-                             socket_type="NodeSocketFloat")
+                             socket_type="NodeSocketFloat",
+                             parent=p_detect)
     s_cav.default_value = 0.0
     s_cav.min_value = 0.0
     s_cav.max_value = 1.0
@@ -132,7 +140,8 @@ def _build_group():
         "flats, only convex ridges/edges are protected; 1: cavities "
         "are protected the same as ridges")
     s_auto = iface.new_socket("Auto Range", in_out="INPUT",
-                              socket_type="NodeSocketBool")
+                              socket_type="NodeSocketBool",
+                              parent=p_range)
     s_auto.default_value = True
     s_auto.description = (
         "Determine the field range automatically from the object with "
@@ -140,7 +149,8 @@ def _build_group():
         "always spreads into a visible gradient, outliers clamp); "
         "disable to set Flat/Detail Level by hand")
     s_min = iface.new_socket("Flat Level", in_out="INPUT",
-                             socket_type="NodeSocketFloat")
+                             socket_type="NodeSocketFloat",
+                             parent=p_range)
     s_min.default_value = 0.0
     s_min.min_value = 0.0
     s_min.max_value = 2.0
@@ -150,7 +160,8 @@ def _build_group():
         "and typically tiny: 1 - dot(N, blurred N) stays near 0 "
         "everywhere except at real features")
     s_max = iface.new_socket("Detail Level", in_out="INPUT",
-                             socket_type="NodeSocketFloat")
+                             socket_type="NodeSocketFloat",
+                             parent=p_range)
     s_max.default_value = 0.2
     s_max.min_value = 0.000001
     s_max.max_value = 2.0
@@ -160,21 +171,24 @@ def _build_group():
         "usual working range, the tiny floor is just a zero-division "
         "guard")
     s_pow = iface.new_socket("Power", in_out="INPUT",
-                             socket_type="NodeSocketFloat")
+                             socket_type="NodeSocketFloat",
+                             parent=p_range)
     s_pow.default_value = 1.0
     s_pow.min_value = 0.01
     s_pow.description = ("Contrast of the mask: >1 squeezes greys "
                          "toward black (harder optimization), <1 "
                          "lifts faint detail")
     s_dist = iface.new_socket("Max Merge Distance", in_out="INPUT",
-                              socket_type="NodeSocketFloat")
+                              socket_type="NodeSocketFloat",
+                              parent=p_merge)
     s_dist.subtype = "DISTANCE"
     s_dist.default_value = 0.05
     s_dist.min_value = 0.0
     s_dist.description = ("MAXIMUM merge distance — applied in the "
                           "black (flat/optimized) zones of the mask")
     s_ddist = iface.new_socket("Min Merge Distance", in_out="INPUT",
-                               socket_type="NodeSocketFloat")
+                               socket_type="NodeSocketFloat",
+                               parent=p_merge)
     s_ddist.subtype = "DISTANCE"
     s_ddist.default_value = 0.01
     s_ddist.min_value = 0.0
@@ -182,24 +196,28 @@ def _build_group():
                            "white (detail) zones of the mask; "
                            "in-between interpolates logarithmically")
     s_blur = iface.new_socket("Transition Blur", in_out="INPUT",
-                              socket_type="NodeSocketInt")
+                              socket_type="NodeSocketInt",
+                              parent=p_merge)
     s_blur.default_value = 4
     s_blur.min_value = 0
     s_blur.max_value = 32
     s_blur.description = ("Softness of the falloff between detail and "
                           "optimized areas")
     s_wrap = iface.new_socket("Shrinkwrap", in_out="INPUT",
-                              socket_type="NodeSocketBool")
+                              socket_type="NodeSocketBool",
+                              parent=p_out)
     s_wrap.default_value = True
     s_wrap.description = ("Snap the decimated vertices back onto the "
                           "original surface so the silhouette is kept")
     s_tri = iface.new_socket("Triangulate", in_out="INPUT",
-                             socket_type="NodeSocketBool")
+                             socket_type="NodeSocketBool",
+                             parent=p_out)
     s_tri.default_value = True
     s_tri.description = ("Triangulate the decimated result (merge "
                          "passes leave ngons behind otherwise)")
     s_prev = iface.new_socket("Preview Mask", in_out="INPUT",
-                              socket_type="NodeSocketBool")
+                              socket_type="NodeSocketBool",
+                              parent=p_out)
     s_prev.default_value = False
     s_prev.description = (
         f"Show the mask as a B/W '{MASK_ATTR}' color attribute on the "
@@ -213,11 +231,25 @@ def _build_group():
 
     curv_group = gn_lib.ensure_mesh_curvature()
 
+    def _snap():
+        return {n.name for n in ng.nodes}
+
+    def _frame(label, before):
+        """Put every node created since `before` into a labeled frame."""
+        frame = ng.nodes.new("NodeFrame")
+        frame.label = label
+        for n in ng.nodes:
+            if n.name != frame.name and n.name not in before \
+                    and n.parent is None:
+                n.parent = frame
+        return _snap()
+
     def _falloff(x, geo_src):
         """The 0..1 protection mask: normal blur difference + weighted
         gaussian curvature, signed by convexity, range-mapped, contrast
         shaped, blurred, re-spanned to a true 0..1."""
         ln = ng.links.new
+        _s = _snap()
         # --- normal blur difference: 1 - dot(N, normalize(blur(N)))
         n_nrm = ng.nodes.new("GeometryNodeInputNormal")
         n_nrm.location = (x + 160, -180)
@@ -241,6 +273,7 @@ def _build_group():
         n_nd.location = (x + 880, -180)
         ln(n_dotn.outputs["Value"], n_nd.inputs[1])
 
+        _s = _frame("Detect: Normal Blur Difference", _s)
         # --- gaussian curvature (angle defect): corners and peaks.
         # Garbage on open-boundary vertices — gated out there.
         n_curv = ng.nodes.new("GeometryNodeGroup")
@@ -285,6 +318,7 @@ def _build_group():
         ln(n_gblur.outputs["Value"], n_gw.inputs[0])
         ln(n_in.outputs["Gaussian Influence"], n_gw.inputs[1])
 
+        _s = _frame("Detect: Gaussian Curvature (boundary gated)", _s)
         n_mag = ng.nodes.new("ShaderNodeMath")
         n_mag.operation = "ADD"
         n_mag.location = (x + 970, -260)
@@ -335,6 +369,7 @@ def _build_group():
         ln(n_mag.outputs["Value"], n_field.inputs[0])
         ln(n_cfac.outputs["Value"], n_field.inputs[1])
 
+        _s = _frame("Combine + Convex/Concave Sign", _s)
         # --- range mapping: robust quartiles (Auto Range) or manual.
         # Black = Q1, white = Q3 + IQR: the distribution bulk always
         # spreads into a visible gradient, outliers just clamp.
@@ -400,6 +435,7 @@ def _build_group():
         ln(n_minsw.outputs["Output"], n_norm.inputs["From Min"])
         ln(n_maxsw.outputs["Output"], n_norm.inputs["From Max"])
 
+        _s = _frame("Range Mapping (Auto quartiles / manual)", _s)
         # contrast, transition softness
         n_pow = ng.nodes.new("ShaderNodeMath")
         n_pow.operation = "POWER"
@@ -427,6 +463,7 @@ def _build_group():
         ln(n_blur.outputs["Value"], n_span.inputs["Value"])
         ln(n_stat2.outputs["Min"], n_span.inputs["From Min"])
         ln(n_stat2.outputs["Max"], n_span.inputs["From Max"])
+        _frame("Contrast + Blur + Re-span", _s)
         return n_span.outputs["Result"]
 
     ln = ng.links.new
@@ -435,6 +472,7 @@ def _build_group():
     # bake the mask ONCE on the input geometry: the attribute
     # interpolates through every merge pass, so the density gradient
     # survives (recomputing per pass drifts merged areas to max)
+    _s = _snap()
     falloff0 = _falloff(-700, geo)
     n_storef = ng.nodes.new("GeometryNodeStoreNamedAttribute")
     n_storef.data_type = "FLOAT"
@@ -445,6 +483,8 @@ def _build_group():
     ln(falloff0, n_storef.inputs["Value"])
     geo = n_storef.outputs["Geometry"]
     base_geo = geo  # input mesh with the mask baked
+
+    _s = _frame("Bake Mask Attribute", _s)
 
     def falloff_attr(fx, fy=-340):
         n = ng.nodes.new("GeometryNodeInputNamedAttribute")
@@ -473,6 +513,7 @@ def _build_group():
         geo = n_merge.outputs["Geometry"]
         x += 520
 
+    _s = _snap()
     # warm-up: whole mesh at fractions of Detail Merge Distance (every
     # vertex's target is at least the detail distance)
     for frac in _DETAIL_STEPS:
@@ -482,6 +523,8 @@ def _build_group():
         n_d.location = (x + 90, -260)
         ln(n_in.outputs["Min Merge Distance"], n_d.inputs[0])
         _merge_pass(n_d.outputs["Value"], None)
+
+    _s = _frame("Warm-up Merges (Min Merge Distance)", _s)
 
     # ramp: distance = Merge Distance * frac; the mask maps to the
     # target distance LOGARITHMICALLY — target = Merge^(1-m) * Detail^m
@@ -530,6 +573,8 @@ def _build_group():
         ln(n_level.outputs["Value"], n_sel.inputs["B"])
         _merge_pass(n_d.outputs["Value"], n_sel.outputs["Result"])
 
+    _s = _frame("Distance Ramp Merges (24 steps)", _s)
+
     # shrinkwrap: snap merged vertices to the nearest point on the
     # ORIGINAL surface, so collapsed areas don't sink the silhouette.
     # Flat-ish (low mask) zone only: near creases the nearest face is
@@ -560,6 +605,8 @@ def _build_group():
     geo = n_wswitch.outputs["Output"]
     x += 540
 
+    _s = _frame("Shrinkwrap to Original Surface", _s)
+
     # triangulate the result (togglable)
     n_tri = ng.nodes.new("GeometryNodeTriangulate")
     n_tri.location = (x, -220)
@@ -572,6 +619,8 @@ def _build_group():
     ln(n_tri.outputs["Mesh"], n_tswitch.inputs["True"])
     geo = n_tswitch.outputs["Output"]
     x += 360
+
+    _s = _frame("Triangulate", _s)
 
     # B/W mask preview: undecimated mesh with the mask stored as a
     # color attribute (float links into color as grayscale implicitly)
@@ -592,6 +641,8 @@ def _build_group():
     ln(n_in.outputs["Preview Mask"], n_switch.inputs["Switch"])
     ln(geo, n_switch.inputs["False"])
     ln(n_mat.outputs["Geometry"], n_switch.inputs["True"])
+
+    _frame("Mask Preview (heatmap)", _s)
 
     n_out = ng.nodes.new("NodeGroupOutput")
     n_out.location = (x + 540, 0)
