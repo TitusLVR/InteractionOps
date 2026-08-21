@@ -32,6 +32,44 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
         warnings = []
         all_objects = list(context.view_layer.objects)
 
+        # transform_apply forces a synchronous depsgraph evaluation of
+        # everything tagged before it (pivot retargets, data copies), so
+        # a heavy stack would be recomputed several times per object.
+        # Mute viewport modifiers on every touched object for the whole
+        # batch; the single real recompute happens on restore.
+        muted = []
+        muted_objects = set()
+
+        def _mute(ob):
+            if ob.name in muted_objects:
+                return
+            muted_objects.add(ob.name)
+            for md in ob.modifiers:
+                if md.show_viewport:
+                    md.show_viewport = False
+                    muted.append(md)
+
+        try:
+            applied, skipped, warnings = self._apply_all(
+                context, all_objects, _mute)
+        finally:
+            for md in muted:
+                md.show_viewport = True
+
+        msg = f"Safe-applied transform on {applied} object(s)"
+        for reason, n in skipped.items():
+            msg += f"; {n} skipped ({reason})"
+        level = "WARNING" if (skipped or warnings) else "INFO"
+        for w in warnings:
+            print("IOPS Safe Apply:", w)
+        self.report({level}, msg)
+        return {"FINISHED"}
+
+    def _apply_all(self, context, all_objects, mute):
+        applied = 0
+        skipped = {}
+        warnings = []
+
         for obj in context.selected_objects:
             if obj.type == "EMPTY":
                 skipped["empty (no data)"] = skipped.get("empty (no data)", 0) + 1
@@ -53,6 +91,10 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
                 skipped["data-space deform target (Curve/Lattice)"] = \
                     skipped.get("data-space deform target (Curve/Lattice)", 0) + 1
                 continue
+
+            mute(obj)
+            for md, _fname in matrix_refs:
+                mute(md.id_data)
 
             matrix_before = obj.matrix_world.copy()
             pivot = None
@@ -125,11 +167,4 @@ class IOPS_OT_ModSafeApplyTransform(bpy.types.Operator):
                                 pass
             applied += 1
 
-        msg = f"Safe-applied transform on {applied} object(s)"
-        for reason, n in skipped.items():
-            msg += f"; {n} skipped ({reason})"
-        level = "WARNING" if (skipped or warnings) else "INFO"
-        for w in warnings:
-            print("IOPS Safe Apply:", w)
-        self.report({level}, msg)
-        return {"FINISHED"}
+        return applied, skipped, warnings
