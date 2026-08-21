@@ -11,7 +11,21 @@ from . import iops_mod_gn_lib as gn_lib
 # inputs, so they show up in the modifier UI like any GN setup.
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 22  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 33  # bump when the tree layout changes to force rebuild
+
+FALLOFF_ATTR = "iops_ad_falloff"
+CURV_ATTR = "iops_ad_curv"
+
+# socket renames across group versions: old name -> current name, so
+# upgrade_modifier can carry values over
+_SOCKET_RENAMES = {
+    "Curvature Smooth": "Smooth",
+    "Curvature Multiply": "Multiply",
+    "Curvature Power": "Power",
+    "AO Samples": "Rays Samples",
+    "AO Angle": "Rays Angle Offset",
+    "AO Blur": "Blur Iterations",
+}
 
 MASK_ATTR = "iops_ad_mask"
 PREVIEW_MAT = "iOps_AdaptiveDecimate_Preview"
@@ -41,15 +55,20 @@ def ensure_attr_preview_material(name=PREVIEW_MAT, attr=MASK_ATTR):
     nt.links.new(n_emit.outputs["Emission"], n_out.inputs["Surface"])
     return mat
 
-# (mask level, distance fraction) — the mask drives the merge distance
-# directly: each pass merges vertices whose mask is <= level, at
-# lerp(Merge Distance, Detail Merge Distance, level) * fraction. White
+# The mask drives the merge distance: every vertex has a target
+# distance lerp(Merge Distance, Detail Merge Distance, mask) — white
 # (mask 1) collapses at Detail Merge Distance, black (mask 0) at full
-# Merge Distance, in-between interpolates. Small steps: one aggressive
-# pass folds face flaps over each other, several gentle ones collapse
-# the same area cleanly.
-_BANDS = ((1.0, 1.0), (0.8, 1.0), (0.6, 1.0), (0.4, 1.0), (0.2, 1.0),
-          (0.0, 0.5), (0.0, 1.0))
+# Merge Distance. The cascade approaches the targets with a geometric
+# distance ramp so no region ever jumps more than ~2x per pass (bigger
+# jumps fold face flaps over each other):
+# gentle whole-mesh warm-up at fractions of Detail Merge Distance...
+_DETAIL_STEPS = (0.33, 0.66, 1.0)
+# ...then fractions of Merge Distance (geometric, ratio sqrt(2) for a
+# fine density gradient), each pass selecting only the vertices whose
+# target distance is >= that pass's distance — the transition gets a
+# smooth falloff of polygon density instead of min/max banding
+_RAMP_STEPS = (0.0625, 0.088, 0.125, 0.177, 0.25, 0.354, 0.5, 0.707,
+               1.0)
 
 
 def _build_group():
@@ -59,7 +78,7 @@ def _build_group():
     iface = ng.interface
     iface.new_socket("Geometry", in_out="INPUT",
                      socket_type="NodeSocketGeometry")
-    s_csm = iface.new_socket("Curvature Smooth", in_out="INPUT",
+    s_csm = iface.new_socket("Smooth", in_out="INPUT",
                              socket_type="NodeSocketInt")
     s_csm.default_value = 2
     s_csm.min_value = 1
@@ -68,17 +87,16 @@ def _build_group():
         "Base blur of the high-frequency curvature band; the field "
         "mixes three octaves (x1 / x4 / x16 of this) into one smooth "
         "whole-object curvature, so blotches disappear")
-    s_cmul = iface.new_socket("Curvature Multiply", in_out="INPUT",
+    s_cmul = iface.new_socket("Multiply", in_out="INPUT",
                               socket_type="NodeSocketFloat")
     s_cmul.default_value = 1.0
     s_cmul.min_value = 0.0
-    s_cmul.description = ("Post gain of the curvature field before "
-                          "thresholding")
-    s_cpow = iface.new_socket("Curvature Power", in_out="INPUT",
+    s_cmul.description = "Gain of the curvature field"
+    s_cpow = iface.new_socket("Power", in_out="INPUT",
                               socket_type="NodeSocketFloat")
     s_cpow.default_value = 1.0
     s_cpow.min_value = 0.01
-    s_cpow.description = ("Post contrast of the curvature field: >1 "
+    s_cpow.description = ("Contrast of the curvature field: >1 "
                           "sharpens toward strong detail, <1 lifts "
                           "faint mid/low frequencies")
     s_ao = iface.new_socket("AO Influence", in_out="INPUT",
@@ -86,16 +104,16 @@ def _build_group():
     s_ao.default_value = 0.0
     s_ao.min_value = 0.0
     s_ao.description = (
-        "Adds ambient-occlusion cavity to the detect: occluded areas "
-        "count as detail, weighted by this (in Curvature Threshold "
-        "units). 0 skips the AO computation entirely")
-    s_aos = iface.new_socket("AO Samples", in_out="INPUT",
+        "Cuts ambient occlusion out of the curvature mask: occluded "
+        "areas lose protection and get optimized harder, weighted by "
+        "this. 0 skips the AO computation entirely")
+    s_aos = iface.new_socket("Rays Samples", in_out="INPUT",
                              socket_type="NodeSocketInt")
     s_aos.default_value = 20
     s_aos.min_value = 1
     s_aos.max_value = 128
     s_aos.description = "Raycast samples per vertex for the AO term"
-    s_aoa = iface.new_socket("AO Angle", in_out="INPUT",
+    s_aoa = iface.new_socket("Rays Angle Offset", in_out="INPUT",
                              socket_type="NodeSocketFloat")
     s_aoa.subtype = "ANGLE"
     s_aoa.default_value = 1.0471976
@@ -103,7 +121,11 @@ def _build_group():
     s_aoa.max_value = 1.5707964
     s_aoa.description = ("Hemisphere spread of the AO rays around the "
                          "normal")
-    s_aob = iface.new_socket("AO Blur", in_out="INPUT",
+    s_seed = iface.new_socket("Seed", in_out="INPUT",
+                              socket_type="NodeSocketInt")
+    s_seed.default_value = 0
+    s_seed.description = "Random seed for the AO ray directions"
+    s_aob = iface.new_socket("Blur Iterations", in_out="INPUT",
                              socket_type="NodeSocketInt")
     s_aob.default_value = 2
     s_aob.min_value = 0
@@ -155,7 +177,7 @@ def _build_group():
 
     curv_group = gn_lib.ensure_mesh_curvature()
 
-    def _falloff(x):
+    def _falloff(x, geo_src):
         """Protection falloff field: 1 on detail, fading to 0 with
         distance from it. Mean curvature smoothed into a continuous
         field, plus the optional AO cavity term, thresholded, then the
@@ -186,7 +208,35 @@ def _build_group():
         n_hdiv.location = (x + 610, -260)
         ln(n_curv.outputs["Mean Curvature"], n_hdiv.inputs[0])
         ln(n_hsafe.outputs["Value"], n_hdiv.inputs[1])
-        curv_src = n_hdiv.outputs["Value"]
+
+        # the cotan Laplacian is garbage on open-boundary vertices
+        # (huge fake curvature that the low blur octave then smears
+        # over the whole object) — zero it out there
+        n_en = ng.nodes.new("GeometryNodeInputMeshEdgeNeighbors")
+        n_en.location = (x + 430, -600)
+        n_isb = ng.nodes.new("FunctionNodeCompare")
+        n_isb.data_type = "INT"
+        n_isb.operation = "LESS_THAN"
+        n_isb.inputs["B"].default_value = 2
+        n_isb.location = (x + 520, -600)
+        ln(n_en.outputs["Face Count"], n_isb.inputs["A"])
+        n_bpt = ng.nodes.new("FunctionNodeCompare")
+        n_bpt.data_type = "FLOAT"
+        n_bpt.operation = "GREATER_THAN"
+        n_bpt.inputs["B"].default_value = 0.0
+        n_bpt.location = (x + 610, -600)
+        ln(n_isb.outputs["Result"], n_bpt.inputs["A"])
+        n_keep = ng.nodes.new("ShaderNodeMath")
+        n_keep.operation = "SUBTRACT"
+        n_keep.inputs[0].default_value = 1.0
+        n_keep.location = (x + 700, -600)
+        ln(n_bpt.outputs["Result"], n_keep.inputs[1])
+        n_hgate = ng.nodes.new("ShaderNodeMath")
+        n_hgate.operation = "MULTIPLY"
+        n_hgate.location = (x + 700, -460)
+        ln(n_hdiv.outputs["Value"], n_hgate.inputs[0])
+        ln(n_keep.outputs["Value"], n_hgate.inputs[1])
+        curv_src = n_hgate.outputs["Value"]
 
         # three octaves of the curvature field (high / mid / low
         # frequency = base blur x1 / x4 / x16) averaged into one smooth
@@ -197,7 +247,7 @@ def _build_group():
             n_it.operation = "MULTIPLY"
             n_it.inputs[1].default_value = factor
             n_it.location = (x + 700, -260 - 160 * i)
-            ln(n_in.outputs["Curvature Smooth"], n_it.inputs[0])
+            ln(n_in.outputs["Smooth"], n_it.inputs[0])
             n_b = ng.nodes.new("GeometryNodeBlurAttribute")
             n_b.data_type = "FLOAT"
             n_b.location = (x + 790, -260 - 160 * i)
@@ -220,21 +270,52 @@ def _build_group():
         n_avg.location = (x + 1060, -340)
         ln(n_add2.outputs["Value"], n_avg.inputs[0])
 
-        # post: field * Multiply, then ^ Power, then threshold
+        # normalize over the whole object: min -> 0, max -> 1, so black
+        # zones really get the full Merge Distance and white ones the
+        # Detail Merge Distance regardless of the field's absolute scale
+        n_stat = ng.nodes.new("GeometryNodeAttributeStatistic")
+        n_stat.data_type = "FLOAT"
+        n_stat.domain = "POINT"
+        n_stat.location = (x + 1060, -560)
+        ln(geo_src, n_stat.inputs["Geometry"])
+        ln(n_avg.outputs["Value"], n_stat.inputs["Attribute"])
+        # robust upper bound (mean + 2*std): a single extreme corner
+        # would otherwise own the 1.0 and squash normal bevels to grey;
+        # outliers just clamp to 1
+        n_std2 = ng.nodes.new("ShaderNodeMath")
+        n_std2.operation = "MULTIPLY"
+        n_std2.inputs[1].default_value = 2.0
+        n_std2.location = (x + 1150, -560)
+        ln(n_stat.outputs["Standard Deviation"], n_std2.inputs[0])
+        n_upper = ng.nodes.new("ShaderNodeMath")
+        n_upper.operation = "ADD"
+        n_upper.location = (x + 1240, -560)
+        ln(n_stat.outputs["Mean"], n_upper.inputs[0])
+        ln(n_std2.outputs["Value"], n_upper.inputs[1])
+        n_norm = ng.nodes.new("ShaderNodeMapRange")
+        n_norm.data_type = "FLOAT"
+        n_norm.clamp = True
+        n_norm.location = (x + 1060, -100)
+        ln(n_avg.outputs["Value"], n_norm.inputs["Value"])
+        ln(n_stat.outputs["Min"], n_norm.inputs["From Min"])
+        ln(n_upper.outputs["Value"], n_norm.inputs["From Max"])
+
+        # post: field * Multiply, then ^ Power
         n_gain = ng.nodes.new("ShaderNodeMath")
         n_gain.operation = "MULTIPLY"
-        n_gain.location = (x + 1060, -180)
-        ln(n_avg.outputs["Value"], n_gain.inputs[0])
-        ln(n_in.outputs["Curvature Multiply"], n_gain.inputs[1])
+        n_gain.location = (x + 1150, -180)
+        ln(n_norm.outputs["Result"], n_gain.inputs[0])
+        ln(n_in.outputs["Multiply"], n_gain.inputs[1])
         n_pow = ng.nodes.new("ShaderNodeMath")
         n_pow.operation = "POWER"
         n_pow.location = (x + 1150, -260)
         ln(n_gain.outputs["Value"], n_pow.inputs[0])
-        ln(n_in.outputs["Curvature Power"], n_pow.inputs[1])
+        ln(n_in.outputs["Power"], n_pow.inputs[1])
 
-        # AO cavity term: occluded areas count as detail too. The AO
-        # attribute is baked once at the start of the graph (or absent
-        # -> reads 0 -> term is influence * 1 * 0 when influence is 0).
+        # AO term is CUT OUT of the mask: occluded areas lose
+        # protection and get optimized harder. The AO attribute is
+        # baked once at the start of the graph (or absent -> reads 0
+        # -> term is influence * 1 * 0 when influence is 0).
         n_aoattr = ng.nodes.new("GeometryNodeInputNamedAttribute")
         n_aoattr.data_type = "FLOAT"
         n_aoattr.inputs["Name"].default_value = AO_ATTR
@@ -250,7 +331,7 @@ def _build_group():
         ln(n_inv.outputs["Value"], n_aow.inputs[0])
         ln(n_in.outputs["AO Influence"], n_aow.inputs[1])
         n_sum = ng.nodes.new("ShaderNodeMath")
-        n_sum.operation = "ADD"
+        n_sum.operation = "SUBTRACT"
         n_sum.location = (x + 1240, -380)
         ln(n_pow.outputs["Value"], n_sum.inputs[0])
         ln(n_aow.outputs["Value"], n_sum.inputs[1])
@@ -268,7 +349,9 @@ def _build_group():
         n_blur.location = (x + 1240, -260)
         ln(n_clamp.outputs["Value"], n_blur.inputs["Value"])
         ln(n_in.outputs["Transition Blur"], n_blur.inputs["Iterations"])
-        return n_blur.outputs["Value"]
+        # second return: the absolute smoothed curvature (1/m), for the
+        # fold guard (never merge farther than the local feature size)
+        return n_blur.outputs["Value"], n_avg.outputs["Value"]
 
     ln = ng.links.new
     geo = n_in.outputs["Geometry"]
@@ -281,9 +364,10 @@ def _build_group():
     n_aog.inputs["Attribute"].default_value = AO_ATTR
     n_aog.location = (-1100, -300)
     ln(geo, n_aog.inputs["Mesh"])
-    ln(n_in.outputs["AO Samples"], n_aog.inputs["Rays Samples"])
-    ln(n_in.outputs["AO Angle"], n_aog.inputs["Rays Angle Offset"])
-    ln(n_in.outputs["AO Blur"], n_aog.inputs["Blur Iterations"])
+    ln(n_in.outputs["Rays Samples"], n_aog.inputs["Rays Samples"])
+    ln(n_in.outputs["Rays Angle Offset"], n_aog.inputs["Rays Angle Offset"])
+    ln(n_in.outputs["Seed"], n_aog.inputs["Seed"])
+    ln(n_in.outputs["Blur Iterations"], n_aog.inputs["Blur Iterations"])
     n_aouse = ng.nodes.new("FunctionNodeCompare")
     n_aouse.data_type = "FLOAT"
     n_aouse.operation = "GREATER_THAN"
@@ -297,41 +381,68 @@ def _build_group():
     ln(geo, n_aosw.inputs["False"])
     ln(n_aog.outputs["Mesh"], n_aosw.inputs["True"])
     geo = n_aosw.outputs["Output"]
-    base_geo = geo  # input mesh with the AO attribute baked (if on)
 
-    x = -900
-    preview_falloff = None  # first band's falloff = mask on input geometry
-    for level, dist_frac in _BANDS:
-        falloff = _falloff(x)
-        if preview_falloff is None:
-            preview_falloff = falloff
-        n_sel = ng.nodes.new("FunctionNodeCompare")
-        n_sel.data_type = "FLOAT"
-        n_sel.operation = "LESS_EQUAL"
-        n_sel.inputs["B"].default_value = level
-        n_sel.location = (x + 1420, -180)
-        ln(falloff, n_sel.inputs["A"])
-        # distance = lerp(Merge Distance, Detail Merge Distance, level)
-        n_flatw = ng.nodes.new("ShaderNodeMath")
-        n_flatw.operation = "MULTIPLY"
-        n_flatw.inputs[1].default_value = 1.0 - level
-        n_flatw.location = (x + 1420, -340)
-        ln(n_in.outputs["Merge Distance"], n_flatw.inputs[0])
-        n_detw = ng.nodes.new("ShaderNodeMath")
-        n_detw.operation = "MULTIPLY"
-        n_detw.inputs[1].default_value = level
-        n_detw.location = (x + 1420, -500)
-        ln(n_in.outputs["Detail Merge Distance"], n_detw.inputs[0])
-        n_lerp = ng.nodes.new("ShaderNodeMath")
-        n_lerp.operation = "ADD"
-        n_lerp.location = (x + 1510, -420)
-        ln(n_flatw.outputs["Value"], n_lerp.inputs[0])
-        ln(n_detw.outputs["Value"], n_lerp.inputs[1])
-        n_scale = ng.nodes.new("ShaderNodeMath")
-        n_scale.operation = "MULTIPLY"
-        n_scale.inputs[1].default_value = dist_frac
-        n_scale.location = (x + 1510, -260)
-        ln(n_lerp.outputs["Value"], n_scale.inputs[0])
+    # bake the normalized falloff ONCE on the input geometry: the
+    # attribute interpolates through every merge pass, so the density
+    # gradient survives. (Recomputing per pass loses it: merged areas
+    # read as low curvature and everything drifts to max distance.)
+    # Flap protection comes from the geometric distance ramp instead.
+    falloff0, curv0 = _falloff(-700, geo)
+    n_storef = ng.nodes.new("GeometryNodeStoreNamedAttribute")
+    n_storef.data_type = "FLOAT"
+    n_storef.domain = "POINT"
+    n_storef.inputs["Name"].default_value = FALLOFF_ATTR
+    n_storef.location = (900, 0)
+    ln(geo, n_storef.inputs["Geometry"])
+    ln(falloff0, n_storef.inputs["Value"])
+    n_storec = ng.nodes.new("GeometryNodeStoreNamedAttribute")
+    n_storec.data_type = "FLOAT"
+    n_storec.domain = "POINT"
+    n_storec.inputs["Name"].default_value = CURV_ATTR
+    n_storec.location = (1000, 0)
+    ln(n_storef.outputs["Geometry"], n_storec.inputs["Geometry"])
+    ln(curv0, n_storec.inputs["Value"])
+    geo = n_storec.outputs["Geometry"]
+    base_geo = geo  # input mesh with AO + falloff + curvature baked
+
+    def falloff_attr(fx, fy=-340):
+        n = ng.nodes.new("GeometryNodeInputNamedAttribute")
+        n.data_type = "FLOAT"
+        n.inputs["Name"].default_value = FALLOFF_ATTR
+        n.location = (fx, fy)
+        return n.outputs["Attribute"]
+
+    x = 1100
+    preview_falloff = falloff_attr(900, -400)
+
+    def _merge_pass(distance_socket, selection_socket):
+        nonlocal geo, x
+        # fold guard: merging farther than ~half the local curvature
+        # radius folds geometry across its own curve — require
+        # distance * curvature <= 0.5 no matter what the mask says
+        n_ca = ng.nodes.new("GeometryNodeInputNamedAttribute")
+        n_ca.data_type = "FLOAT"
+        n_ca.inputs["Name"].default_value = CURV_ATTR
+        n_ca.location = (x + 90, -740)
+        n_hd = ng.nodes.new("ShaderNodeMath")
+        n_hd.operation = "MULTIPLY"
+        n_hd.location = (x + 180, -740)
+        ln(n_ca.outputs["Attribute"], n_hd.inputs[0])
+        ln(distance_socket, n_hd.inputs[1])
+        n_ok = ng.nodes.new("FunctionNodeCompare")
+        n_ok.data_type = "FLOAT"
+        n_ok.operation = "LESS_EQUAL"
+        n_ok.inputs["B"].default_value = 0.5
+        n_ok.location = (x + 270, -740)
+        ln(n_hd.outputs["Value"], n_ok.inputs["A"])
+        sel = n_ok.outputs["Result"]
+        if selection_socket is not None:
+            n_and = ng.nodes.new("FunctionNodeBooleanMath")
+            n_and.operation = "AND"
+            n_and.location = (x + 270, -600)
+            ln(selection_socket, n_and.inputs[0])
+            ln(sel, n_and.inputs[1])
+            sel = n_and.outputs["Boolean"]
         n_merge = ng.nodes.new("GeometryNodeMergeByDistance")
         # Connected mode: never welds across gaps. Blender 5.x exposes
         # it as a menu socket; older builds as a node property.
@@ -339,55 +450,84 @@ def _build_group():
             n_merge.inputs["Mode"].default_value = "Connected"
         else:
             n_merge.mode = "CONNECTED"
-        n_merge.location = (x + 1600, 0)
+        n_merge.location = (x + 270, 0)
         ln(geo, n_merge.inputs["Geometry"])
-        ln(n_sel.outputs["Result"], n_merge.inputs["Selection"])
-        ln(n_scale.outputs["Value"], n_merge.inputs["Distance"])
+        ln(sel, n_merge.inputs["Selection"])
+        ln(distance_socket, n_merge.inputs["Distance"])
         geo = n_merge.outputs["Geometry"]
         x += 1800
 
-    # gentle passes INSIDE the protected zone: dense curvature also
-    # gets optimized, just with its own small distance so the shape and
-    # the mask-driven falloff above stay intact. Split into steps for
-    # the same reason as _BANDS — one aggressive pass folds flaps where
-    # detail patches are dense (e.g. corners where bevels meet).
-    for frac in (0.33, 0.66, 1.0):
-        d_falloff = _falloff(x)
-        n_dsel = ng.nodes.new("FunctionNodeCompare")
-        n_dsel.data_type = "FLOAT"
-        n_dsel.operation = "GREATER_THAN"
-        n_dsel.inputs["B"].default_value = 0.0
-        n_dsel.location = (x + 1420, -180)
-        ln(d_falloff, n_dsel.inputs["A"])
-        n_dscale = ng.nodes.new("ShaderNodeMath")
-        n_dscale.operation = "MULTIPLY"
-        n_dscale.inputs[1].default_value = frac
-        n_dscale.location = (x + 1420, -340)
-        ln(n_in.outputs["Detail Merge Distance"], n_dscale.inputs[0])
-        n_dmerge = ng.nodes.new("GeometryNodeMergeByDistance")
-        if "Mode" in n_dmerge.inputs:
-            n_dmerge.inputs["Mode"].default_value = "Connected"
-        else:
-            n_dmerge.mode = "CONNECTED"
-        n_dmerge.location = (x + 1600, 0)
-        ln(geo, n_dmerge.inputs["Geometry"])
-        ln(n_dsel.outputs["Result"], n_dmerge.inputs["Selection"])
-        ln(n_dscale.outputs["Value"], n_dmerge.inputs["Distance"])
-        geo = n_dmerge.outputs["Geometry"]
-        x += 1800
+    # warm-up: whole mesh at fractions of Detail Merge Distance (every
+    # vertex's target is at least the detail distance)
+    for frac in _DETAIL_STEPS:
+        n_d = ng.nodes.new("ShaderNodeMath")
+        n_d.operation = "MULTIPLY"
+        n_d.inputs[1].default_value = frac
+        n_d.location = (x + 90, -260)
+        ln(n_in.outputs["Detail Merge Distance"], n_d.inputs[0])
+        _merge_pass(n_d.outputs["Value"], None)
+
+    # ramp: distance = Merge Distance * frac; the mask maps to the
+    # target distance LOGARITHMICALLY — target = Merge^(1-m) * Detail^m
+    # — so mid-grey really reads as mid density (a linear lerp is
+    # dominated by Merge Distance and mid-greys collapse near max).
+    # Select vertices whose target >= D, i.e.
+    # mask <= -ln(frac) / ln(Merge / Detail)
+    import math as _math
+    n_dsafe0 = ng.nodes.new("ShaderNodeMath")
+    n_dsafe0.operation = "MAXIMUM"
+    n_dsafe0.inputs[1].default_value = 1e-9
+    n_dsafe0.location = (x - 360, -580)
+    ln(n_in.outputs["Detail Merge Distance"], n_dsafe0.inputs[0])
+    n_ratio = ng.nodes.new("ShaderNodeMath")
+    n_ratio.operation = "DIVIDE"
+    n_ratio.location = (x - 270, -580)
+    ln(n_in.outputs["Merge Distance"], n_ratio.inputs[0])
+    ln(n_dsafe0.outputs["Value"], n_ratio.inputs[1])
+    n_lnr = ng.nodes.new("ShaderNodeMath")
+    n_lnr.operation = "LOGARITHM"
+    n_lnr.inputs[1].default_value = 2.718281828
+    n_lnr.location = (x - 180, -580)
+    ln(n_ratio.outputs["Value"], n_lnr.inputs[0])
+    n_lnsafe = ng.nodes.new("ShaderNodeMath")
+    n_lnsafe.operation = "MAXIMUM"
+    n_lnsafe.inputs[1].default_value = 1e-6
+    n_lnsafe.location = (x - 90, -580)
+    ln(n_lnr.outputs["Value"], n_lnsafe.inputs[0])
+    ln_merge_detail = n_lnsafe.outputs["Value"]
+
+    for frac in _RAMP_STEPS:
+        falloff = falloff_attr(x - 180)
+        n_d = ng.nodes.new("ShaderNodeMath")
+        n_d.operation = "MULTIPLY"
+        n_d.inputs[1].default_value = frac
+        n_d.location = (x, -260)
+        ln(n_in.outputs["Merge Distance"], n_d.inputs[0])
+        n_level = ng.nodes.new("ShaderNodeMath")
+        n_level.operation = "DIVIDE"
+        n_level.inputs[0].default_value = -_math.log(frac) if frac < 1 else 0.0
+        n_level.location = (x + 90, -420)
+        ln(ln_merge_detail, n_level.inputs[1])
+        n_sel = ng.nodes.new("FunctionNodeCompare")
+        n_sel.data_type = "FLOAT"
+        n_sel.operation = "LESS_EQUAL"
+        n_sel.location = (x + 90, -180)
+        ln(falloff, n_sel.inputs["A"])
+        ln(n_level.outputs["Value"], n_sel.inputs["B"])
+        _merge_pass(n_d.outputs["Value"], n_sel.outputs["Result"])
 
     # shrinkwrap: snap merged vertices to the nearest point on the
     # ORIGINAL surface, so collapsed areas don't sink the silhouette.
-    # Flat (mask 0) zone only: near creases the nearest face is
+    # Flat-ish (low mask) zone only: near creases the nearest face is
     # ambiguous and snapping folds triangles over each other.
-    wrap_falloff = _falloff(x)
+    wrap_falloff = falloff_attr(x - 180, -380)
     n_wsel = ng.nodes.new("FunctionNodeCompare")
     n_wsel.data_type = "FLOAT"
     n_wsel.operation = "LESS_EQUAL"
-    n_wsel.inputs["B"].default_value = 0.0
-    n_wsel.location = (x + 1420, -380)
+    n_wsel.inputs["B"].default_value = 0.2
+    n_wsel.location = (x, -380)
     ln(wrap_falloff, n_wsel.inputs["A"])
-    x += 1450
+    x += 200
     n_prox = ng.nodes.new("GeometryNodeProximity")
     n_prox.target_element = "FACES"
     n_prox.location = (x, -220)
@@ -474,6 +614,7 @@ def upgrade_modifier(md, ng):
             pass
     old_group = md.node_group
     md.node_group = ng
+    old_vals = {_SOCKET_RENAMES.get(k, k): v for k, v in old_vals.items()}
     for name, ident in _socket_idents(ng).items():
         if name in old_vals:
             try:
