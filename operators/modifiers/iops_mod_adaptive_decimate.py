@@ -17,7 +17,7 @@ from . import iops_mod_gn_lib as gn_lib
 # Detail Merge Distance (white).
 
 GROUP_NAME = "iOps_AdaptiveDecimate"
-GROUP_VERSION = 46  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 47  # bump when the tree layout changes to force rebuild
 
 FALLOFF_ATTR = "iops_ad_falloff"
 MASK_ATTR = "iops_ad_mask"
@@ -28,8 +28,10 @@ PREVIEW_MAT = "iOps_AdaptiveDecimate_Preview"
 _SOCKET_RENAMES = {
     "Smooth": "Normal Blur",
     "Curvature Smooth": "Normal Blur",
-    "Min Curvature": "Min Value",
-    "Max Curvature": "Max Value",
+    "Min Curvature": "Flat Level",
+    "Max Curvature": "Detail Level",
+    "Min Value": "Flat Level",
+    "Max Value": "Detail Level",
     "Curvature Power": "Power",
     "Merge Distance": "Max Merge Distance",
     "Detail Merge Distance": "Min Merge Distance",
@@ -136,19 +138,27 @@ def _build_group():
         "Determine the field range automatically from the object with "
         "robust quartiles (black = Q1, white = Q3 + IQR — the bulk "
         "always spreads into a visible gradient, outliers clamp); "
-        "disable to set Min/Max Value by hand")
-    s_min = iface.new_socket("Min Value", in_out="INPUT",
+        "disable to set Flat/Detail Level by hand")
+    s_min = iface.new_socket("Flat Level", in_out="INPUT",
                              socket_type="NodeSocketFloat")
     s_min.default_value = 0.0
     s_min.min_value = 0.0
-    s_min.description = ("Field value mapped to black (flat) when Auto "
-                         "Range is off")
-    s_max = iface.new_socket("Max Value", in_out="INPUT",
+    s_min.max_value = 2.0
+    s_min.description = (
+        "Field value treated as flat (mapped to black / Max Merge "
+        "Distance) when Auto Range is off. The field is dimensionless "
+        "and typically tiny: 1 - dot(N, blurred N) stays near 0 "
+        "everywhere except at real features")
+    s_max = iface.new_socket("Detail Level", in_out="INPUT",
                              socket_type="NodeSocketFloat")
     s_max.default_value = 0.2
     s_max.min_value = 0.000001
-    s_max.description = ("Field value mapped to white (full detail) "
-                         "when Auto Range is off")
+    s_max.max_value = 2.0
+    s_max.description = (
+        "Field value treated as full detail (mapped to white / Min "
+        "Merge Distance) when Auto Range is off; ~0.05-0.3 is the "
+        "usual working range, the tiny floor is just a zero-division "
+        "guard")
     s_pow = iface.new_socket("Power", in_out="INPUT",
                              socket_type="NodeSocketFloat")
     s_pow.default_value = 1.0
@@ -374,13 +384,13 @@ def _build_group():
         n_minsw.input_type = "FLOAT"
         n_minsw.location = (x + 1060, -1120)
         ln(n_in.outputs["Auto Range"], n_minsw.inputs["Switch"])
-        ln(n_in.outputs["Min Value"], n_minsw.inputs["False"])
+        ln(n_in.outputs["Flat Level"], n_minsw.inputs["False"])
         ln(n_statl.outputs["Median"], n_minsw.inputs["True"])
         n_maxsw = ng.nodes.new("GeometryNodeSwitch")
         n_maxsw.input_type = "FLOAT"
         n_maxsw.location = (x + 1150, -1120)
         ln(n_in.outputs["Auto Range"], n_maxsw.inputs["Switch"])
-        ln(n_in.outputs["Max Value"], n_maxsw.inputs["False"])
+        ln(n_in.outputs["Detail Level"], n_maxsw.inputs["False"])
         ln(n_upper.outputs["Value"], n_maxsw.inputs["True"])
         n_norm = ng.nodes.new("ShaderNodeMapRange")
         n_norm.data_type = "FLOAT"
