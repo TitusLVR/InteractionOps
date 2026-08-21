@@ -75,6 +75,7 @@ class IOPS_MT_Pie_Menu(Menu):
         op_if_poll(col, "iops.mesh_smart_inset", text="Smart Inset")
         op_if_poll(col, "iops.mesh_straight_bevel", text="Straight Bevel")
         op_if_poll(col, "iops.mesh_shear", text="Shear")
+        op_if_poll(col, "iops.mesh_converge", text="Converge")
         # col.operator("iops.polygon_bevel", text="Polygon Bevel")  # WIP
         op_if_poll(col, "iops.object_drop_it", text="Drop It!")
         op_if_poll(col, "iops.object_kitbash_grid", text="Grid")
