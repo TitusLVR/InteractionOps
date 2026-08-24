@@ -68,6 +68,7 @@ def point_in_bounds(x, y, bounds):
 
 class IOPS_OT_LibraryPopup(bpy.types.Operator):
     bl_idname = "iops.library_popup"
+    is_bindable = True
     bl_label = "IOPS Library"
     bl_description = "Open the grouped master asset library under the mouse"
     bl_options = {"REGISTER"}

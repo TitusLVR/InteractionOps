@@ -681,6 +681,8 @@ def keymap_name_for_idname(idname):
     """Return the addon keymap an iops operator should live in, based on its
     idname prefix. Single source of truth shared by `register_keymaps` and the
     new-operator scan so routing can never drift between the two."""
+    if "iops.library" in idname:
+        return "3D View"
     if ".z_" in idname or "iops.mesh" in idname:
         return "Mesh"
     if "iops.object" in idname:
@@ -694,14 +696,19 @@ def register_keymaps(keys):
     kc = bpy.context.window_manager.keyconfigs.addon
     km_cache = {}
 
+    km_space_types = {"3D View": "VIEW_3D"}
+
     def items_for(name):
         if name not in km_cache:
-            km_cache[name] = kc.keymaps.new(name).keymap_items
+            km_cache[name] = kc.keymaps.new(
+                name,
+                space_type=km_space_types.get(name, "EMPTY"),
+            ).keymap_items
         return km_cache[name]
 
-    # Pre-create the four keymaps so they exist even when `keys` is empty
+    # Pre-create the keymaps so they exist even when `keys` is empty
     # (the prefs Keymaps UI reads these by name).
-    for name in ("Window", "Mesh", "Object Mode", "UV Editor"):
+    for name in ("Window", "Mesh", "Object Mode", "UV Editor", "3D View"):
         items_for(name)
 
     for k in keys:

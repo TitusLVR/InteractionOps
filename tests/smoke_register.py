@@ -27,5 +27,12 @@ for prop_name in ("iops_library_status", "iops_library_busy", "iops_library_plac
 
 assert hasattr(bpy.types, "IOPS_PT_Library"), "panel not registered"
 
+km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
+assert km is not None, "addon '3D View' keymap missing"
+assert km.space_type == "VIEW_3D", "3D View keymap has wrong space_type"
+assert any(
+    kmi.idname == "iops.library_popup" for kmi in km.keymap_items
+), "iops.library_popup not bound in 3D View keymap"
+
 bpy.ops.preferences.addon_disable(module="InteractionOps")
 print("SMOKE_OK")

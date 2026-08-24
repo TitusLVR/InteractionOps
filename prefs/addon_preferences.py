@@ -769,6 +769,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_ui.label(text="UI Toggles:")
             col_ui = box_ui.column(align=True)
             km_ui_col = col_ui.row(align=True).column(align=True)
+            # Library keys
+            box_library = col.box()
+            box_library.label(text="Library:")
+            col_library = box_library.column(align=True)
+            km_library_col = col_library.row(align=True).column(align=True)
             # Other / uncategorized — catches operators whose idname matches no
             # explicit bucket above (e.g. iops.collections_*), including those
             # added via "Scan for New Operators".
@@ -794,6 +799,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Object Mode"],
                 kc_user.keymaps["Screen Editing"],
                 kc_user.keymaps["UV Editor"],
+                kc_user.keymaps["3D View"],
             ]
 
 
@@ -904,6 +910,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         # Per-widget toggle entries — drawn as key fields
                         # in the Widgets tab list, not here.
                         pass
+                    elif kmi.idname.startswith("iops.library"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_library_col, 0
+                            )
+                        except AttributeError:
+                            pass
                     elif kmi.idname.startswith("iops."):
                         try:
                             rna_keymap_ui.draw_kmi(
