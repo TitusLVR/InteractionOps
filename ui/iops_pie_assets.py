@@ -29,6 +29,24 @@ class IOPS_MT_AssetMarkSub(Menu):
         op.mark_type = "IMAGE"
 
 
+class IOPS_MT_LibraryPublishSub(Menu):
+    """Publish the active datablock into the IOPS master library"""
+
+    bl_idname = "IOPS_MT_LibraryPublishSub"
+    bl_label = "Publish to Library"
+
+    def draw(self, context):
+        layout = self.layout
+        op = layout.operator("iops.library_publish", text="Active Object", icon="OBJECT_DATA")
+        op.publish_kind = "OBJECT"
+        op = layout.operator("iops.library_publish", text="Active Collection", icon="OUTLINER_COLLECTION")
+        op.publish_kind = "COLLECTION"
+        op = layout.operator("iops.library_publish", text="Active Material", icon="MATERIAL")
+        op.publish_kind = "MATERIAL"
+        op = layout.operator("iops.library_publish", text="Shader Group", icon="NODETREE")
+        op.publish_kind = "SHADER_GROUP"
+
+
 class IOPS_MT_CatalogBrowseActive(Menu):
     """Cascading catalog menu for the active library"""
 
@@ -164,6 +182,12 @@ class IOPS_MT_Pie_Assets(Menu):
             text="Delete Catalog",
             icon="TRASH",
         )
+
+        # --- 1 - BOTTOM-LEFT: Library popup ---------------------------------
+        pie.operator("iops.library_popup", text="Library Popup", icon="ASSET_MANAGER")
+
+        # --- 3 - BOTTOM-RIGHT: Publish to Library (sub-menu) ----------------
+        pie.menu("IOPS_MT_LibraryPublishSub", text="Publish to Library", icon="EXPORT")
 
     @staticmethod
     def _draw_library_switcher(context, parent, active_path):

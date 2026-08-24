@@ -26,6 +26,7 @@ for prop_name in ("iops_library_status", "iops_library_busy", "iops_library_plac
     assert hasattr(wm, prop_name), "missing WM prop: %s" % prop_name
 
 assert hasattr(bpy.types, "IOPS_PT_Library"), "panel not registered"
+assert hasattr(bpy.types, "IOPS_MT_LibraryPublishSub"), "publish submenu not registered"
 
 km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
 assert km is not None, "addon '3D View' keymap missing"

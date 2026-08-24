@@ -399,6 +399,7 @@ from .ui.iops_pie_assets import (
     IOPS_MT_AssetDeleteCatalogsSub,
     IOPS_MT_AssetMarkSub,
     IOPS_MT_CatalogBrowseActive,
+    IOPS_MT_LibraryPublishSub,
     IOPS_MT_Pie_Assets,
 )
 from .ui.iops_library_panel import IOPS_PT_Library
@@ -608,6 +609,7 @@ classes = (
     IOPS_OT_AssetClear,
     IOPS_OT_SetAssetLibrary,
     IOPS_MT_AssetMarkSub,
+    IOPS_MT_LibraryPublishSub,
     IOPS_MT_CatalogBrowseActive,
     IOPS_MT_AssetDeleteCatalogsSub,
     IOPS_MT_Pie_Assets,
