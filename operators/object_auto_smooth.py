@@ -75,14 +75,13 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                     smooth_by_angle_mod.show_viewport = True
                     smooth_by_angle_mod.show_render = True
                     smooth_by_angle_mod.use_pin_to_last = False
-                    
-                    # Move to first position in stack (with safety limit)
-                    with context.temp_override(object=mesh):
-                        max_moves = len(mesh.modifiers)
-                        moves = 0
-                        while mesh.modifiers[0] != smooth_by_angle_mod and moves < max_moves:
-                            bpy.ops.object.modifier_move_up(modifier=smooth_by_angle_mod.name)
-                            moves += 1
+
+                    # Move to first position in stack in one step
+                    # (modifier_move_up per step triggers a full depsgraph
+                    # update and undo push each call, which is very slow)
+                    index = mesh.modifiers.find(smooth_by_angle_mod.name)
+                    if index > 0:
+                        mesh.modifiers.move(index, 0)
         
         finally:
             # Restore edit mode for objects that were in edit mode
