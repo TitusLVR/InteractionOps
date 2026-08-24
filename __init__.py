@@ -188,6 +188,12 @@ from .ui.iops_pie_split import (
     IOPS_OT_Call_Pie_Split,
 )
 
+from .ui.iops_pie_shading import (
+    IOPS_OT_Apply_Shading_Preset,
+    IOPS_MT_Pie_Shading,
+    IOPS_OT_Call_Pie_Shading,
+)
+
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 from .ui.iops_pie_edit import (
@@ -485,6 +491,9 @@ classes = (
     IOPS_OT_Call_Pie_Edit,
     IOPS_MT_Pie_Split,
     IOPS_OT_Call_Pie_Split,
+    IOPS_OT_Apply_Shading_Preset,
+    IOPS_MT_Pie_Shading,
+    IOPS_OT_Call_Pie_Shading,
     IOPS_PT_DATA_Panel,
     IOPS_OT_Call_Data_Panel,
     IOPS_OT_Easy_Mod_Curve,

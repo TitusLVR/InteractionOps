@@ -157,6 +157,18 @@ def get_iops_prefs():
                 f"split_area_pie_{i}_alt_ui": safe(f"split_area_pie_{i}_alt_ui", "VIEW_3D")
             } for i in range(1, 10) if i != 5
         },
+        "SHADING_PIES": {
+            f"PIE_{i}": {
+                f"shading_pie_{i}_enable": safe(f"shading_pie_{i}_enable", True),
+                f"shading_pie_{i}_name": safe(f"shading_pie_{i}_name", ""),
+                f"shading_pie_{i}_type": safe(f"shading_pie_{i}_type", "SOLID"),
+                f"shading_pie_{i}_light": safe(f"shading_pie_{i}_light", "STUDIO"),
+                f"shading_pie_{i}_color_type": safe(f"shading_pie_{i}_color_type", "MATERIAL"),
+                f"shading_pie_{i}_single_color": safelist(f"shading_pie_{i}_single_color", (0.8, 0.8, 0.8)),
+                f"shading_pie_{i}_render_pass": safe(f"shading_pie_{i}_render_pass", "COMBINED"),
+                f"shading_pie_{i}_scene_world": safe(f"shading_pie_{i}_scene_world", False),
+            } for i in range(1, 10) if i != 5
+        },
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),

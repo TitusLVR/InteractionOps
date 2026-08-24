@@ -24,6 +24,13 @@ from ..operators.modifiers.iops_mod_list import (
 from ..operators.modifiers.iops_mod_registry import (
     type_icon as mod_type_icon,
 )
+from ..ui.iops_pie_shading import (
+    SHADING_PIE_SLOTS,
+    shading_type_list,
+    shading_light_list,
+    shading_color_type_list,
+    shading_render_pass_list,
+)
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -208,6 +215,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_io: BoolProperty(default=False)
     show_section_debug: BoolProperty(default=False)
     show_section_pies: BoolProperty(default=False)
+    show_section_shading_pie: BoolProperty(default=False)
     show_section_modifiers_panel: BoolProperty(default=False)
 
     # Legacy cage/snap/align color and size props removed.
@@ -1056,6 +1064,37 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     sub.prop(self, f"split_area_pie_{n}_pos")
                     sub.prop(self, f"split_area_pie_{n}_factor")
 
+            # Shading Pie
+            body = _section(column_main, self, "show_section_shading_pie", "Shading Pie Layout", icon="SHADING_RENDERED")
+            if body is not None:
+                def draw_shading_slot(parent, n):
+                    sub = parent.box().column(align=True)
+                    sub.prop(self, f"shading_pie_{n}_enable", text=f"Slot {n}", toggle=True)
+                    if not getattr(self, f"shading_pie_{n}_enable"):
+                        return
+                    sub.prop(self, f"shading_pie_{n}_name", text="")
+                    sub.prop(self, f"shading_pie_{n}_type", text="")
+                    s_type = getattr(self, f"shading_pie_{n}_type")
+                    if s_type == "SOLID":
+                        sub.prop(self, f"shading_pie_{n}_light", text="")
+                        sub.prop(self, f"shading_pie_{n}_color_type", text="")
+                        if getattr(self, f"shading_pie_{n}_color_type") == "SINGLE":
+                            sub.prop(self, f"shading_pie_{n}_single_color", text="")
+                    else:
+                        sub.prop(self, f"shading_pie_{n}_render_pass", text="")
+                        sub.prop(self, f"shading_pie_{n}_scene_world")
+
+                row = body.row(align=True)
+                for n in (7, 8, 9):
+                    draw_shading_slot(row, n)
+                row = body.row(align=True)
+                draw_shading_slot(row, 4)
+                row.box().column(align=True).label(text=" ")
+                draw_shading_slot(row, 6)
+                row = body.row(align=True)
+                for n in (1, 2, 3):
+                    draw_shading_slot(row, n)
+
             # Executor
             body = _section(column_main, self, "show_section_executor", "Script Executor", icon="SCRIPT")
             if body is not None:
@@ -1096,3 +1135,44 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 # One PointerProperty per generated modifier-defaults group. Must run
 # before the class registers (root __init__ registers the groups first).
 iops_mod_defaults.inject_pointer_props(IOPS_AddonPreferences)
+
+
+# Shading Pie slots — 8 identical prop sets, injected like the modifier
+# defaults above. Per-slot defaults: (type, light, color_type, render_pass).
+SHADING_PIE_SLOT_DEFAULTS = {
+    1: ("SOLID", "STUDIO", "RANDOM", "COMBINED"),
+    2: ("SOLID", "STUDIO", "MATERIAL", "COMBINED"),
+    3: ("SOLID", "STUDIO", "SINGLE", "COMBINED"),
+    4: ("SOLID", "MATCAP", "MATERIAL", "COMBINED"),
+    6: ("MATERIAL", "STUDIO", "MATERIAL", "COMBINED"),
+    7: ("SOLID", "FLAT", "TEXTURE", "COMBINED"),
+    8: ("RENDERED", "STUDIO", "MATERIAL", "COMBINED"),
+    9: ("SOLID", "FLAT", "VERTEX", "COMBINED"),
+}
+
+for _n in SHADING_PIE_SLOTS:
+    _type, _light, _color, _pass = SHADING_PIE_SLOT_DEFAULTS[_n]
+    IOPS_AddonPreferences.__annotations__.update({
+        f"shading_pie_{_n}_enable": BoolProperty(
+            name="Enable", description="Show this slot in the Shading pie", default=True),
+        f"shading_pie_{_n}_name": StringProperty(
+            name="", description="Custom slot label (empty = auto label)", default=""),
+        f"shading_pie_{_n}_type": EnumProperty(
+            name="", description="Viewport shading type",
+            items=shading_type_list, default=_type),
+        f"shading_pie_{_n}_light": EnumProperty(
+            name="", description="Lighting (Solid mode)",
+            items=shading_light_list, default=_light),
+        f"shading_pie_{_n}_color_type": EnumProperty(
+            name="", description="Color type (Solid mode)",
+            items=shading_color_type_list, default=_color),
+        f"shading_pie_{_n}_single_color": FloatVectorProperty(
+            name="", description="Single color (Solid mode)",
+            subtype="COLOR", size=3, min=0.0, max=1.0, default=(0.8, 0.8, 0.8)),
+        f"shading_pie_{_n}_render_pass": EnumProperty(
+            name="", description="Render pass (Material/Rendered mode)",
+            items=shading_render_pass_list, default=_pass),
+        f"shading_pie_{_n}_scene_world": BoolProperty(
+            name="Scene World", description="Use scene world (Material/Rendered mode)",
+            default=False),
+    })
