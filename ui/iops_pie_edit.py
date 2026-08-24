@@ -3,6 +3,7 @@ import os
 from bpy.types import Menu
 
 from ..operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+from ..operators.mesh_nonplanar_overlay import overlay_enabled
 
 
 def draw_open_asset_in_pie_if_poll(pie, context):
@@ -592,7 +593,15 @@ class IOPS_MT_Pie_Edit(Menu):
                 draw_edit_pie_type_extensions(pie, context)
                 obj = context.object
                 if obj and obj.type == 'MESH' and obj.mode == 'EDIT':
+                    # NW
                     pie.operator("iops.mesh_visual_uv", text="Visual UV", icon="UV")
+                    # NE
+                    pie.operator(
+                        "iops.mesh_nonplanar_overlay",
+                        text="Non-Planar Overlay",
+                        icon="MOD_TRIANGULATE",
+                        depress=overlay_enabled(),
+                    )
 
             draw_open_asset_in_pie_if_poll(pie, context)
 

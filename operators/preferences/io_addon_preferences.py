@@ -202,6 +202,33 @@ def load_iops_preferences():
                                     print(f"IOPS Prefs: Error loading split area pie {pie} - {e}")
                                     continue
                     
+                    case "SHADING_PIES":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("SHADING_PIES", {})
+                            for pie in value:
+                                try:
+                                    pie_num = pie[-1]
+                                    pie_data = safe_get(value, pie, {})
+                                    if not isinstance(pie_data, dict):
+                                        continue
+                                    pie_defaults = defaults.get(pie, {})
+                                    for suffix in ("enable", "name", "type", "light",
+                                                   "color_type", "single_color",
+                                                   "render_pass", "scene_world"):
+                                        key_ = f"shading_pie_{pie_num}_{suffix}"
+                                        if not hasattr(prefs, key_):
+                                            continue
+                                        val_ = safe_get(pie_data, key_, pie_defaults.get(key_))
+                                        if val_ is None:
+                                            continue
+                                        try:
+                                            setattr(prefs, key_, val_)
+                                        except (TypeError, ValueError) as e:
+                                            print(f"IOPS Prefs: Skipping invalid value for {key_} - {e}")
+                                except Exception as e:
+                                    print(f"IOPS Prefs: Error loading shading pie {pie} - {e}")
+                                    continue
+
                     case "CURSOR_BISECT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("CURSOR_BISECT", {})

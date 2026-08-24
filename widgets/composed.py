@@ -333,6 +333,30 @@ def _clean_row_body(row):
         out["label"] = str(row.get("label", ""))
         return out, None
     if rtype == "SLIDER":
+        prop = str(row.get("prop", "")).strip()
+        if prop and row.get("target"):
+            return None, "slider needs target OR prop, not both"
+        if prop:
+            # Prop mode: arbitrary scalar RNA path, author-declared range.
+            vt = str(row.get("value_type", "FLOAT")).upper()
+            if vt not in ("INT", "FLOAT", "DEGREES", "RADIANS"):
+                return None, f"slider value_type '{vt}' invalid"
+            out["prop"] = prop
+            out["value_type"] = vt
+            try:
+                vmin = float(row.get("min", 0.0))
+                vmax = float(row.get("max", 1.0))
+            except (TypeError, ValueError):
+                return None, "slider min/max invalid"
+            if not vmax > vmin:
+                return None, "slider min/max invalid"
+            out["min"], out["max"] = vmin, vmax
+            out["fmt"] = str(row.get("fmt", "{:.2f}"))
+            try:
+                out["snap"] = max(0.0, float(row.get("snap", 0.0)))
+            except (TypeError, ValueError):
+                out["snap"] = 0.0
+            return out, None
         target = str(row.get("target", "")).upper()
         if target not in FLOAT_TARGETS:
             return None, f"slider target '{target}' invalid"
@@ -668,6 +692,15 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
         if rtype == "SECTION":
             return Section(row.get("label", ""))
         if rtype == "SLIDER":
+            if row.get("prop"):
+                # Scalar prop slider: value/range in author space (degrees
+                # when DEGREES), storage conversion inside the adapter. No
+                # snapshot/restore — cancel falls back to the pre-drag value.
+                ad = rna_value_adapter(row["prop"], row["value_type"])
+                return Slider(get=ad["get"], set=ad["set"],
+                              vmin=row["min"], vmax=row["max"],
+                              snap=row.get("snap", 0.0),
+                              fmt=row.get("fmt", "{:.2f}"))
             from .adapters import ADAPTERS
             a = ADAPTERS[row["target"]]
             return Slider(get=a["get"], set=a["set"],

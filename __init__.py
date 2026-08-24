@@ -191,6 +191,12 @@ from .ui.iops_pie_split import (
     IOPS_OT_Call_Pie_Split,
 )
 
+from .ui.iops_pie_shading import (
+    IOPS_OT_Apply_Shading_Preset,
+    IOPS_MT_Pie_Shading,
+    IOPS_OT_Call_Pie_Shading,
+)
+
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 from .ui.iops_pie_edit import (
@@ -292,6 +298,7 @@ from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
 from .operators.mesh_smart_inset import IOPS_OT_smart_inset
 from .operators.mesh_shear import IOPS_OT_mesh_shear
+from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
@@ -487,6 +494,9 @@ classes = (
     IOPS_OT_Call_Pie_Edit,
     IOPS_MT_Pie_Split,
     IOPS_OT_Call_Pie_Split,
+    IOPS_OT_Apply_Shading_Preset,
+    IOPS_MT_Pie_Shading,
+    IOPS_OT_Call_Pie_Shading,
     IOPS_PT_DATA_Panel,
     IOPS_OT_Call_Data_Panel,
     IOPS_OT_Easy_Mod_Curve,
@@ -603,6 +613,7 @@ classes = (
     IOPS_OT_straight_bevel,
     IOPS_OT_smart_inset,
     IOPS_OT_mesh_shear,
+    IOPS_OT_mesh_converge,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
     IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
     IOPS_OT_SSNew,

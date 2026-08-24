@@ -84,6 +84,35 @@ def test_validate_drops_bad_rows_keeps_good():
     assert len(errors) == 5
 
 
+def test_validate_prop_slider():
+    wdef, errors = composed.validate_def({
+        "name": "w",
+        "rows": [
+            {"type": "SLIDER", "prop": "space_data.shading.studiolight_rotate_z",
+             "value_type": "DEGREES", "min": -180, "max": 180,
+             "snap": 15, "fmt": "{:.0f}°"},
+            {"type": "SLIDER", "prop": "scene.x"},                    # defaults
+            {"type": "SLIDER", "prop": "scene.x", "target": "BEVEL"},  # both: drop
+            {"type": "SLIDER", "prop": "scene.x", "value_type": "ENUM"},  # drop
+            {"type": "SLIDER", "prop": "scene.x", "min": 1, "max": 1},    # drop
+        ],
+    })
+    assert len(wdef["rows"]) == 2
+    r = wdef["rows"][0]
+    assert (r["min"], r["max"], r["snap"]) == (-180.0, 180.0, 15.0)
+    assert r["value_type"] == "DEGREES" and r["fmt"] == "{:.0f}°"
+    d = wdef["rows"][1]
+    assert (d["min"], d["max"], d["snap"]) == (0.0, 1.0, 0.0)
+    assert d["value_type"] == "FLOAT"
+    assert len(errors) == 3
+
+
+def test_prop_slider_is_not_edge_bound():
+    rows = [{"type": "SLIDER", "prop": "scene.x", "value_type": "FLOAT",
+             "min": 0, "max": 1}]
+    assert composed._binds_edges(rows) is False
+
+
 def test_validate_normalizes_values_and_defaults():
     wdef, _ = composed.validate_def({
         "name": "w",
