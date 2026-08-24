@@ -31,6 +31,11 @@ from ..ui.iops_pie_shading import (
     shading_color_type_list,
     shading_render_pass_list,
 )
+from ..ui.iops_pie_edit import (
+    EDIT_PIE_CONTEXTS,
+    EDIT_PIE_SLOTS,
+    edit_pie_content_list,
+)
 # from ..utils.functions import ShowMessageBox
 from ..utils.split_areas_dict import (
     # split_areas_dict,
@@ -216,6 +221,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_debug: BoolProperty(default=False)
     show_section_pies: BoolProperty(default=False)
     show_section_shading_pie: BoolProperty(default=False)
+    show_section_edit_pie: BoolProperty(default=False)
+    show_section_edit_pie_object: BoolProperty(default=True)
+    show_section_edit_pie_edit: BoolProperty(default=False)
+    show_section_edit_pie_uv: BoolProperty(default=False)
     show_section_modifiers_panel: BoolProperty(default=False)
 
     # Legacy cage/snap/align color and size props removed.
@@ -1095,6 +1104,36 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 for n in (1, 2, 3):
                     draw_shading_slot(row, n)
 
+            # Edit Pie
+            body = _section(column_main, self, "show_section_edit_pie", "Edit Pie Layout", icon="EDITMODE_HLT")
+            if body is not None:
+                body.label(text="Diagonal slots only; F1/F2/F3/ESC cardinals are fixed.", icon="INFO")
+
+                def draw_edit_pie_slot(parent, ctx, slot):
+                    sub = parent.box().column(align=True)
+                    sub.label(text=slot.upper())
+                    sub.prop(self, f"edit_pie_{ctx}_{slot}_content", text="")
+                    content = getattr(self, f"edit_pie_{ctx}_{slot}_content")
+                    if content == "CUSTOM":
+                        sub.prop(self, f"edit_pie_{ctx}_{slot}_custom", text="", placeholder="operator idname")
+                    if content not in ("DEFAULT", "EMPTY"):
+                        sub.prop(self, f"edit_pie_{ctx}_{slot}_label", text="", placeholder="custom label")
+
+                for ctx_key, ctx_title, ctx_toggle, ctx_icon in (
+                    ("object", "Object Mode", "show_section_edit_pie_object", "OBJECT_DATA"),
+                    ("edit", "Edit Mode", "show_section_edit_pie_edit", "EDITMODE_HLT"),
+                    ("uv", "UV Edit", "show_section_edit_pie_uv", "UV"),
+                ):
+                    ctx_body = _section(body, self, ctx_toggle, ctx_title, icon=ctx_icon)
+                    if ctx_body is None:
+                        continue
+                    row = ctx_body.row(align=True)
+                    draw_edit_pie_slot(row, ctx_key, "nw")
+                    draw_edit_pie_slot(row, ctx_key, "ne")
+                    row = ctx_body.row(align=True)
+                    draw_edit_pie_slot(row, ctx_key, "sw")
+                    draw_edit_pie_slot(row, ctx_key, "se")
+
             # Executor
             body = _section(column_main, self, "show_section_executor", "Script Executor", icon="SCRIPT")
             if body is not None:
@@ -1176,3 +1215,20 @@ for _n in SHADING_PIE_SLOTS:
             name="Scene World", description="Use scene world (Material/Rendered mode)",
             default=False),
     })
+
+
+# Edit Pie diagonal slots — one config per context (Object / Edit / UV),
+# injected the same way. Cardinals (F1/F2/F3/ESC) are not customizable.
+for _ctx in EDIT_PIE_CONTEXTS:
+    for _slot in EDIT_PIE_SLOTS:
+        IOPS_AddonPreferences.__annotations__.update({
+            f"edit_pie_{_ctx}_{_slot}_content": EnumProperty(
+                name="", description="Slot content",
+                items=edit_pie_content_list, default="DEFAULT"),
+            f"edit_pie_{_ctx}_{_slot}_custom": StringProperty(
+                name="", description="Operator idname, e.g. iops.mesh_quick_snap",
+                default=""),
+            f"edit_pie_{_ctx}_{_slot}_label": StringProperty(
+                name="", description="Custom button label (empty = operator label)",
+                default=""),
+        })

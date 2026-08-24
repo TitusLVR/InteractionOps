@@ -229,6 +229,32 @@ def load_iops_preferences():
                                     print(f"IOPS Prefs: Error loading shading pie {pie} - {e}")
                                     continue
 
+                    case "EDIT_PIES":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("EDIT_PIES", {})
+                            for ctx_section in value:
+                                try:
+                                    ctx = ctx_section.lower()
+                                    ctx_data = safe_get(value, ctx_section, {})
+                                    if not isinstance(ctx_data, dict):
+                                        continue
+                                    ctx_defaults = defaults.get(ctx_section, {})
+                                    for slot in ("nw", "ne", "sw", "se"):
+                                        for suffix in ("content", "custom", "label"):
+                                            key_ = f"edit_pie_{ctx}_{slot}_{suffix}"
+                                            if not hasattr(prefs, key_):
+                                                continue
+                                            val_ = safe_get(ctx_data, key_, ctx_defaults.get(key_))
+                                            if val_ is None:
+                                                continue
+                                            try:
+                                                setattr(prefs, key_, val_)
+                                            except (TypeError, ValueError) as e:
+                                                print(f"IOPS Prefs: Skipping invalid value for {key_} - {e}")
+                                except Exception as e:
+                                    print(f"IOPS Prefs: Error loading edit pie {ctx_section} - {e}")
+                                    continue
+
                     case "CURSOR_BISECT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("CURSOR_BISECT", {})

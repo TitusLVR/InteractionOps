@@ -169,6 +169,17 @@ def get_iops_prefs():
                 f"shading_pie_{i}_scene_world": safe(f"shading_pie_{i}_scene_world", False),
             } for i in range(1, 10) if i != 5
         },
+        "EDIT_PIES": {
+            ctx.upper(): {
+                key: safe(key, default)
+                for slot in ("nw", "ne", "sw", "se")
+                for key, default in (
+                    (f"edit_pie_{ctx}_{slot}_content", "DEFAULT"),
+                    (f"edit_pie_{ctx}_{slot}_custom", ""),
+                    (f"edit_pie_{ctx}_{slot}_label", ""),
+                )
+            } for ctx in ("object", "edit", "uv")
+        },
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),

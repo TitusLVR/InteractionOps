@@ -8,12 +8,125 @@ from ..operators.mesh_nonplanar_overlay import overlay_enabled
 
 def draw_open_asset_in_pie_if_poll(pie, context):
     if not IOPS_OT_OpenAssetInCurrentBlender.poll(context):
-        return
+        return False
     pie.operator(
         IOPS_OT_OpenAssetInCurrentBlender.bl_idname,
         text=IOPS_OT_OpenAssetInCurrentBlender.bl_label,
         icon="BLENDER",
     )
+    return True
+
+
+# --- Customizable diagonal slots (NW/NE/SW/SE) -------------------------------
+# Cardinals (F1/F2/F3/ESC) stay hardcoded; only the diagonals are
+# prefs-driven, with a separate config per context.
+EDIT_PIE_CONTEXTS = ("object", "edit", "uv")
+EDIT_PIE_SLOTS = ("nw", "ne", "sw", "se")
+
+edit_pie_content_list = [
+    ("DEFAULT", "Default", "Built-in content for this slot"),
+    ("EMPTY", "Empty", "Hide this slot"),
+    ("iops.mesh_visual_uv", "Visual UV", ""),
+    ("iops.mesh_nonplanar_overlay", "Non-Planar Overlay", ""),
+    ("iops.mesh_quick_snap", "Quick Snap", ""),
+    ("iops.mesh_quick_connect", "Quick Connect", ""),
+    ("iops.mesh_straight_bevel", "Straight Bevel", ""),
+    ("iops.mesh_shear", "Shear", ""),
+    ("iops.mesh_converge", "Converge", ""),
+    ("iops.mesh_smart_inset", "Smart Inset", ""),
+    ("iops.mesh_to_tris_to_quads", "Tris to Quads", ""),
+    ("iops.object_drop_it", "Drop It!", ""),
+    ("iops.object_replace", "Object Replace", ""),
+    ("iops.object_aligner", "Object Aligner", ""),
+    ("iops.object_radial_array", "Radial Array", ""),
+    ("iops.object_align_between_two", "Align Between Two", ""),
+    ("iops.materials_from_textures", "Materials from Textures", ""),
+    ("CUSTOM", "Custom Operator", "Any operator idname"),
+]
+
+
+def _draw_slot_operator(pie, idname, label):
+    """Operator button that keeps its pie position: poll failure or an
+    unknown idname draws a separator instead of shifting later slots."""
+    module, _, func = idname.partition(".")
+    try:
+        if not getattr(getattr(bpy.ops, module), func).poll():
+            pie.separator()
+            return
+    except AttributeError:
+        pie.separator()
+        return
+    kwargs = {}
+    if label:
+        kwargs["text"] = label
+    if idname == "iops.mesh_nonplanar_overlay":
+        kwargs["depress"] = overlay_enabled()
+    pie.operator(idname, **kwargs)
+
+
+def _edit_pie_default_slot(pie, context, ctx, slot):
+    """Built-in per-context diagonal content ('Default' slot value)."""
+    if ctx == "object":
+        if slot == "nw":
+            if not draw_edit_pie_type_extensions(pie, context):
+                pie.separator()
+            return
+        if slot == "ne":
+            if not draw_open_asset_in_pie_if_poll(pie, context):
+                pie.separator()
+            return
+    elif ctx == "edit":
+        if slot == "nw":
+            pie.operator("iops.mesh_visual_uv", text="Visual UV", icon="UV")
+            return
+        if slot == "ne":
+            pie.operator(
+                "iops.mesh_nonplanar_overlay",
+                text="Non-Planar Overlay",
+                icon="MOD_TRIANGULATE",
+                depress=overlay_enabled(),
+            )
+            return
+    elif ctx == "uv":
+        if slot == "ne":
+            if bpy.app.version >= (5, 0, 0):
+                pie.prop(
+                    context.tool_settings,
+                    "use_uv_select_island",
+                    text="Island Selection",
+                    icon="UV_ISLANDSEL",
+                    toggle=True,
+                )
+            else:
+                # Blender 4.x: island is a uv_select_mode enum value
+                pie.prop_enum(
+                    context.tool_settings,
+                    "uv_select_mode",
+                    "ISLAND",
+                    text="Island Selection",
+                    icon="UV_ISLANDSEL",
+                )
+            return
+    pie.separator()
+
+
+def draw_edit_pie_diagonals(pie, context, ctx):
+    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+    for slot in EDIT_PIE_SLOTS:
+        content = getattr(prefs, f"edit_pie_{ctx}_{slot}_content")
+        label = getattr(prefs, f"edit_pie_{ctx}_{slot}_label")
+        if content == "DEFAULT":
+            _edit_pie_default_slot(pie, context, ctx, slot)
+        elif content == "EMPTY":
+            pie.separator()
+        elif content == "CUSTOM":
+            idname = getattr(prefs, f"edit_pie_{ctx}_{slot}_custom").strip()
+            if idname:
+                _draw_slot_operator(pie, idname, label)
+            else:
+                pie.separator()
+        else:
+            _draw_slot_operator(pie, content, label)
 
 
 def _empty_display_size_get(self):
@@ -493,13 +606,13 @@ def draw_edit_pie_type_extensions(pie, context):
     """Object mode: RNA props on object / object.data / camera dof (View3D)."""
     obj = context.object
     if not obj or obj.mode != "OBJECT":
-        return
+        return False
     spec = _PIE_OBJECT_MODE_DATA_SPECS.get(obj.type)
     if not spec:
-        return
+        return False
     title, icon, rows = spec
     if any(b in ("data", "dof") for b, _, _ in rows) and getattr(obj, "data", None) is None:
-        return
+        return False
     box = pie.box()
     col = box.column(align=True)
     col.scale_y = 0.85
@@ -507,6 +620,7 @@ def draw_edit_pie_type_extensions(pie, context):
     for block_key, prop, pkwargs in rows:
         block = _pie_ext_block(obj, block_key)
         _pie_prop(col, block, prop, **pkwargs)
+    return True
 
 
 class IOPS_MT_Pie_Edit_Modes(Menu):
@@ -585,25 +699,16 @@ class IOPS_MT_Pie_Edit(Menu):
                         text=f"Reload {os.path.basename(blendpath)}",
                         icon="FILE_REFRESH"
                     )
+                draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
                 draw_empty_pie_size_display_and_image(pie, context)
+                draw_open_asset_in_pie_if_poll(pie, context)
 
             else:
                 draw_edit_pie_cardinals(pie, context)
-                draw_edit_pie_type_extensions(pie, context)
                 obj = context.object
-                if obj and obj.type == 'MESH' and obj.mode == 'EDIT':
-                    # NW
-                    pie.operator("iops.mesh_visual_uv", text="Visual UV", icon="UV")
-                    # NE
-                    pie.operator(
-                        "iops.mesh_nonplanar_overlay",
-                        text="Non-Planar Overlay",
-                        icon="MOD_TRIANGULATE",
-                        depress=overlay_enabled(),
-                    )
-
-            draw_open_asset_in_pie_if_poll(pie, context)
+                ctx = "edit" if (obj and obj.type == "MESH" and obj.mode == "EDIT") else "object"
+                draw_edit_pie_diagonals(pie, context, ctx)
 
         elif context.area.type == "IMAGE_EDITOR":
             if not context.active_object:
@@ -613,26 +718,7 @@ class IOPS_MT_Pie_Edit(Menu):
             pie.operator("iops.function_f3", text="Face", icon="FACESEL")
             pie.operator("iops.function_esc", text="Esc", icon="EVENT_ESC")
             pie.operator("iops.function_f2", text="Edge", icon="EDGESEL")
-            pie.separator()
-            if bpy.app.version >= (5, 0, 0):
-                pie.prop(
-                    context.tool_settings,
-                    "use_uv_select_island",
-                    text="Island Selection",
-                    icon="UV_ISLANDSEL",
-                    toggle=True,
-                )
-            else:
-                # Blender 4.x: island is a uv_select_mode enum value
-                pie.prop_enum(
-                    context.tool_settings,
-                    "uv_select_mode",
-                    "ISLAND",
-                    text="Island Selection",
-                    icon="UV_ISLANDSEL",
-                )
-
-            draw_open_asset_in_pie_if_poll(pie, context)
+            draw_edit_pie_diagonals(pie, context, "uv")
 
 
 class IOPS_OT_Set_Empty_Size(bpy.types.Operator):
