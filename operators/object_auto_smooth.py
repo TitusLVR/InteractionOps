@@ -1,6 +1,36 @@
+import os
 import bpy
 from math import radians
 from ..utils.functions import with_progress
+
+
+def get_smooth_by_angle_node_group():
+    """Return the essentials 'Smooth by Angle' node group, linking it once
+    if it is not in the file yet.
+
+    bpy.ops.object.shade_auto_smooth resolves the node group through the
+    asset system on every call, which stalls for seconds in files with
+    linked libraries — so we fetch the group directly instead.
+    """
+    for ng in bpy.data.node_groups:
+        if (
+            ng.name == "Smooth by Angle"
+            and ng.library
+            and "geometry_nodes_essentials" in ng.library.filepath
+        ):
+            return ng
+
+    path = os.path.join(
+        bpy.utils.system_resource("DATAFILES"),
+        "assets",
+        "nodes",
+        "geometry_nodes_essentials.blend",
+    )
+    with bpy.data.libraries.load(path, link=True) as (data_from, data_to):
+        data_to.node_groups = [
+            name for name in data_from.node_groups if name == "Smooth by Angle"
+        ]
+    return data_to.node_groups[0] if data_to.node_groups else None
 
 
 class IOPS_OT_AutoSmooth(bpy.types.Operator):
@@ -44,44 +74,45 @@ class IOPS_OT_AutoSmooth(bpy.types.Operator):
                     bpy.ops.object.mode_set(mode='OBJECT')
         
         try:
-            # Set the angle and clean up modifiers on all meshes
+            node_group = get_smooth_by_angle_node_group()
+            if node_group is None:
+                self.report({"ERROR"}, "Smooth by Angle node group not found")
+                return {"CANCELLED"}
+
+            angle_socket = next(
+                (
+                    item.identifier
+                    for item in node_group.interface.items_tree
+                    if item.item_type == "SOCKET"
+                    and item.in_out == "INPUT"
+                    and item.name == "Angle"
+                ),
+                None,
+            )
+
             for mesh in with_progress(meshes, prefix="Adding Auto Smooth"):
                 # First delete all modifiers with names containing "Auto Smooth" or "Smooth by Angle"
-                modifiers_to_remove = []
-                for mod in mesh.modifiers:
-                    if mod.type == "NODES":
-                        mod_name = mod.name
-                        if "Auto Smooth" in mod_name or "Smooth by Angle" in mod_name:
-                            modifiers_to_remove.append(mod)
-                
-                # Remove the modifiers
-                for mod in modifiers_to_remove:
+                for mod in [
+                    mod
+                    for mod in mesh.modifiers
+                    if mod.type == "NODES"
+                    and ("Auto Smooth" in mod.name or "Smooth by Angle" in mod.name)
+                ]:
                     mesh.modifiers.remove(mod)
 
-            # Apply auto smooth to all selected objects at once
-            bpy.ops.object.shade_auto_smooth(use_auto_smooth=True, angle=angle_rad)
-            
-            # Find "Smooth by Angle" modifier, unpin it, and move to first position
-            for mesh in meshes:
-                # Find the modifier
-                smooth_by_angle_mod = None
-                for mod in mesh.modifiers:
-                    if "Smooth by Angle" in mod.name:
-                        smooth_by_angle_mod = mod
-                        break
-                
-                if smooth_by_angle_mod:
-                    # Unpin the modifier (ensure it's enabled)
-                    smooth_by_angle_mod.show_viewport = True
-                    smooth_by_angle_mod.show_render = True
-                    smooth_by_angle_mod.use_pin_to_last = False
+                # Shade smooth the mesh data
+                mesh.data.polygons.foreach_set(
+                    "use_smooth", [True] * len(mesh.data.polygons)
+                )
+                mesh.data.update()
 
-                    # Move to first position in stack in one step
-                    # (modifier_move_up per step triggers a full depsgraph
-                    # update and undo push each call, which is very slow)
-                    index = mesh.modifiers.find(smooth_by_angle_mod.name)
-                    if index > 0:
-                        mesh.modifiers.move(index, 0)
+                # Add the modifier directly and move it to the top of the stack
+                mod = mesh.modifiers.new("Smooth by Angle", "NODES")
+                mod.node_group = node_group
+                if angle_socket:
+                    getattr(mod.properties.inputs, angle_socket).value = angle_rad
+                if len(mesh.modifiers) > 1:
+                    mesh.modifiers.move(len(mesh.modifiers) - 1, 0)
         
         finally:
             # Restore edit mode for objects that were in edit mode
