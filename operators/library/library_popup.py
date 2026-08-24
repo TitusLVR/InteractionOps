@@ -1,18 +1,22 @@
 """GPU-overlay popup operator for the ported library addon.
 
 Draws a floating asset-picker panel (category rows + a preview grid) directly
-into the 3D viewport with ``blf``/``gpu`` calls from a modal operator, rather
-than a regular ``bpy.types.Panel``. Mirrors the source addon's popup pixel-for
--pixel: metrics arithmetic, colors, scissor clipping, hover/hitbox handling,
-and scroll clamping are all ported as-is.
+into the 3D viewport with ``gpu`` calls from a modal operator, rather than a
+regular ``bpy.types.Panel``. Text is rendered through the addon's themed blf
+stack (``ui.hud.text``); rectangle colors are sourced from the theme
+preferences (``prefs.theme``, ``popup_*`` props) with fallbacks equal to the
+source addon's original hardcoded values. Mirrors the source addon's popup
+pixel-for-pixel on layout: metrics arithmetic, scissor clipping, hover/hitbox
+handling, and scroll clamping are all ported as-is.
 """
 
-import blf
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 from gpu_extras.presets import draw_texture_2d
 
+from ...ui.draw.theme import Role, get_theme
+from ...ui.hud import text as hud_text
 from .common import (
     catalog_needs_sync,
     get_catalog,
@@ -53,12 +57,11 @@ def draw_overlay_rectangle(x, y, width, height, color):
     batch.draw(shader)
 
 
-def draw_overlay_text(text, x, y, size=12, color=(0.88, 0.88, 0.88, 1.0)):
-    font_id = 0
-    blf.color(font_id, *color)
-    blf.position(font_id, x, y, 0)
-    blf.size(font_id, size)
-    blf.draw(font_id, text)
+def _popup_color(name, fallback):
+    prefs = get_prefs(bpy.context)
+    theme = getattr(prefs, "iops_theme", None) if prefs else None
+    value = getattr(theme, name, None) if theme else None
+    return tuple(value) if value is not None else fallback
 
 
 def point_in_bounds(x, y, bounds):
@@ -188,18 +191,25 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
     def add_hitbox(self, kind, value, bounds):
         self._hitboxes.append((kind, value, bounds))
 
-    def draw_header_button(self, label, kind, value, bounds):
+    def draw_header_button(self, label, kind, value, bounds, theme):
         hovered = self._hover_key == (kind, value)
-        color = (0.24, 0.24, 0.24, 1.0) if hovered else (0.15, 0.15, 0.15, 1.0)
+        color = (
+            _popup_color("popup_button_hover", (0.24, 0.24, 0.24, 1.0))
+            if hovered
+            else _popup_color("popup_button_bg", (0.15, 0.15, 0.15, 1.0))
+        )
         left, bottom, right, top = bounds
         draw_overlay_rectangle(left, bottom, right - left, top - bottom, color)
-        blf.size(0, 11)
-        text_width = blf.dimensions(0, label)[0]
-        draw_overlay_text(
+        text_width, _text_height = hud_text.measure(
+            label, theme=theme, size_token="hud_label",
+        )
+        hud_text.draw(
             label,
             left + max(5, (right - left - text_width) * 0.5),
             bottom + 6,
-            11,
+            theme=theme,
+            role=Role.HUD_LABEL,
+            size_token="hud_label",
         )
         self.add_hitbox(kind, value, bounds)
 
@@ -208,6 +218,7 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
         preferences = get_prefs(context)
         if preferences is None or self._region is None:
             return
+        theme = get_theme(context)
 
         panel_x, panel_y, panel_width, panel_height, tile_size = self.popup_metrics(
             context
@@ -229,38 +240,39 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
             panel_y - 1,
             panel_width + 2,
             panel_height + 2,
-            (0.24, 0.24, 0.24, 1.0),
+            _popup_color("popup_border", (0.24, 0.24, 0.24, 1.0)),
         )
         draw_overlay_rectangle(
             panel_x,
             panel_y,
             panel_width,
             panel_height,
-            (0.055, 0.055, 0.055, 0.98),
+            _popup_color("popup_bg", (0.055, 0.055, 0.055, 0.98)),
         )
         draw_overlay_rectangle(
             panel_x,
             panel_top - self.header_height,
             panel_width,
             self.header_height,
-            (0.09, 0.09, 0.09, 1.0),
+            _popup_color("popup_header_bg", (0.09, 0.09, 0.09, 1.0)),
         )
-        draw_overlay_text(
+        hud_text.draw(
             "IOPS Library",
             panel_x + 11,
             panel_top - 22,
-            13,
-            (0.95, 0.95, 0.95, 1.0),
+            theme=theme,
+            role=Role.HUD_HEADER,
+            size_token="hud_header",
         )
 
         control_top = panel_top - 5
         control_bottom = control_top - 22
         right = panel_x + panel_width - 7
         refresh_bounds = (right - 62, control_bottom, right, control_top)
-        self.draw_header_button("Refresh", "REFRESH", 0, refresh_bounds)
+        self.draw_header_button("Refresh", "REFRESH", 0, refresh_bounds, theme)
         right = refresh_bounds[0] - 5
         plus_bounds = (right - 22, control_bottom, right, control_top)
-        self.draw_header_button("+", "SIZE", 1, plus_bounds)
+        self.draw_header_button("+", "SIZE", 1, plus_bounds, theme)
         right = plus_bounds[0]
         size_bounds = (right - 50, control_bottom, right, control_top)
         self.draw_header_button(
@@ -268,10 +280,11 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
             "NONE",
             0,
             size_bounds,
+            theme,
         )
         right = size_bounds[0]
         minus_bounds = (right - 22, control_bottom, right, control_top)
-        self.draw_header_button("-", "SIZE", -1, minus_bounds)
+        self.draw_header_button("-", "SIZE", -1, minus_bounds, theme)
 
         clip_bottom = panel_y + self.padding
         clip_top = panel_top - self.header_height - self.padding
@@ -307,9 +320,9 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                 if category_bottom <= clip_top and cursor_y >= clip_bottom:
                     hovered = self._hover_key == ("CATEGORY", property_name)
                     color = (
-                        (0.18, 0.18, 0.18, 1.0)
+                        _popup_color("popup_section_hover", (0.18, 0.18, 0.18, 1.0))
                         if hovered
-                        else (0.115, 0.115, 0.115, 1.0)
+                        else _popup_color("popup_section_bg", (0.115, 0.115, 0.115, 1.0))
                     )
                     draw_overlay_rectangle(
                         category_bounds[0],
@@ -318,17 +331,21 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                         self.category_height - 1,
                         color,
                     )
-                    draw_overlay_text(
+                    hud_text.draw(
                         "v" if expanded else ">",
                         category_bounds[0] + 7,
                         category_bottom + 7,
-                        11,
+                        theme=theme,
+                        role=Role.HUD_LABEL,
+                        size_token="hud_label",
                     )
-                    draw_overlay_text(
+                    hud_text.draw(
                         "%s (%d)" % (label, len(entries)),
                         category_bounds[0] + 23,
                         category_bottom + 7,
-                        11,
+                        theme=theme,
+                        role=Role.HUD_LABEL,
+                        size_token="hud_label",
                     )
                     self.add_hitbox("CATEGORY", property_name, category_bounds)
                 cursor_y = category_bottom
@@ -370,9 +387,9 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                             continue
                         hovered = self._hover_key == ("ASSET", index)
                         tile_color = (
-                            (0.20, 0.20, 0.20, 1.0)
+                            _popup_color("popup_tile_hover", (0.20, 0.20, 0.20, 1.0))
                             if hovered
-                            else (0.095, 0.095, 0.095, 1.0)
+                            else _popup_color("popup_tile_bg", (0.095, 0.095, 0.095, 1.0))
                         )
                         draw_overlay_rectangle(
                             x - 1,
@@ -391,14 +408,16 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                             )
                         else:
                             fallback = entry.id_type.title() or "Asset"
-                            blf.size(0, 11)
-                            text_width = blf.dimensions(0, fallback)[0]
-                            draw_overlay_text(
+                            text_width, _text_height = hud_text.measure(
+                                fallback, theme=theme, size_token="hud_label",
+                            )
+                            hud_text.draw(
                                 fallback,
                                 x + max(5, (tile_size - text_width) * 0.5),
                                 image_bottom + tile_size * 0.5 - 5,
-                                11,
-                                (0.65, 0.65, 0.65, 1.0),
+                                theme=theme,
+                                role=Role.HUD_LABEL_INACTIVE,
+                                size_token="hud_label",
                             )
                         self.add_hitbox("ASSET", index, image_bounds)
 
@@ -407,17 +426,19 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                             label_bounds[1],
                             tile_size,
                             self.label_height - 1,
-                            (0.12, 0.12, 0.12, 1.0),
+                            _popup_color("popup_label_bg", (0.12, 0.12, 0.12, 1.0)),
                         )
                         maximum_characters = max(5, int((tile_size - 28) / 7))
                         asset_label = entry.asset_name
                         if len(asset_label) > maximum_characters:
                             asset_label = asset_label[: maximum_characters - 3] + "..."
-                        draw_overlay_text(
+                        hud_text.draw(
                             asset_label,
                             x + 6,
                             label_bottom + 6,
-                            10,
+                            theme=theme,
+                            role=Role.HUD_LABEL,
+                            size_token="hud_label",
                         )
                         remove_bounds = (
                             x + tile_size - 22,
@@ -432,13 +453,15 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                                 remove_bounds[1],
                                 22,
                                 self.label_height - 1,
-                                (0.32, 0.12, 0.10, 1.0),
+                                _popup_color("popup_remove_hover", (0.32, 0.12, 0.10, 1.0)),
                             )
-                        draw_overlay_text(
+                        hud_text.draw(
                             "X",
                             remove_bounds[0] + 7,
                             remove_bounds[1] + 6,
-                            10,
+                            theme=theme,
+                            role=Role.HUD_LABEL,
+                            size_token="hud_label",
                         )
                         self.add_hitbox("REMOVE", index, remove_bounds)
                     cursor_y -= row_height
