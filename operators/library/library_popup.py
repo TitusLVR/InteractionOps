@@ -220,254 +220,255 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
             return
         theme = get_theme(context)
 
-        panel_x, panel_y, panel_width, panel_height, tile_size = self.popup_metrics(
-            context
-        )
-        panel_top = panel_y + panel_height
-        self._panel_bounds = (
-            panel_x,
-            panel_y,
-            panel_x + panel_width,
-            panel_top,
-        )
-        self._hitboxes.clear()
+        with hud_text.isolated(theme):
+            panel_x, panel_y, panel_width, panel_height, tile_size = self.popup_metrics(
+                context
+            )
+            panel_top = panel_y + panel_height
+            self._panel_bounds = (
+                panel_x,
+                panel_y,
+                panel_x + panel_width,
+                panel_top,
+            )
+            self._hitboxes.clear()
 
-        gpu.state.depth_test_set("NONE")
-        gpu.state.face_culling_set("NONE")
-        gpu.state.blend_set("ALPHA")
-        draw_overlay_rectangle(
-            panel_x - 1,
-            panel_y - 1,
-            panel_width + 2,
-            panel_height + 2,
-            _popup_color("popup_border", (0.24, 0.24, 0.24, 1.0)),
-        )
-        draw_overlay_rectangle(
-            panel_x,
-            panel_y,
-            panel_width,
-            panel_height,
-            _popup_color("popup_bg", (0.055, 0.055, 0.055, 0.98)),
-        )
-        draw_overlay_rectangle(
-            panel_x,
-            panel_top - self.header_height,
-            panel_width,
-            self.header_height,
-            _popup_color("popup_header_bg", (0.09, 0.09, 0.09, 1.0)),
-        )
-        hud_text.draw(
-            "IOPS Library",
-            panel_x + 11,
-            panel_top - 22,
-            theme=theme,
-            role=Role.HUD_HEADER,
-            size_token="hud_header",
-        )
+            gpu.state.depth_test_set("NONE")
+            gpu.state.face_culling_set("NONE")
+            gpu.state.blend_set("ALPHA")
+            draw_overlay_rectangle(
+                panel_x - 1,
+                panel_y - 1,
+                panel_width + 2,
+                panel_height + 2,
+                _popup_color("popup_border", (0.24, 0.24, 0.24, 1.0)),
+            )
+            draw_overlay_rectangle(
+                panel_x,
+                panel_y,
+                panel_width,
+                panel_height,
+                _popup_color("popup_bg", (0.055, 0.055, 0.055, 0.98)),
+            )
+            draw_overlay_rectangle(
+                panel_x,
+                panel_top - self.header_height,
+                panel_width,
+                self.header_height,
+                _popup_color("popup_header_bg", (0.09, 0.09, 0.09, 1.0)),
+            )
+            hud_text.draw(
+                "IOPS Library",
+                panel_x + 11,
+                panel_top - 22,
+                theme=theme,
+                role=Role.HUD_HEADER,
+                size_token="hud_header",
+            )
 
-        control_top = panel_top - 5
-        control_bottom = control_top - 22
-        right = panel_x + panel_width - 7
-        refresh_bounds = (right - 62, control_bottom, right, control_top)
-        self.draw_header_button("Refresh", "REFRESH", 0, refresh_bounds, theme)
-        right = refresh_bounds[0] - 5
-        plus_bounds = (right - 22, control_bottom, right, control_top)
-        self.draw_header_button("+", "SIZE", 1, plus_bounds, theme)
-        right = plus_bounds[0]
-        size_bounds = (right - 50, control_bottom, right, control_top)
-        self.draw_header_button(
-            "Size %d" % preferences.library_preview_size,
-            "NONE",
-            0,
-            size_bounds,
-            theme,
-        )
-        right = size_bounds[0]
-        minus_bounds = (right - 22, control_bottom, right, control_top)
-        self.draw_header_button("-", "SIZE", -1, minus_bounds, theme)
+            control_top = panel_top - 5
+            control_bottom = control_top - 22
+            right = panel_x + panel_width - 7
+            refresh_bounds = (right - 62, control_bottom, right, control_top)
+            self.draw_header_button("Refresh", "REFRESH", 0, refresh_bounds, theme)
+            right = refresh_bounds[0] - 5
+            plus_bounds = (right - 22, control_bottom, right, control_top)
+            self.draw_header_button("+", "SIZE", 1, plus_bounds, theme)
+            right = plus_bounds[0]
+            size_bounds = (right - 50, control_bottom, right, control_top)
+            self.draw_header_button(
+                "Size %d" % preferences.library_preview_size,
+                "NONE",
+                0,
+                size_bounds,
+                theme,
+            )
+            right = size_bounds[0]
+            minus_bounds = (right - 22, control_bottom, right, control_top)
+            self.draw_header_button("-", "SIZE", -1, minus_bounds, theme)
 
-        clip_bottom = panel_y + self.padding
-        clip_top = panel_top - self.header_height - self.padding
-        gpu.state.scissor_test_set(True)
-        gpu.state.scissor_set(
-            int(panel_x + 1),
-            int(clip_bottom),
-            max(1, int(panel_width - 2)),
-            max(1, int(clip_top - clip_bottom)),
-        )
-        cursor_y = clip_top + self._scroll
-        available_width = panel_width - self.padding * 2
+            clip_bottom = panel_y + self.padding
+            clip_top = panel_top - self.header_height - self.padding
+            gpu.state.scissor_test_set(True)
+            gpu.state.scissor_set(
+                int(panel_x + 1),
+                int(clip_bottom),
+                max(1, int(panel_width - 2)),
+                max(1, int(clip_top - clip_bottom)),
+            )
+            cursor_y = clip_top + self._scroll
+            available_width = panel_width - self.padding * 2
 
-        try:
-            catalog = get_catalog(context)
-            for category, label, _icon, property_name in CATEGORY_DEFINITIONS:
-                entries = [
-                    (index, entry)
-                    for index, entry in enumerate(catalog)
-                    if entry.category == category
-                ]
-                if not entries:
-                    continue
-
-                category_bottom = cursor_y - self.category_height
-                category_bounds = (
-                    panel_x + self.padding,
-                    category_bottom,
-                    panel_x + panel_width - self.padding,
-                    cursor_y,
-                )
-                expanded = getattr(context.window_manager, property_name)
-                if category_bottom <= clip_top and cursor_y >= clip_bottom:
-                    hovered = self._hover_key == ("CATEGORY", property_name)
-                    color = (
-                        _popup_color("popup_section_hover", (0.18, 0.18, 0.18, 1.0))
-                        if hovered
-                        else _popup_color("popup_section_bg", (0.115, 0.115, 0.115, 1.0))
-                    )
-                    draw_overlay_rectangle(
-                        category_bounds[0],
-                        category_bounds[1],
-                        category_bounds[2] - category_bounds[0],
-                        self.category_height - 1,
-                        color,
-                    )
-                    hud_text.draw(
-                        "v" if expanded else ">",
-                        category_bounds[0] + 7,
-                        category_bottom + 7,
-                        theme=theme,
-                        role=Role.HUD_LABEL,
-                        size_token="hud_label",
-                    )
-                    hud_text.draw(
-                        "%s (%d)" % (label, len(entries)),
-                        category_bounds[0] + 23,
-                        category_bottom + 7,
-                        theme=theme,
-                        role=Role.HUD_LABEL,
-                        size_token="hud_label",
-                    )
-                    self.add_hitbox("CATEGORY", property_name, category_bounds)
-                cursor_y = category_bottom
-                if not expanded:
-                    continue
-
-                columns = preview_column_count(
-                    preferences.library_preview_size,
-                    len(entries),
-                )
-                rows = (len(entries) + columns - 1) // columns
-                for row_index in range(rows):
-                    row_entries = entries[
-                        row_index * columns : (row_index + 1) * columns
+            try:
+                catalog = get_catalog(context)
+                for category, label, _icon, property_name in CATEGORY_DEFINITIONS:
+                    entries = [
+                        (index, entry)
+                        for index, entry in enumerate(catalog)
+                        if entry.category == category
                     ]
-                    row_height = tile_size + self.label_height + self.gap
-                    row_top = cursor_y
-                    image_bottom = row_top - tile_size
-                    label_bottom = image_bottom - self.label_height
-                    row_width = (
-                        len(row_entries) * tile_size
-                        + max(0, len(row_entries) - 1) * self.gap
+                    if not entries:
+                        continue
+
+                    category_bottom = cursor_y - self.category_height
+                    category_bounds = (
+                        panel_x + self.padding,
+                        category_bottom,
+                        panel_x + panel_width - self.padding,
+                        cursor_y,
                     )
-                    row_x = panel_x + self.padding + max(
-                        0,
-                        (available_width - row_width) * 0.5,
-                    )
-                    for column_index, (index, entry) in enumerate(row_entries):
-                        x = row_x + column_index * (tile_size + self.gap)
-                        image_bounds = (x, image_bottom, x + tile_size, row_top)
-                        label_bounds = (
-                            x,
-                            label_bottom,
-                            x + tile_size,
-                            image_bottom,
-                        )
-                        visible = image_bottom <= clip_top and row_top >= clip_bottom
-                        if not visible:
-                            continue
-                        hovered = self._hover_key == ("ASSET", index)
-                        tile_color = (
-                            _popup_color("popup_tile_hover", (0.20, 0.20, 0.20, 1.0))
+                    expanded = getattr(context.window_manager, property_name)
+                    if category_bottom <= clip_top and cursor_y >= clip_bottom:
+                        hovered = self._hover_key == ("CATEGORY", property_name)
+                        color = (
+                            _popup_color("popup_section_hover", (0.18, 0.18, 0.18, 1.0))
                             if hovered
-                            else _popup_color("popup_tile_bg", (0.095, 0.095, 0.095, 1.0))
+                            else _popup_color("popup_section_bg", (0.115, 0.115, 0.115, 1.0))
                         )
                         draw_overlay_rectangle(
-                            x - 1,
-                            image_bottom - 1,
-                            tile_size + 2,
-                            tile_size + 2,
-                            tile_color,
+                            category_bounds[0],
+                            category_bounds[1],
+                            category_bounds[2] - category_bounds[0],
+                            self.category_height - 1,
+                            color,
                         )
-                        texture = overlay_texture(entry)
-                        if texture is not None:
-                            draw_texture_2d(
-                                texture,
-                                (x, image_bottom),
-                                tile_size,
-                                tile_size,
+                        hud_text.draw(
+                            "v" if expanded else ">",
+                            category_bounds[0] + 7,
+                            category_bottom + 7,
+                            theme=theme,
+                            role=Role.HUD_LABEL,
+                            size_token="hud_label",
+                        )
+                        hud_text.draw(
+                            "%s (%d)" % (label, len(entries)),
+                            category_bounds[0] + 23,
+                            category_bottom + 7,
+                            theme=theme,
+                            role=Role.HUD_LABEL,
+                            size_token="hud_label",
+                        )
+                        self.add_hitbox("CATEGORY", property_name, category_bounds)
+                    cursor_y = category_bottom
+                    if not expanded:
+                        continue
+
+                    columns = preview_column_count(
+                        preferences.library_preview_size,
+                        len(entries),
+                    )
+                    rows = (len(entries) + columns - 1) // columns
+                    for row_index in range(rows):
+                        row_entries = entries[
+                            row_index * columns : (row_index + 1) * columns
+                        ]
+                        row_height = tile_size + self.label_height + self.gap
+                        row_top = cursor_y
+                        image_bottom = row_top - tile_size
+                        label_bottom = image_bottom - self.label_height
+                        row_width = (
+                            len(row_entries) * tile_size
+                            + max(0, len(row_entries) - 1) * self.gap
+                        )
+                        row_x = panel_x + self.padding + max(
+                            0,
+                            (available_width - row_width) * 0.5,
+                        )
+                        for column_index, (index, entry) in enumerate(row_entries):
+                            x = row_x + column_index * (tile_size + self.gap)
+                            image_bounds = (x, image_bottom, x + tile_size, row_top)
+                            label_bounds = (
+                                x,
+                                label_bottom,
+                                x + tile_size,
+                                image_bottom,
                             )
-                        else:
-                            fallback = entry.id_type.title() or "Asset"
-                            text_width, _text_height = hud_text.measure(
-                                fallback, theme=theme, size_token="hud_label",
+                            visible = image_bottom <= clip_top and row_top >= clip_bottom
+                            if not visible:
+                                continue
+                            hovered = self._hover_key == ("ASSET", index)
+                            tile_color = (
+                                _popup_color("popup_tile_hover", (0.20, 0.20, 0.20, 1.0))
+                                if hovered
+                                else _popup_color("popup_tile_bg", (0.095, 0.095, 0.095, 1.0))
                             )
+                            draw_overlay_rectangle(
+                                x - 1,
+                                image_bottom - 1,
+                                tile_size + 2,
+                                tile_size + 2,
+                                tile_color,
+                            )
+                            texture = overlay_texture(entry)
+                            if texture is not None:
+                                draw_texture_2d(
+                                    texture,
+                                    (x, image_bottom),
+                                    tile_size,
+                                    tile_size,
+                                )
+                            else:
+                                fallback = entry.id_type.title() or "Asset"
+                                text_width, _text_height = hud_text.measure(
+                                    fallback, theme=theme, size_token="hud_label",
+                                )
+                                hud_text.draw(
+                                    fallback,
+                                    x + max(5, (tile_size - text_width) * 0.5),
+                                    image_bottom + tile_size * 0.5 - 5,
+                                    theme=theme,
+                                    role=Role.HUD_LABEL_INACTIVE,
+                                    size_token="hud_label",
+                                )
+                            self.add_hitbox("ASSET", index, image_bounds)
+
+                            draw_overlay_rectangle(
+                                label_bounds[0],
+                                label_bounds[1],
+                                tile_size,
+                                self.label_height - 1,
+                                _popup_color("popup_label_bg", (0.12, 0.12, 0.12, 1.0)),
+                            )
+                            maximum_characters = max(5, int((tile_size - 28) / 7))
+                            asset_label = entry.asset_name
+                            if len(asset_label) > maximum_characters:
+                                asset_label = asset_label[: maximum_characters - 3] + "..."
                             hud_text.draw(
-                                fallback,
-                                x + max(5, (tile_size - text_width) * 0.5),
-                                image_bottom + tile_size * 0.5 - 5,
+                                asset_label,
+                                x + 6,
+                                label_bottom + 6,
                                 theme=theme,
-                                role=Role.HUD_LABEL_INACTIVE,
+                                role=Role.HUD_LABEL,
                                 size_token="hud_label",
                             )
-                        self.add_hitbox("ASSET", index, image_bounds)
-
-                        draw_overlay_rectangle(
-                            label_bounds[0],
-                            label_bounds[1],
-                            tile_size,
-                            self.label_height - 1,
-                            _popup_color("popup_label_bg", (0.12, 0.12, 0.12, 1.0)),
-                        )
-                        maximum_characters = max(5, int((tile_size - 28) / 7))
-                        asset_label = entry.asset_name
-                        if len(asset_label) > maximum_characters:
-                            asset_label = asset_label[: maximum_characters - 3] + "..."
-                        hud_text.draw(
-                            asset_label,
-                            x + 6,
-                            label_bottom + 6,
-                            theme=theme,
-                            role=Role.HUD_LABEL,
-                            size_token="hud_label",
-                        )
-                        remove_bounds = (
-                            x + tile_size - 22,
-                            label_bottom,
-                            x + tile_size,
-                            image_bottom,
-                        )
-                        remove_hovered = self._hover_key == ("REMOVE", index)
-                        if remove_hovered:
-                            draw_overlay_rectangle(
-                                remove_bounds[0],
-                                remove_bounds[1],
-                                22,
-                                self.label_height - 1,
-                                _popup_color("popup_remove_hover", (0.32, 0.12, 0.10, 1.0)),
+                            remove_bounds = (
+                                x + tile_size - 22,
+                                label_bottom,
+                                x + tile_size,
+                                image_bottom,
                             )
-                        hud_text.draw(
-                            "X",
-                            remove_bounds[0] + 7,
-                            remove_bounds[1] + 6,
-                            theme=theme,
-                            role=Role.HUD_LABEL,
-                            size_token="hud_label",
-                        )
-                        self.add_hitbox("REMOVE", index, remove_bounds)
-                    cursor_y -= row_height
-        finally:
-            gpu.state.scissor_test_set(False)
-            gpu.state.blend_set("NONE")
+                            remove_hovered = self._hover_key == ("REMOVE", index)
+                            if remove_hovered:
+                                draw_overlay_rectangle(
+                                    remove_bounds[0],
+                                    remove_bounds[1],
+                                    22,
+                                    self.label_height - 1,
+                                    _popup_color("popup_remove_hover", (0.32, 0.12, 0.10, 1.0)),
+                                )
+                            hud_text.draw(
+                                "X",
+                                remove_bounds[0] + 7,
+                                remove_bounds[1] + 6,
+                                theme=theme,
+                                role=Role.HUD_LABEL,
+                                size_token="hud_label",
+                            )
+                            self.add_hitbox("REMOVE", index, remove_bounds)
+                        cursor_y -= row_height
+            finally:
+                gpu.state.scissor_test_set(False)
+                gpu.state.blend_set("NONE")
 
     def hitbox_at(self, x, y):
         for kind, value, bounds in reversed(self._hitboxes):

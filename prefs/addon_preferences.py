@@ -906,9 +906,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
-                    elif kmi.idname == "iops.widget_toggle":
+                    elif kmi.idname in {"iops.widget_toggle", "iops.widget_interact"}:
                         # Per-widget toggle entries — drawn as key fields
-                        # in the Widgets tab list, not here.
+                        # in the Widgets tab list, not here. Also swallows
+                        # the programmatic, owner-managed widget_interact
+                        # LEFTMOUSE binding (ui/widgets/events.py), which is
+                        # NEVER_SAVE and must not surface as an editable
+                        # "Other" keymap entry.
                         pass
                     elif kmi.idname.startswith("iops.library"):
                         try:
