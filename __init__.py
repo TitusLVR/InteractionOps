@@ -199,6 +199,16 @@ from .ui.iops_pie_shading import (
 
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+
+# IOPS Library (ported asset-library workflow)
+from .operators.library.library_refresh import (
+    IOPS_OT_LibraryFindMaster,
+    IOPS_OT_LibraryRefresh,
+)
+from .operators.library.library_insert import IOPS_OT_LibraryInsertAsset
+from .operators.library.library_remove import IOPS_OT_LibraryRemoveAsset
+from .operators.library.library_publish import IOPS_OT_LibraryPublish
+from .operators.library.library_popup import IOPS_OT_LibraryPopup
 from .ui.iops_pie_edit import (
     IOPS_MT_Pie_Edit,
     IOPS_OT_Call_Pie_Edit,
@@ -391,6 +401,7 @@ from .ui.iops_pie_assets import (
     IOPS_MT_CatalogBrowseActive,
     IOPS_MT_Pie_Assets,
 )
+from .ui.iops_library_panel import IOPS_PT_Library
 
 bl_info = {
     "name": "iOps",
@@ -605,6 +616,13 @@ classes = (
     IOPS_OT_RefreshAssetBrowser,
     IOPS_OT_ExpandInstanceCollection,
     IOPS_OT_Call_Pie_Assets,
+    IOPS_OT_LibraryFindMaster,
+    IOPS_OT_LibraryRefresh,
+    IOPS_OT_LibraryInsertAsset,
+    IOPS_OT_LibraryRemoveAsset,
+    IOPS_OT_LibraryPublish,
+    IOPS_OT_LibraryPopup,
+    IOPS_PT_Library,
     IOPS_OT_Modifier_Window,
     *_modifiers_classes,
     IOPS_PT_Modifiers_Panel,
@@ -732,6 +750,9 @@ def register():
         type=IOPS_AddonProperties
     )
 
+    from .operators.library import props as library_props
+    library_props.register_wm_properties()
+
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
     register_selection_sets_ui()
@@ -837,6 +858,15 @@ def unregister():
         disable_overlay()
     except Exception as e:
         print("IOPS: non-planar overlay cleanup failed:", e)
+    try:
+        from .operators.library import library_popup as _library_popup
+        from .operators.library import common as _library_common
+        from .operators.library import props as _library_props
+        _library_popup.shutdown()
+        _library_common.reset_overlay_textures()
+        _library_props.unregister_wm_properties()
+    except Exception as e:
+        print("IOPS: library unregister failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.remove(object_copy_match_dimensions)

@@ -655,6 +655,26 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # (Distance text is now rendered through the HUD header — no separate
     # position offsets needed.)
 
+    # IOPS Library (ported asset-library workflow)
+    library_master_file: StringProperty(
+        name="Master Library File",
+        description="Single Blender file that stores all published library assets",
+        subtype="FILE_PATH",
+        default="",
+    )
+    library_preview_size: IntProperty(
+        name="Preview Size",
+        description="Size of square asset previews in the library popup",
+        default=5,
+        min=3,
+        max=8,
+    )
+    library_shader_group: StringProperty(
+        name="Shader Group",
+        description="Local shader node group to publish into the master library",
+        default="",
+    )
+    show_section_library: BoolProperty(default=False)
 
     def draw(self, context):
         layout = self.layout
@@ -1119,6 +1139,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "texture_to_material_prefixes")
                 body.prop(self, "texture_to_material_suffixes")
+
+            # Library
+            body = _section(column_main, self, "show_section_library", "Library", icon="ASSET_MANAGER")
+            if body is not None:
+                body.prop(self, "library_master_file")
+                row = body.row(align=True)
+                row.operator("iops.library_find_master", text="Find Master", icon="VIEWZOOM")
+                row.operator("iops.library_refresh", text="Refresh Library", icon="FILE_REFRESH")
+                operator = body.operator("iops.library_remove_asset", text="Clean Unlinked Assets", icon="TRASH")
+                operator.mode = "CLEAN_UNLINKED"
+                body.prop(self, "library_preview_size", slider=True)
 
             # Debug
             body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")
