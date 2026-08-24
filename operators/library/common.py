@@ -259,12 +259,11 @@ def catalog_needs_sync(context):
         stat = os.stat(master_file)
     except OSError:
         return False
-    return catalog_is_stale(
-        stat,
-        _catalog_mtime,
-        _catalog_size,
-        bool(get_catalog(context)),
-    )
+    # Force the lazy load first: on a cold session `_catalog_mtime`/
+    # `_catalog_size` are still their 0-valued defaults until `get_catalog`
+    # populates them from catalog.json, so it must run before they're read.
+    has_catalog = bool(get_catalog(context))
+    return catalog_is_stale(stat, _catalog_mtime, _catalog_size, has_catalog)
 
 
 def refresh_library_browsers():
