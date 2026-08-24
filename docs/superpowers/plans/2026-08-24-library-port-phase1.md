@@ -447,7 +447,7 @@ git commit -m "feat(library): background worker scripts"
 - Consumes: `common` (prefs, master resolution, `object_hierarchy`, `sync_catalog`, `refresh_library_browsers`, `worker_creation_flags`, `abs_path`), `library_core` (`valid_master_file`, `result_data`, `log_tail`).
 - Produces: `IOPS_OT_LibraryPublish` (bl_idname `iops.library_publish`; EnumProperty `publish_kind` OBJECT/COLLECTION/MATERIAL/SHADER_GROUP).
 
-- [ ] **Step 1: Port** SRC 1527-1781 with the rename table. Shader-group source reads `prefs.library_shader_group`; temp prefix `iops_library_`; worker path `publish_worker.py` beside this file; busy/status props renamed; master-file guard messages keep their meaning with "IOPS Library" wording.
+- [ ] **Step 1: Port** SRC 1527-1781 with the rename table. Shader-group source reads `prefs.library_shader_group`; temp prefix `iops_library_publish_` (per-worker-suffixed, consistent with `iops_library_delete_` and `iops_library_catalog_`); worker path `publish_worker.py` beside this file; busy/status props renamed; master-file guard messages keep their meaning with "IOPS Library" wording.
 - [ ] **Step 2: Verify** `python -m py_compile operators/library/library_publish.py`
 - [ ] **Step 3: Commit** — `git commit -m "feat(library): publish operator with background worker"`
 
