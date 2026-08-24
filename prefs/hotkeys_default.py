@@ -72,4 +72,6 @@ keys_default = [
     
     # IOPS Windows
     ("iops.window_modifiers", "F19", "PRESS", True, True, True, False),
+    # IOPS Library
+    ("iops.library_popup", "Q", "PRESS", True, True, False, False),
 ]

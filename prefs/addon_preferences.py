@@ -664,6 +664,26 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # (Distance text is now rendered through the HUD header — no separate
     # position offsets needed.)
 
+    # IOPS Library (ported asset-library workflow)
+    library_master_file: StringProperty(
+        name="Master Library File",
+        description="Single Blender file that stores all published library assets",
+        subtype="FILE_PATH",
+        default="",
+    )
+    library_preview_size: IntProperty(
+        name="Preview Size",
+        description="Size of square asset previews in the library popup",
+        default=5,
+        min=3,
+        max=8,
+    )
+    library_shader_group: StringProperty(
+        name="Shader Group",
+        description="Local shader node group to publish into the master library",
+        default="",
+    )
+    show_section_library: BoolProperty(default=False)
 
     def draw(self, context):
         layout = self.layout
@@ -758,6 +778,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             box_ui.label(text="UI Toggles:")
             col_ui = box_ui.column(align=True)
             km_ui_col = col_ui.row(align=True).column(align=True)
+            # Library keys
+            box_library = col.box()
+            box_library.label(text="Library:")
+            col_library = box_library.column(align=True)
+            km_library_col = col_library.row(align=True).column(align=True)
             # Other / uncategorized — catches operators whose idname matches no
             # explicit bucket above (e.g. iops.collections_*), including those
             # added via "Scan for New Operators".
@@ -783,6 +808,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Object Mode"],
                 kc_user.keymaps["Screen Editing"],
                 kc_user.keymaps["UV Editor"],
+                kc_user.keymaps["3D View"],
             ]
 
 
@@ -889,10 +915,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                 text="No modal key maps attached to this operator ¯\\_(ツ)_/¯",
                                 icon="INFO",
                             )
-                    elif kmi.idname == "iops.widget_toggle":
+                    elif kmi.idname in {"iops.widget_toggle", "iops.widget_interact"}:
                         # Per-widget toggle entries — drawn as key fields
-                        # in the Widgets tab list, not here.
+                        # in the Widgets tab list, not here. Also swallows
+                        # the programmatic, owner-managed widget_interact
+                        # LEFTMOUSE binding (ui/widgets/events.py), which is
+                        # NEVER_SAVE and must not surface as an editable
+                        # "Other" keymap entry.
                         pass
+                    elif kmi.idname.startswith("iops.library"):
+                        try:
+                            rna_keymap_ui.draw_kmi(
+                                ["ADDON", "USER", "DEFAULT"], kc, km, kmi, km_library_col, 0
+                            )
+                        except AttributeError:
+                            pass
                     elif kmi.idname.startswith("iops."):
                         try:
                             rna_keymap_ui.draw_kmi(
@@ -1158,6 +1195,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "texture_to_material_prefixes")
                 body.prop(self, "texture_to_material_suffixes")
+
+            # Library
+            body = _section(column_main, self, "show_section_library", "Library", icon="ASSET_MANAGER")
+            if body is not None:
+                body.prop(self, "library_master_file")
+                row = body.row(align=True)
+                row.operator("iops.library_find_master", text="Find Master", icon="VIEWZOOM")
+                row.operator("iops.library_refresh", text="Refresh Library", icon="FILE_REFRESH")
+                operator = body.operator("iops.library_remove_asset", text="Clean Unlinked Assets", icon="TRASH")
+                operator.mode = "CLEAN_UNLINKED"
+                body.prop(self, "library_preview_size", slider=True)
 
             # Debug
             body = _section(column_main, self, "show_section_debug", "Debug", icon="CONSOLE")
