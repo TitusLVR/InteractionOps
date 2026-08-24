@@ -92,7 +92,10 @@ def closest_points_on_lines(a1, a2, b1, b2):
     f = dot(d2, r)
     c = dot(d1, r)
     denom = a * e - b * b
-    if abs(denom) < EPS:
+    # denom == |d1|^2 * |d2|^2 * sin^2(angle); compare relative to a*e so the
+    # parallel verdict depends only on the angle, never on edge lengths
+    # (an absolute cutoff falsely rejected mm-scale edges as parallel).
+    if abs(denom) <= EPS * a * e:
         return None
     s = (b * f - c * e) / denom
     t = (a * f - b * c) / denom

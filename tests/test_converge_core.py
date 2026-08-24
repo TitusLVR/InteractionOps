@@ -236,3 +236,32 @@ def test_module_constants():
     assert TOL == pytest.approx(1e-4)
     assert EPS == pytest.approx(1e-9)
     assert norm(sub((3.0, 4.0, 0.0), (0.0, 0.0, 0.0))) == pytest.approx(5.0)
+
+
+def test_closest_points_small_scale_not_parallel():
+    # perpendicular 5mm edges: scale must not affect the parallel verdict
+    for L in (0.005, 0.001, 1e-4):
+        r = closest_points_on_lines(
+            (0.0, 0.0, 0.0), (L, 0.0, 0.0),
+            (2 * L, L, 0.0), (2 * L, 2 * L, 0.0))
+        assert r is not None, f"falsely parallel at L={L}"
+        p1, p2 = r
+        assert p1 == pytest.approx((2 * L, 0.0, 0.0))
+        assert p2 == pytest.approx((2 * L, 0.0, 0.0))
+
+
+def test_candidate_pairs_small_scale():
+    L = 0.005
+    e1 = ((0.0, 0.0, 0.0), (L, 0.0, 0.0))
+    e2 = ((2 * L, L, 0.0), (2 * L, 2 * L, 0.0))
+    cands = candidate_pairs([e1, e2])
+    assert len(cands) == 1
+    assert cands[0].P == pytest.approx((2 * L, 0.0, 0.0))
+
+
+def test_closest_points_still_parallel_when_parallel():
+    # genuinely parallel small edges must still return None
+    L = 0.005
+    assert closest_points_on_lines(
+        (0.0, 0.0, 0.0), (L, 0.0, 0.0),
+        (0.0, L, 0.0), (L, L, 0.0)) is None
