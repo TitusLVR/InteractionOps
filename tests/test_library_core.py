@@ -122,3 +122,23 @@ def test_result_data_and_log_tail(tmp_path):
     tail = log_tail(str(log), line_count=3)
     assert tail.splitlines() == ["line17", "line18", "line19"]
     assert log_tail(str(tmp_path / "missing.log")) == ""
+
+
+def test_find_master_named_blend_in_subfolder(tmp_path):
+    # Library root holds unrelated blends; the master sits in a subfolder
+    # and is identified by "library" in its filename.
+    (tmp_path / "360_cameras.blend").write_bytes(b"")
+    (tmp_path / "noise_pack.blend").write_bytes(b"")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "library_test.blend").write_bytes(b"")
+    result = find_master_in_entries([("User Library", str(tmp_path))])
+    assert os.path.basename(result) == "library_test.blend"
+
+
+def test_find_master_named_blend_ambiguous(tmp_path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "library_test.blend").write_bytes(b"")
+    (assets / "old_library.blend").write_bytes(b"")
+    assert find_master_in_entries([("User Library", str(tmp_path))]) == ""

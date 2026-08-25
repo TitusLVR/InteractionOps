@@ -149,6 +149,11 @@ def get_iops_prefs():
             "widgets_subfolder": safe("widgets_subfolder", "presets/IOPS/widgets"),
             "widgets_folder": safe("widgets_folder", bpy.utils.script_path_user()),
         },
+        "LIBRARY": {
+            "library_master_file": safe("library_master_file", ""),
+            "library_preview_size": safe("library_preview_size", 5),
+            "library_shader_group": safe("library_shader_group", ""),
+        },
         "SPLIT_AREA_PIES": {
             f"PIE_{i}": {
                 f"split_area_pie_{i}_factor": safe(f"split_area_pie_{i}_factor", 0.5),

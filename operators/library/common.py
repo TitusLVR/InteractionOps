@@ -139,11 +139,9 @@ def worker_creation_flags():
     return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
-def run_catalog_worker(master_file):
-    temporary_directory = tempfile.mkdtemp(prefix="iops_library_catalog_")
-    result_file = os.path.join(temporary_directory, "catalog.json")
+def catalog_worker_command(master_file, result_file):
     worker_file = os.path.join(os.path.dirname(__file__), "catalog_worker.py")
-    command = [
+    return [
         bpy.app.binary_path,
         "--background",
         "--factory-startup",
@@ -155,6 +153,12 @@ def run_catalog_worker(master_file):
         cache_directory(master_file),
         result_file,
     ]
+
+
+def run_catalog_worker(master_file):
+    temporary_directory = tempfile.mkdtemp(prefix="iops_library_catalog_")
+    result_file = os.path.join(temporary_directory, "catalog.json")
+    command = catalog_worker_command(master_file, result_file)
     completed = subprocess.run(
         command,
         stdout=subprocess.DEVNULL,
@@ -170,12 +174,13 @@ def run_catalog_worker(master_file):
     return data
 
 
-def sync_catalog(context, report_status=True):
-    global _catalog, _catalog_mtime, _catalog_size, _catalog_loaded
-
+def resolve_master_for_sync(context):
+    """Resolve the master library file the same way ``sync_catalog`` does,
+    without running the worker. Shared by the refresh operator's ``invoke``
+    so it can validate before spawning the background process."""
     preferences = get_prefs(context)
     if preferences is None:
-        return False, "IOPS Library preferences are unavailable."
+        return "", "IOPS Library preferences are unavailable."
 
     master_file = configured_master_file(context)
     if not valid_master_file(master_file):
@@ -183,11 +188,16 @@ def sync_catalog(context, report_status=True):
         if master_file:
             preferences.library_master_file = master_file
     if not valid_master_file(master_file):
-        return False, "Set or find the master library file first."
+        return "", "Set or find the master library file first."
+    return master_file, ""
 
-    data = run_catalog_worker(master_file)
-    if data is None:
-        return False, "The master library catalog could not be read."
+
+def apply_catalog_result(context, master_file, data, report_status=True):
+    """Apply a completed catalog-worker result to the in-session catalog
+    state. Everything ``sync_catalog`` used to do after the worker returned,
+    extracted so the modal refresh operator can call it once its background
+    process exits."""
+    global _catalog, _catalog_mtime, _catalog_size, _catalog_loaded
 
     # Collect previous thumbnail paths BEFORE the module-level catalog is
     # replaced, so stale PNGs can be cleaned up below.
@@ -246,6 +256,115 @@ def sync_catalog(context, report_status=True):
     if report_status:
         context.window_manager.iops_library_status = message
     return True, message
+
+
+def upsert_catalog_entry(context, master_file, entry_data):
+    """Fold a just-published asset straight into the in-session catalog so
+    it is available in the popup without a full re-sync. ``entry_data`` is
+    the ``publish_worker`` result's ``entry`` dict."""
+    global _catalog, _catalog_mtime, _catalog_size, _catalog_loaded
+
+    entry = CatalogEntry(
+        asset_name=entry_data.get("asset_name", ""),
+        library_path=master_file,
+        id_type=entry_data.get("id_type", "OBJECT"),
+        data_collection=entry_data.get("data_collection", "objects"),
+        subtype=entry_data.get("subtype", ""),
+        category=entry_data.get("category", "MISC"),
+        thumbnail_path=entry_data.get("thumbnail_path", ""),
+    )
+
+    catalog = get_catalog(context)
+    replaced = False
+    for index, existing in enumerate(catalog):
+        if existing.asset_name == entry.asset_name and existing.id_type == entry.id_type:
+            catalog[index] = entry
+            replaced = True
+            break
+    if not replaced:
+        catalog.append(entry)
+
+    master_mtime = _catalog_mtime
+    master_size = _catalog_size
+    try:
+        stat = os.stat(master_file)
+    except OSError:
+        pass
+    else:
+        master_mtime = stat.st_mtime
+        master_size = stat.st_size
+        _catalog_mtime = master_mtime
+        _catalog_size = master_size
+
+    _catalog = catalog
+    _catalog_loaded = True
+
+    save_catalog_file(
+        catalog_json_path(master_file),
+        master_file,
+        master_mtime,
+        master_size,
+        _catalog,
+    )
+
+    reset_overlay_textures()
+
+    return entry
+
+
+def remove_catalog_entry(master_file, asset_name, id_type):
+    """Pop a single entry out of the in-session catalog after a background
+    delete job confirms removal, mirroring ``upsert_catalog_entry`` so a
+    single deletion doesn't need a full re-sync. Returns False if no
+    matching entry was found (nothing to do)."""
+    global _catalog, _catalog_mtime, _catalog_size, _catalog_loaded
+
+    catalog = get_catalog(bpy.context)
+    remaining = [
+        entry
+        for entry in catalog
+        if not (entry.asset_name == asset_name and entry.id_type == id_type)
+    ]
+    if len(remaining) == len(catalog):
+        return False
+
+    master_mtime = _catalog_mtime
+    master_size = _catalog_size
+    try:
+        stat = os.stat(master_file)
+    except OSError:
+        pass
+    else:
+        master_mtime = stat.st_mtime
+        master_size = stat.st_size
+        _catalog_mtime = master_mtime
+        _catalog_size = master_size
+
+    _catalog = remaining
+    _catalog_loaded = True
+
+    save_catalog_file(
+        catalog_json_path(master_file),
+        master_file,
+        master_mtime,
+        master_size,
+        _catalog,
+    )
+
+    reset_overlay_textures()
+    return True
+
+
+def sync_catalog(context, report_status=True):
+    master_file, error = resolve_master_for_sync(context)
+    if not master_file:
+        return False, error
+
+    data = run_catalog_worker(master_file)
+    if data is None:
+        return False, "The master library catalog could not be read."
+
+    return apply_catalog_result(context, master_file, data, report_status=report_status)
 
 
 def catalog_needs_sync(context):
@@ -350,6 +469,13 @@ def overlay_texture(entry):
     image = bpy.data.images.load(filepath, check_existing=True)
     if image.as_pointer() not in known_images:
         overlay_owned_images.append(image)
+    # Keep the PNG's display-referred values: with the default sRGB
+    # colorspace, from_image() linearizes and the popup (drawn straight
+    # into the display framebuffer) shows every thumbnail darkened.
+    try:
+        image.colorspace_settings.name = "Non-Color"
+    except (AttributeError, TypeError):
+        pass
     texture = gpu.texture.from_image(image)
     overlay_images[filepath] = image
     overlay_textures[filepath] = texture

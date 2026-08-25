@@ -138,6 +138,19 @@ def load_iops_preferences():
                                 value, "widgets_folder",
                                 defaults.get("widgets_folder", bpy.utils.script_path_user()))
 
+                    case "LIBRARY":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("LIBRARY", {})
+                            prefs.library_master_file = safe_get(
+                                value, "library_master_file",
+                                defaults.get("library_master_file", ""))
+                            prefs.library_preview_size = safe_get(
+                                value, "library_preview_size",
+                                defaults.get("library_preview_size", 5))
+                            prefs.library_shader_group = safe_get(
+                                value, "library_shader_group",
+                                defaults.get("library_shader_group", ""))
+
                     case "SPLIT_AREA_PIES":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("SPLIT_AREA_PIES", {})

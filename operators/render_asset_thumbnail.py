@@ -77,28 +77,42 @@ def get_objects_to_frame(context, render_for, target_collection=None):
 #   Isolation (batch render path)
 # ---------------------------------------------------------------------------
 
+def _expand_render_keepalive(seed_objects):
+    """Expand *seed_objects* to a keep-alive set for the per-object
+    hide_viewport isolation fallback: the seed objects themselves plus,
+    recursively, every object in any collection referenced via a
+    collection-instance empty among them (and within newly-revealed
+    collections, and so on).
+
+    Shared by ``_gather_render_keepalive`` (collection-target batch render)
+    and other hide_viewport-based isolation callers that seed from a flat
+    object list instead of a single collection (e.g. the library publish
+    thumbnail capture)."""
+    keep = set(seed_objects)
+    seen_colls = set()
+    todo = list(keep)
+    while todo:
+        ob = todo.pop()
+        if (
+            ob.type == "EMPTY"
+            and ob.instance_type == "COLLECTION"
+            and ob.instance_collection is not None
+            and ob.instance_collection not in seen_colls
+        ):
+            inst_coll = ob.instance_collection
+            seen_colls.add(inst_coll)
+            new_objects = list(inst_coll.all_objects)
+            keep.update(new_objects)
+            todo.extend(new_objects)
+    return keep
+
+
 def _gather_render_keepalive(target_coll):
     """Objects that must stay visible for *target_coll* to render correctly
     when using the per-object hide_viewport fallback. Includes the
     collection's contents plus, recursively, every object in any collection
     referenced via a collection-instance empty."""
-    keep = set(target_coll.all_objects)
-    seen_colls = {target_coll}
-    todo = [target_coll]
-    while todo:
-        coll = todo.pop()
-        for ob in coll.all_objects:
-            if (
-                ob.type == "EMPTY"
-                and ob.instance_type == "COLLECTION"
-                and ob.instance_collection is not None
-                and ob.instance_collection not in seen_colls
-            ):
-                inst_coll = ob.instance_collection
-                seen_colls.add(inst_coll)
-                todo.append(inst_coll)
-                keep.update(inst_coll.all_objects)
-    return keep
+    return _expand_render_keepalive(target_coll.all_objects)
 
 
 def _find_view3d_override():
@@ -489,6 +503,50 @@ def _load_custom_preview(context, id_data, filepath):
             bpy.ops.ed.lib_id_load_custom_preview(filepath=filepath)
 
 
+def save_render_result(thumb, filepath_abs, scene=None):
+    """Save Render Result to *filepath_abs*: try ``save_render``, then
+    filepath+``save``, then a manual pixel-copy through a fresh image --
+    each step is a fallback for environments where the previous one is
+    unreliable. Returns *filepath_abs* on success, None otherwise.
+
+    Shared by the operator's own ``_save_render_result`` staticmethod and
+    other render-to-PNG callers (e.g. the library publish thumbnail
+    capture)."""
+    try:
+        thumb.save_render(filepath=filepath_abs)
+        if os.path.exists(filepath_abs):
+            return filepath_abs
+    except Exception:
+        pass
+
+    thumb.filepath = filepath_abs
+    try:
+        thumb.save()
+        if os.path.exists(filepath_abs):
+            return filepath_abs
+    except RuntimeError:
+        pass
+
+    try:
+        w, h = thumb.size
+        tmp_name = "IOPS_Thumbnail_Out"
+        if tmp_name in bpy.data.images:
+            bpy.data.images.remove(bpy.data.images[tmp_name], do_unlink=True)
+        new_img = bpy.data.images.new(tmp_name, width=w, height=h, alpha=True)
+        new_img.filepath = filepath_abs
+        buf = array.array('f', [0.0] * (w * h * 4))
+        thumb.pixels.foreach_get(buf)
+        new_img.pixels.foreach_set(buf)
+        new_img.save()
+        ok = os.path.exists(filepath_abs)
+        bpy.data.images.remove(new_img, do_unlink=True)
+        if ok:
+            return filepath_abs
+    except Exception:
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 #   Operator
 # ---------------------------------------------------------------------------
@@ -871,39 +929,7 @@ class IOPS_OT_RenderAssetThumbnail(bpy.types.Operator):
     @staticmethod
     def _save_render_result(thumb, filepath_abs, scene=None):
         """Save Render Result to *filepath_abs*. Returns path on success, None otherwise."""
-        try:
-            thumb.save_render(filepath=filepath_abs)
-            if os.path.exists(filepath_abs):
-                return filepath_abs
-        except Exception:
-            pass
-
-        thumb.filepath = filepath_abs
-        try:
-            thumb.save()
-            if os.path.exists(filepath_abs):
-                return filepath_abs
-        except RuntimeError:
-            pass
-
-        try:
-            w, h = thumb.size
-            tmp_name = "IOPS_Thumbnail_Out"
-            if tmp_name in bpy.data.images:
-                bpy.data.images.remove(bpy.data.images[tmp_name], do_unlink=True)
-            new_img = bpy.data.images.new(tmp_name, width=w, height=h, alpha=True)
-            new_img.filepath = filepath_abs
-            buf = array.array('f', [0.0] * (w * h * 4))
-            thumb.pixels.foreach_get(buf)
-            new_img.pixels.foreach_set(buf)
-            new_img.save()
-            ok = os.path.exists(filepath_abs)
-            bpy.data.images.remove(new_img, do_unlink=True)
-            if ok:
-                return filepath_abs
-        except Exception:
-            pass
-        return None
+        return save_render_result(thumb, filepath_abs, scene)
 
     # ------------------------------------------------------------------
     #  Execute

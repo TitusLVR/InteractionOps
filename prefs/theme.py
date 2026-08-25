@@ -134,19 +134,6 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default=10, min=0, max=64,
     )
 
-    # --- Library popup ---
-    popup_bg:             _color((0.055, 0.055, 0.055, 0.98), "Popup Background")
-    popup_border:         _color((0.240, 0.240, 0.240, 1.00), "Popup Border")
-    popup_header_bg:      _color((0.090, 0.090, 0.090, 1.00), "Popup Header")
-    popup_section_bg:     _color((0.115, 0.115, 0.115, 1.00), "Section")
-    popup_section_hover:  _color((0.180, 0.180, 0.180, 1.00), "Section Hover")
-    popup_tile_bg:        _color((0.095, 0.095, 0.095, 1.00), "Tile")
-    popup_tile_hover:     _color((0.200, 0.200, 0.200, 1.00), "Tile Hover")
-    popup_label_bg:       _color((0.120, 0.120, 0.120, 1.00), "Tile Label Strip")
-    popup_button_bg:      _color((0.150, 0.150, 0.150, 1.00), "Header Button")
-    popup_button_hover:   _color((0.240, 0.240, 0.240, 1.00), "Header Button Hover")
-    popup_remove_hover:   _color((0.320, 0.120, 0.100, 1.00), "Remove Hover")
-
     hud_smoothing: FloatProperty(
         name="Cursor smoothing",
         description="How smoothly the HUD glides toward its target "
@@ -318,7 +305,6 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     show_hud_placement: BoolProperty(default=True)
     show_help: BoolProperty(default=False)
     show_stats: BoolProperty(default=False)
-    show_library_popup: BoolProperty(default=False)
     show_behaviour: BoolProperty(default=False)
 
 
@@ -635,25 +621,6 @@ def draw_theme_tab(layout, theme):
             body.prop(theme, "stats_offset_y")
             body.prop(theme, "stats_row_spacing")
             body.prop(theme, "stats_column_spacing")
-
-    # Library Popup
-    sub = _theme_section(layout, theme, "show_library_popup",
-                         "Library Popup", icon="ASSET_MANAGER")
-    if sub is not None:
-        for attr, label in (
-                ("popup_bg",            "Background"),
-                ("popup_border",        "Border"),
-                ("popup_header_bg",     "Header"),
-                ("popup_section_bg",    "Section"),
-                ("popup_section_hover", "Section Hover"),
-                ("popup_tile_bg",       "Tile"),
-                ("popup_tile_hover",    "Tile Hover"),
-                ("popup_label_bg",      "Tile Label Strip"),
-                ("popup_button_bg",     "Header Button"),
-                ("popup_button_hover",  "Header Button Hover"),
-                ("popup_remove_hover",  "Remove Hover"),
-        ):
-            _name_color_row(sub, theme, attr, label)
 
     # Behaviour
     sub = _theme_section(layout, theme, "show_behaviour",

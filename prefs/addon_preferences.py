@@ -676,7 +676,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Size of square asset previews in the library popup",
         default=5,
         min=3,
-        max=8,
+        max=32,
     )
     library_shader_group: StringProperty(
         name="Shader Group",

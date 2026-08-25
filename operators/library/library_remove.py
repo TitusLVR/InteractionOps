@@ -2,29 +2,37 @@
 
 Confirms, then removes an asset datablock (or all unlinked asset objects)
 from the master library file: in-process when the master is the currently
-open file, otherwise via a background ``delete_worker`` subprocess polled
-from a modal timer.
+open file, otherwise via a job enqueued on the persistent worker session
+(see ``worker_session.py``). The operator returns immediately once the job
+is queued -- jobs serialize against the one open master in submission order.
 """
-
-import json
-import os
-import shutil
-import subprocess
-import tempfile
 
 import bpy
 from bpy.props import EnumProperty, IntProperty, StringProperty
 
-from ...utils.library_core import log_tail, result_data, valid_master_file
+from ...utils.library_core import valid_master_file
+from . import worker_session
 from .common import (
     abs_path,
     configured_master_file,
     get_catalog,
     get_prefs,
-    refresh_library_browsers,
-    sync_catalog,
-    worker_creation_flags,
+    remove_catalog_entry,
 )
+from .library_refresh import request_refresh
+
+
+def _removal_status_message(mode, label, removed_count):
+    if removed_count == 0:
+        if mode == "CLEAN_UNLINKED":
+            message = "No unlinked asset objects found."
+        else:
+            message = "%s was already absent; library resynced." % label
+    elif mode == "CLEAN_UNLINKED":
+        message = "Removed %d unlinked asset object(s)." % removed_count
+    else:
+        message = "Removed %s from the master library." % label
+    return message + "; syncing library..."
 
 
 class IOPS_OT_LibraryRemoveAsset(bpy.types.Operator):
@@ -53,16 +61,7 @@ class IOPS_OT_LibraryRemoveAsset(bpy.types.Operator):
     asset_data_collection: StringProperty(default="", options={"HIDDEN"})
     asset_library_path: StringProperty(default="", options={"HIDDEN"})
 
-    _process = None
-    _timer = None
-    _temp_directory = ""
-    _result_file = ""
-    _log_file = ""
     _label = ""
-
-    @classmethod
-    def poll(cls, context):
-        return not getattr(context.window_manager, "iops_library_busy", False)
 
     def invoke(self, context, event):
         preferences = get_prefs(context)
@@ -118,24 +117,9 @@ class IOPS_OT_LibraryRemoveAsset(bpy.types.Operator):
         return master_file, manifest, label
 
     def finish_success(self, context, data):
-        removed_count = int(data.get("removed_count", 0))
-        synced, sync_message = sync_catalog(context, report_status=False)
-        refresh_library_browsers()
-
-        if removed_count == 0:
-            if self.mode == "CLEAN_UNLINKED":
-                status = "No unlinked asset objects found."
-            else:
-                status = "%s was already absent; library resynced." % self._label
-        elif self.mode == "CLEAN_UNLINKED":
-            status = "Removed %d unlinked asset object(s)." % removed_count
-        else:
-            status = "Removed %s from the master library." % self._label
-        if not synced:
-            status += " %s" % sync_message
-        else:
-            status += " Asset Browser refreshed."
-
+        status = _removal_status_message(
+            self.mode, self._label, int(data.get("removed_count", 0))
+        )
         context.window_manager.iops_library_status = status
         self.report({"INFO"}, status)
         return {"FINISHED"}
@@ -147,88 +131,64 @@ class IOPS_OT_LibraryRemoveAsset(bpy.types.Operator):
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
 
-        context.window_manager.iops_library_busy = True
-        context.window_manager.iops_library_status = "Removing %s..." % self._label
         if abs_path(bpy.data.filepath) == abs_path(master_file):
+            context.window_manager.iops_library_status = "Removing %s..." % self._label
+            succeeded = False
             try:
                 from . import delete_worker
 
                 data = delete_worker.remove_assets(manifest)
-                return self.finish_success(context, data)
+                result = self.finish_success(context, data)
+                succeeded = True
             except Exception as error:
                 context.window_manager.iops_library_status = "Removal failed"
                 self.report({"ERROR"}, "Removal failed: %s" % error)
-                return {"CANCELLED"}
-            finally:
-                context.window_manager.iops_library_busy = False
-
-        self._temp_directory = tempfile.mkdtemp(prefix="iops_library_delete_")
-        manifest_file = os.path.join(self._temp_directory, "manifest.json")
-        self._result_file = os.path.join(self._temp_directory, "result.json")
-        self._log_file = os.path.join(self._temp_directory, "worker.log")
-        with open(manifest_file, "w", encoding="utf-8") as handle:
-            json.dump(manifest, handle, indent=2)
-
-        worker_file = os.path.join(os.path.dirname(__file__), "delete_worker.py")
-        command = [
-            bpy.app.binary_path,
-            "--background",
-            "--factory-startup",
-            "--disable-autoexec",
-            master_file,
-            "--python",
-            worker_file,
-            "--",
-            manifest_file,
-            self._result_file,
-        ]
-        creation_flags = worker_creation_flags()
-        try:
-            with open(self._log_file, "w", encoding="utf-8") as log_handle:
-                self._process = subprocess.Popen(
-                    command,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
-                    creationflags=creation_flags,
-                )
-            self._timer = context.window_manager.event_timer_add(
-                0.25,
-                window=context.window,
-            )
-            context.window_manager.modal_handler_add(self)
-        except Exception as error:
-            self.cleanup(context)
-            self.report({"ERROR"}, "Could not start removal: %s" % error)
-            return {"CANCELLED"}
-        return {"RUNNING_MODAL"}
-
-    def modal(self, context, event):
-        if event.type != "TIMER" or self._process is None:
-            return {"RUNNING_MODAL"}
-        if self._process.poll() is None:
-            return {"RUNNING_MODAL"}
-
-        data = result_data(self._result_file)
-        if self._process.returncode == 0 and data.get("ok"):
-            result = self.finish_success(context, data)
-            self.cleanup(context)
+                result = {"CANCELLED"}
+            if succeeded:
+                bpy.ops.iops.library_refresh("INVOKE_DEFAULT")
             return result
 
-        message = data.get("error") or log_tail(self._log_file) or "Unknown worker error"
-        context.window_manager.iops_library_status = "Removal failed"
-        self.report({"ERROR"}, "Removal failed: %s" % message)
-        self.cleanup(context)
-        return {"CANCELLED"}
+        label = self._label
+        mode = manifest.get("mode", "DELETE_ONE")
+        asset_name = manifest.get("asset_name", "")
+        id_type = manifest.get("id_type", "")
 
-    def cancel(self, context):
-        self.cleanup(context)
+        def on_done(result, error):
+            if result is not None and result.get("ok"):
+                status = _removal_status_message(
+                    mode, label, int(result.get("removed_count", 0))
+                )
+                try:
+                    if mode == "DELETE_ONE" and asset_name and id_type:
+                        remove_catalog_entry(master_file, asset_name, id_type)
+                    else:
+                        request_refresh(bpy.context)
+                except Exception as apply_error:
+                    print(
+                        "IOPS Library: applying removal result failed:",
+                        apply_error,
+                    )
+                try:
+                    bpy.context.window_manager.iops_library_status = status
+                except Exception:
+                    pass
+                return
 
-    def cleanup(self, context):
-        if self._timer is not None:
-            context.window_manager.event_timer_remove(self._timer)
-            self._timer = None
-        context.window_manager.iops_library_busy = False
-        self._process = None
-        if self._temp_directory and os.path.isdir(self._temp_directory):
-            shutil.rmtree(self._temp_directory, ignore_errors=True)
-        self._temp_directory = ""
+            message = (result or {}).get("error") if result is not None else error
+            message = message or "Unknown worker error"
+            try:
+                bpy.context.window_manager.iops_library_status = (
+                    "Removal failed: %s" % message
+                )
+            except Exception:
+                pass
+            print("IOPS Library: removal failed:", message)
+
+        context.window_manager.iops_library_status = "Removing %s (queued)..." % label
+        ok, enqueue_error = worker_session.enqueue(
+            context, "delete", dict(manifest), on_done, label
+        )
+        if not ok:
+            self.report({"ERROR"}, "Could not queue removal: %s" % enqueue_error)
+            return {"CANCELLED"}
+        return {"FINISHED"}

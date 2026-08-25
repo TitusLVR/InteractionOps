@@ -864,6 +864,8 @@ def unregister():
         from .operators.library import library_popup as _library_popup
         from .operators.library import common as _library_common
         from .operators.library import props as _library_props
+        from .operators.library import worker_session as _library_worker_session
+        _library_worker_session.shutdown_session()
         _library_popup.shutdown()
         _library_common.reset_overlay_textures()
         _library_props.unregister_wm_properties()

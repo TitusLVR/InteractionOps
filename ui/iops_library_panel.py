@@ -16,6 +16,7 @@ from ..operators.library.library_refresh import (
 )
 from ..operators.library.library_remove import IOPS_OT_LibraryRemoveAsset
 from ..operators.library.library_popup import IOPS_OT_LibraryPopup
+from ..operators.library import worker_session
 
 
 class IOPS_PT_Library(bpy.types.Panel):
@@ -65,7 +66,6 @@ class IOPS_PT_Library(bpy.types.Panel):
                 )
 
         column = layout.column()
-        column.enabled = not context.window_manager.iops_library_busy
         operator = column.operator(
             IOPS_OT_LibraryPublish.bl_idname,
             text="Publish Active Object",
@@ -115,3 +115,17 @@ class IOPS_PT_Library(bpy.types.Panel):
         if status:
             layout.separator()
             layout.label(text=status, icon="INFO")
+
+        jobs = worker_session.pending_jobs()
+        if jobs:
+            box = layout.box()
+            box.label(text="Queue (%d)" % len(jobs), icon="TEMP")
+            column = box.column(align=True)
+            icons = {"publish": "EXPORT", "delete": "TRASH", "refresh": "FILE_REFRESH"}
+            for index, (op, label) in enumerate(jobs):
+                row = column.row(align=True)
+                suffix = "  (running)" if index == 0 else ""
+                row.label(
+                    text="%d. %s%s" % (index + 1, label, suffix),
+                    icon=icons.get(op, "DOT"),
+                )

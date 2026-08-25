@@ -53,7 +53,11 @@ def find_master_in_entries(entries):
             continue
         root_path = Path(root)
         for path in root_path.rglob("*.blend"):
-            if path.name.lower() in MASTER_FILENAMES:
+            name = path.name.lower()
+            # Known master names, plus any blend whose name says what it is
+            # ("library_test.blend", "ships_master.blend"). Ambiguity still
+            # returns "" below rather than guessing.
+            if name in MASTER_FILENAMES or "master" in name or "library" in name:
                 resolved = str(path.resolve())
                 if resolved not in candidates:
                     candidates.append(resolved)

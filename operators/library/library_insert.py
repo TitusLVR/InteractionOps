@@ -16,8 +16,6 @@ from .common import (
     collection_root_object,
     get_catalog,
     get_prefs,
-    refresh_library_browsers,
-    sync_catalog,
 )
 
 
@@ -171,10 +169,10 @@ class IOPS_OT_LibraryInsertAsset(bpy.types.Operator):
             message = append_and_use_asset(context, entry)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             if "no longer present in the master library" in str(error):
-                sync_catalog(context)
-                refresh_library_browsers()
                 message = "Removed the missing asset from the popup."
                 context.window_manager.iops_library_status = message
+                if not getattr(context.window_manager, "iops_library_busy", False):
+                    bpy.ops.iops.library_refresh("INVOKE_DEFAULT")
                 self.report({"WARNING"}, message)
                 return {"CANCELLED"}
             self.report({"ERROR"}, str(error))
