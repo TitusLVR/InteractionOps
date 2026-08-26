@@ -45,6 +45,10 @@ class IOPS_MT_LibraryPublishSub(Menu):
         op.publish_kind = "MATERIAL"
         op = layout.operator("iops.library_publish", text="Shader Group", icon="NODETREE")
         op.publish_kind = "SHADER_GROUP"
+        op = layout.operator(
+            "iops.library_publish", text="Geometry Nodes", icon="GEOMETRY_NODES"
+        )
+        op.publish_kind = "GEO_NODES"
 
 
 class IOPS_MT_CatalogBrowseActive(Menu):

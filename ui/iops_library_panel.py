@@ -84,6 +84,12 @@ class IOPS_PT_Library(bpy.types.Panel):
             icon="MATERIAL",
         )
         operator.publish_kind = "MATERIAL"
+        operator = column.operator(
+            IOPS_OT_LibraryPublish.bl_idname,
+            text="Publish Geometry Nodes",
+            icon="GEOMETRY_NODES",
+        )
+        operator.publish_kind = "GEO_NODES"
 
         column.separator()
         column.prop_search(
