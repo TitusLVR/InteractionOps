@@ -33,6 +33,7 @@ edit_pie_content_list = [
     ("iops.mesh_straight_bevel", "Straight Bevel", ""),
     ("iops.mesh_shear", "Shear", ""),
     ("iops.mesh_converge", "Converge", ""),
+    ("iops.mesh_vert_fuse", "Vert Fuse", ""),
     ("iops.mesh_smart_inset", "Smart Inset", ""),
     ("iops.mesh_to_tris_to_quads", "Tris to Quads", ""),
     ("iops.object_drop_it", "Drop It!", ""),
