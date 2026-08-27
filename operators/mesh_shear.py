@@ -1221,8 +1221,30 @@ cancels. LMB clicks only pick widget handles."""
                 world_dir_3d = d["avg_dir"]
             screen_dir = self._screen_direction(
                 context, world_center, world_dir_3d)
-            dx = event.mouse_region_x - self._extrude_start_x
-            dy = event.mouse_region_y - self._extrude_start_y
+            mx, my = event.mouse_region_x, event.mouse_region_y
+            region = context.region
+            if region is not None:
+                # Wrap the cursor at the region border so a long drag
+                # isn't capped by the viewport size. The start point
+                # moves by the same jump so the projected distance is
+                # continuous across the wrap.
+                wx, wy = mx, my
+                margin = 2
+                if mx <= 0:
+                    wx = region.width - margin - 1
+                elif mx >= region.width - 1:
+                    wx = margin
+                if my <= 0:
+                    wy = region.height - margin - 1
+                elif my >= region.height - 1:
+                    wy = margin
+                if (wx, wy) != (mx, my):
+                    self._extrude_start_x += wx - mx
+                    self._extrude_start_y += wy - my
+                    context.window.cursor_warp(region.x + wx, region.y + wy)
+                    mx, my = wx, wy
+            dx = mx - self._extrude_start_x
+            dy = my - self._extrude_start_y
             if screen_dir is None:
                 # Camera looking down the arrow — fall back to
                 # horizontal motion so the user isn't stuck.
@@ -2019,27 +2041,48 @@ cancels. LMB clicks only pick widget handles."""
         self._hotspots = []  # invalidate; redraw rebuilds
         self._hover_idx = None
 
+    @staticmethod
+    def _face_axis_edges(face):
+        """Face edges with pairwise non-parallel directions, in face
+        winding order. Parallel edges (opposite sides of a quad) give
+        the same shear axis, so only the first of each direction is
+        kept — F then visits every distinct axis once per lap."""
+        out = []
+        dirs = []
+        for e in face.edges:
+            d = e.verts[1].co - e.verts[0].co
+            if d.length < 1e-9:
+                continue
+            d = d / d.length
+            if any(abs(d.dot(k)) > 0.9999 for k in dirs):
+                continue
+            out.append(e)
+            dirs.append(d)
+        return out, dirs
+
     def _f_action(self):
-        """Face mode: toggle between the two principal in-plane axes
-        (PCA), so F lands on the OTHER main direction in one press
-        regardless of how many edges the face has. Edge mode: flip
-        which endpoint is active."""
+        """Face mode: cycle the shear axis through the face's edge
+        directions (every distinct direction once per lap, in winding
+        order), starting from the edge closest to the current axis.
+        Edge mode: flip which endpoint is active."""
         if self.mode == "face":
             restore_records(self.records)
             self.bm.normal_update()
             new_records = []
             for r in self.records:
-                pa, pb = r.get("principal_axes", (None, None))
-                if pa is None or pb is None:
+                face = r["face"]
+                if not face.is_valid:
                     new_records.append(r)
                     continue
-                # Pick whichever principal axis is NOT the current one.
+                edges, dirs = self._face_axis_edges(face)
+                if len(edges) < 2:
+                    new_records.append(r)
+                    continue
                 cur = r["axis_dir"]
-                if abs(cur.dot(pa)) > abs(cur.dot(pb)):
-                    next_axis = pb
-                else:
-                    next_axis = pa
-                new_rec, _ = build_face_record(r["face"], next_axis)
+                cur_i = max(range(len(dirs)),
+                            key=lambda i: abs(cur.dot(dirs[i])))
+                nxt = edges[(cur_i + 1) % len(edges)]
+                new_rec, _ = build_face_record_from_edge(face, nxt)
                 new_records.append(new_rec if new_rec is not None else r)
             self.records = new_records
         else:
