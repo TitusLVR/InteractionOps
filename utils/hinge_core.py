@@ -3,9 +3,10 @@
 flush_angle: the signed rotation about `axis` that makes the plane
 with normal `n_sel` coplanar with the plane with normal `n_tgt`.
 Coplanar means the rotated normal is parallel OR anti-parallel to the
-target normal — both representatives are computed and the smaller-
-magnitude angle wins (hinging a flap "flush" onto a surface should
-take the short way round).
+target normal. `prefer="antiparallel"` (the Hinge operator's choice)
+folds the flap ONTO the target so the two face each other (lid on a
+box); `prefer="parallel"` lands it as the target plane's continuation;
+`prefer="shortest"` (default) takes the smaller-magnitude representative.
 """
 import math
 
@@ -36,7 +37,7 @@ def _perp_to_axis(v, axis):
     return (v[0] - d * axis[0], v[1] - d * axis[1], v[2] - d * axis[2])
 
 
-def flush_angle(n_sel, n_tgt, axis):
+def flush_angle(n_sel, n_tgt, axis, prefer="shortest"):
     axis = _norm(axis)
     if axis is None:
         return None
@@ -44,7 +45,12 @@ def flush_angle(n_sel, n_tgt, axis):
     b = _norm(_perp_to_axis(n_tgt, axis))
     if a is None or b is None:
         return None
+    # `ang` lands the normal parallel to the target's, `alt` anti-parallel.
     ang = math.atan2(_dot(_cross(a, b), axis), _dot(a, b))
     nb = (-b[0], -b[1], -b[2])
     alt = math.atan2(_dot(_cross(a, nb), axis), _dot(a, nb))
+    if prefer == "parallel":
+        return ang
+    if prefer == "antiparallel":
+        return alt
     return ang if abs(ang) <= abs(alt) else alt

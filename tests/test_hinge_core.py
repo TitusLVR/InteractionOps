@@ -46,3 +46,17 @@ def test_axis_parallel_normal_returns_none():
 def test_unnormalized_inputs():
     a = flush_angle((0, 0, 7), (0, 3, 0), (2, 0, 0))
     assert a == pytest.approx(-math.pi / 2)
+
+
+def test_flush_angle_prefer_parallel_vs_antiparallel_are_180_apart():
+    # top face (+Z) about the +X-running edge, target normal +Y
+    par = flush_angle((0, 0, 1), (0, 1, 0), (1, 0, 0), prefer="parallel")
+    anti = flush_angle((0, 0, 1), (0, 1, 0), (1, 0, 0), prefer="antiparallel")
+    assert abs(abs(par - anti) - math.pi) < 1e-9
+    # parallel: rotating +Z about +X by `par` must give +Y
+    c, s_ = math.cos(par), math.sin(par)
+    rotated = (0.0, -s_, c)   # R_x applied to (0,0,1)
+    assert rotated == pytest.approx((0.0, 1.0, 0.0), abs=1e-9)
+    # default stays the shortest representative
+    short = flush_angle((0, 0, 1), (0, 1, 0), (1, 0, 0))
+    assert abs(short) <= abs(par) + 1e-12 and abs(short) <= abs(anti) + 1e-12
