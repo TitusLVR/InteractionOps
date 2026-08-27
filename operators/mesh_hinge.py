@@ -8,6 +8,11 @@ Selection
   one of the selected edges (it stays put), or the *virtual edge*: the
   chord between the first and last vert of an open chain, drawn with
   the chain and pickable like any real edge.
+- B toggles the bounding-box axis set: the four sides of the
+  selection's min-OBB (the same box Shear builds — faces: mean face
+  normal; edges: best-fit plane of the chain) replace the edges as
+  pick candidates, so the hinge can run along a box side that has no
+  edge under it. B again returns to edges.
 
 The axis edge is whichever candidate edge is nearest to the mouse in
 screen space (same pick as cursor_bisect) and it is re-picked live on
@@ -35,7 +40,48 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
 from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
 from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
-                         chains_from_edges)
+                         chains_from_edges, chain_normal, profile_principal_axes)
+
+
+class _Pt:
+    __slots__ = ("co", "is_valid")
+
+    def __init__(self, co):
+        self.co = co
+        self.is_valid = True
+
+
+class _LineCandidate:
+    """Axis candidate given by two fixed points (a bbox side). Quacks like
+    a BMEdge for the picker and the axis setter; never selectable."""
+    is_virtual = True
+    link_faces = ()
+    is_valid = True
+
+    def __init__(self, a, b):
+        self.verts = (_Pt(a.copy()), _Pt(b.copy()))
+
+
+def _bbox_sides(cos, normal):
+    """Four (a, b) side segments of the min-OBB of ``cos`` in the plane
+    ``normal`` — the same box Shear builds for its profile."""
+    if normal is None or len(cos) < 3:
+        return []
+    pa, pb = profile_principal_axes(cos, normal)
+    if pa is None or pb is None:
+        return []
+    centroid = Vector((0.0, 0.0, 0.0))
+    for co in cos:
+        centroid += co
+    centroid /= len(cos)
+    a_p = [(co - centroid).dot(pa) for co in cos]
+    b_p = [(co - centroid).dot(pb) for co in cos]
+    a0, a1, b0, b1 = min(a_p), max(a_p), min(b_p), max(b_p)
+    if a1 - a0 < 1e-9 or b1 - b0 < 1e-9:
+        return []
+    corners = [centroid + pa * a + pb * b
+               for a, b in ((a0, b0), (a1, b0), (a1, b1), (a0, b1))]
+    return [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
 
 
 class _VirtualEdge:
@@ -153,11 +199,19 @@ mouse, baking the sweep as segments"""
         self._faces = faces
         self._geom_edges = edges     # real edges (edge-mode spin geometry)
         self._virtual = _virtual_edges(edges) if not faces else []
-        self._edges = edges + self._virtual   # axis candidates
+        self._edge_candidates = edges + self._virtual
+        self._edges = self._edge_candidates   # current axis candidates
+        self._bbox_mode = False
         self._verts = verts
         self._orig_cos = orig_cos
         self._orig_co_map = {v: c for v, c in zip(verts, orig_cos)}
         self._orig_normal = _selection_normal(faces, edges, orig_cos)
+        # Box plane: faces -> their mean normal; edges -> best-fit plane
+        # of the chain verts (what Shear uses for its virtual face).
+        box_normal = (self._orig_normal if faces
+                      else chain_normal(edges, orig_cos))
+        self._bbox = [_LineCandidate(a, b)
+                      for a, b in _bbox_sides(orig_cos, box_normal)]
 
         props = context.scene.IOPS
         self._steps = max(1, props.shear_hinge_last_steps)
@@ -201,6 +255,7 @@ mouse, baking the sweep as segments"""
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",        "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -238,6 +293,8 @@ mouse, baking the sweep as segments"""
         self._align_bvh = None
         self._flush_active = False
         self._flush_face = None
+        self._edge_candidates = []
+        self._bbox = []
 
     def cancel(self, context):
         self._finish(context)
@@ -279,6 +336,19 @@ mouse, baking the sweep as segments"""
         self._center = center.copy()
         self._axis_pts = (v0.co.copy(), v1.co.copy())
         return True
+
+    def _bbox_toggle(self, context):
+        """B: swap the axis candidates between the mesh edges (+ virtual
+        chords) and the four bbox sides, then re-pick under the mouse."""
+        if not self._bbox:
+            self.report({"INFO"}, "hinge: selection has no bbox plane")
+            return
+        self._bbox_mode = not self._bbox_mode
+        self._edges = self._bbox if self._bbox_mode else self._edge_candidates
+        edge = self._pick_edge(context)
+        if edge is None:
+            edge = self._edges[0]
+        self._set_axis(edge)
 
     def _repick(self, context):
         edge = self._pick_edge(context)
@@ -373,8 +443,9 @@ mouse, baking the sweep as segments"""
         return (
             f"Hinge ({self.mode}): {self._effective_angle():.2f}° | "
             f"steps: {self._steps}{typed}"
-            f"{' | FLUSH: aim at a face' if self._flush_active else ''} | "
-            "[Move] pick axis edge | "
+            f"{' | FLUSH: aim at a face' if self._flush_active else ''}"
+            f"{' | axis: bbox' if self._bbox_mode else ''} | "
+            "[Move] pick axis | [B] bbox sides | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | "
             "[LMB/Enter] confirm | [Esc/RMB] cancel"
@@ -462,6 +533,9 @@ mouse, baking the sweep as segments"""
             elif event.type == "A":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._flush_toggle(context)
+            elif event.type == "B":
+                self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+                self._bbox_toggle(context)
             elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm(context)
             elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -764,6 +838,18 @@ mouse, baking the sweep as segments"""
                 rest_segs.extend([p0, p1])
         if rest_segs:
             draw_prim.edges_3d(rest_segs, color=(0.6, 0.6, 0.6, 0.6), context=context)
+        # Bbox mode: the box outline (theme BBOX role); the picked side
+        # is the amber axis line below.
+        if self._bbox_mode:
+            box_segs = []
+            for ln in self._bbox:
+                if ln is axis_edge:
+                    continue
+                p0, p1 = s2d(ln.verts[0].co), s2d(ln.verts[1].co)
+                if p0 is not None and p1 is not None:
+                    box_segs.extend([p0, p1])
+            if box_segs:
+                draw_prim.edges_3d(box_segs, role=Role.BBOX, context=context)
 
         pa, pb = self._axis_pts
         p0, p1 = s2d(pa), s2d(pb)
