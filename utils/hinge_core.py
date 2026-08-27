@@ -3,9 +3,9 @@
 flush_angle: the signed rotation about `axis` that makes the plane
 with normal `n_sel` coplanar with the plane with normal `n_tgt`.
 Coplanar means the rotated normal is parallel OR anti-parallel to the
-target normal. `prefer="antiparallel"` (the Hinge operator's choice)
-folds the flap ONTO the target so the two face each other (lid on a
-box); `prefer="parallel"` lands it as the target plane's continuation;
+target normal. `prefer="parallel"` (the Hinge operator's choice) lands
+the flap as the target plane's continuation, facing the same way;
+`prefer="antiparallel"` folds it onto the target (lid on a box);
 `prefer="shortest"` (default) takes the smaller-magnitude representative.
 """
 import math

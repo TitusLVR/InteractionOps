@@ -414,11 +414,11 @@ mouse, baking the sweep as segments"""
         if n_t.length < 1e-9:
             self._flush_face = None
             return
-        # Fold the flap ONTO the target face — lid-on-box: the two end
-        # up facing each other (normals anti-parallel), not the shortest
-        # way round and not the coplanar continuation. D flips if needed.
+        # Unfold the flap into the target face's plane so it FACES the
+        # same way (normals parallel) — the coplanar continuation, not
+        # the shortest way round. D flips if the fold-over is wanted.
         ang = flush_angle(tuple(self._orig_normal), tuple(n_t), tuple(self._axis),
-                          prefer="antiparallel")
+                          prefer="parallel")
         self._flush_face = picked
         if ang is None:
             return
