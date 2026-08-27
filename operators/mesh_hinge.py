@@ -208,8 +208,23 @@ mouse, baking the sweep as segments"""
         self._orig_normal = _selection_normal(faces, edges, orig_cos)
         # Box plane: faces -> their mean normal; edges -> best-fit plane
         # of the chain verts (what Shear uses for its virtual face).
-        box_normal = (self._orig_normal if faces
-                      else chain_normal(edges, orig_cos))
+        if faces:
+            box_normal = self._orig_normal
+        else:
+            # Best-fit needs the polygon ORDER: walk the chain (largest
+            # one when several) exactly like Shear does for its
+            # virtual face; an unordered vert set gives a bogus plane.
+            box_normal = None
+            try:
+                chains = chains_from_edges([e for e in edges if e.is_valid])
+            except ValueError:
+                chains = []
+            if chains:
+                verts_o, chain_o, _closed = max(chains, key=lambda c: len(c[1]))
+                box_normal = chain_normal(chain_o, [v.co for v in verts_o])
+            if box_normal is not None and self._orig_normal is not None                     and not faces:
+                # Keep flush/sign reference consistent with the box plane.
+                self._orig_normal = box_normal
         self._bbox = [_LineCandidate(a, b)
                       for a, b in _bbox_sides(orig_cos, box_normal)]
 
