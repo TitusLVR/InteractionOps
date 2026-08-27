@@ -242,10 +242,23 @@ def build_face_record(face, axis_dir):
             rail_edge = e
             break
         if rail_edge is None:
-            return None, (
-                f"vert {av.index} has no external rail edge "
-                "(face is isolated at this corner)"
-            )
+            # Open geometry (boundary vert of a plane / strip): no
+            # external edge to slide along. Fall back to the face
+            # normal — the vert still lands on the rotated plane, the
+            # slide just isn't constrained by surrounding mesh.
+            if normal.length < 1e-9:
+                return None, (
+                    f"vert {av.index} has no external rail edge and the "
+                    "face normal is degenerate"
+                )
+            rails.append({
+                "rail_edge": None,
+                "anchor": None,
+                "dir": normal.normalized(),
+                "length": 0.0,
+            })
+            centroid_projs.append((av.co - centroid).dot(axis_dir))
+            continue
         ev0, ev1 = rail_edge.verts
         anchor = ev1 if ev0 is av else ev0
         rail_vec = av.co - anchor.co
@@ -833,6 +846,11 @@ cancels. LMB clicks only pick widget handles."""
         self._hotspots = []
         self._hover_idx = None
         self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        # Remembered parameters (Scene.IOPS): the last confirmed shear
+        # angle is applied right away as the starting preview; hinge
+        # angle/steps and extrude distance seed their sub-modals.
+        self._load_scene_props(context)
+
         # Extrude sub-modal state. While `_extrude_active`, MOUSEMOVE
         # adjusts distance, LMB/Enter confirms (rebuilds shear records
         # on the new geometry and chains back to shear), Esc/RMB
@@ -924,6 +942,27 @@ cancels. LMB clicks only pick widget handles."""
     # ----------------------------------------------------------------------
     # Math wrappers
     # ----------------------------------------------------------------------
+
+    # ---- persistent parameters -------------------------------------------
+
+    def _load_scene_props(self, context):
+        props = context.scene.IOPS
+        self.angle_deg = props.shear_last_angle
+        self._last_shear_angle = props.shear_last_angle
+        self._saved_hinge_angle = props.shear_hinge_last_angle
+        self._saved_hinge_steps = max(1, props.shear_hinge_last_steps)
+        self._saved_extrude_distance = props.shear_extrude_last_distance
+
+    def _save_shear_angle(self, context):
+        context.scene.IOPS.shear_last_angle = self.angle_deg
+
+    def _save_hinge_params(self, context, angle_deg, steps):
+        props = context.scene.IOPS
+        props.shear_hinge_last_angle = angle_deg
+        props.shear_hinge_last_steps = steps
+
+    def _save_extrude_distance(self, context, distance):
+        context.scene.IOPS.shear_extrude_last_distance = distance
 
     def _effective_angle(self):
         if self.input_str and self.input_str not in ("-", ".", "-."):
@@ -1293,6 +1332,7 @@ cancels. LMB clicks only pick widget handles."""
             return {"RUNNING_MODAL"}
         if event.value == "PRESS":
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
+                self._save_extrude_distance(context, self._extrude_distance)
                 self._confirm_extrude()
                 context.workspace.status_text_set(self._status_text())
                 if context.area:
@@ -1496,6 +1536,8 @@ cancels. LMB clicks only pick widget handles."""
             seed_angle = getattr(self, "_last_shear_angle", 0.0)
         else:
             self._last_shear_angle = seed_angle
+        if abs(seed_angle) < 1e-6:
+            seed_angle = getattr(self, "_saved_hinge_angle", 0.0)
         if self.records:
             restore_records(self.records)
             self.bm.normal_update()
@@ -1564,7 +1606,7 @@ cancels. LMB clicks only pick widget handles."""
             "edge": hinge_edge,       # None when axis came from the pivot line
             "axis_pts": axis_pts,
             "orig_normal": orig_normal.copy(),
-            "steps": 6,
+            "steps": getattr(self, "_saved_hinge_steps", 6),
         }
         self._hinge_active = True
         self._hinge_angle_deg = seed_angle if abs(seed_angle) > 1e-6 else 0.0
@@ -1671,6 +1713,7 @@ cancels. LMB clicks only pick widget handles."""
         angle_rad = math.radians(self._hinge_effective_angle())
         if abs(angle_rad) < 1e-6:
             return self._cancel_hinge(context)
+        self._save_hinge_params(context, math.degrees(angle_rad), d["steps"])
 
         edge = d["edge"]
         # Flap case (all faces at the hinge edge are selected): drop the
@@ -2334,6 +2377,7 @@ cancels. LMB clicks only pick widget handles."""
                 self.angle_deg = self._effective_angle()
                 self.input_str = ""
                 self._apply()
+                self._save_shear_angle(context)
                 # Push AFTER the final apply so the post-shear state
                 # is the boundary; otherwise the modal's mesh changes
                 # get rolled into the next operator's undo step.
