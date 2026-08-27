@@ -518,28 +518,72 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
                 icon="CON_SIZELIKE",
                 toggle=True,
             )
+            row.prop(
+                wm,
+                "iops_tm_dimensions_base",
+                text="Base",
+                icon="MODIFIER_OFF",
+                toggle=True,
+            )
 
 
 _DIM_TYPES = {"MESH", "CURVE", "FONT", "ARMATURE", "META", "GPENCIL", "SURFACE", "LATTICE"}
 
 
-def _local_extent(obj):
-    """Un-scaled bound box extent. obj.dimensions is stale between depsgraph
-    updates (it only refreshes after scale is re-evaluated), which breaks
-    per-component RNA writes (multi-drag / typed XYZ)."""
+def _bbox_extent(obj):
+    """Un-scaled evaluated bound box extent. obj.dimensions is stale between
+    depsgraph updates (it only refreshes after scale is re-evaluated), which
+    breaks per-component RNA writes (multi-drag / typed XYZ)."""
     bb = obj.bound_box
     return tuple(
         max(c[i] for c in bb) - min(c[i] for c in bb) for i in range(3)
     )
 
 
-def _dims_of(obj):
-    ext = _local_extent(obj)
+def _base_points(obj):
+    """Local-space points of the original (un-evaluated) data, or None."""
+    data = obj.data
+    if obj.type == "MESH":
+        n = len(data.vertices)
+        if not n:
+            return None
+        buf = [0.0] * (n * 3)
+        data.vertices.foreach_get("co", buf)
+        return [buf[i:i + 3] for i in range(0, len(buf), 3)]
+    if obj.type in {"CURVE", "SURFACE", "FONT"}:
+        pts = []
+        for sp in data.splines:
+            pts.extend(p.co[:3] for p in sp.bezier_points)
+            pts.extend(p.co[:3] for p in sp.points)
+        return pts or None
+    if obj.type == "LATTICE":
+        return [p.co_deform[:] for p in data.points] or None
+    if obj.type == "ARMATURE":
+        pts = []
+        for b in data.bones:
+            pts.append(b.head_local[:])
+            pts.append(b.tail_local[:])
+        return pts or None
+    return None
+
+
+def _local_extent(obj, base=False):
+    if base:
+        pts = _base_points(obj)
+        if pts:
+            return tuple(
+                max(p[i] for p in pts) - min(p[i] for p in pts) for i in range(3)
+            )
+    return _bbox_extent(obj)
+
+
+def _dims_of(obj, base=False):
+    ext = _local_extent(obj, base)
     return tuple(ext[i] * abs(obj.scale[i]) for i in range(3))
 
 
-def _apply_dims(obj, value):
-    ext = _local_extent(obj)
+def _apply_dims(obj, value, base=False):
+    ext = _local_extent(obj, base)
     sc = obj.scale.copy()
     for i in range(3):
         if ext[i] > 1e-9:
@@ -551,7 +595,7 @@ def _apply_dims(obj, value):
 def _tm_dimensions_get(self):
     obj = bpy.context.view_layer.objects.active
     if obj and obj.type in _DIM_TYPES:
-        return _dims_of(obj)
+        return _dims_of(obj, self.iops_tm_dimensions_base)
     return (0.0, 0.0, 0.0)
 
 
@@ -565,7 +609,7 @@ def _tm_dimensions_set(self, value):
     else:
         targets = [active] if active and active.type in _DIM_TYPES else []
     for o in targets:
-        _apply_dims(o, value)
+        _apply_dims(o, value, self.iops_tm_dimensions_base)
     if self.iops_tm_dimensions_keep_scale:
         baked = False
         for o in targets:
@@ -612,6 +656,11 @@ def register_tm_dimensions_props():
         description="After changing dimensions, apply scale to object data so scale stays (1,1,1). Skipped for multi-user data",
         default=False,
     )
+    bpy.types.WindowManager.iops_tm_dimensions_base = bpy.props.BoolProperty(
+        name="Base Dimensions",
+        description="Measure the original data (before modifiers) instead of the evaluated bound box",
+        default=False,
+    )
 
 
 def unregister_tm_dimensions_props():
@@ -619,6 +668,7 @@ def unregister_tm_dimensions_props():
         "iops_tm_dimensions",
         "iops_tm_dimensions_to_selected",
         "iops_tm_dimensions_keep_scale",
+        "iops_tm_dimensions_base",
     ):
         if hasattr(bpy.types.WindowManager, name):
             delattr(bpy.types.WindowManager, name)
