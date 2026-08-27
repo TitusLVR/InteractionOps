@@ -103,9 +103,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
              "Every qualifying pair is welded; edges may be reused"),
             ("ORDER", "Order",
              "Pair edges by selection order (1st+2nd, 3rd+4th, ...)"),
-            ("APEX", "Apex",
-             "Weld every edge's near end into the single point all the "
-             "edge lines converge on (edges missing it are left out)"),
         ],
         default="GREEDY",
     )
@@ -150,12 +147,11 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
 
         edges_co = [(tuple(e.verts[0].co), tuple(e.verts[1].co)) for e in selected]
         candidates = candidate_pairs(edges_co, tol=TOL)
-        if not candidates and self.strategy != "APEX":
+        if not candidates:
             self.report({"WARNING"}, "No valid candidate pairs among selected edges")
             return {"CANCELLED"}
 
-        pairs, strategy_used = self._resolve_pairs(
-            bm, selected, candidates, edges_co)
+        pairs, strategy_used = self._resolve_pairs(bm, selected, candidates)
         if not pairs:
             self.report({"WARNING"}, "No pairs resolved by strategy")
             return {"CANCELLED"}
@@ -181,25 +177,15 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             if isinstance(e, bmesh.types.BMEdge) and e in index_of
         ]
 
-    def _resolve_pairs(self, bm, selected, candidates, edges_co):
+    def _resolve_pairs(self, bm, selected, candidates):
         """Run ``self.strategy`` over ``candidates``.
 
         Returns ``(pairs, strategy_used)``. ORDER falls back to GREEDY
         (with a warning report) when selection history holds fewer than
-        two of the currently-selected edges; APEX falls back the same
-        way when the edge lines share no convergence point.
+        two of the currently-selected edges.
         """
         strategies = dict(STRATEGIES)
         strategy = self.strategy
-        if strategy == "APEX":
-            pairs = strategies["APEX"](edges_co)
-            if pairs:
-                return pairs, "APEX"
-            self.report(
-                {"WARNING"},
-                "APEX found no common convergence point; falling back to GREEDY",
-            )
-            strategy = "GREEDY"
         if strategy == "ORDER":
             history_idx = self._history_indices(bm, selected)
             if len(history_idx) < 2:
@@ -266,9 +252,8 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._key_idx = 0
         self._pairs = []
         self._candidates = []
-        self._apex_pairs = []
         self._read_selection(bm)
-        if not self._candidates and not self._apex_pairs:
+        if not self._candidates:
             # Drop the bmesh/BMElement references again: Blender keeps
             # this operator instance around for the redo stack.
             self._release_state()
@@ -364,22 +349,17 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             edges_co = [(tuple(e.verts[0].co), tuple(e.verts[1].co))
                         for e in selected]
             candidates = candidate_pairs(edges_co, tol=TOL)
-            apex_pairs = dict(STRATEGIES)["APEX"](edges_co)
         else:
             candidates = []
-            apex_pairs = []
 
         self._sel_edges = selected
         self._candidates = candidates
-        self._apex_pairs = apex_pairs
         self._history_idx = self._history_indices(bm, selected)
-        # ORDER is only offered when the history can actually pair edges,
-        # APEX only when the lines share a point; cycling skips them
-        # entirely rather than showing an empty preview.
+        # ORDER is only offered when the history can actually pair edges;
+        # cycling skips it entirely rather than showing an empty preview.
         want = self._keys[self._key_idx] if self._keys else self.strategy
         self._keys = [k for k, _ in STRATEGIES
-                      if (k != "ORDER" or len(self._history_idx) >= 2)
-                      and (k != "APEX" or apex_pairs)]
+                      if k != "ORDER" or len(self._history_idx) >= 2]
         self._key_idx = self._keys.index(want) if want in self._keys else 0
         self._pairs = self._pairs_for(self._current_key())
 
@@ -389,8 +369,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
     def _pairs_for(self, key):
         """Resolve ``key`` over the frozen candidate list."""
         strategies = dict(STRATEGIES)
-        if key == "APEX":
-            return list(self._apex_pairs)
         if key == "ORDER":
             return strategies["ORDER"](self._candidates, self._history_idx)
         return strategies[key](self._candidates)
@@ -675,7 +653,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._region = None
         self._sel_edges = []
         self._candidates = []
-        self._apex_pairs = []
         self._pairs = []
         self._snap_edges = frozenset()
         self._snap_history = ()

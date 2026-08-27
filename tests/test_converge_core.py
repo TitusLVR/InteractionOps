@@ -6,8 +6,6 @@ from utils.converge_core import (
     strategy_greedy,
     strategy_all,
     strategy_order,
-    strategy_apex,
-    apex_point,
     STRATEGIES,
     TOL,
     EPS,
@@ -221,9 +219,9 @@ def test_strategy_order_odd_trailing_entry_dropped():
 # STRATEGIES registry
 # ---------------------------------------------------------------------------
 
-def test_strategies_registry_ordered_and_contains_all():
+def test_strategies_registry_ordered_and_contains_all_three():
     keys = [key for key, _fn in STRATEGIES]
-    assert keys == ["GREEDY", "ALL", "ORDER", "APEX"]
+    assert keys == ["GREEDY", "ALL", "ORDER"]
     fn_by_key = dict(STRATEGIES)
     assert fn_by_key["GREEDY"] is strategy_greedy
     assert fn_by_key["ALL"] is strategy_all
@@ -267,64 +265,3 @@ def test_closest_points_still_parallel_when_parallel():
     assert closest_points_on_lines(
         (0.0, 0.0, 0.0), (L, 0.0, 0.0),
         (0.0, L, 0.0), (L, L, 0.0)) is None
-
-
-# ---------------------------------------------------------------------------
-# apex
-# ---------------------------------------------------------------------------
-
-def _fan(apex, dirs, start=1.0, length=1.0):
-    """Edges lying on lines through ``apex``, each starting ``start`` away."""
-    out = []
-    for d in dirs:
-        n = norm(d)
-        d = (d[0] / n, d[1] / n, d[2] / n)
-        a = tuple(apex[k] + d[k] * start for k in range(3))
-        b = tuple(apex[k] + d[k] * (start + length) for k in range(3))
-        out.append((a, b))
-    return out
-
-
-def test_apex_exact_fan_finds_point_and_all_members():
-    apex = (1.0, 2.0, 3.0)
-    edges = _fan(apex, [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, -1, 1)])
-    p, members = apex_point(edges)
-    assert p == pytest.approx(apex, abs=1e-9)
-    assert members == [0, 1, 2, 3, 4]
-
-
-def test_apex_drops_outlier_edge():
-    apex = (0.0, 0.0, 0.0)
-    edges = _fan(apex, [(1, 0, 0), (0, 1, 0), (1, 1, 0)])
-    edges.append(((5.0, 5.0, 1.0), (6.0, 5.0, 1.0)))  # misses apex by 5
-    p, members = apex_point(edges)
-    assert p == pytest.approx(apex, abs=1e-9)
-    assert members == [0, 1, 2]
-
-
-def test_apex_none_for_parallel_or_single():
-    assert apex_point([((0, 0, 0), (1, 0, 0)), ((0, 1, 0), (1, 1, 0))]) is None
-    assert apex_point([((0, 0, 0), (1, 0, 0))]) is None
-
-
-def test_strategy_apex_chain_shares_apex_and_moving_ends_face_it():
-    apex = (0.0, 0.0, 0.0)
-    edges = _fan(apex, [(1, 0, 0), (0, 1, 0), (0, 0, 1)])
-    # flip one edge so its far end is index 0
-    edges[1] = (edges[1][1], edges[1][0])
-    pairs = strategy_apex(edges)
-    assert len(pairs) == 2
-    assert {c.i for c in pairs} == {0}
-    assert {c.j for c in pairs} == {1, 2}
-    for c in pairs:
-        assert c.P == pytest.approx(apex, abs=1e-9)
-        assert c.p1 == pytest.approx(apex, abs=1e-9)
-        assert c.p2 == pytest.approx(apex, abs=1e-9)
-        assert c.mvert1 == pytest.approx((1.0, 0.0, 0.0))
-    assert pairs[0].moving_end_j == 1   # flipped edge: near end is index 1
-    assert pairs[0].mvert2 == pytest.approx((0.0, 1.0, 0.0))
-
-
-def test_strategy_apex_empty_without_bundle():
-    assert strategy_apex([((0, 0, 0), (1, 0, 0)), ((0, 1, 0), (1, 1, 0))]) == []
-
