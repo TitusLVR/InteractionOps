@@ -860,6 +860,10 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_distance = 0.0
         self._extrude_start_x = 0
         self._extrude_start_y = 0
+        self._extrude_grab = False
+        self._extrude_hover = False
+        self._extrude_head_pt = None
+        self._extrude_grab_dist = 0.0
 
         # Hinge sub-modal state. Q enters; selected faces rotate around
         # the active edge from select_history. Preview is a draw-only
@@ -1238,28 +1242,108 @@ cancels. LMB clicks only pick widget handles."""
                 "target": target_edge,
             }
         self._extrude_active = True
-        self._extrude_distance = 0.0
+        # Arrow handle state: the new geometry only moves while the
+        # arrow head is grabbed (LMB on it). Distance starts at the
+        # remembered value so a repeated extrude lands where the last
+        # one did; the handle drag adjusts from there.
+        self._extrude_grab = False
+        self._extrude_hover = False
+        self._extrude_head_pt = None
         self._extrude_start_x = event.mouse_region_x
         self._extrude_start_y = event.mouse_region_y
+        self._extrude_grab_dist = 0.0
+        self._extrude_apply_distance(
+            max(0.0, getattr(self, "_saved_extrude_distance", 0.0)))
         self.bm.normal_update()
         bmesh.update_edit_mesh(self.obj.data)
         return True
 
+    def _extrude_apply_distance(self, t):
+        """Position the extruded verts for distance ``t``."""
+        d = self._extrude_data
+        self._extrude_distance = t
+        if d["kind"] == "edge":
+            # Active end gets the full t; fixed end stays at zero until
+            # t exceeds the saw-off offset, then grows. Net: the orig
+            # sheared edge bisects the corner between old rails and
+            # new sides at every distance.
+            offset = d["offset"]
+            a_t = t
+            f_t = max(0.0, t - offset)
+            if d["new_active"].is_valid:
+                d["new_active"].co = (
+                    d["active_anchor"] + d["active_side_dir"] * a_t
+                )
+            if d["new_fixed"].is_valid:
+                d["new_fixed"].co = (
+                    d["fixed_anchor"] + d["fixed_side_dir"] * f_t
+                )
+        else:
+            # Face mode saw-off mirror: each new face vert gets its own
+            # side direction (rail mirrored across the sheared face
+            # plane) and its own delay (proj-based). Vert with max
+            # projection moves immediately; pivot-edge verts wait until
+            # t exceeds their delay.
+            for v, anchor, side, delay in zip(
+                    d["verts"], d["anchors"], d["sides"], d["delays"]):
+                if v.is_valid:
+                    v.co = anchor + side * max(0.0, t - delay)
+
+    def _extrude_arrow_world(self):
+        """(tail, unit direction) of the extrude arrow in object space."""
+        d = self._extrude_data
+        if d.get("kind") == "edge":
+            center = (d["active_anchor"] + d["fixed_anchor"]) * 0.5
+            avg_dir = d["active_side_dir"] + d["fixed_side_dir"]
+        else:
+            center = d["center"]
+            avg_dir = d["avg_dir"]
+        if avg_dir.length < 1e-9:
+            return center, None
+        return center, avg_dir.normalized()
+
+    def _extrude_unit_px(self, context, center, unit_dir):
+        """Screen length (px) of one object-space unit along the arrow
+        at its tail — converts a handle drag in pixels to distance."""
+        region = context.region
+        rv3d = context.region_data
+        if region is None or rv3d is None:
+            return None
+        mw = self.obj.matrix_world
+        a = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ center)
+        b = view3d_utils.location_3d_to_region_2d(
+            region, rv3d, mw @ (center + unit_dir))
+        if a is None or b is None:
+            return None
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        return L if L > 1e-3 else None
+
     def _extrude_modal(self, context, event):
+        HANDLE_PX = 14.0
+        if event.type == "MOUSEMOVE" and not self._extrude_grab:
+            # Not dragging: only track whether the arrow head is under
+            # the cursor (the draw callback stores its region point).
+            hp = self._extrude_head_pt
+            hover = False
+            if hp is not None:
+                dx = event.mouse_region_x - hp[0]
+                dy = event.mouse_region_y - hp[1]
+                hover = (dx * dx + dy * dy) <= HANDLE_PX * HANDLE_PX
+            if hover != self._extrude_hover:
+                self._extrude_hover = hover
+                if context.area:
+                    context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
         if event.type == "MOUSEMOVE":
-            # Project mouse delta onto the on-screen direction of the
-            # extrude arrow so dragging follows the arrow visually
-            # rather than pure screen +X. Recomputed each frame so it
-            # tracks camera orbits during the drag.
-            d = self._extrude_data
-            if d.get("kind") == "edge":
-                world_center = (d["active_anchor"] + d["fixed_anchor"]) * 0.5
-                world_dir_3d = d["active_side_dir"] + d["fixed_side_dir"]
-            else:
-                world_center = d["center"]
-                world_dir_3d = d["avg_dir"]
-            screen_dir = self._screen_direction(
-                context, world_center, world_dir_3d)
+            # Handle drag: project the mouse delta since the grab onto
+            # the arrow's on-screen direction and convert px -> object
+            # units through the arrow's own scale, so the head follows
+            # the cursor. Recomputed each frame so it tracks orbits.
+            world_center, unit_dir = self._extrude_arrow_world()
+            screen_dir = (None if unit_dir is None else
+                          self._screen_direction(context, world_center, unit_dir))
+            unit_px = (None if unit_dir is None else
+                       self._extrude_unit_px(context, world_center, unit_dir))
             mx, my = event.mouse_region_x, event.mouse_region_y
             region = context.region
             if region is not None:
@@ -1290,47 +1374,34 @@ cancels. LMB clicks only pick widget handles."""
                 projected = dx
             else:
                 projected = dx * screen_dir[0] + dy * screen_dir[1]
-            sens = 0.01
+            if unit_px is None:
+                unit_px = 100.0
+            delta = projected / unit_px
             if event.shift:
-                sens *= 0.1
-            t = max(0.0, projected * sens)
-            self._extrude_distance = t
-            if d["kind"] == "edge":
-                # Active end gets the full mouse t; fixed end stays at
-                # zero until t exceeds the saw-off offset, then grows.
-                # Net: the orig sheared edge bisects the corner between
-                # old rails and new sides at every distance.
-                offset = d["offset"]
-                a_t = t
-                f_t = max(0.0, t - offset)
-                if d["new_active"].is_valid:
-                    d["new_active"].co = (
-                        d["active_anchor"]
-                        + d["active_side_dir"] * a_t
-                    )
-                if d["new_fixed"].is_valid:
-                    d["new_fixed"].co = (
-                        d["fixed_anchor"]
-                        + d["fixed_side_dir"] * f_t
-                    )
-            else:
-                # Face mode saw-off mirror: each new face vert gets its
-                # own side direction (rail mirrored across the sheared
-                # face plane) and its own delay (proj-based). Vert with
-                # max projection moves immediately; pivot-edge verts
-                # wait until t exceeds their delay.
-                for v, anchor, side, delay in zip(
-                        d["verts"], d["anchors"],
-                        d["sides"], d["delays"]):
-                    if v.is_valid:
-                        v.co = anchor + side * max(0.0, t - delay)
+                delta *= 0.1
+            self._extrude_apply_distance(
+                max(0.0, self._extrude_grab_dist + delta))
             self.bm.normal_update()
             bmesh.update_edit_mesh(self.obj.data)
             context.workspace.status_text_set(self._status_text())
             if context.area:
                 context.area.tag_redraw()
             return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self._extrude_grab:
+                self._extrude_grab = False
+                if context.area:
+                    context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
         if event.value == "PRESS":
+            if event.type == "LEFTMOUSE" and self._extrude_hover:
+                # Grab the arrow head: drag distance is measured from
+                # here, on top of the current extrude distance.
+                self._extrude_grab = True
+                self._extrude_start_x = event.mouse_region_x
+                self._extrude_start_y = event.mouse_region_y
+                self._extrude_grab_dist = self._extrude_distance
+                return {"RUNNING_MODAL"}
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 self._save_extrude_distance(context, self._extrude_distance)
                 self._confirm_extrude()
@@ -2202,7 +2273,7 @@ cancels. LMB clicks only pick widget handles."""
         if self._extrude_active:
             return (
                 f"Extrude ({self.mode}): {self._extrude_distance:.4f} | "
-                "[Mouse] drag | [Shift] precise | "
+                "[LMB on arrow] drag | [Shift] precise | "
                 "[LMB/Enter] confirm + back to shear | "
                 "[Esc/RMB] cancel extrude"
             )
@@ -2566,34 +2637,41 @@ cancels. LMB clicks only pick widget handles."""
         d = self._extrude_data
         if d is None:
             return
-        if d.get("kind") == "edge":
-            center = (d["active_anchor"] + d["fixed_anchor"]) * 0.5
-            avg_dir = d["active_side_dir"] + d["fixed_side_dir"]
-        else:
-            center = d["center"]
-            avg_dir = d["avg_dir"]
-        if avg_dir.length < 1e-9:
+        center, avg_dir = self._extrude_arrow_world()
+        if avg_dir is None:
+            self._extrude_head_pt = None
             return
-        avg_dir = avg_dir.normalized()
-        length = max(self._extrude_distance, 0.05)
 
+        # Tail at the arrow anchor; head at the actual extrude
+        # distance, but never shorter than MIN_PX on screen so the
+        # handle stays grabbable at zero distance.
+        MIN_PX = 40.0
         tail_world = center
-        head_world = center + avg_dir * length
+        head_world = center + avg_dir * self._extrude_distance
         p_t = view3d_utils.location_3d_to_region_2d(
             region, rv3d, mw @ tail_world)
         p_h = view3d_utils.location_3d_to_region_2d(
             region, rv3d, mw @ head_world)
         if p_t is None or p_h is None:
+            self._extrude_head_pt = None
             return
-        draw_prim.edges_3d([p_t, p_h], role=Role.ACTIVE_LINE, context=context)
-        hx, hy = p_h
         tx, ty = p_t
+        hx, hy = p_h
         dx, dy = hx - tx, hy - ty
         seg_len = math.hypot(dx, dy)
-        if seg_len < 1e-3:
-            self._draw_dot(p_t, radius=4.0,
-                           color=theme.color_for(Role.ACTIVE_POINT), context=context)
-            return
+        if seg_len < MIN_PX:
+            sd = self._screen_direction(context, center, avg_dir)
+            if sd is None:
+                self._extrude_head_pt = None
+                self._draw_dot(p_t, radius=4.0,
+                               color=theme.color_for(Role.ACTIVE_POINT), context=context)
+                return
+            hx, hy = tx + sd[0] * MIN_PX, ty + sd[1] * MIN_PX
+            p_h = (hx, hy)
+            dx, dy = hx - tx, hy - ty
+            seg_len = MIN_PX
+        self._extrude_head_pt = (hx, hy)
+        draw_prim.edges_3d([p_t, p_h], role=Role.ACTIVE_LINE, context=context)
         ux, uy = dx / seg_len, dy / seg_len
         head_size = min(14.0, max(7.0, seg_len * 0.2))
         ca, sa = math.cos(math.radians(150)), math.sin(math.radians(150))
@@ -2608,6 +2686,15 @@ cancels. LMB clicks only pick widget handles."""
         draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
         self._draw_dot(p_t, radius=4.0,
                        color=theme.color_for(Role.ACTIVE_POINT), context=context)
+        # Grab handle at the head: hollow-ish dot normally, bright and
+        # bigger while hovered / dragged (same look as the shear
+        # hotspot hover).
+        if self._extrude_grab or self._extrude_hover:
+            self._draw_dot(p_h, radius=8.0, color=(1.0, 1.0, 1.0, 1.0),
+                           context=context)
+        else:
+            self._draw_dot(p_h, radius=6.0,
+                           color=theme.color_for(Role.ACTIVE_POINT), context=context)
 
     def _draw_hinge(self, region, rv3d, mw, *, context, theme):
         """Ghost of the FINAL spin result: face outlines at the target
