@@ -5,7 +5,9 @@ Selection
 - faces: the selected faces rotate; the axis is one of their edges.
 - edges (no faces): the selected edges rotate — open boundary loops,
   wire profiles — and the spin walls become the new faces. The axis is
-  one of the selected edges (it stays put).
+  one of the selected edges (it stays put), or the *virtual edge*: the
+  chord between the first and last vert of an open chain, drawn with
+  the chain and pickable like any real edge.
 
 The axis edge is whichever candidate edge is nearest to the mouse in
 screen space (same pick as cursor_bisect) and it is re-picked live on
@@ -32,7 +34,40 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       ItemState, capture_event)
 from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
-from .mesh_shear import DIGIT_TYPES, _face_normal_safe, _gather_double_verts
+from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
+                         chains_from_edges)
+
+
+class _VirtualEdge:
+    """Axis candidate that isn't in the mesh: the chord between the first
+    and last vert of an open edge chain. Quacks like a BMEdge for the
+    picker (``verts`` with ``.co``) and the axis setter."""
+    is_virtual = True
+    link_faces = ()
+
+    def __init__(self, v0, v1):
+        self.verts = (v0, v1)
+
+    @property
+    def is_valid(self):
+        return self.verts[0].is_valid and self.verts[1].is_valid
+
+
+def _virtual_edges(edges):
+    """One chord per open chain of ``edges`` (2+ edges, distinct ends)."""
+    out = []
+    try:
+        chains = chains_from_edges([e for e in edges if e.is_valid])
+    except ValueError:
+        return out
+    for verts, chain, closed in chains:
+        if closed or len(chain) < 2:
+            continue
+        v0, v1 = verts[0], verts[-1]
+        if v0 is v1 or (v0.co - v1.co).length < 1e-9:
+            continue
+        out.append(_VirtualEdge(v0, v1))
+    return out
 
 
 def _selection_normal(faces, edges, cos):
@@ -116,7 +151,9 @@ mouse, baking the sweep as segments"""
         orig_cos = [v.co.copy() for v in verts]
 
         self._faces = faces
-        self._edges = edges          # axis candidates (and the edge-mode geometry)
+        self._geom_edges = edges     # real edges (edge-mode spin geometry)
+        self._virtual = _virtual_edges(edges) if not faces else []
+        self._edges = edges + self._virtual   # axis candidates
         self._verts = verts
         self._orig_cos = orig_cos
         self._orig_co_map = {v: c for v, c in zip(verts, orig_cos)}
@@ -142,7 +179,7 @@ mouse, baking the sweep as segments"""
             except (TypeError, RuntimeError):
                 pass
         if edge is None:
-            edge = edges[0]
+            edge = self._edges[0]
         if not self._set_axis(edge):
             self.report({"WARNING"}, "Hinge: degenerate axis edge")
             return {"CANCELLED"}
@@ -188,6 +225,8 @@ mouse, baking the sweep as segments"""
         self.obj = None
         self._faces = []
         self._edges = []
+        self._geom_edges = []
+        self._virtual = []
         self._verts = []
         self._orig_co_map = {}
         self._axis_edge = None
@@ -438,7 +477,8 @@ mouse, baking the sweep as segments"""
         else:
             # Edge mode: the axis edge stays put; every other selected
             # edge sweeps into a wall.
-            edges = [e for e in self._edges if e.is_valid and e is not axis_edge]
+            edges = [e for e in self._geom_edges
+                     if e.is_valid and e is not axis_edge]
             vert_set = set()
             for e in edges:
                 vert_set.update(e.verts)
@@ -558,7 +598,10 @@ mouse, baking the sweep as segments"""
                         if pa is not None and pb is not None:
                             segs.extend([pa, pb])
             else:
-                for e in self._edges:
+                # Real chain edges plus the virtual chords — the chord
+                # sweeps with the chain so it reads as part of the
+                # profile; as the axis it stays put (amber line below).
+                for e in self._geom_edges + self._virtual:
                     if not e.is_valid or e is axis_edge:
                         continue
                     a = co_map.get(e.verts[0])
@@ -612,6 +655,18 @@ mouse, baking the sweep as segments"""
         final_segs = outline_segs(step_cos[steps])
         if final_segs:
             draw_prim.edges_3d(final_segs, role=Role.ACTIVE_LINE, context=context)
+
+        # Virtual chords at rest: dim, so the pick target is visible
+        # even at zero angle (the real edges are already on screen).
+        rest_segs = []
+        for ve in self._virtual:
+            if not ve.is_valid or ve is axis_edge:
+                continue
+            p0, p1 = s2d(ve.verts[0].co), s2d(ve.verts[1].co)
+            if p0 is not None and p1 is not None:
+                rest_segs.extend([p0, p1])
+        if rest_segs:
+            draw_prim.edges_3d(rest_segs, color=(0.6, 0.6, 0.6, 0.6), context=context)
 
         pa, pb = self._axis_pts
         p0, p1 = s2d(pa), s2d(pb)
