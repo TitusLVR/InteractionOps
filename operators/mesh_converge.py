@@ -46,11 +46,6 @@ PAIR_PALETTE = (
 # 60% filled. Cheap stand-in for a real stipple shader.
 GHOST_DASHES = 9
 
-# Fuse: longest edge chain (in edges) searched between the two
-# converging ends. Keeps the BFS from wandering across the whole mesh
-# when the ends are only connected the long way round.
-FUSE_MAX_CHAIN = 64
-
 # Draw handles registered by any live instance of this operator. A
 # blinker/addon reload can free the operator RNA while its handlers are
 # still attached to the viewport; `_purge_handles` clears those before a
@@ -110,14 +105,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
              "Pair edges by selection order (1st+2nd, 3rd+4th, ...)"),
         ],
         default="GREEDY",
-    )
-    fuse: BoolProperty(
-        name="Fuse",
-        description=(
-            "Also collapse the edge chain running between the two "
-            "converging ends (e.g. an old bevel arc) into the merge point"
-        ),
-        default=False,
     )
     interactive: BoolProperty(
         name="Interactive",
@@ -265,7 +252,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._key_idx = 0
         self._pairs = []
         self._candidates = []
-        self._fuse_ghosts = []
         self._read_selection(bm)
         if not self._candidates:
             # Drop the bmesh/BMElement references again: Blender keeps
@@ -288,12 +274,9 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             "Pairs", lambda: len(self._pairs), "int"))
         self._hud.add_param(HUDParam(
             "Candidates", lambda: len(self._candidates), "int"))
-        self._hud.add_param(HUDParam(
-            "Fuse", lambda: self.fuse, "bool"))
         self._help = HelpOverlay("converge")
         self._help.add_section(HUDSection("Converge", [
             HUDItem("Cycle strategy", "Wheel / S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Fuse chain",     "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Add edge",       "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",        "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -379,25 +362,9 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
                       if k != "ORDER" or len(self._history_idx) >= 2]
         self._key_idx = self._keys.index(want) if want in self._keys else 0
         self._pairs = self._pairs_for(self._current_key())
-        self._update_fuse_ghosts()
 
     def _current_key(self):
         return self._keys[self._key_idx]
-
-    def _update_fuse_ghosts(self):
-        """Per pair: local-space coords of the chain verts that fuse
-        would collapse into P. Empty lists when fuse is off, so the draw
-        handler never touches bmesh data."""
-        ghosts = []
-        if self.fuse:
-            edges = self._sel_edges
-            for c in self._pairs:
-                v1 = edges[c.i].verts[c.moving_end_i]
-                v2 = edges[c.j].verts[c.moving_end_j]
-                chain = self._chain_between(
-                    v1, v2, {edges[c.i], edges[c.j]})
-                ghosts.append([v.co.copy() for v in chain])
-        self._fuse_ghosts = ghosts
 
     def _pairs_for(self, key):
         """Resolve ``key`` over the frozen candidate list."""
@@ -410,7 +377,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         if len(self._keys) > 1:
             self._key_idx = (self._key_idx + delta) % len(self._keys)
             self._pairs = self._pairs_for(self._current_key())
-            self._update_fuse_ghosts()
         context.workspace.status_text_set(self._status_text())
         if context.area:
             context.area.tag_redraw()
@@ -419,8 +385,7 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         return (
             f"Converge: {self._current_key()} | "
             f"pairs {len(self._pairs)} of {len(self._candidates)} candidates | "
-            f"fuse {'ON' if self.fuse else 'OFF'} | "
-            "[Wheel/S] cycle strategy | [F] fuse chain | [Shift+LMB] add edge | "
+            "[Wheel/S] cycle strategy | [Shift+LMB] add edge | "
             "[LMB/Enter/Space] confirm | [Esc/RMB] cancel"
         )
 
@@ -481,12 +446,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         if event.value == "PRESS":
             if event.type == "S":
                 self._cycle(context, 1)
-                return {"RUNNING_MODAL"}
-
-            if event.type == "F":
-                self.fuse = not self.fuse
-                self._update_fuse_ghosts()
-                context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
             # Shift+LMB extends the selection instead of confirming.
@@ -695,7 +654,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._sel_edges = []
         self._candidates = []
         self._pairs = []
-        self._fuse_ghosts = []
         self._snap_edges = frozenset()
         self._snap_history = ()
         self._sel_dirty = False
@@ -723,7 +681,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         try:
             obj = self._obj
             pairs = self._pairs
-            fuse_ghosts = getattr(self, "_fuse_ghosts", [])
             if obj is None or not pairs:
                 return
             mw = obj.matrix_world
@@ -741,9 +698,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             seg = ghosts.setdefault(col, [])
             seg.extend(_dashed(mw @ Vector(c.mvert1), mw @ Vector(c.p1)))
             seg.extend(_dashed(mw @ Vector(c.mvert2), mw @ Vector(c.p2)))
-            if n < len(fuse_ghosts):
-                for co in fuse_ghosts[n]:
-                    seg.extend(_dashed(mw @ co, mw @ Vector(c.P)))
         # POST_VIEW runs mid-pipeline, so restore point size too --
         # `primitives.points` sets it globally and Blender's own
         # vertex drawing would inherit a fat size otherwise.
@@ -819,44 +773,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             bmesh.update_edit_mesh(mesh)
         return None
 
-    @staticmethod
-    def _chain_between(v1, v2, exclude_edges, max_len=FUSE_MAX_CHAIN):
-        """Interior verts of the shortest edge path from ``v1`` to ``v2``
-        that does not use ``exclude_edges`` (the two rails). Empty when
-        the verts are not connected that way within ``max_len`` edges."""
-        if v1 is v2:
-            return []
-        prev = {v1: None}
-        frontier = [v1]
-        depth = 0
-        found = False
-        while frontier and depth < max_len and not found:
-            nxt = []
-            for v in frontier:
-                for e in v.link_edges:
-                    if e in exclude_edges:
-                        continue
-                    o = e.other_vert(v)
-                    if o in prev:
-                        continue
-                    prev[o] = v
-                    if o is v2:
-                        found = True
-                        break
-                    nxt.append(o)
-                if found:
-                    break
-            frontier = nxt
-            depth += 1
-        if not found:
-            return []
-        chain = []
-        v = prev[v2]
-        while v is not None and v is not v1:
-            chain.append(v)
-            v = prev[v]
-        return chain
-
     def _apply_converge(self, bm, edges, pairs):
         """Apply resolved ``Candidate`` pairs as vert moves + bmesh welds.
 
@@ -892,21 +808,11 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             v2 = resolve(slots[c.j][c.moving_end_j])
             if v1 is v2 or not v1.is_valid or not v2.is_valid:
                 continue
-            merge = [v1, v2]
-            if self.fuse:
-                chain = self._chain_between(
-                    v1, v2, {edges[c.i], edges[c.j]})
-                merge.extend(cv for cv in (resolve(x) for x in chain)
-                             if cv.is_valid and cv not in merge)
             v1.co = Vector(c.p1)
             v2.co = Vector(c.p2)
-            bmesh.ops.pointmerge(bm, verts=merge, merge_co=Vector(c.P))
-            survivor = next((v for v in merge if v.is_valid), None)
-            if survivor is None:
-                continue
-            for dead in merge:
-                if dead is not survivor:
-                    alias[dead] = survivor
-                    result.discard(dead)
+            bmesh.ops.pointmerge(bm, verts=[v1, v2], merge_co=Vector(c.P))
+            survivor, dead = (v1, v2) if v1.is_valid else (v2, v1)
+            alias[dead] = survivor
+            result.discard(dead)
             result.add(survivor)
         return {v for v in result if v.is_valid}
