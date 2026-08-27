@@ -503,25 +503,26 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
         ]:
             wm = context.window_manager.IOPS_AddonProperties
             col.prop(wm, "iops_tm_dimensions")
-            row = col.row(align=True)
-            row.prop(
+            col.separator()
+            opts = col.column(align=True)
+            opts.prop(
                 wm,
                 "iops_tm_dimensions_to_selected",
-                text="Selected",
+                text="Apply to Selected",
                 icon="RESTRICT_SELECT_OFF",
                 toggle=True,
             )
-            row.prop(
+            opts.prop(
                 wm,
                 "iops_tm_dimensions_keep_scale",
-                text="Scale 1",
+                text="Reset Scale to 1",
                 icon="CON_SIZELIKE",
                 toggle=True,
             )
-            row.prop(
+            opts.prop(
                 wm,
                 "iops_tm_dimensions_base",
-                text="Base",
+                text="Ignore Modifiers",
                 icon="MODIFIER_OFF",
                 toggle=True,
             )
