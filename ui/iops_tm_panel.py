@@ -487,7 +487,6 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
 
     def draw(self, context):
         obj = context.view_layer.objects.active
-        
         layout = self.layout
         layout.ui_units_x = 8.0
         col = layout.column(align=True)
@@ -504,10 +503,19 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
         ]:
             wm = context.window_manager
             col.prop(wm, "iops_tm_dimensions")
-            col.prop(
+            row = col.row(align=True)
+            row.prop(
                 wm,
                 "iops_tm_dimensions_to_selected",
+                text="Selected",
                 icon="RESTRICT_SELECT_OFF",
+                toggle=True,
+            )
+            row.prop(
+                wm,
+                "iops_tm_dimensions_keep_scale",
+                text="Scale 1",
+                icon="CON_SIZELIKE",
                 toggle=True,
             )
 
@@ -558,6 +566,28 @@ def _tm_dimensions_set(self, value):
         targets = [active] if active and active.type in _DIM_TYPES else []
     for o in targets:
         _apply_dims(o, value)
+    if self.iops_tm_dimensions_keep_scale:
+        baked = False
+        for o in targets:
+            if _bake_scale(o):
+                baked = True
+        if baked:
+            # bound_box is refreshed only by depsgraph; without this the
+            # next per-component write would read stale extents.
+            ctx.view_layer.update()
+
+
+def _bake_scale(obj):
+    """Push object scale into its data so scale returns to (1,1,1)."""
+    data = obj.data
+    if data is None or not hasattr(data, "transform") or data.users > 1:
+        return False
+    if tuple(obj.scale) == (1.0, 1.0, 1.0):
+        return False
+    from mathutils import Matrix
+    data.transform(Matrix.Diagonal(obj.scale).to_4x4())
+    obj.scale = (1.0, 1.0, 1.0)
+    return True
 
 
 def register_tm_dimensions_props():
@@ -577,10 +607,19 @@ def register_tm_dimensions_props():
         description="Apply dimensions to all selected objects, not only the active one",
         default=False,
     )
+    bpy.types.WindowManager.iops_tm_dimensions_keep_scale = bpy.props.BoolProperty(
+        name="Keep Scale 1",
+        description="After changing dimensions, apply scale to object data so scale stays (1,1,1). Skipped for multi-user data",
+        default=False,
+    )
 
 
 def unregister_tm_dimensions_props():
-    for name in ("iops_tm_dimensions", "iops_tm_dimensions_to_selected"):
+    for name in (
+        "iops_tm_dimensions",
+        "iops_tm_dimensions_to_selected",
+        "iops_tm_dimensions_keep_scale",
+    ):
         if hasattr(bpy.types.WindowManager, name):
             delattr(bpy.types.WindowManager, name)
 
@@ -651,16 +690,16 @@ class IOPS_PT_Collection_Append_Panel(bpy.types.Panel):
     def draw(self, context):
         wm = context.window_manager
         props = wm.IOPS_AddonProperties
-        
+
         layout = self.layout
         col = layout.column(align=True)
-        
+
         # Scan button
         col.label(text="1. Scan Source Collections:", icon="VIEWZOOM")
         col.operator("iops.scan_source_collections", text="Scan Collections", icon="FILE_REFRESH")
-        
+
         col.separator()
-        
+
         # Collection list
         if props.iops_source_collections:
             col.label(text="2. Select Collections:", icon="OUTLINER_COLLECTION")
@@ -674,27 +713,27 @@ class IOPS_PT_Collection_Append_Panel(bpy.types.Panel):
                 "iops_source_collections_index",
                 rows=5
             )
-            
+
             # Select/Deselect buttons
             col.separator()
             row = col.row(align=True)
             row.operator("iops.select_all_collections", text="Select All").action = 'SELECT'
             row.operator("iops.select_all_collections", text="Deselect All").action = 'DESELECT'
-            
+
             col.separator()
-            
+
             # Append button
             col.label(text="3. Append Selected:", icon="APPEND_BLEND")
             selected_count = sum(1 for item in props.iops_source_collections if item.is_selected)
-            col.operator("iops.instance_collection_append", 
-                        text=f"Append ({selected_count} selected)", 
+            col.operator("iops.instance_collection_append",
+                        text=f"Append ({selected_count} selected)",
                         icon="IMPORT")
         else:
             box = col.box()
             box.label(text="No collections scanned yet", icon="INFO")
-        
+
         col.separator()
-        
+
         # Instructions
         box = layout.box()
         box.label(text="Instructions:", icon="QUESTION")
@@ -741,11 +780,11 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
 
         layout = self.layout
         col = layout.column(align=True)
-        
+
         # Check if brush exists before trying to access its properties
         if brush:
             col.prop(brush, "color", text="")
-        
+
         if context.mode == "OBJECT":
             layout.template_ID(settings, "palette", new="palette.new")
             if settings.palette:
