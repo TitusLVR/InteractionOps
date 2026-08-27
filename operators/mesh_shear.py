@@ -960,14 +960,16 @@ cancels. LMB clicks only pick widget handles."""
         t = _angle_to_t(self.angle_deg)
 
         if rec["type"] == "face":
-            face = rec["face"]
-            if not face.is_valid:
+            # Multi-face: every face record extrudes together as ONE
+            # region (shared edges between selected faces get no wall,
+            # exactly like the native extrude), while side direction
+            # and saw-off delay are still derived per record. A vert
+            # shared by several records averages their sides and takes
+            # the smallest delay.
+            face_recs = [r for r in self.records
+                         if r["type"] == "face" and r["face"].is_valid]
+            if len(face_recs) != len(self.records):
                 self.report({"WARNING"}, "extrude: face record invalid")
-                return False
-            rails = rec.get("rails", [])
-            projs = rec.get("projections", [])
-            active_verts = rec["active_verts"]
-            if not rails or not projs:
                 return False
 
             def mirror(vec, n):
@@ -979,78 +981,90 @@ cancels. LMB clicks only pick widget handles."""
                 # direction (rail goes from anchor INTO the face vert).
                 return 2.0 * vec.dot(n) * n - vec
 
-            # Use the CURRENT (sheared) face normal as the mirror plane.
-            # bm.normal_update() is assumed to be current at this point;
-            # the modal path always calls it after each shear edit.
-            face_normal = _face_normal_safe(face)
-            if face_normal.length < 1e-9:
-                return False
-
-            # Per-vert side direction = mirror of the rail across the
-            # sheared face plane (using the edge-mode convention so the
-            # direction points OUT of the existing body). The sheared
-            # face acts as the angle bisector between old rail (going
-            # INTO existing geometry) and new side (going INTO the
-            # extruded segment). Per-vert delay = slide_max - slide:
-            # vert with the largest slide (opposite-pivot edge) has
-            # zero delay and moves immediately; pivot-edge verts wait
-            # the longest. Mirrors the edge-mode saw-off rule one-vert-
-            # at-a-time for every face vert, using the same plane-
-            # intersection slide amounts as apply_records.
             a_rad = math.radians(self.angle_deg)
             sin_t = math.sin(a_rad)
             cos_t = math.cos(a_rad)
-            rec_n = rec.get("normal")
-            n_prime = (rec_n * cos_t - rec["axis_dir"] * sin_t
-                       if rec_n is not None else None)
-
-            def slide_of(rail, proj):
-                if n_prime is None:
-                    return proj * sin_t
-                return proj * _face_slide_factor(rail["dir"], n_prime,
-                                                 sin_t)
-
-            slides = [slide_of(rail, proj)
-                      for rail, proj in zip(rails, projs)]
-            slide_max = max(slides) if slides else 0.0
-            # Unsheared face (always the case right after a hinge
-            # confirm): the face is a square end, not a miter — extrude
-            # straight along its normal. The rail mirror only encodes a
-            # miter when there IS a shear; on oblique/diverging rails
-            # (chamfer profiles, post-hinge spin-wall chords) mirroring
-            # at zero angle collapses or twists the new face.
             straight = abs(sin_t) < 1e-6
-            unit_normal = face_normal.normalized()
-            per_old_vert = {}
-            for av, rail, slide in zip(active_verts, rails, slides):
-                if straight:
-                    side = unit_normal.copy()
-                else:
-                    side = mirror(rail["dir"], face_normal)
-                    if side.length < 1e-9:
-                        side = rail["dir"]  # rail parallel to normal — fallback
-                    else:
-                        side = side.normalized()
-                # Same slide rule as apply_records so the mirrored
-                # saw-off delays match the actual slides.
-                delay = slide_max - slide
-                per_old_vert[av] = (av.co.copy(), side, delay)
 
-            res = bmesh.ops.extrude_face_region(self.bm, geom=[face])
+            per_old_vert = {}   # BMVert -> [anchor, [sides], min_delay]
+            face_normals = {}
+            for r in face_recs:
+                face = r["face"]
+                rails = r.get("rails", [])
+                projs = r.get("projections", [])
+                active_verts = r["active_verts"]
+                if not rails or not projs:
+                    return False
+                # Use the CURRENT (sheared) face normal as the mirror
+                # plane. bm.normal_update() is assumed current here;
+                # the modal path always calls it after each shear edit.
+                face_normal = _face_normal_safe(face)
+                if face_normal.length < 1e-9:
+                    return False
+                face_normals[face] = face_normal
+                rec_n = r.get("normal")
+                n_prime = (rec_n * cos_t - r["axis_dir"] * sin_t
+                           if rec_n is not None else None)
+
+                def slide_of(rail, proj, n_prime=n_prime):
+                    if n_prime is None:
+                        return proj * sin_t
+                    return proj * _face_slide_factor(rail["dir"], n_prime,
+                                                     sin_t)
+
+                slides = [slide_of(rail, proj)
+                          for rail, proj in zip(rails, projs)]
+                slide_max = max(slides) if slides else 0.0
+                # Unsheared face (always the case right after a hinge
+                # confirm): square end, not a miter — extrude straight
+                # along its normal. The rail mirror only encodes a
+                # miter when there IS a shear.
+                unit_normal = face_normal.normalized()
+                for av, rail, slide in zip(active_verts, rails, slides):
+                    if straight:
+                        side = unit_normal.copy()
+                    else:
+                        side = mirror(rail["dir"], face_normal)
+                        if side.length < 1e-9:
+                            side = rail["dir"]  # rail parallel to normal
+                        else:
+                            side = side.normalized()
+                    # Same slide rule as apply_records so the mirrored
+                    # saw-off delays match the actual slides.
+                    delay = slide_max - slide
+                    entry = per_old_vert.get(av)
+                    if entry is None:
+                        per_old_vert[av] = [av.co.copy(), [side], delay]
+                    else:
+                        entry[1].append(side)
+                        entry[2] = min(entry[2], delay)
+
+            orig_faces = [r["face"] for r in face_recs]
+            res = bmesh.ops.extrude_face_region(self.bm, geom=orig_faces)
             new_geom = res.get("geom", [])
             new_verts = [g for g in new_geom
                          if isinstance(g, bmesh.types.BMVert)]
             new_faces = [g for g in new_geom
                          if isinstance(g, bmesh.types.BMFace)]
-            target_face = next(
-                (f for f in new_faces if len(f.verts) == len(face.verts)),
-                None,
-            )
-            if target_face is None or not new_verts:
+            # Caps: new faces whose verts are all new (side walls
+            # always touch an old vert). Pair them with the originals
+            # by centroid so record order is preserved.
+            new_vert_set = set(new_verts)
+            caps = [f for f in new_faces
+                    if all(v in new_vert_set for v in f.verts)]
+            if len(caps) != len(orig_faces) or not new_verts:
                 return False
+            target_faces = []
+            for of in orig_faces:
+                c = of.calc_center_median()
+                best = min(caps,
+                           key=lambda f: (f.calc_center_median() - c).length)
+                target_faces.append(best)
+                caps.remove(best)
 
             # Match each new vert to its old counterpart by position
             # (they coincide right after extrude_face_region).
+            fallback_n = next(iter(face_normals.values()))
             anchors = []
             sides = []
             delays = []
@@ -1062,31 +1076,35 @@ cancels. LMB clicks only pick widget handles."""
                         break
                 if best is None:
                     anchors.append(nv.co.copy())
-                    sides.append(face_normal.copy())
+                    sides.append(fallback_n.copy())
                     delays.append(0.0)
                 else:
+                    side = Vector((0.0, 0.0, 0.0))
+                    for sd in best[1]:
+                        side += sd
+                    side = (side.normalized() if side.length > 1e-9
+                            else best[1][0])
                     anchors.append(best[0])
-                    sides.append(best[1])
+                    sides.append(side)
                     delays.append(best[2])
 
             # Average side direction (for the on-screen arrow indicator).
-            avg = anchors[0] * 0.0
-            for s in sides:
-                avg = avg + s
-            avg_dir = avg.normalized() if avg.length > 1e-9 else face_normal
+            avg = Vector((0.0, 0.0, 0.0))
+            for sd in sides:
+                avg = avg + sd
+            avg_dir = avg.normalized() if avg.length > 1e-9 else fallback_n
 
-            # Centroid of the sheared face (arrow tail anchor).
-            center = anchors[0] * 0.0
-            for a in anchors:
-                center = center + a
+            # Centroid of all sheared faces (arrow tail anchor).
+            center = Vector((0.0, 0.0, 0.0))
+            for an in anchors:
+                center = center + an
             center = center / len(anchors)
 
-            # NOTE: extrude_face_region leaves the original face in
-            # place under the new cap. We DEFER deleting it until
-            # _confirm_extrude — if the user cancels, the original
-            # face must still be present (records[0]["face"] points
-            # at it and downstream callers like apply_records and
-            # _draw_face_record deref it without is_valid checks).
+            # NOTE: extrude_face_region leaves the original faces in
+            # place under the new caps. We DEFER deleting them until
+            # _confirm_extrude — if the user cancels, the originals
+            # must still be present (records point at them and
+            # downstream callers deref without is_valid checks).
             self._extrude_data = {
                 "kind": "face",
                 "verts": new_verts,
@@ -1095,8 +1113,10 @@ cancels. LMB clicks only pick widget handles."""
                 "delays": delays,
                 "avg_dir": avg_dir.copy(),
                 "center": center.copy(),
-                "target": target_face,
-                "orig_face": face,
+                "target": target_faces[0],
+                "targets": target_faces,
+                "orig_face": orig_faces[0],
+                "orig_faces": orig_faces,
             }
         else:
             edge = rec["edge"]
@@ -1278,12 +1298,12 @@ cancels. LMB clicks only pick widget handles."""
         # its verts and edges so FACES_ONLY leaves the surrounding
         # topology intact. Cancel doesn't reach this path so the
         # face survives a cancel.
-        orig_face = d.get("orig_face")
-        if (kind == "face" and orig_face is not None
-                and orig_face.is_valid):
-            bmesh.ops.delete(
-                self.bm, geom=[orig_face], context="FACES_ONLY",
-            )
+        # "FACES" (not FACES_ONLY): edges shared between two extruded
+        # faces got no side wall, so they'd be left as wire otherwise.
+        orig_faces = [f for f in d.get("orig_faces", [d.get("orig_face")])
+                      if f is not None and f.is_valid]
+        if kind == "face" and orig_faces:
+            bmesh.ops.delete(self.bm, geom=orig_faces, context="FACES")
         # Move the selection (and select_history) onto the new cap:
         # sub-modals entered from here (Q hinge) read the selection,
         # and a stale pre-extrude edge in select_history would hand
@@ -1292,7 +1312,8 @@ cancels. LMB clicks only pick widget handles."""
             self.bm.select_history.clear()
         except (TypeError, RuntimeError):
             pass
-        if kind == "face" and target.is_valid:
+        targets = [f for f in d.get("targets", [target]) if f.is_valid]
+        if kind == "face" and targets:
             # Full deselect (not just faces) — stray selected edges or
             # verts left by earlier chained ops would otherwise keep
             # accumulating in the selection.
@@ -1302,14 +1323,19 @@ cancels. LMB clicks only pick widget handles."""
                 e.select = False
             for f in self.bm.faces:
                 f.select = False
-            target.select_set(True)
-            self.bm.select_flush_mode()
-            pa, _ = face_principal_axes(target)
-            if pa is not None:
-                new_rec, _ = build_face_record(target, pa)
+            new_records = []
+            for tf in targets:
+                tf.select_set(True)
+                pa, _ = face_principal_axes(tf)
+                if pa is None:
+                    continue
+                new_rec, _ = build_face_record(tf, pa)
                 if new_rec is not None:
-                    self.records = [new_rec]
-                    self.mode = "face"
+                    new_records.append(new_rec)
+            self.bm.select_flush_mode()
+            if new_records:
+                self.records = new_records
+                self.mode = "face"
         elif kind == "edge" and target.is_valid:
             target.select_set(True)
             new_rec, _ = build_edge_record(target, None)
