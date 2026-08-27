@@ -243,28 +243,24 @@ def _closest_snap_point_world(snap_points, obj_matrix, mouse_pos_world):
 
 # --- Closest edge in a face --------------------------------------------
 
-def closest_face_edge(context, face, obj_matrix, mouse_coord):
-    """Find the face edge whose screen-projected segment is nearest to the
-    mouse. Returns the edge's index within `face.edges` (0 on failure).
+def closest_edge_screen(context, edges, obj_matrix, mouse_coord):
+    """Among ``edges`` (BMEdge iterable) find the one whose screen-projected
+    segment is nearest to the mouse. Returns ``(index, distance_px)`` into
+    the iteration order, or ``(None, inf)`` when nothing projects.
     """
-    if not face or not face.edges:
-        return 0
-
     region = context.region
-    rv3d = context.space_data.region_3d
+    rv3d = getattr(context.space_data, "region_3d", None) or context.region_data
     if rv3d is None:
-        return 0
+        return None, float("inf")
 
     mouse_v = Vector(mouse_coord)
-    closest_idx = 0
+    closest_idx = None
     closest_dist = float("inf")
 
-    for i, edge in enumerate(face.edges):
+    for i, edge in enumerate(edges):
         v1, v2 = edge.verts
-        v1_w = obj_matrix @ v1.co
-        v2_w = obj_matrix @ v2.co
-        s1 = location_3d_to_region_2d(region, rv3d, v1_w)
-        s2 = location_3d_to_region_2d(region, rv3d, v2_w)
+        s1 = location_3d_to_region_2d(region, rv3d, obj_matrix @ v1.co)
+        s2 = location_3d_to_region_2d(region, rv3d, obj_matrix @ v2.co)
         if not (s1 and s2):
             continue
 
@@ -280,7 +276,17 @@ def closest_face_edge(context, face, obj_matrix, mouse_coord):
             closest_dist = d
             closest_idx = i
 
-    return closest_idx
+    return closest_idx, closest_dist
+
+
+def closest_face_edge(context, face, obj_matrix, mouse_coord):
+    """Find the face edge whose screen-projected segment is nearest to the
+    mouse. Returns the edge's index within `face.edges` (0 on failure).
+    """
+    if not face or not face.edges:
+        return 0
+    idx, _ = closest_edge_screen(context, face.edges, obj_matrix, mouse_coord)
+    return 0 if idx is None else idx
 
 
 # --- Nearest vertex (screen-space) -------------------------------------

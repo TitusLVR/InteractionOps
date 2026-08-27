@@ -1515,17 +1515,23 @@ cancels. LMB clicks only pick widget handles."""
         an axis-pick click) is dropped so the hinge rotates the
         unsheared pose — but its angle carries over as the initial
         hinge angle so the ghost picks up where the shear left off."""
-        hist_edge = None
-        try:
-            for item in self.bm.select_history:
-                if isinstance(item, bmesh.types.BMEdge):
-                    hist_edge = item
-        except (TypeError, RuntimeError):
-            pass
         sel_faces = [f for f in self.bm.faces if f.select]
         if not sel_faces:
             self.report({"INFO"}, "hinge: needs selected faces")
             return False
+        # Axis edge = the selection's edge nearest to the mouse (same
+        # pick as cursor_bisect), re-picked live on mouse move inside
+        # the sub-modal. Selection-history edge is the fallback when
+        # nothing projects (cursor off-screen).
+        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        hist_edge = self._hinge_pick_edge(context, sel_faces)
+        if hist_edge is None:
+            try:
+                for item in self.bm.select_history:
+                    if isinstance(item, bmesh.types.BMEdge):
+                        hist_edge = item
+            except (TypeError, RuntimeError):
+                pass
         # Restore BEFORE deriving axis/center — the shear preview may
         # have moved the very verts the hinge line passes through.
         # The shear angle (typed included) seeds the hinge angle; when
@@ -1574,27 +1580,7 @@ cancels. LMB clicks only pick widget handles."""
         orig_normal = (n_sum.normalized() if n_sum.length > 1e-9
                        else _face_normal_safe(sel_faces[0]))
 
-        # Match the hinge's positive direction to the shear's: a
-        # positive angle must swing the flap the way a positive shear
-        # slides it — along the record's rails. The tangential velocity
-        # of the selection centroid under +rotation is axis × (centroid
-        # - center); if it opposes the mean rail direction, flip the
-        # axis. Without this the sign of the inherited angle (and of
-        # typed input) depends on the arbitrary vert order of the
-        # active edge.
-        rec0 = self.records[0] if self.records else None
-        if rec0 is not None and rec0.get("type") == "face":
-            r_mean = Vector((0.0, 0.0, 0.0))
-            for rl in rec0["rails"]:
-                r_mean += rl["dir"]
-            sel_centroid = Vector((0.0, 0.0, 0.0))
-            for co in orig_cos:
-                sel_centroid += co
-            sel_centroid /= max(1, len(orig_cos))
-            tangent = axis.cross(sel_centroid - center)
-            if (r_mean.length > 1e-9 and tangent.length > 1e-9
-                    and tangent.dot(r_mean) < 0):
-                axis = -axis
+        axis = self._hinge_orient_axis(axis, center, orig_cos)
 
         self._hinge_data = {
             "faces": sel_faces,
@@ -1615,6 +1601,69 @@ cancels. LMB clicks only pick widget handles."""
         self._hover_idx = None
         self._align_active = False  # latched align highlight must not draw over hinge preview
         self._align_face = None
+        return True
+
+    def _hinge_orient_axis(self, axis, center, orig_cos):
+        """Match the hinge's positive direction to the shear's: a
+        positive angle must swing the flap the way a positive shear
+        slides it — along the record's rails. The tangential velocity
+        of the selection centroid under +rotation is axis × (centroid
+        - center); if it opposes the mean rail direction, flip the
+        axis. Without this the sign of the inherited angle (and of
+        typed input) depends on the arbitrary vert order of the
+        active edge."""
+        rec0 = self.records[0] if self.records else None
+        if rec0 is not None and rec0.get("type") == "face":
+            r_mean = Vector((0.0, 0.0, 0.0))
+            for rl in rec0["rails"]:
+                r_mean += rl["dir"]
+            sel_centroid = Vector((0.0, 0.0, 0.0))
+            for co in orig_cos:
+                sel_centroid += co
+            sel_centroid /= max(1, len(orig_cos))
+            tangent = axis.cross(sel_centroid - center)
+            if (r_mean.length > 1e-9 and tangent.length > 1e-9
+                    and tangent.dot(r_mean) < 0):
+                return -axis
+        return axis
+
+    def _hinge_pick_edge(self, context, faces):
+        """Edge of ``faces`` nearest to the mouse in screen space, or
+        None when nothing projects."""
+        from ..utils.picking import closest_edge_screen
+        edges = []
+        seen = set()
+        for f in faces:
+            for e in f.edges:
+                if e not in seen:
+                    seen.add(e)
+                    edges.append(e)
+        if not edges or context.region_data is None:
+            return None
+        idx, _ = closest_edge_screen(context, edges, self.obj.matrix_world,
+                                     self._mouse_xy)
+        return None if idx is None else edges[idx]
+
+    def _hinge_repick(self, context):
+        """MOUSEMOVE inside the hinge: swap the axis to the edge now
+        under the mouse. Angle, steps and typed input are kept — only
+        the hinge line moves."""
+        d = self._hinge_data
+        if d is None:
+            return False
+        edge = self._hinge_pick_edge(context, d["faces"])
+        if edge is None or edge is d["edge"] or not edge.is_valid:
+            return False
+        v0, v1 = edge.verts
+        axis = v1.co - v0.co
+        if axis.length < 1e-9:
+            return False
+        axis = axis.normalized()
+        center = (v0.co + v1.co) * 0.5
+        d["axis"] = self._hinge_orient_axis(axis, center, d["orig_cos"]).copy()
+        d["center"] = center.copy()
+        d["edge"] = edge
+        d["axis_pts"] = (v0.co.copy(), v1.co.copy())
         return True
 
     def _hinge_effective_angle(self):
@@ -1653,6 +1702,8 @@ cancels. LMB clicks only pick widget handles."""
 
         if event.type == "MOUSEMOVE":
             self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+            if self._hinge_repick(context) and context.area:
+                context.area.tag_redraw()
             return {"RUNNING_MODAL"}
 
         if event.value == "PRESS":
