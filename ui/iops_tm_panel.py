@@ -515,10 +515,35 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
 _DIM_TYPES = {"MESH", "CURVE", "FONT", "ARMATURE", "META", "GPENCIL", "SURFACE", "LATTICE"}
 
 
+def _local_extent(obj):
+    """Un-scaled bound box extent. obj.dimensions is stale between depsgraph
+    updates (it only refreshes after scale is re-evaluated), which breaks
+    per-component RNA writes (multi-drag / typed XYZ)."""
+    bb = obj.bound_box
+    return tuple(
+        max(c[i] for c in bb) - min(c[i] for c in bb) for i in range(3)
+    )
+
+
+def _dims_of(obj):
+    ext = _local_extent(obj)
+    return tuple(ext[i] * abs(obj.scale[i]) for i in range(3))
+
+
+def _apply_dims(obj, value):
+    ext = _local_extent(obj)
+    sc = obj.scale.copy()
+    for i in range(3):
+        if ext[i] > 1e-9:
+            sign = -1.0 if sc[i] < 0 else 1.0
+            sc[i] = sign * value[i] / ext[i]
+    obj.scale = sc
+
+
 def _tm_dimensions_get(self):
     obj = bpy.context.view_layer.objects.active
     if obj and obj.type in _DIM_TYPES:
-        return tuple(obj.dimensions)
+        return _dims_of(obj)
     return (0.0, 0.0, 0.0)
 
 
@@ -532,7 +557,7 @@ def _tm_dimensions_set(self, value):
     else:
         targets = [active] if active and active.type in _DIM_TYPES else []
     for o in targets:
-        o.dimensions = value
+        _apply_dims(o, value)
 
 
 def register_tm_dimensions_props():
