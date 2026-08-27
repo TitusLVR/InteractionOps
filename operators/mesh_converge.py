@@ -100,7 +100,9 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             ("GREEDY", "Greedy",
              "Nearest pairs first; each edge is used in at most one weld"),
             ("ALL", "All",
-             "Every qualifying pair is welded; edges may be reused"),
+             "Collapse every selected edge into the convergence point of "
+             "the two rails: the loop's end edges, or the first two edges "
+             "in selection history"),
             ("ORDER", "Order",
              "Pair edges by selection order (1st+2nd, 3rd+4th, ...)"),
         ],
@@ -151,7 +153,8 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             self.report({"WARNING"}, "No valid candidate pairs among selected edges")
             return {"CANCELLED"}
 
-        pairs, strategy_used = self._resolve_pairs(bm, selected, candidates)
+        pairs, strategy_used = self._resolve_pairs(
+            bm, selected, candidates, edges_co)
         if not pairs:
             self.report({"WARNING"}, "No pairs resolved by strategy")
             return {"CANCELLED"}
@@ -177,17 +180,28 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             if isinstance(e, bmesh.types.BMEdge) and e in index_of
         ]
 
-    def _resolve_pairs(self, bm, selected, candidates):
+    def _resolve_pairs(self, bm, selected, candidates, edges_co):
         """Run ``self.strategy`` over ``candidates``.
 
         Returns ``(pairs, strategy_used)``. ORDER falls back to GREEDY
         (with a warning report) when selection history holds fewer than
-        two of the currently-selected edges.
+        two of the currently-selected edges; ALL falls back when no
+        rails can be determined or they don't converge.
         """
         strategies = dict(STRATEGIES)
         strategy = self.strategy
+        history_idx = self._history_indices(bm, selected)
+        if strategy == "ALL":
+            pairs = strategies["ALL"](candidates, history_idx, edges_co)
+            if pairs:
+                return pairs, "ALL"
+            self.report(
+                {"WARNING"},
+                "ALL: no converging rails (loop ends / first two edges in "
+                "selection history); falling back to GREEDY",
+            )
+            strategy = "GREEDY"
         if strategy == "ORDER":
-            history_idx = self._history_indices(bm, selected)
             if len(history_idx) < 2:
                 self.report(
                     {"WARNING"},
@@ -252,6 +266,8 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._key_idx = 0
         self._pairs = []
         self._candidates = []
+        self._edges_co = []
+        self._history_idx = []
         self._read_selection(bm)
         if not self._candidates:
             # Drop the bmesh/BMElement references again: Blender keeps
@@ -350,16 +366,21 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
                         for e in selected]
             candidates = candidate_pairs(edges_co, tol=TOL)
         else:
+            edges_co = []
             candidates = []
 
         self._sel_edges = selected
+        self._edges_co = edges_co
         self._candidates = candidates
         self._history_idx = self._history_indices(bm, selected)
-        # ORDER is only offered when the history can actually pair edges;
-        # cycling skips it entirely rather than showing an empty preview.
+        # ORDER is only offered when the history can actually pair edges,
+        # ALL only when converging rails exist; cycling skips them
+        # entirely rather than showing an empty preview.
         want = self._keys[self._key_idx] if self._keys else self.strategy
         self._keys = [k for k, _ in STRATEGIES
                       if k != "ORDER" or len(self._history_idx) >= 2]
+        if not self._pairs_for("ALL"):
+            self._keys.remove("ALL")
         self._key_idx = self._keys.index(want) if want in self._keys else 0
         self._pairs = self._pairs_for(self._current_key())
 
@@ -371,6 +392,9 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         strategies = dict(STRATEGIES)
         if key == "ORDER":
             return strategies["ORDER"](self._candidates, self._history_idx)
+        if key == "ALL":
+            return strategies["ALL"](self._candidates, self._history_idx,
+                                     self._edges_co)
         return strategies[key](self._candidates)
 
     def _cycle(self, context, delta):
@@ -653,6 +677,7 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         self._region = None
         self._sel_edges = []
         self._candidates = []
+        self._edges_co = []
         self._pairs = []
         self._snap_edges = frozenset()
         self._snap_history = ()

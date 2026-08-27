@@ -5,6 +5,8 @@ from utils.converge_core import (
     candidate_pairs,
     strategy_greedy,
     strategy_all,
+    chain_ends,
+    chains,
     strategy_order,
     STRATEGIES,
     TOL,
@@ -162,23 +164,77 @@ def test_strategy_greedy_each_edge_used_at_most_once():
 
 
 # ---------------------------------------------------------------------------
-# strategy_all
+# strategy_all (rails + collapse)
 # ---------------------------------------------------------------------------
 
-def test_strategy_all_deterministic_order_and_repeated_edges():
-    # three lines concurrent at (2,2,0), all pairwise qualifying, no shared verts
-    edge0 = ((0.0, 0.0, 0.0), (4.0, 4.0, 0.0))
-    edge1 = ((0.0, 4.0, 0.0), (4.0, 0.0, 0.0))
-    edge2 = ((2.0, -2.0, 0.0), (2.0, 6.0, 0.0))
-    cands = candidate_pairs([edge0, edge1, edge2])
-    assert {(c.i, c.j) for c in cands} == {(0, 1), (0, 2), (1, 2)}
+RAIL_A = ((0.0, 2.0, 0.0), (1.0, 2.0, 0.0))    # -> P=(2,2,0) along +x
+RAIL_B = ((2.0, 0.0, 0.0), (2.0, 1.0, 0.0))    # -> P along +y
+LOOP = [((1.0, 2.0, 0.0), (1.5, 1.5, 0.0)),
+        ((1.5, 1.5, 0.0), (2.0, 1.0, 0.0))]
+P = (2.0, 2.0, 0.0)
 
-    shuffled = list(reversed(cands))
-    result = strategy_all(shuffled)
-    assert [(c.i, c.j) for c in result] == [(0, 1), (0, 2), (1, 2)]
 
-    used = [idx for c in result for idx in (c.i, c.j)]
-    assert used.count(0) == 2  # edge 0 appears in two pairs -- repeats allowed
+def test_chain_ends_open_chain_any_order():
+    edges = [LOOP[1], RAIL_A, RAIL_B, LOOP[0]]     # shuffled chain
+    ends = chain_ends(edges)
+    assert ends is not None
+    assert frozenset(ends) == frozenset((1, 2))
+
+
+def test_chain_ends_none_for_disconnected_closed_or_branching():
+    assert chain_ends([RAIL_A, RAIL_B]) is None                 # disconnected
+    sq = [((0, 0, 0), (1, 0, 0)), ((1, 0, 0), (1, 1, 0)),
+          ((1, 1, 0), (0, 1, 0)), ((0, 1, 0), (0, 0, 0))]
+    assert chain_ends(sq) is None                               # closed
+    branch = [RAIL_A, LOOP[0], ((1.0, 2.0, 0.0), (1.0, 3.0, 0.0))]
+    assert chain_ends(branch) is None                           # vert on 3 edges
+
+
+def test_strategy_all_loop_rails_are_chain_ends_regardless_of_history():
+    edges = [LOOP[0], RAIL_B, LOOP[1], RAIL_A]
+    cands = candidate_pairs(edges)
+    out = strategy_all(cands, [0, 2], edges)   # history points at loop edges
+    assert frozenset((out[0].i, out[0].j)) == frozenset((1, 3))
+    assert out[0].P == pytest.approx(P)
+    tail = out[1:]
+    assert len(tail) == 4
+    assert {(c.j, c.moving_end_j) for c in tail} == {(0, 0), (0, 1), (2, 0), (2, 1)}
+    for c in tail:
+        assert c.i == out[0].i or c.i == out[0].j
+        assert c.P == pytest.approx(P)
+        assert c.p1 == pytest.approx(P)
+        assert c.p2 == pytest.approx(P)
+
+
+def test_strategy_all_falls_back_to_history_when_not_a_chain():
+    stray = ((5.0, 5.0, 1.0), (6.0, 5.0, 1.0))
+    edges = [RAIL_A, RAIL_B, stray]
+    cands = candidate_pairs(edges)
+    out = strategy_all(cands, [1, 1, 0], edges)  # duplicate history entry
+    assert frozenset((out[0].i, out[0].j)) == frozenset((0, 1))
+    assert {(c.j, c.moving_end_j) for c in out[1:]} == {(2, 0), (2, 1)}
+    assert strategy_all(cands, [0], edges) == []
+    assert strategy_all(cands, [], edges) == []
+
+
+def test_strategy_all_multiple_loops_each_get_their_own_P():
+    def shift(e, dz):
+        return tuple((x, y, z + dz) for x, y, z in e)
+    loop2 = [shift(e, 5.0) for e in [RAIL_A] + LOOP + [RAIL_B]]
+    edges = [RAIL_A] + LOOP + [RAIL_B] + loop2
+    cands = candidate_pairs(edges)
+    out = strategy_all(cands, [], edges)
+    ps = {tuple(round(x, 6) for x in c.P) for c in out}
+    assert ps == {P, (2.0, 2.0, 5.0)}
+    # 1 rail pair + 2 loop edges * 2 ends, per loop
+    assert len(out) == 2 * (1 + 4)
+    assert len(chains(edges)) == 2
+
+
+def test_strategy_all_empty_when_rails_dont_converge():
+    par = ((0.0, 3.0, 0.0), (1.0, 3.0, 0.0))     # parallel to RAIL_A
+    edges = [RAIL_A, par]
+    assert strategy_all(candidate_pairs(edges), [0, 1], edges) == []
 
 
 # ---------------------------------------------------------------------------

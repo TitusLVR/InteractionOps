@@ -8,6 +8,9 @@ Pipeline:
     candidate_pairs(edges, tol) -> [Candidate, ...]
     STRATEGIES[key](candidates, ...) -> filtered/ordered [Candidate, ...]
 
+``strategy_all`` needs the raw ``edges`` and selection ``history`` on top of
+the candidates; ``strategy_order`` needs ``history``.
+
 A later (bmesh-aware) layer resolves each ``Candidate`` into an actual vert
 collapse: move ``edge[i][moving_end_i] -> p1``, ``edge[j][moving_end_j] -> p2``,
 then weld the two verts together at ``P`` (bmesh ``pointmerge``).
@@ -197,12 +200,151 @@ def strategy_greedy(candidates):
     return out
 
 
-def strategy_all(candidates):
-    """Every candidate pair, deterministic order by edge-index pair.
+def _vert_key(p):
+    """Hashable key for a coordinate; verts closer than EPS share a key."""
+    q = 1.0 / EPS
+    return (round(p[0] * q), round(p[1] * q), round(p[2] * q))
 
-    Edges may appear in multiple pairs -- no consumption tracking.
+
+def chains(edges):
+    """Split ``edges`` into connected components and return, for every
+    component that is one open chain (every vert on <=2 edges, exactly
+    two verts on 1 edge, no cycle), ``(first, last, members)`` -- the two
+    end edge indices in walk order and all member indices. Components
+    that are single edges, closed rings, or branching are skipped."""
+    adj = {}
+    for i, e in enumerate(edges):
+        if dist(e[0], e[1]) < EPS:
+            continue
+        for p in e:
+            adj.setdefault(_vert_key(p), []).append(i)
+    edge_keys = {}
+    for i, e in enumerate(edges):
+        edge_keys[i] = (_vert_key(e[0]), _vert_key(e[1]))
+
+    # connected components over edges
+    seen = set()
+    out = []
+    for start in range(len(edges)):
+        if start in seen or start not in edge_keys:
+            continue
+        if dist(edges[start][0], edges[start][1]) < EPS:
+            continue
+        comp = set()
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            if i in comp:
+                continue
+            comp.add(i)
+            for k in edge_keys[i]:
+                stack.extend(j for j in adj[k] if j not in comp)
+        seen |= comp
+        if len(comp) < 2:
+            continue
+        # open chain test inside the component
+        ends = []
+        ok = True
+        keys = set()
+        for i in comp:
+            keys.update(edge_keys[i])
+        for k in keys:
+            deg = len(adj[k])
+            if deg > 2:
+                ok = False
+                break
+            if deg == 1:
+                ends.append(k)
+        if not ok or len(ends) != 2:
+            continue
+        # walk end -> end
+        key = ends[0]
+        prev = None
+        first = adj[key][0]
+        last = first
+        walked = 0
+        while True:
+            nxt = [i for i in adj[key] if i != prev]
+            if not nxt:
+                break
+            i = nxt[0]
+            walked += 1
+            last = i
+            k0, k1 = edge_keys[i]
+            key = k1 if k0 == key else k0
+            prev = i
+        if walked != len(comp):
+            continue
+        out.append((first, last, sorted(comp)))
+    return out
+
+
+def chain_ends(edges):
+    """``(first, last)`` when ALL of ``edges`` form one open chain, else None."""
+    found = chains(edges)
+    if len(found) == 1 and len(found[0][2]) == len(edges):
+        return found[0][0], found[0][1]
+    return None
+
+
+def _collapse_group(candidates, edges, r0, r1, members):
+    """Candidates collapsing ``members`` (minus the rails) into the rails'
+    P. None when the rails don't converge."""
+    rail_pair = next((c for c in candidates
+                      if frozenset((c.i, c.j)) == frozenset((r0, r1))), None)
+    if rail_pair is None:
+        return None
+    P = rail_pair.P
+    if rail_pair.i == r0:
+        r0_end = rail_pair.moving_end_i
+    else:
+        r0_end = rail_pair.moving_end_j
+    r0_mvert = edges[r0][r0_end]
+    out = [rail_pair]
+    for k in members:
+        if k == r0 or k == r1:
+            continue
+        e = edges[k]
+        if dist(e[0], e[1]) < EPS:
+            continue
+        for end in (0, 1):
+            out.append(Candidate(r0, k, P, P, P, r0_end, end,
+                                 r0_mvert, e[end]))
+    return out
+
+
+def strategy_all(candidates, history, edges):
+    """Collapse each loop into its rails' convergence point.
+
+    Every open chain in the selection (see ``chains``) is a loop whose
+    rails are its first and last edges; its interior edges have BOTH
+    ends sent to that loop's ``P``. Loops whose rails don't converge are
+    skipped. When the selection holds no chains at all, the first two
+    distinct selection-history entries are the rails and every other
+    selected edge collapses into their ``P``. Expressed as Candidate
+    chains sharing ``P = p1 = p2`` so the pairwise apply path (move +
+    weld, alias-chained) collapses each group into one vert. Empty when
+    no rails can be determined or none converge.
     """
-    return sorted(candidates, key=lambda c: (c.i, c.j))
+    out = []
+    found = chains(edges)
+    for first, last, members in found:
+        group = _collapse_group(candidates, edges, first, last, members)
+        if group:
+            out.extend(group)
+    if out or found:
+        return out
+    rails = []
+    for h in history:
+        if h not in rails:
+            rails.append(h)
+        if len(rails) == 2:
+            break
+    if len(rails) < 2:
+        return []
+    group = _collapse_group(candidates, edges, rails[0], rails[1],
+                            range(len(edges)))
+    return group or []
 
 
 def strategy_order(candidates, history):
