@@ -1,5 +1,4 @@
 import os
-import sys
 import bpy
 from bpy.types import PropertyGroup
 from bpy.props import (
@@ -190,23 +189,10 @@ def _tm_dimensions_get(self):
     return (0.0, 0.0, 0.0)
 
 
-def _alt_pressed():
-    """Alt state at write time. RNA setters get no event, so poll the OS
-    (Windows only; elsewhere Alt is unavailable and the toggle is the way)."""
-    if sys.platform != "win32":
-        return False
-    try:
-        import ctypes
-        VK_MENU = 0x12
-        return bool(ctypes.windll.user32.GetAsyncKeyState(VK_MENU) & 0x8000)
-    except Exception:
-        return False
-
-
 def _tm_dimensions_set(self, value):
     ctx = bpy.context
     active = ctx.view_layer.objects.active
-    if self.iops_tm_dimensions_to_selected or _alt_pressed():
+    if self.iops_tm_dimensions_to_selected:
         targets = [o for o in ctx.selected_objects if o.type in _DIM_TYPES]
         if active and active.type in _DIM_TYPES and active not in targets:
             targets.append(active)
@@ -295,7 +281,7 @@ class IOPS_AddonProperties(PropertyGroup):
     )
     iops_tm_dimensions_to_selected: BoolProperty(
         name="Apply to Selected",
-        description="Always apply dimensions to all selected objects (holding Alt does the same, like native properties)",
+        description="Apply dimensions to all selected objects, not only the active one",
         default=False,
     )
     iops_tm_dimensions_keep_scale: BoolProperty(
