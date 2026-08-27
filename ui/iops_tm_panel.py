@@ -288,7 +288,7 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 # col.label(text="PivotPoint:")
                 col.alignment = "CENTER"
                 col.prop(tool_settings, "transform_pivot_point", expand=True)
-                col.separator()                   
+                col.separator()
                 if bpy.app.version > (2, 80, 0):
                     row = col.row(align=True)
                     # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
@@ -502,7 +502,64 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
             "META",
             "GPENCIL",
         ]:
-            col.prop(obj, "dimensions")
+            wm = context.window_manager
+            row = col.row(align=True)
+            row.prop(wm, "iops_tm_dimensions")
+            row.prop(
+                wm,
+                "iops_tm_dimensions_to_selected",
+                text="",
+                icon="RESTRICT_SELECT_OFF",
+                toggle=True,
+            )
+
+
+_DIM_TYPES = {"MESH", "CURVE", "FONT", "ARMATURE", "META", "GPENCIL", "SURFACE", "LATTICE"}
+
+
+def _tm_dimensions_get(self):
+    obj = bpy.context.view_layer.objects.active
+    if obj and obj.type in _DIM_TYPES:
+        return tuple(obj.dimensions)
+    return (0.0, 0.0, 0.0)
+
+
+def _tm_dimensions_set(self, value):
+    ctx = bpy.context
+    active = ctx.view_layer.objects.active
+    if self.iops_tm_dimensions_to_selected:
+        targets = [o for o in ctx.selected_objects if o.type in _DIM_TYPES]
+        if active and active.type in _DIM_TYPES and active not in targets:
+            targets.append(active)
+    else:
+        targets = [active] if active and active.type in _DIM_TYPES else []
+    for o in targets:
+        o.dimensions = value
+
+
+def register_tm_dimensions_props():
+    bpy.types.WindowManager.iops_tm_dimensions = bpy.props.FloatVectorProperty(
+        name="Dimensions",
+        description="Object dimensions (wrapper: supports multi-drag and apply to selected)",
+        size=3,
+        min=0.0,
+        subtype="XYZ_LENGTH",
+        unit="LENGTH",
+        precision=3,
+        get=_tm_dimensions_get,
+        set=_tm_dimensions_set,
+    )
+    bpy.types.WindowManager.iops_tm_dimensions_to_selected = bpy.props.BoolProperty(
+        name="Apply to Selected",
+        description="Apply dimensions to all selected objects, not only the active one",
+        default=False,
+    )
+
+
+def unregister_tm_dimensions_props():
+    for name in ("iops_tm_dimensions", "iops_tm_dimensions_to_selected"):
+        if hasattr(bpy.types.WindowManager, name):
+            delattr(bpy.types.WindowManager, name)
 
 
 class IOPS_OT_Call_TPS_Panel(bpy.types.Operator):
