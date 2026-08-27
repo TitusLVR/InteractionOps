@@ -282,9 +282,15 @@ def build_profile_record(active_verts, edges, normal, axis_dir, *, face,
     rails = []
     centroid_projs = []
     for av in active_verts:
+        # First link edge outside the profile with a usable length. A
+        # zero-length one is a fresh extrude wall whose vert hasn't
+        # left its anchor yet (saw-off delay) — skip it, another edge
+        # or the normal fallback carries the rail.
         rail_edge = None
         for e in av.link_edges:
             if e in exclude:
+                continue
+            if (e.other_vert(av).co - av.co).length < 1e-9:
                 continue
             rail_edge = e
             break
@@ -909,6 +915,7 @@ cancels. LMB clicks only pick widget handles."""
 
     def _save_extrude_distance(self, context, distance):
         context.scene.IOPS.shear_extrude_last_distance = distance
+        self._saved_extrude_distance = distance
 
     def _effective_angle(self):
         if self.input_str and self.input_str not in ("-", ".", "-."):
@@ -1341,12 +1348,23 @@ cancels. LMB clicks only pick widget handles."""
                 new_records, _ = records_for_edges(targets)
             if new_records:
                 self.records = new_records
+            else:
+                # Never keep records pointing at the deleted originals.
+                self.records = []
+                self.report({"WARNING"},
+                            "extrude: shear could not attach to the new geometry")
         self._extrude_active = False
         self._extrude_data = None
-        self.angle_deg = 0.0
+        # The new cap picks up the last USED angle right away, so
+        # chaining E / Enter / E keeps the same miter without retyping
+        # (the records were rebuilt on the cap, so applying from 0 is
+        # exact). The remembered extrude distance seeds the next E.
+        self.angle_deg = getattr(self, "_last_used_angle", 0.0)
         self.input_str = ""
         self._hotspots = []
         self._hover_idx = None
+        if self.records and abs(self.angle_deg) > 1e-6:
+            self._apply()
 
     def _screen_direction(self, context, world_pt, world_dir):
         """Returns a unit (dx, dy) tuple in region pixels representing
