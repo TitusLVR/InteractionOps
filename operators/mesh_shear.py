@@ -156,9 +156,48 @@ def chains_from_edges(edges):
 
 
 def chain_normal(edges, cos):
-    """Plane normal for an edge chain: mean of the linked faces' normals,
-    else the best-fit plane of the verts (oriented toward +Z). None when
-    neither works (a lone wire edge)."""
+    """Plane normal of the virtual face an edge chain spans.
+
+    The chain's own verts define the plane (best fit) — the faces
+    linked to a boundary chain are the walls *adjacent* to the profile,
+    perpendicular to it, so their normals say nothing about the profile
+    plane. Sign: toward the mean rail direction (edges leaving the chain
+    point from the body to the profile), so positive shear / extrude
+    head away from the body; +Z when there are no rails.
+
+    Collinear chains have no plane of their own: fall back to the mean
+    linked-face normal (a straight border of a flat sheet shears in the
+    sheet's plane). None when nothing works (a lone wire edge)."""
+    exclude = set(edges)
+    rail_mean = Vector((0.0, 0.0, 0.0))
+    verts = []
+    seen_v = set()
+    for e in edges:
+        for v in e.verts:
+            if v not in seen_v:
+                seen_v.add(v)
+                verts.append(v)
+    for v in verts:
+        for le in v.link_edges:
+            if le in exclude:
+                continue
+            d = v.co - le.other_vert(v).co
+            if d.length > 1e-9:
+                rail_mean += d.normalized()
+
+    n = Vector((0.0, 0.0, 0.0))
+    if len(cos) >= 3:
+        try:
+            n = Vector(poly_normal(cos))
+        except (ValueError, TypeError):
+            n = Vector((0.0, 0.0, 0.0))
+    if n.length > 1e-6:
+        n.normalize()
+        ref = rail_mean if rail_mean.length > 1e-9 else Vector((0.0, 0.0, 1.0))
+        if n.dot(ref) < 0:
+            n = -n
+        return n
+
     n = Vector((0.0, 0.0, 0.0))
     seen = set()
     for e in edges:
@@ -168,15 +207,6 @@ def chain_normal(edges, cos):
                 n += _face_normal_safe(f)
     if n.length > 1e-9:
         return n.normalized()
-    if len(cos) >= 3:
-        try:
-            n = poly_normal(cos)
-        except (ValueError, TypeError):
-            n = Vector((0.0, 0.0, 0.0))
-        if n.length > 1e-9:
-            if n.z < 0:
-                n = -n
-            return n.normalized()
     return None
 
 
