@@ -252,6 +252,11 @@ class IOPS_OT_LibraryPublish(bpy.types.Operator):
             ("COLLECTION", "Collection", "Publish the active collection"),
             ("MATERIAL", "Material", "Publish the active object's material"),
             ("SHADER_GROUP", "Shader Group", "Publish the chosen shader node group"),
+            (
+                "GEO_NODES",
+                "Geometry Nodes",
+                "Publish the active object's Geometry Nodes group",
+            ),
         ),
         default="OBJECT",
         options={"HIDDEN"},
@@ -358,16 +363,60 @@ class IOPS_OT_LibraryPublish(bpy.types.Operator):
                 "%s material" % material.name,
             )
 
+        if self.publish_kind == "GEO_NODES":
+            obj = context.active_object
+            if obj is None:
+                raise RuntimeError("Select an object with a Geometry Nodes modifier.")
+            modifier = None
+            active_modifier = getattr(obj.modifiers, "active", None)
+            if (
+                active_modifier is not None
+                and active_modifier.type == "NODES"
+                and active_modifier.node_group is not None
+            ):
+                modifier = active_modifier
+            else:
+                modifier = next(
+                    (
+                        m
+                        for m in obj.modifiers
+                        if m.type == "NODES" and m.node_group is not None
+                    ),
+                    None,
+                )
+            if modifier is None:
+                raise RuntimeError(
+                    "The active object has no Geometry Nodes modifier with a group."
+                )
+            node_group = modifier.node_group
+            if node_group.library is not None:
+                raise RuntimeError(
+                    "The Geometry Nodes group must be local and editable."
+                )
+            return (
+                {node_group},
+                {
+                    "asset_name": node_group.name,
+                    "asset_type": "NODETREE",
+                    "data_collection": "node_groups",
+                    "source_mode": "DATABLOCK",
+                },
+                "%s geometry nodes group" % node_group.name,
+            )
+
         preferences = get_prefs(context)
         node_group = (
             bpy.data.node_groups.get(preferences.library_shader_group)
             if preferences is not None
             else None
         )
-        if node_group is None or node_group.bl_idname != "ShaderNodeTree":
-            raise RuntimeError("Choose a local shader node group first.")
+        if node_group is None or node_group.bl_idname not in (
+            "ShaderNodeTree",
+            "GeometryNodeTree",
+        ):
+            raise RuntimeError("Choose a local shader or geometry node group first.")
         if node_group.library is not None:
-            raise RuntimeError("The shader node group must be local and editable.")
+            raise RuntimeError("The node group must be local and editable.")
         return (
             {node_group},
             {
@@ -376,7 +425,7 @@ class IOPS_OT_LibraryPublish(bpy.types.Operator):
                 "data_collection": "node_groups",
                 "source_mode": "DATABLOCK",
             },
-            "%s shader group" % node_group.name,
+            "%s node group" % node_group.name,
         )
 
     def start_worker(self, context, master_file, data_blocks, manifest, label):

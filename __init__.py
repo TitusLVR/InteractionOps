@@ -242,6 +242,10 @@ from .operators.easy_mod_array import (
 from .operators.object_radial_array import IOPS_OT_Object_Radial_Array
 from .operators.object_aligner import IOPS_OT_Object_Aligner
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
+from .operators.bevel_edge_data import (
+    IOPS_OT_BevelEdgeDataFix,
+    IOPS_OT_PinUnwrapBevel,
+)
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active, IOPS_OT_Object_Name_From_Active_Apply
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
 
@@ -309,6 +313,7 @@ from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
 from .operators.mesh_smart_inset import IOPS_OT_smart_inset
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_converge import IOPS_OT_mesh_converge
+from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
@@ -520,6 +525,8 @@ classes = (
     IOPS_OT_Object_Radial_Array,
     IOPS_OT_Object_Aligner,
     IOPS_OT_Easy_Mod_Shwarp,
+    IOPS_OT_BevelEdgeDataFix,
+    IOPS_OT_PinUnwrapBevel,
     IOPS_OT_Mesh_QuickSnap,
     IOPS_OT_LoadDefaultHotkeys,
     IOPS_OT_LoadUserHotkeys,
@@ -634,6 +641,7 @@ classes = (
     IOPS_OT_smart_inset,
     IOPS_OT_mesh_shear,
     IOPS_OT_mesh_converge,
+    IOPS_OT_mesh_vert_fuse,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
     IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
     IOPS_OT_SSNew,

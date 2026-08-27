@@ -8,8 +8,11 @@ profiles — beveled squares, custom hand-built shapes, anything where
 
 
 - face selection (any face selected) → face shear: each face vert
-  slides along its non-face rail edge by `proj·sin(angle)` where
-  `proj` is the vert's offset from the pivot side along the axis.
+  slides along its non-face rail edge to where the rail meets the
+  face plane rotated by the typed angle around the pivot side —
+  `proj·sin(angle)/(rail·n')` where `proj` is the vert's offset from
+  the pivot side along the axis and `n'` the rotated plane normal.
+  The typed angle is the actual resulting tilt on any rail obliquity.
   Verts sharing a projection (one profile cross-section) slide as a
   rigid row along their averaged rail direction.
 
@@ -260,8 +263,8 @@ def build_face_record(face, axis_dir):
     # Saw-off: pivot is the face boundary where axis_dir projection is
     # smallest (the "saw entry" edge). Shift so that pivot verts have
     # proj = 0 and the rest have proj > 0. At positive angle, every
-    # vert slides along its rail away from the pivot edge by
-    # `proj * sin(angle)`.
+    # vert slides along its rail away from the pivot edge onto the
+    # rotated face plane (see apply_records).
     min_centroid_proj = min(centroid_projs)
     projections = [cp - min_centroid_proj for cp in centroid_projs]
     pivot_point = centroid + axis_dir * min_centroid_proj
@@ -302,6 +305,8 @@ def build_face_record(face, axis_dir):
     return {
         "type": "face",
         "face": face,
+        "normal": (normal.normalized() if normal.length > 1e-9
+                   else None),
         "axis_dir": axis_dir.copy(),
         "centroid": centroid.copy(),
         "pivot_point": pivot_point.copy(),
@@ -448,10 +453,24 @@ def _min_obb_axis_for_face(face):
     return axis.normalized()
 
 
+def _invert_slide_slope(rec, axis_dir, slope, R):
+    """Angle θ whose plane-intersection slide cancels a measured
+    offset-vs-projection slope `slope` along the mean rail R:
+    sin(θ)/(R·n'(θ)) = -slope  →
+    tan(θ) = -slope·(R·n) / (1 - slope·(R·a))."""
+    n = rec.get("normal")
+    if n is None:
+        return math.degrees(math.atan(-slope))
+    return math.degrees(math.atan2(
+        -slope * R.dot(n), 1.0 - slope * R.dot(axis_dir)))
+
+
 def _fit_reset_for_axis(rec, axis_dir):
-    """Linear-regression fit of `offset_along_rail = -sin(θ) * proj +
-    C` for the given axis. Returns (slope, residual_sum_squares) so a
-    caller can pick the best axis. None if the system is degenerate."""
+    """Linear-regression fit of `offset_along_rail = slope * proj +
+    C` for the given axis. Returns (slope, residual_sum_squares, R)
+    — R is the mean rail direction the offsets were measured along —
+    so a caller can pick the best axis and invert the slide model.
+    None if the system is degenerate."""
     rails = rec["rails"]
     if not rails:
         return None
@@ -485,7 +504,7 @@ def _fit_reset_for_axis(rec, axis_dir):
     for i in range(n):
         residual = offs[i] - (slope * cprojs[i] + intercept)
         rss += residual * residual
-    return slope, rss
+    return slope, rss, R
 
 
 def compute_reset_for_face_record(rec):
@@ -504,10 +523,8 @@ def compute_reset_for_face_record(rec):
         fit = _fit_reset_for_axis(rec, axis)
         if fit is None:
             continue
-        slope, rss = fit
-        # Slide model is proj·sin(angle) — invert with asin, clamping
-        # to the reachable range (|slide| can't exceed proj).
-        angle = math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
+        slope, rss, R = fit
+        angle = _invert_slide_slope(rec, axis, slope, R)
         if best is None or rss < best[2] - 1e-9:
             best = (axis, angle, rss)
     if best is None:
@@ -555,8 +572,7 @@ def compute_reset_angle_face(rec):
     if abs(den) < 1e-9:
         return 0.0
     slope = num / den
-    # Slide model is proj·sin(angle) — invert with asin, clamped.
-    return math.degrees(math.asin(max(-1.0, min(1.0, -slope))))
+    return _invert_slide_slope(rec, rec["axis_dir"], slope, R)
 
 
 def compute_reset_angle_edge(rec):
@@ -630,14 +646,31 @@ def compute_reset_angle(records):
     return sum(angles) / len(angles)
 
 
+def _face_slide_factor(rail_dir, n_prime, sin_a):
+    """Per-rail slide factor of the plane-intersection model: the vert
+    slides along its rail to where the rail meets the face plane
+    rotated by the typed angle (slide = proj · factor). Clamped like
+    _angle_to_t when the rail runs parallel to the rotated plane."""
+    denom = rail_dir.dot(n_prime)
+    if abs(denom) < 1e-6:
+        return math.copysign(1e4, sin_a) if sin_a else 0.0
+    return max(-1e4, min(1e4, sin_a / denom))
+
+
 def apply_records(records, angle_deg):
     t = _angle_to_t(angle_deg)
-    # Face mode slides by proj·sin(angle): the reference results are
-    # "rotate the face by the typed angle around the pivot side, land
-    # the verts back on their rails" — the rail-projected displacement
-    # of that rotation. tan() overshoots on oblique rails (a 45°
-    # chamfer face would tilt 67.5° for a typed 45°).
-    s = math.sin(math.radians(angle_deg))
+    # Face mode lands each vert on the face plane rotated by the typed
+    # angle around the pivot line: slide = proj·sin(θ)/(rail·n') with
+    # n' = normal·cosθ − axis·sinθ (the rotated plane normal). On
+    # rails perpendicular to the face this reduces to proj·tan(θ), so
+    # the typed angle IS the resulting tilt (the earlier proj·sin(θ)
+    # slide under-tilted: typed 45 gave atan(sin 45) = 35.26° on a
+    # cube). On oblique rails the verts still land exactly on the
+    # rotated plane, so chamfer faces also tilt by the typed angle
+    # (plain proj·tan(θ) overshot there: 67.5° for a typed 45°).
+    a_rad = math.radians(angle_deg)
+    sin_a = math.sin(a_rad)
+    cos_a = math.cos(a_rad)
     for r in records:
         if r["type"] == "edge":
             if r["active"].is_valid and r["fixed"].is_valid:
@@ -647,11 +680,17 @@ def apply_records(records, angle_deg):
                 shift = r["rail_dir"] * r["edge_length"] * t
                 r["active"].co = r["orig_active_co"] + shift
         elif r["type"] == "face":
+            n = r.get("normal")
+            n_prime = (n * cos_a - r["axis_dir"] * sin_a
+                       if n is not None else None)
             for av, oc, rail, proj in zip(
                     r["active_verts"], r["orig_active_cos"],
                     r["rails"], r["projections"]):
                 if av.is_valid:
-                    av.co = oc + rail["dir"] * (proj * s)
+                    factor = (t if n_prime is None else
+                              _face_slide_factor(rail["dir"], n_prime,
+                                                 sin_a))
+                    av.co = oc + rail["dir"] * (proj * factor)
 
 
 def restore_records(records):
@@ -952,13 +991,28 @@ cancels. LMB clicks only pick widget handles."""
             # direction points OUT of the existing body). The sheared
             # face acts as the angle bisector between old rail (going
             # INTO existing geometry) and new side (going INTO the
-            # extruded segment). Per-vert delay = (proj_max - proj) *
-            # tan(angle): vert with the largest projection (opposite-
-            # pivot edge) has zero delay and moves immediately; pivot-
-            # edge verts wait the longest. Mirrors the edge-mode saw-
-            # off rule one-vert-at-a-time for every face vert.
-            proj_max = max(projs) if projs else 0.0
-            sin_t = math.sin(math.radians(self.angle_deg))
+            # extruded segment). Per-vert delay = slide_max - slide:
+            # vert with the largest slide (opposite-pivot edge) has
+            # zero delay and moves immediately; pivot-edge verts wait
+            # the longest. Mirrors the edge-mode saw-off rule one-vert-
+            # at-a-time for every face vert, using the same plane-
+            # intersection slide amounts as apply_records.
+            a_rad = math.radians(self.angle_deg)
+            sin_t = math.sin(a_rad)
+            cos_t = math.cos(a_rad)
+            rec_n = rec.get("normal")
+            n_prime = (rec_n * cos_t - rec["axis_dir"] * sin_t
+                       if rec_n is not None else None)
+
+            def slide_of(rail, proj):
+                if n_prime is None:
+                    return proj * sin_t
+                return proj * _face_slide_factor(rail["dir"], n_prime,
+                                                 sin_t)
+
+            slides = [slide_of(rail, proj)
+                      for rail, proj in zip(rails, projs)]
+            slide_max = max(slides) if slides else 0.0
             # Unsheared face (always the case right after a hinge
             # confirm): the face is a square end, not a miter — extrude
             # straight along its normal. The rail mirror only encodes a
@@ -968,7 +1022,7 @@ cancels. LMB clicks only pick widget handles."""
             straight = abs(sin_t) < 1e-6
             unit_normal = face_normal.normalized()
             per_old_vert = {}
-            for av, rail, proj in zip(active_verts, rails, projs):
+            for av, rail, slide in zip(active_verts, rails, slides):
                 if straight:
                     side = unit_normal.copy()
                 else:
@@ -977,9 +1031,9 @@ cancels. LMB clicks only pick widget handles."""
                         side = rail["dir"]  # rail parallel to normal — fallback
                     else:
                         side = side.normalized()
-                # Same proj·sin(angle) rule as apply_records so the
-                # mirrored saw-off delays match the actual slides.
-                delay = (proj_max - proj) * sin_t
+                # Same slide rule as apply_records so the mirrored
+                # saw-off delays match the actual slides.
+                delay = slide_max - slide
                 per_old_vert[av] = (av.co.copy(), side, delay)
 
             res = bmesh.ops.extrude_face_region(self.bm, geom=[face])

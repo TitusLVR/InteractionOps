@@ -301,6 +301,7 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
             "pub_col": _button_width("Col", 30),
             "pub_mat": _button_width("Mat", 30),
             "pub_grp": _button_width("Node", 30),
+            "pub_geo": _button_width("Geo", 30),
         }
         controls_width = (
             self._button_widths["close"]
@@ -321,6 +322,8 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
             + self._button_widths["pub_mat"]
             + 3
             + self._button_widths["pub_grp"]
+            + 3
+            + self._button_widths["pub_geo"]
         )
         header_min_width = max(
             int(title_width) + 11 + 12 + controls_width + 7,
@@ -533,6 +536,7 @@ class IOPS_OT_LibraryPopup(bpy.types.Operator):
                 ("pub_col", "COLLECTION", "Col"),
                 ("pub_mat", "MATERIAL", "Mat"),
                 ("pub_grp", "SHADER_GROUP", "Node"),
+                ("pub_geo", "GEO_NODES", "Geo"),
             ):
                 chip_width = widths.get(chip, 30)
                 chip_bounds = (left, row2_bottom, left + chip_width, row2_top)
