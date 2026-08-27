@@ -2031,6 +2031,14 @@ cancels. LMB clicks only pick widget handles."""
                 curr = []
                 break
             curr.append(p)
+        if curr and virtual_i is not None and n >= 3:
+            # Virtual face fill: the open chain closed by its chord is
+            # the profile the OBB / pivot sides are built on — show it.
+            tris = []
+            for i in range(1, n - 1):
+                tris.extend([curr[0], curr[i], curr[i + 1]])
+            draw_prim.tris(tris, color=theme.color_for(Role.GHOST_DEFAULT),
+                           context=context)
         if curr:
             normal_segs = []
             pivot_segs = []
