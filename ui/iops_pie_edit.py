@@ -32,6 +32,7 @@ edit_pie_content_list = [
     ("iops.mesh_quick_connect", "Quick Connect", ""),
     ("iops.mesh_straight_bevel", "Straight Bevel", ""),
     ("iops.mesh_shear", "Shear", ""),
+    ("iops.mesh_hinge", "Hinge", ""),
     ("iops.mesh_converge", "Converge", ""),
     ("iops.mesh_vert_fuse", "Vert Fuse", ""),
     ("iops.mesh_smart_inset", "Smart Inset", ""),
