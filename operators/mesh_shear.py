@@ -746,85 +746,15 @@ def records_for_edges(edges):
 # --------------------------------------------------------------------------
 
 
-class IOPS_OT_mesh_shear(bpy.types.Operator):
-    """Smart shear. Tilts the active selection: a face tilts around its
-centroid (rail-constrained), an edge tilts in its face plane.
+class ExtrudeMixin:
+    """E-extrude shared by Shear and Hinge: the selection's profile
+    records are extruded as one region, positioned by a grabbable arrow
+    handle (LMB on the head drags along the arrow), confirmed with
+    LMB/Enter and rebuilt into records on the new geometry. Hosts
+    provide `records`, `mode`, `bm`, `obj`, `_status_text()` and the
+    hooks `_extrude_shear_angle()` / `_after_extrude_confirm()`."""
 
-The selection determines the mode automatically. Numeric input sets
-the angle. F is mode-specific (cycle axis edge for faces, flip active
-vert for edges). D flips direction. Enter confirms, Esc/RMB
-cancels. LMB clicks only pick widget handles."""
-
-    bl_idname = "iops.mesh_shear"
-    bl_label = "Shear (Smart)"
-    bl_description = (
-        "Smart shear that auto-detects selection. Faces tilt around "
-        "their centroid; edges tilt in their face plane. Type a number "
-        "for the angle, F is mode-specific, D flips direction"
-    )
-    bl_options = {"REGISTER"}
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and obj.type == "MESH" and obj.mode == "EDIT"
-
-    # ----------------------------------------------------------------------
-    # Lifecycle
-    # ----------------------------------------------------------------------
-
-    def invoke(self, context, event):
-        obj = context.active_object
-        self.obj = obj
-        self.bm = bmesh.from_edit_mesh(obj.data)
-        self.bm.faces.ensure_lookup_table()
-        self.bm.edges.ensure_lookup_table()
-        self.bm.normal_update()
-
-        selected_faces = [f for f in self.bm.faces if f.select]
-        selected_edges = [e for e in self.bm.edges if e.select]
-
-        if not selected_faces and not selected_edges:
-            self.report({"WARNING"}, "Select at least one face or edge")
-            return {"CANCELLED"}
-
-        if selected_faces:
-            self.mode = "face"
-            self.records, skip_reasons = records_for_faces(selected_faces)
-        else:
-            self.mode = "edge"
-            self.records, skip_reasons = records_for_edges(selected_edges)
-
-        if not self.records:
-            msg = f"No valid {self.mode}s for shear"
-            if skip_reasons:
-                msg += f" ({skip_reasons[0]})"
-            self.report({"WARNING"}, msg)
-            return {"CANCELLED"}
-
-        # Start at 0 so invoke doesn't alter geometry — important for
-        # slanted edges where pre-applying 45° on top of the existing
-        # slant compounds the shear and looks broken. The first click
-        # on an orange handle kicks the angle to 45°.
-        self.angle_deg = 0.0
-        self.input_str = ""
-        self.skip_reasons = skip_reasons
-        # Point-and-click state. Each entry: {"region_pt": (x,y),
-        # "axis": Vector, "rec_idx": int}. Click on any hotspot
-        # rebuilds that record with the picked axis (= switches both
-        # the F-toggle direction and the D-pivot side in one action).
-        self._hotspots = []
-        self._hover_idx = None
-        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
-        # Remembered parameters (Scene.IOPS): the last confirmed shear
-        # angle is applied right away as the starting preview; hinge
-        # angle/steps and extrude distance seed their sub-modals.
-        self._load_scene_props(context)
-
-        # Extrude sub-modal state. While `_extrude_active`, MOUSEMOVE
-        # adjusts distance, LMB/Enter confirms (rebuilds shear records
-        # on the new geometry and chains back to shear), Esc/RMB
-        # cancels (deletes the new geometry).
+    def _extrude_init_state(self):
         self._extrude_active = False
         self._extrude_data = None
         self._extrude_distance = 0.0
@@ -835,105 +765,21 @@ cancels. LMB clicks only pick widget handles."""
         self._extrude_head_pt = None
         self._extrude_grab_dist = 0.0
 
-        # Align sub-modal state. A enters; mouse hovers a face which
-        # gets a 35% red overlay; LMB picks it and sets axis_dir to the
-        # intersection line of the current face plane and the picked
-        # face plane (projected into the current face plane). Esc/RMB
-        # exits without applying.
-        self._align_active = False
-        self._align_face = None
-        self._align_bvh = None
+    def _extrude_shear_angle(self):
+        """Angle (deg) the extrude mirrors against. Default: none."""
+        return 0.0
 
-        # Undo push is deferred to confirm. Pushing at invoke captures
-        # the PRE-shear state and finalizes that step — subsequent
-        # mesh changes (the modal itself) flow into the NEXT step.
-        # If a follow-up operator (e.g. straight_bevel) then auto-
-        # pushes its own step, the shear modal's changes get folded
-        # into the bevel's step, so a single Ctrl-Z undoes both ops
-        # at once. Pushing post-_apply at confirm puts the boundary
-        # AFTER the shear changes, so they land in their own step.
-        # (shader managed by draw_prim — no inline shader needed)
+    def _after_extrude_confirm(self):
+        """Host hook after records were rebuilt on the new geometry."""
 
-        self._hud = HUDOverlay("mesh_shear")
-        self._hud.title = "Shear"
-        self._hud.bind_region(context.region)
-        self._help = HelpOverlay("mesh_shear")
-        items = [
-            HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Angle ±5°",          "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cycle bbox side",    "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm + Hinge",    "Q",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align axis to face", "A",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis to min OBB",    "B",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]
-        self._help.add_section(HUDSection("Shear", items))
-        self._help.bind_region(context.region)
-        self._last_event = capture_event(event, getattr(self, "_last_event", None))
-
-        self._handle = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
-
-        self._apply()
-        context.workspace.status_text_set(self._status_text())
-        context.window_manager.modal_handler_add(self)
-        if context.area:
-            context.area.tag_redraw()
-        return {"RUNNING_MODAL"}
-
-    # ----------------------------------------------------------------------
-    # Math wrappers
-    # ----------------------------------------------------------------------
-
-    # ---- persistent parameters -------------------------------------------
-
-    def _load_scene_props(self, context):
-        props = context.scene.IOPS
-        self.angle_deg = props.shear_last_angle
-        self._last_used_angle = props.shear_last_angle
-        self._saved_extrude_distance = props.shear_extrude_last_distance
-
-    def _note_used_angle(self):
-        """Remember the last non-zero angle actually applied. Extrude /
-        hinge confirms reset angle_deg to 0 on the new cap, so a final
-        Enter would otherwise overwrite the remembered angle with 0."""
-        a = self._effective_angle()
-        if abs(a) > 1e-6:
-            self._last_used_angle = a
-
-    def _save_shear_angle(self, context):
-        a = self.angle_deg
-        if abs(a) < 1e-6:
-            a = getattr(self, "_last_used_angle", 0.0)
-        context.scene.IOPS.shear_last_angle = a
+    def _apply(self):
+        apply_records(self.records, getattr(self, "angle_deg", 0.0))
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data)
 
     def _save_extrude_distance(self, context, distance):
         context.scene.IOPS.shear_extrude_last_distance = distance
         self._saved_extrude_distance = distance
-
-    def _effective_angle(self):
-        if self.input_str and self.input_str not in ("-", ".", "-."):
-            try:
-                return float(self.input_str)
-            except ValueError:
-                return self.angle_deg
-        return self.angle_deg
-
-    def _apply(self):
-        apply_records(self.records, self._effective_angle())
-        self.bm.normal_update()
-        bmesh.update_edit_mesh(self.obj.data)
-
-    def _restore_records(self):
-        restore_records(self.records)
-        self.bm.normal_update()
-        bmesh.update_edit_mesh(self.obj.data)
 
     def _enter_extrude(self, event):
         """Begin the extrude sub-modal. The new face/edge is positioned
@@ -948,13 +794,10 @@ cancels. LMB clicks only pick widget handles."""
         sheared faces — picture-frame mitres."""
         if not self.records:
             return False
-        # Commit a typed-but-unconfirmed angle first: the mirror below
-        # reads angle_deg, and the visible mesh already shows the typed
-        # value via _effective_angle() — the extrude must match it.
-        self.angle_deg = self._effective_angle()
+        # The host decides which shear angle shapes the miter (Shear:
+        # the typed/confirmed angle; Hinge: 0 = straight extrude).
+        self.angle_deg = self._extrude_shear_angle()
         self.input_str = ""
-        self._apply()
-        self._note_used_angle()
 
         if True:
             # Every record extrudes together as ONE region (faces:
@@ -1371,6 +1214,7 @@ cancels. LMB clicks only pick widget handles."""
         self._hover_idx = None
         if self.records and abs(self.angle_deg) > 1e-6:
             self._apply()
+        self._after_extrude_confirm()
 
     def _screen_direction(self, context, world_pt, world_dir):
         """Returns a unit (dx, dy) tuple in region pixels representing
@@ -1409,6 +1253,272 @@ cancels. LMB clicks only pick widget handles."""
         bmesh.update_edit_mesh(self.obj.data)
         self._hotspots = []
         self._hover_idx = None
+
+    def _draw_dot(self, p, *, color, context, radius=6.0):
+        """Draw a filled disc at screen point *p* using the theme primitives."""
+        if radius <= 4.0:
+            size_token = "preview"
+        elif radius <= 6.0:
+            size_token = "default"
+        elif radius <= 9.0:
+            size_token = "active"
+        else:
+            size_token = "closest"
+        draw_prim.points([p], color=color, size=size_token, context=context)
+
+    def _draw_extrude_arrows(self, region, rv3d, mw, *, context, theme):
+        """Single arrow during extrude: tail at the orig sheared edge
+        midpoint, head along the average side direction. Length tracks
+        the current drag distance (with a small floor so the direction
+        is readable at zero)."""
+        d = self._extrude_data
+        if d is None:
+            return
+        center, avg_dir, head_world = self._extrude_arrow_world()
+        if avg_dir is None:
+            self._extrude_head_pt = None
+            return
+
+        # Tail at the sheared profile's centroid; head ON the resulting
+        # profile (live centroid), but never shorter than MIN_PX on
+        # screen so the handle stays grabbable at zero distance.
+        MIN_PX = 40.0
+        tail_world = center
+        p_t = view3d_utils.location_3d_to_region_2d(
+            region, rv3d, mw @ tail_world)
+        p_h = view3d_utils.location_3d_to_region_2d(
+            region, rv3d, mw @ head_world)
+        if p_t is None or p_h is None:
+            self._extrude_head_pt = None
+            return
+        tx, ty = p_t
+        hx, hy = p_h
+        dx, dy = hx - tx, hy - ty
+        seg_len = math.hypot(dx, dy)
+        if seg_len < MIN_PX:
+            sd = self._screen_direction(context, center, avg_dir)
+            if sd is None:
+                self._extrude_head_pt = None
+                self._draw_dot(p_t, radius=4.0,
+                               color=theme.color_for(Role.ACTIVE_POINT), context=context)
+                return
+            hx, hy = tx + sd[0] * MIN_PX, ty + sd[1] * MIN_PX
+            p_h = (hx, hy)
+            dx, dy = hx - tx, hy - ty
+            seg_len = MIN_PX
+        self._extrude_head_pt = (hx, hy)
+        draw_prim.edges_3d([p_t, p_h], role=Role.ACTIVE_LINE, context=context)
+        ux, uy = dx / seg_len, dy / seg_len
+        head_size = min(14.0, max(7.0, seg_len * 0.2))
+        ca, sa = math.cos(math.radians(150)), math.sin(math.radians(150))
+        leg1 = (
+            hx + (ux * ca - uy * sa) * head_size,
+            hy + (ux * sa + uy * ca) * head_size,
+        )
+        leg2 = (
+            hx + (ux * ca + uy * sa) * head_size,
+            hy + (-ux * sa + uy * ca) * head_size,
+        )
+        draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
+        self._draw_dot(p_t, radius=4.0,
+                       color=theme.color_for(Role.ACTIVE_POINT), context=context)
+        # Grab handle at the head: hollow-ish dot normally, bright and
+        # bigger while hovered / dragged (same look as the shear
+        # hotspot hover).
+        if self._extrude_grab or self._extrude_hover:
+            self._draw_dot(p_h, radius=8.0, color=(1.0, 1.0, 1.0, 1.0),
+                           context=context)
+        else:
+            self._draw_dot(p_h, radius=6.0,
+                           color=theme.color_for(Role.ACTIVE_POINT), context=context)
+
+
+class IOPS_OT_mesh_shear(ExtrudeMixin, bpy.types.Operator):
+    """Smart shear. Tilts the active selection: a face tilts around its
+centroid (rail-constrained), an edge tilts in its face plane.
+
+The selection determines the mode automatically. Numeric input sets
+the angle. F is mode-specific (cycle axis edge for faces, flip active
+vert for edges). D flips direction. Enter confirms, Esc/RMB
+cancels. LMB clicks only pick widget handles."""
+
+    bl_idname = "iops.mesh_shear"
+    bl_label = "Shear (Smart)"
+    bl_description = (
+        "Smart shear that auto-detects selection. Faces tilt around "
+        "their centroid; edges tilt in their face plane. Type a number "
+        "for the angle, F is mode-specific, D flips direction"
+    )
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == "MESH" and obj.mode == "EDIT"
+
+    # ----------------------------------------------------------------------
+    # Lifecycle
+    # ----------------------------------------------------------------------
+
+    def invoke(self, context, event):
+        obj = context.active_object
+        self.obj = obj
+        self.bm = bmesh.from_edit_mesh(obj.data)
+        self.bm.faces.ensure_lookup_table()
+        self.bm.edges.ensure_lookup_table()
+        self.bm.normal_update()
+
+        selected_faces = [f for f in self.bm.faces if f.select]
+        selected_edges = [e for e in self.bm.edges if e.select]
+
+        if not selected_faces and not selected_edges:
+            self.report({"WARNING"}, "Select at least one face or edge")
+            return {"CANCELLED"}
+
+        if selected_faces:
+            self.mode = "face"
+            self.records, skip_reasons = records_for_faces(selected_faces)
+        else:
+            self.mode = "edge"
+            self.records, skip_reasons = records_for_edges(selected_edges)
+
+        if not self.records:
+            msg = f"No valid {self.mode}s for shear"
+            if skip_reasons:
+                msg += f" ({skip_reasons[0]})"
+            self.report({"WARNING"}, msg)
+            return {"CANCELLED"}
+
+        # Start at 0 so invoke doesn't alter geometry — important for
+        # slanted edges where pre-applying 45° on top of the existing
+        # slant compounds the shear and looks broken. The first click
+        # on an orange handle kicks the angle to 45°.
+        self.angle_deg = 0.0
+        self.input_str = ""
+        self.skip_reasons = skip_reasons
+        # Point-and-click state. Each entry: {"region_pt": (x,y),
+        # "axis": Vector, "rec_idx": int}. Click on any hotspot
+        # rebuilds that record with the picked axis (= switches both
+        # the F-toggle direction and the D-pivot side in one action).
+        self._hotspots = []
+        self._hover_idx = None
+        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        # Remembered parameters (Scene.IOPS): the last confirmed shear
+        # angle is applied right away as the starting preview; hinge
+        # angle/steps and extrude distance seed their sub-modals.
+        self._load_scene_props(context)
+
+        # Extrude sub-modal state. While `_extrude_active`, MOUSEMOVE
+        # adjusts distance, LMB/Enter confirms (rebuilds shear records
+        # on the new geometry and chains back to shear), Esc/RMB
+        # cancels (deletes the new geometry).
+        self._extrude_init_state()
+
+        # Align sub-modal state. A enters; mouse hovers a face which
+        # gets a 35% red overlay; LMB picks it and sets axis_dir to the
+        # intersection line of the current face plane and the picked
+        # face plane (projected into the current face plane). Esc/RMB
+        # exits without applying.
+        self._align_active = False
+        self._align_face = None
+        self._align_bvh = None
+
+        # Undo push is deferred to confirm. Pushing at invoke captures
+        # the PRE-shear state and finalizes that step — subsequent
+        # mesh changes (the modal itself) flow into the NEXT step.
+        # If a follow-up operator (e.g. straight_bevel) then auto-
+        # pushes its own step, the shear modal's changes get folded
+        # into the bevel's step, so a single Ctrl-Z undoes both ops
+        # at once. Pushing post-_apply at confirm puts the boundary
+        # AFTER the shear changes, so they land in their own step.
+        # (shader managed by draw_prim — no inline shader needed)
+
+        self._hud = HUDOverlay("mesh_shear")
+        self._hud.title = "Shear"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("mesh_shear")
+        items = [
+            HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",          "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cycle bbox side",    "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm + Hinge",    "Q",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Align axis to face", "A",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Axis to min OBB",    "B",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]
+        self._help.add_section(HUDSection("Shear", items))
+        self._help.bind_region(context.region)
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
+
+        self._handle = safe_handler_add(bpy.types.SpaceView3D,
+            self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
+
+        self._apply()
+        context.workspace.status_text_set(self._status_text())
+        context.window_manager.modal_handler_add(self)
+        if context.area:
+            context.area.tag_redraw()
+        return {"RUNNING_MODAL"}
+
+    # ----------------------------------------------------------------------
+    # Math wrappers
+    # ----------------------------------------------------------------------
+
+    # ---- persistent parameters -------------------------------------------
+
+    def _load_scene_props(self, context):
+        props = context.scene.IOPS
+        self.angle_deg = props.shear_last_angle
+        self._last_used_angle = props.shear_last_angle
+        self._saved_extrude_distance = props.shear_extrude_last_distance
+
+    def _note_used_angle(self):
+        """Remember the last non-zero angle actually applied. Extrude /
+        hinge confirms reset angle_deg to 0 on the new cap, so a final
+        Enter would otherwise overwrite the remembered angle with 0."""
+        a = self._effective_angle()
+        if abs(a) > 1e-6:
+            self._last_used_angle = a
+
+    def _save_shear_angle(self, context):
+        a = self.angle_deg
+        if abs(a) < 1e-6:
+            a = getattr(self, "_last_used_angle", 0.0)
+        context.scene.IOPS.shear_last_angle = a
+
+    def _extrude_shear_angle(self):
+        # Commit a typed-but-unconfirmed angle first: the mirror reads
+        # angle_deg, and the visible mesh already shows the typed value
+        # via _effective_angle() — the extrude must match it.
+        self.angle_deg = self._effective_angle()
+        self.input_str = ""
+        self._apply()
+        self._note_used_angle()
+        return self.angle_deg
+
+    def _effective_angle(self):
+        if self.input_str and self.input_str not in ("-", ".", "-."):
+            try:
+                return float(self.input_str)
+            except ValueError:
+                return self.angle_deg
+        return self.angle_deg
+
+    def _apply(self):
+        apply_records(self.records, self._effective_angle())
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data)
+
+    def _restore_records(self):
+        restore_records(self.records)
+        self.bm.normal_update()
+        bmesh.update_edit_mesh(self.obj.data)
 
     def _toggle_align_highlight(self, context, event):
         """A: raycast the face under the cursor and latch it. If a
@@ -1908,18 +2018,6 @@ cancels. LMB clicks only pick widget handles."""
     # Draw
     # ----------------------------------------------------------------------
 
-    def _draw_dot(self, p, *, color, context, radius=6.0):
-        """Draw a filled disc at screen point *p* using the theme primitives."""
-        if radius <= 4.0:
-            size_token = "preview"
-        elif radius <= 6.0:
-            size_token = "default"
-        elif radius <= 9.0:
-            size_token = "active"
-        else:
-            size_token = "closest"
-        draw_prim.points([p], color=color, size=size_token, context=context)
-
     def _draw_callback(self, context):
         region = context.region
         rv3d = context.region_data
@@ -1987,72 +2085,6 @@ cancels. LMB clicks only pick widget handles."""
             tris.extend([screen_pts[0], screen_pts[i], screen_pts[i + 1]])
         err = theme.color_for(Role.ERROR_LINE)
         draw_prim.tris(tris, color=(err[0], err[1], err[2], 0.35), context=context)
-
-    def _draw_extrude_arrows(self, region, rv3d, mw, *, context, theme):
-        """Single arrow during extrude: tail at the orig sheared edge
-        midpoint, head along the average side direction. Length tracks
-        the current drag distance (with a small floor so the direction
-        is readable at zero)."""
-        d = self._extrude_data
-        if d is None:
-            return
-        center, avg_dir, head_world = self._extrude_arrow_world()
-        if avg_dir is None:
-            self._extrude_head_pt = None
-            return
-
-        # Tail at the sheared profile's centroid; head ON the resulting
-        # profile (live centroid), but never shorter than MIN_PX on
-        # screen so the handle stays grabbable at zero distance.
-        MIN_PX = 40.0
-        tail_world = center
-        p_t = view3d_utils.location_3d_to_region_2d(
-            region, rv3d, mw @ tail_world)
-        p_h = view3d_utils.location_3d_to_region_2d(
-            region, rv3d, mw @ head_world)
-        if p_t is None or p_h is None:
-            self._extrude_head_pt = None
-            return
-        tx, ty = p_t
-        hx, hy = p_h
-        dx, dy = hx - tx, hy - ty
-        seg_len = math.hypot(dx, dy)
-        if seg_len < MIN_PX:
-            sd = self._screen_direction(context, center, avg_dir)
-            if sd is None:
-                self._extrude_head_pt = None
-                self._draw_dot(p_t, radius=4.0,
-                               color=theme.color_for(Role.ACTIVE_POINT), context=context)
-                return
-            hx, hy = tx + sd[0] * MIN_PX, ty + sd[1] * MIN_PX
-            p_h = (hx, hy)
-            dx, dy = hx - tx, hy - ty
-            seg_len = MIN_PX
-        self._extrude_head_pt = (hx, hy)
-        draw_prim.edges_3d([p_t, p_h], role=Role.ACTIVE_LINE, context=context)
-        ux, uy = dx / seg_len, dy / seg_len
-        head_size = min(14.0, max(7.0, seg_len * 0.2))
-        ca, sa = math.cos(math.radians(150)), math.sin(math.radians(150))
-        leg1 = (
-            hx + (ux * ca - uy * sa) * head_size,
-            hy + (ux * sa + uy * ca) * head_size,
-        )
-        leg2 = (
-            hx + (ux * ca + uy * sa) * head_size,
-            hy + (-ux * sa + uy * ca) * head_size,
-        )
-        draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
-        self._draw_dot(p_t, radius=4.0,
-                       color=theme.color_for(Role.ACTIVE_POINT), context=context)
-        # Grab handle at the head: hollow-ish dot normally, bright and
-        # bigger while hovered / dragged (same look as the shear
-        # hotspot hover).
-        if self._extrude_grab or self._extrude_hover:
-            self._draw_dot(p_h, radius=8.0, color=(1.0, 1.0, 1.0, 1.0),
-                           context=context)
-        else:
-            self._draw_dot(p_h, radius=6.0,
-                           color=theme.color_for(Role.ACTIVE_POINT), context=context)
 
     def _draw_face_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
         verts = r["active_verts"]

@@ -21,6 +21,11 @@ mouse move, so aiming is the whole interaction. Typed digits, Alt+Wheel
 Ctrl+Wheel sets the segment count; D flips the sign. The preview is a
 draw-only ghost — the mesh does not move until confirm (LMB / Enter /
 Space). Angle and segments persist in Scene.IOPS.
+
+Confirm bakes and STAYS in the modal on the new cap, so hinges chain
+(Esc/RMB ends the run). E extrudes the current selection straight along
+its normal with Shear's arrow handle; confirm resyncs the hinge onto the
+extruded geometry.
 """
 import bpy
 import bmesh
@@ -40,7 +45,8 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
 from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
 from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
-                         chains_from_edges, chain_normal, profile_principal_axes)
+                         chains_from_edges, chain_normal, profile_principal_axes,
+                         records_for_faces, records_for_edges, ExtrudeMixin)
 
 
 class _Pt:
@@ -143,7 +149,7 @@ def _selection_normal(faces, edges, cos):
     return None
 
 
-class IOPS_OT_mesh_hinge(bpy.types.Operator):
+class IOPS_OT_mesh_hinge(ExtrudeMixin, bpy.types.Operator):
     """Rotate the selected faces (or edges) around the edge under the
 mouse, baking the sweep as segments"""
 
@@ -173,6 +179,67 @@ mouse, baking the sweep as segments"""
         self.bm.edges.ensure_lookup_table()
         self.bm.normal_update()
 
+        self._baked = False
+        self.records = []
+        self._extrude_init_state()
+        self._saved_extrude_distance = context.scene.IOPS.shear_extrude_last_distance
+        if not self._sync_selection(context, event):
+            self.report({"WARNING"}, "Hinge: select faces or edges")
+            return {"CANCELLED"}
+
+        self._align_bvh = None
+        # A flush mode: while active, the face under the cursor is
+        # highlighted (theme match-hint tint) and the hinge angle
+        # follows it live; the axis edge stops re-picking meanwhile.
+        self._flush_active = False
+        self._flush_face = None
+        self._hud = HUDOverlay("mesh_hinge")
+        self._hud.title = "Hinge"
+        self._hud.bind_region(context.region)
+        self._help = HelpOverlay("mesh_hinge")
+        self._help.add_section(HUDSection("Hinge", [
+            HUDItem("Axis = edge under mouse", "Move",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bake + continue", "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Finish",          "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._help.bind_region(context.region)
+        self._last_event = capture_event(event, getattr(self, "_last_event", None))
+
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,),
+            "WINDOW", "POST_PIXEL", tick=True)
+        context.workspace.status_text_set(self._status_text())
+        context.window_manager.modal_handler_add(self)
+        if context.area:
+            context.area.tag_redraw()
+        return {"RUNNING_MODAL"}
+
+    def _after_extrude_confirm(self):
+        """Extrude confirmed: the extruded cap / chain is now selected —
+        rebind the hinge to it. `records` are only needed by E itself."""
+        self.records = []
+        self._baked = True
+        self._sync_selection(bpy.context)
+        try:
+            bpy.ops.ed.undo_push(message="Hinge Extrude")
+        except RuntimeError:
+            pass
+
+    def _sync_selection(self, context, event=None):
+        """(Re)build every per-selection state from the current bmesh
+        selection: faces/edges, verts, plane, axis candidates (real +
+        virtual chords), bbox sides, and the axis under the mouse. Used
+        by invoke and again after each bake / extrude so hinges chain.
+        Returns False when nothing usable is selected."""
+        self.bm.normal_update()
         faces = [f for f in self.bm.faces if f.select]
         if faces:
             edges = []
@@ -187,9 +254,11 @@ mouse, baking the sweep as segments"""
             edges = [e for e in self.bm.edges if e.select]
             self.mode = "edge"
         if not edges:
-            self.report({"WARNING"}, "Hinge: select faces or edges")
-            return {"CANCELLED"}
-
+            return False
+        self._bbox_mode = False
+        self._flush_active = False
+        self._flush_face = None
+        self._align_bvh = None
         vert_set = set()
         for e in edges:
             vert_set.update(e.verts)
@@ -222,18 +291,20 @@ mouse, baking the sweep as segments"""
             if chains:
                 verts_o, chain_o, _closed = max(chains, key=lambda c: len(c[1]))
                 box_normal = chain_normal(chain_o, [v.co for v in verts_o])
-            if box_normal is not None and self._orig_normal is not None                     and not faces:
+            if box_normal is not None:
                 # Keep flush/sign reference consistent with the box plane.
                 self._orig_normal = box_normal
         self._bbox = [_LineCandidate(a, b)
                       for a, b in _bbox_sides(orig_cos, box_normal)]
 
-        props = context.scene.IOPS
-        self._steps = max(1, props.shear_hinge_last_steps)
-        self._angle_deg = props.shear_hinge_last_angle
-        self.input_str = ""
+        if not hasattr(self, "_steps"):
+            props = context.scene.IOPS
+            self._steps = max(1, props.shear_hinge_last_steps)
+            self._angle_deg = props.shear_hinge_last_angle
+            self.input_str = ""
 
-        self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+        if event is not None:
+            self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
         self._axis_edge = None
         self._center = None
         self._axis = None
@@ -251,41 +322,8 @@ mouse, baking the sweep as segments"""
             edge = self._edges[0]
         if not self._set_axis(edge):
             self.report({"WARNING"}, "Hinge: degenerate axis edge")
-            return {"CANCELLED"}
-
-        self._align_bvh = None
-        # A flush mode: while active, the face under the cursor is
-        # highlighted (theme match-hint tint) and the hinge angle
-        # follows it live; the axis edge stops re-picking meanwhile.
-        self._flush_active = False
-        self._flush_face = None
-        self._hud = HUDOverlay("mesh_hinge")
-        self._hud.title = "Hinge"
-        self._hud.bind_region(context.region)
-        self._help = HelpOverlay("mesh_hinge")
-        self._help.add_section(HUDSection("Hinge", [
-            HUDItem("Axis = edge under mouse", "Move",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",        "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
-        self._last_event = capture_event(event, getattr(self, "_last_event", None))
-
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,),
-            "WINDOW", "POST_PIXEL", tick=True)
-        context.workspace.status_text_set(self._status_text())
-        context.window_manager.modal_handler_add(self)
-        if context.area:
-            context.area.tag_redraw()
-        return {"RUNNING_MODAL"}
+            return False
+        return True
 
     def _finish(self, context):
         if getattr(self, "_handle", None):
@@ -310,6 +348,9 @@ mouse, baking the sweep as segments"""
         self._flush_face = None
         self._edge_candidates = []
         self._bbox = []
+        self.records = []
+        self._extrude_data = None
+        self._extrude_active = False
 
     def cancel(self, context):
         self._finish(context)
@@ -458,6 +499,12 @@ mouse, baking the sweep as segments"""
     # ------------------------------------------------------------------
 
     def _status_text(self):
+        if getattr(self, "_extrude_active", False):
+            return (
+                f"Hinge extrude ({self.mode}): {self._extrude_distance:.4f} | "
+                "[LMB on arrow] drag | [Shift] precise | "
+                "[LMB/Enter] confirm + back to hinge | [Esc/RMB] cancel extrude"
+            )
         typed = f" | typing: {self.input_str}" if self.input_str else ""
         return (
             f"Hinge ({self.mode}): {self._effective_angle():.2f}° | "
@@ -466,8 +513,8 @@ mouse, baking the sweep as segments"""
             f"{' | axis: bbox' if self._bbox_mode else ''} | "
             "[Move] pick axis | [B] bbox sides | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
-            "[D] flip | [A] flush to face | "
-            "[LMB/Enter] confirm | [Esc/RMB] cancel"
+            "[D] flip | [A] flush to face | [E] extrude | "
+            "[LMB/Enter] bake (stay) | [Esc/RMB] finish"
         )
 
     def modal(self, context, event):
@@ -501,6 +548,12 @@ mouse, baking the sweep as segments"""
                 return {"RUNNING_MODAL"}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
+
+        if self._extrude_active:
+            if (event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}
+                    or event.type.startswith("NDOF")):
+                return {"PASS_THROUGH"}
+            return self._extrude_modal(context, event)
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             if event.alt:
@@ -555,6 +608,14 @@ mouse, baking the sweep as segments"""
             elif event.type == "B":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._bbox_toggle(context)
+            elif event.type == "E":
+                if self.mode == "face":
+                    self.records, _ = records_for_faces(self._faces)
+                else:
+                    self.records, _ = records_for_edges(self._geom_edges)
+                if not self.records or not self._enter_extrude(event):
+                    self.records = []
+                    self.report({"INFO"}, "hinge: nothing to extrude")
             elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm(context)
             elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -563,7 +624,7 @@ mouse, baking the sweep as segments"""
                     self._flush_toggle(context)
                 else:
                     self._finish(context)
-                    return {"CANCELLED"}
+                    return {"FINISHED"} if self._baked else {"CANCELLED"}
             context.workspace.status_text_set(self._status_text())
             return {"RUNNING_MODAL"}
         return {"RUNNING_MODAL"}
@@ -575,8 +636,10 @@ mouse, baking the sweep as segments"""
     def _confirm(self, context):
         angle_rad = math.radians(self._effective_angle())
         if abs(angle_rad) < 1e-6:
+            # Nothing to bake — end the run (FINISHED if earlier bakes
+            # happened, they are already in their own undo steps).
             self._finish(context)
-            return {"CANCELLED"}
+            return {"FINISHED"} if self._baked else {"CANCELLED"}
         props = context.scene.IOPS
         props.shear_hinge_last_angle = math.degrees(angle_rad)
         props.shear_hinge_last_steps = self._steps
@@ -684,23 +747,21 @@ mouse, baking the sweep as segments"""
         bmesh.update_edit_mesh(self.obj.data, loop_triangles=True,
                                destructive=True)
         bpy.ops.ed.undo_push(message="Hinge")
-        self._finish(context)
-        return {"FINISHED"}
+        self._baked = True
+        # Stay in the modal on the new cap so hinges chain. Same angle
+        # and steps; the axis is re-picked under the mouse.
+        self.input_str = ""
+        if not self._sync_selection(context):
+            self._finish(context)
+            return {"FINISHED"}
+        context.workspace.status_text_set(self._status_text())
+        if context.area:
+            context.area.tag_redraw()
+        return {"RUNNING_MODAL"}
 
     # ------------------------------------------------------------------
     # Draw
     # ------------------------------------------------------------------
-
-    def _draw_dot(self, p, *, color, context, radius=6.0):
-        if radius <= 4.0:
-            size_token = "preview"
-        elif radius <= 6.0:
-            size_token = "default"
-        elif radius <= 9.0:
-            size_token = "active"
-        else:
-            size_token = "closest"
-        draw_prim.points([p], color=color, size=size_token, context=context)
 
     def _draw_callback(self, context):
         region = context.region
@@ -721,9 +782,12 @@ mouse, baking the sweep as segments"""
             return
         theme = get_theme(context)
         gpu.state.blend_set("ALPHA")
-        self._draw_ghost(region, rv3d, mw, context=context, theme=theme)
-        if self._flush_active:
-            self._draw_flush_face(region, rv3d, mw, context=context, theme=theme)
+        if getattr(self, "_extrude_active", False):
+            self._draw_extrude_arrows(region, rv3d, mw, context=context, theme=theme)
+        else:
+            self._draw_ghost(region, rv3d, mw, context=context, theme=theme)
+            if self._flush_active:
+                self._draw_flush_face(region, rv3d, mw, context=context, theme=theme)
         gpu.state.blend_set("NONE")
         self._draw_hud(context)
 
