@@ -503,12 +503,10 @@ class IOPS_PT_TM_Panel(bpy.types.Panel):
             "GPENCIL",
         ]:
             wm = context.window_manager
-            row = col.row(align=True)
-            row.prop(wm, "iops_tm_dimensions")
-            row.prop(
+            col.prop(wm, "iops_tm_dimensions")
+            col.prop(
                 wm,
                 "iops_tm_dimensions_to_selected",
-                text="",
                 icon="RESTRICT_SELECT_OFF",
                 toggle=True,
             )
