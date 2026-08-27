@@ -14,10 +14,6 @@ mouse move, so aiming is the whole interaction. Typed digits, Alt+Wheel
 Ctrl+Wheel sets the segment count; D flips the sign. The preview is a
 draw-only ghost — the mesh does not move until confirm (LMB / Enter /
 Space). Angle and segments persist in Scene.IOPS.
-
-Bounding-box axis: the selection's min-OBB (in its plane) offers four
-sides as alternative hinge lines — click a side's dot, or press F to
-cycle them. Tab returns to edge-under-mouse picking.
 """
 import bpy
 import bmesh
@@ -36,8 +32,7 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       ItemState, capture_event)
 from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
-from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
-                         profile_principal_axes)
+from .mesh_shear import DIGIT_TYPES, _face_normal_safe, _gather_double_verts
 
 
 def _selection_normal(faces, edges, cos):
@@ -137,13 +132,6 @@ mouse, baking the sweep as segments"""
         self._center = None
         self._axis = None
         self._axis_pts = None
-        # "edge": axis follows the edge under the mouse. "bbox": axis is
-        # one of the four OBB sides (F cycles, LMB on a side dot picks).
-        self._axis_mode = "edge"
-        self._bbox_sides = self._compute_bbox_sides()
-        self._bbox_idx = 0
-        self._hotspots = []          # [{"region_pt", "side_idx"}], rebuilt each draw
-        self._hover_idx = None
         edge = self._pick_edge(context)
         if edge is None:
             edge_set = set(edges)
@@ -166,8 +154,6 @@ mouse, baking the sweep as segments"""
         self._help = HelpOverlay("mesh_hinge")
         self._help.add_section(HUDSection("Hinge", [
             HUDItem("Axis = edge under mouse", "Move",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis = bbox side",  "F / LMB dot", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Back to edge pick", "Tab",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -225,70 +211,11 @@ mouse, baking the sweep as segments"""
         if edge is None or not edge.is_valid:
             return False
         v0, v1 = edge.verts
-        return self._set_axis_line(v0.co, v1.co, edge)
-
-    def _compute_bbox_sides(self):
-        """Four (a, b) endpoint pairs — the sides of the selection's
-        min-OBB in its plane, in order +a, +b, -a, -b (side at the
-        positive/negative end of the a/b extent). Empty when the
-        selection has no plane."""
-        n = self._orig_normal
-        cos = self._orig_cos
-        if n is None or len(cos) < 2:
-            return []
-        pa, pb = profile_principal_axes(cos, n)
-        if pa is None or pb is None:
-            return []
-        centroid = Vector((0.0, 0.0, 0.0))
-        for co in cos:
-            centroid += co
-        centroid /= len(cos)
-        a_projs = [(co - centroid).dot(pa) for co in cos]
-        b_projs = [(co - centroid).dot(pb) for co in cos]
-        a_min, a_max = min(a_projs), max(a_projs)
-        b_min, b_max = min(b_projs), max(b_projs)
-        c = centroid + pa * ((a_min + a_max) * 0.5) + pb * ((b_min + b_max) * 0.5)
-        ha = (a_max - a_min) * 0.5
-        hb = (b_max - b_min) * 0.5
-        sides = []
-        for off_dir, off, along, half in ((pa, ha, pb, hb), (pb, hb, pa, ha),
-                                          (-pa, ha, pb, hb), (-pb, hb, pa, ha)):
-            mid = c + off_dir * off
-            if half < 1e-9:
-                continue
-            sides.append((mid - along * half, mid + along * half))
-        return sides
-
-    def _edge_matching_line(self, a, b, tol=1e-5):
-        """Candidate edge whose verts coincide with line endpoints a/b,
-        so a bbox side lying on a real edge keeps the flap semantics."""
-        for e in self._edges:
-            if not e.is_valid:
-                continue
-            c0, c1 = e.verts[0].co, e.verts[1].co
-            if ((c0 - a).length < tol and (c1 - b).length < tol) or \
-               ((c0 - b).length < tol and (c1 - a).length < tol):
-                return e
-        return None
-
-    def _set_bbox_side(self, idx):
-        if not self._bbox_sides:
-            return False
-        idx %= len(self._bbox_sides)
-        a, b = self._bbox_sides[idx]
-        edge = self._edge_matching_line(a, b)
-        if not self._set_axis_line(a, b, edge):
-            return False
-        self._bbox_idx = idx
-        self._axis_mode = "bbox"
-        return True
-
-    def _set_axis_line(self, a, b, edge):
-        axis = b - a
+        axis = v1.co - v0.co
         if axis.length < 1e-9:
             return False
         axis = axis.normalized()
-        center = (a + b) * 0.5
+        center = (v0.co + v1.co) * 0.5
         # Sign convention: a positive angle swings the selection
         # centroid toward its own normal (lifts a face off its plane),
         # independent of the axis edge's vert order.
@@ -304,26 +231,10 @@ mouse, baking the sweep as segments"""
         self._axis_edge = edge
         self._axis = axis
         self._center = center.copy()
-        self._axis_pts = (a.copy(), b.copy())
+        self._axis_pts = (v0.co.copy(), v1.co.copy())
         return True
 
-    def _update_hover(self):
-        HOVER_PX = 14.0
-        mx, my = self._mouse_xy
-        best = (None, HOVER_PX * HOVER_PX)
-        for i, h in enumerate(self._hotspots):
-            rp = h.get("region_pt")
-            if rp is None:
-                continue
-            dx, dy = rp[0] - mx, rp[1] - my
-            d2 = dx * dx + dy * dy
-            if d2 < best[1]:
-                best = (i, d2)
-        self._hover_idx = best[0]
-
     def _repick(self, context):
-        if self._axis_mode != "edge":
-            return False
         edge = self._pick_edge(context)
         if edge is None or edge is self._axis_edge:
             return False
@@ -403,8 +314,7 @@ mouse, baking the sweep as segments"""
         typed = f" | typing: {self.input_str}" if self.input_str else ""
         return (
             f"Hinge ({self.mode}): {self._effective_angle():.2f}° | "
-            f"steps: {self._steps}{typed} | axis: {self._axis_mode} | "
-            "[Move] pick axis edge | [F/LMB dot] bbox side | [Tab] edge pick | "
+            f"steps: {self._steps}{typed} | [Move] pick axis edge | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | "
             "[LMB/Enter] confirm | [Esc/RMB] cancel"
@@ -461,7 +371,6 @@ mouse, baking the sweep as segments"""
 
         if event.type == "MOUSEMOVE":
             self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
-            self._update_hover()
             self._repick(context)
             return {"RUNNING_MODAL"}
 
@@ -489,21 +398,6 @@ mouse, baking the sweep as segments"""
             elif event.type == "A":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._flush_pick(context)
-            elif event.type == "F":
-                if self._bbox_sides:
-                    nxt = (self._bbox_idx + 1) if self._axis_mode == "bbox" else 0
-                    self._set_bbox_side(nxt)
-                else:
-                    self.report({"INFO"}, "hinge: selection has no bbox plane")
-            elif event.type == "TAB":
-                self._axis_mode = "edge"
-                self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
-                edge = self._pick_edge(context)
-                if edge is not None:
-                    self._set_axis(edge)
-            elif event.type == "LEFTMOUSE" and self._hover_idx is not None:
-                h = self._hotspots[self._hover_idx]
-                self._set_bbox_side(h["side_idx"])
             elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm(context)
             elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -623,44 +517,8 @@ mouse, baking the sweep as segments"""
         theme = get_theme(context)
         gpu.state.blend_set("ALPHA")
         self._draw_ghost(region, rv3d, mw, context=context, theme=theme)
-        self._draw_bbox_sides(region, rv3d, mw, context=context, theme=theme)
         gpu.state.blend_set("NONE")
         self._draw_hud(context)
-
-    def _draw_bbox_sides(self, region, rv3d, mw, *, context, theme):
-        """OBB outline (dim) with a clickable dot at each side's midpoint.
-        The current bbox side (if any) is drawn amber like the axis;
-        the hovered dot is highlighted white."""
-        self._hotspots = []
-        sides = getattr(self, "_bbox_sides", [])
-        if not sides:
-            return
-
-        def s2d(co):
-            return view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ co)
-
-        segs = []
-        for a, b in sides:
-            pa, pb = s2d(a), s2d(b)
-            if pa is not None and pb is not None:
-                segs.extend([pa, pb])
-        if segs:
-            draw_prim.edges_3d(segs, color=(0.45, 0.45, 0.45, 0.55), context=context)
-        locked = theme.color_for(Role.LOCKED_POINT)
-        for i, (a, b) in enumerate(sides):
-            mid = (a + b) * 0.5
-            rp = s2d(mid)
-            if rp is None:
-                continue
-            self._hotspots.append({"region_pt": (rp[0], rp[1]), "side_idx": i})
-            active = (self._axis_mode == "bbox" and i == self._bbox_idx)
-            self._draw_dot(rp, radius=6.0 if active else 5.0,
-                           color=(*locked[:3], 1.0 if active else 0.6),
-                           context=context)
-        self._update_hover()
-        if self._hover_idx is not None and self._hover_idx < len(self._hotspots):
-            self._draw_dot(self._hotspots[self._hover_idx]["region_pt"], radius=8.0,
-                           color=(1.0, 1.0, 1.0, 1.0), context=context)
 
     def _draw_ghost(self, region, rv3d, mw, *, context, theme):
         """Ghost of the FINAL spin result: outlines at the target angle
@@ -772,7 +630,7 @@ mouse, baking the sweep as segments"""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        lines = [f"Mode: {self.mode} | axis: {self._axis_mode}",
+        lines = [f"Mode: {self.mode}",
                  f"Angle: {self._effective_angle():.2f}°",
                  f"Steps: {self._steps}"]
         if self.input_str:
