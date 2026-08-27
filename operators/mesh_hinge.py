@@ -185,6 +185,11 @@ mouse, baking the sweep as segments"""
             return {"CANCELLED"}
 
         self._align_bvh = None
+        # A flush mode: while active, the face under the cursor is
+        # highlighted (theme match-hint tint) and the hinge angle
+        # follows it live; the axis edge stops re-picking meanwhile.
+        self._flush_active = False
+        self._flush_face = None
         self._hud = HUDOverlay("mesh_hinge")
         self._hud.title = "Hinge"
         self._hud.bind_region(context.region)
@@ -195,7 +200,7 @@ mouse, baking the sweep as segments"""
             HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flush to face",  "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm",        "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -231,6 +236,8 @@ mouse, baking the sweep as segments"""
         self._orig_co_map = {}
         self._axis_edge = None
         self._align_bvh = None
+        self._flush_active = False
+        self._flush_face = None
 
     def cancel(self, context):
         self._finish(context)
@@ -291,28 +298,40 @@ mouse, baking the sweep as segments"""
                 return self._angle_deg
         return self._angle_deg
 
-    def _flush_pick(self, context):
-        """A: set the angle so the selection's ORIGINAL plane lands
-        coplanar with the face under the cursor (smallest-magnitude
-        solution). Picking a hinged face or empty space is a no-op."""
+    def _flush_toggle(self, context):
+        """A: enter/leave flush mode. Entering snapshots a BVH of the
+        mesh (it doesn't change during the modal) and runs one pick."""
+        if self._flush_active:
+            self._flush_active = False
+            self._flush_face = None
+            self._align_bvh = None
+            return
         if self._orig_normal is None:
             self.report({"INFO"}, "hinge flush: selection has no reference plane")
             return
         self.bm.normal_update()
         self.bm.faces.ensure_lookup_table()
         self._align_bvh = BVHTree.FromBMesh(self.bm)
+        self._flush_active = True
+        self._flush_face = None
+        self._flush_update(context)
+
+    def _flush_update(self, context):
+        """Flush mode MOUSEMOVE: highlight the face under the cursor
+        and set the angle so the selection's ORIGINAL plane lands
+        coplanar with it (smallest-magnitude solution). Hinged faces
+        and empty space leave the last angle alone."""
         picked = self._raycast_face_under_cursor(context)
-        self._align_bvh = None
         if picked is None or picked in set(self._faces):
-            self.report({"INFO"}, "hinge flush: pick a face outside the selection")
+            self._flush_face = None
             return
         n_t = _face_normal_safe(picked)
         if n_t.length < 1e-9:
-            self.report({"INFO"}, "hinge flush: degenerate target face")
+            self._flush_face = None
             return
         ang = flush_angle(tuple(self._orig_normal), tuple(n_t), tuple(self._axis))
+        self._flush_face = picked
         if ang is None:
-            self.report({"INFO"}, "hinge flush: target parallel to hinge axis")
             return
         self._angle_deg = math.degrees(ang)
         self.input_str = ""
@@ -353,7 +372,9 @@ mouse, baking the sweep as segments"""
         typed = f" | typing: {self.input_str}" if self.input_str else ""
         return (
             f"Hinge ({self.mode}): {self._effective_angle():.2f}° | "
-            f"steps: {self._steps}{typed} | [Move] pick axis edge | "
+            f"steps: {self._steps}{typed}"
+            f"{' | FLUSH: aim at a face' if self._flush_active else ''} | "
+            "[Move] pick axis edge | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | "
             "[LMB/Enter] confirm | [Esc/RMB] cancel"
@@ -410,7 +431,11 @@ mouse, baking the sweep as segments"""
 
         if event.type == "MOUSEMOVE":
             self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
-            self._repick(context)
+            if self._flush_active:
+                self._flush_update(context)
+                context.workspace.status_text_set(self._status_text())
+            else:
+                self._repick(context)
             return {"RUNNING_MODAL"}
 
         if event.value == "PRESS":
@@ -436,12 +461,16 @@ mouse, baking the sweep as segments"""
                     self._angle_deg = -self._angle_deg
             elif event.type == "A":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
-                self._flush_pick(context)
+                self._flush_toggle(context)
             elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm(context)
             elif event.type in {"RIGHTMOUSE", "ESC"}:
-                self._finish(context)
-                return {"CANCELLED"}
+                if self._flush_active:
+                    # First Esc only leaves flush mode (angle kept).
+                    self._flush_toggle(context)
+                else:
+                    self._finish(context)
+                    return {"CANCELLED"}
             context.workspace.status_text_set(self._status_text())
             return {"RUNNING_MODAL"}
         return {"RUNNING_MODAL"}
@@ -495,8 +524,20 @@ mouse, baking the sweep as segments"""
             angle=angle_rad, steps=self._steps, use_merge=False)
         last = result["geom_last"]
 
+        # Snapshot the final ring's vert positions BEFORE the doubles
+        # pass: welding a ring vert that landed on the axis splices its
+        # edges, so `last` may hold dead BMEdge refs afterwards. The
+        # result selection is rebuilt from positions instead.
         dist = 0.001
         seed = [g for g in last if isinstance(g, bmesh.types.BMVert)]
+        last_cos = [v.co.copy() for v in seed]
+        # Edge mode: the axis edge stays part of the profile. Its verts
+        # join the ring snapshot so whatever edge survives the weld
+        # between them gets selected (the original BMEdge is spliced
+        # away when its verts absorb their spun copies).
+        if (self.mode == "edge" and axis_edge is not None
+                and not getattr(axis_edge, "is_virtual", False)):
+            last_cos.extend(v.co.copy() for v in axis_edge.verts)
         if seed:
             bmesh.ops.remove_doubles(
                 bm, verts=_gather_double_verts(seed, dist), dist=dist)
@@ -511,10 +552,41 @@ mouse, baking the sweep as segments"""
             e.select = False
         for f in bm.faces:
             f.select = False
+        def ring_verts():
+            out = set()
+            for v in bm.verts:
+                for co in last_cos:
+                    if (v.co - co).length <= dist:
+                        out.add(v)
+                        break
+            return out
+
+        # Spinning a vert that sits ON the axis leaves zero-length edges
+        # between its (now welded) copies; dissolve them around the ring.
+        ring = ring_verts()
+        degenerate = [e for e in bm.edges
+                      if (e.verts[0] in ring or e.verts[1] in ring)
+                      and (e.verts[0].co - e.verts[1].co).length <= dist]
+        if degenerate:
+            bmesh.ops.dissolve_degenerate(bm, dist=dist, edges=degenerate)
+            ring = ring_verts()
         for g in last:
-            if g.is_valid:
+            if isinstance(g, bmesh.types.BMFace) and g.is_valid:
                 g.select_set(True)
-        bm.select_flush_mode()
+        # Every edge between ring verts: the spun profile copy, and —
+        # in edge mode — the axis edge itself, which stayed put and is
+        # still part of the profile (both its verts are ring verts
+        # after the weld). Virtual chords have nothing to select.
+        for e in bm.edges:
+            if e.verts[0] in ring and e.verts[1] in ring:
+                e.select_set(True)
+        if self.mode == "edge":
+            # Flush UP only: select_flush_mode in face select mode would
+            # drop edges that don't complete a selected face — the
+            # result profile is edges, not faces.
+            bm.select_flush(True)
+        else:
+            bm.select_flush_mode()
         bm.normal_update()
         bmesh.update_edit_mesh(self.obj.data, loop_triangles=True,
                                destructive=True)
@@ -557,8 +629,33 @@ mouse, baking the sweep as segments"""
         theme = get_theme(context)
         gpu.state.blend_set("ALPHA")
         self._draw_ghost(region, rv3d, mw, context=context, theme=theme)
+        if self._flush_active:
+            self._draw_flush_face(region, rv3d, mw, context=context, theme=theme)
         gpu.state.blend_set("NONE")
         self._draw_hud(context)
+
+    def _draw_flush_face(self, region, rv3d, mw, *, context, theme):
+        """Flush target under the cursor: theme match-hint fill + outline."""
+        f = self._flush_face
+        if f is None or not f.is_valid:
+            return
+        pts = []
+        for vt in f.verts:
+            p = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ vt.co)
+            if p is None:
+                return
+            pts.append(p)
+        if len(pts) < 3:
+            return
+        tris = []
+        for i in range(1, len(pts) - 1):
+            tris.extend([pts[0], pts[i], pts[i + 1]])
+        draw_prim.tris(tris, color=theme.color_for(Role.GHOST_MATCH_HINT),
+                       context=context)
+        segs = []
+        for i in range(len(pts)):
+            segs.extend([pts[i], pts[(i + 1) % len(pts)]])
+        draw_prim.edges_3d(segs, role=Role.CLOSEST_LINE, context=context)
 
     def _draw_ghost(self, region, rv3d, mw, *, context, theme):
         """Ghost of the FINAL spin result: outlines at the target angle

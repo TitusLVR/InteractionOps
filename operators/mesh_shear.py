@@ -210,8 +210,15 @@ def build_chain_record(edges, axis_dir, normal=None):
         normal = chain_normal(chain, cos)
     if normal is None:
         return None, "edge chain has no plane (wire edge without faces)"
-    return build_profile_record(verts, chain, normal.normalized(), axis_dir,
-                                face=None, closed=closed)
+    # An open chain of 3+ verts is closed by a virtual edge between its
+    # ends — the profile is then a polygon like a face (same OBB, same
+    # pivot sides). A lone edge stays a 2-vert open profile.
+    virtual_close = (not closed) and len(verts) >= 3
+    rec, reason = build_profile_record(verts, chain, normal.normalized(), axis_dir,
+                                       face=None, closed=closed or virtual_close)
+    if rec is not None:
+        rec["virtual_close"] = virtual_close
+    return rec, reason
 
 
 def build_profile_record(active_verts, edges, normal, axis_dir, *, face,
@@ -1987,6 +1994,9 @@ cancels. LMB clicks only pick widget handles."""
             return
         # Open chains draw n-1 segments; faces and rings close the loop.
         n_segs = n if r.get("closed", True) else n - 1
+        # Closing segment of an open chain is the virtual edge: drawn
+        # dim so it reads as construction, not mesh.
+        virtual_i = n - 1 if r.get("virtual_close") else None
 
         max_p = max(projs) if projs else 0.0
         pivot_tol = max(max_p * 0.001, 1e-5)
@@ -2024,15 +2034,20 @@ cancels. LMB clicks only pick widget handles."""
         if curr:
             normal_segs = []
             pivot_segs = []
+            virtual_segs = []
             for i in range(n_segs):
                 j = (i + 1) % n
                 a, b = curr[i], curr[j]
-                if on_pivot[i] and on_pivot[j]:
+                if i == virtual_i:
+                    virtual_segs.extend([a, b])
+                elif on_pivot[i] and on_pivot[j]:
                     pivot_segs.extend([a, b])
                 else:
                     normal_segs.extend([a, b])
             if normal_segs:
                 draw_prim.edges_3d(normal_segs, role=Role.ACTIVE_LINE, context=context)
+            if virtual_segs:
+                draw_prim.edges_3d(virtual_segs, color=(0.6, 0.6, 0.6, 0.6), context=context)
             if pivot_segs:
                 # Pivot edges (on-pivot boundary) — brighter amber via LOCKED_POINT role.
                 draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_LINE, context=context)
