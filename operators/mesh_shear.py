@@ -890,10 +890,22 @@ cancels. LMB clicks only pick widget handles."""
     def _load_scene_props(self, context):
         props = context.scene.IOPS
         self.angle_deg = props.shear_last_angle
+        self._last_used_angle = props.shear_last_angle
         self._saved_extrude_distance = props.shear_extrude_last_distance
 
+    def _note_used_angle(self):
+        """Remember the last non-zero angle actually applied. Extrude /
+        hinge confirms reset angle_deg to 0 on the new cap, so a final
+        Enter would otherwise overwrite the remembered angle with 0."""
+        a = self._effective_angle()
+        if abs(a) > 1e-6:
+            self._last_used_angle = a
+
     def _save_shear_angle(self, context):
-        context.scene.IOPS.shear_last_angle = self.angle_deg
+        a = self.angle_deg
+        if abs(a) < 1e-6:
+            a = getattr(self, "_last_used_angle", 0.0)
+        context.scene.IOPS.shear_last_angle = a
 
     def _save_extrude_distance(self, context, distance):
         context.scene.IOPS.shear_extrude_last_distance = distance
@@ -929,6 +941,7 @@ cancels. LMB clicks only pick widget handles."""
         sheared faces — picture-frame mitres."""
         if not self.records:
             return False
+        self._note_used_angle()
 
         if True:
             # Every record extrudes together as ONE region (faces:
@@ -1736,6 +1749,7 @@ cancels. LMB clicks only pick widget handles."""
                 self.angle_deg = self._effective_angle()
                 self.input_str = ""
                 self._apply()
+                self._note_used_angle()
                 self._save_shear_angle(context)
                 bpy.ops.ed.undo_push(message="Shear")
                 self._finish(context)
@@ -1827,6 +1841,7 @@ cancels. LMB clicks only pick widget handles."""
                 self.angle_deg = self._effective_angle()
                 self.input_str = ""
                 self._apply()
+                self._note_used_angle()
                 self._save_shear_angle(context)
                 # Push AFTER the final apply so the post-shear state
                 # is the boundary; otherwise the modal's mesh changes
