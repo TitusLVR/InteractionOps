@@ -948,6 +948,12 @@ cancels. LMB clicks only pick widget handles."""
         sheared faces — picture-frame mitres."""
         if not self.records:
             return False
+        # Commit a typed-but-unconfirmed angle first: the mirror below
+        # reads angle_deg, and the visible mesh already shows the typed
+        # value via _effective_angle() — the extrude must match it.
+        self.angle_deg = self._effective_angle()
+        self.input_str = ""
+        self._apply()
         self._note_used_angle()
 
         if True:
