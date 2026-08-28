@@ -76,7 +76,12 @@ def sync_modifier_to(md, obj):
 
 
 class IOPS_OT_ModStackAction(bpy.types.Operator):
-    """Row action in the active object's modifier stack list"""
+    """Row action in the active object's modifier stack list.
+
+    Alt on any row button repeats the action on every selected object
+    that carries a modifier with the same name and type. Shift picks the
+    action's secondary variant; Alt+Shift combines both.
+    """
 
     bl_idname = "iops.mod_stack_action"
     bl_label = "Modifier Stack Action"
@@ -84,24 +89,25 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     index: bpy.props.IntProperty(options={"SKIP_SAVE"})
     alt: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    shift: bpy.props.BoolProperty(options={"SKIP_SAVE"})
     action: bpy.props.EnumProperty(
         items=[
-            ("MOVE_UP", "Move Up", "Move modifier up. Alt: to top"),
+            ("MOVE_UP", "Move Up",
+             "Move modifier up. Shift: to top. Alt: on the selection"),
             ("MOVE_DOWN", "Move Down",
-             "Move modifier down. Alt: to bottom"),
+             "Move modifier down. Shift: to bottom. Alt: on the selection"),
             ("APPLY", "Apply",
-             "Apply this modifier. Alt: apply the stack through this "
-             "modifier on the whole selection, in stack order"),
+             "Apply this modifier. Alt: on the selection. Shift+Alt: "
+             "apply the stack through this modifier on the selection"),
             ("TOGGLE_VIS", "Toggle Visibility",
-             "Toggle viewport visibility. Alt: toggle render "
-             "visibility"),
+             "Toggle viewport visibility. Shift: render visibility. "
+             "Alt: on the selection"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
              "stack position and settings. Alt: copy settings into a "
              "matching existing modifier instead"),
             ("REMOVE", "Remove",
-             "Remove this modifier. Alt: also remove the modifier with "
-             "the same name and type from the selected objects"),
+             "Remove this modifier. Alt: on the selection"),
             ("SAVE_PRESET", "Save As Default Preset",
              "Use this modifier's settings when adding this type "
              "from the grid"),
@@ -111,24 +117,27 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         options={"SKIP_SAVE"},
     )
 
+    _SELECTION_HINT = ("\nAlt: same on every selected object with a "
+                       "modifier of the same name and type")
     _DESCRIPTIONS = {
-        "MOVE_UP": "Move the modifier up\nAlt: move to the top",
-        "MOVE_DOWN": "Move the modifier down\nAlt: move to the bottom",
-        "APPLY": ("Apply the modifier\n"
-                  "Alt: apply the stack up to here (inclusive) on the "
-                  "whole selection, in stack order"),
+        "MOVE_UP": "Move the modifier up\nShift: move to the top"
+                   + _SELECTION_HINT,
+        "MOVE_DOWN": "Move the modifier down\nShift: move to the bottom"
+                     + _SELECTION_HINT,
+        "APPLY": ("Apply the modifier" + _SELECTION_HINT + "\n"
+                  "Shift+Alt: apply the stack up to here (inclusive) on "
+                  "the whole selection, in stack order"),
         "TOGGLE_VIS": ("Toggle viewport visibility\n"
-                       "Alt: toggle render visibility\n"
-                       "Red: viewport and render visibility differ"),
+                       "Shift: toggle render visibility\n"
+                       "Red: viewport and render visibility differ"
+                       + _SELECTION_HINT),
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
                              "objects, keeping its stack position and "
                              "settings\n"
                              "Alt: copy the settings into a matching "
                              "existing modifier (same name, else same "
                              "type) instead of adding a new one"),
-        "REMOVE": ("Remove the modifier\n"
-                   "Alt: remove the modifier with the same name and type "
-                   "from every selected object"),
+        "REMOVE": "Remove the modifier" + _SELECTION_HINT,
         "SAVE_PRESET": ("Save these settings as the default preset "
                         "used when adding this type from the grid"),
         "TOGGLE_PARAMS": "Show/hide the modifier's parameters",
@@ -150,7 +159,26 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.alt = event.alt
+        self.shift = event.shift
         return self.execute(context)
+
+    def _targets(self, context, obj, md):
+        """(object, matching modifier) pairs the action runs on.
+
+        Alt: every selected object (plus the active one) that has a
+        modifier with the same name and type; otherwise just (obj, md).
+        """
+        if not self.alt:
+            return [(obj, md)]
+        objs = list(context.selected_objects)
+        if obj not in objs:
+            objs.append(obj)
+        pairs = []
+        for o in objs:
+            other = o.modifiers.get(md.name)
+            if other is not None and other.type == md.type:
+                pairs.append((o, other))
+        return pairs
 
     def execute(self, context):
         obj = context.active_object
@@ -162,20 +190,23 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             self.report({"ERROR"},
                         "Modifiers cannot be applied in edit mode")
             return {"CANCELLED"}
+        name = md.name
 
-        if self.action == "MOVE_UP":
-            obj.modifiers.move(self.index,
-                               0 if self.alt else max(0, self.index - 1))
-        elif self.action == "MOVE_DOWN":
-            last = len(obj.modifiers) - 1
-            obj.modifiers.move(self.index,
-                               last if self.alt else min(last,
-                                                         self.index + 1))
+        if self.action in {"MOVE_UP", "MOVE_DOWN"}:
+            up = self.action == "MOVE_UP"
+            for o, m in self._targets(context, obj, md):
+                i = o.modifiers.find(m.name)
+                last = len(o.modifiers) - 1
+                if self.shift:
+                    j = 0 if up else last
+                else:
+                    j = max(0, i - 1) if up else min(last, i + 1)
+                o.modifiers.move(i, j)
         elif self.action == "TOGGLE_VIS":
-            if self.alt:
-                md.show_render = not md.show_render
-            else:
-                md.show_viewport = not md.show_viewport
+            attr = "show_render" if self.shift else "show_viewport"
+            state = not getattr(md, attr)
+            for _, m in self._targets(context, obj, md):
+                setattr(m, attr, state)
         elif self.action == "COPY_TO_SELECTED":
             copied = 0
             skipped = 0
@@ -191,57 +222,61 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                 else:
                     skipped += 1
             if self.alt:
-                msg = f"Updated {md.name} on {copied} object(s)"
+                msg = f"Updated {name} on {copied} object(s)"
                 if skipped:
                     msg += f", {skipped} skipped (no matching modifier)"
             else:
-                msg = f"Copied {md.name} to {copied} object(s)"
+                msg = f"Copied {name} to {copied} object(s)"
                 if skipped:
                     msg += f", {skipped} skipped (incompatible type)"
             self.report({"INFO"} if copied else {"WARNING"}, msg)
-        elif self.action == "APPLY" and not self.alt:
-            name = md.name
-            try:
-                with context.temp_override(object=obj, active_object=obj,
-                                           selected_editable_objects=[obj]):
-                    bpy.ops.object.modifier_apply(modifier=name)
-                self.report({"INFO"}, f"Applied {name}")
-            except RuntimeError as e:
-                self.report({"WARNING"}, f"Apply failed: {e}")
+        elif self.action == "APPLY" and not (self.alt and self.shift):
+            applied = 0
+            failed = 0
+            for o, m in self._targets(context, obj, md):
+                try:
+                    with context.temp_override(
+                            object=o, active_object=o,
+                            selected_editable_objects=[o]):
+                        bpy.ops.object.modifier_apply(modifier=m.name)
+                    applied += 1
+                except RuntimeError as e:
+                    failed += 1
+                    print(f"[iOps] apply {name} on {o.name} failed: {e}")
+            msg = f"Applied {name} on {applied} object(s)"
+            if failed:
+                msg += f", {failed} failed (see console)"
+            self.report({"INFO"} if applied else {"WARNING"}, msg)
+            if not applied:
                 return {"CANCELLED"}
-        elif self.action == "APPLY":  # Alt: apply up to here
-            target = (md.type, md.name)
+        elif self.action == "APPLY":  # Shift+Alt: apply up to here
+            target = (md.type, name)
             applied = 0
             failed = 0
             skipped = {}
-            for o in context.selected_objects:
+            objs = list(context.selected_objects)
+            if obj not in objs:
+                objs.append(obj)
+            for o in objs:
                 count, reason, fail_count = iops_mod_registry.smart_apply_object(
                     context, o, up_to=target)
                 applied += count
                 failed += fail_count
                 if reason:
                     skipped[reason] = skipped.get(reason, 0) + 1
-            msg = f"Applied {applied} modifier(s) up to {md.name}"
+            msg = f"Applied {applied} modifier(s) up to {name}"
             if failed:
                 msg += f", {failed} failed (see console)"
             for reason, n in skipped.items():
                 msg += f", {n} object(s) skipped ({reason})"
             self.report({"INFO"}, msg)
-        elif self.action == "REMOVE" and not self.alt:
-            obj.modifiers.remove(md)
-        elif self.action == "REMOVE":  # Alt: remove from the selection
-            name, mtype = md.name, md.type
-            targets = list(context.selected_objects)
-            if obj not in targets:
-                targets.append(obj)
-            removed = 0
-            for o in targets:
-                other = o.modifiers.get(name)
-                if other is not None and other.type == mtype:
-                    o.modifiers.remove(other)
-                    removed += 1
-            self.report({"INFO"},
-                        f"Removed {name} from {removed} object(s)")
+        elif self.action == "REMOVE":
+            pairs = self._targets(context, obj, md)
+            for o, m in pairs:
+                o.modifiers.remove(m)
+            if self.alt:
+                self.report({"INFO"},
+                            f"Removed {name} from {len(pairs)} object(s)")
         elif self.action == "TOGGLE_PARAMS":
             key = params_key(obj, md)
             if key in expanded_params:
