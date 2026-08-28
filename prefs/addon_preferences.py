@@ -1152,7 +1152,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     sub.prop(self, f"edit_pie_{ctx}_{slot}_content", text="")
                     content = getattr(self, f"edit_pie_{ctx}_{slot}_content")
                     if content == "CUSTOM":
-                        sub.prop(self, f"edit_pie_{ctx}_{slot}_custom", text="", placeholder="operator idname")
+                        crow = sub.row(align=True)
+                        crow.prop(self, f"edit_pie_{ctx}_{slot}_custom", text="", placeholder="uv.pin(clear=False)")
+                        op = crow.operator("iops.edit_pie_operator_search", text="", icon="VIEWZOOM")
+                        op.ctx = ctx
+                        op.slot = slot
                     if content not in ("DEFAULT", "EMPTY"):
                         sub.prop(self, f"edit_pie_{ctx}_{slot}_label", text="", placeholder="custom label")
 
@@ -1274,7 +1278,8 @@ for _ctx in EDIT_PIE_CONTEXTS:
                 name="", description="Slot content",
                 items=edit_pie_content_list, default="DEFAULT"),
             f"edit_pie_{_ctx}_{_slot}_custom": StringProperty(
-                name="", description="Operator idname, e.g. iops.mesh_quick_snap",
+                name="", description="Operator idname, optionally with "
+                "params in call syntax, e.g. uv.pin(clear=False)",
                 default=""),
             f"edit_pie_{_ctx}_{_slot}_label": StringProperty(
                 name="", description="Custom button label (empty = operator label)",

@@ -33,9 +33,9 @@ from gpu_extras.batch import batch_for_shader
 
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
-from ..utils.planarity import deviation_alpha, face_deviation_deg
+from ..utils.planarity import (deviation_alpha, face_deviation_deg,
+                               overlay_normal_offset)
 
-NORMAL_OFFSET = 0.002  # world-space push along the face normal (z-fight)
 DEPTH_SHRINK = 0.005   # pull verts toward the eye by 0.5% of their view
                        # depth: scales with distance (a fixed world offset
                        # falls below depth precision on large/far meshes)
@@ -193,7 +193,11 @@ def _collect_from_mesh(context, obj, me, threshold):
         alpha_by_poly[pi] = deviation_alpha(dev, threshold)
     sel_poly = tri_poly[tri_sel]
     pos = co_w[tri_verts.reshape(-1, 3)[tri_sel].ravel()]
-    pos += np.repeat(world_n[sel_poly] * NORMAL_OFFSET, 3, axis=0)
+    # Push relative to mesh size — a fixed world offset visibly floats
+    # above small objects.
+    diag = float(np.linalg.norm(co_w.max(axis=0) - co_w.min(axis=0)))
+    pos += np.repeat(world_n[sel_poly] * overlay_normal_offset(diag),
+                     3, axis=0)
     col = np.empty((len(pos), 4), np.float64)
     col[:, 0] = r
     col[:, 1] = g
