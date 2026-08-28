@@ -85,7 +85,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     bl_idname = "iops.mod_stack_action"
     bl_label = "Modifier Stack Action"
-    bl_options = {"REGISTER", "UNDO"}
+    # No "UNDO": execute() pushes its own undo step with a readable name
+    # ("Remove Bevel on 3 objects") instead of the generic bl_label.
+    bl_options = {"REGISTER"}
 
     index: bpy.props.IntProperty(options={"SKIP_SAVE"})
     alt: bpy.props.BoolProperty(options={"SKIP_SAVE"})
@@ -180,6 +182,30 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                 pairs.append((o, other))
         return pairs
 
+    _UNDO_VERBS = {
+        "MOVE_UP": "Move Up", "MOVE_DOWN": "Move Down",
+        "TOGGLE_VIS": "Toggle", "APPLY": "Apply", "REMOVE": "Remove",
+        "COPY_TO_SELECTED": "Copy",
+    }
+
+    def _undo_push(self, context, md_type, name, count):
+        verb = self._UNDO_VERBS.get(self.action)
+        if verb is None:  # TOGGLE_PARAMS / SAVE_PRESET don't touch data
+            return
+        if self.action in {"MOVE_UP", "MOVE_DOWN"} and self.shift:
+            verb = "Move to Top" if self.action == "MOVE_UP" else "Move to Bottom"
+        elif self.action == "TOGGLE_VIS":
+            verb = "Toggle Render" if self.shift else "Toggle Viewport"
+        elif self.action == "APPLY" and self.alt and self.shift:
+            verb = "Apply Stack up to"
+        elif self.action == "COPY_TO_SELECTED":
+            verb = "Sync" if self.alt else "Copy"
+        label = md_type.replace("_", " ").title()
+        msg = f"{verb} {label} '{name}'"
+        if count != 1:
+            msg += f" on {count} objects"
+        bpy.ops.ed.undo_push(message=msg)
+
     def execute(self, context):
         obj = context.active_object
         if self.index < 0 or self.index >= len(obj.modifiers):
@@ -191,10 +217,14 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                         "Modifiers cannot be applied in edit mode")
             return {"CANCELLED"}
         name = md.name
+        md_type = md.type
+        count = 1
 
         if self.action in {"MOVE_UP", "MOVE_DOWN"}:
             up = self.action == "MOVE_UP"
-            for o, m in self._targets(context, obj, md):
+            pairs = self._targets(context, obj, md)
+            count = len(pairs)
+            for o, m in pairs:
                 i = o.modifiers.find(m.name)
                 last = len(o.modifiers) - 1
                 if self.shift:
@@ -205,7 +235,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         elif self.action == "TOGGLE_VIS":
             attr = "show_render" if self.shift else "show_viewport"
             state = not getattr(md, attr)
-            for _, m in self._targets(context, obj, md):
+            pairs = self._targets(context, obj, md)
+            count = len(pairs)
+            for _, m in pairs:
                 setattr(m, attr, state)
         elif self.action == "COPY_TO_SELECTED":
             copied = 0
@@ -230,6 +262,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                 if skipped:
                     msg += f", {skipped} skipped (incompatible type)"
             self.report({"INFO"} if copied else {"WARNING"}, msg)
+            count = copied
         elif self.action == "APPLY" and not (self.alt and self.shift):
             applied = 0
             failed = 0
@@ -249,6 +282,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             self.report({"INFO"} if applied else {"WARNING"}, msg)
             if not applied:
                 return {"CANCELLED"}
+            count = applied
         elif self.action == "APPLY":  # Shift+Alt: apply up to here
             target = (md.type, name)
             applied = 0
@@ -270,8 +304,10 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             for reason, n in skipped.items():
                 msg += f", {n} object(s) skipped ({reason})"
             self.report({"INFO"}, msg)
+            count = len(objs)
         elif self.action == "REMOVE":
             pairs = self._targets(context, obj, md)
+            count = len(pairs)
             for o, m in pairs:
                 o.modifiers.remove(m)
             if self.alt:
@@ -289,4 +325,5 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                             f"{md.type}: saved as default preset for the grid")
             else:
                 self.report({"WARNING"}, "Could not write preset file")
+        self._undo_push(context, md_type, name, count)
         return {"FINISHED"}
