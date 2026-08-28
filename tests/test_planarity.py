@@ -5,9 +5,12 @@ import pytest
 from utils.planarity import (
     face_deviation_deg,
     deviation_alpha,
+    overlay_normal_offset,
     ALPHA_MIN,
     ALPHA_MAX,
     FULL_ANGLE_DEG,
+    NORMAL_OFFSET_MAX,
+    NORMAL_OFFSET_REL,
 )
 
 
@@ -78,3 +81,24 @@ class TestDeviationAlpha:
     def test_threshold_above_full_angle_returns_max(self):
         # Degenerate config (threshold >= ceiling): no ramp, just max.
         assert deviation_alpha(30.0, 20.0) == pytest.approx(ALPHA_MAX)
+
+
+class TestOverlayNormalOffset:
+    def test_small_mesh_scales_down(self):
+        # 5cm object: old fixed 0.002 was 4% of its size (floating shell);
+        # relative offset must be proportional instead.
+        assert overlay_normal_offset(0.05) == pytest.approx(
+            0.05 * NORMAL_OFFSET_REL)
+        assert overlay_normal_offset(0.05) < NORMAL_OFFSET_MAX / 10.0
+
+    def test_large_mesh_capped_at_old_constant(self):
+        assert overlay_normal_offset(100.0) == pytest.approx(NORMAL_OFFSET_MAX)
+
+    def test_default_cube_near_old_constant(self):
+        # 2-unit cube (diag ~3.46) — the size the old constant was tuned on.
+        diag = math.sqrt(12.0)
+        off = overlay_normal_offset(diag)
+        assert NORMAL_OFFSET_MAX / 2.0 < off <= NORMAL_OFFSET_MAX
+
+    def test_degenerate_zero_diagonal(self):
+        assert overlay_normal_offset(0.0) == 0.0

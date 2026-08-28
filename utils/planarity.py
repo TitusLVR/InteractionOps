@@ -20,6 +20,14 @@ ALPHA_MIN = 0.15
 ALPHA_MAX = 0.6
 FULL_ANGLE_DEG = 15.0
 
+# Overlay fills are pushed along the face normal to clear coincident
+# geometry. Relative to the mesh's world bbox diagonal so small objects
+# don't get a visibly floating shell; capped at the old fixed push so
+# large meshes behave as before (z-fighting at distance is handled by the
+# draw-time depth shrink, not this offset).
+NORMAL_OFFSET_MAX = 0.002
+NORMAL_OFFSET_REL = 5e-4
+
 _EPS = 1e-12
 
 
@@ -82,6 +90,14 @@ def face_deviation_deg(coords: Sequence[Vec3]) -> float:
         if angle > worst:
             worst = angle
     return worst
+
+
+def overlay_normal_offset(bbox_diagonal: float) -> float:
+    """World-space push distance for overlay face fills, scaled to the
+    mesh's world bbox diagonal and capped at NORMAL_OFFSET_MAX."""
+    if bbox_diagonal <= 0.0:
+        return 0.0
+    return min(NORMAL_OFFSET_MAX, bbox_diagonal * NORMAL_OFFSET_REL)
 
 
 def deviation_alpha(dev_deg: float, threshold_deg: float) -> float:
