@@ -4,6 +4,7 @@ from bpy.types import Menu
 
 from ..operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 from ..operators.mesh_nonplanar_overlay import overlay_enabled
+from ..utils.op_call import parse_operator_call
 
 
 def draw_open_asset_in_pie_if_poll(pie, context):
@@ -47,9 +48,12 @@ edit_pie_content_list = [
 ]
 
 
-def _draw_slot_operator(pie, idname, label):
+def _draw_slot_operator(pie, idname, label, props=None):
     """Operator button that keeps its pie position: poll failure or an
-    unknown idname draws a separator instead of shifting later slots."""
+    unknown idname draws a separator instead of shifting later slots.
+    `props` (parsed from call syntax like `uv.pin(clear=False)`) are set
+    on the button; unknown names and bad values are skipped, not raised —
+    this runs inside a draw handler."""
     module, _, func = idname.partition(".")
     try:
         if not getattr(getattr(bpy.ops, module), func).poll():
@@ -63,7 +67,15 @@ def _draw_slot_operator(pie, idname, label):
         kwargs["text"] = label
     if idname == "iops.mesh_nonplanar_overlay":
         kwargs["depress"] = overlay_enabled()
-    pie.operator(idname, **kwargs)
+    btn = pie.operator(idname, **kwargs)
+    if props:
+        rna_props = btn.bl_rna.properties
+        for key, value in props.items():
+            if key in rna_props:
+                try:
+                    setattr(btn, key, value)
+                except (TypeError, ValueError, OverflowError):
+                    pass
 
 
 def _edit_pie_default_slot(pie, context, ctx, slot):
@@ -122,9 +134,10 @@ def draw_edit_pie_diagonals(pie, context, ctx):
         elif content == "EMPTY":
             pie.separator()
         elif content == "CUSTOM":
-            idname = getattr(prefs, f"edit_pie_{ctx}_{slot}_custom").strip()
-            if idname:
-                _draw_slot_operator(pie, idname, label)
+            spec = parse_operator_call(
+                getattr(prefs, f"edit_pie_{ctx}_{slot}_custom"))
+            if spec:
+                _draw_slot_operator(pie, spec[0], label, spec[1])
             else:
                 pie.separator()
         else:
@@ -872,6 +885,65 @@ class IOPS_OT_Reload_Instance_Library(bpy.types.Operator):
         else:
             self.report({'INFO'}, f"{len(libraries)} libraries reloaded.")
         
+        return {"FINISHED"}
+
+
+# Module-level so the enum strings stay referenced while the search popup
+# is open (Blender enum-items callbacks don't keep Python strings alive).
+_OP_SEARCH_ITEMS = []
+
+
+def _rebuild_op_search_items():
+    """All registered operators as (idname, "Label (idname)", "") items —
+    rebuilt on each popup so late-registered addons show up."""
+    global _OP_SEARCH_ITEMS
+    items = []
+    for mod_name in dir(bpy.ops):
+        mod = getattr(bpy.ops, mod_name)
+        for op_name in dir(mod):
+            idname = f"{mod_name}.{op_name}"
+            try:
+                label = getattr(mod, op_name).get_rna_type().name
+            except Exception:
+                label = ""
+            name = f"{label} ({idname})" if label and label != idname \
+                else idname
+            items.append((idname, name, ""))
+    _OP_SEARCH_ITEMS = items
+
+
+def _op_search_items(self, context):
+    if not _OP_SEARCH_ITEMS:
+        _rebuild_op_search_items()
+    return _OP_SEARCH_ITEMS
+
+
+class IOPS_OT_EditPieOperatorSearch(bpy.types.Operator):
+    """Pick an operator for this Edit Pie custom slot"""
+
+    bl_idname = "iops.edit_pie_operator_search"
+    bl_label = "Search Operator"
+    bl_options = {"INTERNAL"}
+    bl_property = "operator"
+
+    ctx: bpy.props.StringProperty(options={"HIDDEN"})
+    slot: bpy.props.StringProperty(options={"HIDDEN"})
+    operator: bpy.props.EnumProperty(items=_op_search_items)
+
+    def invoke(self, context, event):
+        _rebuild_op_search_items()
+        context.window_manager.invoke_search_popup(self)
+        return {"FINISHED"}
+
+    def execute(self, context):
+        prefs = context.preferences.addons["InteractionOps"].preferences
+        attr = f"edit_pie_{self.ctx}_{self.slot}_custom"
+        if hasattr(prefs, attr):
+            setattr(prefs, attr, self.operator)
+            # Redraw prefs window so the field shows the pick immediately.
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    area.tag_redraw()
         return {"FINISHED"}
 
 
