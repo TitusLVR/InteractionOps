@@ -99,7 +99,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
              "Copy this modifier to the selected objects, keeping its "
              "stack position and settings. Alt: copy settings into a "
              "matching existing modifier instead"),
-            ("REMOVE", "Remove", "Remove this modifier"),
+            ("REMOVE", "Remove",
+             "Remove this modifier. Alt: also remove the modifier with "
+             "the same name and type from the selected objects"),
             ("SAVE_PRESET", "Save As Default Preset",
              "Use this modifier's settings when adding this type "
              "from the grid"),
@@ -124,7 +126,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                              "Alt: copy the settings into a matching "
                              "existing modifier (same name, else same "
                              "type) instead of adding a new one"),
-        "REMOVE": "Remove the modifier",
+        "REMOVE": ("Remove the modifier\n"
+                   "Alt: remove the modifier with the same name and type "
+                   "from every selected object"),
         "SAVE_PRESET": ("Save these settings as the default preset "
                         "used when adding this type from the grid"),
         "TOGGLE_PARAMS": "Show/hide the modifier's parameters",
@@ -223,8 +227,21 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             for reason, n in skipped.items():
                 msg += f", {n} object(s) skipped ({reason})"
             self.report({"INFO"}, msg)
-        elif self.action == "REMOVE":
+        elif self.action == "REMOVE" and not self.alt:
             obj.modifiers.remove(md)
+        elif self.action == "REMOVE":  # Alt: remove from the selection
+            name, mtype = md.name, md.type
+            targets = list(context.selected_objects)
+            if obj not in targets:
+                targets.append(obj)
+            removed = 0
+            for o in targets:
+                other = o.modifiers.get(name)
+                if other is not None and other.type == mtype:
+                    o.modifiers.remove(other)
+                    removed += 1
+            self.report({"INFO"},
+                        f"Removed {name} from {removed} object(s)")
         elif self.action == "TOGGLE_PARAMS":
             key = params_key(obj, md)
             if key in expanded_params:
