@@ -1,197 +1,243 @@
-# Menus, Panels and Windows
+# Panels
 
-This page covers everything that is **not** a pie: pop-up panels invoked through `wm.call_panel`, sidebar panels living in the `iOps` tab of the N-panel, and the floating Modifier window.
-
----
-
-## IOPS TPS panel (Transformation / Pivot / Snapping)
-
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_TPS_Panel</span>
-<span class="mode">Context: VIEW_3D and IMAGE_EDITOR</span>
-<span>Type: Pop-up panel</span>
-</div>
-
-Source: `ui/iops_tm_panel.py`. Invoked by `iops.call_panel_tps`.
-
-**Default binding:** `Ctrl + BUTTON4MOUSE` (mouse back button with Ctrl).
-
-The panel renders different layouts depending on `context.area.type`.
-
-### VIEW_3D layout
-
-Top toolbar row (left to right):
-
-- `space_data.lock_cursor` toggle (also drives `inputs.use_mouse_depth_navigate`).
-- `inputs.use_rotate_around_active`.
-- `tool_settings.use_mesh_automerge` and `use_mesh_automerge_and_split`.
-- `use_transform_correct_face_attributes`, `use_transform_correct_keep_connected`, `use_edge_path_live_unwrap`.
-- `iops.transform_orientation_create` — create a custom transform orientation from the current selection.
-- `iops.homonize_uvmaps_names` — rename all UV layers on selected meshes to `ch1`, `ch2`, ...
-- `iops.uvmaps_cleanup` — remove every UV layer from selected meshes.
-- `iops.object_name_from_active` — propagate active object's name to selection.
-- Optional rows for third-party addons when detected: `Batch Operations`, `Unreal OPS` (add/remove from active collection, make active by object, select collection objects, cleanup empty), `MACHIN3tools` shading pie (smooth/flat/auto-smooth/clear-normals plus 30°/60°/90°/180° angle presets via `iops.object_auto_smooth` or `machin3.toggle_auto_smooth` depending on Blender version).
-
-Body is a 4-column `grid_flow`:
-
-| Column | Contents |
-|---|---|
-| 1 — Transformation | Gizmo toggles M/R/S (translate/rotate/scale gizmos), `transform_orientation_slots[0].type`, custom-orientation rename + `iops.transform_orientation_delete`. |
-| 2 — Pivot Point | `tool_settings.transform_pivot_point` expanded, `iops.edit_origin` toggle (drives `use_transform_data_origin` and active's `show_in_front`), `use_transform_pivot_point_align`, `use_transform_skip_children`. |
-| 3 — Snapping | `snap_elements` dropdown, `snap_target` expand, self/align-rotation toggles, conditional `use_snap_peel_object` when `VOLUME` is in snap elements, conditional `se_snap_to_same_target` when `FACE_NEAREST` is set, backface culling, selectable, translate/rotate/scale snap toggles, `snap_angle_increment_3d` + precision. |
-| 4 — Snap Combos | Eight `iops.set_snap_combo` buttons (idx 1..8, labelled A..H) recalling stored snap presets. |
-
-### IMAGE_EDITOR layout
-
-- Top row: `iops.reload_images`, `space_data.display_channels` expand, `show_repeat`.
-- Body (MESH + EDIT_MESH only): 3 columns — UV selection mode block (`use_uv_select_sync`, `uv_select_mode`, `uv_sticky_select_mode`), Pivot Point expand, Snap block (`snap_uv_element`, optional VERTEX target, Move/Rotate/Scale affect toggles, `snap_angle_increment_2d` + precision).
+InteractionOps has two kinds of panels: **popup panels** that appear under the mouse on a hotkey and vanish when you move away, and **sidebar panels** docked in *3D View › N-panel › iOps* tab. The sidebar tab name can be changed in *Preferences › iOps › General*.
 
 ---
 
-## IOPS Data panel
+## TPS (Transform / Pivot / Snap)
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_DATA_Panel</span>
-<span class="mode">Context: VIEW_3D or UV editor + active MESH</span>
-<span>Type: Pop-up panel</span>
-</div>
+![TPS panel](../img/ui/panels/panel_tps.png)
 
-Source: `ui/iops_data_panel.py`. Invoked by `iops.call_panel_data`.
+Everything about how transforms behave, in one popup: gizmos, orientation, pivot point, snapping and the eight Snap Combo slots. In the UV Editor it shows UV select modes, pivot and UV snapping instead.
 
-**Default binding:** `Ctrl + Shift + BUTTON4MOUSE`.
+**Hotkey:** <kbd>Shift</kbd>+<kbd>Mouse Button 4</kbd> (3D View and UV Editor)
 
-If the active object's mesh data is None (e.g. linked object) the panel reports `Mesh data not available (linked object)` and exits early.
-
-### Top toolbar row
-
-- `iops.homonize_uvmaps_names` (icon `UV_DATA`).
-- `space_data.show_repeat` toggle when invoked from a UV editor.
-- UV-channel "keep N" cleanup chain (labelled `All`, `2+`, `3+`, `4+`, `5+`, `6+`, `7+`, `8`): `iops.object_clean_uvmap_0` through `iops.object_clean_uvmap_7`.
-
-### Body — main row with 3 lists side by side
-
-**UVMaps**
-- `template_list` of `me.uv_layers` (MESH_UL_uvmaps, 5 rows).
-- Side buttons: `iops.uv_add_uvmap`, `iops.uv_remove_uvmap_by_active_name`, `iops.uv_active_uvmap_by_active_object`, `iops.mesh_uv_channel_hop`.
-
-**Color Attributes** (Blender 3.2+)
-- `template_list` of `me.color_attributes` (MESH_UL_color_attributes, 5 rows). Active index is mirrored through `props.iops_active_color_index` with a `_iops_color_sync_lock` guard to avoid retag propagation on object-switch redraws.
-- Side buttons: `geometry.color_attribute_add`, `geometry.color_attribute_remove`, `MESH_MT_color_attribute_context_menu`.
-- On Blender < 3.2 the panel falls back to a `MESH_UL_vcols` list with `mesh.vertex_color_add` / `mesh.vertex_color_remove`.
-
-**Vertex Groups**
-- `template_list` of `ob.vertex_groups` (MESH_UL_vgroups, 5 rows).
-- Side buttons: `object.vertex_group_add`, `object.vertex_group_remove` (forced `all_unlocked = all = False`), `MESH_MT_vertex_group_context_menu`, and when a group is active, `object.vertex_group_move` UP/DOWN.
-- When in EDIT or in WEIGHT_PAINT with vertex mask, a second row exposes `object.vertex_group_assign`, `vertex_group_remove_from`, `vertex_group_select`, `vertex_group_deselect`, plus a `vertex_group_weight` slider.
-
-### Body — Materials block
-
-- `template_list` of `ob.material_slots` (MATERIAL_UL_matslots, 3 rows or 5 if sortable).
-- Side buttons: `object.material_slot_add`, `material_slot_remove`, `MATERIAL_MT_context_menu`, `material_slot_move` UP/DOWN when sortable.
-- `template_ID(ob, "active_material", new="material.new")` row.
-- In EDIT mode: row with `material_slot_assign`, `material_slot_select`, `material_slot_deselect`.
+| Button | What it does |
+| --- | --- |
+| Lock cursor, Rotate around active, Auto Merge, Auto Merge & Split, Correct Face Attributes, Keep Connected, Live Unwrap | Common tool-setting toggles |
+| Create orientation | New custom transform orientation from the selection |
+| Homogenize UV names | Rename UV maps on the selection to ch1, ch2, ... |
+| UV cleanup | Remove all UV maps from the selection |
+| Name from Active | Rename the selection after the active object |
+| **M / R / S** | Show the move / rotate / scale gizmo |
+| Orientation, rename, delete | Manage transform orientations |
+| Pivot Point, Edit Origin, Only Locations, Skip Children | Pivot settings |
+| Snap to, Target, Self, Align Rotation, Backface Culling, Selectable, Move / Rotate / Scale, angle increment | Snap settings |
+| **A – H** | [Snap Combo](../operators/op_snap_combos.md) slots: click to recall, Shift+click to save |
+| Smooth / Flat / Auto Smooth 30°–180° | Shading shortcuts (with MACHIN3tools installed) |
+| Reload Images, display channels, Repeat | UV Editor header row |
 
 ---
 
-## IOPS Transform panel
+## Transform
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_TM_Panel</span>
-<span class="mode">Context: VIEW_3D, OBJECT mode, supported object type</span>
-<span>Type: Pop-up panel</span>
-</div>
+![Transform panel](../img/ui/panels/panel_tm.png)
 
-Source: `ui/iops_tm_panel.py`. Invoked by `iops.call_panel_tm`.
+A compact popup with the active object's location, rotation, scale and dimensions, so you can type exact values without opening the N-panel.
 
-**Default binding:** `Ctrl + Shift + T`.
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> (Object Mode)
 
-Compact (8 ui units wide) column showing the active object's `location`, `rotation_euler`, `scale`, and — for `MESH`/`CURVE`/`FONT`/`ARMATURE`/`META`/`GPENCIL` — `dimensions`.
-
-Poll requires an active object of any of: MESH, CURVE, EMPTY, FONT, LIGHT, CAMERA, ARMATURE, LATTICE, META, SPEAKER, GPENCIL, SURFACE, VOLUME, LIGHT_PROBE in OBJECT mode.
-
----
-
-## Collection Append panel
-
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_Collection_Append_Panel</span>
-<span class="mode">Context: VIEW_3D, OBJECT mode</span>
-<span>Type: Sidebar panel (iOps tab, default closed)</span>
-</div>
-
-Source: `ui/iops_tm_panel.py`. Also reachable as a pop-up via `iops.call_panel_collection_append`.
-
-**Default binding:** no default binding.
-
-Three-step workflow against a selected linked instance:
-
-1. **Scan** — `iops.scan_source_collections` populates `props.iops_source_collections`.
-2. **Select** — `template_list` (`IOPS_UL_SourceCollectionsList`, 5 rows) of source collections with per-row `is_selected` checkboxes. Below: `iops.select_all_collections` with `action=SELECT` and `action=DESELECT`.
-3. **Append** — `iops.instance_collection_append` with a live counter `Append (N selected)`.
-
-Empty state shows `No collections scanned yet`. A help box at the bottom restates the steps.
+| Button | What it does |
+| --- | --- |
+| Location / Rotation / Scale | Edit the active object's transform |
+| Dimensions | Resize the object by its real size |
+| **Apply to Selected** | Push the typed dimensions to every selected object |
+| **Reset Scale to 1** | Bake the new size into the mesh and reset scale |
+| **Ignore Modifiers** | Measure the base mesh, not the modified result |
 
 ---
 
-## IOPS Object Color panel
+## Data
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_Object_Color_Panel</span>
-<span class="mode">Context: VIEW_3D, iOps sidebar tab</span>
-<span>Type: Sidebar panel (default closed)</span>
-</div>
+![Data panel](../img/ui/panels/panel_data.png)
 
-Source: `ui/iops_object_color_panel.py`.
+The active mesh's UV maps, colour attributes, vertex groups and material slots side by side, with add / remove / assign buttons — a popup version of the Object Data tab.
 
-**Default binding:** no default binding (sidebar panel).
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Mouse Button 4</kbd> (3D View and UV Editor, mesh active)
 
-Rows:
-
-- Color picker bound to `scene.IOPS.iops_object_color`.
-- `iops.object_color_copy_from_active` (icon `EYEDROPPER`) — loads the active object's `obj.color` into the picker.
-- `iops.object_color_apply` (icon `COLOR`) — pushes the picker color onto every selected object's `obj.color`.
-- "Recent" two-row palette: `RECENT_SLOTS` (8 by default, imported from `operators.object_color`) swatches `iops_object_color_recent_<i>` each with a numbered `iops.object_color_apply_recent` button (`index = i`). Picking a swatch applies that color to selection and loads it into the picker; swatch order is not reshuffled by clicks.
+| Button | What it does |
+| --- | --- |
+| Homogenize UV names | Rename UV maps to ch1, ch2, ... on the selection |
+| **All, 2+, 3+ ... 8** | Keep only the first N UV maps on the selection (All removes every one) |
+| UVMaps list: +, -, set active by object, set active by name, sort, channel hop | Manage UV maps across the selection |
+| Color Attributes list: +, -, menu | Manage colour attributes |
+| Vertex Groups list: +, -, menu, up / down, Assign / Remove / Select / Deselect, Weight | Manage vertex groups |
+| Materials list: +, -, menu, up / down, material picker, Assign / Select / Deselect | Manage material slots |
 
 ---
 
-## IOPS Vertex Color panel
+## Modifiers
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: IOPS_PT_VCol_Panel</span>
-<span class="mode">Context: VIEW_3D, iOps sidebar tab</span>
-<span>Type: Sidebar panel (default closed)</span>
-</div>
+![Modifiers panel](../img/ui/panels/panel_modifiers.png)
 
-Source: `ui/iops_tm_panel.py`.
+A modifier stack you can drive with modifier keys. The icon grid adds or manages a modifier type on the whole selection; the tool row cleans and sorts stacks; the list below edits the active object's stack row by row. Also docked in the sidebar.
 
-**Default binding:** no default binding.
+**Hotkey:** <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>RMB</kbd>
 
-- Active image-paint brush color picker (only if a brush exists).
-- In OBJECT mode: `template_ID` palette picker on `tool_settings.image_paint.palette` with `palette.new`, plus `template_palette` row when a palette is set.
-- `iops.mesh_assign_vertex_color` — Set Color.
-- `iops.mesh_assign_vertex_color_alpha` — Set Alpha.
+| Button | What it does |
+| --- | --- |
+| Icon grid (click) | Add that modifier type to the selection with your preset defaults |
+| Icon grid, <kbd>Ctrl</kbd> | Apply all modifiers of that type |
+| Icon grid, <kbd>Alt</kbd> | Remove all modifiers of that type |
+| Icon grid, <kbd>Shift</kbd> | Toggle viewport visibility of that type |
+| **Sort** | Order stacks sensibly (Mirror / Array first, Weighted Normal / Triangulate last) |
+| **Cleanup** | Remove modifiers that do nothing (empty targets, zero values) |
+| **Sync Vis** | Make render visibility match viewport visibility |
+| **Cursor Target** | Create an empty at the 3D cursor and use it as the modifier target |
+| **Active Target** | Use the active object as the modifier target on the others |
+| **Users** | Select objects whose modifiers reference the active object |
+| **Safe Apply** | Apply transforms without breaking distance-based modifier settings |
+| **Adaptive Decimate** | Add a curvature-aware Geometry Nodes decimate |
+| **Apply All** | Bake the whole stack into the mesh |
+| Stack row: expand, name, eye, up, down, apply, copy to selected, remove, save preset | Per-modifier actions. <kbd>Alt</kbd> runs the action on every selected object with the same modifier; <kbd>Shift</kbd> picks the variant (to top / bottom, render visibility, apply up to here) |
 
 ---
 
-## Modifier window (floating)
+## Collection Append
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: iops.window_modifiers</span>
-<span class="mode">Context: any (requires a valid window context)</span>
-<span>Type: Floating window (Properties editor)</span>
-</div>
+![Collection Append panel](../img/ui/panels/panel_collection_append.png)
 
-Source: `ui/iops_mod_window.py`. Operator label: `IOPS Modifiers Window`.
+Turn a linked collection instance into local, editable collections: scan the source file, tick the collections you want, append. Sidebar panel (Object Mode).
 
-**Default binding:** `Ctrl + Shift + F19`.
+**Hotkey:** None — sidebar panel.
 
-Toggling behaviour — if any single-area `PROPERTIES` floating window exists it is closed and the operator returns. Otherwise a new 350x550 window is created.
+| Button | What it does |
+| --- | --- |
+| **Scan Collections** | List the collections inside the selected linked instance |
+| Collection list with checkboxes, **Select All / Deselect All** | Choose what to bring in |
+| **Append (N selected)** | Append the chosen collections into the scene |
 
-Two creation modes, selected by `addon prefs.modifier_window_method`:
+---
 
-- `RENDER` — temporarily overwrites `scene.render.resolution_x/y` to 350x550, calls `bpy.ops.render.view_show("INVOKE_DEFAULT")`, restores resolution, removes the leftover `Render Result` image. After the window opens the operator shows the Navigation Bar and flips its alignment to the right side via `screen.region_toggle` + `screen.region_flip`.
-- `NEW_WINDOW` — calls `bpy.ops.wm.window_new()` under a `temp_override(window, screen)`. After the area is retyped to `PROPERTIES` the operator looks the window up by HWND via `ctypes` (Windows-only path through `user32.EnumWindows` / `SetWindowPos`) and force-sizes it to 350x550. Header and Navigation Bar are hidden via `screen.region_toggle`.
+## Vertex Color
 
-In both modes the area is set to `PROPERTIES` and only the Modifiers tab is left visible — every other `space.show_properties_*` flag (tool, scene, render, output, view_layer, world, collection, object, constraints, data, bone, bone_constraints, material, texture, particles, physics, effects) is set to `False`; only `show_properties_modifiers` stays `True`.
+![Vertex Color panel](../img/ui/panels/panel_vcol.png)
 
-The detector for "is there already a modifier window" iterates `wm.windows[1:]` looking for a single-area `PROPERTIES` window. That window is closed via `wm.window_close` under a `temp_override(window=...)`.
+Quick vertex colouring: pick a colour or palette swatch and stamp it onto the selection. Sidebar panel.
+
+**Hotkey:** None — sidebar panel.
+
+| Button | What it does |
+| --- | --- |
+| Colour picker, palette | Choose the colour |
+| **Set Color** | Assign the colour to the selected vertices / faces |
+| **Set Alpha** | Assign the alpha value only |
+
+---
+
+## Object Color
+
+![Object Color panel](../img/ui/panels/panel_object_color.png)
+
+Set the viewport object colour of the selection and keep a row of recent colours. Sidebar panel.
+
+**Hotkey:** None — sidebar panel.
+
+| Button | What it does |
+| --- | --- |
+| Colour picker | Choose the colour |
+| **Copy From Active** | Load the active object's colour into the picker |
+| **Apply Color** | Apply the picker colour to all selected objects |
+| **Recent** swatches | Click a numbered swatch to apply that colour again |
+
+---
+
+## Selection Sets
+
+![Selection Sets panel](../img/ui/panels/panel_selection_sets.png)
+
+Named vertex / edge / face selections stored on the mesh. Save, recall, replace and combine them; the same controls are also in the 3D View header as a popover. Sidebar panel (Edit Mesh).
+
+**Hotkey:** None — sidebar panel and header popover.
+
+| Button | What it does |
+| --- | --- |
+| Set list | Pick the active set; shows element type and a stale warning |
+| **+ / - / rename / refresh / trash** | Create, delete, rename, refresh all, delete all |
+| **Select Set** | Select the stored elements |
+| **Replace** | Overwrite the set with the current selection |
+| **Extend / Subtract / Intersect / Difference** | Combine the current selection with the set (Shift: write the result into the set) |
+| Preview (eye) | Highlight the set in the viewport without selecting |
+
+---
+
+## Material Override
+
+![Material Override panel](../img/ui/panels/panel_material_override.png)
+
+Set or clear the view layer's material override from a list of scene materials — a clay / checker / lighting pass without touching the objects.
+
+**Hotkey:** Not bound by default — assign a key to *View Layer Material Override* in *Preferences › iOps › Keymaps*.
+
+| Button | What it does |
+| --- | --- |
+| **Current Override** + **Clear** | Show and remove the active override |
+| **Fancy Mode** | Show material previews instead of plain names |
+| Material buttons | Set that material as the override (checkmark = active) |
+| Refresh / Generate All Previews | Rebuild the preview thumbnails |
+
+---
+
+## Library
+
+![Library panel](../img/ui/panels/panel_library.png)
+
+Home of the iOps master asset library: point it at a master file, publish things into it, refresh, and open the popup palette. Sidebar panel.
+
+**Hotkey:** None — sidebar panel (the popup itself is <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>).
+
+| Button | What it does |
+| --- | --- |
+| **Master**, **Find Master** | Choose or locate the master library file |
+| **Refresh Library** | Re-sync the catalog |
+| **Clean Unlinked Assets** | Remove assets whose source is gone |
+| **Publish Active Object / Collection / Material / Geometry Nodes / Shader Group** | Add to the library |
+| **Open Library Popup** | Open the [Library Popup](ui_pies.md#library-popup) |
+| Preview size | Thumbnail size in the popup |
+| Status, Queue | Background sync progress |
+
+---
+
+## Executor
+
+![Executor panel](../img/ui/panels/panel_executor.png)
+
+A popup list of your own Python scripts from the Executor folder — click a name to run it. Type in the search box to filter.
+
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>
+
+| Button | What it does |
+| --- | --- |
+| Search field | Fuzzy-filter the script list |
+| Script name | Run that script |
+
+The folder, column count and name length are set in *Preferences › iOps › Script Executor*.
+
+---
+
+## Widgets
+
+![Widgets panel](../img/ui/panels/panel_widgets.png)
+
+A popup list of the GPU widgets defined in your widgets folder (JSON). Click a widget to show or hide its on-screen panel; opening the list also reloads edited widget files.
+
+**Hotkey:** Not bound by default — assign a key to *IOPS Widgets Panel* in *Preferences › iOps › Keymaps*.
+
+| Button | What it does |
+| --- | --- |
+| Widget name | Toggle that widget in the viewport |
+
+Widgets are composed in *Preferences › iOps › Widgets*.
+
+---
+
+## UV Tools
+
+![UV Tools panel](../img/ui/panels/panel_uv_tools.png)
+
+A small sidebar panel in the UV Editor (*N-panel › iOps*) with the two UV helpers.
+
+| Button | What it does |
+| --- | --- |
+| UV Info Rect | Drag a rectangle in the UV editor to read its min / max / size; the values are copied to the clipboard |
+| Drag Snap UV | [Drag Snap UV](../operators/op_drag_snap_uv.md): drag a UV vertex onto another one |

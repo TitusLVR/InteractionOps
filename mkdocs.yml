@@ -130,6 +130,9 @@ nav:
           - Straight Bevel: operators/op_mesh_straight_bevel.md
           - Shear: operators/op_mesh_shear.md
           - Quick Connect: operators/op_mesh_quick_connect.md
+          - Hinge: operators/op_mesh_hinge.md
+          - Converge: operators/op_mesh_converge.md
+          - Vert Fuse: operators/op_mesh_vert_fuse.md
           - Tris → Quads: operators/op_mesh_to_tris_to_quad.md
       - Mesh — Utilities:
           - Copy Edges Angle: operators/op_mesh_copy_edges_angle.md
@@ -141,6 +144,7 @@ nav:
           - UV Visual Cursor: operators/op_uv_visual_cursor.md
           - Non-Planar Overlay: operators/op_mesh_nonplanar_overlay.md
           - UV Shortest Mark: operators/op_mesh_uv_shortest_mark.md
+          - Bevel Edge Data Fix: operators/op_bevel_edge_data_fix.md
       - Snap & Transform:
           - Drag Snap: operators/op_drag_snap.md
           - Drag Snap Cursor: operators/op_drag_snap_cursor.md
@@ -155,6 +159,22 @@ nav:
       - Curve:
           - Spline Type: operators/op_curve_spline_type.md
           - Subdivide: operators/op_curve_subdivide.md
+      - Assets & Library:
+          - Asset Management: operators/op_assets_management.md
+          - Render Asset Thumbnail: operators/op_render_asset_thumbnail.md
+          - Instance Collection Append: operators/op_instance_collection_append.md
+          - Open Asset in Current Blender: operators/op_open_asset_in_current_blender.md
+          - Open Asset in New Blender: operators/op_open_asset_in_new_blender.md
+      - Scene & Files:
+          - Material Override: operators/op_material_override.md
+          - Materials from Textures: operators/op_materials_from_textures.md
+          - Image Reload: operators/op_image_reload.md
+          - Library Reload: operators/op_library_reload.md
+          - Outliner Collection Ops: operators/op_outliner_collection_ops.md
+          - Maya Isolate: operators/op_maya_isolate.md
+      - Scripts:
+          - Executor: operators/op_executor.md
+          - Run Text: operators/op_run_text.md
       - Interface:
           - Split Screen Area: operators/op_split_screen_area.md
           - Split Screen Area (New): operators/op_split_screen_area_new.md

@@ -1,34 +1,13 @@
 # Non-Planar Faces Overlay
 
-Toggles a sticky viewport overlay that highlights every non-planar face of the active edit-mesh in real time. Fix a face — flatten it below the threshold — and its highlight disappears on the next redraw.
+![Non-Planar Faces Overlay](../img/ops/op_mesh_nonplanar_overlay.png)
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname: iops.mesh_nonplanar_overlay</span>
-<span class="mode">Mode: Edit Mesh</span>
-<span>Context: VIEW_3D</span>
-<span class="modal">Modal: no</span>
-<span class="hud">HUD: yes</span>
-</div>
+Toggles a live overlay that tints every non-planar face of the mesh you are editing. The stronger the warp, the stronger the tint; flatten a face and its highlight disappears. A **Non-Planar** count appears in the iOps statistics overlay (red while faces need fixing, green at zero). The overlay sticks across object and mode switches until you toggle it off. Edit Mesh mode.
 
-## What it does
+**Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Edit Pie › Non-Planar Overlay, iOps Pie › Non-Planar Overlay.
 
-- Checks every visible quad/ngon of the active object (triangles are always planar and skipped). A face is non-planar when any corner's plane deviates from the face's best-fit plane by more than the **Non-Planar Angle** threshold.
-- Non-planar faces are filled with the theme's error color. Fill intensity scales with the deviation: faces just past the threshold are faint, faces warped 15° or more draw at full strength.
-- A **Non-Planar** row in the iOps statistics overlay shows the current count while the mode is on — red when faces need fixing, green at 0 (which also confirms the mode is active when everything is planar).
-- The overlay is **sticky**: it survives object switches and mode changes (it only draws in Edit Mode) and stays active until toggled off.
+## Options
+- **Non-Planar Angle** (Preferences › iOps › Non-Planar Overlay) — faces bent less than this count as planar (default 0.5°).
 
-## How to use
-
-1. Enter Edit Mode on a mesh and run **Non-Planar Faces Overlay** (F3 search, or bind it to a hotkey).
-2. Model. Highlights update live as you move vertices; deviation-heavy faces glow stronger.
-3. Run the operator again to turn the overlay off.
-
-## Settings
-
-- **Preferences → Non-Planar Overlay → Non-Planar Angle** — threshold in degrees (default 0.5°). Faces below it count as planar. The full-intensity ceiling (15°) is fixed.
-
-## Notes
-
-- Only the active object is checked in multi-object edit sessions.
-- Detection runs in world space, so non-uniform object scale is measured the way you see it.
-- Hidden faces are ignored.
+## Tips
+- Only the active object is checked; hidden faces and triangles are ignored.

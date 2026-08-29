@@ -1,207 +1,159 @@
 # Pie Menus
 
-InteractionOps ships four pie menus. Every pie is fronted by an `iops.call_pie_*` operator that wraps `wm.call_menu_pie`.
-
-Slot legend used below: **W** = 4 (LEFT), **E** = 6 (RIGHT), **S** = 2 (BOTTOM), **N** = 8 (TOP), **NW** = 7 (TOP-LEFT), **NE** = 9 (TOP-RIGHT), **SW** = 1 (BOTTOM-LEFT), **SE** = 3 (BOTTOM-RIGHT). Empty slots are drawn as separators.
+InteractionOps adds five pie menus and one floating library palette. Every pie has its own hotkey (see *Preferences › iOps › Keymaps*); buttons that cannot run in the current context are hidden, so a pie only shows what works right now.
 
 ---
 
-## IOPS Pie Menu (main)
+## Main Pie
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname (call op): iops.call_pie_menu</span>
-<span class="key">Menu class: IOPS_MT_Pie_Menu</span>
-<span class="mode">Context: any</span>
-<span>Type: Pie menu</span>
-</div>
+![Main Pie](../img/ui/pies/pie_main.png)
 
-Source: `ui/iops_pie_menu.py`.
+The everyday toolbox: vertex colours, object tools, mesh tools and the Easy Modifier helpers, plus bridges to companion addons when they are installed.
 
-**Default binding:** `Ctrl + Shift + Q`.
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd>
 
-Layout is not a classic radial — it uses `layout.menu_pie()` for cardinals but renders the W and S slots as full sub-panels (boxes), and N/E light up only when companion addons are present.
-
-Operator buttons are drawn through the `op_if_poll()` helper: a button is hidden entirely (not just greyed out) when the operator's `poll()` fails in the current context, so the menu only shows what can actually run.
-
-| Slot | Contents |
-|---|---|
-| W (4) | "IOPS" box. `scene.IOPS.iops_vertex_color` picker. `iops.mesh_assign_vertex_color` (Set Vertex Color). White / Grey / Black presets via the same operator with `fill_color_white/grey/black=True`. `iops.mesh_assign_vertex_color_alpha`. Then a stack of operators: `iops.materials_from_textures`, `iops.object_replace`, `iops.object_aligner`, `iops.object_radial_array`, `iops.object_align_between_two`, `iops.mesh_quick_snap`, `iops.mesh_quick_connect`, `iops.mesh_to_tris_to_quads`, `iops.mesh_smart_inset` (Smart Inset), `iops.mesh_straight_bevel` (Straight Bevel), `iops.mesh_shear` (Shear) — the last three are mesh-edit-mode only and hide otherwise, `iops.object_drop_it`, `iops.object_kitbash_grid`, then the Easy Modifier group (`iops.modifier_easy_array_caps`, `_array_curve`, `_curve`, `_shwarp`), `iops.assets_render_asset_thumbnail`, `iops.reload_libraries`, `iops.reload_images`. |
-| E (6) | "BMax" box if `BMAX Connector` is enabled — `bmax.export`/`bmax.import` (or USD variants depending on `prefs.file_format`), plus L/R/S reset-on-export toggles. "BMoI" box if `BMOI Connector` is enabled — `bmoi3d.export`/`bmoi3d.import`. |
-| S (2) | "B2RUVL" box. `uvMap` index from `wm.B2RUVL_PanelProperties`. `b2ruvl.send_to_uvlayout` (enabled when path is set), `b2ruvl.send_to_rizomuv`, `b2ruvl.get_from_rizomuv`. |
-| N (8) | "ForgottenTools" box when `Forgotten Tools` is enabled AND mode is `EDIT_MESH` — `mesh.connect_spread`, `mesh.grid_fill_all`, `mesh.dice_faces`, `mesh.hinge`, `mesh.forgotten_separate_duplicate`, and a `wm.call_panel` opening `MESH_PT_selection_sets_panel_frgttn`. Otherwise empty. |
-| NW (7) | Empty. |
-| NE (9) | `mesh.optiloops` when `Optiloops` is enabled AND mode is `EDIT_MESH`. Otherwise empty. |
-| SW (1) | Empty. |
-| SE (3) | Empty. |
-
----
-
-## IOPS Pie Edit (object-type aware)
-
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname (call op): iops.call_pie_edit</span>
-<span class="key">Menu class: IOPS_MT_Pie_Edit</span>
-<span class="mode">Context: VIEW_3D or IMAGE_EDITOR; needs active object or "Open Asset in Current Blender" poll</span>
-<span>Type: Pie menu</span>
-</div>
-
-Source: `ui/iops_pie_edit.py`.
-
-**Default binding:** `Ctrl + Shift + F19`.
-
-This pie reshapes itself by `context.area.type`, `context.object.type` and `obj.mode`. Cardinal slots always call `iops.function_f1` / `_f2` / `_f3` / `_esc` (and sometimes `_f4`); only the label and icon change.
-
-### VIEW_3D, no active object
-
-Only "Open Asset in Current Blender" is drawn if its poll passes (via `draw_open_asset_in_pie_if_poll`).
-
-### VIEW_3D, EMPTY with linked instance_collection (COLLECTION instance type)
-
-Adds a multi-part layout:
-
-- The shared "Empty Size + Display + Image-row" block from `draw_empty_pie_size_display_and_image` (see below).
-- **S (2)** `object.duplicates_make_real` with `use_hierarchy=True` — "Make Instances Real".
-- **N (8)** `iops.expand_instance_collection` — "Expand Collection to Scene".
-- **NW (7)** `iops.open_asset_in_new_blender` (only when `instance_collection.library` is set) — labelled `Open <filename>`, sets `blendpath` and `library`.
-- **NE (9)** `iops.reload_instance_library` — labelled `Reload <filename>`.
-
-### VIEW_3D, plain EMPTY (no instance collection)
-
-Just the shared Empty block.
-
-### VIEW_3D, any other object type
-
-`draw_edit_pie_cardinals` draws four cardinal slots that map to `iops.function_f1/f2/f3/esc`. Label + icon come from `get_text_icon(context, "fN" | "esc")` and depend on type/mode:
-
-| Type | Mode | f1 | f2 | f3 | esc |
-|---|---|---|---|---|---|
-| MESH | any | Vertex | Edge | Face | Esc |
-| ARMATURE | OBJECT | Edit Mode | Pose Mode | Set Parent to Bone | Esc |
-| ARMATURE | EDIT | Object Mode | Pose Mode | Set Parent to Bone | Object Mode |
-| ARMATURE | POSE | Edit Mode | Object Mode | Set Parent to Bone | Object Mode |
-| EMPTY | any | Open Instance Collection .blend | Realize Instances | F3 | Esc |
-| CURVE | OBJECT | Edit Mode | Duplicate | Switch Direction | Toggle Cyclic |
-| CURVE | EDIT | Object Mode | Subdivide | Spline Type | Esc |
-| CURVES | OBJECT | Edit Mode | Duplicate | Toggle Cyclic | Esc |
-| CURVES | EDIT / EDIT_CURVES | Object Mode | Subdivide | Cyclic | Esc |
-| CURVES | SCULPT_CURVES | Edit Mode | Object Mode | Sculpt Toggle | Esc |
-| CAMERA | any | Active Camera | Camera View | Cam to View | Toggle DOF (also f4=Lens +5) |
-| LIGHT | any | Duplicate | Toggle Shadow | Boost Power | Cycle Type (also f4=Toggle Specular) |
-| FONT | OBJECT | Edit Mode | Convert to Mesh | To Curve | Esc |
-| FONT | EDIT | Object Mode | Duplicate | Bold | Esc |
-| LATTICE | OBJECT | Edit Mode | Duplicate | F3 | Esc |
-| LATTICE | EDIT | Object Mode | Duplicate | Flip U | Esc |
-| META | OBJECT | Edit Mode | Duplicate | F3 | Finer Preview |
-| META | EDIT | Object Mode | Duplicate | Threshold - | Esc |
-| LIGHT_PROBE | any | Duplicate | + Influence | - Influence | Hide Viewport (also f4=Clip/Parallax) |
-
-In OBJECT mode an additional **type-extension box** is drawn next to the cardinals by `draw_edit_pie_type_extensions`, listing common RNA props for the active object via `_PIE_OBJECT_MODE_DATA_SPECS`. Supported: CURVE (bevel_depth, bevel_object, resolution_u, dimensions), CURVES (surface_scale, surface_uv_map), SURFACE (resolution_u/v), FONT (size, extrude, body_alignment, space_character), META (threshold, resolution, render_resolution), LATTICE (points_u/v/w, use_outside, interpolation_type_u), ARMATURE (display_type, show_in_front), CAMERA (type, lens, ortho_scale, clip_start/end, dof.use_dof, aperture_fstop, focus_distance), LIGHT (type, energy, color, exposure, diffuse_factor, use_temperature, temperature), LIGHT_PROBE (influence_distance, clip_start/end, show_influence, show_clip, use_data_display), SPEAKER (volume, muted), VOLUME (density, display_density), POINTCLOUD (display_percentage), GPENCIL / GREASEPENCIL (use_grease_pencil_lights, use_grease_pencil_on_back).
-
-For MESH + EDIT mode, an extra `iops.mesh_visual_uv` button (icon `UV`) is appended.
-
-### IMAGE_EDITOR
-
-Cardinals: `iops.function_f1` Vertex, `iops.function_f2` Edge, `iops.function_f3` Face, `iops.function_esc`. An extra slot holds a toggle for `tool_settings.use_uv_select_island` (Island Selection, icon `UV_ISLANDSEL`).
-
-### Shared Empty block (`draw_empty_pie_size_display_and_image`)
-
-Box 1 — Size:
-- Quick-set buttons calling `iops.set_empty_size` with sizes 0.1, 0.5, 1.0, 2.0, 5.0, 10.0.
-- Custom Size slider bound to `WindowManager.iops_empty_display_size` — a proxy prop whose getter reads the active empty and whose setter applies the size to all selected empties (plus the active one, even if deselected).
-- `iops.copy_empty_size_from_active` (icon `COPYDOWN`).
-
-Box 2 — Display:
-- 2-column grid of `iops.set_empty_display` calls: Plain Axes / Arrows / Single Arrow / Circle / Cube / Sphere / Cone / Image.
-- If `empty_display_type == "IMAGE"` and `obj.data` is an Image: extra row with `iops.reload_empty_reference_image` and `object.origin_set` (type=ORIGIN_GEOMETRY, center=MEDIAN).
-
-There is also a sibling sub-menu class `IOPS_MT_Pie_Edit_Modes` (a regular menu, not a pie) listing `object.mode_set` for Object / Edit / Sculpt / Vertex Paint / Weight Paint — it is not currently called from inside the Edit pie itself but is registered alongside it.
+| Slot | Button | What it does |
+| --- | --- | --- |
+| Left (iOps box) | Colour picker + **Set Vertex Color**, **White / Grey / Black**, **Set Vertex Alpha** | Paint the selection with a vertex colour or alpha |
+| | **Materials from Textures** | Build materials from the textures in the file |
+| | **Object Replace** | Swap selected objects for the active one |
+| | **Object Aligner** | Match objects to a reference by shape |
+| | **Radial Array** | Circular array around the cursor |
+| | **Align Between Two** | Place the active object between two others |
+| | **Quick Snap** | Snap mesh elements point to point |
+| | **Quick Connect** | Connect selected vertices across faces |
+| | **Tris to Quads** | Triangulate and re-quad the selection |
+| | **Smart Inset**, **Straight Bevel**, **Shear**, **Hinge**, **Converge**, **Vert Fuse** | Edit Mesh tools (hidden outside Edit Mode) |
+| | **Drop It!** | Drop objects onto the surface below |
+| | **Grid** / **to Center** | Arrange kitbash pieces on a grid or gather them at the centre |
+| | **Easy Modifier - Array Caps / Array Curve / Curve / SHWARP** | Modifier setup shortcuts |
+| | **Render Asset Thumbnail** | Render a preview for the active asset |
+| | **Reload Libraries**, **Reload Images** | Refresh linked files and textures |
+| Right | **BMax** / **BMoI** boxes | Send to / get from 3ds Max, Maya or MoI3D — only when those connector addons are installed |
+| Bottom | **B2RUVL** box | UV map choice and send/get for UVLayout and RizomUV (needs the B2RUVL addon) |
+| Top (Edit Mesh only) | **Non-Planar Overlay** | Toggle the non-planar face overlay |
+| | **ForgottenTools** box | Connect Spread, Grid Fill, Dice Faces, Hinge, Separate Duplicate, Selection Sets — when Forgotten Tools is installed |
+| Top-right (Edit Mesh only) | **Optiloops** | When the Optiloops addon is installed |
 
 ---
 
-## IOPS Pie Assets
+## Edit Pie
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname (call op): iops.call_pie_assets</span>
-<span class="key">Menu class: IOPS_MT_Pie_Assets</span>
-<span class="mode">Context: any</span>
-<span>Type: Pie menu (with cascading sub-menus)</span>
-</div>
+![Edit Pie](../img/ui/pies/pie_edit.png)
 
-Source: `ui/iops_pie_assets.py`.
+A context pie that mirrors the F1–F5 dispatcher: the four cardinal buttons are the current F1 / F2 / F3 / Esc actions for the active object type and mode, with a box of the object's most-used settings next to them in Object Mode.
 
-**Default binding:** `Ctrl + Shift + A`.
+**Hotkey:** Not bound by default — assign a key to *IOPS Pie Edit* in *Preferences › iOps › Keymaps*.
 
-| Slot | Contents |
-|---|---|
-| W (4) | `iops.asset_clear` — "Clear Asset" (icon `TRASH`). |
-| E (6) | Sub-menu `IOPS_MT_AssetMarkSub` — "Mark as Asset" (icon `ASSET_MANAGER`). |
-| S (2) | Sub-menu `IOPS_MT_CatalogBrowseActive` — "Move to" (icon `FILE_FOLDER`). |
-| N (8) | Library switcher box (see below). |
-| NW (7) | `iops.assets_render_asset_thumbnail` — "Render Thumbnail" (icon `RENDER_RESULT`). |
-| NE (9) | Sub-menu `IOPS_MT_AssetDeleteCatalogsSub` — "Delete Catalog" (icon `TRASH`). |
-| SW (1), SE (3) | Empty. |
+| Object | Mode | F1 | F2 | F3 | Esc |
+| --- | --- | --- | --- | --- | --- |
+| Mesh | any | Vertex | Edge | Face | Esc |
+| Armature | Object | Edit Mode | Pose Mode | Set Parent to Bone | Esc |
+| Armature | Edit / Pose | Object Mode / Edit Mode | Pose / Object Mode | Set Parent to Bone | Object Mode |
+| Empty | any | Open Instance Collection .blend | Realize Instances | — | Esc |
+| Curve | Object | Edit Mode | Duplicate | Switch Direction | Toggle Cyclic |
+| Curve | Edit | Object Mode | Subdivide | Spline Type | Esc |
+| Curves (hair) | Object / Edit / Sculpt | Edit Mode / Object Mode | Duplicate / Subdivide | Cyclic / Sculpt Toggle | Esc |
+| Camera | any | Active Camera | Camera View | Cam to View | Toggle DOF |
+| Light | any | Duplicate | Toggle Shadow | Boost Power | Cycle Type |
+| Text | Object / Edit | Edit Mode / Object Mode | Convert to Mesh / Duplicate | To Curve / Bold | Esc |
+| Lattice | Object / Edit | Edit Mode / Object Mode | Duplicate | — / Flip U | Esc |
+| Metaball | Object / Edit | Edit Mode / Object Mode | Duplicate | — / Threshold - | Finer Preview / Esc |
+| Light Probe | any | Duplicate | + Influence | - Influence | Hide Viewport |
 
-### Sub-menu: IOPS_MT_AssetMarkSub
+Extras:
 
-Four entries, each calling `iops.asset_mark` with a different `mark_type`:
-
-- Object (`OBJECT_DATA`) — `mark_type=OBJECT`
-- Collection (`OUTLINER_COLLECTION`) — `mark_type=COLLECTION`
-- Active Material (`MATERIAL`) — `mark_type=MATERIAL`
-- Active Image (`IMAGE_DATA`) — `mark_type=IMAGE`
-
-### Sub-menu: IOPS_MT_CatalogBrowseActive ("Move to")
-
-Cascading catalog tree built from the current library's catalog file (resolved by `get_catalog_source_by_path(lib_path)`). If the file is unsaved it falls back to a `Save file first` label. Top row: `iops.asset_search_move_to_catalog` (Search). Tree nodes are either submenus (auto-IDs assigned by `_assign_pool_ids` with `action="move"`) or `iops.asset_move_to_catalog` operators carrying `catalog_uuid` and `catalog_name`. Footer: `iops.asset_create_catalog` (New Catalog), bound to the discovered `catalog_file`.
-
-### Sub-menu: IOPS_MT_AssetDeleteCatalogsSub
-
-Same shape as Browse-Active but for deletion. Top row: `iops.asset_search_delete_catalog`. Tree leaves call `iops.asset_delete_catalog` with `catalog_uuid` + `catalog_file`. Footer: `iops.asset_delete_empty_catalogs` (icon `BRUSH_DATA`) for sweep-up.
-
-### Library switcher (N slot box)
-
-- Header "Library" with `ASSET_MANAGER` icon.
-- "Current File" entry calling `iops.set_asset_library` with `library_path=""` — depressed/check-marked when the active library is the current file.
-- One row per entry in `context.preferences.filepaths.asset_libraries`, each calling `iops.set_asset_library` with the normalised library path.
-- Action row: `iops.select_in_asset_browser` (Select in Browser), `iops.clear_asset_browser_filter` (Clear Filter).
-- `iops.refresh_asset_browser` (Refresh).
-- When `IOPS_OT_OpenAssetInCurrentBlender.poll` passes: a button calling that operator (icon `BLENDER`) for opening the active Asset Browser asset in the current Blender instance.
+| Context | Button | What it does |
+| --- | --- | --- |
+| Empty | **Size** box: 0.1 / 0.5 / 1 / 2 / 5 / 10, custom slider, **Copy from Active** | Set the display size of the selected empties |
+| Empty | **Display** box: Plain Axes, Arrows, Single Arrow, Circle, Cube, Sphere, Cone, Image | Change the empty's display type; image empties get **Reload Image** and **Origin to Geometry** |
+| Linked collection instance | **Make Instances Real**, **Expand Collection to Scene**, **Open <file>**, **Reload <file>** | Work with the instanced library |
+| Mesh, Edit Mode | **Visual UV** | Show UVs on the mesh in the viewport |
+| UV Editor | Vertex / Edge / Face / Esc + **Island Selection** | UV select modes and island toggle |
+| No active object | **Open Asset in Current Blender** | When an asset is selected in the Asset Browser |
 
 ---
 
-## IOPS Pie Split (area split / switch)
+## Split Pie
 
-<div class="iops-meta" markdown="1">
-<span class="key">bl_idname (call op): iops.call_pie_split</span>
-<span class="key">Menu class: IOPS_MT_Pie_Split</span>
-<span class="mode">Context: any</span>
-<span>Type: Pie menu</span>
-</div>
+![Split Pie](../img/ui/pies/pie_split.png)
 
-Source: `ui/iops_pie_split.py`.
+Open or close a second editor next to the current one with a flick. Each of the eight slots is yours to configure in *Preferences › iOps › Split Pie Layout*: primary editor, alternate editor, side and split size.
 
-**Default binding:** `Ctrl + Shift + S`.
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>
 
-Every cardinal of this pie is fully user-configurable from add-on preferences. Each slot pulls its primary UI type, alt UI type, split position, and split factor from `prefs.split_area_pie_N_*`. Labels are derived from `split_areas_dict` via `get_text_icon` and shortened by `shorten_text` (`3D Viewport` to `3D View`, ` Editor` removed, etc.). When an alt UI is set the label becomes `Primary / Alt`. Slots with `ui == "Empty"` render as separators.
+| Slot | Default editor |
+| --- | --- |
+| Left | Outliner |
+| Right | UV Editor |
+| Bottom | Timeline |
+| Top | Python Console |
+| Top-left | File Browser |
+| Top-right | Text Editor |
+| Bottom-left | Shader Editor |
+| Bottom-right | Properties |
 
-| Slot | Operator | Primary pref | Alt pref |
-|---|---|---|---|
-| W (4) | `iops.split_area_pie_4` | `split_area_pie_4_ui` | `split_area_pie_4_alt_ui` |
-| E (6) | `iops.split_area_pie_6` | `split_area_pie_6_ui` | `split_area_pie_6_alt_ui` |
-| S (2) | `iops.split_area_pie_2` | `split_area_pie_2_ui` | `split_area_pie_2_alt_ui` |
-| N (8) | `iops.split_area_pie_8` | `split_area_pie_8_ui` | `split_area_pie_8_alt_ui` |
-| NW (7) | `iops.split_area_pie_7` | `split_area_pie_7_ui` | `split_area_pie_7_alt_ui` |
-| NE (9) | `iops.split_area_pie_9` | `split_area_pie_9_ui` | `split_area_pie_9_alt_ui` |
-| SW (1) | `iops.split_area_pie_1` | `split_area_pie_1_ui` | `split_area_pie_1_alt_ui` |
-| SE (3) | `iops.split_area_pie_3` | `split_area_pie_3_ui` | `split_area_pie_3_alt_ui` |
+| Click | What it does |
+| --- | --- |
+| Click | Open the slot's editor on its side; click again to close it |
+| <kbd>Shift</kbd>+Click | Open the slot's alternate editor |
+| <kbd>Alt</kbd>+Click | Switch the current area to that editor in place (no split) |
+| <kbd>Ctrl</kbd>+Click | Turn the current area back into a 3D Viewport |
 
-### Modifier behaviour per slot operator
+---
 
-All eight `iops.split_area_pie_N` operators share the same `invoke` shape:
+## Assets Pie
 
-- **No modifier** — `iops.split_screen_area` with the primary UI, `pos` and `factor` from prefs.
-- **Shift** — `iops.split_screen_area` with the *alt* UI (and alt UI's pos/factor).
-- **Alt** — `iops.switch_screen_area` against the primary UI (no split — converts the current area in place).
-- **Ctrl** — forces `context.area.ui_type = "VIEW_3D"` (reset shortcut).
+![Assets Pie](../img/ui/pies/pie_assets.png)
 
-The `Call_Pie_Split` operator additionally reports the stored "previous area" coming from `wm.IOPS_AddonProperties.iops_split_previous`, used by the Switch path to round-trip.
+Asset Browser housekeeping without leaving the viewport: mark and clear assets, move them between catalogs, switch libraries and publish to the iOps Library.
+
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>
+
+| Slot | Button | What it does |
+| --- | --- | --- |
+| Left | **Clear Asset** | Un-mark the selected assets |
+| Right | **Mark as Asset ›** Object / Collection / Active Material / Active Image | Mark the chosen datablock as an asset |
+| Bottom | **Move to ›** | Catalog tree of the current library; **Search**, **New Catalog** |
+| Top | **Library** box | Pick *Current File* or any asset library, **Select in Browser**, **Clear Filter**, **Refresh**, **Open Asset in Current Blender** |
+| Top-left | **Render Thumbnail** | Render a preview image for the active asset |
+| Top-right | **Delete Catalog ›** | Catalog tree with **Search** and **Delete Empty Catalogs** |
+| Bottom-left | **Library Popup** | Open the iOps Library palette (below) |
+| Bottom-right | **Publish to Library ›** Active Object / Active Collection / Active Material / Shader Group / Geometry Nodes | Publish to the iOps master library |
+
+---
+
+## Shading Pie
+
+![Shading Pie](../img/ui/pies/pie_shading.png)
+
+Up to eight viewport shading presets, one per slot: Solid with a lighting and colour mode, Material Preview or Rendered with a render pass, optional scene world. Configure names and contents in *Preferences › iOps › Shading Pie*; empty slots are left blank.
+
+**Hotkey:** No default key — assign one to *IOPS Pie Shading* in *Preferences › iOps › Keymaps*.
+
+| Slot | What it does |
+| --- | --- |
+| Any enabled slot | Apply that shading preset to the current 3D Viewport |
+
+Slot labels are generated from the preset (for example *Studio / Random* or *Rendered / AO*) unless you give the slot a name.
+
+---
+
+## Library Popup
+
+A floating palette drawn over the 3D View that shows the assets of your iOps master library as thumbnails, grouped by category. Click a tile to insert that asset at the 3D cursor. The viewport stays fully usable around the palette.
+
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd> (3D View). Also available: Assets Pie › *Library Popup*, Library panel › *Open Library Popup*.
+
+| Control | What it does |
+| --- | --- |
+| Asset tile | Insert the asset into the scene |
+| Tile **x** | Remove that asset from the library |
+| Category header (Geometry, Materials & Shaders, Lights & Worlds, Misc) | Collapse / expand the group |
+| **Publish:** Obj / Col / Mat / Node | Publish the active object, collection, material or node group |
+| **-** / **Size** / **+** | Shrink or enlarge the thumbnails |
+| **Refresh** | Re-sync the library |
+| **X** | Close the palette |
+| Drag the title bar | Move the palette |
+| Wheel | Scroll the asset list |
+| <kbd>Esc</kbd> / <kbd>RMB</kbd> over the palette | Close |
