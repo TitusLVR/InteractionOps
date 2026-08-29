@@ -34,8 +34,8 @@
   --md-primary-fg-color:        #36CC8F;
   --md-primary-fg-color--light: #00FFB3;
   --md-primary-fg-color--dark:  #2BA873;
-  --md-primary-bg-color:        #1A1D22;
-  --md-primary-bg-color--light: rgba(26, 29, 34, 0.7);
+  --md-primary-bg-color:        #E0E0E0;
+  --md-primary-bg-color--light: #B6B9BF;
 
   /* Accent — Blender selection blue */
   --md-accent-fg-color:        #51AAFB;
