@@ -4,4 +4,103 @@
 
 It is a set of operators which boost Blender interactivity between user and application by using only five functional buttons.
 
-## Table of Contents:
+## Table of Contents
+
+- [Installation](installation.md)
+- **UI**
+    - [Overview](ui.md)
+    - [Menus & Panels](ui/ui_menus.md)
+    - [Pies](ui/ui_pies.md)
+    - [HUD](ui/ui_hud.md)
+- **Operators**
+    - [Overview](operators.md)
+    - **Core System**
+        - [iOps Dispatcher](operators/op_iops.md)
+        - [Modes (F1–F5)](operators/op_modes.md)
+        - [UI Toggles](operators/op_ui_toggles.md)
+        - [Draw Theme Preview](operators/op_draw_theme_preview.md)
+    - **Object — Alignment**
+        - [Align Between Two](operators/op_align_between_two.md)
+        - [Align Origin to Normal](operators/op_align_origin_to_normal.md)
+        - [Align Object to Face](operators/op_object_align_to_face.md)
+        - [Object Aligner](operators/op_object_aligner.md)
+        - [Drop It](operators/op_object_drop_it.md)
+    - **Object — Transform**
+        - [Three Point Rotation](operators/op_object_three_point_rotation.md)
+        - [Object Rotate (XYZ ±)](operators/op_object_rotate.md)
+        - [Object Normalize](operators/op_object_normalize.md)
+        - [Match Transform Active](operators/op_object_match_transform_active.md)
+        - [Change Scale](operators/op_object_change_scale.md)
+        - [Cursor Rotate](operators/op_cursor_rotate.md)
+    - **Object — Utilities**
+        - [Auto Smooth](operators/op_object_auto_smooth.md)
+        - [KitBash Grid](operators/op_object_kitbash_grid.md)
+        - [Name from Active](operators/op_object_name_from_active.md)
+        - [Select Similar Name](operators/op_object_select_similar_name.md)
+        - [Replace](operators/op_object_replace.md)
+        - [UVMaps Add/Remove](operators/op_object_uvmaps_add_remove.md)
+        - [UVMaps Cleaner](operators/op_object_uvmaps_cleaner.md)
+        - [Visual Origin](operators/op_object_visual_origin.md)
+        - [Object Color](operators/op_object_color.md)
+        - [Radial Array](operators/op_object_radial_array.md)
+    - **Mesh — Selection**
+        - [Z Ops (Loop/Ring, Connect, Delete, etc.)](operators/op_z_ops.md)
+        - [Mouseover Fill Select](operators/op_mouseover_fill_select.md)
+        - [Convert Selection](operators/op_mesh_convert_selection.md)
+        - [Selection Sets](operators/op_selection_sets.md)
+    - **Mesh — Editing**
+        - [Mesh to Grid](operators/op_mesh_to_grid.md)
+        - [Cursor Bisect](operators/op_mesh_cursor_bisect.md)
+        - [Smart Inset](operators/op_mesh_smart_inset.md)
+        - [Extrude (Keep Edge Data)](operators/op_mesh_extrude_ex.md)
+        - [Straight Bevel](operators/op_mesh_straight_bevel.md)
+        - [Shear](operators/op_mesh_shear.md)
+        - [Quick Connect](operators/op_mesh_quick_connect.md)
+        - [Tris → Quads](operators/op_mesh_to_tris_to_quad.md)
+    - **Mesh — Utilities**
+        - [Copy Edges Angle](operators/op_mesh_copy_edges_angle.md)
+        - [Copy Edges Length](operators/op_mesh_copy_edges_length.md)
+        - [Quick Snap (Mesh)](operators/op_mesh_quick_snap.md)
+        - [UV Channel Hop](operators/op_mesh_uv_channel_hop.md)
+        - [Assign Vertex Color](operators/op_assign_vertex_color.md)
+        - [Mesh Visual UV](operators/op_mesh_visual_uv.md)
+        - [UV Visual Cursor](operators/op_uv_visual_cursor.md)
+        - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md)
+        - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md)
+    - **Snap & Transform**
+        - [Drag Snap](operators/op_drag_snap.md)
+        - [Drag Snap Cursor](operators/op_drag_snap_cursor.md)
+        - [Drag Snap UV](operators/op_drag_snap_uv.md)
+        - [Snap Combos](operators/op_snap_combos.md)
+    - **Grid**
+        - [Grid from Active](operators/op_grid_from_active.md)
+    - **Modifiers**
+        - [Easy Mod — Array](operators/op_easy_mod_array.md)
+        - [Easy Mod — Curve](operators/op_easy_mod_curve.md)
+        - [Easy Mod — Shwarp](operators/op_easy_mod_shwarp.md)
+    - **Curve**
+        - [Spline Type](operators/op_curve_spline_type.md)
+        - [Subdivide](operators/op_curve_subdivide.md)
+    - **Interface**
+        - [Split Screen Area](operators/op_split_screen_area.md)
+        - [Split Screen Area (New)](operators/op_split_screen_area_new.md)
+        - [Save/Load Space Data](operators/op_save_load_space_data.md)
+        - [UI Prop Switch](operators/op_ui_prop_switch.md)
+        - [Maya Isolate](operators/op_maya_isolate.md)
+    - **Collection**
+        - [Outliner Collection Ops](operators/op_outliner_collection_ops.md)
+        - [Instance Collection Append](operators/op_instance_collection_append.md)
+    - **Assets**
+        - [Asset Management](operators/op_assets_management.md)
+        - [Open Asset in Current Blender](operators/op_open_asset_in_current_blender.md)
+        - [Open Asset in New Blender](operators/op_open_asset_in_new_blender.md)
+        - [Render Asset Thumbnail](operators/op_render_asset_thumbnail.md)
+    - **Material & Texture**
+        - [Material Override](operators/op_material_override.md)
+        - [Materials from Textures](operators/op_materials_from_textures.md)
+        - [Image Reload](operators/op_image_reload.md)
+        - [Library Reload](operators/op_library_reload.md)
+    - **Scripting**
+        - [Executor](operators/op_executor.md)
+        - [Run Text](operators/op_run_text.md)
+- [Preferences](preferences.md)
