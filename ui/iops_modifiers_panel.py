@@ -15,6 +15,7 @@ from ..operators.modifiers.iops_mod_registry import (
     type_icon,
 )
 from ..operators.modifiers.iops_mod_stack import (
+    NO_EDITMODE_SUPPORT,
     expanded_params,
     params_key,
 )
@@ -175,16 +176,34 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                               emboss=False)
             op.index = i
             op.action = "TOGGLE_PARAMS"
-            row.label(text="", icon=type_icon(md.type))
+            op = row.operator("iops.mod_stack_action", text="",
+                              icon=type_icon(md.type),
+                              emboss=md.is_active, depress=md.is_active)
+            op.index = i
+            op.action = "SET_ACTIVE"
             row.prop(md, "name", text="")
             vis = row.row(align=True)
             vis.alert = md.show_render != md.show_viewport
+            if md.type not in NO_EDITMODE_SUPPORT:
+                sub = vis.row(align=True)
+                sub.active = md.show_viewport
+                op = sub.operator("iops.mod_stack_action", text="",
+                                  icon="EDITMODE_HLT",
+                                  depress=md.show_in_editmode)
+                op.index = i
+                op.action = "TOGGLE_EDITMODE"
             op = vis.operator("iops.mod_stack_action", text="",
                               icon="RESTRICT_VIEW_OFF" if md.show_viewport
                               else "RESTRICT_VIEW_ON",
-                              emboss=False)
+                              depress=md.show_viewport)
             op.index = i
             op.action = "TOGGLE_VIS"
+            op = vis.operator("iops.mod_stack_action", text="",
+                              icon="RESTRICT_RENDER_OFF" if md.show_render
+                              else "RESTRICT_RENDER_ON",
+                              depress=md.show_render)
+            op.index = i
+            op.action = "TOGGLE_RENDER"
             for action, icon in (
                 ("MOVE_UP", "TRIA_UP"),
                 ("MOVE_DOWN", "TRIA_DOWN"),

@@ -7,6 +7,16 @@ from . import iops_mod_registry, iops_mod_presets as presets
 # collapsed by default (and again after a restart).
 expanded_params = set()  # {(object session_uid, modifier name)}
 
+# Modifier types compiled without eModifierTypeFlag_SupportsEditmode
+# (grepped from source/blender/modifiers/intern) — the native header
+# hides the edit-mode toggle for these, so the stack list does too.
+NO_EDITMODE_SUPPORT = {
+    "BUILD", "CLOTH", "COLLISION", "DECIMATE", "DYNAMIC_PAINT",
+    "EXPLODE", "FLUID", "LINEART", "MESH_TO_VOLUME",
+    "MESH_SEQUENCE_CACHE", "MULTIRES", "PARTICLE_SYSTEM", "SOFT_BODY",
+    "SURFACE", "VOLUME_DISPLACE", "VOLUME_TO_MESH",
+}
+
 
 def params_key(obj, md):
     return (obj.session_uid, md.name)
@@ -104,6 +114,12 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             ("TOGGLE_VIS", "Toggle Visibility",
              "Toggle viewport visibility. Shift: render visibility. "
              "Alt: on the selection"),
+            ("TOGGLE_RENDER", "Toggle Render Visibility",
+             "Toggle render visibility. Alt: on the selection"),
+            ("TOGGLE_EDITMODE", "Toggle Edit Mode Display",
+             "Toggle edit-mode display. Alt: on the selection"),
+            ("SET_ACTIVE", "Set Active",
+             "Make this the active modifier"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
              "stack position and settings. Alt: copy settings into a "
@@ -133,6 +149,12 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                        "Shift: toggle render visibility\n"
                        "Red: viewport and render visibility differ"
                        + _SELECTION_HINT),
+        "TOGGLE_RENDER": ("Toggle render visibility\n"
+                          "Red: viewport and render visibility differ"
+                          + _SELECTION_HINT),
+        "TOGGLE_EDITMODE": ("Display the modifier in Edit Mode"
+                            + _SELECTION_HINT),
+        "SET_ACTIVE": "Make this the active modifier",
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
                              "objects, keeping its stack position and "
                              "settings\n"
@@ -159,9 +181,12 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         text = cls._DESCRIPTIONS.get(properties.action, "")
         return f"{md.name}\n{text}" if md else text
 
+    _mouse = None  # window coords of the click, for cursor-follow on move
+
     def invoke(self, context, event):
         self.alt = event.alt
         self.shift = event.shift
+        self._mouse = (event.mouse_x, event.mouse_y)
         return self.execute(context)
 
     def _targets(self, context, obj, md):
@@ -184,7 +209,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     _UNDO_VERBS = {
         "MOVE_UP": "Move Up", "MOVE_DOWN": "Move Down",
-        "TOGGLE_VIS": "Toggle", "APPLY": "Apply", "REMOVE": "Remove",
+        "TOGGLE_VIS": "Toggle", "TOGGLE_RENDER": "Toggle Render",
+        "TOGGLE_EDITMODE": "Toggle Edit Mode",
+        "APPLY": "Apply", "REMOVE": "Remove",
         "COPY_TO_SELECTED": "Copy",
     }
 
@@ -206,6 +233,21 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             msg += f" on {count} objects"
         bpy.ops.ed.undo_push(message=msg)
 
+    def _follow_row(self, context, obj, moved):
+        """Warp the cursor by the rows the modifier just travelled, so it
+        stays on the same Up/Down button and repeated clicks keep working.
+        Skipped when any params box is expanded — row heights are uneven
+        there and the warp would land off-target."""
+        if not moved or self._mouse is None:
+            return
+        if any(params_key(obj, m) in expanded_params
+               for m in obj.modifiers):
+            return
+        # one aligned stack row == one widget unit (18 * scale + 2px)
+        unit = round(18 * context.preferences.system.ui_scale) + 2
+        x, y = self._mouse
+        context.window.cursor_warp(x, y + moved * unit)
+
     def execute(self, context):
         obj = context.active_object
         if self.index < 0 or self.index >= len(obj.modifiers):
@@ -224,6 +266,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             up = self.action == "MOVE_UP"
             pairs = self._targets(context, obj, md)
             count = len(pairs)
+            moved = 0
             for o, m in pairs:
                 i = o.modifiers.find(m.name)
                 last = len(o.modifiers) - 1
@@ -232,13 +275,23 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                 else:
                     j = max(0, i - 1) if up else min(last, i + 1)
                 o.modifiers.move(i, j)
-        elif self.action == "TOGGLE_VIS":
-            attr = "show_render" if self.shift else "show_viewport"
+                if o is obj:
+                    moved = i - j
+            self._follow_row(context, obj, moved)
+        elif self.action in {"TOGGLE_VIS", "TOGGLE_RENDER",
+                             "TOGGLE_EDITMODE"}:
+            if self.action == "TOGGLE_VIS":
+                attr = "show_render" if self.shift else "show_viewport"
+            else:
+                attr = ("show_render" if self.action == "TOGGLE_RENDER"
+                        else "show_in_editmode")
             state = not getattr(md, attr)
             pairs = self._targets(context, obj, md)
             count = len(pairs)
             for _, m in pairs:
                 setattr(m, attr, state)
+        elif self.action == "SET_ACTIVE":
+            obj.modifiers.active = md
         elif self.action == "COPY_TO_SELECTED":
             copied = 0
             skipped = 0
