@@ -24,7 +24,8 @@ def find_users(objects, target):
 
 class IOPS_OT_ModSelectTargetUsers(bpy.types.Operator):
     """Select every object that uses the active object as a modifier
-    target (Boolean object, Mirror object, Curve, Lattice, ...)"""
+    target (Boolean object, Mirror object, Curve, Lattice, ...) and
+    make the first user the active object"""
 
     bl_idname = "iops.mod_select_target_users"
     bl_label = "Select Modifier Users of Active"
@@ -39,6 +40,8 @@ class IOPS_OT_ModSelectTargetUsers(bpy.types.Operator):
         users = find_users(context.view_layer.objects, active)
         for obj in users:
             obj.select_set(True)
+        if users:
+            context.view_layer.objects.active = users[0]
         self.report({"INFO"},
                     f"{active.name}: selected {len(users)} user object(s)")
         return {"FINISHED"}
