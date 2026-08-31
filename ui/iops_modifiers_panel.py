@@ -210,7 +210,6 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                 ("APPLY", "CHECKMARK"),
                 ("COPY_TO_SELECTED", "COPYDOWN"),
                 ("REMOVE", "X"),
-                ("SAVE_PRESET", "FILE_TICK"),
             ):
                 op = row.operator("iops.mod_stack_action", text="",
                                   icon=icon, emboss=False)

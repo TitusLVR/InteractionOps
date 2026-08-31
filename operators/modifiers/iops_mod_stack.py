@@ -102,6 +102,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
     index: bpy.props.IntProperty(options={"SKIP_SAVE"})
     alt: bpy.props.BoolProperty(options={"SKIP_SAVE"})
     shift: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    ctrl: bpy.props.BoolProperty(options={"SKIP_SAVE"})
     action: bpy.props.EnumProperty(
         items=[
             ("MOVE_UP", "Move Up",
@@ -119,7 +120,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             ("TOGGLE_EDITMODE", "Toggle Edit Mode Display",
              "Toggle edit-mode display. Alt: on the selection"),
             ("SET_ACTIVE", "Set Active",
-             "Make this the active modifier"),
+             "Make this the active modifier. Ctrl: save its settings "
+             "as the default preset for the grid"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
              "stack position and settings. Alt: copy settings into a "
@@ -154,7 +156,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                           + _SELECTION_HINT),
         "TOGGLE_EDITMODE": ("Display the modifier in Edit Mode"
                             + _SELECTION_HINT),
-        "SET_ACTIVE": "Make this the active modifier",
+        "SET_ACTIVE": ("Make this the active modifier\n"
+                       "Ctrl: save these settings as the default preset "
+                       "used when adding this type from the grid"),
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
                              "objects, keeping its stack position and "
                              "settings\n"
@@ -186,6 +190,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
     def invoke(self, context, event):
         self.alt = event.alt
         self.shift = event.shift
+        self.ctrl = event.ctrl
         self._mouse = (event.mouse_x, event.mouse_y)
         return self.execute(context)
 
@@ -291,7 +296,15 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             for _, m in pairs:
                 setattr(m, attr, state)
         elif self.action == "SET_ACTIVE":
-            obj.modifiers.active = md
+            if self.ctrl:  # Ctrl+click on the type icon: save preset
+                if presets.save_default(md):
+                    self.report({"INFO"},
+                                f"{md.type}: saved as default preset "
+                                "for the grid")
+                else:
+                    self.report({"WARNING"}, "Could not write preset file")
+            else:
+                obj.modifiers.active = md
         elif self.action == "COPY_TO_SELECTED":
             copied = 0
             skipped = 0
