@@ -207,8 +207,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
             for action, icon in (
                 ("MOVE_UP", "TRIA_UP"),
                 ("MOVE_DOWN", "TRIA_DOWN"),
-                ("APPLY", "CHECKMARK"),
                 ("COPY_TO_SELECTED", "COPYDOWN"),
+                ("APPLY", "CHECKMARK"),
                 ("REMOVE", "X"),
             ):
                 op = row.operator("iops.mod_stack_action", text="",

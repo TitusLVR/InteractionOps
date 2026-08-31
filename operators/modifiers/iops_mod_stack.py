@@ -124,8 +124,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
              "as the default preset for the grid"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
-             "stack position and settings. Alt: copy settings into a "
-             "matching existing modifier instead"),
+             "stack position and settings. Shift: copy the whole stack, "
+             "replacing theirs. Alt: copy settings into a matching "
+             "existing modifier instead"),
             ("REMOVE", "Remove",
              "Remove this modifier. Alt: on the selection"),
             ("SAVE_PRESET", "Save As Default Preset",
@@ -162,9 +163,13 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
                              "objects, keeping its stack position and "
                              "settings\n"
+                             "Shift: copy the WHOLE stack, replacing "
+                             "the stack of every selected object\n"
                              "Alt: copy the settings into a matching "
                              "existing modifier (same name, else same "
-                             "type) instead of adding a new one"),
+                             "type) instead of adding a new one\n"
+                             "Shift+Alt: sync settings of every "
+                             "matching modifier, adding nothing"),
         "REMOVE": "Remove the modifier" + _SELECTION_HINT,
         "SAVE_PRESET": ("Save these settings as the default preset "
                         "used when adding this type from the grid"),
@@ -311,7 +316,18 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             for o in context.selected_objects:
                 if o is obj:
                     continue
-                if self.alt:
+                if self.shift:  # whole stack
+                    if self.alt:  # sync every matching modifier
+                        ok = False
+                        for m in obj.modifiers:
+                            ok = sync_modifier_to(m, o) or ok
+                    else:  # replace o's stack with obj's
+                        o.modifiers.clear()
+                        ok = False
+                        for m in obj.modifiers:
+                            ok = copy_modifier_to(
+                                m, len(o.modifiers), o) or ok
+                elif self.alt:
                     ok = sync_modifier_to(md, o)
                 else:
                     ok = copy_modifier_to(md, self.index, o)
@@ -319,12 +335,13 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                     copied += 1
                 else:
                     skipped += 1
+            what = "stack" if self.shift else name
             if self.alt:
-                msg = f"Updated {name} on {copied} object(s)"
+                msg = f"Updated {what} on {copied} object(s)"
                 if skipped:
                     msg += f", {skipped} skipped (no matching modifier)"
             else:
-                msg = f"Copied {name} to {copied} object(s)"
+                msg = f"Copied {what} to {copied} object(s)"
                 if skipped:
                     msg += f", {skipped} skipped (incompatible type)"
             self.report({"INFO"} if copied else {"WARNING"}, msg)
