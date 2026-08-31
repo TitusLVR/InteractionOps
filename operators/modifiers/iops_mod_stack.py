@@ -22,6 +22,17 @@ def params_key(obj, md):
     return (obj.session_uid, md.name)
 
 
+def modifier_is_disabled(md):
+    """Native red-alert state (mti->is_disabled) for the stack list icon.
+    Only the types we care about; rules mirror the C sources."""
+    if md.type == "BOOLEAN":
+        if md.operand_type == "OBJECT":
+            return md.object is None or md.object.type != "MESH"
+        # the Exact (mesh-arrangement) solver tolerates an empty collection
+        return md.collection is None and md.solver != "EXACT"
+    return False
+
+
 def copy_modifier_params(md, dst_md):
     """Copy md's writable settings onto dst_md (enums first — some enum
     setters unit-convert siblings)."""

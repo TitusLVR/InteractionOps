@@ -17,6 +17,7 @@ from ..operators.modifiers.iops_mod_registry import (
 from ..operators.modifiers.iops_mod_stack import (
     NO_EDITMODE_SUPPORT,
     expanded_params,
+    modifier_is_disabled,
     params_key,
 )
 
@@ -176,9 +177,11 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                               emboss=False)
             op.index = i
             op.action = "TOGGLE_PARAMS"
-            op = row.operator("iops.mod_stack_action", text="",
-                              icon=type_icon(md.type),
-                              emboss=md.is_active, depress=md.is_active)
+            icon_row = row.row(align=True)
+            icon_row.alert = modifier_is_disabled(md)
+            op = icon_row.operator("iops.mod_stack_action", text="",
+                                   icon=type_icon(md.type),
+                                   emboss=md.is_active, depress=md.is_active)
             op.index = i
             op.action = "SET_ACTIVE"
             row.prop(md, "name", text="")
@@ -208,7 +211,7 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                 ("MOVE_UP", "TRIA_UP"),
                 ("MOVE_DOWN", "TRIA_DOWN"),
                 ("COPY_TO_SELECTED", "COPYDOWN"),
-                ("APPLY", "CHECKMARK"),
+                ("APPLY", "IMPORT"),
                 ("REMOVE", "X"),
             ):
                 op = row.operator("iops.mod_stack_action", text="",
