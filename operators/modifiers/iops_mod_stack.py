@@ -119,7 +119,10 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             ("MOVE_UP", "Move Up",
              "Move modifier up. Shift: to top. Alt: on the selection"),
             ("MOVE_DOWN", "Move Down",
-             "Move modifier down. Shift: to bottom. Alt: on the selection"),
+             "Move modifier down. Shift: to bottom. Ctrl: pin to last. "
+             "Alt: on the selection"),
+            ("TOGGLE_PIN", "Pin to Last",
+             "Toggle pin to last. Alt: on the selection"),
             ("APPLY", "Apply",
              "Apply this modifier. Alt: on the selection. Shift+Alt: "
              "apply the stack through this modifier on the selection"),
@@ -154,8 +157,11 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
     _DESCRIPTIONS = {
         "MOVE_UP": "Move the modifier up\nShift: move to the top"
                    + _SELECTION_HINT,
-        "MOVE_DOWN": "Move the modifier down\nShift: move to the bottom"
-                     + _SELECTION_HINT,
+        "MOVE_DOWN": ("Move the modifier down\nShift: move to the bottom\n"
+                      "Ctrl: pin to last" + _SELECTION_HINT),
+        "TOGGLE_PIN": ("Keep the modifier last in the stack (new "
+                       "modifiers are added above it)\nClick to unpin"
+                       + _SELECTION_HINT),
         "APPLY": ("Apply the modifier" + _SELECTION_HINT + "\n"
                   "Shift+Alt: apply the stack up to here (inclusive) on "
                   "the whole selection, in stack order"),
@@ -231,7 +237,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
     _UNDO_VERBS = {
         "MOVE_UP": "Move Up", "MOVE_DOWN": "Move Down",
         "TOGGLE_VIS": "Toggle", "TOGGLE_RENDER": "Toggle Render",
-        "TOGGLE_EDITMODE": "Toggle Edit Mode",
+        "TOGGLE_EDITMODE": "Toggle Edit Mode", "TOGGLE_PIN": "Pin",
         "APPLY": "Apply", "REMOVE": "Remove",
         "COPY_TO_SELECTED": "Copy",
     }
@@ -282,8 +288,16 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         name = md.name
         md_type = md.type
         count = 1
+        if self.action == "MOVE_DOWN" and self.ctrl:
+            self.action = "TOGGLE_PIN"
 
-        if self.action in {"MOVE_UP", "MOVE_DOWN"}:
+        if self.action == "TOGGLE_PIN":
+            state = not md.use_pin_to_last
+            pairs = self._targets(context, obj, md)
+            count = len(pairs)
+            for _, m in pairs:
+                m.use_pin_to_last = state
+        elif self.action in {"MOVE_UP", "MOVE_DOWN"}:
             up = self.action == "MOVE_UP"
             pairs = self._targets(context, obj, md)
             count = len(pairs)

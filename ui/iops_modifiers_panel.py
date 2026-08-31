@@ -184,6 +184,11 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                                    emboss=md.is_active, depress=md.is_active)
             op.index = i
             op.action = "SET_ACTIVE"
+            if md.use_pin_to_last:
+                op = row.operator("iops.mod_stack_action", text="",
+                                  icon="PINNED", emboss=False)
+                op.index = i
+                op.action = "TOGGLE_PIN"
             row.prop(md, "name", text="")
             vis = row.row(align=True)
             vis.alert = md.show_render != md.show_viewport
