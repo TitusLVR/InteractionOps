@@ -134,8 +134,9 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             ("TOGGLE_EDITMODE", "Toggle Edit Mode Display",
              "Toggle edit-mode display. Alt: on the selection"),
             ("SET_ACTIVE", "Set Active",
-             "Make this the active modifier. Ctrl: save its settings "
-             "as the default preset for the grid"),
+             "Make this the active modifier. Shift: duplicate it. "
+             "Ctrl: save its settings as the default preset for the "
+             "grid"),
             ("COPY_TO_SELECTED", "Copy To Selected",
              "Copy this modifier to the selected objects, keeping its "
              "stack position and settings. Shift: copy the whole stack, "
@@ -175,6 +176,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
         "TOGGLE_EDITMODE": ("Display the modifier in Edit Mode"
                             + _SELECTION_HINT),
         "SET_ACTIVE": ("Make this the active modifier\n"
+                       "Shift: duplicate the modifier"
+                       + _SELECTION_HINT + "\n"
                        "Ctrl: save these settings as the default preset "
                        "used when adding this type from the grid"),
         "COPY_TO_SELECTED": ("Copy the modifier to the selected "
@@ -244,6 +247,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
 
     def _undo_push(self, context, md_type, name, count):
         verb = self._UNDO_VERBS.get(self.action)
+        if self.action == "SET_ACTIVE" and self.shift:
+            verb = "Duplicate"
         if verb is None:  # TOGGLE_PARAMS / SAVE_PRESET don't touch data
             return
         if self.action in {"MOVE_UP", "MOVE_DOWN"} and self.shift:
@@ -333,6 +338,14 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                                 "for the grid")
                 else:
                     self.report({"WARNING"}, "Could not write preset file")
+            elif self.shift:  # Shift+click: duplicate the modifier
+                pairs = self._targets(context, obj, md)
+                count = len(pairs)
+                for o, m in pairs:
+                    with context.temp_override(
+                            object=o, active_object=o,
+                            selected_editable_objects=[o]):
+                        bpy.ops.object.modifier_copy(modifier=m.name)
             else:
                 obj.modifiers.active = md
         elif self.action == "COPY_TO_SELECTED":
