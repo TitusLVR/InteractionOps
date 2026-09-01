@@ -4,7 +4,8 @@ from itertools import combinations
 from mathutils import Vector, Matrix
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import Role
+from ..ui.draw.theme import get_theme, Role
+from ..ui.hud import text as hud_text
 from ..ui.hud import (
     HUDOverlay, HelpOverlay, HUDSection, HUDItem,
     HUDParam, ItemState,
@@ -41,6 +42,7 @@ def _build_help(context):
 
 
 def _draw_callback(op, context):
+    _draw_axis_letters(op, context)
     helpo = getattr(op, "_help", None)
     hud = getattr(op, "_hud", None)
     last_event = getattr(op, "_last_event", None)
@@ -48,6 +50,42 @@ def _draw_callback(op, context):
         helpo.draw(context, last_event)
     if hud is not None:
         hud.draw(context, last_event)
+
+
+def _axis_theme_colors():
+    """Blender's standard gizmo axis colors (COLOR_GAMMA — display space, fine
+    for both blf and the uniform-color shaders)."""
+    try:
+        ui = bpy.context.preferences.themes[0].user_interface
+        return {"X": (*ui.axis_x, 1.0), "Y": (*ui.axis_y, 1.0), "Z": (*ui.axis_z, 1.0)}
+    except (AttributeError, IndexError):
+        return {"X": (0.96, 0.26, 0.33, 1.0),
+                "Y": (0.54, 0.82, 0.00, 1.0),
+                "Z": (0.16, 0.56, 0.96, 1.0)}
+
+
+def _draw_axis_letters(op, context):
+    """POST_PIXEL: X/Y/Z letters at the tips of the axis gizmo lines."""
+    cache = getattr(op, "_ghost_cache", None)
+    if cache is None:
+        return
+    gizmo = cache[4]
+    region = context.region
+    rv3d = context.region_data
+    if not gizmo or region is None or rv3d is None:
+        return
+    from bpy_extras.view3d_utils import location_3d_to_region_2d
+    theme = get_theme(context)
+    colors = _axis_theme_colors()
+    for letter, tip, enabled in gizmo:
+        p2 = location_3d_to_region_2d(region, rv3d, tip)
+        if p2 is None:
+            continue
+        r, g, b, _ = colors[letter]
+        a = 1.0 if enabled else 0.4
+        w, h = hud_text.measure(letter, theme=theme)
+        hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y + h * 0.6),
+                      theme=theme, color=(r, g, b, a))
 
 
 # --- State enums (string constants — Blender modal idiom) ----------------
@@ -327,7 +365,6 @@ def _build_ghosts(op, context):
 
     plane_quads = []
     plane_outlines = []
-    normal_lines = []
     ext = _sources_extent(op)
     for n in _axis_normals(op, context).values():
         right, fwd = _plane_frame(n)
@@ -338,9 +375,18 @@ def _build_ghosts(op, context):
         for i in range(4):
             plane_outlines.append(c[i])
             plane_outlines.append(c[(i + 1) % 4])
-        normal_lines.append(p)
-        normal_lines.append(p + n * (ext * 0.25))
-    return segs, tris, plane_quads, plane_outlines, normal_lines
+
+    # Axis gizmo: all three frame directions from the pivot, the enabled ones
+    # long and bright, the disabled ones short and dim — so X/Y/Z reads at a
+    # glance before pressing the key.
+    frame = _pivot_frame_3x3(op, context)
+    axis_gizmo = []
+    for letter in AXIS_LETTERS:
+        enabled = letter in op.axes
+        d = (frame @ _AXIS_UNIT[letter]).normalized()
+        tip = op.pivot_co + d * (ext * (0.55 if enabled else 0.35))
+        axis_gizmo.append((letter, tip, enabled))
+    return segs, tris, plane_quads, plane_outlines, axis_gizmo
 
 
 def _draw_preview_3d(op, context):
@@ -350,7 +396,7 @@ def _draw_preview_3d(op, context):
     if op._dirty or getattr(op, "_ghost_cache", None) is None:
         op._ghost_cache = _build_ghosts(op, context)
         op._dirty = False
-    segs, tris, plane_quads, plane_outlines, normal_lines = op._ghost_cache
+    segs, tris, plane_quads, plane_outlines, axis_gizmo = op._ghost_cache
 
     # Two-pass transparent fill (depth pre-pass, then color at depth=EQUAL) so
     # overlapping clones don't alpha-stack. Culling stays off — mirrored
@@ -373,9 +419,18 @@ def _draw_preview_3d(op, context):
             iops_draw.tris(plane_quads, role=Role.GHOST_LOCKED, context=context)
         with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
             iops_draw.edges_3d(plane_outlines, role=Role.PREVIEW_LINE, context=context)
-    if normal_lines:
+    # Axis gizmo: colored X/Y/Z direction vectors from the pivot (letters are
+    # drawn at the tips by the POST_PIXEL callback).
+    if axis_gizmo:
+        colors = _axis_theme_colors()
         with draw_scope(blend="ALPHA", depth="NONE"):
-            iops_draw.edges_3d(normal_lines, role=Role.ACTIVE_LINE, context=context)
+            for letter, tip, enabled in axis_gizmo:
+                r, g, b, _ = colors[letter]
+                iops_draw.edges_3d([op.pivot_co, tip],
+                                   color=(r, g, b, 1.0 if enabled else 0.35),
+                                   width="default", context=context)
+                iops_draw.points([tip], color=(r, g, b, 1.0 if enabled else 0.35),
+                                 size=6.0, context=context)
 
     with draw_scope(blend="ALPHA", depth="NONE"):
         iops_draw.points([op.pivot_co], role=Role.PIVOT, context=context)
