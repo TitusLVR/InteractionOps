@@ -73,7 +73,7 @@ def test_candidate_pairs_excludes_parallel():
 
 
 def test_candidate_pairs_coplanar_tolerance_in():
-    # skew gap = 5e-5, within default tol (1e-4) -> qualifies
+    # skew gap = 5e-5, within default tol (1e-4) -> miss <= 1
     g = 5e-5
     edges = [
         ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
@@ -83,30 +83,64 @@ def test_candidate_pairs_coplanar_tolerance_in():
     assert len(cands) == 1
     c = cands[0]
     assert c.i == 0 and c.j == 1
+    assert c.miss <= 1.0
     assert c.p1 == pytest.approx((1.0, 0.0, 0.0))
     assert c.p2 == pytest.approx((1.0, 0.0, g))
     assert c.P == pytest.approx(midpoint(c.p1, c.p2))
 
 
-def test_candidate_pairs_coplanar_tolerance_out():
-    # skew gap = 5e-3: exceeds the absolute floor (1e-4) AND the relative
-    # gate (1e-3 * shorter edge = 2e-3) -> excluded
-    g = 5e-3
+def test_candidate_pairs_gap_never_rejects_only_scores():
+    # skew gap = 5e-2: way past the gate (max(1e-4, 1e-3 * 2m) = 2e-3).
+    # The pair is still GENERATED (miss > 1); rejecting outright is the
+    # gate's job at strategy level, not generation level.
+    g = 5e-2
     edges = [
         ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
         ((1.0, 0.0, g), (1.0, 2.0, g)),
     ]
-    assert candidate_pairs(edges) == []
-    # but qualifies with a looser explicit tolerance
-    cands = candidate_pairs(edges, tol=1e-2)
+    cands = candidate_pairs(edges)
     assert len(cands) == 1
+    assert cands[0].miss > 1.0
+    # a looser explicit tolerance brings the same pair under the gate
+    cands = candidate_pairs(edges, tol=1e-1)
+    assert cands[0].miss <= 1.0
+
+
+def test_strategy_greedy_two_edge_selection_always_converges():
+    # TinyCAD VTX parity: exactly two selected edges are an EXPLICIT pair
+    # -- greedy takes the single candidate even when its gap fails the
+    # gate (2m edges, 5cm apart).
+    edges = [
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+        ((1.0, -1.0, 0.05), (1.0, 1.0, 0.05)),
+    ]
+    cands = candidate_pairs(edges)
+    assert len(cands) == 1 and cands[0].miss > 1.0
+    result = strategy_greedy(cands)
+    assert len(result) == 1
+    assert result[0].P == pytest.approx((1.0, 0.0, 0.025))
+
+
+def test_strategy_greedy_gate_discriminates_with_competition():
+    # 3+ edges: the gate is back on. B crosses A cleanly; C misses A by
+    # 5cm. Greedy must weld only (A, B) and leave C unconsumed -- NOT
+    # fall back to the failing (A, C) pair.
+    edge_a = ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    edge_b = ((1.0, -1.0, 0.0), (1.0, 1.0, 0.0))
+    edge_c = ((5.0, -1.0, 0.05), (5.0, 1.0, 0.05))   # parallel to B
+    cands = candidate_pairs([edge_a, edge_b, edge_c])
+    assert {(c.i, c.j) for c in cands} == {(0, 1), (0, 2)}
+    by_pair = {(c.i, c.j): c for c in cands}
+    assert by_pair[(0, 1)].miss <= 1.0
+    assert by_pair[(0, 2)].miss > 1.0
+    result = strategy_greedy(cands)
+    assert [(c.i, c.j) for c in result] == [(0, 1)]
 
 
 def test_candidate_pairs_meter_scale_near_coplanar_gap_qualifies():
-    # Regression (coverge_bug.blend, freestyle-marked pairs): meter-scale
-    # edges sitting in parallel planes ~2.7e-4 apart. The absolute 1e-4
-    # gate rejected both pairs while TinyCAD converged them fine; the
-    # relative gate (1e-3 of the shorter edge) must accept them.
+    # Regression (coverge_bug.blend "converge_issue", freestyle-marked
+    # pairs): meter-scale edges in parallel planes ~2.7e-4 apart. The old
+    # absolute 1e-4 gate rejected both pairs while TinyCAD converged them.
     e0 = ((4.61834478, -2.27786684, 1.93474042),
           (5.05177879, -2.27787328, 0.79056448))
     e2 = ((5.06107378, -2.27814221, -0.76827329),
@@ -115,11 +149,33 @@ def test_candidate_pairs_meter_scale_near_coplanar_gap_qualifies():
           (5.05177879, -1.24363947, 0.79056448))
     e5 = ((5.06107378, -1.24390841, -0.76827329),
           (5.06153011, -1.24390841, 0.73419374))
-    cands = candidate_pairs([e0, e2, e3, e5])
-    assert {(c.i, c.j) for c in cands} == {(0, 1), (2, 3)}
-    for c in cands:
-        # merge point lands between the two closest points
+    result = strategy_greedy(candidate_pairs([e0, e2, e3, e5]))
+    assert {frozenset((c.i, c.j)) for c in result} == \
+        {frozenset((0, 1)), frozenset((2, 3))}
+    for c in result:
+        assert c.miss <= 1.0
         assert c.P == pytest.approx(midpoint(c.p1, c.p2))
+
+
+def test_candidate_pairs_short_stub_long_rail_gap_qualifies():
+    # Regression (coverge_bug.blend "not_fixed", freestyle-marked pairs):
+    # a 2.7cm stub against a 2.5m rail, lines ~1.95e-4 apart. Scaling the
+    # relative gate by the SHORTER edge collapsed it to the absolute
+    # floor and rejected the pair; the gate must scale with the longer
+    # edge (angular noise displaces a line proportionally to its length).
+    e1 = ((2.84493947, 2.98475146, 0.00314691),
+          (2.84436774, 2.98470998, 0.03010893))
+    e2 = ((2.84406638, 2.98032284, 0.03652979),
+          (2.84193897, 0.63875312, 0.89197898))
+    e4 = ((2.38721228, 2.90496826, -0.00332992),
+          (2.38664055, 2.90492678, 0.02363211))
+    e5 = ((2.38633919, 2.90053964, 0.03005296),
+          (2.38421178, 0.55896986, 0.88550216))
+    result = strategy_greedy(candidate_pairs([e1, e2, e4, e5]))
+    assert {frozenset((c.i, c.j)) for c in result} == \
+        {frozenset((0, 1)), frozenset((2, 3))}
+    for c in result:
+        assert c.miss <= 1.0
 
 
 def test_candidate_pairs_relative_gate_never_tightens_small_scale():
@@ -131,16 +187,21 @@ def test_candidate_pairs_relative_gate_never_tightens_small_scale():
         ((0.0, 0.0, 0.0), (L, 0.0, 0.0)),
         ((L / 2, -L, g), (L / 2, L, g)),
     ]
-    assert len(candidate_pairs(edges)) == 1
+    cands = candidate_pairs(edges)
+    assert len(cands) == 1
+    assert cands[0].miss <= 1.0
 
 
-def test_candidate_pairs_meter_scale_genuinely_skew_still_excluded():
-    # 2m edges with a 5cm gap: far beyond 1e-3 relative -> still skew
-    edges = [
-        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
-        ((1.0, -1.0, 0.05), (1.0, 1.0, 0.05)),
-    ]
-    assert candidate_pairs(edges) == []
+def test_strategy_order_ignores_gap_gate_for_explicit_pairs():
+    # ORDER pairs come from selection history -- the user named them, so
+    # the gap gate never drops one (TinyCAD parity for explicit pairs).
+    edge_a = ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    edge_b = ((1.0, -1.0, 0.0), (1.0, 1.0, 0.0))
+    edge_c = ((5.0, -1.0, 0.05), (5.0, 1.0, 0.05))
+    edge_d = ((6.0, 0.0, -1.0), (6.0, 0.0, 1.0))
+    cands = candidate_pairs([edge_a, edge_b, edge_c, edge_d])
+    result = strategy_order(cands, [2, 0, 1, 3])   # (C, A) then (B, D)
+    assert [(c.i, c.j) for c in result] == [(0, 2), (1, 3)]
 
 
 def test_candidate_pairs_moving_end_picks_nearest_endpoint():
@@ -289,7 +350,9 @@ def test_strategy_order_pairs_by_history_and_drops_non_qualifying():
     edge2 = ((0.0, 0.0, 5.0), (1.0, 0.0, 5.0))         # parallel to edge0
     edge3 = ((0.0, 1.0, 5.0), (1.0, 1.0, 5.0))         # parallel to edge0 and edge2
     cands = candidate_pairs([edge0, edge1, edge2, edge3])
-    assert {(c.i, c.j) for c in cands} == {(0, 1)}
+    # (0,1) is the only clean crossing; (1,2)/(1,3) are generated too
+    # (non-parallel) but score miss > 1
+    assert {(c.i, c.j) for c in cands if c.miss <= 1.0} == {(0, 1)}
 
     result = strategy_order(cands, [0, 1, 2, 3])
     assert len(result) == 1
