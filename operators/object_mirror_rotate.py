@@ -346,7 +346,7 @@ def _rotation_arrow_edges(op, axis_n, ext):
     """Flat edge list for a 180° rotation-direction arrow around `axis_n`:
     an arc from the sources' centroid to where the half-turn lands it
     (right-hand CCW — the same sweep `Matrix.Rotation(pi, axis)` performs),
-    with radial ticks every 45° and an arrowhead at the end."""
+    with an arrowhead at the end."""
     p = op.pivot_co
     anchor = _sources_centroid(op)
     radial = None
@@ -367,14 +367,6 @@ def _rotation_arrow_edges(op, axis_n, ext):
     for i in range(steps):
         edges.append(pts[i])
         edges.append(pts[i + 1])
-
-    # Radial ticks every 45° along the swept half — outward, so they read as
-    # graduation marks on the travel direction.
-    for k in range(5):
-        a = math.pi * k / 4
-        d = e1 * math.cos(a) + e2 * math.sin(a)
-        edges.append(p + d * R)
-        edges.append(p + d * (R * 1.08))
 
     # Arrowhead at the arc end. Tangent (travel direction) at a=pi is -e2;
     # wings swept back against it, spread along the radial.
