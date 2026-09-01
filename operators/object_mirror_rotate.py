@@ -26,9 +26,9 @@ def _build_help(context):
     helpo = HelpOverlay("object_mirror_rotate")
     helpo.add_section(HUDSection("Mirror Rotate", [
         HUDItem("Pivot (Cursor / Active / Pick object)", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Mirror axis toggles (combos multiply)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Mirror axes: +axis / −axis / off (combos multiply)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Orientation (Global / Pivot frame)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Method (Mirror / Rotate 180°)", "M", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Method (Mirror / Rotate 180°)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate / Instance / In place)", "D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply transforms on confirm", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -64,14 +64,14 @@ def _draw_axis_letters(op, context):
         return
     from bpy_extras.view3d_utils import location_3d_to_region_2d
     theme = get_theme(context)
-    for letter, tip, enabled in gizmo:
+    for letter, label, tip, enabled in gizmo:
         p2 = location_3d_to_region_2d(region, rv3d, tip)
         if p2 is None:
             continue
         r, g, b, _ = axis_color(letter)
         a = 1.0 if enabled else 0.4
-        w, h = hud_text.measure(letter, theme=theme, size_token="axis_letter")
-        hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y + h * 0.6),
+        w, h = hud_text.measure(label, theme=theme, size_token="axis_letter")
+        hud_text.draw(label, int(p2.x - w * 0.5), int(p2.y + h * 0.6),
                       theme=theme, color=(r, g, b, a), size_token="axis_letter")
 
 
@@ -237,14 +237,18 @@ def _pivot_frame_3x3(op, context):
 
 
 def _axis_normals(op, context):
-    """{letter: world normal} for every enabled mirror axis."""
+    """{letter: world normal} for every enabled mirror axis. `op.axes` maps
+    letter -> sign (+1/-1); the sign flips the normal. The mirror/rotate-180
+    result is sign-invariant, but the flipped normal turns the rotation arrow
+    and gizmo vector around — the readable difference."""
     frame = _pivot_frame_3x3(op, context)
-    return {letter: (frame @ _AXIS_UNIT[letter]).normalized()
+    return {letter: (frame @ _AXIS_UNIT[letter] * op.axes[letter]).normalized()
             for letter in AXIS_LETTERS if letter in op.axes}
 
 
 def _axes_label(op):
-    return "+".join(a for a in AXIS_LETTERS if a in op.axes) or "—"
+    return "+".join(("-" if op.axes[a] < 0 else "") + a
+                    for a in AXIS_LETTERS if a in op.axes) or "—"
 
 
 # --- T-pick: snap cursor to a face (pattern from object_radial_array) -----
@@ -443,10 +447,12 @@ def _build_ghosts(op, context):
     gizmo_scale = get_theme(context).axis_gizmo_size
     axis_gizmo = []
     for letter in AXIS_LETTERS:
-        enabled = letter in op.axes
-        d = (frame @ _AXIS_UNIT[letter]).normalized()
+        sign = op.axes.get(letter)
+        enabled = sign is not None
+        d = (frame @ _AXIS_UNIT[letter] * (sign or 1)).normalized()
         tip = op.pivot_co + d * (ext * (0.55 if enabled else 0.35) * gizmo_scale)
-        axis_gizmo.append((letter, tip, enabled))
+        label = ("-" + letter) if (sign or 1) < 0 else letter
+        axis_gizmo.append((letter, label, tip, enabled))
     return segs, tris, plane_quads, plane_outlines, axis_gizmo, rot_arcs
 
 
@@ -492,7 +498,7 @@ def _draw_preview_3d(op, context):
     # drawn at the tips by the POST_PIXEL callback).
     if axis_gizmo:
         with draw_scope(blend="ALPHA", depth="NONE"):
-            for letter, tip, enabled in axis_gizmo:
+            for letter, _label, tip, enabled in axis_gizmo:
                 r, g, b, _ = axis_color(letter)
                 iops_draw.edges_3d([op.pivot_co, tip],
                                    color=(r, g, b, 1.0 if enabled else 0.35),
@@ -613,13 +619,16 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
                 self.report({"INFO"}, f"Pivot: {PIVOT_LABELS[self.pivot_mode]}")
             return {"RUNNING_MODAL"}
 
-        # --- mirror axes ---
+        # --- mirror axes: each key cycles off → +axis → −axis → off ---
         if event.type in {"X", "Y", "Z"} and event.value == "PRESS":
             letter = event.type
-            if letter in self.axes:
-                self.axes.discard(letter)
+            sign = self.axes.get(letter)
+            if sign is None:
+                self.axes[letter] = 1
+            elif sign > 0:
+                self.axes[letter] = -1
             else:
-                self.axes.add(letter)
+                del self.axes[letter]
             self._dirty = True
             self.report({"INFO"}, f"Axes: {_axes_label(self)}")
             return {"RUNNING_MODAL"}
@@ -630,7 +639,7 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
             self.report({"INFO"}, f"Orientation: {'Global' if self.orient_mode == ORIENT_GLOBAL else 'Pivot frame'}")
             return {"RUNNING_MODAL"}
 
-        if event.type == "M" and event.value == "PRESS":
+        if event.type == "E" and event.value == "PRESS":
             self.method = _cycle(self.method, METHOD_CYCLE)
             # Two workflows: Mirror bakes transforms (and flips normals on the
             # reflection), Rotate 180° is rigid and needs no bake. Defaults per
@@ -795,7 +804,7 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         self.orient_mode = getattr(p, "mirror_rotate_orientation", ORIENT_GLOBAL) if p else ORIENT_GLOBAL
         self.method = getattr(p, "mirror_rotate_method", METHOD_MIRROR) if p else METHOD_MIRROR
         self.clone_mode = getattr(p, "mirror_rotate_clone", CLONE_DUP) if p else CLONE_DUP
-        self.axes = {getattr(p, "mirror_rotate_axis", "X") if p else "X"}
+        self.axes = {(getattr(p, "mirror_rotate_axis", "X") if p else "X"): 1}
         self.apply_transforms = self._apply_default_for_method()
         self.pending_pivot_pick = (self.pivot_mode == PIVOT_PICK)
 
