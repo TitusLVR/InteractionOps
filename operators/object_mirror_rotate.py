@@ -329,7 +329,7 @@ def _build_ghosts(op, context):
     plane_outlines = []
     normal_lines = []
     ext = _sources_extent(op)
-    for _letter, n in _axis_normals(op, context).items():
+    for n in _axis_normals(op, context).values():
         right, fwd = _plane_frame(n)
         p = op.pivot_co
         c = [p + right * ext + fwd * ext, p - right * ext + fwd * ext,
@@ -515,8 +515,14 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
 
         if event.type == "M" and event.value == "PRESS":
             self.method = _cycle(self.method, METHOD_CYCLE)
+            # Two workflows: Mirror bakes transforms (and flips normals on the
+            # reflection), Rotate 180° is rigid and needs no bake. A can still
+            # override afterwards.
+            self.apply_transforms = (self.method == METHOD_MIRROR)
             self._dirty = True
-            self.report({"INFO"}, f"Method: {METHOD_LABELS[self.method]}")
+            self.report({"INFO"},
+                        f"Method: {METHOD_LABELS[self.method]}  |  Apply transforms: "
+                        f"{'on' if self.apply_transforms else 'off'}")
             return {"RUNNING_MODAL"}
 
         if event.type == "D" and event.value == "PRESS":
