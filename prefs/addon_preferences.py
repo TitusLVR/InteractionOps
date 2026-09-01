@@ -226,6 +226,55 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_edit_pie_edit: BoolProperty(default=False)
     show_section_edit_pie_uv: BoolProperty(default=False)
     show_section_modifiers_panel: BoolProperty(default=False)
+    show_section_mirror_rotate: BoolProperty(default=False)
+
+    # --- Mirror Rotate operator: modal start-up defaults ---------------------
+    # Values mirror the constants in operators/object_mirror_rotate.py.
+    mirror_rotate_method: EnumProperty(
+        name="Method",
+        items=[("MIRROR", "Mirror", "True reflection across the plane"),
+               ("ROTATE180", "Rotate 180°", "Rigid half-turn around the axis")],
+        default="MIRROR",
+    )
+    mirror_rotate_apply_mirror: BoolProperty(
+        name="Apply transforms (Mirror)",
+        description="Default Apply-transforms state while the Mirror method "
+                    "is active: bake rotation/scale into the mesh and flip "
+                    "normals on the reflection",
+        default=True,
+    )
+    mirror_rotate_apply_rotate: BoolProperty(
+        name="Apply transforms (Rotate 180°)",
+        description="Default Apply-transforms state while the Rotate 180° "
+                    "method is active (the rotation is rigid, so baking is "
+                    "normally unnecessary)",
+        default=False,
+    )
+    mirror_rotate_pivot: EnumProperty(
+        name="Pivot",
+        items=[("CURSOR", "Cursor", ""),
+               ("ACTIVE", "Active", ""),
+               ("PICK", "Picked object", "Start in pick mode — click an object/empty")],
+        default="CURSOR",
+    )
+    mirror_rotate_orientation: EnumProperty(
+        name="Orientation",
+        items=[("GLOBAL", "Global", ""),
+               ("PIVOT", "Pivot frame", "Cursor / active / picked object axes")],
+        default="GLOBAL",
+    )
+    mirror_rotate_axis: EnumProperty(
+        name="Axis",
+        items=[("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", "")],
+        default="X",
+    )
+    mirror_rotate_clone: EnumProperty(
+        name="Clone type",
+        items=[("DUPLICATE", "Duplicate", ""),
+               ("INSTANCE", "Instance", ""),
+               ("IN_PLACE", "In place", "Transform the sources themselves")],
+        default="DUPLICATE",
+    )
 
     # Legacy cage/snap/align color and size props removed.
     # Colors and sizes now live in IOPS_Theme (Role-based) — see prefs/theme.py.
@@ -1079,6 +1128,22 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         box.label(text="No editable parameters "
                                        "(Blender defaults apply)",
                                   icon="INFO")
+
+            # Mirror Rotate defaults
+            body = _section(column_main, self, "show_section_mirror_rotate",
+                            "Mirror Rotate", icon="MOD_MIRROR")
+            if body is not None:
+                col = body.column()
+                col.use_property_split = True
+                col.use_property_decorate = False
+                col.prop(self, "mirror_rotate_method")
+                col.prop(self, "mirror_rotate_apply_mirror")
+                col.prop(self, "mirror_rotate_apply_rotate")
+                col.separator()
+                col.prop(self, "mirror_rotate_pivot")
+                col.prop(self, "mirror_rotate_orientation")
+                col.prop(self, "mirror_rotate_axis")
+                col.prop(self, "mirror_rotate_clone")
 
             # Split Pie
             body = _section(column_main, self, "show_section_pies", "Split Pie Layout", icon="MOD_NORMALEDIT")

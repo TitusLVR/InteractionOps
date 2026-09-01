@@ -333,6 +333,22 @@ def load_iops_preferences():
                             prefs.modifier_window_method = safe_get(value, "modifier_window_method",
                                 defaults.get("modifier_window_method", "RENDER"))
 
+                    case "MIRROR_ROTATE":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("MIRROR_ROTATE", {})
+                            for attr in ("mirror_rotate_method",
+                                         "mirror_rotate_apply_mirror",
+                                         "mirror_rotate_apply_rotate",
+                                         "mirror_rotate_pivot",
+                                         "mirror_rotate_orientation",
+                                         "mirror_rotate_axis",
+                                         "mirror_rotate_clone"):
+                                try:
+                                    setattr(prefs, attr,
+                                            safe_get(value, attr, defaults.get(attr)))
+                                except (TypeError, ValueError):
+                                    pass
+
                     case "THEME":
                         if isinstance(value, dict) and hasattr(prefs, "iops_theme"):
                             theme = prefs.iops_theme

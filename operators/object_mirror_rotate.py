@@ -4,7 +4,7 @@ from itertools import combinations
 from mathutils import Vector, Matrix
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme, Role
+from ..ui.draw.theme import get_theme, axis_color, Role
 from ..ui.hud import text as hud_text
 from ..ui.hud import (
     HUDOverlay, HelpOverlay, HUDSection, HUDItem,
@@ -52,18 +52,6 @@ def _draw_callback(op, context):
         hud.draw(context, last_event)
 
 
-def _axis_theme_colors():
-    """Blender's standard gizmo axis colors (COLOR_GAMMA — display space, fine
-    for both blf and the uniform-color shaders)."""
-    try:
-        ui = bpy.context.preferences.themes[0].user_interface
-        return {"X": (*ui.axis_x, 1.0), "Y": (*ui.axis_y, 1.0), "Z": (*ui.axis_z, 1.0)}
-    except (AttributeError, IndexError):
-        return {"X": (0.96, 0.26, 0.33, 1.0),
-                "Y": (0.54, 0.82, 0.00, 1.0),
-                "Z": (0.16, 0.56, 0.96, 1.0)}
-
-
 def _draw_axis_letters(op, context):
     """POST_PIXEL: X/Y/Z letters at the tips of the axis gizmo lines."""
     cache = getattr(op, "_ghost_cache", None)
@@ -76,16 +64,15 @@ def _draw_axis_letters(op, context):
         return
     from bpy_extras.view3d_utils import location_3d_to_region_2d
     theme = get_theme(context)
-    colors = _axis_theme_colors()
     for letter, tip, enabled in gizmo:
         p2 = location_3d_to_region_2d(region, rv3d, tip)
         if p2 is None:
             continue
-        r, g, b, _ = colors[letter]
+        r, g, b, _ = axis_color(letter)
         a = 1.0 if enabled else 0.4
-        w, h = hud_text.measure(letter, theme=theme)
+        w, h = hud_text.measure(letter, theme=theme, size_token="axis_letter")
         hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y + h * 0.6),
-                      theme=theme, color=(r, g, b, a))
+                      theme=theme, color=(r, g, b, a), size_token="axis_letter")
 
 
 # --- State enums (string constants — Blender modal idiom) ----------------
@@ -127,6 +114,14 @@ ORIENT_CYCLE  = (ORIENT_GLOBAL, ORIENT_PIVOT)
 
 AXIS_LETTERS = ("X", "Y", "Z")
 _AXIS_UNIT = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1))}
+
+
+def _op_prefs():
+    """The addon preferences, or None outside a registered-addon context."""
+    try:
+        return bpy.context.preferences.addons["InteractionOps"].preferences
+    except (KeyError, AttributeError):
+        return None
 
 
 def _cycle(value, options):
@@ -445,11 +440,12 @@ def _build_ghosts(op, context):
     # long and bright, the disabled ones short and dim — so X/Y/Z reads at a
     # glance before pressing the key.
     frame = _pivot_frame_3x3(op, context)
+    gizmo_scale = get_theme(context).axis_gizmo_size
     axis_gizmo = []
     for letter in AXIS_LETTERS:
         enabled = letter in op.axes
         d = (frame @ _AXIS_UNIT[letter]).normalized()
-        tip = op.pivot_co + d * (ext * (0.55 if enabled else 0.35))
+        tip = op.pivot_co + d * (ext * (0.55 if enabled else 0.35) * gizmo_scale)
         axis_gizmo.append((letter, tip, enabled))
     return segs, tris, plane_quads, plane_outlines, axis_gizmo, rot_arcs
 
@@ -486,23 +482,21 @@ def _draw_preview_3d(op, context):
             iops_draw.edges_3d(plane_outlines, role=Role.PREVIEW_LINE, context=context)
     # Rotate 180°: arrow arcs around the enabled axes, in the axis colors.
     if rot_arcs:
-        colors = _axis_theme_colors()
         with draw_scope(blend="ALPHA", depth="NONE"):
             for letter, edges in rot_arcs:
-                r, g, b, _ = colors[letter]
+                r, g, b, _ = axis_color(letter)
                 iops_draw.edges_3d(edges, color=(r, g, b, 0.9),
-                                   width="default", context=context)
+                                   width="axis_gizmo", context=context)
 
     # Axis gizmo: colored X/Y/Z direction vectors from the pivot (letters are
     # drawn at the tips by the POST_PIXEL callback).
     if axis_gizmo:
-        colors = _axis_theme_colors()
         with draw_scope(blend="ALPHA", depth="NONE"):
             for letter, tip, enabled in axis_gizmo:
-                r, g, b, _ = colors[letter]
+                r, g, b, _ = axis_color(letter)
                 iops_draw.edges_3d([op.pivot_co, tip],
                                    color=(r, g, b, 1.0 if enabled else 0.35),
-                                   width="default", context=context)
+                                   width="axis_gizmo", context=context)
                 iops_draw.points([tip], color=(r, g, b, 1.0 if enabled else 0.35),
                                  size=6.0, context=context)
 
@@ -536,15 +530,9 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
             self.report({"WARNING"}, "Select at least one object")
             return {"CANCELLED"}
 
-        self.pivot_mode = PIVOT_CURSOR
-        self.orient_mode = ORIENT_GLOBAL
-        self.method = METHOD_MIRROR
-        self.clone_mode = CLONE_DUP
-        self.axes = {"X"}
-        self.apply_transforms = True
+        self._load_defaults()
         self.pivot_obj = None            # picked pivot (PIVOT_PICK)
         self.pivot_co = Vector((0, 0, 0))
-        self.pending_pivot_pick = False
         self.pending_normal_pick = False
         self._tpick = None
         self._dirty = True
@@ -645,9 +633,9 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         if event.type == "M" and event.value == "PRESS":
             self.method = _cycle(self.method, METHOD_CYCLE)
             # Two workflows: Mirror bakes transforms (and flips normals on the
-            # reflection), Rotate 180° is rigid and needs no bake. A can still
-            # override afterwards.
-            self.apply_transforms = (self.method == METHOD_MIRROR)
+            # reflection), Rotate 180° is rigid and needs no bake. Defaults per
+            # method come from the preferences; A can still override afterwards.
+            self.apply_transforms = self._apply_default_for_method()
             self._dirty = True
             self.report({"INFO"},
                         f"Method: {METHOD_LABELS[self.method]}  |  Apply transforms: "
@@ -799,15 +787,29 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
                         pass
         self._mesh_cache = cache
 
+    def _load_defaults(self):
+        """Start-up state from the addon preferences (Mirror Rotate section);
+        hardcoded fallbacks when prefs are unavailable."""
+        p = _op_prefs()
+        self.pivot_mode = getattr(p, "mirror_rotate_pivot", PIVOT_CURSOR) if p else PIVOT_CURSOR
+        self.orient_mode = getattr(p, "mirror_rotate_orientation", ORIENT_GLOBAL) if p else ORIENT_GLOBAL
+        self.method = getattr(p, "mirror_rotate_method", METHOD_MIRROR) if p else METHOD_MIRROR
+        self.clone_mode = getattr(p, "mirror_rotate_clone", CLONE_DUP) if p else CLONE_DUP
+        self.axes = {getattr(p, "mirror_rotate_axis", "X") if p else "X"}
+        self.apply_transforms = self._apply_default_for_method()
+        self.pending_pivot_pick = (self.pivot_mode == PIVOT_PICK)
+
+    def _apply_default_for_method(self):
+        """Per-method Apply-transforms default from the preferences: two
+        workflows — Mirror bakes (and flips normals), Rotate 180° is rigid."""
+        p = _op_prefs()
+        if self.method == METHOD_MIRROR:
+            return bool(getattr(p, "mirror_rotate_apply_mirror", True)) if p else True
+        return bool(getattr(p, "mirror_rotate_apply_rotate", False)) if p else False
+
     def _reset_defaults(self):
-        self.pivot_mode = PIVOT_CURSOR
-        self.orient_mode = ORIENT_GLOBAL
-        self.method = METHOD_MIRROR
-        self.clone_mode = CLONE_DUP
-        self.axes = {"X"}
-        self.apply_transforms = True
+        self._load_defaults()
         self.pivot_obj = None
-        self.pending_pivot_pick = False
         self.pending_normal_pick = False
         self._tpick = None
         self._dirty = True

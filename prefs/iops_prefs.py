@@ -208,6 +208,15 @@ def get_iops_prefs():
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")
         },
+        "MIRROR_ROTATE": {
+            "mirror_rotate_method": safe("mirror_rotate_method", "MIRROR"),
+            "mirror_rotate_apply_mirror": safe("mirror_rotate_apply_mirror", True),
+            "mirror_rotate_apply_rotate": safe("mirror_rotate_apply_rotate", False),
+            "mirror_rotate_pivot": safe("mirror_rotate_pivot", "CURSOR"),
+            "mirror_rotate_orientation": safe("mirror_rotate_orientation", "GLOBAL"),
+            "mirror_rotate_axis": safe("mirror_rotate_axis", "X"),
+            "mirror_rotate_clone": safe("mirror_rotate_clone", "DUPLICATE"),
+        },
         "THEME": _get_theme_section(prefs),
         "CURSOR_BISECT": {
             "cursor_bisect_edge_subdivisions": safe("cursor_bisect_edge_subdivisions", 1),

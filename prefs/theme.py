@@ -57,6 +57,22 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     color_preview_ghost:   _color((1.000, 0.941, 0.455, 0.149), "Result Preview")
     color_error_ghost:     _color((1.000, 0.627, 0.627, 0.502), "Error")
 
+    # --- Axis gizmo (X/Y/Z direction vectors in operator previews) ---
+    axis_gizmo_size: FloatProperty(
+        name="Size",
+        description="Length multiplier for the X/Y/Z axis gizmo vectors "
+                    "drawn in operator previews (Mirror Rotate etc.)",
+        default=1.0, min=0.1, max=4.0, step=10, precision=2,
+    )
+    axis_gizmo_line_width: FloatProperty(
+        name="Line width", default=1.5, min=0.5, max=12.0,
+    )
+    axis_gizmo_text_size: IntProperty(
+        name="Letter size",
+        description="Size of the X/Y/Z letters at the gizmo vector tips",
+        default=12, min=8, max=64,
+    )
+
     # --- HUD text roles (live under the "Dynamic Overlay" rollout in
     # the Theme tab). These are the only text styles used anywhere in
     # the addon. Sizes:
@@ -294,6 +310,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # --- Theme tab fold state (UI only) ---
     show_point: BoolProperty(default=True)
     show_line: BoolProperty(default=False)
+    show_axis: BoolProperty(default=False)
     show_text: BoolProperty(default=False)
     show_surfaces: BoolProperty(default=False)
     show_islands: BoolProperty(default=False)
@@ -498,6 +515,14 @@ def draw_theme_tab(layout, theme):
         _name_color_row(sub, theme, "color_ghost_edge", "Edges")
         sub.separator()
         _state_table(sub, theme, "ghost")
+
+    # AXIS GIZMO — sizes only; the X/Y/Z colors come from Blender's
+    # user_interface theme (axis_x/y/z), same as the viewport gizmos.
+    sub = _theme_section(layout, theme, "show_axis", "Axis", icon="EMPTY_AXIS")
+    if sub is not None:
+        sub.prop(theme, "axis_gizmo_size")
+        sub.prop(theme, "axis_gizmo_line_width")
+        sub.prop(theme, "axis_gizmo_text_size")
 
     # (No Gizmos section: gizmo roles follow the Points/Lines state
     # colors and sizes — handle=Default, hover=Closest, pivot=Active,
