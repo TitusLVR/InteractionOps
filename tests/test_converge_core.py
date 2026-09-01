@@ -89,16 +89,58 @@ def test_candidate_pairs_coplanar_tolerance_in():
 
 
 def test_candidate_pairs_coplanar_tolerance_out():
-    # skew gap = 5e-4, exceeds default tol (1e-4) -> excluded
-    g = 5e-4
+    # skew gap = 5e-3: exceeds the absolute floor (1e-4) AND the relative
+    # gate (1e-3 * shorter edge = 2e-3) -> excluded
+    g = 5e-3
     edges = [
         ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
         ((1.0, 0.0, g), (1.0, 2.0, g)),
     ]
     assert candidate_pairs(edges) == []
     # but qualifies with a looser explicit tolerance
-    cands = candidate_pairs(edges, tol=1e-3)
+    cands = candidate_pairs(edges, tol=1e-2)
     assert len(cands) == 1
+
+
+def test_candidate_pairs_meter_scale_near_coplanar_gap_qualifies():
+    # Regression (coverge_bug.blend, freestyle-marked pairs): meter-scale
+    # edges sitting in parallel planes ~2.7e-4 apart. The absolute 1e-4
+    # gate rejected both pairs while TinyCAD converged them fine; the
+    # relative gate (1e-3 of the shorter edge) must accept them.
+    e0 = ((4.61834478, -2.27786684, 1.93474042),
+          (5.05177879, -2.27787328, 0.79056448))
+    e2 = ((5.06107378, -2.27814221, -0.76827329),
+          (5.06153011, -2.27814221, 0.73419374))
+    e3 = ((4.61834478, -1.24363303, 1.93474042),
+          (5.05177879, -1.24363947, 0.79056448))
+    e5 = ((5.06107378, -1.24390841, -0.76827329),
+          (5.06153011, -1.24390841, 0.73419374))
+    cands = candidate_pairs([e0, e2, e3, e5])
+    assert {(c.i, c.j) for c in cands} == {(0, 1), (2, 3)}
+    for c in cands:
+        # merge point lands between the two closest points
+        assert c.P == pytest.approx(midpoint(c.p1, c.p2))
+
+
+def test_candidate_pairs_relative_gate_never_tightens_small_scale():
+    # 5mm edges with a 5e-5 gap: relative term (1e-3 * 0.005 = 5e-6) is
+    # tighter than the absolute floor -- the floor must still win.
+    L = 0.005
+    g = 5e-5
+    edges = [
+        ((0.0, 0.0, 0.0), (L, 0.0, 0.0)),
+        ((L / 2, -L, g), (L / 2, L, g)),
+    ]
+    assert len(candidate_pairs(edges)) == 1
+
+
+def test_candidate_pairs_meter_scale_genuinely_skew_still_excluded():
+    # 2m edges with a 5cm gap: far beyond 1e-3 relative -> still skew
+    edges = [
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+        ((1.0, -1.0, 0.05), (1.0, 1.0, 0.05)),
+    ]
+    assert candidate_pairs(edges) == []
 
 
 def test_candidate_pairs_moving_end_picks_nearest_endpoint():

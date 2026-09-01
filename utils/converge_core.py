@@ -19,8 +19,17 @@ import math
 from collections import namedtuple
 
 # Coplanar tolerance: the max allowed gap between the two lines' closest
-# points for a pair to qualify as an intersection.
+# points for a pair to qualify as an intersection. Absolute floor only --
+# the effective per-pair gate is max(TOL, REL_TOL * shorter edge length),
+# so meter-scale meshes with real-world planarity noise (fractions of a
+# millimetre) still qualify while small-scale work keeps this floor.
 TOL = 1e-4
+
+# Relative coplanar tolerance, as a fraction of the shorter edge of the
+# pair. 1e-3 = 0.1% of edge length: loose enough for modelling noise
+# (TinyCAD-style edges that visually cross), tight enough that genuinely
+# skew edges stay excluded.
+REL_TOL = 1e-3
 
 # Generic numerical epsilon: parallel/colinear directions, shared-vertex
 # coincidence, zero-length edges, and the closest_points_on_lines
@@ -134,27 +143,33 @@ def _nearest_end(edge, p):
     return 0 if dist(edge[0], p) <= dist(edge[1], p) else 1
 
 
-def candidate_pairs(edges, tol=TOL):
+def candidate_pairs(edges, tol=TOL, rel_tol=REL_TOL):
     """All qualifying unordered pairs of ``edges``.
 
     ``edges`` is a sequence of ``(v0, v1)`` 3-tuple pairs. Excludes pairs that
     share a vertex, pairs whose lines are parallel/colinear, and pairs whose
-    lines' closest points are farther apart than ``tol``. Zero-length edges
-    are skipped entirely (never produce a candidate). Result is ordered by
-    ascending ``(i, j)``.
+    lines' closest points are farther apart than the pair's tolerance:
+    ``max(tol, rel_tol * shorter_edge_length)``. The relative term makes the
+    coplanarity gate scale with the geometry -- an absolute-only gate rejected
+    meter-scale edges whose planes differ by ordinary modelling noise (a
+    fraction of a millimetre) even though they visually cross. Zero-length
+    edges are skipped entirely (never produce a candidate). Result is ordered
+    by ascending ``(i, j)``.
     """
     n = len(edges)
     out = []
     for i in range(n):
         edge_i = edges[i]
         d_i = sub(edge_i[1], edge_i[0])
-        if norm(d_i) < EPS:
+        len_i = norm(d_i)
+        if len_i < EPS:
             continue  # degenerate edge
         nd_i = normalize(d_i)
         for j in range(i + 1, n):
             edge_j = edges[j]
             d_j = sub(edge_j[1], edge_j[0])
-            if norm(d_j) < EPS:
+            len_j = norm(d_j)
+            if len_j < EPS:
                 continue  # degenerate edge
             if _shares_vertex(edge_i, edge_j):
                 continue
@@ -166,7 +181,7 @@ def candidate_pairs(edges, tol=TOL):
             if res is None:
                 continue
             p1, p2 = res
-            if dist(p1, p2) > tol:
+            if dist(p1, p2) > max(tol, rel_tol * min(len_i, len_j)):
                 continue  # not coplanar within tolerance
 
             P = midpoint(p1, p2)
