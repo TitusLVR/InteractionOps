@@ -18,9 +18,21 @@ then weld the two verts together at ``P`` (bmesh ``pointmerge``).
 import math
 from collections import namedtuple
 
-# Coplanar tolerance: the max allowed gap between the two lines' closest
-# points for a pair to qualify as an intersection.
+# Coplanar tolerance -- absolute floor of the per-pair gap gate:
+# max(TOL, REL_TOL * longer edge length). The gate no longer rejects
+# pairs at generation time; it is baked into ``Candidate.miss`` (gap /
+# gate) and only GREEDY filters on it, because auto-pairing among 3+
+# edges is the one place a near-miss has to be told apart from a real
+# crossing. Explicit pairs (ORDER history, ALL rails, a two-edge
+# selection) always converge -- TinyCAD-VTX parity.
 TOL = 1e-4
+
+# Relative coplanar tolerance, as a fraction of the LONGER edge of the
+# pair. Angular noise on an edge displaces its infinite line near the
+# intersection proportionally to the edge's length, so the long edge
+# sets the expected gap scale (scaling by the shorter edge collapsed to
+# the absolute floor for stub-against-rail pairs and rejected them).
+REL_TOL = 1e-3
 
 # Generic numerical epsilon: parallel/colinear directions, shared-vertex
 # coincidence, zero-length edges, and the closest_points_on_lines
@@ -118,6 +130,7 @@ Candidate = namedtuple("Candidate", [
     "moving_end_i",         # 0 or 1: which endpoint of edges[i] moves to p1
     "moving_end_j",         # 0 or 1: which endpoint of edges[j] moves to p2
     "mvert1", "mvert2",     # the actual moving-vert coordinates (convenience)
+    "miss",                 # gap / gate: <= 1.0 means "really crosses"
 ])
 
 
@@ -134,27 +147,35 @@ def _nearest_end(edge, p):
     return 0 if dist(edge[0], p) <= dist(edge[1], p) else 1
 
 
-def candidate_pairs(edges, tol=TOL):
-    """All qualifying unordered pairs of ``edges``.
+def candidate_pairs(edges, tol=TOL, rel_tol=REL_TOL):
+    """All non-parallel unordered pairs of ``edges``, scored by gap.
 
-    ``edges`` is a sequence of ``(v0, v1)`` 3-tuple pairs. Excludes pairs that
-    share a vertex, pairs whose lines are parallel/colinear, and pairs whose
-    lines' closest points are farther apart than ``tol``. Zero-length edges
-    are skipped entirely (never produce a candidate). Result is ordered by
-    ascending ``(i, j)``.
+    ``edges`` is a sequence of ``(v0, v1)`` 3-tuple pairs. Excludes only
+    pairs that share a vertex and pairs whose lines are parallel/colinear;
+    zero-length edges are skipped entirely. Every other pair is GENERATED,
+    carrying ``miss`` = gap between the lines' closest points, divided by
+    the pair's gate ``max(tol, rel_tol * longer_edge_length)`` -- so
+    ``miss <= 1`` means the lines really cross (within scale-relative
+    noise) and ``miss > 1`` means genuinely skew. Rejecting is a strategy
+    decision, not a generation one: GREEDY filters on ``miss``, while
+    explicit pairings (ORDER history, ALL rails, a two-edge selection)
+    converge regardless -- exactly TinyCAD-VTX behaviour, whose only
+    rejection is parallel lines. Result is ordered by ascending ``(i, j)``.
     """
     n = len(edges)
     out = []
     for i in range(n):
         edge_i = edges[i]
         d_i = sub(edge_i[1], edge_i[0])
-        if norm(d_i) < EPS:
+        len_i = norm(d_i)
+        if len_i < EPS:
             continue  # degenerate edge
         nd_i = normalize(d_i)
         for j in range(i + 1, n):
             edge_j = edges[j]
             d_j = sub(edge_j[1], edge_j[0])
-            if norm(d_j) < EPS:
+            len_j = norm(d_j)
+            if len_j < EPS:
                 continue  # degenerate edge
             if _shares_vertex(edge_i, edge_j):
                 continue
@@ -166,14 +187,14 @@ def candidate_pairs(edges, tol=TOL):
             if res is None:
                 continue
             p1, p2 = res
-            if dist(p1, p2) > tol:
-                continue  # not coplanar within tolerance
+            gate = max(tol, rel_tol * max(len_i, len_j))
+            miss = dist(p1, p2) / gate
 
             P = midpoint(p1, p2)
             me_i = _nearest_end(edge_i, p1)
             me_j = _nearest_end(edge_j, p2)
             out.append(Candidate(i, j, P, p1, p2, me_i, me_j,
-                                  edge_i[me_i], edge_j[me_j]))
+                                  edge_i[me_i], edge_j[me_j], miss))
     return out
 
 
@@ -187,8 +208,19 @@ def _pair_cost(c):
 
 
 def strategy_greedy(candidates):
-    """Nearest-sum first; each edge index consumed at most once."""
-    ordered = sorted(candidates, key=_pair_cost)
+    """Nearest-sum first; each edge index consumed at most once.
+
+    Auto-pairing is the one strategy that has to tell real crossings from
+    near-misses, so it drops candidates with ``miss > 1`` -- EXCEPT when
+    the whole selection produced exactly one candidate (the two-edge
+    TinyCAD-VTX case): a single possible pair is an explicit pair, and it
+    converges no matter the gap.
+    """
+    candidates = list(candidates)
+    qualified = [c for c in candidates if c.miss <= 1.0]
+    if not qualified and len(candidates) == 1:
+        qualified = candidates
+    ordered = sorted(qualified, key=_pair_cost)
     used = set()
     out = []
     for c in ordered:
@@ -308,8 +340,9 @@ def _collapse_group(candidates, edges, r0, r1, members):
         if dist(e[0], e[1]) < EPS:
             continue
         for end in (0, 1):
+            # synthesized collapse: both closest points ARE P, gap is 0
             out.append(Candidate(r0, k, P, P, P, r0_end, end,
-                                 r0_mvert, e[end]))
+                                 r0_mvert, e[end], 0.0))
     return out
 
 
