@@ -326,6 +326,68 @@ def _draw_tpick(op, context):
 
 # --- Preview (POST_VIEW) ----------------------------------------------------
 
+def _sources_centroid(op):
+    """Centroid of the source root origins; None when there are no sources."""
+    pts = []
+    for subtree in op.subtree_data:
+        try:
+            pts.append(subtree[0].matrix_world.translation.copy())
+        except (ReferenceError, IndexError):
+            continue
+    if not pts:
+        return None
+    acc = Vector((0.0, 0.0, 0.0))
+    for p in pts:
+        acc += p
+    return acc / len(pts)
+
+
+def _rotation_arrow_edges(op, axis_n, ext):
+    """Flat edge list for a 180° rotation-direction arrow around `axis_n`:
+    an arc from the sources' centroid to where the half-turn lands it
+    (right-hand CCW — the same sweep `Matrix.Rotation(pi, axis)` performs),
+    with radial ticks every 45° and an arrowhead at the end."""
+    p = op.pivot_co
+    anchor = _sources_centroid(op)
+    radial = None
+    if anchor is not None:
+        v = anchor - p
+        radial = v - axis_n * v.dot(axis_n)
+    if radial is None or radial.length < 1e-4:
+        radial = _plane_frame(axis_n)[0] * (ext * 0.5)
+    R = radial.length
+    e1 = radial.normalized()
+    e2 = axis_n.cross(e1)
+
+    edges = []
+    steps = 48
+    pts = [p + (e1 * math.cos(math.pi * i / steps)
+                + e2 * math.sin(math.pi * i / steps)) * R
+           for i in range(steps + 1)]
+    for i in range(steps):
+        edges.append(pts[i])
+        edges.append(pts[i + 1])
+
+    # Radial ticks every 45° along the swept half — outward, so they read as
+    # graduation marks on the travel direction.
+    for k in range(5):
+        a = math.pi * k / 4
+        d = e1 * math.cos(a) + e2 * math.sin(a)
+        edges.append(p + d * R)
+        edges.append(p + d * (R * 1.08))
+
+    # Arrowhead at the arc end. Tangent (travel direction) at a=pi is -e2;
+    # wings swept back against it, spread along the radial.
+    end = pts[-1]
+    tangent = -e2
+    out_dir = -e1                       # radial direction at the end point
+    wing_len = max(R * 0.12, 0.05)
+    for side in (1.0, -1.0):
+        edges.append(end)
+        edges.append(end - tangent * wing_len + out_dir * (wing_len * 0.5 * side))
+    return edges
+
+
 def _sources_extent(op):
     """Radius (from the pivot) that comfortably covers the sources and their
     mirrored clones — used to size the mirror-plane quads."""
@@ -342,8 +404,10 @@ def _sources_extent(op):
 
 
 def _build_ghosts(op, context):
-    """(segs, tris, plane_quads, plane_outlines, normal_lines) for the preview.
-    plane_quads is a flat tri list; outlines / normal_lines are flat edge lists."""
+    """(segs, tris, plane_quads, plane_outlines, axis_gizmo, rot_arcs) for the
+    preview. plane_quads is a flat tri list; outlines are flat edge lists;
+    axis_gizmo is [(letter, tip, enabled)]; rot_arcs is [(letter, edge_list)]
+    with a 180° arrow arc per enabled axis (Rotate method only)."""
     op.subtree_data = _build_subtree_data([sub[0] for sub in op.subtree_data])
 
     segs = []
@@ -365,16 +429,25 @@ def _build_ghosts(op, context):
 
     plane_quads = []
     plane_outlines = []
+    rot_arcs = []
     ext = _sources_extent(op)
-    for n in _axis_normals(op, context).values():
-        right, fwd = _plane_frame(n)
-        p = op.pivot_co
-        c = [p + right * ext + fwd * ext, p - right * ext + fwd * ext,
-             p - right * ext - fwd * ext, p + right * ext - fwd * ext]
-        plane_quads.extend([c[0], c[1], c[2], c[0], c[2], c[3]])
-        for i in range(4):
-            plane_outlines.append(c[i])
-            plane_outlines.append(c[(i + 1) % 4])
+    if op.method == METHOD_MIRROR:
+        # Mirror: the plane IS the tool — draw it.
+        for n in _axis_normals(op, context).values():
+            right, fwd = _plane_frame(n)
+            p = op.pivot_co
+            c = [p + right * ext + fwd * ext, p - right * ext + fwd * ext,
+                 p - right * ext - fwd * ext, p + right * ext - fwd * ext]
+            plane_quads.extend([c[0], c[1], c[2], c[0], c[2], c[3]])
+            for i in range(4):
+                plane_outlines.append(c[i])
+                plane_outlines.append(c[(i + 1) % 4])
+    else:
+        # Rotate 180°: a plane is misleading — draw the half-turn itself: an
+        # arrow arc around each enabled axis, from the sources' centroid to
+        # where the clone lands, with ticks every 45°.
+        for letter, n in _axis_normals(op, context).items():
+            rot_arcs.append((letter, _rotation_arrow_edges(op, n, ext)))
 
     # Axis gizmo: all three frame directions from the pivot, the enabled ones
     # long and bright, the disabled ones short and dim — so X/Y/Z reads at a
@@ -386,7 +459,7 @@ def _build_ghosts(op, context):
         d = (frame @ _AXIS_UNIT[letter]).normalized()
         tip = op.pivot_co + d * (ext * (0.55 if enabled else 0.35))
         axis_gizmo.append((letter, tip, enabled))
-    return segs, tris, plane_quads, plane_outlines, axis_gizmo
+    return segs, tris, plane_quads, plane_outlines, axis_gizmo, rot_arcs
 
 
 def _draw_preview_3d(op, context):
@@ -396,7 +469,7 @@ def _draw_preview_3d(op, context):
     if op._dirty or getattr(op, "_ghost_cache", None) is None:
         op._ghost_cache = _build_ghosts(op, context)
         op._dirty = False
-    segs, tris, plane_quads, plane_outlines, axis_gizmo = op._ghost_cache
+    segs, tris, plane_quads, plane_outlines, axis_gizmo, rot_arcs = op._ghost_cache
 
     # Two-pass transparent fill (depth pre-pass, then color at depth=EQUAL) so
     # overlapping clones don't alpha-stack. Culling stays off — mirrored
@@ -419,6 +492,15 @@ def _draw_preview_3d(op, context):
             iops_draw.tris(plane_quads, role=Role.GHOST_LOCKED, context=context)
         with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
             iops_draw.edges_3d(plane_outlines, role=Role.PREVIEW_LINE, context=context)
+    # Rotate 180°: arrow arcs around the enabled axes, in the axis colors.
+    if rot_arcs:
+        colors = _axis_theme_colors()
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            for letter, edges in rot_arcs:
+                r, g, b, _ = colors[letter]
+                iops_draw.edges_3d(edges, color=(r, g, b, 0.9),
+                                   width="default", context=context)
+
     # Axis gizmo: colored X/Y/Z direction vectors from the pivot (letters are
     # drawn at the tips by the POST_PIXEL callback).
     if axis_gizmo:
