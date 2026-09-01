@@ -241,6 +241,7 @@ from .operators.easy_mod_array import (
     IOPS_OT_Easy_Mod_Array_Curve,
 )
 from .operators.object_radial_array import IOPS_OT_Object_Radial_Array
+from .operators.object_mirror_rotate import IOPS_OT_Object_Mirror_Rotate
 from .operators.object_aligner import IOPS_OT_Object_Aligner
 from .operators.easy_mod_shwarp import IOPS_OT_Easy_Mod_Shwarp
 from .operators.bevel_edge_data import (
@@ -526,6 +527,7 @@ classes = (
     IOPS_OT_Easy_Mod_Array_Caps,
     IOPS_OT_Easy_Mod_Array_Curve,
     IOPS_OT_Object_Radial_Array,
+    IOPS_OT_Object_Mirror_Rotate,
     IOPS_OT_Object_Aligner,
     IOPS_OT_Easy_Mod_Shwarp,
     IOPS_OT_BevelEdgeDataFix,

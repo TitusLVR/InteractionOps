@@ -42,6 +42,7 @@ edit_pie_content_list = [
     ("iops.object_replace", "Object Replace", ""),
     ("iops.object_aligner", "Object Aligner", ""),
     ("iops.object_radial_array", "Radial Array", ""),
+    ("iops.object_mirror_rotate", "Mirror Rotate", ""),
     ("iops.object_align_between_two", "Align Between Two", ""),
     ("iops.materials_from_textures", "Materials from Textures", ""),
     ("CUSTOM", "Custom Operator", "Any operator idname"),

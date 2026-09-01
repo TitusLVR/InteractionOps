@@ -68,6 +68,7 @@ class IOPS_MT_Pie_Menu(Menu):
         op_if_poll(col, "iops.object_replace", text="Object Replace")
         op_if_poll(col, "iops.object_aligner", text="Object Aligner")
         op_if_poll(col, "iops.object_radial_array", text="Radial Array")
+        op_if_poll(col, "iops.object_mirror_rotate", text="Mirror Rotate")
         op_if_poll(col, "iops.object_align_between_two", text="Align Between Two")
         op_if_poll(col, "iops.mesh_quick_snap", text="Quick Snap")
         op_if_poll(col, "iops.mesh_quick_connect", text="Quick Connect")
