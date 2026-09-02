@@ -361,6 +361,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
     bl_description = ("Pick a target object for this modifier\n"
                       "LMB: pick object under the cursor\n"
                       "C: empty at the 3D cursor\n"
+                      "Shift: clear the target\n"
                       "Alt: also on selected objects")
 
     bl_idname = "iops.mod_pick_target"
@@ -434,12 +435,21 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         if not fields:
             self.report({"WARNING"}, "Modifier has no object target field")
             return {"CANCELLED"}
+        self._obj = obj
+        self.alt = event.alt              # Alt on the panel button
+        if event.shift:
+            # Shift: clear the target, no pick session (Alt widens it to
+            # the selection like everywhere else in the stack rows)
+            self._last_event = None
+            self._assign(md, None)
+            n = self._assign_selection(context, md, None) if self.alt else 1
+            suffix = f" on {n} objects" if n > 1 else ""
+            self.report({"INFO"}, f"{md.name}: target cleared{suffix}")
+            return {"FINISHED"}
         region, rv3d = _view3d_region(context)
         if region is None or rv3d is None:
             self.report({"WARNING"}, "No 3D viewport")
             return {"CANCELLED"}
-        self._obj = obj
-        self.alt = event.alt              # Alt on the panel button
         self._region = region
         self._rv3d = rv3d
         self._prev_target = getattr(md, fields[0], None)
