@@ -156,7 +156,7 @@ from .operators.modifiers import (
     iops_mod_simple_deform, iops_mod_displace, iops_mod_shrinkwrap,  # noqa: F401
     iops_mod_weighted_normal,  # noqa: F401
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
-    iops_mod_cursor_target, iops_mod_active_target, iops_mod_select_users,
+    iops_mod_pick_target, iops_mod_select_users,
     iops_mod_safe_apply, iops_mod_list, iops_mod_defaults,
     iops_mod_adaptive_decimate, iops_mod_collapse_stack,
 )
@@ -171,8 +171,7 @@ _modifiers_classes = (
     iops_mod_cleanup.IOPS_OT_ModCleanup,
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
     iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
-    iops_mod_cursor_target.IOPS_OT_ModCursorTarget,
-    iops_mod_active_target.IOPS_OT_ModActiveTarget,
+    iops_mod_pick_target.IOPS_OT_ModPickTarget,
     iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
     iops_mod_adaptive_decimate.IOPS_OT_ModAdaptiveDecimate,
     iops_mod_collapse_stack.IOPS_OT_ModCollapseStack,

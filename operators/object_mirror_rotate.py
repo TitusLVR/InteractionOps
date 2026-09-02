@@ -271,14 +271,17 @@ def _axes_label(op):
 
 # --- T-pick: snap cursor to a face (pattern from object_radial_array) -----
 
-def _tpick_update(op, context, event):
-    region = context.region
-    rv3d = context.region_data
+def _tpick_update(op, context, event, region=None, rv3d=None):
+    """Pass region/rv3d explicitly when the operator was invoked outside
+    the 3D viewport's WINDOW region (e.g. from an N-panel button)."""
+    if region is None:
+        region = context.region
+        rv3d = context.region_data
     if region is None or rv3d is None:
         op._tpick = None
         return
     from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
-    mouse = Vector((event.mouse_region_x, event.mouse_region_y))
+    mouse = Vector((event.mouse_x - region.x, event.mouse_y - region.y))
     origin = region_2d_to_origin_3d(region, rv3d, mouse)
     direction = region_2d_to_vector_3d(region, rv3d, mouse)
     depsgraph = context.evaluated_depsgraph_get()

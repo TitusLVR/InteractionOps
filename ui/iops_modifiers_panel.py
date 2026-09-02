@@ -12,6 +12,7 @@ import bpy
 from ..operators.modifiers.iops_mod_defaults import draw_props
 from ..operators.modifiers.iops_mod_registry import (
     enabled_grid_types,
+    object_fields,
     type_icon,
 )
 from ..operators.modifiers.iops_mod_stack import (
@@ -146,11 +147,6 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         row.operator("iops.mod_sync_vis", text="Sync Vis",
                      icon="RESTRICT_RENDER_OFF")
         row = tools.row(align=True)
-        row.operator("iops.mod_cursor_target", text="Cursor Target",
-                     icon="PIVOT_CURSOR")
-        row.operator("iops.mod_active_target", text="Active Target",
-                     icon="PIVOT_ACTIVE")
-        row = tools.row(align=True)
         row.operator("iops.mod_select_target_users", text="Users",
                      icon="RESTRICT_SELECT_OFF")
         row.operator("iops.mod_safe_apply_transform", text="Safe Apply",
@@ -190,6 +186,13 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                 op.index = i
                 op.action = "TOGGLE_PIN"
             row.prop(md, "name", text="")
+            fields = object_fields(md)
+            if fields:
+                op = row.operator("iops.mod_pick_target", text="",
+                                  icon="EYEDROPPER",
+                                  depress=getattr(md, fields[0], None)
+                                  is not None)
+                op.index = i
             vis = row.row(align=True)
             vis.alert = md.show_render != md.show_viewport
             if md.type not in NO_EDITMODE_SUPPORT:
