@@ -14,6 +14,10 @@ from mathutils import Matrix, Vector
 from ...ui.draw import draw_scope, safe_handler_add, safe_handler_remove
 from ...ui.draw import primitives as iops_draw
 from ...ui.draw.theme import Role
+from ...ui.hud import (
+    HUDOverlay, HelpOverlay, HUDSection, HUDItem, HUDParam, ItemState,
+    capture_event,
+)
 from ...utils.picking import raycast_from_mouse
 from ..object_mirror_rotate import _draw_tpick, _tpick_update
 from . import iops_mod_registry
@@ -41,11 +45,52 @@ _BBOX_EDGES = ((0, 1), (1, 2), (2, 3), (3, 0),
                (4, 5), (5, 6), (6, 7), (7, 4),
                (0, 4), (1, 5), (2, 6), (3, 7))
 
-_STATUS_PICK = ("LMB: pick target object · C: empty target at 3D cursor · "
-                "Esc / RMB: cancel")
+_STATUS_PICK = ("LMB: pick target object · Alt: also on selection · "
+                "C: empty target at 3D cursor · Esc / RMB: cancel")
 _STATUS_CURSOR = ("LMB: snap to vert / edge-mid / center · "
-                  "Enter / Space: keep at cursor · C: back to object pick · "
-                  "Esc / RMB: cancel")
+                  "Enter / Space: keep at cursor · Alt: also on selection · "
+                  "C: back to object pick · Esc / RMB: cancel")
+
+
+def _build_hud(op, region):
+    hud = HUDOverlay("mod_pick_target")
+    hud.title = "Pick Modifier Target"
+    hud.add_param(HUDParam(
+        "Modifier", lambda: op._hud_modifier_label(), "str"))
+    hud.add_param(HUDParam(
+        "Mode", lambda: "Empty at cursor" if op.cursor_pick else "Object",
+        "str"))
+    hud.add_param(HUDParam(
+        "Target", lambda: op._hud_target_label(), "str"))
+    hud.add_param(HUDParam(
+        "On selection", lambda: op._on_selection(), "bool"))
+    hud.bind_region(region)
+    return hud
+
+
+def _build_help(region):
+    helpo = HelpOverlay("mod_pick_target")
+    helpo.add_section(HUDSection("Pick Modifier Target", [
+        HUDItem("Pick target object (highlighted)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Empty target at 3D cursor / back to object pick", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Snap empty to vert / edge-mid / center (cursor mode)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Keep empty at cursor (cursor mode)", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Also set on selected objects' matching modifier", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+    ]))
+    helpo.bind_region(region)
+    return helpo
+
+
+def _draw_hud(op, context):
+    last_event = getattr(op, "_last_event", None)
+    helpo = getattr(op, "_help", None)
+    hud = getattr(op, "_hud", None)
+    if helpo is not None:
+        helpo.draw(context, last_event)
+    if hud is not None:
+        hud.draw(context, last_event)
 
 
 def _view3d_region(context):
@@ -317,6 +362,8 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
     refine — click a vert / edge-mid / center to snap the cursor and
     the empty there; Enter / Space keeps the cursor position, C again
     drops the empty and returns to object pick.
+    Alt (on the button or while picking): set the target on the matching
+    modifier (same name and type) of every selected object too.
     Esc / RMB: cancel"""
 
     bl_idname = "iops.mod_pick_target"
@@ -338,6 +385,49 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         # empty for a Boolean object)
         return getattr(md, field, None) == obj
 
+    def _on_selection(self):
+        return self.alt or bool(getattr(self._last_event, "alt", False))
+
+    def _assign_selection(self, context, md, target):
+        """Alt: mirror the assignment onto the matching modifier (same
+        name and type, like the stack-row Alt actions) of every selected
+        object. Returns the number of objects updated (active
+        included)."""
+        count = 1
+        for o in context.selected_objects:
+            if o == self._obj or o == target:
+                continue
+            other = o.modifiers.get(md.name)
+            if other is None or other.type != md.type:
+                continue
+            if self._assign(other, target):
+                count += 1
+        return count
+
+    def _commit(self, context, md, target, how):
+        n = 1
+        if self._on_selection():
+            n = self._assign_selection(context, md, target)
+        suffix = f" on {n} objects" if n > 1 else ""
+        self.report({"INFO"},
+                    f"{md.name}: target = {target.name}{how}{suffix}")
+        return self._finish(context)
+
+    def _hud_modifier_label(self):
+        md = self._modifier()
+        return md.name if md is not None else "<gone>"
+
+    def _hud_target_label(self):
+        if self.cursor_pick:
+            return "empty at cursor"
+        hover = self._hover
+        if hover is None:
+            return "—"
+        try:
+            return hover.name
+        except ReferenceError:
+            return "<gone>"
+
     def invoke(self, context, event):
         obj = context.active_object
         if obj is None or not (0 <= self.index < len(obj.modifiers)):
@@ -352,6 +442,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
             self.report({"WARNING"}, "No 3D viewport")
             return {"CANCELLED"}
         self._obj = obj
+        self.alt = event.alt              # Alt on the panel button
         self._region = region
         self._rv3d = rv3d
         self._prev_target = getattr(md, fields[0], None)
@@ -361,9 +452,16 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         self._fill_cache = None          # (key, coords) for _fill_coords
         self.cursor_pick = False
         self._tpick = None
+        self._hud = _build_hud(self, region)
+        self._help = _build_help(region)
+        self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_pick, (self, context),
             "WINDOW", "POST_VIEW", tick=False,
+        )
+        self._handle_2d = safe_handler_add(
+            bpy.types.SpaceView3D, _draw_hud, (self, context),
+            "WINDOW", "POST_PIXEL", tick=True,
         )
         context.window.cursor_modal_set("EYEDROPPER")
         context.workspace.status_text_set(_STATUS_PICK)
@@ -392,6 +490,10 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         if getattr(self, "_handle", None) is not None:
             safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
             self._handle = None
+        if getattr(self, "_handle_2d", None) is not None:
+            safe_handler_remove(self._handle_2d, bpy.types.SpaceView3D,
+                                "WINDOW")
+            self._handle_2d = None
         context.window.cursor_modal_restore()
         context.workspace.status_text_set(None)
         self._region.tag_redraw()
@@ -406,6 +508,24 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         return empty
 
     def modal(self, context, event):
+        self._last_event = capture_event(event, self._last_event)
+        try:
+            theme_prefs = (context.preferences.addons["InteractionOps"]
+                           .preferences.iops_theme)
+        except (KeyError, AttributeError):
+            theme_prefs = None
+        if theme_prefs is not None:
+            for ov in (self._help, self._hud):
+                if ov.handle_drag_event(context, event, theme_prefs):
+                    self._region.tag_redraw()
+                    return {"RUNNING_MODAL"}
+            if self._help.handle_toggle_event(event, theme_prefs):
+                self._region.tag_redraw()
+                return {"RUNNING_MODAL"}
+            if self._hud.handle_param_toggle_event(event, theme_prefs):
+                self._region.tag_redraw()
+                return {"RUNNING_MODAL"}
+
         if event.type in _NAV_EVENTS:
             return {"PASS_THROUGH"}
 
@@ -448,9 +568,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
 
         if (self.cursor_pick and event.value == "PRESS"
                 and event.type in {"RET", "NUMPAD_ENTER", "SPACE"}):
-            self.report({"INFO"},
-                        f"{md.name}: target = {self._empty.name} (at cursor)")
-            return self._finish(context)
+            return self._commit(context, md, self._empty, " (at cursor)")
 
         if event.type == "MOUSEMOVE":
             if self.cursor_pick:
@@ -476,10 +594,8 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                 cursor.rotation_euler = quat.to_euler()
                 self._empty.matrix_world = Matrix.LocRotScale(
                     tp["closest"], quat, None)
-                self.report({"INFO"},
-                            f"{md.name}: target = {self._empty.name} "
-                            "(snapped to face)")
-                return self._finish(context)
+                return self._commit(context, md, self._empty,
+                                    " (snapped to face)")
             picked = self._hover or _pick_object(self, context, event,
                                                  self._region, self._rv3d,
                                                  exclude={self._obj})
@@ -491,7 +607,6 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                             f"{md.name}: rejected {picked.name} — "
                             "pick another object")
                 return {"RUNNING_MODAL"}
-            self.report({"INFO"}, f"{md.name}: target = {picked.name}")
-            return self._finish(context)
+            return self._commit(context, md, picked, "")
 
         return {"RUNNING_MODAL"}
