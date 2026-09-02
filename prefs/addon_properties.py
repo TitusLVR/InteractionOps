@@ -268,32 +268,6 @@ class IOPS_AddonProperties(PropertyGroup):
         default=0,
         update=update_iops_active_color_index,
     )
-    iops_tm_dimensions: FloatVectorProperty(
-        name="Dimensions",
-        description="Object dimensions (wrapper: supports multi-drag and apply to selected)",
-        size=3,
-        min=0.0,
-        subtype="XYZ_LENGTH",
-        unit="LENGTH",
-        precision=3,
-        get=_tm_dimensions_get,
-        set=_tm_dimensions_set,
-    )
-    iops_tm_dimensions_to_selected: BoolProperty(
-        name="Apply to Selected",
-        description="Apply dimensions to all selected objects, not only the active one",
-        default=False,
-    )
-    iops_tm_dimensions_keep_scale: BoolProperty(
-        name="Keep Scale 1",
-        description="After changing dimensions, apply scale to object data so scale stays (1,1,1). Skipped for multi-user data",
-        default=False,
-    )
-    iops_tm_dimensions_base: BoolProperty(
-        name="Base Dimensions",
-        description="Measure the original data (before modifiers) instead of the evaluated bound box",
-        default=False,
-    )
 
 
 class IOPS_RenameSettings(PropertyGroup):
@@ -394,6 +368,36 @@ class IOPS_WidgetDataBlock(PropertyGroup):
 
 
 class IOPS_SceneProperties(PropertyGroup):
+    # Dimensions wrapper lives on Scene (not WindowManager) on purpose:
+    # buttons bound to WM/Screen-owned properties never push an undo step
+    # (ID_CHECK_UNDO), so scale/data changes made by the setter were merged
+    # into the previous undo step and Ctrl+Z restored them unpredictably.
+    iops_tm_dimensions: FloatVectorProperty(
+        name="Dimensions",
+        description="Object dimensions (wrapper: supports multi-drag and apply to selected)",
+        size=3,
+        min=0.0,
+        subtype="XYZ_LENGTH",
+        unit="LENGTH",
+        precision=3,
+        get=_tm_dimensions_get,
+        set=_tm_dimensions_set,
+    )
+    iops_tm_dimensions_to_selected: BoolProperty(
+        name="Apply to Selected",
+        description="Apply dimensions to all selected objects, not only the active one",
+        default=False,
+    )
+    iops_tm_dimensions_keep_scale: BoolProperty(
+        name="Keep Scale 1",
+        description="After changing dimensions, apply scale to object data so scale stays (1,1,1). Skipped for multi-user data",
+        default=False,
+    )
+    iops_tm_dimensions_base: BoolProperty(
+        name="Base Dimensions",
+        description="Measure the original data (before modifiers) instead of the evaluated bound box",
+        default=False,
+    )
     rename: bpy.props.PointerProperty(
         type=IOPS_RenameSettings,
         name="Rename Settings",
