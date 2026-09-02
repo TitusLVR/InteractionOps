@@ -11,7 +11,7 @@ import bpy
 
 from ..operators.modifiers.iops_mod_defaults import draw_props
 from ..operators.modifiers.iops_mod_registry import (
-    enabled_grid_types,
+    enabled_grid_slots,
     object_fields,
     type_icon,
 )
@@ -128,15 +128,15 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         active_types = {md.type for md in active.modifiers} if active else set()
 
         # --- icon grid: the user's list from prefs, order verbatim ---
-        ordered = enabled_grid_types(prefs)
         grid = layout.grid_flow(row_major=True,
                                 columns=prefs.modifiers_grid_columns,
                                 even_columns=True, align=True)
-        for mod_type in ordered:
+        for index, item in enabled_grid_slots(prefs):
             op = grid.operator("iops.mod_grid_click", text="",
-                               icon=type_icon(mod_type),
-                               depress=mod_type in active_types)
-            op.mod_type = mod_type
+                               icon=type_icon(item.mod_type),
+                               depress=item.mod_type in active_types)
+            op.mod_type = item.mod_type
+            op.index = index
 
         # --- tools ---
         layout.separator(factor=0.5)

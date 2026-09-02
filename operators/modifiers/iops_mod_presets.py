@@ -1,13 +1,16 @@
 """Default-preset storage for the modifiers grid.
 
-Defaults live in editable PropertyGroups on the addon preferences
-(iops_mod_defaults.py) — one group per modifier type, persisted by
-Blender in userpref.blend. This module keeps the stable API
-(load_default / save_default / clear_default) plus snapshot().
+Defaults live per grid SLOT: every IOPS_ModGridItem carries one
+editable PropertyGroup per modifier type (iops_mod_defaults.py), and
+the group matching the slot's mod_type holds that slot's settings. So
+two slots of the same type (e.g. two Bevels) keep independent
+defaults. Blender persists them in userpref.blend.
 
-Legacy storage was a JSON file
-(<user scripts>/presets/IOPS/iops_mod_presets.json); it is migrated
-into the groups once by the grid seed timer and renamed *.migrated.
+Legacy storage, migrated once by the grid seed timer:
+  * one group per type on the addon preferences (pre-slot layout) —
+    poured into the first slot of that type, then reset;
+  * a JSON file (<user scripts>/presets/IOPS/iops_mod_presets.json) —
+    poured into the first slot of that type, renamed *.migrated.
 """
 
 import bpy
@@ -47,10 +50,47 @@ def _read_legacy():
         return {}
 
 
-def _group(mod_type):
+def _prefs():
+    return bpy.context.preferences.addons["InteractionOps"].preferences
+
+
+# --- slot lookup -------------------------------------------------------
+
+def slots_of_type(prefs, mod_type):
+    """[(index, item)] for every grid slot of this modifier type."""
+    return [(i, it) for i, it in enumerate(prefs.modifiers_grid_items)
+            if it.mod_type == mod_type]
+
+
+def first_slot_of_type(prefs, mod_type):
+    slots = slots_of_type(prefs, mod_type)
+    return slots[0][1] if slots else None
+
+
+def slot_group(item):
+    """The slot's defaults group (the one matching its mod_type), or
+    None when the type has no editable params."""
     from . import iops_mod_defaults as defaults
-    prefs = bpy.context.preferences.addons["InteractionOps"].preferences
-    return defaults.get_group(prefs, mod_type)
+    return defaults.get_group(item, item.mod_type)
+
+
+def slot_settings(item):
+    """The slot's default settings as a dict, or None (no group —
+    Blender defaults apply)."""
+    from . import iops_mod_defaults as defaults
+    group = slot_group(item)
+    return defaults.group_values(group) if group is not None else None
+
+
+def slot_label(item):
+    """User label if set, else the type's display name."""
+    if item.label:
+        return item.label
+    from .iops_mod_registry import all_mod_type_items
+    for ident, name, _icon in all_mod_type_items():
+        if ident == item.mod_type:
+            return name
+    return item.mod_type.title().replace("_", " ")
 
 
 def snapshot(md):
@@ -78,44 +118,79 @@ def snapshot(md):
     return out
 
 
+# --- stable API ---------------------------------------------------------
+
 def load_default(mod_type):
-    """The type's default settings as a dict, or None (no group —
-    Blender defaults apply)."""
-    from . import iops_mod_defaults as defaults
-    group = _group(mod_type)
-    return defaults.group_values(group) if group is not None else None
+    """Settings of the FIRST grid slot of this type, or None. Callers
+    that know their slot should use slot_settings(item) instead."""
+    item = first_slot_of_type(_prefs(), mod_type)
+    return slot_settings(item) if item is not None else None
 
 
-def save_default(md):
-    """Copy md's current settings into its type's defaults group."""
+def save_default(md, item):
+    """Copy md's current settings into the given slot's defaults."""
     from . import iops_mod_defaults as defaults
-    group = _group(md.type)
+    if item.mod_type != md.type:
+        return False
+    group = slot_group(item)
     if group is None:
         return False
     defaults.set_group_values(group, snapshot(md))
     return True
 
 
-def clear_default(mod_type):
-    """Reset the type's defaults group to its definition defaults
+def clear_default(item):
+    """Reset the slot's defaults group to its definition defaults
     (Blender defaults + baked-in smart defaults)."""
     from . import iops_mod_defaults as defaults
-    group = _group(mod_type)
+    group = slot_group(item)
     if group is None:
         return False
     defaults.reset_group(group)
     return True
 
 
+# --- migrations ----------------------------------------------------------
+
+def migrate_type_groups_to_slots(prefs):
+    """One-shot: pour the pre-slot per-type groups living on the addon
+    preferences into the first slot of each type, then reset them so
+    the migration is a no-op afterwards. Called from the grid seed
+    timer (after the list is seeded)."""
+    from . import iops_mod_defaults as defaults
+    moved = 0
+    for ident in defaults.GROUPS_BY_TYPE:
+        legacy = defaults.get_group(prefs, ident)
+        if legacy is None:
+            continue
+        keys = [k for k in type(legacy).__annotations__
+                if legacy.is_property_set(k)]
+        if not keys:
+            continue
+        item = first_slot_of_type(prefs, ident)
+        if item is not None:
+            group = slot_group(item)
+            if group is not None:
+                defaults.set_group_values(
+                    group, {k: defaults.group_values(legacy)[k]
+                            for k in keys})
+                moved += 1
+        defaults.reset_group(legacy)
+    if moved:
+        print(f"IOPS modifiers: {moved} per-type default group(s) "
+              "migrated to grid slots")
+
+
 def migrate_legacy_json(prefs):
-    """One-shot: pour the legacy JSON preset file into the defaults
-    groups and rename the file. Called from the grid seed timer."""
+    """One-shot: pour the legacy JSON preset file into the first slot
+    of each type and rename the file. Called from the grid seed timer."""
     from . import iops_mod_defaults as defaults
     legacy = _read_legacy()
     if not legacy:
         return
     for mod_type, settings in legacy.items():
-        group = defaults.get_group(prefs, mod_type)
+        item = first_slot_of_type(prefs, mod_type)
+        group = slot_group(item) if item is not None else None
         if group is not None and isinstance(settings, dict):
             defaults.set_group_values(group, settings)
     path = _presets_path()

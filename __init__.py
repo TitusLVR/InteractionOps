@@ -165,6 +165,8 @@ _modifiers_classes = (
     iops_mod_list.IOPS_MT_ModGridAdd,
     iops_mod_list.IOPS_OT_ModGridListAdd,
     iops_mod_list.IOPS_OT_ModGridListAction,
+    iops_mod_list.IOPS_MT_ModSaveDefaultSlot,
+    iops_mod_list.IOPS_OT_ModSaveSlotDefault,
     iops_mod_registry.IOPS_OT_ModGridClick,
     iops_mod_stack.IOPS_OT_ModStackAction,
     iops_mod_sort.IOPS_OT_ModSortStack,
@@ -429,8 +431,8 @@ bl_info = {
 classes = (
     *_theme_classes,
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
-    iops_mod_list.IOPS_ModGridItem,  # same rule — grid list item
     *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
+    iops_mod_list.IOPS_ModGridItem,  # after the defaults it points to
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
