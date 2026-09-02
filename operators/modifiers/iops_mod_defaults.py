@@ -1,11 +1,13 @@
-"""Editable per-type default settings for the modifiers grid.
+"""Editable per-slot default settings for the modifiers grid.
 
 For every modifier type Blender knows, a PropertyGroup is generated at
 import time by mirroring the type's editable RNA props (pointers,
-collections and base Modifier props excluded). The groups live on the
-addon preferences (one PointerProperty per type, injected into the
-prefs class annotations) so the user edits defaults right in the addon
-settings; Blender persists them in userpref.blend.
+collections and base Modifier props excluded). Every grid slot
+(IOPS_ModGridItem) carries one PointerProperty per type, injected into
+the item class annotations; the group matching the slot's mod_type is
+that slot's defaults. The user edits them right in the addon settings;
+Blender persists them in userpref.blend. The same pointers also remain
+on the addon preferences for one-shot migration of the pre-slot layout.
 
 Descriptor smart defaults (REGISTRY[type].defaults) are baked into the
 generated property definitions, so an untouched group already carries
@@ -189,16 +191,19 @@ def group_prop_name(mod_type):
     return f"iops_mod_defaults_{mod_type.lower()}"
 
 
-def inject_pointer_props(prefs_cls):
-    """Add one PointerProperty per generated group to the prefs class
-    annotations. Must run before the prefs class registers."""
+def inject_pointer_props(owner_cls):
+    """Add one PointerProperty per generated group to a class's
+    annotations (the grid item; the prefs class for legacy migration).
+    Must run before that class registers."""
     for ident, cls in GROUPS_BY_TYPE.items():
-        prefs_cls.__annotations__[group_prop_name(ident)] = (
+        owner_cls.__annotations__[group_prop_name(ident)] = (
             bpy.props.PointerProperty(type=cls))
 
 
-def get_group(prefs, mod_type):
-    return getattr(prefs, group_prop_name(mod_type), None)
+def get_group(owner, mod_type):
+    """The defaults group for mod_type on owner (a grid item, or the
+    prefs for legacy data), or None for types without params."""
+    return getattr(owner, group_prop_name(mod_type), None)
 
 
 def group_values(group):

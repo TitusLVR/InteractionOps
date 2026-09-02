@@ -353,12 +353,8 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
                 setattr(m, attr, state)
         elif self.action == "SET_ACTIVE":
             if self.ctrl:  # Ctrl+click on the type icon: save preset
-                if presets.save_default(md):
-                    self.report({"INFO"},
-                                f"{md.type}: saved as default preset "
-                                "for the grid")
-                else:
-                    self.report({"WARNING"}, "Could not write preset file")
+                from .iops_mod_list import save_default_from_stack
+                save_default_from_stack(self, context, md)
             elif self.shift:  # Shift+click: duplicate the modifier
                 pairs = self._targets(context, obj, md)
                 count = len(pairs)
@@ -462,10 +458,7 @@ class IOPS_OT_ModStackAction(bpy.types.Operator):
             else:
                 expanded_params.add(key)
         elif self.action == "SAVE_PRESET":
-            if presets.save_default(md):
-                self.report({"INFO"},
-                            f"{md.type}: saved as default preset for the grid")
-            else:
-                self.report({"WARNING"}, "Could not write preset file")
+            from .iops_mod_list import save_default_from_stack
+            save_default_from_stack(self, context, md)
         self._undo_push(context, md_type, name, count)
         return {"FINISHED"}

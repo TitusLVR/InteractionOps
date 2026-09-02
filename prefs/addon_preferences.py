@@ -17,6 +17,7 @@ from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
 from ..operators.modifiers import iops_mod_defaults
+from ..operators.modifiers import iops_mod_presets
 from ..operators.modifiers.iops_mod_list import (
     IOPS_ModGridItem,
     type_label,
@@ -1107,13 +1108,16 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 items = self.modifiers_grid_items
                 idx = self.modifiers_grid_index
                 if 0 <= idx < len(items):
-                    mod_type = items[idx].mod_type
+                    item = items[idx]
+                    mod_type = item.mod_type
                     box = body.box()
-                    group = iops_mod_defaults.get_group(self, mod_type)
+                    group = iops_mod_presets.slot_group(item)
+                    row = box.row()
+                    row.label(text=f"Slot {idx + 1}: {type_label(mod_type)}",
+                              icon=mod_type_icon(mod_type))
+                    row.prop(item, "label", text="", placeholder="Label")
                     header = box.row()
-                    header.label(text=f"{type_label(mod_type)} — "
-                                      "default settings:",
-                                 icon="PRESET")
+                    header.label(text="Default settings:", icon="PRESET")
                     if group is not None:
                         header.operator("iops.mod_grid_list_action",
                                         text="Reset",

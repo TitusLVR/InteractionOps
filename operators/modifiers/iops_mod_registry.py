@@ -54,12 +54,18 @@ def all_mod_type_items():
     return _TYPE_ITEMS
 
 
-def enabled_grid_types(prefs):
+def enabled_grid_slots(prefs):
     """Grid content = the user's list in prefs, in list order, filtered
-    to types this Blender build actually has."""
+    to types this Blender build actually has. [(index, item)] — the
+    index addresses the slot (and its own defaults) in prefs."""
     valid = {ident for ident, _name, _icon in all_mod_type_items()}
-    return [it.mod_type for it in prefs.modifiers_grid_items
+    return [(i, it) for i, it in enumerate(prefs.modifiers_grid_items)
             if it.mod_type in valid]
+
+
+def enabled_grid_types(prefs):
+    """Types in the grid, in list order (duplicates kept)."""
+    return [it.mod_type for _i, it in enabled_grid_slots(prefs)]
 
 
 def type_icon(mod_type):
@@ -91,18 +97,24 @@ def object_fields(md):
 
 # --- batch helpers ----------------------------------------------------
 
-def add_with_defaults(obj, mod_type):
-    """Add a modifier with the saved default preset or the descriptor's
-    smart defaults. Returns the modifier or None (incompatible object)."""
+def add_with_defaults(obj, mod_type, slot=None):
+    """Add a modifier with the grid slot's saved defaults (slot = grid
+    item; None = first slot of that type) or the descriptor's smart
+    defaults. A labelled slot names the modifier after its label.
+    Returns the modifier or None (incompatible object)."""
     from . import iops_mod_presets as presets
+    if slot is not None and slot.mod_type != mod_type:
+        slot = None
+    name = (slot.label if slot is not None and slot.label
+            else mod_type.title().replace("_", " "))
     try:
-        md = obj.modifiers.new(name=mod_type.title().replace("_", " "),
-                               type=mod_type)
+        md = obj.modifiers.new(name=name, type=mod_type)
     except (TypeError, RuntimeError):
         return None
     if md is None:
         return None
-    settings = presets.load_default(mod_type)
+    settings = (presets.slot_settings(slot) if slot is not None
+                else presets.load_default(mod_type))
     if settings is None:
         desc = REGISTRY.get(mod_type)
         settings = desc.defaults if desc else {}
@@ -195,6 +207,8 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     mod_type: bpy.props.StringProperty(options={"SKIP_SAVE"})
+    # grid slot index in prefs (-1 = none: first slot of the type)
+    index: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
     mode: bpy.props.EnumProperty(
         items=[
             ("ADD", "Add", "Add with smart defaults"),
@@ -213,8 +227,16 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
     @classmethod
     def description(cls, context, properties):
         name = properties.mod_type.title().replace("_", " ")
+        try:
+            items = context.preferences.addons[
+                "InteractionOps"].preferences.modifiers_grid_items
+            item = items[properties.index]
+            if item.label and item.mod_type == properties.mod_type:
+                name = f"{item.label} ({name})"
+        except (KeyError, IndexError, AttributeError):
+            pass
         return (f"{name}\n"
-                "Click: add to selection (smart defaults / saved preset)\n"
+                "Click: add to selection (slot defaults)\n"
                 "Ctrl: apply all of this type (Smart Apply)\n"
                 "Alt: remove all of this type\n"
                 "Shift: toggle viewport visibility of this type")
@@ -235,9 +257,13 @@ class IOPS_OT_ModGridClick(bpy.types.Operator):
         mt = self.mod_type
 
         if self.mode == "ADD":
+            items = context.preferences.addons[
+                "InteractionOps"].preferences.modifiers_grid_items
+            slot = (items[self.index]
+                    if 0 <= self.index < len(items) else None)
             added = skipped = 0
             for obj in objects:
-                if add_with_defaults(obj, mt) is not None:
+                if add_with_defaults(obj, mt, slot) is not None:
                     added += 1
                 else:
                     skipped += 1
