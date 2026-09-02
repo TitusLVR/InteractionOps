@@ -40,7 +40,8 @@ CORNER_FALLBACK_COORDS = (
 
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        visible_only: bool = False,
-                       max_iterations: int = MAX_RAYCAST_ITERATIONS):
+                       max_iterations: int = MAX_RAYCAST_ITERATIONS,
+                       region=None, rv3d=None):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
     (an iterable of objects), the ray pierces through those objects. If
@@ -49,12 +50,18 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     still contains those objects, so `scene.ray_cast` would otherwise see them.
     The ray repeats until it hits a permitted object or runs out of iterations.
 
+    Pass `region` / `rv3d` explicitly when the caller runs outside the 3D
+    viewport's WINDOW region (N-panel / popup buttons); otherwise they are
+    taken from the context.
+
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
     """
-    region = context.region
-    rv3d = context.space_data.region_3d
+    if region is None:
+        region = context.region
     if rv3d is None:
+        rv3d = context.space_data.region_3d
+    if region is None or rv3d is None:
         return (False, None, None, None, None, None)
 
     view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
