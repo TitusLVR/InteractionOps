@@ -6,6 +6,27 @@ from . import iops_mod_registry, iops_mod_presets as presets
 # support IDProperties, so it lives here — session-only, everything
 # collapsed by default (and again after a restart).
 expanded_params = set()  # {(object session_uid, modifier name)}
+# Same for the parameter GROUPS (native sub-panels / GN interface panels)
+# when drawn inside the wm.call_panel popup, where layout.panel() is
+# refused ("Layout panels can not be used in this context").
+expanded_groups = set()  # {group key string}
+
+
+class IOPS_OT_ModGroupToggle(bpy.types.Operator):
+    """Expand / collapse a parameter group in the modifiers popup"""
+
+    bl_idname = "iops.mod_group_toggle"
+    bl_label = "Toggle Parameter Group"
+    bl_options = {"INTERNAL"}
+
+    key: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        if self.key in expanded_groups:
+            expanded_groups.discard(self.key)
+        else:
+            expanded_groups.add(self.key)
+        return {"FINISHED"}
 
 # Modifier types compiled without eModifierTypeFlag_SupportsEditmode
 # (grepped from source/blender/modifiers/intern) — the native header

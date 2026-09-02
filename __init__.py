@@ -167,6 +167,7 @@ _modifiers_classes = (
     iops_mod_list.IOPS_OT_ModGridListAction,
     iops_mod_registry.IOPS_OT_ModGridClick,
     iops_mod_stack.IOPS_OT_ModStackAction,
+    iops_mod_stack.IOPS_OT_ModGroupToggle,
     iops_mod_sort.IOPS_OT_ModSortStack,
     iops_mod_cleanup.IOPS_OT_ModCleanup,
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
