@@ -28,7 +28,8 @@ def _build_help(context):
         HUDItem("Pivot (Cursor / Active / Pick object)", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Mirror axes: +axis / −axis / off (combos multiply)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Orientation (Global / Pivot frame)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Method (Mirror / Rotate 180°)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Method (Mirror / Rotate)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Rotate angle (Rotate method)", "0–9 / Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate / Instance / In place)", "D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply transforms on confirm", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -89,13 +90,29 @@ PIVOT_LABELS = {
 }
 
 METHOD_MIRROR = "MIRROR"     # true reflection (negative determinant)
-METHOD_ROTATE = "ROTATE180"  # rigid 180° rotation — no flipped normals
+METHOD_ROTATE = "ROTATE180"  # rigid rotation (default 180°) — no flipped normals
 METHOD_CYCLE  = (METHOD_MIRROR, METHOD_ROTATE)
 
 METHOD_LABELS = {
     METHOD_MIRROR: "Mirror",
-    METHOD_ROTATE: "Rotate 180°",
+    METHOD_ROTATE: "Rotate",
 }
+
+DEFAULT_ROTATE_ANGLE = 180.0
+
+DIGIT_TYPES = {
+    "ZERO": "0", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4",
+    "FIVE": "5", "SIX": "6", "SEVEN": "7", "EIGHT": "8", "NINE": "9",
+    "NUMPAD_0": "0", "NUMPAD_1": "1", "NUMPAD_2": "2", "NUMPAD_3": "3",
+    "NUMPAD_4": "4", "NUMPAD_5": "5", "NUMPAD_6": "6", "NUMPAD_7": "7",
+    "NUMPAD_8": "8", "NUMPAD_9": "9",
+}
+
+
+def _method_label(op):
+    if op.method == METHOD_ROTATE:
+        return f"Rotate {op._effective_angle():g}°"
+    return METHOD_LABELS[op.method]
 
 CLONE_DUP      = "DUPLICATE"
 CLONE_INST     = "INSTANCE"
@@ -188,12 +205,12 @@ def _mesh_face_tris_world(obj_mw, geom):
 
 # --- Transform math --------------------------------------------------------
 
-def _axis_reflection(normal, method):
+def _axis_reflection(normal, method, angle_rad=math.pi):
     """3x3 building block for one axis: reflection along `normal` (MIRROR) or a
-    rigid 180° spin around it (ROTATE180)."""
+    rigid spin by `angle_rad` around it (ROTATE180)."""
     if method == METHOD_MIRROR:
         return Matrix.Scale(-1.0, 3, normal)
-    return Matrix.Rotation(math.pi, 3, normal)
+    return Matrix.Rotation(angle_rad, 3, normal)
 
 
 def _combo_deltas(op, context):
@@ -212,11 +229,12 @@ def _combo_deltas(op, context):
                    for s in combinations(letters, r)]
     T_to = Matrix.Translation(op.pivot_co)
     T_from = Matrix.Translation(-op.pivot_co)
+    angle_rad = math.radians(op._effective_angle())
     deltas = []
     for subset in subsets:
         D3 = Matrix.Identity(3)
         for letter in subset:
-            D3 = _axis_reflection(normals[letter], op.method) @ D3
+            D3 = _axis_reflection(normals[letter], op.method, angle_rad) @ D3
         deltas.append(T_to @ D3.to_4x4() @ T_from)
     return deltas
 
@@ -341,11 +359,14 @@ def _sources_centroid(op):
     return acc / len(pts)
 
 
-def _rotation_arrow_edges(op, axis_n, ext):
-    """Flat edge list for a 180° rotation-direction arrow around `axis_n`:
-    an arc from the sources' centroid to where the half-turn lands it
-    (right-hand CCW — the same sweep `Matrix.Rotation(pi, axis)` performs),
-    with an arrowhead at the end."""
+def _rotation_arrow_edges(op, axis_n, ext, angle_rad):
+    """Flat edge list for a rotation-direction arrow around `axis_n`:
+    an arc from the sources' centroid to where the turn by `angle_rad` lands
+    it (right-hand CCW — the same sweep `Matrix.Rotation(angle, axis)`
+    performs; a negative angle sweeps the other way), with an arrowhead at
+    the end."""
+    if abs(angle_rad) < 1e-4:
+        return []
     p = op.pivot_co
     anchor = _sources_centroid(op)
     radial = None
@@ -359,19 +380,21 @@ def _rotation_arrow_edges(op, axis_n, ext):
     e2 = axis_n.cross(e1)
 
     edges = []
-    steps = 48
-    pts = [p + (e1 * math.cos(math.pi * i / steps)
-                + e2 * math.sin(math.pi * i / steps)) * R
+    steps = max(8, int(48 * abs(angle_rad) / math.pi))
+    pts = [p + (e1 * math.cos(angle_rad * i / steps)
+                + e2 * math.sin(angle_rad * i / steps)) * R
            for i in range(steps + 1)]
     for i in range(steps):
         edges.append(pts[i])
         edges.append(pts[i + 1])
 
-    # Arrowhead at the arc end. Tangent (travel direction) at a=pi is -e2;
-    # wings swept back against it, spread along the radial.
+    # Arrowhead at the arc end. Tangent (travel direction) at a is the sweep
+    # derivative; wings swept back against it, spread along the radial.
     end = pts[-1]
-    tangent = -e2
-    out_dir = -e1                       # radial direction at the end point
+    tangent = (-e1 * math.sin(angle_rad) + e2 * math.cos(angle_rad))
+    if angle_rad < 0:
+        tangent = -tangent
+    out_dir = e1 * math.cos(angle_rad) + e2 * math.sin(angle_rad)
     wing_len = max(R * 0.12, 0.05)
     for side in (1.0, -1.0):
         edges.append(end)
@@ -434,11 +457,12 @@ def _build_ghosts(op, context):
                 plane_outlines.append(c[i])
                 plane_outlines.append(c[(i + 1) % 4])
     else:
-        # Rotate 180°: a plane is misleading — draw the half-turn itself: an
-        # arrow arc around each enabled axis, from the sources' centroid to
-        # where the clone lands, with ticks every 45°.
+        # Rotate: a plane is misleading — draw the turn itself: an arrow arc
+        # around each enabled axis, from the sources' centroid to where the
+        # clone lands.
+        angle_rad = math.radians(op._effective_angle())
         for letter, n in _axis_normals(op, context).items():
-            rot_arcs.append((letter, _rotation_arrow_edges(op, n, ext)))
+            rot_arcs.append((letter, _rotation_arrow_edges(op, n, ext, angle_rad)))
 
     # Axis gizmo: all three frame directions from the pivot, the enabled ones
     # long and bright, the disabled ones short and dim — so X/Y/Z reads at a
@@ -515,7 +539,8 @@ def _draw_preview_3d(op, context):
 
 class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
     """Mirror-clone selected objects across a plane through the cursor, the
-    active object or any picked object — as a true mirror or a 180° rotation"""
+    active object or any picked object — as a true mirror or a rigid rotation
+    (default 180°, type digits for a custom angle)"""
 
     bl_idname = "iops.object_mirror_rotate"
     bl_label = "OBJECT: Mirror Rotate"
@@ -553,7 +578,8 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         self._hud.add_param(HUDParam("Pivot",  lambda: self._pivot_hud_label(), "str"))
         self._hud.add_param(HUDParam("Axes",   lambda: _axes_label(self), "str"))
         self._hud.add_param(HUDParam("Orientation", lambda: "Global" if self.orient_mode == ORIENT_GLOBAL else "Pivot", "str"))
-        self._hud.add_param(HUDParam("Method", lambda: METHOD_LABELS[self.method], "str"))
+        self._hud.add_param(HUDParam("Method", lambda: _method_label(self), "str"))
+        self._hud.add_param(HUDParam("Angle",  lambda: self._angle_hud_label(), "str"))
         self._hud.add_param(HUDParam("Clone",  lambda: CLONE_LABELS[self.clone_mode], "str"))
         self._hud.add_param(HUDParam("Apply transforms", lambda: self.apply_transforms, "bool"))
         self._help = _build_help(context)
@@ -602,6 +628,13 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         if event.type == "MIDDLEMOUSE":
             return {"PASS_THROUGH"}
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
+            if event.alt and self.method == METHOD_ROTATE:
+                delta = 5.0 if event.type == "WHEELUPMOUSE" else -5.0
+                self.rotate_angle = self._effective_angle() + delta
+                self.input_str = ""
+                self._dirty = True
+                self.report({"INFO"}, f"Angle: {self.rotate_angle:g}°")
+                return {"RUNNING_MODAL"}
             return {"PASS_THROUGH"}
         if event.type in {"TRACKPADPAN", "TRACKPADZOOM"}:
             return {"PASS_THROUGH"}
@@ -642,14 +675,38 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         if event.type == "E" and event.value == "PRESS":
             self.method = _cycle(self.method, METHOD_CYCLE)
             # Two workflows: Mirror bakes transforms (and flips normals on the
-            # reflection), Rotate 180° is rigid and needs no bake. Defaults per
+            # reflection), Rotate is rigid and needs no bake. Defaults per
             # method come from the preferences; A can still override afterwards.
             self.apply_transforms = self._apply_default_for_method()
+            self.input_str = ""
             self._dirty = True
             self.report({"INFO"},
-                        f"Method: {METHOD_LABELS[self.method]}  |  Apply transforms: "
+                        f"Method: {_method_label(self)}  |  Apply transforms: "
                         f"{'on' if self.apply_transforms else 'off'}")
             return {"RUNNING_MODAL"}
+
+        # --- rotate angle: typed digits (Rotate method only) ---
+        if self.method == METHOD_ROTATE and event.value == "PRESS":
+            handled = True
+            if event.type in DIGIT_TYPES:
+                self.input_str += DIGIT_TYPES[event.type]
+            elif event.type in {"PERIOD", "NUMPAD_PERIOD"} and "." not in self.input_str:
+                self.input_str += "."
+            elif event.type in {"MINUS", "NUMPAD_MINUS"}:
+                if self.input_str:
+                    self.input_str = (self.input_str[1:]
+                                      if self.input_str.startswith("-")
+                                      else "-" + self.input_str)
+                else:
+                    self.rotate_angle = -self.rotate_angle
+            elif event.type == "BACK_SPACE" and self.input_str:
+                self.input_str = self.input_str[:-1]
+            else:
+                handled = False
+            if handled:
+                self._dirty = True
+                self.report({"INFO"}, f"Angle: {self._effective_angle():g}°")
+                return {"RUNNING_MODAL"}
 
         if event.type == "D" and event.value == "PRESS":
             self.clone_mode = _cycle(self.clone_mode, CLONE_CYCLE)
@@ -804,9 +861,28 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         self.orient_mode = getattr(p, "mirror_rotate_orientation", ORIENT_GLOBAL) if p else ORIENT_GLOBAL
         self.method = getattr(p, "mirror_rotate_method", METHOD_MIRROR) if p else METHOD_MIRROR
         self.clone_mode = getattr(p, "mirror_rotate_clone", CLONE_DUP) if p else CLONE_DUP
+        self.rotate_angle = DEFAULT_ROTATE_ANGLE
+        self.input_str = ""
         self.axes = {(getattr(p, "mirror_rotate_axis", "X") if p else "X"): 1}
         self.apply_transforms = self._apply_default_for_method()
         self.pending_pivot_pick = (self.pivot_mode == PIVOT_PICK)
+
+    def _effective_angle(self):
+        """Rotate angle in degrees: the typed buffer when it parses, else the
+        committed value."""
+        if self.input_str and self.input_str not in ("-", ".", "-."):
+            try:
+                return float(self.input_str)
+            except ValueError:
+                pass
+        return self.rotate_angle
+
+    def _angle_hud_label(self):
+        if self.method != METHOD_ROTATE:
+            return "—"
+        if self.input_str:
+            return f"{self.input_str}_"
+        return f"{self.rotate_angle:g}°"
 
     def _apply_default_for_method(self):
         """Per-method Apply-transforms default from the preferences: two
