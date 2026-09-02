@@ -356,8 +356,12 @@ def _draw_pick(op, context):
 
 
 class IOPS_OT_ModPickTarget(bpy.types.Operator):
-    """Pick a target object in the viewport for this modifier.
-    C: empty at the 3D cursor. Alt: also on selected objects"""
+    """Pick a target object for this modifier"""
+
+    bl_description = ("Pick a target object for this modifier\n"
+                      "LMB: pick object under the cursor\n"
+                      "C: empty at the 3D cursor\n"
+                      "Alt: also on selected objects")
 
     bl_idname = "iops.mod_pick_target"
     bl_label = "Pick Modifier Target"
