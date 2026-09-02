@@ -356,15 +356,8 @@ def _draw_pick(op, context):
 
 
 class IOPS_OT_ModPickTarget(bpy.types.Operator):
-    """Pick a target for this modifier.
-    LMB: pick any visible object (empties too, candidate highlighted).
-    C: create an empty target at the 3D cursor, then face-pick to
-    refine — click a vert / edge-mid / center to snap the cursor and
-    the empty there; Enter / Space keeps the cursor position, C again
-    drops the empty and returns to object pick.
-    Alt (on the button or while picking): set the target on the matching
-    modifier (same name and type) of every selected object too.
-    Esc / RMB: cancel"""
+    """Pick a target object in the viewport for this modifier.
+    C: empty at the 3D cursor. Alt: also on selected objects"""
 
     bl_idname = "iops.mod_pick_target"
     bl_label = "Pick Modifier Target"
