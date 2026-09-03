@@ -133,6 +133,7 @@ nav:
           - Hinge: operators/op_mesh_hinge.md
           - Converge: operators/op_mesh_converge.md
           - Vert Fuse: operators/op_mesh_vert_fuse.md
+          - Mesh Snapshot: operators/op_mesh_snapshot.md
           - Tris → Quads: operators/op_mesh_to_tris_to_quad.md
       - Mesh — Utilities:
           - Copy Edges Angle: operators/op_mesh_copy_edges_angle.md

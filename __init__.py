@@ -319,6 +319,7 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_hinge import IOPS_OT_mesh_hinge
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
+from .operators.mesh_snapshot import IOPS_OT_mesh_snapshot
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
@@ -650,6 +651,7 @@ classes = (
     IOPS_OT_mesh_hinge,
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
+    IOPS_OT_mesh_snapshot,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
     IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
     IOPS_OT_SSNew,

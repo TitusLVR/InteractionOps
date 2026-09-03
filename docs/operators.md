@@ -51,6 +51,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Hinge](operators/op_mesh_hinge.md) — rotate the selection around a picked edge.
 - [Converge](operators/op_mesh_converge.md) — pull selected vertices together toward a target.
 - [Vert Fuse](operators/op_mesh_vert_fuse.md) — merge vertices onto a picked vertex.
+- [Mesh Snapshot](operators/op_mesh_snapshot.md) — copy selected faces into new objects in the iops_mesh_snapshot collection.
 - [Quick Connect](operators/op_mesh_quick_connect.md) — connect selected vertices across faces.
 - [Tris → Quads](operators/op_mesh_to_tris_to_quad.md) — triangulate and re-quad in one go.
 
