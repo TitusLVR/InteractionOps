@@ -154,6 +154,9 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
         snap = obj.copy()
         snap.data = me
         snap.name = obj.name + SNAPSHOT_SUFFIX
+        # Object.copy() shares the source action/drivers; a snapshot must
+        # stay where the user puts it, not snap back to keyed transforms.
+        snap.animation_data_clear()
         if baked or not self.keep_modifiers:
             snap.modifiers.clear()
         return snap
