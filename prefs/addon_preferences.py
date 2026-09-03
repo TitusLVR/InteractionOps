@@ -234,7 +234,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     mirror_rotate_method: EnumProperty(
         name="Method",
         items=[("MIRROR", "Mirror", "True reflection across the plane"),
-               ("ROTATE180", "Rotate 180°", "Rigid half-turn around the axis")],
+               ("ROTATE180", "Rotate 180°", "Rigid half-turn around the axis"),
+               ("REFLECT", "Reflect", "Mirror reproduced by a proper rotation per "
+                "object — mirrored placement and orientation, scale stays positive")],
         default="MIRROR",
     )
     mirror_rotate_apply_mirror: BoolProperty(
@@ -246,9 +248,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     mirror_rotate_apply_rotate: BoolProperty(
         name="Apply transforms (Rotate 180°)",
-        description="Default Apply-transforms state while the Rotate 180° "
-                    "method is active (the rotation is rigid, so baking is "
-                    "normally unnecessary)",
+        description="Default Apply-transforms state while the Rotate 180° or "
+                    "Reflect method is active (the turns are rigid, so baking "
+                    "is normally unnecessary)",
         default=False,
     )
     mirror_rotate_pivot: EnumProperty(

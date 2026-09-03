@@ -28,7 +28,7 @@ def _build_help(context):
         HUDItem("Pivot (Cursor / Active / Pick object)", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Mirror axes: +axis / −axis / off (combos multiply)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Orientation (Global / Pivot frame)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Method (Mirror / Rotate)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Method (Mirror / Rotate / Reflect = mirror by rotation, positive scale)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Rotate angle (Rotate method)", "0–9 / Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Clone type (Duplicate / Instance / In place)", "D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Apply transforms on confirm", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -91,11 +91,14 @@ PIVOT_LABELS = {
 
 METHOD_MIRROR = "MIRROR"     # true reflection (negative determinant)
 METHOD_ROTATE = "ROTATE180"  # rigid rotation (default 180°) — no flipped normals
-METHOD_CYCLE  = (METHOD_MIRROR, METHOD_ROTATE)
+METHOD_REFLECT = "REFLECT"   # mirror reproduced by a proper rotation per object:
+                             # mirrored placement + orientation, scale positive
+METHOD_CYCLE  = (METHOD_MIRROR, METHOD_ROTATE, METHOD_REFLECT)
 
 METHOD_LABELS = {
     METHOD_MIRROR: "Mirror",
     METHOD_ROTATE: "Rotate",
+    METHOD_REFLECT: "Reflect",
 }
 
 DEFAULT_ROTATE_ANGLE = 180.0
@@ -217,7 +220,10 @@ def _combo_deltas(op, context):
     """World-space delta matrices, one per clone. Every non-empty subset of the
     enabled axes gets a clone (X+Y → 3 clones, like the Mirror modifier); the
     IN_PLACE mode collapses to the single combined transform of all enabled
-    axes, since the source can only move once."""
+    axes, since the source can only move once.
+
+    For the REFLECT method the delta is the true mirror of the subset — the
+    per-subtree rotation that reproduces it is derived by `_subtree_delta`."""
     normals = _axis_normals(op, context)
     if not normals:
         return []
@@ -230,13 +236,51 @@ def _combo_deltas(op, context):
     T_to = Matrix.Translation(op.pivot_co)
     T_from = Matrix.Translation(-op.pivot_co)
     angle_rad = math.radians(op._effective_angle())
+    method = METHOD_MIRROR if op.method == METHOD_REFLECT else op.method
     deltas = []
     for subset in subsets:
         D3 = Matrix.Identity(3)
         for letter in subset:
-            D3 = _axis_reflection(normals[letter], op.method, angle_rad) @ D3
+            D3 = _axis_reflection(normals[letter], method, angle_rad) @ D3
         deltas.append(T_to @ D3.to_4x4() @ T_from)
     return deltas
+
+
+def _reflect_rotation(mirror_delta, root_mw, first_normal):
+    """World delta that reproduces `mirror_delta` for the subtree rooted at
+    `root_mw` with a proper rotation. The root origin lands exactly where the
+    mirror puts it; its orientation is the mirrored orientation folded back
+    across the root's own local axis most parallel to the mirror normal —
+    so an axis-aligned piece keeps its orientation and just moves, a piece
+    turned 30° about Z comes out turned −30°, exactly like the true mirror
+    of a piece symmetric about that local axis. Scale is untouched."""
+    S3 = mirror_delta.to_3x3()
+    if S3.determinant() > 0.0:
+        # An even number of reflections already is a rotation — exact.
+        return mirror_delta
+    t = root_mw.translation
+    R3 = root_mw.to_quaternion().to_matrix()
+    # Local axis (world direction) most aligned with the mirror normal.
+    best = max(range(3), key=lambda i: abs(R3.col[i].dot(first_normal)))
+    fold = Matrix.Scale(-1.0, 3, _AXIS_UNIT[AXIS_LETTERS[best]])
+    R_new = S3 @ R3 @ fold
+    D3 = R_new @ R3.inverted()
+    t_new = mirror_delta @ t
+    return Matrix.Translation(t_new) @ D3.to_4x4() @ Matrix.Translation(-t)
+
+
+def _subtree_delta(op, context, delta, subtree):
+    """World delta for one clone subtree. Mirror / Rotate share `delta`;
+    Reflect derives the subtree's own rotation from its root transform."""
+    if op.method != METHOD_REFLECT:
+        return delta
+    try:
+        root_mw = subtree[0].matrix_world.copy()
+    except (ReferenceError, IndexError):
+        return delta
+    normals = _axis_normals(op, context)
+    first = next((normals[a] for a in AXIS_LETTERS if a in normals), Vector((0, 0, 1)))
+    return _reflect_rotation(delta, root_mw, first)
 
 
 def _pivot_frame_3x3(op, context):
@@ -430,8 +474,9 @@ def _build_ghosts(op, context):
     segs = []
     tris = []
     cache = getattr(op, "_mesh_cache", {})
-    for delta in _combo_deltas(op, context):
+    for base_delta in _combo_deltas(op, context):
         for subtree in op.subtree_data:
+            delta = _subtree_delta(op, context, base_delta, subtree)
             for obj in subtree:
                 try:
                     clone_mw = delta @ obj.matrix_world
@@ -448,8 +493,9 @@ def _build_ghosts(op, context):
     plane_outlines = []
     rot_arcs = []
     ext = _sources_extent(op)
-    if op.method == METHOD_MIRROR:
-        # Mirror: the plane IS the tool — draw it.
+    if op.method in (METHOD_MIRROR, METHOD_REFLECT):
+        # Mirror / Reflect: the plane IS the tool — draw it (Reflect mirrors
+        # by rotation, but it is still a mirror to the user).
         for n in _axis_normals(op, context).values():
             right, fwd = _plane_frame(n)
             p = op.pivot_co
@@ -542,8 +588,9 @@ def _draw_preview_3d(op, context):
 
 class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
     """Mirror-clone selected objects across a plane through the cursor, the
-    active object or any picked object — as a true mirror or a rigid rotation
-    (default 180°, type digits for a custom angle)"""
+    active object or any picked object — as a true mirror, a rigid rotation
+    (default 180°, type digits for a custom angle) or a Reflect: the mirror
+    reproduced by a proper rotation per object, scale stays positive"""
 
     bl_idname = "iops.object_mirror_rotate"
     bl_label = "OBJECT: Mirror Rotate"
@@ -889,7 +936,8 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
 
     def _apply_default_for_method(self):
         """Per-method Apply-transforms default from the preferences: two
-        workflows — Mirror bakes (and flips normals), Rotate 180° is rigid."""
+        workflows — Mirror bakes (and flips normals), Rotate / Reflect are
+        rigid and share the Rotate default."""
         p = _op_prefs()
         if self.method == METHOD_MIRROR:
             return bool(getattr(p, "mirror_rotate_apply_mirror", True)) if p else True
@@ -946,8 +994,9 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
             created_roots.append(clone_map[subtree[0]])
 
         if self.clone_mode == CLONE_IN_PLACE:
-            delta = deltas[0]
+            base_delta = deltas[0]
             for subtree in self.subtree_data:
+                delta = _subtree_delta(self, context, base_delta, subtree)
                 for obj in subtree:
                     try:
                         jobs.append((obj, delta @ obj.matrix_world))
@@ -955,9 +1004,9 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
                         continue
                 created_roots.append(subtree[0])
         else:
-            for delta in deltas:
+            for base_delta in deltas:
                 for subtree in self.subtree_data:
-                    _clone_subtree(subtree, delta)
+                    _clone_subtree(subtree, _subtree_delta(self, context, base_delta, subtree))
 
         self._finalize_transforms(jobs)
         if not self.apply_transforms and self.method == METHOD_MIRROR:
