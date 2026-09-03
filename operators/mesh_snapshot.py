@@ -16,6 +16,14 @@ stack, the evaluated mesh is filtered down to the faces that still
 carry the tag (modifiers propagate generic attributes, so bevel /
 subdiv / mirror output inherits it), and edit mode is re-entered on the
 same objects. The result has no modifiers -- they are baked in.
+
+``copy_targets`` (cage mode with modifiers kept) also clones every
+object a kept modifier points at -- mirror / array / boolean / hook /
+shrinkwrap targets, UV-project projectors, Object sockets of Nodes
+modifiers -- recursively through the clones' own stacks, re-points the
+snapshot's modifiers at the clones and links them into the same
+collection next to the snapshot. Targets shared by several snapshots of
+one run are cloned once.
 """
 import bpy
 import bmesh
@@ -120,6 +128,63 @@ def snapshot_mesh_evaluated(obj, depsgraph):
     return me
 
 
+def _modifier_object_slots(mod):
+    """Yield ``(owner, attr)`` pairs for every Object pointer ``mod``
+    holds, so callers can ``getattr``/``setattr`` them uniformly."""
+    for prop in mod.bl_rna.properties:
+        if (prop.type == "POINTER" and not prop.is_readonly
+                and prop.fixed_type is not None
+                and prop.fixed_type.identifier == "Object"):
+            yield mod, prop.identifier
+    if mod.type == "UV_PROJECT":
+        for proj in mod.projectors:
+            yield proj, "object"
+    if mod.type == "NODES" and mod.node_group is not None:
+        inputs = mod.properties.inputs
+        for prop in inputs.bl_rna.properties:
+            if prop.type != "POINTER" or prop.identifier == "rna_type":
+                continue
+            item = getattr(inputs, prop.identifier, None)
+            if item is None:
+                continue
+            vprop = item.bl_rna.properties.get("value")
+            if (vprop is not None and vprop.type == "POINTER"
+                    and vprop.fixed_type is not None
+                    and vprop.fixed_type.identifier == "Object"):
+                yield item, "value"
+
+
+def _clone_target(src, memo, made):
+    """Deep-ish copy of a modifier target: own object, own data, no
+    animation, its own modifier targets cloned in turn. ``memo`` maps
+    source -> clone and is seeded with the snapshots themselves so a
+    modifier pointing at another snapshotted object lands on its
+    snapshot rather than on a fresh copy."""
+    dup = memo.get(src)
+    if dup is not None:
+        return dup
+    dup = src.copy()
+    if dup.data is not None:
+        dup.data = dup.data.copy()
+    dup.name = src.name + SNAPSHOT_SUFFIX
+    dup.animation_data_clear()
+    memo[src] = dup
+    made.append(dup)
+    retarget_modifiers(dup, memo, made)
+    return dup
+
+
+def retarget_modifiers(obj, memo, made):
+    """Point every Object slot in ``obj``'s stack at a clone (creating
+    the clones on demand); new clones are appended to ``made``."""
+    for mod in obj.modifiers:
+        for owner, attr in _modifier_object_slots(mod):
+            tgt = getattr(owner, attr)
+            if tgt is None:
+                continue
+            setattr(owner, attr, _clone_target(tgt, memo, made))
+
+
 class IOPS_OT_mesh_snapshot(bpy.types.Operator):
     """Copy the selected faces into new objects inside the iops_mesh_snapshot collection"""
 
@@ -138,6 +203,11 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
         description="Copy the modifier stack of the source object onto the snapshot",
         default=True,
     )
+    copy_targets: BoolProperty(
+        name="Copy Modifier Targets",
+        description="Also clone the objects the kept modifiers point at (mirror, array, boolean, hook, node inputs...), re-point the snapshot's modifiers to the clones and link them next to the snapshot",
+        default=True,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -146,9 +216,12 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "evaluated")
-        row = layout.row()
-        row.active = not self.evaluated
-        row.prop(self, "keep_modifiers")
+        col = layout.column()
+        col.active = not self.evaluated
+        col.prop(self, "keep_modifiers")
+        row = col.row()
+        row.active = col.active and self.keep_modifiers
+        row.prop(self, "copy_targets")
 
     def _wrap(self, obj, me, baked):
         snap = obj.copy()
@@ -168,7 +241,7 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
                 continue
             me = snapshot_mesh_from_edit(obj)
             if me is not None:
-                made.append(self._wrap(obj, me, baked=False))
+                made.append((obj, self._wrap(obj, me, baked=False)))
         return made
 
     def _snapshot_evaluated(self, context):
@@ -185,7 +258,7 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
                 for obj in tagged:
                     me = snapshot_mesh_evaluated(obj, depsgraph)
                     if me is not None:
-                        made.append(self._wrap(obj, me, baked=True))
+                        made.append((obj, self._wrap(obj, me, baked=True)))
         finally:
             for obj in tagged:
                 untag_faces(obj.data)
@@ -198,16 +271,26 @@ class IOPS_OT_mesh_snapshot(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         if self.evaluated:
-            made = self._snapshot_evaluated(context)
+            pairs = self._snapshot_evaluated(context)
         else:
-            made = self._snapshot_cage(context)
+            pairs = self._snapshot_cage(context)
+        made = [snap for _, snap in pairs]
 
         if not made:
             self.report({"WARNING"}, "No faces selected")
             return {"CANCELLED"}
 
+        targets = []
+        if not self.evaluated and self.keep_modifiers and self.copy_targets:
+            memo = dict(pairs)
+            for snap in made:
+                retarget_modifiers(snap, memo, targets)
+
         coll = get_snapshot_collection(scene)
-        for snap in made:
-            coll.objects.link(snap)
-        self.report({"INFO"}, f"Snapshot: {len(made)} object(s) -> {coll.name}")
+        for ob in made + targets:
+            coll.objects.link(ob)
+        msg = f"Snapshot: {len(made)} object(s)"
+        if targets:
+            msg += f" + {len(targets)} target(s)"
+        self.report({"INFO"}, msg + f" -> {coll.name}")
         return {"FINISHED"}
