@@ -7,4 +7,5 @@ Each snapshot is a copy of its source object with only the selected faces as dat
 **Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Pie › Mesh Snapshot.
 
 ## Options
-- **Keep Modifiers** — copy the source modifier stack onto the snapshot (on by default).
+- **Evaluated** — snapshot what the viewport shows instead of the cage: the selected faces are tagged, the full modifier stack is evaluated and only the output faces that inherit the tag are kept (bevel, subdivision, mirror and the like propagate it). The snapshot carries no modifiers — they are baked in. Off by default.
+- **Keep Modifiers** — copy the source modifier stack onto the snapshot (on by default; ignored when *Evaluated* is on).
