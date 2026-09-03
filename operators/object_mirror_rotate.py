@@ -496,8 +496,14 @@ def _build_ghosts(op, context):
     if op.method in (METHOD_MIRROR, METHOD_REFLECT):
         # Mirror / Reflect: the plane IS the tool — draw it (Reflect mirrors
         # by rotation, but it is still a mirror to the user).
-        for n in _axis_normals(op, context).values():
-            right, fwd = _plane_frame(n)
+        # Span each plane with the frame's other two axes so the quad's edges
+        # line up with the gizmo (an arbitrary in-plane basis reads as a
+        # twisted plane once the pivot frame is tilted).
+        frame = _pivot_frame_3x3(op, context)
+        for letter in _axis_normals(op, context):
+            others = [a for a in AXIS_LETTERS if a != letter]
+            right = (frame @ _AXIS_UNIT[others[0]]).normalized()
+            fwd = (frame @ _AXIS_UNIT[others[1]]).normalized()
             p = op.pivot_co
             c = [p + right * ext + fwd * ext, p - right * ext + fwd * ext,
                  p - right * ext - fwd * ext, p + right * ext - fwd * ext]
