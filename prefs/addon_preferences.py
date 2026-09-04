@@ -14,6 +14,7 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
+from ..ui.iops_modifiers_panel import draw_grouped_params
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
 from ..operators.modifiers import iops_mod_defaults
@@ -1141,11 +1142,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                         text="Reset",
                                         icon="LOOP_BACK"
                                         ).action = "CLEAR_PRESET"
-                        col = box.column()
-                        col.use_property_split = True
-                        col.use_property_decorate = False
-                        iops_mod_defaults.draw_props(
-                            col, group, type(group).__annotations__)
+                        # same native grouping as the stack rows in the
+                        # panel; collapse state keyed per slot
+                        draw_grouped_params(
+                            box, group, mod_type,
+                            tuple(type(group).__annotations__),
+                            lambda suffix, i=idx: f"iops_prefs_{i}_{suffix}")
                     else:
                         box.label(text="No editable parameters "
                                        "(Blender defaults apply)",

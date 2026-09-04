@@ -125,13 +125,15 @@ def draw_nodes_params(col, md, popover=False):
 _AXIS_LABELS = ("X", "Y", "Z", "W")
 
 
-def _draw_layout_items(col, md, items, ids):
+def _draw_layout_items(col, data, items, ids):
     """One panel body of a native layout (iops_mod_layouts.LAYOUTS):
     props in native order with native labels / expand / slider, vertex
     group search fields, separators and property-split headings. Props
-    the modifier does not expose (or that modifier_param_ids filters
-    out) are skipped silently."""
-    ob = md.id_data
+    `data` does not expose (or that modifier_param_ids filters out) are
+    skipped silently. `data` is a live modifier or a defaults
+    PropertyGroup mirroring one (prefs) — the latter has no owning
+    object, so vertex groups become plain text fields."""
+    ob = data.id_data if isinstance(data, bpy.types.Modifier) else None
     cur = col
     for it in items:
         if "sep" in it:
@@ -146,20 +148,24 @@ def _draw_layout_items(col, md, items, ids):
             if name not in ids:
                 continue
             row = cur.row(align=True)
-            row.prop_search(md, name, ob, "vertex_groups")
+            if ob is not None:
+                row.prop_search(data, name, ob, "vertex_groups")
+            else:
+                row.prop(data, name)
             inv = it.get("invert")
             if inv and inv in ids:
-                row.prop(md, inv, text="", icon="ARROW_LEFTRIGHT")
+                row.prop(data, inv, text="", icon="ARROW_LEFTRIGHT")
             continue
         name = it.get("prop")
         if name is None or name not in ids:
             continue
-        p = md.bl_rna.properties[name]
+        p = data.bl_rna.properties[name]
         text = it.get("text")
         if p.type == "BOOLEAN" and p.is_array and 2 <= p.array_length <= 4:
             row = cur.row(heading=text or p.name, align=True)
             for i in range(p.array_length):
-                row.prop(md, name, index=i, text=_AXIS_LABELS[i], toggle=True)
+                row.prop(data, name, index=i, text=_AXIS_LABELS[i],
+                         toggle=True)
             continue
         kw = {}
         if text is not None:
@@ -167,27 +173,27 @@ def _draw_layout_items(col, md, items, ids):
         if it.get("slider"):
             kw["slider"] = True
         if it.get("expand"):
-            cur.row(align=True).prop(md, name, expand=True, **kw)
+            cur.row(align=True).prop(data, name, expand=True, **kw)
         else:
-            cur.prop(md, name, **kw)
+            cur.prop(data, name, **kw)
 
 
-def _draw_layout_panels(layout, md, panels, parent, ids, popover):
+def _draw_layout_panels(layout, data, panels, parent, ids, popover, key):
     """Sub-panels of `parent` (None = root) as collapsible groups,
     recursing into their children; header checkbox props are drawn in
-    the header like the native UI does."""
+    the header like the native UI does. `key(suffix)` -> unique group
+    key for the collapse state."""
     for pnl in panels:
         if not pnl["id"] or pnl["parent"] != parent:
             continue
-        header, body = group_panel(layout, _group_key(md, pnl["id"]),
-                                   popover)
+        header, body = group_panel(layout, key(pnl["id"]), popover)
         hprops = [h for h in pnl.get("header", ()) if h in ids]
         label = pnl["label"]
         if hprops:
-            header.prop(md, hprops[0],
-                        text=label or md.bl_rna.properties[hprops[0]].name)
+            header.prop(data, hprops[0],
+                        text=label or data.bl_rna.properties[hprops[0]].name)
             for h in hprops[1:]:
-                header.prop(md, h, text="")
+                header.prop(data, h, text="")
         else:
             header.label(text=label or pnl["id"].replace("_", " ").title())
         if body is None:
@@ -196,9 +202,9 @@ def _draw_layout_panels(layout, md, panels, parent, ids, popover):
         col.use_property_split = True
         col.use_property_decorate = False
         if hprops:
-            col.active = all(getattr(md, h) for h in hprops)
-        _draw_layout_items(col, md, pnl["items"], ids)
-        _draw_layout_panels(body, md, panels, pnl["id"], ids, popover)
+            col.active = all(getattr(data, h) for h in hprops)
+        _draw_layout_items(col, data, pnl["items"], ids)
+        _draw_layout_panels(body, data, panels, pnl["id"], ids, popover, key)
 
 
 def _layout_prop_names(panels):
@@ -213,40 +219,51 @@ def _layout_prop_names(panels):
     return names
 
 
-def draw_modifier_params(layout, md, popover=False):
-    """Draw md's own params. Types with a native layout (generated from
-    Blender's MOD_*.cc, see iops_mod_layouts) get the native grouping:
-    root props, then the native sub-panels; anything the layout does not
-    mention goes to a trailing "Other" panel. Everything else falls back
-    to the flat RNA list."""
-    box = layout.box()
+def draw_grouped_params(box, data, mod_type, ids, key, popover=False):
+    """Props `ids` of `data` (a modifier, or a defaults PropertyGroup
+    mirroring one) inside `box` with the native grouping of `mod_type`
+    (generated from Blender's MOD_*.cc, see iops_mod_layouts): root
+    props, then the native sub-panels, anything the layout does not
+    mention in a trailing "Other" panel. Types without a layout fall
+    back to the flat list. `key(suffix)` names the collapse state of
+    each group."""
     col = box.column()
     col.use_property_split = True
     col.use_property_decorate = False
+    panels = LAYOUTS.get(mod_type)
+    if not panels:
+        draw_props(col, data, ids)
+        return
+    idset = set(ids)
+    _draw_layout_items(col, data, panels[0]["items"], idset)
+    _draw_layout_panels(box, data, panels, None, idset, popover, key)
+    rest = [i for i in ids if i not in _layout_prop_names(panels)]
+    if rest:
+        header, body = group_panel(box, key("iops_other"), popover)
+        header.label(text="Other")
+        if body is not None:
+            sub = body.column()
+            sub.use_property_split = True
+            sub.use_property_decorate = False
+            draw_props(sub, data, rest)
+
+
+def draw_modifier_params(layout, md, popover=False):
+    """Draw md's own params in a box: geometry nodes via the socket
+    reader, everything else via draw_grouped_params."""
+    box = layout.box()
     if md.type == "NODES":
+        col = box.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
         draw_nodes_params(col, md, popover)
         return
     ids = modifier_param_ids(md)
     if not ids:
         box.label(text="No editable parameters", icon="INFO")
         return
-    panels = LAYOUTS.get(md.type)
-    if not panels:
-        draw_props(col, md, ids)
-        return
-    idset = set(ids)
-    _draw_layout_items(col, md, panels[0]["items"], idset)
-    _draw_layout_panels(box, md, panels, None, idset, popover)
-    rest = [i for i in ids if i not in _layout_prop_names(panels)]
-    if rest:
-        header, body = group_panel(box, _group_key(md, "iops_other"),
-                                   popover)
-        header.label(text="Other")
-        if body is not None:
-            sub = body.column()
-            sub.use_property_split = True
-            sub.use_property_decorate = False
-            draw_props(sub, md, rest)
+    draw_grouped_params(box, md, md.type, ids,
+                        lambda suffix: _group_key(md, suffix), popover)
 
 
 class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
