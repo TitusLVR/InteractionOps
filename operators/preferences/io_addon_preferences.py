@@ -110,6 +110,17 @@ def load_iops_preferences():
                             prefs.IOPS_DEBUG = safe_get(value, "IOPS_DEBUG", 
                                 default_prefs.get("IOPS_DEBUG", {}).get("IOPS_DEBUG", False))
                     
+                    case "GENERAL":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("GENERAL", {})
+                            category = safe_get(value, "category",
+                                                defaults.get("category", "iOps"))
+                            # Guarded: the update callback re-registers
+                            # the N-panel, no point doing it for a no-op.
+                            if isinstance(category, str) and category \
+                                    and category != prefs.category:
+                                prefs.category = category
+
                     case "EXECUTOR":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("EXECUTOR", {})
@@ -299,6 +310,7 @@ def load_iops_preferences():
                             prefs.iops_stat = safe_get(value, "iops_stat", defaults.get("iops_stat", True))
                             prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
                             for key_, default_ in (
+                                ("iops_ss_header", True),
                                 ("show_filename_full_path", False),
                                 ("show_dimensions_stat", True),
                                 ("show_instances_stat", False),
@@ -332,6 +344,91 @@ def load_iops_preferences():
                             defaults = default_prefs.get("MODIFIER_WINDOW", {})
                             prefs.modifier_window_method = safe_get(value, "modifier_window_method",
                                 defaults.get("modifier_window_method", "RENDER"))
+
+                    case "VISUAL_UV":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("VISUAL_UV", {})
+                            if hasattr(prefs, "visual_uv_normal_offset"):
+                                prefs.visual_uv_normal_offset = safe_get(
+                                    value, "visual_uv_normal_offset",
+                                    defaults.get("visual_uv_normal_offset", 0.002))
+                            for i in range(8):
+                                key_ = f"island_palette_{i}"
+                                if not hasattr(prefs, key_):
+                                    continue
+                                col = safe_get(value, key_, defaults.get(key_))
+                                if isinstance(col, (list, tuple)) and len(col) == 4:
+                                    try:
+                                        setattr(prefs, key_, tuple(float(c) for c in col))
+                                    except (TypeError, ValueError) as e:
+                                        print(f"IOPS Prefs: Skipping invalid value for {key_} - {e}")
+
+                    case "MODIFIERS_PANEL":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("MODIFIERS_PANEL", {})
+                            for key_, default_ in (
+                                ("modifiers_grid_columns", 6),
+                                ("modifiers_show_stack", True),
+                            ):
+                                if hasattr(prefs, key_):
+                                    try:
+                                        setattr(prefs, key_,
+                                                safe_get(value, key_, defaults.get(key_, default_)))
+                                    except (TypeError, ValueError) as e:
+                                        print(f"IOPS Prefs: Skipping invalid value for {key_} - {e}")
+
+                            # Grid slots: replace the whole list only when
+                            # the JSON carries one (older files don't). An
+                            # empty list is honoured too — the seed timer
+                            # refills an empty grid with the curated set.
+                            grid = value.get("grid")
+                            if isinstance(grid, list) and hasattr(prefs, "modifiers_grid_items"):
+                                from ...operators.modifiers import iops_mod_defaults as mod_defaults
+                                items = prefs.modifiers_grid_items
+                                items.clear()
+                                for slot in grid:
+                                    if not isinstance(slot, dict):
+                                        continue
+                                    mod_type = slot.get("mod_type")
+                                    if not isinstance(mod_type, str) or not mod_type:
+                                        continue
+                                    item = items.add()
+                                    item.mod_type = mod_type
+                                    label = slot.get("label", "")
+                                    item.label = label if isinstance(label, str) else ""
+                                    settings = slot.get("settings")
+                                    group = mod_defaults.get_group(item, mod_type)
+                                    if group is not None and isinstance(settings, dict) and settings:
+                                        mod_defaults.set_group_values(group, settings)
+                                prefs.modifiers_grid_index = min(
+                                    prefs.modifiers_grid_index, max(len(items) - 1, 0))
+
+                            # Sort-order rules, same replace-when-present rule.
+                            for json_key, band, index_prop in (
+                                ("sort_head", "mod_sort_head", "mod_sort_head_index"),
+                                ("sort_tail", "mod_sort_tail", "mod_sort_tail_index"),
+                            ):
+                                rules = value.get(json_key)
+                                if not isinstance(rules, list) or not hasattr(prefs, band):
+                                    continue
+                                items = getattr(prefs, band)
+                                items.clear()
+                                for rule in rules:
+                                    if not isinstance(rule, dict):
+                                        continue
+                                    mod_type = rule.get("mod_type")
+                                    if not isinstance(mod_type, str) or not mod_type:
+                                        continue
+                                    it = items.add()
+                                    it.mod_type = mod_type
+                                    names = rule.get("names", "")
+                                    it.names = names if isinstance(names, str) else ""
+                                setattr(prefs, index_prop, min(
+                                    getattr(prefs, index_prop), max(len(items) - 1, 0)))
+                            if hasattr(prefs, "mod_sort_seeded") and "mod_sort_seeded" in value:
+                                seeded = value.get("mod_sort_seeded")
+                                if isinstance(seeded, bool):
+                                    prefs.mod_sort_seeded = seeded
 
                     case "MIRROR_ROTATE":
                         if isinstance(value, dict):

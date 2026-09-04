@@ -22,6 +22,57 @@ def _get_theme_section(prefs):
     }
 
 
+def _json_safe(value):
+    """Enum-flag sets and bpy arrays -> JSON-friendly lists."""
+    if isinstance(value, set):
+        return sorted(value)
+    if isinstance(value, (list, tuple)) or type(value).__name__ == "bpy_prop_array":
+        return list(value)
+    return value
+
+
+def _slot_settings_explicit(item):
+    """Only the defaults the user actually set on a grid slot (property
+    is_property_set), so untouched Blender/smart defaults are not frozen
+    into the JSON and keep following the descriptor definitions."""
+    from ..operators.modifiers import iops_mod_defaults as defaults
+    group = defaults.get_group(item, item.mod_type)
+    if group is None:
+        return {}
+    out = {}
+    for key in type(group).__annotations__:
+        if group.is_property_set(key):
+            out[key] = _json_safe(getattr(group, key))
+    return out
+
+
+def _get_modifiers_panel_section(prefs):
+    """iOps Modifiers panel state: grid geometry, the user-built slot list
+    (type + label + explicitly set defaults) and the sort-order rules.
+    Blender persists all of this in userpref.blend too; mirroring it here
+    lets the JSON carry the whole panel setup between machines."""
+    grid = []
+    for item in getattr(prefs, "modifiers_grid_items", ()):
+        grid.append({
+            "mod_type": item.mod_type,
+            "label": item.label,
+            "settings": _slot_settings_explicit(item),
+        })
+
+    def _rules(band):
+        return [{"mod_type": it.mod_type, "names": it.names}
+                for it in getattr(prefs, band, ())]
+
+    return {
+        "modifiers_grid_columns": getattr(prefs, "modifiers_grid_columns", 6),
+        "modifiers_show_stack": getattr(prefs, "modifiers_show_stack", True),
+        "grid": grid,
+        "sort_head": _rules("mod_sort_head"),
+        "sort_tail": _rules("mod_sort_tail"),
+        "mod_sort_seeded": getattr(prefs, "mod_sort_seeded", False),
+    }
+
+
 def get_iops_prefs():
     prefs = bpy.context.preferences.addons['InteractionOps'].preferences
     snap_combo_dict = {}
@@ -137,6 +188,9 @@ def get_iops_prefs():
 
     iops_prefs = {
         "IOPS_DEBUG": {"IOPS_DEBUG": safe("IOPS_DEBUG", False)},
+        "GENERAL": {
+            "category": safe("category", "iOps"),
+        },
         "EXECUTOR": {
             "executor_column_count": safe("executor_column_count", 20),
             "executor_scripts_folder": safe("executor_scripts_folder", bpy.utils.script_path_user()),
@@ -188,6 +242,7 @@ def get_iops_prefs():
         "UI_TEXT_STAT": {
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
+            "iops_ss_header": safe("iops_ss_header", True),
             "show_filename_full_path": safe("show_filename_full_path", False),
             "show_dimensions_stat": safe("show_dimensions_stat", True),
             "show_instances_stat": safe("show_instances_stat", False),
@@ -207,6 +262,15 @@ def get_iops_prefs():
         },
         "MODIFIER_WINDOW": {
             "modifier_window_method": safe("modifier_window_method", "RENDER")
+        },
+        "MODIFIERS_PANEL": _get_modifiers_panel_section(prefs),
+        "VISUAL_UV": {
+            "visual_uv_normal_offset": safe("visual_uv_normal_offset", 0.002),
+            **{
+                f"island_palette_{i}": safelist(
+                    f"island_palette_{i}", (0.5, 0.5, 0.5, 0.1))
+                for i in range(8)
+            },
         },
         "MIRROR_ROTATE": {
             "mirror_rotate_method": safe("mirror_rotate_method", "MIRROR"),
