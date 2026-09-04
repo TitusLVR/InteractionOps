@@ -14,10 +14,11 @@ class IOPS_OT_transform_orientation_create(bpy.types.Operator):
 
 
 class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
-    """UVmaps names homonization. Make uvmap names identical"""
+    """UVmaps names homonization. Make uvmap names identical (ch1, ch2, ...)"""
 
     bl_idname = "iops.homonize_uvmaps_names"
     bl_label = "UVmaps names homonization"
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(self, context):
@@ -27,18 +28,128 @@ class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
             and context.view_layer.objects.active.type == "MESH"
         )
 
+    @staticmethod
+    def _target_order(names):
+        """Source layer index for every target slot.
+
+        Layers already called chN keep their data and land in slot N-1 (the
+        user joined meshes that were homonized before). Every other layer
+        fills the remaining slots in its original order.
+        """
+        count = len(names)
+        slots = [None] * count
+        free = []
+        for i, name in enumerate(names):
+            k = -1
+            if name.startswith("ch") and name[2:].isdigit():
+                k = int(name[2:]) - 1
+            if 0 <= k < count and slots[k] is None:
+                slots[k] = i
+            else:
+                free.append(i)
+        for k in range(count):
+            if slots[k] is None:
+                slots[k] = free.pop(0)
+        return slots
+
+    @staticmethod
+    def _permute_layer_data(uv_layers, order):
+        """Move per-loop data so slot k holds what source layer order[k] had.
+
+        Goes through the legacy `layer.data` collection: in Blender 5.x the
+        `layer.pin` collection reports the wrong item type for foreach_*.
+        """
+        n_loops = len(uv_layers[0].data)
+        snap = []
+        for uv in uv_layers:
+            vec = [0.0] * (n_loops * 2)
+            uv.data.foreach_get("uv", vec)
+            pin = [False] * n_loops
+            uv.data.foreach_get("pin_uv", pin)
+            snap.append((vec, pin if any(pin) else None, uv.active_render))
+        for k, src in enumerate(order):
+            vec, pin, _ = snap[src]
+            dst = uv_layers[k].data
+            dst.foreach_set("uv", vec)
+            if pin is not None:
+                dst.foreach_set("pin_uv", pin)
+            elif snap[k][1] is not None:
+                dst.foreach_set("pin_uv", [False] * n_loops)  # clear stale pins
+        for k, src in enumerate(order):
+            if snap[src][2]:
+                uv_layers[k].active_render = True
+                break
+
+    @classmethod
+    def _rename_mesh(cls, me):
+        """Homonize UV layers of one mesh to ch1..chN. Returns (changed, reason).
+
+        Renaming a UV layer onto a name that another attribute already holds
+        silently DELETES that attribute (Blender 4.x/5.x), so:
+          * skip meshes that are already named correctly,
+          * refuse meshes where a non-UV attribute owns a target name,
+          * reorder data so existing chN layers stay chN,
+          * rename in two passes through unique temp names so UV layers
+            never collide with each other mid-loop.
+        """
+        uv_layers = me.uv_layers
+        count = len(uv_layers)
+        if count == 0:
+            return False, "no UV maps"
+        targets = ["ch" + str(i + 1) for i in range(count)]
+        current = [uv.name for uv in uv_layers]
+        if current == targets:
+            return False, "already named"
+        uv_names = set(current)
+        for attr in me.attributes:
+            if attr.name in targets and attr.name not in uv_names:
+                return False, "attribute '%s' is not a UV map" % attr.name
+        order = cls._target_order(current)
+        if order != list(range(count)):
+            cls._permute_layer_data(uv_layers, order)
+        # Pass 1: unique temp names that cannot collide with anything present.
+        taken = {attr.name for attr in me.attributes}
+        temps = []
+        for i in range(count):
+            tmp = ".iops_uv_tmp_%d" % i
+            while tmp in taken:
+                tmp += "_"
+            taken.add(tmp)
+            temps.append(tmp)
+        for uv, tmp in zip(list(uv_layers), temps):
+            uv.name = tmp
+        # Pass 2: final names, by index (order is stable across renames).
+        for i, uv in enumerate(uv_layers):
+            uv.name = targets[i]
+        if len(uv_layers) != count:
+            return True, "layer count changed (%d -> %d)" % (count, len(uv_layers))
+        return True, ""
+
     def execute(self, context):
-        objs = []
-        for ob in bpy.context.selected_objects:
-            if ob.type == "MESH":
-                objs.append(ob)
-        if objs:
-            for ob in objs:
-                uv_list = ob.data.uv_layers
-                if uv_list:
-                    for ch in range(len(uv_list)):
-                        uv_list[ch].name = "ch" + str(ch + 1)
-                        print(uv_list[ch].name)
+        seen = set()
+        renamed = 0
+        skipped = []
+        for ob in context.selected_objects:
+            if ob.type != "MESH" or ob.data is None:
+                continue
+            me = ob.data
+            if me.name in seen:
+                continue  # linked duplicate: same mesh, already handled
+            seen.add(me.name)
+            done, reason = self._rename_mesh(me)
+            if done:
+                renamed += 1
+            if reason:
+                skipped.append("%s: %s" % (me.name, reason))
+        if not seen:
+            self.report({"WARNING"}, "No mesh objects selected")
+            return {"CANCELLED"}
+        msg = "UV maps renamed on %d of %d mesh(es)" % (renamed, len(seen))
+        for line in skipped:
+            print("[iOps] homonize_uvmaps_names skipped", line)
+        if skipped:
+            msg += "; skipped %d (see console)" % len(skipped)
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 
