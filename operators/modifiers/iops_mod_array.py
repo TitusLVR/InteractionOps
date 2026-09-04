@@ -8,6 +8,5 @@ register_descriptor(ModDescriptor(
     },
     object_fields=("offset_object", "start_cap", "end_cap", "curve"),
     scale_props=("constant_offset_displace",),
-    sort_weight=10,
     is_noop=lambda md: md.fit_type == "FIXED_COUNT" and md.count <= 1,
 ))

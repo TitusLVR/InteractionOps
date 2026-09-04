@@ -25,6 +25,10 @@ from ..operators.modifiers.iops_mod_list import (
 from ..operators.modifiers.iops_mod_registry import (
     type_icon as mod_type_icon,
 )
+from ..operators.modifiers.iops_mod_sort import (
+    IOPS_ModSortItem,
+    draw_sort_order,
+)
 from ..ui.iops_pie_shading import (
     SHADING_PIE_SLOTS,
     shading_type_list,
@@ -707,6 +711,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     modifiers_grid_items: bpy.props.CollectionProperty(type=IOPS_ModGridItem)
     modifiers_grid_index: IntProperty(default=0)
+    # Sort Modifier Stacks order: rules (type + optional names) pinned to
+    # the top / bottom of a stack, in order (see iops_mod_sort.draw_sort_order)
+    mod_sort_head: bpy.props.CollectionProperty(type=IOPS_ModSortItem)
+    mod_sort_head_index: IntProperty(default=0)
+    mod_sort_tail: bpy.props.CollectionProperty(type=IOPS_ModSortItem)
+    mod_sort_tail_index: IntProperty(default=0)
+    mod_sort_seeded: BoolProperty(default=False)
     modifiers_show_stack: BoolProperty(
         name="Show Stack List",
         description="Show the active object's modifier stack under the grid",
@@ -1134,6 +1145,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         box.label(text="No editable parameters "
                                        "(Blender defaults apply)",
                                   icon="INFO")
+
+                body.separator()
+                draw_sort_order(body, self)
 
             # Mirror Rotate defaults
             body = _section(column_main, self, "show_section_mirror_rotate",

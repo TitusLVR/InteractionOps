@@ -5,5 +5,4 @@ register_descriptor(ModDescriptor(
     defaults={"deform_axis": "POS_X"},
     object_fields=("object",),
     requires_target=True,
-    sort_weight=50,
 ))

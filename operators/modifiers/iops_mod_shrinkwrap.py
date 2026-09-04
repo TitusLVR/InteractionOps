@@ -5,5 +5,4 @@ register_descriptor(ModDescriptor(
     defaults={"wrap_method": "NEAREST_SURFACEPOINT"},
     object_fields=("target", "auxiliary_target"),
     requires_target=True,
-    sort_weight=50,
 ))

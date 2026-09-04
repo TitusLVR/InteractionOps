@@ -171,6 +171,10 @@ _modifiers_classes = (
     iops_mod_stack.IOPS_OT_ModStackAction,
     iops_mod_stack.IOPS_OT_ModGroupToggle,
     iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_sort.IOPS_MT_ModSortAddHead,
+    iops_mod_sort.IOPS_MT_ModSortAddTail,
+    iops_mod_sort.IOPS_OT_ModSortListAdd,
+    iops_mod_sort.IOPS_OT_ModSortListAction,
     iops_mod_cleanup.IOPS_OT_ModCleanup,
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
     iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
@@ -435,6 +439,7 @@ classes = (
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
     *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
     iops_mod_list.IOPS_ModGridItem,  # after the defaults it points to
+    iops_mod_sort.IOPS_ModSortItem,
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
