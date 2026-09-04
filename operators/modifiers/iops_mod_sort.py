@@ -16,11 +16,20 @@ Angle" (first in Top of Stack) catches Blender's auto smooth however
 the modifier is called. Modifiers pinned to last (use_pin_to_last —
 auto smooth added via Shade Auto Smooth is) stay at the end regardless:
 Blender refuses to move them.
+
+Sort also de-duplicates geometry-nodes groups on the selection: a
+modifier pointing at "Smooth by Angle.001" is remapped to "Smooth by
+Angle" when that group exists (any '.suffix' chain is tried, most
+specific first), and duplicates left without users are deleted.
 """
 
 import bpy
 
-from ...utils.mod_sort_core import parse_names, sorted_names
+from ...utils.mod_sort_core import (
+    base_name_candidates,
+    parse_names,
+    sorted_names,
+)
 from .iops_mod_registry import all_mod_type_items, type_icon
 
 _ADDON = "InteractionOps"
@@ -325,6 +334,39 @@ def draw_sort_order(layout, prefs):
     _draw_band(col, prefs, "TAIL", "Bottom of Stack", "IOPS_MT_ModSortAddTail")
 
 
+# --- geometry-nodes de-duplication ------------------------------------
+
+def remap_duplicate_node_groups(objects):
+    """Point NODES modifiers on `objects` at the base-named node group
+    instead of a '.001'-style duplicate; delete duplicates that end up
+    unused (local, no fake user). Returns (remapped, removed)."""
+    groups = bpy.data.node_groups
+    remapped = 0
+    touched = set()
+    for obj in objects:
+        for md in obj.modifiers:
+            if md.type != "NODES" or md.node_group is None:
+                continue
+            dup = md.node_group
+            for cand in base_name_candidates(dup.name):
+                base = groups.get(cand)
+                if (base is None or base == dup
+                        or base.bl_idname != dup.bl_idname):
+                    continue
+                md.node_group = base
+                remapped += 1
+                touched.add(dup.name)
+                break
+    removed = 0
+    for name in touched:
+        dup = groups.get(name)
+        if (dup is not None and dup.users == 0 and not dup.use_fake_user
+                and dup.library is None):
+            groups.remove(dup)
+            removed += 1
+    return remapped, removed
+
+
 # --- the operator -----------------------------------------------------
 
 class IOPS_OT_ModSortStack(bpy.types.Operator):
@@ -337,6 +379,14 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
     bl_label = "Sort Modifier Stacks"
     bl_options = {"REGISTER", "UNDO"}
 
+    remap_node_groups: bpy.props.BoolProperty(
+        name="De-duplicate Node Groups",
+        description="Point geometry-nodes modifiers at the base-named "
+                    "node group instead of a '.001' duplicate and delete "
+                    "the unused duplicates",
+        default=True,
+    )
+
     @classmethod
     def poll(cls, context):
         return bool(context.selected_objects)
@@ -345,6 +395,10 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
         prefs = _prefs(context)
         head = rules(prefs.mod_sort_head)
         tail = rules(prefs.mod_sort_tail)
+        remapped = removed = 0
+        if self.remap_node_groups:
+            remapped, removed = remap_duplicate_node_groups(
+                context.selected_objects)
         changed = 0
         for obj in context.selected_objects:
             if len(obj.modifiers) < 2:
@@ -367,5 +421,9 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
                 if current_idx != target_idx:
                     obj.modifiers.move(current_idx, target_idx)
             changed += 1
-        self.report({"INFO"}, f"Sorted stacks on {changed} object(s)")
+        msg = f"Sorted stacks on {changed} object(s)"
+        if remapped:
+            msg += (f", remapped {remapped} node group user(s), "
+                    f"removed {removed} duplicate(s)")
+        self.report({"INFO"}, msg)
         return {"FINISHED"}

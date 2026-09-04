@@ -60,3 +60,16 @@ def sorted_names(stack, head, tail):
         return sort_rank(e[1], text, head, tail)
 
     return [e[0] for e in sorted(stack, key=rank)]
+
+
+def base_name_candidates(name):
+    """Names a duplicate datablock may be a copy of, most specific first:
+    everything before the last '.', then before the one before, ...
+    'Smooth by Angle.001' -> ['Smooth by Angle'];
+    'a.b.001' -> ['a.b', 'a']; 'plain' -> []."""
+    out = []
+    while "." in name:
+        name = name.rsplit(".", 1)[0]
+        if name:
+            out.append(name)
+    return out

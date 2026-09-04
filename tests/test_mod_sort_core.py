@@ -1,4 +1,5 @@
-from utils.mod_sort_core import parse_names, sort_rank, sorted_names
+from utils.mod_sort_core import (base_name_candidates, parse_names, sort_rank,
+                                 sorted_names)
 
 
 def R(*keys):
@@ -78,3 +79,17 @@ class TestSortedNames:
     def test_empty_lists_leave_stack_untouched(self):
         stack = [("Tri", "TRIANGULATE"), ("Mir", "MIRROR")]
         assert sorted_names(stack, [], []) == ["Tri", "Mir"]
+
+
+class TestBaseNameCandidates:
+    def test_numeric_suffix(self):
+        assert base_name_candidates("Smooth by Angle.001") == ["Smooth by Angle"]
+
+    def test_multiple_dots_most_specific_first(self):
+        assert base_name_candidates("a.b.001") == ["a.b", "a"]
+
+    def test_no_dot(self):
+        assert base_name_candidates("plain") == []
+
+    def test_leading_dot_skipped(self):
+        assert base_name_candidates(".hidden.001") == [".hidden"]
