@@ -249,6 +249,7 @@ def get_iops_prefs():
             "show_modifiers_stat": safe("show_modifiers_stat", False),
             "show_material_stat": safe("show_material_stat", False),
             "show_material_users_stat": safe("show_material_users_stat", False),
+            "show_material_max_rows": safe("show_material_max_rows", 8),
             "show_parent_stat": safe("show_parent_stat", False),
             "show_units_stat": safe("show_units_stat", False),
             "show_view_position_stat": safe("show_view_position_stat", False),

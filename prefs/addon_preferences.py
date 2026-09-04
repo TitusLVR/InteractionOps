@@ -195,6 +195,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=False,
     )
 
+    show_material_max_rows: IntProperty(
+        name="Material Rows",
+        description="Maximum material slots listed in the statistics overlay; "
+                    "the rest collapse into a '+N more' line",
+        default=8, min=1, max=64,
+    )
+
     show_parent_stat: BoolProperty(
         name="Parent / Constraints",
         description="Show parent name and constraint count of the active object",
@@ -1028,6 +1035,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 grid.prop(self, "show_view_position_stat", toggle=True)
                 grid.prop(self, "show_material_stat", toggle=True)
                 grid.prop(self, "show_material_users_stat", toggle=True)
+                sub = grid.row(align=True)
+                sub.enabled = self.show_material_stat
+                sub.prop(self, "show_material_max_rows")
                 grid.prop(self, "show_modifiers_stat", toggle=True)
                 grid.prop(self, "show_instances_stat", toggle=True)
                 grid.prop(self, "show_parent_stat", toggle=True)

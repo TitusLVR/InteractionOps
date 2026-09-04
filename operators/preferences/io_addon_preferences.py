@@ -317,6 +317,7 @@ def load_iops_preferences():
                                 ("show_modifiers_stat", False),
                                 ("show_material_stat", False),
                                 ("show_material_users_stat", False),
+                                ("show_material_max_rows", 8),
                                 ("show_parent_stat", False),
                                 ("show_units_stat", False),
                                 ("show_view_position_stat", False),
