@@ -30,6 +30,14 @@ _NUMPAD_TO_POINT = {
 # corners (0..3) and center (8) stay free / manual-lock-governed.
 _EDGE_MID_AXIS_LOCK = {6: "X", 4: "X", 7: "Y", 5: "Y"}
 
+# Arrow keys → whole-tile (1.0) UV offset applied to the selected UV verts.
+_ARROW_OFFSET = {
+    "LEFT_ARROW":  Vector((-1.0, 0.0)),
+    "RIGHT_ARROW": Vector((1.0, 0.0)),
+    "DOWN_ARROW":  Vector((0.0, -1.0)),
+    "UP_ARROW":    Vector((0.0, 1.0)),
+}
+
 
 def _bbox_snap_points(mn, mx):
     """9 UV-space snap points from a bbox (mn, mx are 2D Vectors).
@@ -58,8 +66,8 @@ def _tile_bbox(uv):
     return Vector((mnx, mny)), Vector((mnx + 1.0, mny + 1.0))
 
 
-def _selection_bbox(context):
-    """Min/max of selected UV verts on the active mesh, or None if none.
+def _selected_uv_loops(context):
+    """Yield (loop, uv_layer) for every selected UV vert on the active mesh.
 
     Reads selection via the Blender-5.0+ `loop.uv_select_vert` with a
     fallback to `loop[uv_layer].select`. With UV Sync OFF `uv_select_vert`
@@ -72,8 +80,6 @@ def _selection_bbox(context):
     use_sync = context.scene.tool_settings.use_uv_select_sync
     bm = bmesh.from_edit_mesh(obj.data)
     uv_layer = bm.loops.layers.uv.verify()
-    mn = None
-    mx = None
     for face in bm.faces:
         if not use_sync and not face.select:
             continue
@@ -81,17 +87,24 @@ def _selection_bbox(context):
             sel = getattr(loop, "uv_select_vert", None)
             if sel is None:
                 sel = loop[uv_layer].select
-            if not sel:
-                continue
-            uv = loop[uv_layer].uv
-            if mn is None:
-                mn = Vector((uv.x, uv.y))
-                mx = Vector((uv.x, uv.y))
-            else:
-                if uv.x < mn.x: mn.x = uv.x
-                if uv.y < mn.y: mn.y = uv.y
-                if uv.x > mx.x: mx.x = uv.x
-                if uv.y > mx.y: mx.y = uv.y
+            if sel:
+                yield loop, uv_layer
+
+
+def _selection_bbox(context):
+    """Min/max of selected UV verts on the active mesh, or None if none."""
+    mn = None
+    mx = None
+    for loop, uv_layer in _selected_uv_loops(context):
+        uv = loop[uv_layer].uv
+        if mn is None:
+            mn = Vector((uv.x, uv.y))
+            mx = Vector((uv.x, uv.y))
+        else:
+            if uv.x < mn.x: mn.x = uv.x
+            if uv.y < mn.y: mn.y = uv.y
+            if uv.x > mx.x: mx.x = uv.x
+            if uv.y > mx.y: mx.y = uv.y
     if mn is None:
         return None
     return mn, mx
@@ -133,6 +146,7 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             HUDItem("Set 2D cursor to point",       "NUM 1-9",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align islands to highlighted", "Shift+LMB",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align islands to point",       "Shift+NUM 1-9", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Offset selected UVs by 1 tile", "Arrows",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Freeze U / Freeze V",          "X / Y",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Tile mode (hover tile)",       "Hold Alt",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",                       "Esc/RMB",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -263,6 +277,22 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         if sb is not None:
             self.sel_min, self.sel_max = sb
 
+    # --- Selection offset ----------------------------------------------
+    def _offset_selection(self, context, offset):
+        """Translate every selected UV vert by `offset` (UV units)."""
+        moved = False
+        for loop, uv_layer in _selected_uv_loops(context):
+            loop[uv_layer].uv += offset
+            moved = True
+        if not moved:
+            self.report({"INFO"}, "No UVs selected to offset")
+            return
+        bmesh.update_edit_mesh(context.active_object.data)
+        self.did_edit = True
+        sb = _selection_bbox(context)
+        if sb is not None:
+            self.sel_min, self.sel_max = sb
+
     def modal(self, context, event):
         context.area.tag_redraw()
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
@@ -296,6 +326,11 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             self.axis_lock = None if self.axis_lock == event.type else event.type
             return {"RUNNING_MODAL"}
 
+        # Arrows → shift the selected UVs by one full tile (stay active).
+        if event.type in _ARROW_OFFSET and event.value == "PRESS":
+            self._offset_selection(context, _ARROW_OFFSET[event.type].copy())
+            return {"RUNNING_MODAL"}
+
         # Numpad → point index. Shift = align islands (stay active);
         # plain = place 2D cursor at that point and finish.
         if event.type in _NUMPAD_TO_POINT and event.value == "PRESS":
@@ -323,10 +358,10 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
 
         elif event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
             self.clear_draw_handlers()
-            # Aligns are committed edits — exit as FINISHED so they fold into a
+            # Aligns/offsets are committed edits — exit as FINISHED so they fold into a
             # single undo step rather than being orphaned by a CANCELLED return.
             if self.did_edit:
-                self.report({"INFO"}, "Visual Cursor UV - islands aligned")
+                self.report({"INFO"}, "Visual Cursor UV - UVs edited")
                 return {"FINISHED"}
             self.report({"INFO"}, "Visual Cursor UV - cancelled")
             return {"CANCELLED"}
