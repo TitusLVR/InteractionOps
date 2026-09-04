@@ -13,7 +13,9 @@ type button + names field, so it reads exactly like a modifier stack.
 Geometry-nodes modifiers match their names against both the modifier
 name and the node group name, so the default rule NODES "Smooth by
 Angle" (first in Top of Stack) catches Blender's auto smooth however
-the modifier is called.
+the modifier is called. Modifiers pinned to last (use_pin_to_last —
+auto smooth added via Shade Auto Smooth is) stay at the end regardless:
+Blender refuses to move them.
 """
 
 import bpy
@@ -347,9 +349,16 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
         for obj in context.selected_objects:
             if len(obj.modifiers) < 2:
                 continue
-            current = [m.name for m in obj.modifiers]
+            # Modifiers pinned to the end of the stack (use_pin_to_last,
+            # e.g. Blender's own auto smooth) cannot be moved: move() on
+            # them is silently ignored, which would desync the index
+            # walk below and scramble the rest of the stack. Blender
+            # keeps them last, so sort only the unpinned prefix.
+            free = [m for m in obj.modifiers
+                    if not getattr(m, "use_pin_to_last", False)]
+            current = [m.name for m in free]
             desired = sorted_names(
-                [(m.name, m.type, match_text(m)) for m in obj.modifiers],
+                [(m.name, m.type, match_text(m)) for m in free],
                 head, tail)
             if desired == current:
                 continue
