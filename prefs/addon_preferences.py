@@ -1105,6 +1105,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         depress=(i == self.modifiers_grid_index))
                     op.action = "SELECT"
                     op.index = i
+                # the panel always ends the grid with the Add Modifier
+                # menu button — mirror it here, decorative only
+                tail = grid.column(align=True)
+                tail.enabled = False
+                tail.operator("wm.call_menu", text="", icon="ADD")
                 side = row.column(align=True)
                 side.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
                 side.operator("iops.mod_grid_list_action", text="",

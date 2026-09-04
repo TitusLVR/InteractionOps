@@ -291,6 +291,10 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
                                depress=item.mod_type in active_types)
             op.mod_type = item.mod_type
             op.index = index
+        # always last: Blender's own Add Modifier menu for anything not
+        # in the grid
+        grid.operator("wm.call_menu", text="", icon="ADD"
+                      ).name = "OBJECT_MT_modifier_add"
 
         # --- tools ---
         layout.separator(factor=0.5)

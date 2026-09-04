@@ -80,6 +80,7 @@ A modifier stack you can drive with modifier keys. The icon grid adds or manages
 | Icon grid, <kbd>Ctrl</kbd> | Apply all modifiers of that type |
 | Icon grid, <kbd>Alt</kbd> | Remove all modifiers of that type |
 | Icon grid, <kbd>Shift</kbd> | Toggle viewport visibility of that type |
+| Icon grid, last **+** button | Blender's own Add Modifier menu, for types not in the grid |
 | **Sort** | Order stacks by the Sort Order set in preferences: rules of modifier type + optional comma-separated names (default: Geometry Nodes "Smooth by Angle" / Mirror / Array on top, Simple Deform / Weighted Normal / Triangulate at the bottom; everything else keeps its order) |
 | **Cleanup** | Remove modifiers that do nothing (empty targets, zero values) |
 | **Sync Vis** | Make render visibility match viewport visibility |
