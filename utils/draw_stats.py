@@ -4,6 +4,7 @@ import bpy
 from ..ui.draw.theme import get_theme, Role
 from ..ui.hud import text as hud_text
 from ..ui.hud.text import draw as hud_text_draw, measure as hud_text_measure
+from .units import format_fixed_length
 
 # Object types whose data block carries material slots — gates the material
 # stat line so empties/lights/cameras don't show a useless "No material".
@@ -86,6 +87,14 @@ def draw_iops_statistics():
         unit_settings = context.scene.unit_settings
 
         def _fmt_len(value):
+            # Honour the scene's fixed length unit (cm, mm, ft...) like
+            # Blender's N-panel does; to_string alone picks an adaptive
+            # unit and shows meters for a centimeter scene.
+            fixed = format_fixed_length(
+                value, unit_settings.system, unit_settings.length_unit,
+                unit_settings.scale_length)
+            if fixed is not None:
+                return fixed
             if unit_settings.system != "NONE":
                 return bpy.utils.units.to_string(
                     unit_settings.system, "LENGTH",
