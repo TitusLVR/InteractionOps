@@ -29,7 +29,6 @@ class ModDescriptor:
     defaults: dict = field(default_factory=dict)   # smart defaults
     object_fields: tuple = ()     # pointer props referencing Objects
     requires_target: bool = False # empty object_fields[0] == dead modifier
-    sort_weight: int = 50         # Sort band: 10 early, 50 mid, 80+ tail
     scale_props: tuple = ()       # distance props Safe Apply rescales
     is_noop: object = None        # callable(md) -> bool for Cleanup
 

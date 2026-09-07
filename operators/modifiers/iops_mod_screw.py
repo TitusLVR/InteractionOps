@@ -5,5 +5,4 @@ register_descriptor(ModDescriptor(
     defaults={"axis": "Z", "steps": 16, "render_steps": 16},
     object_fields=("object",),
     scale_props=("screw_offset",),
-    sort_weight=50,
 ))

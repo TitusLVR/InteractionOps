@@ -14,6 +14,7 @@ from bpy.props import (
     FloatVectorProperty,
 )
 from ..ui.iops_tm_panel import IOPS_PT_VCol_Panel
+from ..ui.iops_modifiers_panel import draw_grouped_params
 from .theme import IOPS_Theme, draw_theme_tab
 from .widget_composer import IOPS_WidgetDefItem, draw_widgets_tab
 from ..operators.modifiers import iops_mod_defaults
@@ -24,6 +25,10 @@ from ..operators.modifiers.iops_mod_list import (
 )
 from ..operators.modifiers.iops_mod_registry import (
     type_icon as mod_type_icon,
+)
+from ..operators.modifiers.iops_mod_sort import (
+    IOPS_ModSortItem,
+    draw_sort_order,
 )
 from ..ui.iops_pie_shading import (
     SHADING_PIE_SLOTS,
@@ -188,6 +193,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="Material Users",
         description="Append the active material's user count when it is shared",
         default=False,
+    )
+
+    show_material_max_rows: IntProperty(
+        name="Material Rows",
+        description="Maximum material slots listed in the statistics overlay; "
+                    "the rest collapse into a '+N more' line",
+        default=8, min=1, max=64,
     )
 
     show_parent_stat: BoolProperty(
@@ -707,6 +719,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     )
     modifiers_grid_items: bpy.props.CollectionProperty(type=IOPS_ModGridItem)
     modifiers_grid_index: IntProperty(default=0)
+    # Sort Modifier Stacks order: rules (type + optional names) pinned to
+    # the top / bottom of a stack, in order (see iops_mod_sort.draw_sort_order)
+    mod_sort_head: bpy.props.CollectionProperty(type=IOPS_ModSortItem)
+    mod_sort_head_index: IntProperty(default=0)
+    mod_sort_tail: bpy.props.CollectionProperty(type=IOPS_ModSortItem)
+    mod_sort_tail_index: IntProperty(default=0)
+    mod_sort_seeded: BoolProperty(default=False)
     modifiers_show_stack: BoolProperty(
         name="Show Stack List",
         description="Show the active object's modifier stack under the grid",
@@ -1016,6 +1035,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 grid.prop(self, "show_view_position_stat", toggle=True)
                 grid.prop(self, "show_material_stat", toggle=True)
                 grid.prop(self, "show_material_users_stat", toggle=True)
+                sub = grid.row(align=True)
+                sub.enabled = self.show_material_stat
+                sub.prop(self, "show_material_max_rows")
                 grid.prop(self, "show_modifiers_stat", toggle=True)
                 grid.prop(self, "show_instances_stat", toggle=True)
                 grid.prop(self, "show_parent_stat", toggle=True)
@@ -1094,6 +1116,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                         depress=(i == self.modifiers_grid_index))
                     op.action = "SELECT"
                     op.index = i
+                # the panel always ends the grid with the Add Modifier
+                # menu button — mirror it here, decorative only
+                tail = grid.column(align=True)
+                tail.enabled = False
+                tail.operator("wm.call_menu", text="", icon="ADD")
                 side = row.column(align=True)
                 side.menu("IOPS_MT_ModGridAdd", text="", icon="ADD")
                 side.operator("iops.mod_grid_list_action", text="",
@@ -1125,15 +1152,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                                         text="Reset",
                                         icon="LOOP_BACK"
                                         ).action = "CLEAR_PRESET"
-                        col = box.column()
-                        col.use_property_split = True
-                        col.use_property_decorate = False
-                        iops_mod_defaults.draw_props(
-                            col, group, type(group).__annotations__)
+                        # same native grouping as the stack rows in the
+                        # panel; collapse state keyed per slot
+                        draw_grouped_params(
+                            box, group, mod_type,
+                            tuple(type(group).__annotations__),
+                            lambda suffix, i=idx: f"iops_prefs_{i}_{suffix}")
                     else:
                         box.label(text="No editable parameters "
                                        "(Blender defaults apply)",
                                   icon="INFO")
+
+                body.separator()
+                draw_sort_order(body, self)
 
             # Mirror Rotate defaults
             body = _section(column_main, self, "show_section_mirror_rotate",

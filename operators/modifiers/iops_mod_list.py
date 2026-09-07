@@ -14,6 +14,7 @@ import bpy
 
 from . import iops_mod_defaults as defaults
 from . import iops_mod_presets as presets
+from . import iops_mod_sort
 from .iops_mod_registry import (
     CURATED_TYPES,
     all_mod_type_items,
@@ -69,6 +70,7 @@ def seed_grid_list_if_empty():
         for mod_type in CURATED_TYPES:
             prefs.modifiers_grid_items.add().mod_type = mod_type
         prefs.modifiers_grid_index = 0
+    iops_mod_sort.seed_defaults_if_needed(prefs)
     presets.migrate_type_groups_to_slots(prefs)
     presets.migrate_legacy_json(prefs)
     return None

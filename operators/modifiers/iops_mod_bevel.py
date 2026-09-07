@@ -8,6 +8,5 @@ register_descriptor(ModDescriptor(
         "use_clamp_overlap": True, "harden_normals": False,
     },
     scale_props=("width",),
-    sort_weight=50,
     is_noop=lambda md: md.width == 0.0,
 ))

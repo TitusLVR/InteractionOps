@@ -171,6 +171,10 @@ _modifiers_classes = (
     iops_mod_stack.IOPS_OT_ModStackAction,
     iops_mod_stack.IOPS_OT_ModGroupToggle,
     iops_mod_sort.IOPS_OT_ModSortStack,
+    iops_mod_sort.IOPS_MT_ModSortAddHead,
+    iops_mod_sort.IOPS_MT_ModSortAddTail,
+    iops_mod_sort.IOPS_OT_ModSortListAdd,
+    iops_mod_sort.IOPS_OT_ModSortListAction,
     iops_mod_cleanup.IOPS_OT_ModCleanup,
     iops_mod_sync_vis.IOPS_OT_ModSyncVis,
     iops_mod_select_users.IOPS_OT_ModSelectTargetUsers,
@@ -319,6 +323,7 @@ from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_hinge import IOPS_OT_mesh_hinge
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
+from .operators.mesh_snapshot import IOPS_OT_mesh_snapshot
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
@@ -434,6 +439,7 @@ classes = (
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
     *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
     iops_mod_list.IOPS_ModGridItem,  # after the defaults it points to
+    iops_mod_sort.IOPS_ModSortItem,
     IOPS_AddonPreferences,
     *_io_widgets_classes,
     IOPS_OT_DrawThemePreview,
@@ -650,6 +656,7 @@ classes = (
     IOPS_OT_mesh_hinge,
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
+    IOPS_OT_mesh_snapshot,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
     IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
     IOPS_OT_SSNew,

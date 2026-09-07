@@ -4,6 +4,7 @@ import bpy
 from ..ui.draw.theme import get_theme, Role
 from ..ui.hud import text as hud_text
 from ..ui.hud.text import draw as hud_text_draw, measure as hud_text_measure
+from .units import format_fixed_length
 
 # Object types whose data block carries material slots — gates the material
 # stat line so empties/lights/cameras don't show a useless "No material".
@@ -86,6 +87,14 @@ def draw_iops_statistics():
         unit_settings = context.scene.unit_settings
 
         def _fmt_len(value):
+            # Honour the scene's fixed length unit (cm, mm, ft...) like
+            # Blender's N-panel does; to_string alone picks an adaptive
+            # unit and shows meters for a centimeter scene.
+            fixed = format_fixed_length(
+                value, unit_settings.system, unit_settings.length_unit,
+                unit_settings.scale_length)
+            if fixed is not None:
+                return fixed
             if unit_settings.system != "NONE":
                 return bpy.utils.units.to_string(
                     unit_settings.system, "LENGTH",
@@ -114,27 +123,38 @@ def draw_iops_statistics():
 
             if (prefs.show_material_stat
                     and active_object.type in _MATERIAL_OBJECT_TYPES):
+                # One row per material slot, as a column under "Mat:".
+                # Active slot bright, others dim, empty slots red; rows
+                # past the prefs cap collapse into a "+N more" line.
                 slots = active_object.material_slots
-                filled = sum(1 for slot in slots if slot.material)
-                mat = active_object.active_material
-                segments = []
-                if mat:
-                    name = mat.name
-                    if prefs.show_material_users_stat and mat.users > 1:
-                        name += f" ({mat.users} users)"
-                    segments.append((f"{name} [{filled}/{len(slots)}]",
-                                     Role.HUD_LABEL_ACTIVE))
-                else:
-                    segments.append(("No material", Role.HUD_STATS_ERROR))
-                if slots and filled < len(slots):
-                    segments.append(("Empty slots", Role.HUD_STATS_ERROR))
                 _t("Mat:", role=Role.HUD_LABEL)
-                col_x = base_column_x
-                for seg_text, seg_role in segments:
-                    _t(seg_text, role=seg_role, x=col_x)
-                    w, _h = _dim(seg_text)
-                    col_x += w + 6
-                offset_y -= row_step
+                if not slots:
+                    _t("No material", role=Role.HUD_STATS_ERROR,
+                       x=base_column_x)
+                    offset_y -= row_step
+                else:
+                    max_rows = max(1, int(getattr(prefs, "show_material_max_rows", 8)))
+                    active_idx = active_object.active_material_index
+                    num_w, _h = _dim("00")
+                    for idx, slot in enumerate(slots[:max_rows]):
+                        _t(str(idx + 1), role=Role.HUD_LABEL, x=base_column_x)
+                        mat = slot.material
+                        if mat is None:
+                            _t("<empty>", role=Role.HUD_STATS_ERROR,
+                               x=base_column_x + num_w + 6)
+                        else:
+                            name = mat.name
+                            if prefs.show_material_users_stat and mat.users > 1:
+                                name += f" ({mat.users} users)"
+                            _t(name,
+                               role=(Role.HUD_LABEL_ACTIVE if idx == active_idx
+                                     else Role.HUD_LABEL),
+                               x=base_column_x + num_w + 6)
+                        offset_y -= row_step
+                    if len(slots) > max_rows:
+                        _t(f"… +{len(slots) - max_rows} more", role=Role.HUD_LABEL,
+                           x=base_column_x)
+                        offset_y -= row_step
 
             if prefs.show_modifiers_stat and active_object.modifiers:
                 mods = active_object.modifiers
