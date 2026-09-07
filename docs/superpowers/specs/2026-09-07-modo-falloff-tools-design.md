@@ -35,16 +35,17 @@ Modo click-drag, tool stays live between drags.
 - **Enter / Space** confirm → `bm.normal_update()`, `update_edit_mesh`, save last-used
   params to `Scene.IOPS`, `bpy.ops.ed.undo_push`, finish.
 - **Esc / RMB** cancel → restore invoke-time originals (all baked drags undone), finish.
-- **Wheel up/down** adjusts the active falloff's scalar: Radial radius, Linear length
-  (moves End along the ramp), Screen px radius, Coplanar angle. Shift = fine step.
+- **Shift+Wheel up/down** adjusts the active falloff's scalar: Radial radius, Linear length
+  (moves End along the ramp), Screen px radius, Coplanar angle. Ctrl+Shift+Wheel = fine
+  step. Plain wheel passes through for viewport zoom.
 - **Shift** during transform drag = precise (×0.1). **Ctrl** = snap (move: 0.1 unit steps,
   rotate: 5°, scale: 0.1).
 - **Digits / minus / period / backspace** = numeric amount for the transform (existing
   `DIGIT_TYPES` idiom); Enter applies and confirms.
 - **X / Y / Z** = constrain move/scale to an object axis, or set the rotation axis.
   Press again to clear. Rotate default axis = view axis.
-- Navigation keys pass through (`MIDDLEMOUSE`, wheel is *not* passed through here —
-  it is claimed for radius; `NDOF*`, `TRACKPAD*` pass).
+- Navigation passes through: `MIDDLEMOUSE`, unmodified `WHEELUPMOUSE`/`WHEELDOWNMOUSE`,
+  `NDOF*`, `TRACKPAD*`.
 - **H** help overlay, **/** HUD params toggle via the shared `handle_*` calls.
 
 ### Falloff hotkeys (HUD "Falloff" section, `HUDItem` per row, active row highlighted)
@@ -84,11 +85,11 @@ plus a short perpendicular tick at each end.
 **Screen** — centre = mouse position at LMB press (region px), radius `r_px`.
 `w = 1 − ‖proj(p) − mouse‖ / r_px` where `proj` = `location_3d_to_region_2d` of the
 world-space vert; verts behind the camera or off-region get 0. Re-centres on every drag
-(Modo Soft Drag). No handles; wheel sets `r_px`. Draws a 2D ring at the last centre.
+(Modo Soft Drag). No handles; Shift+Wheel sets `r_px`. Draws a 2D ring at the last centre.
 
 **Coplanar** — reference normal `n_ref` = normalised mean of selected face normals; with an
 edge-only selection use the mean of the faces adjacent to the selected edges. Angle range
-`α` (default 15°). Per-face weight `w_f = 1 − angle(n_f, n_ref)/α`; per-vertex weight =
+`α` (default 5°). Per-face weight `w_f = 1 − angle(n_f, n_ref)/α`; per-vertex weight =
 max over its faces. Affected set = all verts of faces with `w_f > 0`, plus the original
 selection at weight 1. With Element on, only faces reachable from the selection by walking
 across edges between faces with `w_f > 0` participate (region grow). Coplanar row is
@@ -134,7 +135,7 @@ weights `W` (N×1):
   `α`), drag phase, numeric input, hotspots.
 - `Scene.IOPS` last-used (read at invoke, written at confirm): `falloff_type` (enum),
   `falloff_shape` (enum), `falloff_invert`, `falloff_connected`, `falloff_preview`,
-  `falloff_screen_radius_px` (default 150), `falloff_coplanar_angle` (default 15°).
+  `falloff_screen_radius_px` (default 150), `falloff_coplanar_angle` (default 5°).
   Geometry is never persisted; auto-fit rebuilds it.
 
 ## Undo / safety
