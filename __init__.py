@@ -321,6 +321,9 @@ from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
 from .operators.mesh_smart_inset import IOPS_OT_smart_inset
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_hinge import IOPS_OT_mesh_hinge
+from .operators.falloff.ops import (IOPS_OT_mesh_falloff_move,
+                                    IOPS_OT_mesh_falloff_rotate,
+                                    IOPS_OT_mesh_falloff_scale)
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
 from .operators.mesh_snapshot import IOPS_OT_mesh_snapshot
@@ -654,6 +657,9 @@ classes = (
     IOPS_OT_smart_inset,
     IOPS_OT_mesh_shear,
     IOPS_OT_mesh_hinge,
+    IOPS_OT_mesh_falloff_move,
+    IOPS_OT_mesh_falloff_rotate,
+    IOPS_OT_mesh_falloff_scale,
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
     IOPS_OT_mesh_snapshot,

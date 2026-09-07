@@ -131,6 +131,7 @@ nav:
           - Shear: operators/op_mesh_shear.md
           - Quick Connect: operators/op_mesh_quick_connect.md
           - Hinge: operators/op_mesh_hinge.md
+          - Falloff Move / Rotate / Scale: operators/op_mesh_falloff_tools.md
           - Converge: operators/op_mesh_converge.md
           - Vert Fuse: operators/op_mesh_vert_fuse.md
           - Mesh Snapshot: operators/op_mesh_snapshot.md

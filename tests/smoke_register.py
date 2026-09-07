@@ -14,6 +14,9 @@ for op_name in (
     "library_insert_asset",
     "library_remove_asset",
     "library_popup",
+    "mesh_falloff_move",
+    "mesh_falloff_rotate",
+    "mesh_falloff_scale",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
 

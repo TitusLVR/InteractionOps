@@ -10,10 +10,12 @@ Sizes/widths auto-derive from the role's state:
 Callers wrap calls in `draw_scope(...)` to control blend/depth state.
 """
 from __future__ import annotations
-from typing import Sequence
+import math
+from collections.abc import Sequence
 
 import gpu
 from gpu_extras.batch import batch_for_shader
+from mathutils import Vector
 
 from . import shaders
 from .theme import Role, Theme, get_theme
@@ -128,3 +130,42 @@ def rect_2d(x: float, y: float, w: float, h: float, *,
     coords = [(x, y), (x + w, y), (x + w, y + h),
               (x, y), (x + w, y + h), (x, y + h)]
     tris(coords, role=role, color=color, theme=theme, context=context)
+
+
+def ring_3d(center, normal, radius: float, *, role: Role | None = None,
+            color: tuple[float, float, float, float] | None = None,
+            width: str | None = None, segments: int = 64,
+            theme: Theme | None = None, context=None) -> None:
+    """Closed circle of `radius` around `center` in the plane
+    perpendicular to `normal`. Coordinates are in the space the current
+    gpu.matrix stack expects (world space inside a POST_VIEW handler)."""
+    n = Vector(normal)
+    if n.length_squared < 1e-18:
+        return
+    n.normalize()
+    u = n.orthogonal().normalized()
+    v = n.cross(u)
+    c = Vector(center)
+    pts = []
+    step = 2.0 * math.pi / max(3, int(segments))
+    for i in range(max(3, int(segments))):
+        a = i * step
+        pts.append(c + (u * math.cos(a) + v * math.sin(a)) * radius)
+    pts.append(pts[0])
+    polyline(pts, role=role, color=color, width=width, theme=theme,
+             context=context)
+
+
+def points_colored(coords: Sequence, colors: Sequence, *,
+                   size: float = 6.0) -> None:
+    """Per-point RGBA colours (weight previews). `colors` is one 4-tuple
+    per coord."""
+    if not coords:
+        return
+    shader = shaders.point_flat_color()
+    batch = batch_for_shader(shader, "POINTS",
+                             {"pos": list(coords), "color": list(colors)})
+    shader.bind()
+    shader.uniform_float("size", float(size))
+    gpu.state.point_size_set(float(size))
+    batch.draw(shader)
