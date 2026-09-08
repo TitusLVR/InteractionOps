@@ -406,8 +406,6 @@ def _compute_screen_handles(op, context):
 def draw_3d_callback(op, context):
     if context.area != op._area:
         return
-    if op._clean_view:
-        return
     import gpu
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
@@ -416,7 +414,10 @@ def draw_3d_callback(op, context):
     gpu.state.depth_mask_set(False)
 
     fill_select, fill_active = _blender_fill_colors()
-    for idx, idata in enumerate(op.islands_data):
+    # Clean view hides the island fills and outlines so textures stay
+    # readable; the hovered edge and the stitch edges are still drawn.
+    islands = [] if op._clean_view else op.islands_data
+    for idx, idata in enumerate(islands):
         geo = idata.get('geo3d')
         if not geo:
             continue
