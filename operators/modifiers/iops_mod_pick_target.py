@@ -48,8 +48,9 @@ _BBOX_EDGES = ((0, 1), (1, 2), (2, 3), (3, 0),
 _STATUS_PICK = ("LMB: pick target object · Alt: also on selection · "
                 "C: empty target at 3D cursor · Esc / RMB: cancel")
 _STATUS_CURSOR = ("LMB: snap to vert / edge-mid / center · "
-                  "Enter / Space: keep at cursor · Alt: also on selection · "
-                  "C: back to object pick · Esc / RMB: cancel")
+                  "Enter / Space: keep at cursor · P: parent empty to object · "
+                  "Alt: also on selection · C: back to object pick · "
+                  "Esc / RMB: cancel")
 
 
 def _build_hud(op, region):
@@ -64,6 +65,9 @@ def _build_hud(op, region):
         "Target", lambda: op._hud_target_label(), "str"))
     hud.add_param(HUDParam(
         "On selection", lambda: op._on_selection(), "bool"))
+    hud.add_param(HUDParam(
+        "Parent empty", lambda: op.parent_helper, "bool",
+        visible_getter=lambda: op.cursor_pick))
     hud.bind_region(region)
     return hud
 
@@ -75,6 +79,7 @@ def _build_help(region):
         HUDItem("Empty target at 3D cursor / back to object pick", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Snap empty to vert / edge-mid / center (cursor mode)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Keep empty at cursor (cursor mode)", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Parent the empty to the object (cursor mode)", "P", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Also set on selected objects' matching modifier", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -417,10 +422,20 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                 count += 1
         return count
 
+    def _parent_empty(self, empty):
+        """Optional: make the C-created empty a child of the modified
+        object, keeping its world transform, so it travels with the
+        object and lives under it in the outliner."""
+        empty.parent = self._obj
+        empty.matrix_parent_inverse = self._obj.matrix_world.inverted()
+
     def _commit(self, context, md, target, how):
         n = 1
         if self._on_selection():
             n = self._assign_selection(context, md, target)
+        if target is not None and target == self._empty and self.parent_helper:
+            self._parent_empty(target)
+            how += f", parented to {self._obj.name}"
         suffix = f" on {n} objects" if n > 1 else ""
         self.report({"INFO"},
                     f"{md.name}: target = {target.name}{how}{suffix}")
@@ -474,6 +489,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         self._wire_cache = {}            # obj pointer -> (wire, tris, has_faces)
         self._fill_cache = None          # (key, coords) for _fill_coords
         self.cursor_pick = False
+        self.parent_helper = False       # P: parent the C-empty to the object
         self._tpick = None
         self._hud = _build_hud(self, region)
         self._help = _build_help(region)
@@ -523,7 +539,9 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         return {"CANCELLED"} if cancelled else {"FINISHED"}
 
     def _spawn_empty_at_cursor(self, context, md):
-        empty = bpy.data.objects.new(f"iops_target_{md.type.lower()}", None)
+        # "<object>_<modifier>_target": the helper is easy to find in the
+        # outliner and tells which object / modifier it belongs to
+        empty = bpy.data.objects.new(f"{self._obj.name}_{md.name}_target", None)
         empty.empty_display_type = "PLAIN_AXES"
         empty.empty_display_size = 0.5
         context.collection.objects.link(empty)
@@ -586,6 +604,12 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                                        self._region, self._rv3d,
                                        exclude={self._obj})
             context.workspace.status_text_set(_STATUS_PICK)
+            self._region.tag_redraw()
+            return {"RUNNING_MODAL"}
+
+        if (self.cursor_pick and event.type == "P"
+                and event.value == "PRESS"):
+            self.parent_helper = not self.parent_helper
             self._region.tag_redraw()
             return {"RUNNING_MODAL"}
 
