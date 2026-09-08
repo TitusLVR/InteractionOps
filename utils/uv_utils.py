@@ -466,23 +466,22 @@ def match_texel_density(bm, ref_island_indices, target_island_indices, uv_layer)
 
 
 def match_island_dimensions(target_loops, uv_layer, target_bbox_min,
-                            target_bbox_max, ref_bbox_min, ref_bbox_max):
-    """Scale and move *target* island so its bounding box matches *ref*."""
+                            target_bbox_max, ref_bbox_min, ref_bbox_max,
+                            mode='UNIFORM'):
+    """Scale *target* island in place (around its own bbox centre) so its
+    size matches *ref*. mode: 'UNIFORM' (long side to long side, shape
+    kept), 'WIDTH' or 'HEIGHT' (that axis only)."""
+    from .uv_match_core import dimension_scale
     tw = target_bbox_max.x - target_bbox_min.x
     th = target_bbox_max.y - target_bbox_min.y
     rw = ref_bbox_max.x - ref_bbox_min.x
     rh = ref_bbox_max.y - ref_bbox_min.y
-
-    sx = rw / tw if abs(tw) > 1e-10 else 1.0
-    sy = rh / th if abs(th) > 1e-10 else 1.0
-
+    sx, sy = dimension_scale(tw, th, rw, rh, mode)
+    if sx == 1.0 and sy == 1.0:
+        return
     tc = Vector(((target_bbox_min.x + target_bbox_max.x) * 0.5,
                  (target_bbox_min.y + target_bbox_max.y) * 0.5))
     scale_island_uv(target_loops, uv_layer, tc, sx, sy)
-
-    rc = Vector(((ref_bbox_min.x + ref_bbox_max.x) * 0.5,
-                 (ref_bbox_min.y + ref_bbox_max.y) * 0.5))
-    move_island_uv(target_loops, uv_layer, rc - tc)
 
 
 def randomize_island_uv(loops, uv_layer, bbox_min, bbox_max, mode='UV'):

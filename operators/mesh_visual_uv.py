@@ -649,7 +649,7 @@ def _build_visual_uv_hud(context):
         HUDItem("Place UV cursor",      "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active island",        "LMB / Tab",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Align",                "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match dimensions",     "D",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Match size / W / H",   "D / Sh+D / Ct+D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip H / V",           "F / Shift+F",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Randomize UV / U / V", "N / Sh+N / Ct+N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Unwrap (seams)",       "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1988,6 +1988,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             if not ((0 <= ai < len(self.islands_data)) and targets):
                 return {'RUNNING_MODAL'}
             self._push_undo()
+            mode = ('WIDTH' if event.shift
+                    else 'HEIGHT' if event.ctrl else 'UNIFORM')
             ref = self.islands_data[ai]
             for si in targets:
                 if 0 <= si < len(self.islands_data):
@@ -1995,10 +1997,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     match_island_dimensions(
                         tgt['loops'], self.uv_layer,
                         tgt['bbox_min'], tgt['bbox_max'],
-                        ref['bbox_min'], ref['bbox_max'])
+                        ref['bbox_min'], ref['bbox_max'], mode)
             self._update_mesh(context)
             self.report({'INFO'},
-                        f"Matched dimensions of {len(targets)} to active")
+                        f"Matched {mode.lower()} of {len(targets)} to active")
             return {'RUNNING_MODAL'}
 
         if event.type == 'Q':
