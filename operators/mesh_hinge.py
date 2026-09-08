@@ -47,7 +47,7 @@ from ..utils.picking import closest_edge_screen
 from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
                          chains_from_edges, chain_normal, profile_principal_axes,
                          records_for_faces, records_for_edges, ExtrudeMixin,
-                         bbox_basis)
+                         bbox_basis, BBOX_SPACES, BBOX_SPACE_LABELS)
 
 
 class _Pt:
@@ -207,6 +207,7 @@ mouse, baking the sweep as segments"""
             HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bbox space (OBB/Local/World/Cursor)", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Bake + continue", "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Finish",          "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -296,12 +297,14 @@ mouse, baking the sweep as segments"""
             if box_normal is not None:
                 # Keep flush/sign reference consistent with the box plane.
                 self._orig_normal = box_normal
-        # Same bbox space as Shear (Scene.IOPS.shear_bbox_space).
-        self._bbox_basis = bbox_basis(context, self.obj,
-                                      context.scene.IOPS.shear_bbox_space)
-        self._bbox = [_LineCandidate(a, b)
-                      for a, b in _bbox_sides(orig_cos, box_normal,
-                                              self._bbox_basis)]
+        # Same bbox space as Shear (Scene.IOPS.shear_bbox_space); S
+        # cycles it, the choice survives re-syncs and is saved on bake.
+        if not hasattr(self, "_bbox_space"):
+            self._bbox_space = context.scene.IOPS.shear_bbox_space
+            if self._bbox_space not in BBOX_SPACES:
+                self._bbox_space = "OBB"
+        self._box_normal = box_normal
+        self._rebuild_bbox(context)
 
         if not hasattr(self, "_steps"):
             props = context.scene.IOPS
@@ -398,6 +401,34 @@ mouse, baking the sweep as segments"""
         self._center = center.copy()
         self._axis_pts = (v0.co.copy(), v1.co.copy())
         return True
+
+    def _rebuild_bbox(self, context):
+        """Four bbox side candidates of the selection in the current
+        bbox space (see mesh_shear.bbox_basis)."""
+        self._bbox_basis = bbox_basis(context, self.obj, self._bbox_space)
+        self._bbox = [_LineCandidate(a, b)
+                      for a, b in _bbox_sides(self._orig_cos, self._box_normal,
+                                              self._bbox_basis)]
+
+    def _bbox_space_cycle(self, context):
+        """S: cycle the bbox space (min-OBB -> local -> world -> cursor)
+        and rebuild the bbox sides. In bbox-axis mode the axis is
+        re-picked from the new sides under the mouse."""
+        i = BBOX_SPACES.index(self._bbox_space)
+        self._bbox_space = BBOX_SPACES[(i + 1) % len(BBOX_SPACES)]
+        self._rebuild_bbox(context)
+        if not self._bbox_mode:
+            return
+        if not self._bbox:
+            self._bbox_mode = False
+            self._edges = self._edge_candidates
+            self.report({"INFO"}, "hinge: selection has no bbox plane")
+            return
+        self._edges = self._bbox
+        edge = self._pick_edge(context)
+        if edge is None:
+            edge = self._edges[0]
+        self._set_axis(edge)
 
     def _bbox_toggle(self, context):
         """B: swap the axis candidates between the mesh edges (+ virtual
@@ -518,6 +549,7 @@ mouse, baking the sweep as segments"""
             f"{' | FLUSH: aim at a face' if self._flush_active else ''}"
             f"{' | axis: bbox' if self._bbox_mode else ''} | "
             "[Move] pick axis | [B] bbox sides | "
+            f"[S] bbox space: {BBOX_SPACE_LABELS[self._bbox_space]} | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | [E] extrude | "
             "[LMB/Enter] bake (stay) | [Esc/RMB] finish"
@@ -614,6 +646,9 @@ mouse, baking the sweep as segments"""
             elif event.type == "B":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._bbox_toggle(context)
+            elif event.type == "S":
+                self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+                self._bbox_space_cycle(context)
             elif event.type == "E":
                 basis = getattr(self, "_bbox_basis", None)
                 if self.mode == "face":
@@ -650,6 +685,7 @@ mouse, baking the sweep as segments"""
         props = context.scene.IOPS
         props.shear_hinge_last_angle = math.degrees(angle_rad)
         props.shear_hinge_last_steps = self._steps
+        props.shear_bbox_space = self._bbox_space
 
         bm = self.bm
         axis_edge = self._axis_edge
@@ -960,7 +996,8 @@ mouse, baking the sweep as segments"""
             return
         lines = [f"Mode: {self.mode}",
                  f"Angle: {self._effective_angle():.2f}°",
-                 f"Steps: {self._steps}"]
+                 f"Steps: {self._steps}",
+                 f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
         if self.input_str:
             lines.append(f"Typing: {self.input_str}")
         hud.set_header(*lines)
