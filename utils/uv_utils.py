@@ -8,12 +8,14 @@ def get_uv_layer(bm):
     return bm.loops.layers.uv.verify()
 
 
-def get_selected_face_islands(bm, uv_layer, seed_faces=None):
+def get_selected_face_islands(bm, uv_layer, seed_faces=None,
+                              restrict_to=None):
     """
     Detect complete UV islands that contain at least one seed face
     (default seeds: the selected faces). Walks UV connectivity across ALL
     mesh faces so that partially-selected islands are expanded to their
-    full extent.
+    full extent -- unless restrict_to (iterable of face indices) is given,
+    in which case only those faces take part in the connectivity.
     Returns list of islands (each a set of face indices) and a UV-to-faces map.
     """
     if seed_faces is None:
@@ -23,10 +25,16 @@ def get_selected_face_islands(bm, uv_layer, seed_faces=None):
     if not selected_set:
         return [], {}
 
-    # Build UV connectivity across the entire mesh.
+    if restrict_to is None:
+        faces = list(bm.faces)
+    else:
+        allowed = set(restrict_to)
+        faces = [f for f in bm.faces if f.index in allowed]
+
+    # Build UV connectivity across the participating faces.
     # Key = (vert_index, rounded_u, rounded_v) identifies a UV "weld point".
     uv_to_faces = {}
-    for f in bm.faces:
+    for f in faces:
         for loop in f.loops:
             uv = loop[uv_layer].uv
             key = (loop.vert.index, round(uv.x, 6), round(uv.y, 6))
@@ -35,7 +43,7 @@ def get_selected_face_islands(bm, uv_layer, seed_faces=None):
             uv_to_faces[key].add(f.index)
 
     face_to_neighbors = {}
-    for f in bm.faces:
+    for f in faces:
         neighbors = set()
         for loop in f.loops:
             uv = loop[uv_layer].uv

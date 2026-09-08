@@ -760,7 +760,20 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.bm = bmesh.from_edit_mesh(obj.data)
         self.uv_layer = get_uv_layer(self.bm)
         world = obj.matrix_world
-        islands, _ = get_selected_face_islands(self.bm, self.uv_layer)
+        if self.islands:
+            # Mid-session rebuild: keep the island partition stable.
+            # Re-flood each island only within its own faces so islands
+            # may split (after an unwrap) but never merge -- a stitched
+            # island whose UVs now coincide with its neighbour stays a
+            # separate island the user can keep working on.
+            islands = []
+            for old in self.islands:
+                parts, _ = get_selected_face_islands(
+                    self.bm, self.uv_layer, seed_faces=old,
+                    restrict_to=old)
+                islands.extend(parts)
+        else:
+            islands, _ = get_selected_face_islands(self.bm, self.uv_layer)
         self.islands = islands
         self.islands_data = []
         for island in islands:
