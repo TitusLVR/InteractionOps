@@ -467,18 +467,22 @@ def match_texel_density(bm, ref_island_indices, target_island_indices, uv_layer)
 
 def match_island_dimensions(target_loops, uv_layer, target_bbox_min,
                             target_bbox_max, ref_bbox_min, ref_bbox_max,
-                            mode='UNIFORM'):
-    """Scale *target* island so its size matches *ref* and lay it onto the
-    reference (bbox centres coincide). mode: 'UNIFORM' (long side to long
-    side, shape kept), 'WIDTH' or 'HEIGHT' (that axis only)."""
-    from .uv_match_core import dimension_scale
+                            mode='BOTH'):
+    """Fit *target* island onto *ref*: turn it 90 degrees if the two are
+    transposed (landscape vs portrait), scale so its bbox matches the
+    reference bbox, then lay it on the reference (bbox centres coincide).
+    mode: 'BOTH' (both axes), 'WIDTH' or 'HEIGHT' (that axis only,
+    measured after the turn), 'UNIFORM' (long side to long side)."""
+    from .uv_match_core import dimension_fit
     tw = target_bbox_max.x - target_bbox_min.x
     th = target_bbox_max.y - target_bbox_min.y
     rw = ref_bbox_max.x - ref_bbox_min.x
     rh = ref_bbox_max.y - ref_bbox_min.y
-    sx, sy = dimension_scale(tw, th, rw, rh, mode)
+    rotate, sx, sy = dimension_fit(tw, th, rw, rh, mode)
     tc = Vector(((target_bbox_min.x + target_bbox_max.x) * 0.5,
                  (target_bbox_min.y + target_bbox_max.y) * 0.5))
+    if rotate:
+        rotate_island_uv(target_loops, uv_layer, tc, math.pi / 2)
     scale_island_uv(target_loops, uv_layer, tc, sx, sy)
     rc = Vector(((ref_bbox_min.x + ref_bbox_max.x) * 0.5,
                  (ref_bbox_min.y + ref_bbox_max.y) * 0.5))

@@ -649,7 +649,7 @@ def _build_visual_uv_hud(context):
         HUDItem("Place UV cursor",      "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active island",        "LMB / Tab",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Align",                "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match size / W / H",   "D / Sh+D / Ct+D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Fit to active / W / H", "D / Sh+D / Ct+D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip H / V",           "F / Shift+F",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Randomize UV / U / V", "N / Sh+N / Ct+N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Unwrap (seams)",       "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1110,6 +1110,15 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.report({'WARNING'}, "No UV islands found on selected faces")
             return {'CANCELLED'}
         self.selected_islands = set(range(len(self.islands_data)))
+        # The island holding the mesh's active face starts as the active
+        # island, so reference-based actions (D, density, align) use the
+        # face the user marked active instead of an arbitrary first island.
+        active_face = self.bm.faces.active
+        if active_face is not None:
+            for idx, idata in enumerate(self.islands_data):
+                if active_face.index in idata['face_indices']:
+                    self.active_island_idx = idx
+                    break
 
         self._overlay_was_on = context.space_data.overlay.show_overlays
         # Clean view (the Q mode) is on by default: Blender overlays and
@@ -1989,7 +1998,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
             self._push_undo()
             mode = ('WIDTH' if event.shift
-                    else 'HEIGHT' if event.ctrl else 'UNIFORM')
+                    else 'HEIGHT' if event.ctrl else 'BOTH')
             ref = self.islands_data[ai]
             for si in targets:
                 if 0 <= si < len(self.islands_data):
