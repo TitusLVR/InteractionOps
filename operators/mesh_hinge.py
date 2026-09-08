@@ -208,12 +208,17 @@ mouse, baking the sweep as segments"""
         # follows it live; the axis edge stops re-picking meanwhile.
         self._flush_active = False
         self._flush_face = None
+        # Q: lock the picked axis edge so mouse moves stop re-picking
+        # (the lock survives bakes; the axis is re-synced once on the
+        # new cap and then stays put again).
+        self._axis_locked = False
         self._hud = HUDOverlay("mesh_hinge")
         self._hud.title = "Hinge"
         self._hud.bind_region(context.region)
         self._help = HelpOverlay("mesh_hinge")
         self._help.add_section(HUDSection("Hinge", [
             HUDItem("Axis = edge under mouse", "Move",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Lock picked axis (toggle)", "Q",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -647,8 +652,10 @@ mouse, baking the sweep as segments"""
             f"steps: {self._steps}{typed}"
             f"{' | FLUSH: aim at a face' if self._flush_active else ''}"
             f"{' | axis: bbox' if self._bbox_mode else ''}"
+            f"{' | AXIS LOCKED' if self._axis_locked else ''}"
             f"{self._pivot_status()} | "
-            "[Move] pick axis | [LMB drag handle] move hinge line | [X] reset | "
+            "[Move] pick axis | [Q] lock axis | "
+            "[LMB drag handle] move hinge line | [X] reset | "
             "[B] bbox sides | "
             f"[S] bbox space: {BBOX_SPACE_LABELS[self._bbox_space]} | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
@@ -720,7 +727,8 @@ mouse, baking the sweep as segments"""
             if self._flush_active:
                 self._flush_update(context)
                 context.workspace.status_text_set(self._status_text())
-            elif self._pivot_hover_update(*self._mouse_xy) is None:
+            elif (self._pivot_hover_update(*self._mouse_xy) is None
+                  and not self._axis_locked):
                 # Hovering a handle freezes the axis pick so the
                 # handle can be grabbed without the edge jumping away.
                 self._repick(context)
@@ -764,6 +772,8 @@ mouse, baking the sweep as segments"""
                 self._bbox_space_cycle(context)
             elif event.type == "X":
                 self._pivot_reset()
+            elif event.type == "Q":
+                self._axis_locked = not self._axis_locked
             elif event.type == "LEFTMOUSE" and self._pivot_hover is not None:
                 # Grab a hinge-line handle instead of baking.
                 self._pivot_grab = self._pivot_hover
@@ -1167,6 +1177,8 @@ mouse, baking the sweep as segments"""
                  f"Angle: {self._effective_angle():.2f}°",
                  f"Steps: {self._steps}",
                  f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
+        if self._axis_locked:
+            lines.append("Axis: LOCKED")
         if self._pivot_offset_active():
             lines.append(f"Hinge offset: {self._pivot_off[0]:.4f} / {self._pivot_off[1]:.4f}")
         if self.input_str:
