@@ -185,6 +185,19 @@ mouse, baking the sweep as segments"""
         self.records = []
         self._extrude_init_state()
         self._saved_extrude_distance = context.scene.IOPS.shear_extrude_last_distance
+        # Hinge-line offset from the picked edge, in the edge's own
+        # frame: [across the profile plane (toward the selection),
+        # along the profile normal]. Dragging the two axis handles at
+        # the axis midpoint edits it; it carries over to whichever edge
+        # is picked next and survives bakes, X resets it.
+        self._pivot_off = [0.0, 0.0]
+        self._pivot_u = None
+        self._pivot_n = None
+        self._pivot_heads = [None, None]     # region pts of the handle heads
+        self._pivot_hover = None             # 0 / 1 / None
+        self._pivot_grab = None              # 0 / 1 / None while dragging
+        self._pivot_start_xy = (0.0, 0.0)
+        self._pivot_grab_off = 0.0
         if not self._sync_selection(context, event):
             self.report({"WARNING"}, "Hinge: select faces or edges")
             return {"CANCELLED"}
@@ -208,6 +221,8 @@ mouse, baking the sweep as segments"""
             HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Bbox space (OBB/Local/World/Cursor)", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Move hinge line (drag handle)", "LMB drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Reset hinge line offset", "X",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Bake + continue", "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Finish",          "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -388,19 +403,97 @@ mouse, baking the sweep as segments"""
         # centroid toward its own normal (lifts a face off its plane),
         # independent of the axis edge's vert order.
         n = self._orig_normal
+        centroid = Vector((0.0, 0.0, 0.0))
+        for co in self._orig_cos:
+            centroid += co
+        centroid /= max(1, len(self._orig_cos))
         if n is not None:
-            centroid = Vector((0.0, 0.0, 0.0))
-            for co in self._orig_cos:
-                centroid += co
-            centroid /= max(1, len(self._orig_cos))
             tangent = axis.cross(centroid - center)
             if tangent.length > 1e-9 and tangent.dot(n) < 0:
                 axis = -axis
         self._axis_edge = edge
         self._axis = axis
-        self._center = center.copy()
-        self._axis_pts = (v0.co.copy(), v1.co.copy())
+        self._axis_base_center = center.copy()
+        self._axis_base_pts = (v0.co.copy(), v1.co.copy())
+        # Handle frame: u = across the profile plane, pointing from the
+        # edge toward the selection; n = the profile normal. Both are
+        # perpendicular to the axis so an offset never changes the
+        # spin direction, only where the hinge line sits.
+        self._pivot_u = None
+        self._pivot_n = None
+        if n is not None and n.length > 1e-9:
+            nn = n.normalized()
+            nn = nn - nn.dot(axis) * axis
+            u = nn.cross(axis) if nn.length > 1e-9 else Vector((0.0, 0.0, 0.0))
+            if nn.length > 1e-9 and u.length > 1e-9:
+                u.normalize()
+                if u.dot(centroid - center) < 0:
+                    u = -u
+                self._pivot_u = u
+                self._pivot_n = nn.normalized()
+        self._pivot_apply()
         return True
+
+    # ------------------------------------------------------------------
+    # Hinge-line offset (drag handles)
+    # ------------------------------------------------------------------
+
+    def _pivot_dirs(self):
+        return (self._pivot_u, self._pivot_n)
+
+    def _pivot_offset_active(self):
+        return (self._pivot_u is not None
+                and (abs(self._pivot_off[0]) > 1e-9 or abs(self._pivot_off[1]) > 1e-9))
+
+    def _pivot_apply(self):
+        """Place the hinge line = picked edge shifted by the offset."""
+        shift = Vector((0.0, 0.0, 0.0))
+        if self._pivot_u is not None:
+            shift = self._pivot_u * self._pivot_off[0] + self._pivot_n * self._pivot_off[1]
+        self._center = self._axis_base_center + shift
+        a, b = self._axis_base_pts
+        self._axis_pts = (a + shift, b + shift)
+
+    def _pivot_reset(self):
+        self._pivot_off = [0.0, 0.0]
+        self._pivot_grab = None
+        if getattr(self, "_axis", None) is not None:
+            self._pivot_apply()
+
+    def _pivot_hover_update(self, mx, my):
+        HANDLE_PX = 14.0
+        hover = None
+        for i, hp in enumerate(self._pivot_heads):
+            if hp is None:
+                continue
+            dx, dy = mx - hp[0], my - hp[1]
+            if dx * dx + dy * dy <= HANDLE_PX * HANDLE_PX:
+                hover = i
+                break
+        self._pivot_hover = hover
+        return hover
+
+    def _pivot_drag(self, context, event):
+        """Handle drag: mouse delta since the grab projected onto the
+        handle's on-screen direction, converted to object units at
+        the hinge line (same scheme as the extrude arrow). Shift =
+        precise (x0.1)."""
+        idx = self._pivot_grab
+        d = self._pivot_dirs()[idx]
+        if d is None:
+            return
+        screen_dir = self._screen_direction(context, self._center, d)
+        unit_px = self._extrude_unit_px(context, self._center, d)
+        dx = event.mouse_region_x - self._pivot_start_xy[0]
+        dy = event.mouse_region_y - self._pivot_start_xy[1]
+        projected = dx if screen_dir is None else dx * screen_dir[0] + dy * screen_dir[1]
+        if unit_px is None:
+            unit_px = 100.0
+        delta = projected / unit_px
+        if event.shift:
+            delta *= 0.1
+        self._pivot_off[idx] = self._pivot_grab_off + delta
+        self._pivot_apply()
 
     def _rebuild_bbox(self, context):
         """Four bbox side candidates of the selection in the current
@@ -535,6 +628,12 @@ mouse, baking the sweep as segments"""
     # Modal
     # ------------------------------------------------------------------
 
+    def _pivot_status(self):
+        if not self._pivot_offset_active():
+            return ""
+        return (f" | hinge offset: across {self._pivot_off[0]:.4f} "
+                f"normal {self._pivot_off[1]:.4f}")
+
     def _status_text(self):
         if getattr(self, "_extrude_active", False):
             return (
@@ -547,8 +646,10 @@ mouse, baking the sweep as segments"""
             f"Hinge ({self.mode}): {self._effective_angle():.2f}° | "
             f"steps: {self._steps}{typed}"
             f"{' | FLUSH: aim at a face' if self._flush_active else ''}"
-            f"{' | axis: bbox' if self._bbox_mode else ''} | "
-            "[Move] pick axis | [B] bbox sides | "
+            f"{' | axis: bbox' if self._bbox_mode else ''}"
+            f"{self._pivot_status()} | "
+            "[Move] pick axis | [LMB drag handle] move hinge line | [X] reset | "
+            "[B] bbox sides | "
             f"[S] bbox space: {BBOX_SPACE_LABELS[self._bbox_space]} | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | [E] extrude | "
@@ -612,11 +713,23 @@ mouse, baking the sweep as segments"""
 
         if event.type == "MOUSEMOVE":
             self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+            if self._pivot_grab is not None:
+                self._pivot_drag(context, event)
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
             if self._flush_active:
                 self._flush_update(context)
                 context.workspace.status_text_set(self._status_text())
-            else:
+            elif self._pivot_hover_update(*self._mouse_xy) is None:
+                # Hovering a handle freezes the axis pick so the
+                # handle can be grabbed without the edge jumping away.
                 self._repick(context)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self._pivot_grab is not None:
+                self._pivot_grab = None
+                context.workspace.status_text_set(self._status_text())
             return {"RUNNING_MODAL"}
 
         if event.value == "PRESS":
@@ -649,6 +762,13 @@ mouse, baking the sweep as segments"""
             elif event.type == "S":
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._bbox_space_cycle(context)
+            elif event.type == "X":
+                self._pivot_reset()
+            elif event.type == "LEFTMOUSE" and self._pivot_hover is not None:
+                # Grab a hinge-line handle instead of baking.
+                self._pivot_grab = self._pivot_hover
+                self._pivot_start_xy = (event.mouse_region_x, event.mouse_region_y)
+                self._pivot_grab_off = self._pivot_off[self._pivot_grab]
             elif event.type == "E":
                 basis = getattr(self, "_bbox_basis", None)
                 if self.mode == "face":
@@ -661,7 +781,12 @@ mouse, baking the sweep as segments"""
             elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
                 return self._confirm(context)
             elif event.type in {"RIGHTMOUSE", "ESC"}:
-                if self._flush_active:
+                if self._pivot_grab is not None:
+                    # Cancel the handle drag only (offset restored).
+                    self._pivot_off[self._pivot_grab] = self._pivot_grab_off
+                    self._pivot_grab = None
+                    self._pivot_apply()
+                elif self._flush_active:
                     # First Esc only leaves flush mode (angle kept).
                     self._flush_toggle(context)
                 else:
@@ -689,11 +814,15 @@ mouse, baking the sweep as segments"""
 
         bm = self.bm
         axis_edge = self._axis_edge
+        # With the hinge line moved off the picked edge, that edge is
+        # ordinary profile geometry again and spins with the rest.
+        axis_stays = not self._pivot_offset_active()
         if self.mode == "face":
             # Flap case (every face at the hinge edge is selected): drop
             # the edge from the selection so spin bends the flap instead
             # of extruding a wall from the hinge line.
-            if (axis_edge is not None and axis_edge.is_valid and axis_edge.link_faces
+            if (axis_stays and axis_edge is not None and axis_edge.is_valid
+                    and axis_edge.link_faces
                     and all(f.select for f in axis_edge.link_faces)):
                 axis_edge.select = False
                 axis_edge.verts[0].select = False
@@ -706,7 +835,7 @@ mouse, baking the sweep as segments"""
             # Edge mode: the axis edge stays put; every other selected
             # edge sweeps into a wall.
             edges = [e for e in self._geom_edges
-                     if e.is_valid and e is not axis_edge]
+                     if e.is_valid and (e is not axis_edge or not axis_stays)]
             vert_set = set()
             for e in edges:
                 vert_set.update(e.verts)
@@ -734,7 +863,7 @@ mouse, baking the sweep as segments"""
         # join the ring snapshot so whatever edge survives the weld
         # between them gets selected (the original BMEdge is spliced
         # away when its verts absorb their spun copies).
-        if (self.mode == "edge" and axis_edge is not None
+        if (self.mode == "edge" and axis_stays and axis_edge is not None
                 and not getattr(axis_edge, "is_virtual", False)):
             last_cos.extend(v.co.copy() for v in axis_edge.verts)
         if seed:
@@ -869,6 +998,8 @@ mouse, baking the sweep as segments"""
         center = self._center
         steps = max(1, self._steps)
         axis_edge = self._axis_edge
+        if self._pivot_offset_active():
+            axis_edge = None    # the picked edge spins like the rest
 
         step_cos = []
         for k in range(steps + 1):
@@ -981,10 +1112,48 @@ mouse, baking the sweep as segments"""
         p0, p1 = s2d(pa), s2d(pb)
         if p0 is not None and p1 is not None:
             draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE, context=context)
+        if self._pivot_offset_active():
+            # Tether from the picked edge midpoint to the moved line.
+            pbc = s2d(self._axis_base_center)
+            pcc = s2d(center)
+            if pbc is not None and pcc is not None:
+                draw_prim.edges_3d([pbc, pcc], color=(0.6, 0.6, 0.6, 0.6), context=context)
         pc = s2d(center)
         if pc is not None:
             self._draw_dot(pc, radius=5.0,
                            color=theme.color_for(Role.LOCKED_POINT), context=context)
+        self._draw_pivot_handles(pc, context=context, theme=theme)
+
+    def _draw_pivot_handles(self, pc, *, context, theme):
+        """Two drag handles at the hinge-line midpoint: across the
+        profile plane and along its normal (fixed screen length so
+        they stay grabbable at any zoom). Head positions are stored
+        for the modal's hover test."""
+        LEN_PX = 55.0
+        self._pivot_heads = [None, None]
+        if pc is None or self._pivot_u is None:
+            return
+        for i, d in enumerate(self._pivot_dirs()):
+            sd = self._screen_direction(context, self._center, d)
+            if sd is None:
+                continue
+            hx, hy = pc[0] + sd[0] * LEN_PX, pc[1] + sd[1] * LEN_PX
+            ph = (hx, hy)
+            self._pivot_heads[i] = ph
+            active = (self._pivot_grab == i) or (self._pivot_grab is None and self._pivot_hover == i)
+            draw_prim.edges_3d([pc, ph], role=Role.HANDLE_HOVER if active else Role.HANDLE,
+                               context=context)
+            head_size = 9.0
+            ca, sa = math.cos(math.radians(150)), math.sin(math.radians(150))
+            ux, uy = sd
+            leg1 = (hx + (ux * ca - uy * sa) * head_size, hy + (ux * sa + uy * ca) * head_size)
+            leg2 = (hx + (ux * ca + uy * sa) * head_size, hy + (-ux * sa + uy * ca) * head_size)
+            draw_prim.edges_3d([ph, leg1, ph, leg2],
+                               role=Role.HANDLE_HOVER if active else Role.HANDLE, context=context)
+            if active:
+                self._draw_dot(ph, radius=8.0, color=(1.0, 1.0, 1.0, 1.0), context=context)
+            else:
+                self._draw_dot(ph, radius=6.0, color=theme.color_for(Role.HANDLE), context=context)
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
@@ -998,6 +1167,8 @@ mouse, baking the sweep as segments"""
                  f"Angle: {self._effective_angle():.2f}°",
                  f"Steps: {self._steps}",
                  f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
+        if self._pivot_offset_active():
+            lines.append(f"Hinge offset: {self._pivot_off[0]:.4f} / {self._pivot_off[1]:.4f}")
         if self.input_str:
             lines.append(f"Typing: {self.input_str}")
         hud.set_header(*lines)
