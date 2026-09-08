@@ -46,7 +46,8 @@ from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
 from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
                          chains_from_edges, chain_normal, profile_principal_axes,
-                         records_for_faces, records_for_edges, ExtrudeMixin)
+                         records_for_faces, records_for_edges, ExtrudeMixin,
+                         bbox_basis)
 
 
 class _Pt:
@@ -68,12 +69,13 @@ class _LineCandidate:
         self.verts = (_Pt(a.copy()), _Pt(b.copy()))
 
 
-def _bbox_sides(cos, normal):
-    """Four (a, b) side segments of the min-OBB of ``cos`` in the plane
-    ``normal`` — the same box Shear builds for its profile."""
+def _bbox_sides(cos, normal, basis=None):
+    """Four (a, b) side segments of the bbox of ``cos`` in the plane
+    ``normal`` — the same box Shear builds for its profile (min-OBB, or
+    aligned to ``basis``, see mesh_shear.bbox_basis)."""
     if normal is None or len(cos) < 3:
         return []
-    pa, pb = profile_principal_axes(cos, normal)
+    pa, pb = profile_principal_axes(cos, normal, basis)
     if pa is None or pb is None:
         return []
     centroid = Vector((0.0, 0.0, 0.0))
@@ -294,8 +296,12 @@ mouse, baking the sweep as segments"""
             if box_normal is not None:
                 # Keep flush/sign reference consistent with the box plane.
                 self._orig_normal = box_normal
+        # Same bbox space as Shear (Scene.IOPS.shear_bbox_space).
+        self._bbox_basis = bbox_basis(context, self.obj,
+                                      context.scene.IOPS.shear_bbox_space)
         self._bbox = [_LineCandidate(a, b)
-                      for a, b in _bbox_sides(orig_cos, box_normal)]
+                      for a, b in _bbox_sides(orig_cos, box_normal,
+                                              self._bbox_basis)]
 
         if not hasattr(self, "_steps"):
             props = context.scene.IOPS
@@ -609,10 +615,11 @@ mouse, baking the sweep as segments"""
                 self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
                 self._bbox_toggle(context)
             elif event.type == "E":
+                basis = getattr(self, "_bbox_basis", None)
                 if self.mode == "face":
-                    self.records, _ = records_for_faces(self._faces)
+                    self.records, _ = records_for_faces(self._faces, basis)
                 else:
-                    self.records, _ = records_for_edges(self._geom_edges)
+                    self.records, _ = records_for_edges(self._geom_edges, basis)
                 if not self.records or not self._enter_extrude(event):
                     self.records = []
                     self.report({"INFO"}, "hinge: nothing to extrude")

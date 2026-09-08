@@ -545,6 +545,17 @@ class IOPS_SceneProperties(PropertyGroup):
     shear_hinge_last_angle: FloatProperty(name="Hinge Angle", default=0.0)
     shear_hinge_last_steps: IntProperty(name="Hinge Steps", default=6, min=1)
     shear_extrude_last_distance: FloatProperty(name="Extrude Distance", default=0.0, min=0.0)
+    shear_bbox_space: EnumProperty(
+        name="Bbox Space",
+        description="Orientation the shear profile bbox is built in",
+        items=[
+            ("OBB", "Min OBB", "Minimum-area oriented bbox (edge-aligned)"),
+            ("LOCAL", "Local", "Bbox aligned to the object's local axes"),
+            ("WORLD", "World", "Bbox aligned to the world axes"),
+            ("CURSOR", "Cursor", "Bbox aligned to the 3D cursor orientation"),
+        ],
+        default="OBB",
+    )
 
     # Shortest Path Mark persistent properties
     shortest_mark_barrier_idx: IntProperty(name="Barrier Type Index", default=0, min=0, max=3)
