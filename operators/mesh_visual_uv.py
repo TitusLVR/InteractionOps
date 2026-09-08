@@ -70,6 +70,9 @@ STITCH_STATES = (STATE_PICK_STITCH_SRC, STATE_STITCH_DRAG)
 PIVOT_CENTER = 'CENTER'
 PIVOT_CURSOR = 'CURSOR'
 
+SCOPE_ALL = 'ALL'
+SCOPE_ACTIVE = 'ACTIVE'
+
 HANDLE_CORNERS = ('BL', 'BR', 'TL', 'TR')
 HANDLE_MIDS = ('B', 'T', 'L', 'R')
 
@@ -418,7 +421,7 @@ def draw_3d_callback(op, context):
         if not geo:
             continue
         is_active = (idx == op.active_island_idx)
-        is_selected = idx in op.selected_islands
+        is_selected = idx in op._transform_targets()
         nrm = geo['normal_avg']
 
         # Fill mirrors native edit-mode selection: active island uses
@@ -654,6 +657,7 @@ def _build_visual_uv_hud(context):
         HUDItem("Toggle overlays",      "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Align view to island", "V",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Pivot",                "P",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Scope All / Active",   "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Undo / Redo",          "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Confirm",              "Enter / Space",ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel",               "Esc",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -678,6 +682,7 @@ def draw_shortcuts_callback(op, context):
     hud.set_header(
         f"Visual UV  [{st}]",
         f"Pivot: {pv}",
+        f"Scope: {op.transform_scope.title()}",
         f"Sens: {sens_pct}%",
         f"Islands: {len(op.islands_data)}",
         f"RotStep: {rot_step}\u00b0",
@@ -1056,6 +1061,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             ROTATION_STEPS.index(step_val)
             if step_val in ROTATION_STEPS else ROTATION_STEP_DEFAULT_IDX)
         self.pivot_mode = PIVOT_CENTER
+        self.transform_scope = SCOPE_ALL
         self.uv_cursor = Vector((0.5, 0.5))
         self.cursor_3d = None
         self.mouse_x = self.mouse_y = 0
@@ -1280,6 +1286,15 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         context.workspace.status_text_set(None)
         self._handle_3d = self._handle_pixel = None
         self._handle_shortcuts = self._timer = None
+
+    def _transform_targets(self):
+        """Islands G/R/S/F/N act on: all session islands, or just the
+        active one when the scope is switched with I."""
+        if self.transform_scope == SCOPE_ACTIVE:
+            if 0 <= self.active_island_idx < len(self.islands_data):
+                return {self.active_island_idx}
+            return set()
+        return self.selected_islands
 
     def _end_stitch_pick(self):
         self.state = STATE_IDLE
@@ -1544,7 +1559,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             uv_off.y = round(uv_off.y / sn) * sn
 
         restore_uvs(self.pre_drag_cache, self.uv_layer)
-        for si in self.selected_islands:
+        for si in self._transform_targets():
             if 0 <= si < len(self.islands_data):
                 move_island_uv(self.islands_data[si]['loops'],
                                self.uv_layer, uv_off)
@@ -1572,7 +1587,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         pivot = (self.transform_pivot_uv if self.transform_pivot_uv
                  is not None else _get_pivot_uv(self, idata))
         restore_uvs(self.pre_drag_cache, self.uv_layer)
-        for si in self.selected_islands:
+        for si in self._transform_targets():
             if 0 <= si < len(self.islands_data):
                 rotate_island_uv(self.islands_data[si]['loops'],
                                  self.uv_layer, pivot, delta)
@@ -1604,7 +1619,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         restore_uvs(self.pre_drag_cache, self.uv_layer)
         isx = 1.0 / sx if abs(sx) > 1e-6 else 1.0
         isy = 1.0 / sy if abs(sy) > 1e-6 else 1.0
-        for si in self.selected_islands:
+        for si in self._transform_targets():
             if 0 <= si < len(self.islands_data):
                 scale_island_uv(self.islands_data[si]['loops'],
                                 self.uv_layer, pivot, isx, isy)
@@ -1892,7 +1907,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 axis = 'V' if event.shift else 'H'
                 active_idata = self.islands_data[self.active_island_idx]
                 pivot = _get_pivot_uv(self, active_idata)
-                for si in self.selected_islands:
+                for si in self._transform_targets():
                     if 0 <= si < len(self.islands_data):
                         flip_island_uv(self.islands_data[si]['loops'],
                                        self.uv_layer, pivot, axis)
@@ -1909,6 +1924,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     self._push_undo()
                     straighten_uv_edge_loop(chain, self.uv_layer)
                     self._update_mesh(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'I':
+            self.transform_scope = (SCOPE_ACTIVE
+                                    if self.transform_scope == SCOPE_ALL
+                                    else SCOPE_ALL)
+            self.report({'INFO'},
+                        f"Transform scope: {self.transform_scope.title()}")
             return {'RUNNING_MODAL'}
 
         if event.type == 'E':
@@ -1928,7 +1951,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     mode = 'U'
                 else:
                     mode = 'UV'
-                for si in self.selected_islands:
+                for si in self._transform_targets():
                     if 0 <= si < len(self.islands_data):
                         sid = self.islands_data[si]
                         randomize_island_uv(

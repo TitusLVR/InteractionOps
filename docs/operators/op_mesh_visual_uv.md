@@ -20,6 +20,7 @@ Edit UV islands directly on the model in the 3D Viewport. Islands on the selecte
 | <kbd>Alt</kbd>+<kbd>Wheel</kbd> | Mouse sensitivity |
 | <kbd>C</kbd> / <kbd>P</kbd> | Place the UV cursor / toggle pivot Center ↔ Cursor |
 | <kbd>A</kbd> | Align selected islands to the active one's hovered handle, or pick an edge to align to |
+| <kbd>I</kbd> | Transform scope: All islands ↔ Active only (affects G / R / S / F / N) |
 | <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> | Flip horizontal / vertical |
 | <kbd>D</kbd> | Match the size of selected islands to the active one |
 | <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only |
