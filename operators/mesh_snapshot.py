@@ -180,7 +180,10 @@ def retarget_modifiers(obj, memo, made):
     for mod in obj.modifiers:
         for owner, attr in _modifier_object_slots(mod):
             tgt = getattr(owner, attr)
-            if tgt is None:
+            # Object.copy() remaps a self-pointing slot onto the copy, so
+            # a target that is ``obj`` itself is already correct; cloning
+            # it would spawn a fresh self-pointing copy forever.
+            if tgt is None or tgt == obj:
                 continue
             setattr(owner, attr, _clone_target(tgt, memo, made))
 
