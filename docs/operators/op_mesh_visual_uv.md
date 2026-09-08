@@ -22,7 +22,7 @@ Edit UV islands directly on the model in the 3D Viewport. Islands on the selecte
 | <kbd>A</kbd> | Align selected islands to the active one's hovered handle, or pick an edge to align to |
 | <kbd>I</kbd> | Transform scope: All islands ↔ Active only (affects G / R / S / F / N) |
 | <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> | Flip horizontal / vertical |
-| <kbd>D</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>D</kbd> | Match the size of selected islands to the active one: uniform (long side to long side, shape kept, works for islands rotated 90°) / width only / height only. Islands stay in place |
+| <kbd>D</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>D</kbd> | Match the size of selected islands to the active one: uniform (long side to long side, shape kept, works for islands rotated 90°) / width only / height only, then lay them onto the active island |
 | <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only |
 | <kbd>U</kbd> | Unwrap the selection |
 | <kbd>T</kbd> | Straighten the UV edge chain under the cursor |
