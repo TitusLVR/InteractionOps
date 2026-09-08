@@ -467,12 +467,19 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                 count += 1
         return count
 
-    def _parent_empty(self, empty):
+    def _parent_empty(self, context, empty):
         """Optional: make the C-created empty a child of the modified
         object, keeping its world transform, so it travels with the
-        object and lives under it in the outliner."""
+        object and lives under it in the outliner. The empty is still
+        unparented here, so its basis already is the wanted world
+        matrix; only the parent's world matrix has to be trusted, and
+        on a redo (undo pop + execute) that matrix is not evaluated yet:
+        reading it then yields identity and the empty lands at its
+        cursor coordinates *inside* the object. Evaluate first."""
+        context.view_layer.update()
+        parent_world = self._obj.matrix_world.copy()
         empty.parent = self._obj
-        empty.matrix_parent_inverse = self._obj.matrix_world.inverted()
+        empty.matrix_parent_inverse = parent_world.inverted()
 
     def _commit(self, context, md, target, how):
         # freeze the modal's decisions into the redo properties
@@ -488,7 +495,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         if self.on_selection:
             n = self._assign_selection(context, md, target)
         if self.at_cursor and self.parent_empty:
-            self._parent_empty(target)
+            self._parent_empty(context, target)
             how += f", parented to {self._obj.name}"
         suffix = f" on {n} objects" if n > 1 else ""
         self.report({"INFO"},
@@ -562,7 +569,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
             self._empty = target
             self.target = target.name
             if self.parent_empty:
-                self._parent_empty(target)
+                self._parent_empty(context, target)
         else:
             target = bpy.data.objects.get(self.target)
             if target is None or target == obj:
