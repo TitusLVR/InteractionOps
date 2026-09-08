@@ -94,18 +94,32 @@ def _draw_hud(op, context):
 
 
 def _view3d_region(context):
-    """The 3D viewport's WINDOW region + its RegionView3D. The button
-    lives in the N-panel / popup, so context.region is a UI region."""
+    """The 3D viewport's WINDOW region, its RegionView3D and the
+    SpaceView3D itself (for per-viewport visibility). The button lives
+    in the N-panel / popup / Properties editor, so context.region is a
+    UI region and context.space_data may not be the viewport."""
     area = context.area
     if area is None or area.type != "VIEW_3D":
         area = next((a for a in context.window.screen.areas
                      if a.type == "VIEW_3D"), None)
         if area is None:
-            return None, None
+            return None, None, None
     region = next((r for r in area.regions if r.type == "WINDOW"), None)
     if region is None:
-        return None, None
-    return region, area.spaces.active.region_3d
+        return None, None, None
+    space = area.spaces.active
+    return region, space.region_3d, space
+
+
+def _is_pickable(op, context, obj):
+    """Visible in the view layer (eye / H / excluded collection /
+    hide_viewport) AND in this 3D viewport (local view, per-viewport
+    collection overrides). Hidden objects are never pick candidates."""
+    try:
+        return obj.visible_get(view_layer=context.view_layer,
+                               viewport=getattr(op, "_space", None))
+    except (ReferenceError, TypeError):
+        return False
 
 
 def _wire_np(coords, pairs, mw):
@@ -257,14 +271,15 @@ def _pick_object(op, context, event, region, rv3d, exclude=()):
     far from their origin (array / mirror / boolean / displaced) are
     picked where the user actually clicks. Everything the ray cannot hit
     (curves, armatures, lattices, empties, lights, cameras, wire-only
-    meshes) is picked by screen-space distance to its projected wire."""
+    meshes) is picked by screen-space distance to its projected wire.
+    Only objects visible in the view layer and in this viewport count."""
     if region is None or rv3d is None:
         return None
     import numpy as np
     mouse = Vector((event.mouse_x - region.x, event.mouse_y - region.y))
     hit, _loc, _n, _idx, obj, _mat = raycast_from_mouse(
         context, mouse, exclude=exclude, visible_only=True,
-        region=region, rv3d=rv3d)
+        region=region, rv3d=rv3d, viewport=getattr(op, "_space", None))
     if hit and obj is not None:
         try:
             return obj.original
@@ -274,7 +289,7 @@ def _pick_object(op, context, event, region, rv3d, exclude=()):
     m2 = np.array((mouse.x, mouse.y), dtype=np.float32)
     best, best_d = None, _PICK_WIRE_PX
     for cand in context.visible_objects:
-        if cand in exclude:
+        if cand in exclude or not _is_pickable(op, context, cand):
             continue
         try:
             wire, _tris, has_faces = _wire_for(op, context, cand)
@@ -446,12 +461,13 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
             suffix = f" on {n} objects" if n > 1 else ""
             self.report({"INFO"}, f"{md.name}: target cleared{suffix}")
             return {"FINISHED"}
-        region, rv3d = _view3d_region(context)
+        region, rv3d, space = _view3d_region(context)
         if region is None or rv3d is None:
             self.report({"WARNING"}, "No 3D viewport")
             return {"CANCELLED"}
         self._region = region
         self._rv3d = rv3d
+        self._space = space
         self._prev_target = getattr(md, fields[0], None)
         self._empty = None               # created by C, removed on cancel
         self._hover = None

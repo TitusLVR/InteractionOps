@@ -324,12 +324,15 @@ def _tpick_update(op, context, event, region=None, rv3d=None):
     if region is None or rv3d is None:
         op._tpick = None
         return
-    from bpy_extras.view3d_utils import region_2d_to_origin_3d, region_2d_to_vector_3d
+    from ..utils.picking import raycast_from_mouse
     mouse = Vector((event.mouse_x - region.x, event.mouse_y - region.y))
-    origin = region_2d_to_origin_3d(region, rv3d, mouse)
-    direction = region_2d_to_vector_3d(region, rv3d, mouse)
     depsgraph = context.evaluated_depsgraph_get()
-    hit, loc, normal, idx, obj, mat = context.scene.ray_cast(depsgraph, origin, direction)
+    # only objects visible in the view layer and in this viewport: the
+    # operator may run from the Properties editor, so hand over the
+    # SpaceView3D explicitly (op._space) instead of trusting the context
+    hit, loc, normal, idx, obj, mat = raycast_from_mouse(
+        context, mouse, visible_only=True, region=region, rv3d=rv3d,
+        viewport=getattr(op, "_space", None))
     if not hit or obj is None:
         op._tpick = None
         return

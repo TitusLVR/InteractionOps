@@ -41,7 +41,7 @@ CORNER_FALLBACK_COORDS = (
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        visible_only: bool = False,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS,
-                       region=None, rv3d=None):
+                       region=None, rv3d=None, viewport=None):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
     (an iterable of objects), the ray pierces through those objects. If
@@ -52,7 +52,10 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
 
     Pass `region` / `rv3d` explicitly when the caller runs outside the 3D
     viewport's WINDOW region (N-panel / popup buttons); otherwise they are
-    taken from the context.
+    taken from the context. `viewport` is the SpaceView3D handed to
+    `visible_get` (local view, per-viewport overrides); when omitted it is
+    looked up from the context, which only works while the context is the
+    3D viewport itself (not the Properties editor).
 
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
@@ -73,13 +76,14 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     # Pass the active SpaceView3D to visible_get so local-view (Numpad /) and
     # per-viewport visibility overrides are respected. Fall back to area.spaces
     # when context.space_data isn't the VIEW_3D (e.g. invoked from a header).
-    viewport = None
-    if visible_only:
+    if visible_only and viewport is None:
         sv = getattr(context, "space_data", None)
         if sv is None or sv.type != "VIEW_3D":
             area = getattr(context, "area", None)
             sv = area.spaces.active if (area is not None and area.type == "VIEW_3D") else None
         viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
+    elif not visible_only:
+        viewport = None
 
     current_origin = ray_origin
     for _ in range(max_iterations):
