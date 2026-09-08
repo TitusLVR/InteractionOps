@@ -25,6 +25,7 @@ Edit UV islands directly on the model in the 3D Viewport. Islands on the selecte
 | <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only |
 | <kbd>U</kbd> | Unwrap the selection |
 | <kbd>T</kbd> | Straighten the UV edge chain under the cursor |
+| <kbd>E</kbd> | Stitch: click a source edge, then move the mouse; the island is scaled, rotated and moved live onto the nearest edge of any other UV island (selected or not). <kbd>LMB</kbd> confirms, <kbd>RMB</kbd> cancels, hold <kbd>Shift</kbd> to land on the same side (overlap) |
 | <kbd>Q</kbd> | Clean view: hide overlays |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo inside the session |
 | <kbd>RMB</kbd> | Cancel the current transform |

@@ -8,14 +8,18 @@ def get_uv_layer(bm):
     return bm.loops.layers.uv.verify()
 
 
-def get_selected_face_islands(bm, uv_layer):
+def get_selected_face_islands(bm, uv_layer, seed_faces=None):
     """
-    Detect complete UV islands that contain at least one selected face.
-    Walks UV connectivity across ALL mesh faces so that partially-selected
-    islands are expanded to their full extent.
+    Detect complete UV islands that contain at least one seed face
+    (default seeds: the selected faces). Walks UV connectivity across ALL
+    mesh faces so that partially-selected islands are expanded to their
+    full extent.
     Returns list of islands (each a set of face indices) and a UV-to-faces map.
     """
-    selected_set = set(f.index for f in bm.faces if f.select)
+    if seed_faces is None:
+        selected_set = set(f.index for f in bm.faces if f.select)
+    else:
+        selected_set = set(seed_faces)
     if not selected_set:
         return [], {}
 
@@ -505,3 +509,74 @@ def straighten_uv_edge_loop(loops_chain, uv_layer):
     for i, loop in enumerate(loops_chain):
         t = i / total
         loop[uv_layer].uv = start.lerp(end, t)
+
+
+def island_centroid_uv(loops, uv_layer):
+    """Mean of the unique UV points of an island."""
+    seen = set()
+    acc = Vector((0.0, 0.0))
+    for loop in loops:
+        key = (round(loop[uv_layer].uv.x, 6), round(loop[uv_layer].uv.y, 6))
+        if key in seen:
+            continue
+        seen.add(key)
+        acc += loop[uv_layer].uv
+    return acc / len(seen) if seen else acc
+
+
+def stitch_island_to_edge_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
+                             dst_centroid, same_side=False):
+    """
+    Rigidly fit an island so its edge src_a->src_b lands on dst_a->dst_b:
+    uniform scale to match length, rotate to match direction, translate
+    so the endpoints coincide. The island lands on the side of the target
+    edge opposite to dst_centroid unless same_side is set.
+    Returns True if the island was moved.
+    """
+    from .uv_stitch_core import stitch_transform
+    src_c = island_centroid_uv(loops, uv_layer)
+    xf = stitch_transform(tuple(src_a), tuple(src_b),
+                          tuple(dst_a), tuple(dst_b),
+                          tuple(src_c), tuple(dst_centroid),
+                          same_side=same_side)
+    if xf is None:
+        return False
+    pivot = Vector(xf['pivot'])
+    scale_island_uv(loops, uv_layer, pivot, xf['scale'], xf['scale'])
+    rotate_island_uv(loops, uv_layer, pivot, xf['angle'])
+    move_island_uv(loops, uv_layer, Vector(xf['translation']))
+    return True
+
+
+def get_unselected_face_islands(bm, uv_layer):
+    """UV islands made of visible faces that contain no selected face.
+    Returns a list of face-index sets."""
+    seeds = [f.index for f in bm.faces if not f.select and not f.hide]
+    islands, _ = get_selected_face_islands(bm, uv_layer, seed_faces=seeds)
+    return [isl for isl in islands
+            if not any(bm.faces[fi].select for fi in isl)]
+
+
+def collect_island_edges(bm, island_face_indices, uv_layer, world_matrix):
+    """Lean edge list for snapping: [(uv_a, uv_b, pos3d_a, pos3d_b)] with
+    each mesh edge listed once per distinct UV placement. Also returns the
+    island loops (for centroid math)."""
+    edges = []
+    loops = []
+    seen = set()
+    for fi in island_face_indices:
+        f = bm.faces[fi]
+        for loop in f.loops:
+            loops.append(loop)
+            nxt = loop.link_loop_next
+            uv_a, uv_b = loop[uv_layer].uv, nxt[uv_layer].uv
+            va, vb = loop.vert, nxt.vert
+            key = tuple(sorted((
+                (va.index, round(uv_a.x, 5), round(uv_a.y, 5)),
+                (vb.index, round(uv_b.x, 5), round(uv_b.y, 5)))))
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append((uv_a.copy(), uv_b.copy(),
+                          world_matrix @ va.co, world_matrix @ vb.co))
+    return edges, loops
