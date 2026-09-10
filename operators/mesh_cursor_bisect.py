@@ -2030,6 +2030,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
         ]))
         helpo.bind_region(context.region)
+        hud.mirror_help(helpo)
         return hud, helpo
 
     # Part 11: Distance Text Drawing

@@ -82,6 +82,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         helpo.bind_region(context.region)
+        hud.mirror_help(helpo)
         return hud, helpo
 
     def _draw_hud(self, context):

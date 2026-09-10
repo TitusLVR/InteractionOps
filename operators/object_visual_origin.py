@@ -99,6 +99,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         helpo.bind_region(context.region)
+        hud.mirror_help(helpo)
         return hud, helpo
 
     def _sync_hud(self):
