@@ -45,6 +45,7 @@ from .operators.outliner_collection_ops import (
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
+    IOPS_OT_Collections_Group_Duplicates,
 )
 
 if bpy.app.version[0] < 3:
@@ -455,6 +456,7 @@ classes = (
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
+    IOPS_OT_Collections_Group_Duplicates,
     IOPS_OT_Main,
     IOPS_OT_F1,
     IOPS_OT_F2,
@@ -958,6 +960,7 @@ def outliner_collection_ops(self, context):
     self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
     self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
     self.layout.separator()
+    self.layout.operator(IOPS_OT_Collections_Group_Duplicates.bl_idname, icon="OUTLINER_COLLECTION")
     self.layout.operator(IOPS_OT_Collections_Remove_Keep_Objects.bl_idname, icon="TRASH")
 
 

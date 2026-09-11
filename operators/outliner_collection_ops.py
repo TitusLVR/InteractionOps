@@ -2,6 +2,8 @@
 
 import bpy
 
+from ..utils.collection_group_core import group_duplicates
+
 
 def exclude_layer_col_by_name(layerColl, collName, exclude):
     found = None
@@ -146,3 +148,70 @@ class IOPS_OT_Collections_Remove_Keep_Objects(bpy.types.Operator):
             f"{relinked} object(s) relinked to scene root",
         )
         return {"FINISHED"}
+
+
+class IOPS_OT_Collections_Group_Duplicates(bpy.types.Operator):
+    """Group same-named object copies into per-name sub-collections.
+
+    For every selected collection, direct objects whose names differ only by
+    Blender's ``.NNN`` suffix are moved into a child collection named
+    ``<collection>_<base name>``. Singletons and nested collections are left
+    untouched; other collection memberships of moved objects are preserved.
+    """
+
+    bl_idname = "iops.collections_group_duplicates"
+    bl_label = "Group Duplicates by Name"
+    bl_description = (
+        "Move same-named object copies (box, box.001, ...) out of the "
+        "selected collection(s) into child collections named "
+        "<collection>_<name>"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            isinstance(_id, bpy.types.Collection)
+            for _id in getattr(context, "selected_ids", [])
+        )
+
+    def execute(self, context):
+        selected_cols = [
+            _id
+            for _id in context.selected_ids
+            if isinstance(_id, bpy.types.Collection)
+        ]
+
+        groups_made = 0
+        moved = 0
+        for col in selected_cols:
+            groups = group_duplicates([obj.name for obj in col.objects])
+            for key, names in groups.items():
+                target = self._child_collection(col, f"{col.name}_{key}")
+                for name in names:
+                    obj = col.objects[name]
+                    if obj.name not in target.objects:
+                        target.objects.link(obj)
+                    col.objects.unlink(obj)
+                    moved += 1
+                groups_made += 1
+
+        self.report(
+            {"INFO"},
+            f"{moved} object(s) moved into {groups_made} collection(s)",
+        )
+        return {"FINISHED"}
+
+    @staticmethod
+    def _child_collection(parent, name):
+        """Return the direct child of ``parent`` called ``name``, creating it.
+
+        Matching by parent-local name (not bpy.data lookup) avoids grabbing an
+        unrelated collection that merely shares the name elsewhere.
+        """
+        existing = parent.children.get(name)
+        if existing is not None:
+            return existing
+        new_col = bpy.data.collections.new(name)
+        parent.children.link(new_col)
+        return new_col
