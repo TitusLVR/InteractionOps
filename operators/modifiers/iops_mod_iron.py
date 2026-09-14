@@ -20,12 +20,22 @@ import bpy
 # field. Victims whose target is itself a victim wait for the next
 # iteration (no chains: A->B while B->C would leave A at B's old spot).
 # Victims are moved onto their target with Set Position and welded by a
-# tiny Connected Merge by Distance — an exact edge collapse, not a
-# blanket merge radius that would fold new flaps. The pass repeats
-# Iterations times because a collapse can expose the next sliver.
+# tiny Merge by Distance — an exact edge collapse, not a blanket merge
+# radius that would fold new flaps. The pass repeats Iterations times
+# because a collapse can expose the next sliver.
+#
+# Mode:
+#   Merge         - as above.
+#   Unfold        - fold apexes are RELAXED to the mean of their edge
+#                   neighbors instead of merged (the flap settles back
+#                   onto the surface, nothing disappears); slivers
+#                   still merge.
+#   Keep Topology - Unfold for folds, sliver victims move onto their
+#                   target but nothing is welded: vertex count and
+#                   indices survive, at the price of zero-area faces.
 
 GROUP_NAME = "iOps_Iron"
-GROUP_VERSION = 1  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 2  # bump when the tree layout changes to force rebuild
 VERSION_PROP = "iops_iron_version"
 
 PREVIEW_MAT = "iOps_Iron_Preview"
@@ -35,6 +45,8 @@ PREVIEW_MAT_VERSION = 1
 _SOCKET_RENAMES = {}
 
 WELD_DISTANCE = 1e-5  # victims sit exactly on their target after Set Position
+
+MODES = ("Merge", "Unfold", "Keep Topology")  # Mode menu, values 0/1/2
 
 
 def ensure_preview_material(name=PREVIEW_MAT):
@@ -190,6 +202,14 @@ def _build_group():
     s_maxlen.description = (
         "Never collapse an edge longer than this (a collapse moves a "
         "vertex by the edge length). 0 = no limit")
+    s_mode = iface.new_socket("Mode", in_out="INPUT",
+                              socket_type="NodeSocketMenu", parent=p_fix)
+    s_mode.description = (
+        "Merge: collapse defects (vertices disappear). Unfold: relax "
+        "fold apexes to their neighbor mean instead of merging them, "
+        "slivers still collapse. Keep Topology: unfold folds and move "
+        "sliver apexes onto their target without welding, so vertex "
+        "count and order never change")
     s_it = iface.new_socket("Iterations", in_out="INPUT",
                             socket_type="NodeSocketInt", parent=p_fix)
     s_it.default_value = 4
@@ -221,6 +241,24 @@ def _build_group():
     no_limit = b.compare("FLOAT", "LESS_EQUAL", -1200, -460,
                          n_in.outputs["Max Edge Length"], 0.0,
                          label="No Length Limit")
+    # Mode menu -> int (renaming the two stock items keeps the enum
+    # values a stable 0/1/2 - clearing and re-adding shifts them)
+    n_menu = b.node("GeometryNodeMenuSwitch", -1200, -640, data_type="INT",
+                    label="Mode")
+    items = n_menu.enum_definition.enum_items
+    while len(items) < len(MODES):
+        items.new("x")
+    for item, name in zip(items, MODES):
+        item.name = name
+    b.ln(n_in.outputs["Mode"], n_menu.inputs["Menu"])
+    for i, name in enumerate(MODES):
+        n_menu.inputs[name].default_value = i
+    s_mode.default_value = MODES[0]
+    mode_i = n_menu.outputs["Output"]
+    unfold = b.compare("INT", "GREATER_THAN", -1040, -640, mode_i, 0,
+                       label="Unfold Folds")
+    weld = b.compare("INT", "LESS_THAN", -1040, -800, mode_i, 2,
+                     label="Weld")
     _s = b.frame("Thresholds", _s)
 
     # ---------------- the repeat zone: state = geometry ----------------
@@ -322,9 +360,27 @@ def _build_group():
                                  n_ev.outputs["Vertex Index 2"],
                                  n_ev.outputs["Vertex Index 1"],
                                  label="Fold Target Index")
-        fold_target_p = b.switch("VECTOR", ex + 1800, ey - 640, near1,
-                                 n_ev.outputs["Position 2"],
-                                 n_ev.outputs["Position 1"],
+        hinge_p = b.switch("VECTOR", ex + 1800, ey - 640, near1,
+                           n_ev.outputs["Position 2"],
+                           n_ev.outputs["Position 1"],
+                           label="Nearer Hinge Position")
+        # Unfold: relax the apex to the mean of its edge neighbors. A
+        # folded apex sits on the wrong side of its hinge while its
+        # neighbors mostly sit on the true surface, so the mean pulls it
+        # back across; contractive, so it converges. (Reflecting the
+        # apex across the hinge line was tried first: it swings the
+        # apex's whole fan over and ping-pongs - 393 folds -> 148 at
+        # 3 passes, 255 at 12.)
+        n_blur = b.node("GeometryNodeBlurAttribute", ex + 1440, ey - 1240,
+                        data_type="FLOAT_VECTOR", label="Neighbor Mean")
+        b.ln(n_pos.outputs["Position"], n_blur.inputs["Value"])
+        n_blur.inputs["Iterations"].default_value = 1
+        n_blur.inputs["Weight"].default_value = 1.0
+        relaxed = b.sample(geo, "POINT", "FLOAT_VECTOR", ex + 1620, ey - 1240,
+                           n_blur.outputs["Value"], fold_victim_v,
+                           label="Relaxed Apex")
+        fold_target_p = b.switch("VECTOR", ex + 1980, ey - 1240, unfold,
+                                 hinge_p, relaxed,
                                  label="Fold Target Position")
         fold_len_ok = b.boolean(
             "OR", ex + 1800, ey - 200, no_limit,
@@ -540,6 +596,7 @@ def _build_group():
     else:
         n_merge.mode = "ALL"
     n_merge.inputs["Distance"].default_value = WELD_DISTANCE
+    b.ln(weld, n_merge.inputs["Selection"])  # Keep Topology: no weld
     b.ln(n_setpos.outputs["Geometry"], n_merge.inputs["Geometry"])
     b.ln(n_merge.outputs["Geometry"], n_rout.inputs["Geometry"])
     geo = n_rout.outputs["Geometry"]
@@ -603,9 +660,9 @@ def upgrade_modifier(md, ng):
 
 
 class IOPS_OT_ModIron(bpy.types.Operator):
-    """Add a geometry-nodes Iron modifier: collapses folded-over flaps
-    and sliver triangles (the kinks a merge-based decimate leaves
-    behind) so the surface reads flat again"""
+    """Add a geometry-nodes Iron modifier: collapses or unfolds
+    folded-over flaps and sliver triangles (the kinks a merge-based
+    decimate leaves behind) so the surface reads flat again"""
 
     bl_idname = "iops.mod_iron"
     bl_label = "Iron"

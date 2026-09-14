@@ -89,7 +89,7 @@ A modifier stack you can drive with modifier keys. The icon grid adds or manages
 | **Users** | Select objects whose modifiers reference the active object |
 | **Safe Apply** | Apply transforms without breaking distance-based modifier settings |
 | **Adaptive Decimate** | Add a curvature-aware Geometry Nodes decimate |
-| **Iron** | Add a Geometry Nodes cleanup that collapses folded-over flaps and sliver triangles (the kinks a decimate leaves behind) |
+| **Iron** | Add a Geometry Nodes cleanup for folded-over flaps and sliver triangles (the kinks a decimate leaves behind). Mode: Merge collapses them, Unfold relaxes fold apexes onto the surface and only merges slivers, Keep Topology moves vertices without welding so vertex count and order stay intact |
 | **Apply All** | Bake the whole stack into the mesh |
 | Stack row: expand, name, eye, up, down, apply, copy to selected, remove, save preset | Per-modifier actions. <kbd>Alt</kbd> runs the action on every selected object with the same modifier; <kbd>Shift</kbd> picks the variant (to top / bottom, render visibility, apply up to here) |
 
