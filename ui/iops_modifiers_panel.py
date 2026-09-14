@@ -329,6 +329,8 @@ class IOPS_PT_Modifiers_Panel(bpy.types.Panel):
         row = tools.row(align=True)
         row.operator("iops.mod_adaptive_decimate", text="Adaptive Decimate",
                      icon="MOD_DECIM")
+        row.operator("iops.mod_iron", text="Iron", icon="MOD_SMOOTH")
+        row = tools.row(align=True)
         row.operator("iops.mod_collapse_stack", text="Apply All",
                      icon="IMPORT")
 
