@@ -6,8 +6,10 @@ helper objects, no constraints, no tool-settings changes, one undo step.
 Modes (Tab):
   FACE  hover the selected object: the face + snap point under the cursor
         is the source (sticky — it stays when the cursor leaves). Hover any
-        other face: the ghost lands there (anchor = snap point under the
-        cursor, roll = nearest edge). LMB applies and finishes. One click.
+        other face: the ghost lands there, anchor onto anchor. By default
+        the orientation is kept (pure move); R adds rotation — match the
+        normals, or normals + roll from the picked edges. LMB applies. One
+        click.
   AIM   pivot = object origin (Shift+LMB picks another point on the object);
         hover aims the primary local axis at the point under the cursor,
         click locks it; hover then rolls the secondary axis, click locks;
@@ -38,6 +40,13 @@ MODE_AIM = "AIM"
 MODE_LABELS = {MODE_FACE: "Face to face", MODE_AIM: "Aim axes"}
 
 AXIS_LETTERS = ("X", "Y", "Z")
+
+# Face mode: how much of the orientation the move is allowed to change.
+ROT_KEEP = "KEEP"        # translation only — anchor onto anchor, no rotation
+ROT_NORMAL = "NORMAL"    # minimal rotation that lines the normals up
+ROT_EDGE = "EDGE"        # normals + roll from the picked edges
+ROT_CYCLE = (ROT_KEEP, ROT_NORMAL, ROT_EDGE)
+ROT_LABELS = {ROT_KEEP: "keep (move only)", ROT_NORMAL: "match normals", ROT_EDGE: "normals + edge"}
 GHOST_FILL_TRI_CAP = 400_000     # above this the ghost is edges only
 
 
@@ -227,8 +236,9 @@ def _draw_anchor(context, anchor, normal, length, *, point_role, line_color):
     two things that matter: where, and which way it faces."""
     o = Vector(anchor)
     with draw_scope(blend="ALPHA", depth="NONE"):
-        iops_draw.edges_3d([o, o + Vector(normal) * length], color=line_color,
-                           width="default", context=context)
+        if length > 0.0:
+            iops_draw.edges_3d([o, o + Vector(normal) * length], color=line_color,
+                               width="default", context=context)
         iops_draw.points([o], role=point_role, context=context)
 
 
@@ -266,13 +276,16 @@ def _draw_preview_3d(op, context):
         hv = op._hover
         sf = op._src_frame
         landed = not op._delta_is_identity()
+        show_edge = op.rot_mode == ROT_EDGE
+        show_normal = op.rot_mode != ROT_KEEP
         if op._src_face is not None and sf is not None and not landed:
-            # source at rest: faint amber wash, anchor + normal stub, roll edge
+            # source at rest: faint amber wash + anchor; normal stub / roll
+            # edge only when the move actually uses them
             _draw_face_wash(context, theme, op._src_face,
                             fill=_fade(theme, Role.LOCKED_LINE, 0.12),
                             outline=_fade(theme, Role.LOCKED_LINE, 0.6),
-                            roll=_fade(theme, Role.LOCKED_LINE, 0.9))
-            _draw_anchor(context, sf.origin, sf.primary, length * 0.6,
+                            roll=_fade(theme, Role.LOCKED_LINE, 0.9) if show_edge else None)
+            _draw_anchor(context, sf.origin, sf.primary, length * 0.6 if show_normal else 0.0,
                          point_role=Role.LOCKED_POINT,
                          line_color=_fade(theme, Role.LOCKED_LINE, 0.9))
         if hv is not None and not op._hover_is_source:
@@ -280,7 +293,8 @@ def _draw_preview_3d(op, context):
             _draw_face_wash(context, theme, hv,
                             fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
                             outline=_fade(theme, Role.ACTIVE_LINE, 0.55),
-                            roll=_fade(theme, Role.CLOSEST_LINE, 0.95), roll_shift=op.roll_shift)
+                            roll=_fade(theme, Role.CLOSEST_LINE, 0.95) if show_edge else None,
+                            roll_shift=op.roll_shift)
             with draw_scope(blend="ALPHA", depth="NONE"):
                 if op.snap:
                     others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
@@ -288,7 +302,7 @@ def _draw_preview_3d(op, context):
                         iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35),
                                          size=4.0, context=context)
             if op._dst_frame is not None:
-                _draw_anchor(context, anchor, hv["normal"], length * 0.6,
+                _draw_anchor(context, anchor, hv["normal"], length * 0.6 if show_normal else 0.0,
                              point_role=Role.CLOSEST_POINT,
                              line_color=_fade(theme, Role.ACTIVE_LINE, 0.9))
                 if sf is not None:
@@ -400,6 +414,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._delta = Matrix.Identity(4)
         self._error = ""
         self.roll_shift = 0
+        self._dst_anchor = None
 
     def _delta_is_identity(self):
         m = self._delta
@@ -436,13 +451,34 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
     # --- preview math ---
 
-    def _face_frame(self, face, *, invert_normal=False, reverse_edge=False, shift=0):
+    def _face_frame(self, face, *, invert_normal=False, shift=0):
         anchor = face["closest"] if self.snap else face["hit"]
         n = -face["normal"] if invert_normal else face["normal"]
         _a, _b, e = _face_edge(face, shift)
-        if reverse_edge:
-            e = -e
         return frame_from_face(tuple(anchor), tuple(n), tuple(e))
+
+    def _face_delta(self, src, hv):
+        """World delta for the Face mode according to `rot_mode`. Returns
+        (delta, dst_frame_or_None)."""
+        anchor = Vector(hv["closest"] if self.snap else hv["hit"])
+        o = Vector(src.origin)
+        if self.rot_mode == ROT_KEEP:
+            return Matrix.Translation(anchor - o), None
+        n_src = Vector(src.primary)
+        n_dst = (-hv["normal"] if self.face_to_face else hv["normal"]).normalized()
+        if self.rot_mode == ROT_NORMAL:
+            # minimal rotation n_src -> n_dst; antiparallel is ambiguous, so
+            # fold about the source roll edge (lid on a box) to stay stable
+            if n_src.dot(n_dst) < -0.99999:
+                rot = Matrix.Rotation(3.141592653589793, 4, Vector(src.secondary))
+            else:
+                rot = n_src.rotation_difference(n_dst).to_matrix().to_4x4()
+            delta = Matrix.Translation(anchor) @ rot @ Matrix.Translation(-o)
+            r3 = rot.to_3x3()
+            dst = frame_from_face(tuple(anchor), tuple(n_dst), tuple(r3 @ Vector(src.secondary)))
+            return delta, dst
+        dst = self._face_frame(hv, invert_normal=self.face_to_face, shift=self.roll_shift)
+        return _tuple_matrix(align_matrix(src, dst)), dst
 
     def _update(self):
         """Recompute the target frame from the current picks, then the delta
@@ -456,8 +492,11 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 hv = self._hover
                 if src is None or hv is None or self._hover_is_source:
                     return
-                dst = self._face_frame(hv, invert_normal=self.face_to_face,
-                                       reverse_edge=self.reverse_roll, shift=self.roll_shift)
+                self._delta, dst = self._face_delta(src, hv)
+                # Face mode is "armed" once a target is hovered, whatever the
+                # rotation mode — the click test reads _dst_frame
+                self._dst_frame = dst if dst is not None else src
+                return
             else:
                 src = axis_frame(self._orig_active, self.primary_axis, self.secondary_axis,
                                  pivot=tuple(self.pivot))
@@ -521,10 +560,12 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         hud.add_param(HUDParam("Step", lambda: self._step_label(), "str"))
         hud.add_param(HUDParam("Axes", lambda: f"{self.primary_axis} → {self.secondary_axis}", "str",
                                visible_getter=lambda: self.mode == MODE_AIM))
+        hud.add_param(HUDParam("Rotate", lambda: ROT_LABELS[self.rot_mode], "str",
+                               visible_getter=lambda: self.mode == MODE_FACE))
         hud.add_param(HUDParam("Facing", lambda: "face to face" if self.face_to_face else "same side", "str",
-                               visible_getter=lambda: self.mode == MODE_FACE))
-        hud.add_param(HUDParam("Roll", lambda: self._roll_label(), "str",
-                               visible_getter=lambda: self.mode == MODE_FACE))
+                               visible_getter=lambda: self.mode == MODE_FACE and self.rot_mode != ROT_KEEP))
+        hud.add_param(HUDParam("Roll edge", lambda: self._roll_label(), "str",
+                               visible_getter=lambda: self.mode == MODE_FACE and self.rot_mode == ROT_EDGE))
         hud.add_param(HUDParam("Snap", lambda: self.snap, "bool"))
         hud.add_param(HUDParam("Rotation", lambda: f"{rotation_angle_deg(self._delta):.1f}°", "str"))
         hud.add_param(HUDParam("Error", lambda: self._error, "str",
@@ -532,8 +573,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         return hud
 
     def _roll_label(self):
-        s = "edge" if self.roll_shift == 0 else f"edge {self.roll_shift:+d}"
-        return s + (" reversed" if self.reverse_roll else "")
+        return "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}"
 
     def _build_help(self, context):
         helpo = HelpOverlay("three_point_rotation")
@@ -541,9 +581,9 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             HUDItem("Face: apply on target face  /  Aim: lock point", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Pick pivot on the object (Aim)", "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Mode: Face to face / Aim axes", "Tab", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Facing: meet / same side (Face)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Reverse roll 180° (Face)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Roll edge: next / previous (Face)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Rotation: keep / match normals / normals + edge (Face)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Facing: meet / same side (Face, rotating)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Roll edge: next / previous (Face, edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Primary axis (repeat flips) (Aim)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Secondary axis (repeat flips) (Aim)", "Shift+X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap to verts / edge mids / center", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -579,7 +619,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self.secondary_axis = "Y"
         self.snap = True
         self.face_to_face = True
-        self.reverse_roll = False
+        self.rot_mode = ROT_KEEP
         self.pivot = active.matrix_world.translation.copy()
         dims = [d for d in active.dimensions if d > 1e-6]
         self._gizmo_len = max(dims) * 0.35 if dims else 1.0
@@ -643,7 +683,10 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             if event.alt and self.mode == MODE_FACE:
-                self.roll_shift += 1 if event.type == "WHEELUPMOUSE" else -1
+                if self.rot_mode != ROT_EDGE:
+                    self.rot_mode = ROT_EDGE
+                else:
+                    self.roll_shift += 1 if event.type == "WHEELUPMOUSE" else -1
                 self._update()
                 return {"RUNNING_MODAL"}
             return {"PASS_THROUGH"}
@@ -694,7 +737,8 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 self.targets.reverse()
             self._update()
         elif event.type == "R" and self.mode == MODE_FACE:
-            self.reverse_roll = not self.reverse_roll
+            i = ROT_CYCLE.index(self.rot_mode)
+            self.rot_mode = ROT_CYCLE[(i + 1) % len(ROT_CYCLE)]
             self._update()
         elif event.type == "S":
             self.snap = not self.snap
@@ -703,7 +747,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         elif event.type in {"ZERO", "NUMPAD_0"}:
             self.pivot = self._orig_active.translation.copy()
             self.primary_axis, self.secondary_axis = "Z", "Y"
-            self.face_to_face, self.reverse_roll = True, False
+            self.face_to_face, self.rot_mode = True, ROT_KEEP
             self._reset_picks()
             self._update_hover(context, event)
             self._update()
