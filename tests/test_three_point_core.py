@@ -130,3 +130,58 @@ def test_axis_frame_rejects_same_axis():
     mw = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
     with pytest.raises(DegenerateFrame):
         axis_frame(mw, "Z", "-Z", pivot=None)
+
+
+# --- rotate_ray_onto / roll_about_axis ---------------------------------
+
+from utils.three_point_core import rotate_ray_onto, roll_about_axis
+
+
+def test_rotate_ray_onto_brings_direction_and_keeps_pivot():
+    piv = (1.0, 1.0, 1.0)
+    m = rotate_ray_onto(piv, (2.0, 1.0, 1.0), (1.0, 3.0, 1.0))   # +X ray -> +Y ray
+    assert _approx_vec(mat_apply(m, piv), piv)
+    assert _approx_vec(mat_apply(m, (3.0, 1.0, 1.0)), (1.0, 3.0, 1.0))   # length kept
+
+
+def test_rotate_ray_onto_is_minimal():
+    # 90deg between rays -> rotation angle exactly 90deg
+    from utils.three_point_core import rotation_angle_deg
+    m = rotate_ray_onto((0, 0, 0), (1, 0, 0), (0, 0, 5))
+    assert rotation_angle_deg(m) == pytest.approx(90.0)
+
+
+def test_rotate_ray_onto_identity_when_aligned():
+    m = rotate_ray_onto((0, 0, 0), (1, 0, 0), (7, 0, 0))
+    assert _approx_vec(mat_apply(m, (0, 1, 0)), (0, 1, 0))
+
+
+def test_rotate_ray_onto_antiparallel_is_180():
+    from utils.three_point_core import rotation_angle_deg
+    m = rotate_ray_onto((0, 0, 0), (1, 0, 0), (-2, 0, 0))
+    assert rotation_angle_deg(m) == pytest.approx(180.0)
+    assert _approx_vec(mat_apply(m, (1, 0, 0)), (-1, 0, 0))
+
+
+def test_rotate_ray_onto_degenerate():
+    with pytest.raises(DegenerateFrame):
+        rotate_ray_onto((0, 0, 0), (0, 0, 0), (1, 0, 0))
+
+
+def test_roll_about_axis_aligns_projection():
+    # axis +Z through origin; bring +X (projected) onto the +Y direction
+    m = roll_about_axis((0, 0, 0), (0, 0, 1), (1, 0, 3), (0, 2, -1))
+    assert _approx_vec(mat_apply(m, (1, 0, 3)), (0, 1, 3))      # roll only, z untouched
+    assert _approx_vec(mat_apply(m, (0, 0, 9)), (0, 0, 9))      # axis fixed
+
+
+def test_roll_about_axis_signed_shortest():
+    from utils.three_point_core import rotation_angle_deg
+    m = roll_about_axis((0, 0, 0), (0, 0, 1), (1, 0, 0), (1, -1, 0))
+    assert rotation_angle_deg(m) == pytest.approx(45.0)
+    assert _approx_vec(mat_apply(m, (1, 0, 0)), (math.sqrt(0.5), -math.sqrt(0.5), 0))
+
+
+def test_roll_about_axis_degenerate_on_axis():
+    with pytest.raises(DegenerateFrame):
+        roll_about_axis((0, 0, 0), (0, 0, 1), (0, 0, 4), (1, 0, 0))

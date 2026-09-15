@@ -1,61 +1,45 @@
-"""Three Point Rotation — aim an object's axes at picked points, or land a
-face of it onto any face in the scene. The originals stay put; a themed
-ghost of the selection shows the result live and the click applies it. No
-helper objects, no constraints, no tool-settings changes, one undo step.
+"""Three Point Rotation — place the selection by point pairs, one click per
+step. The originals stay put; a themed ghost shows the result live and the
+click commits the step. No helper objects, no constraints, no tool-settings
+changes, one undo step.
 
-Modes (Tab):
-  FACE  hover the selected object: the face + snap point under the cursor
-        is the source (sticky — it stays when the cursor leaves). Hover any
-        other face: the ghost lands there, anchor onto anchor. By default
-        the orientation is kept (pure move); R adds rotation — match the
-        normals, or normals + roll from the picked edges. LMB applies. One
-        click.
-  AIM   pivot = object origin (Shift+LMB picks another point on the object);
-        hover aims the primary local axis at the point under the cursor,
-        click locks it; hover then rolls the secondary axis, click locks;
-        Space applies.
+  1 Move   hover your object → point A (sticky), hover the target → A′,
+           LMB: the ghost moves A onto A′. No rotation.
+  2 Align  hover your object → point B (shown on the ghost), hover the
+           target → B′, LMB: rotate about A′ so the ray A′→B lies on A′→B′.
+           R instead turns by the face normals of A / A′ (F flips facing).
+  3 Roll   third pair C → C′: turn about the axis A′→B′. LMB finishes.
+
+Space / Enter applies at any step, Backspace steps back, Esc cancels.
 """
 import bpy
 import gpu
 from mathutils import Vector, Matrix
-from bpy_extras.view3d_utils import (
-    region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d,
-)
+from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as iops_draw
 from ..ui.draw import draw_scope, safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme, axis_color, Role
-from ..ui.hud import text as hud_text
+from ..ui.draw.theme import get_theme, Role
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
 from ..utils.picking import raycast_from_mouse, hit_owner, SNAP_THRESHOLD_PX
 from ..utils.three_point_core import (
-    DegenerateFrame, frame_from_points, frame_from_face, axis_frame,
-    align_matrix, rotation_angle_deg,
+    DegenerateFrame, frame_from_face, align_matrix, rotation_angle_deg,
+    rotate_ray_onto, roll_about_axis,
 )
 
 
-MODE_FACE = "FACE"
-MODE_AIM = "AIM"
-MODE_LABELS = {MODE_FACE: "Face to face", MODE_AIM: "Aim axes"}
+STEP_MOVE, STEP_ALIGN, STEP_ROLL, STEP_DONE = 0, 1, 2, 3
+STEP_NAMES = {STEP_MOVE: "1 Move", STEP_ALIGN: "2 Align", STEP_ROLL: "3 Roll", STEP_DONE: "Done"}
 
-AXIS_LETTERS = ("X", "Y", "Z")
+# Align step: manual point pair, or automatic by the faces of A / A′.
+ROT_POINTS = "POINTS"
+ROT_NORMAL = "NORMAL"
+ROT_EDGE = "EDGE"
+ROT_CYCLE = (ROT_POINTS, ROT_NORMAL, ROT_EDGE)
+ROT_LABELS = {ROT_POINTS: "by points", ROT_NORMAL: "by normals", ROT_EDGE: "normals + edge"}
 
-# Face mode: how much of the orientation the move is allowed to change.
-ROT_KEEP = "KEEP"        # translation only — anchor onto anchor, no rotation
-ROT_NORMAL = "NORMAL"    # minimal rotation that lines the normals up
-ROT_EDGE = "EDGE"        # normals + roll from the picked edges
-ROT_CYCLE = (ROT_KEEP, ROT_NORMAL, ROT_EDGE)
-ROT_LABELS = {ROT_KEEP: "keep (move only)", ROT_NORMAL: "match normals", ROT_EDGE: "normals + edge"}
 GHOST_FILL_TRI_CAP = 400_000     # above this the ghost is edges only
-
-
-def _flip_axis(token):
-    return token[1:] if token.startswith("-") else "-" + token
-
-
-def _letter(token):
-    return token.lstrip("-")
 
 
 def _roots(objects):
@@ -115,20 +99,19 @@ def _gather_ghost(context, moving):
     return tris, edges
 
 
-# --- hover picking (one primitive for both modes) -------------------------
+# --- hover picking ---------------------------------------------------------
 
-def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
+def _pick_face(context, mouse):
     """Raycast under the cursor and describe the hit face in world space.
-    The snap point is chosen in screen space: a vertex or edge midpoint only
-    when it is within SNAP_THRESHOLD_PX of the cursor, else the face center.
+    The snap point is chosen in screen space: a vertex, edge midpoint or the
+    center when within SNAP_THRESHOLD_PX of the cursor, else the center.
     Returns a dict or None on miss."""
     region = context.region
     rv3d = context.region_data
     if region is None or rv3d is None:
         return None
     hit, loc, normal, idx, obj, mat = raycast_from_mouse(
-        context, mouse, restrict_to=restrict_to, exclude=exclude,
-        visible_only=True, region=region, rv3d=rv3d)
+        context, mouse, visible_only=True, region=region, rv3d=rv3d)
     if not hit or obj is None:
         return None
     depsgraph = context.evaluated_depsgraph_get()
@@ -145,10 +128,9 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     center = mat @ poly.center
     mids = [(vw[i] + vw[(i + 1) % n]) * 0.5 for i in range(n)]
     snaps = list(vw) + mids + [center]
-    # screen-space snap: nearest vertex / midpoint within the threshold
     mouse_v = Vector(mouse)
     closest, best = center, SNAP_THRESHOLD_PX
-    for p in vw + mids + [center]:
+    for p in snaps:
         s = location_3d_to_region_2d(region, rv3d, p)
         if s is None:
             continue
@@ -192,37 +174,19 @@ def _face_edge(face, shift=0):
     return a, b, d.normalized()
 
 
-def _mouse_on_view_plane(context, mouse, through):
-    """Point where the mouse ray crosses the view-aligned plane through
-    `through` — the fallback aim target when nothing is under the cursor."""
-    region = context.region
-    rv3d = context.region_data
-    if region is None or rv3d is None:
-        return None
-    origin = region_2d_to_origin_3d(region, rv3d, mouse)
-    direction = region_2d_to_vector_3d(region, rv3d, mouse)
-    view_n = (rv3d.view_rotation @ Vector((0, 0, 1))).normalized()
-    denom = direction.dot(view_n)
-    if abs(denom) < 1e-9:
-        return None
-    t = (through - origin).dot(view_n) / denom
-    return origin + direction * t
-
-
 # --- drawing -------------------------------------------------------------
 #
 # Restraint: only what the decision needs. The ghost is a soft tinted volume,
-# faces are a faint wash with a hairline outline, the anchor and the roll
-# edge are the only strong marks, and one hairline ties the source anchor to
-# the target anchor so the eye follows the move.
+# faces are a faint wash with a hairline outline, the picked points and the
+# committed axis are the only strong marks, and one hairline ties the moving
+# point to its target so the eye follows the step.
 
 def _fade(theme, role, alpha):
     r, g, b, _a = theme.color_for(role)
     return (r, g, b, alpha)
 
 
-def _draw_face_wash(context, theme, face, *, fill, outline, roll=None, roll_shift=0):
-    """Faint fill + hairline outline; optional strong roll edge."""
+def _draw_face_wash(context, face, *, fill, outline, roll=None, roll_shift=0):
     with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
         iops_draw.tris(face["tris"], color=fill, context=context)
     with draw_scope(blend="ALPHA", depth="NONE"):
@@ -232,29 +196,16 @@ def _draw_face_wash(context, theme, face, *, fill, outline, roll=None, roll_shif
             iops_draw.edges_3d([a, b], color=roll, width="locked", context=context)
 
 
-def _draw_anchor(context, anchor, normal, length, *, point_role, line_color):
-    """Anchor disc with a short normal stub — the face frame reduced to the
-    two things that matter: where, and which way it faces."""
-    o = Vector(anchor)
-    with draw_scope(blend="ALPHA", depth="NONE"):
-        if length > 0.0:
-            iops_draw.edges_3d([o, o + Vector(normal) * length], color=line_color,
-                               width="default", context=context)
-        iops_draw.points([o], role=point_role, context=context)
-
-
 def _draw_ghost(op, context, theme):
-    """The selection carried by the current delta: a soft tinted volume
-    (back faces culled so overlapping shells don't stack up) with a faint
-    wire so the silhouette still reads on flat shading."""
-    if op._delta_is_identity():
+    total = op._total()
+    if _is_identity(total):
         return
     tris, edges = op._ghost
     fill = _fade(theme, Role.GHOST_PREVIEW, 0.16)
     wire = _fade(theme, Role.GHOST_PREVIEW, 0.28)
     gpu.matrix.push()
     try:
-        gpu.matrix.multiply_matrix(op._delta)
+        gpu.matrix.multiply_matrix(total)
         if tris and len(tris) <= GHOST_FILL_TRI_CAP:
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="BACK", depth_mask=False):
                 iops_draw.tris(tris, color=fill, context=context)
@@ -265,6 +216,10 @@ def _draw_ghost(op, context, theme):
         gpu.matrix.pop()
 
 
+def _is_identity(m):
+    return all(abs(m[i][j] - (1.0 if i == j else 0.0)) < 1e-9 for i in range(4) for j in range(4))
+
+
 def _draw_preview_3d(op, context):
     try:
         length = op._gizmo_len
@@ -272,110 +227,68 @@ def _draw_preview_3d(op, context):
         return
     theme = get_theme(context)
     _draw_ghost(op, context, theme)
-
-    if op.mode == MODE_FACE:
-        hv = op._hover
-        sf = op._src_frame
-        landed = not op._delta_is_identity()
-        show_edge = op.rot_mode == ROT_EDGE
-        show_normal = op.rot_mode != ROT_KEEP
-        if op._src_face is not None and sf is not None and not landed:
-            # source at rest: faint amber wash + anchor; normal stub / roll
-            # edge only when the move actually uses them
-            _draw_face_wash(context, theme, op._src_face,
-                            fill=_fade(theme, Role.LOCKED_LINE, 0.12),
-                            outline=_fade(theme, Role.LOCKED_LINE, 0.6),
-                            roll=_fade(theme, Role.LOCKED_LINE, 0.9) if show_edge else None)
-            _draw_anchor(context, sf.origin, sf.primary, length * 0.6 if show_normal else 0.0,
-                         point_role=Role.LOCKED_POINT,
-                         line_color=_fade(theme, Role.LOCKED_LINE, 0.9))
-        if hv is not None and not op._hover_is_source:
-            anchor = op._hover_point()
-            _draw_face_wash(context, theme, hv,
-                            fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
-                            outline=_fade(theme, Role.ACTIVE_LINE, 0.55),
-                            roll=_fade(theme, Role.CLOSEST_LINE, 0.95) if show_edge else None,
-                            roll_shift=op.roll_shift)
-            with draw_scope(blend="ALPHA", depth="NONE"):
-                if op.snap:
-                    others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
-                    if others:
-                        iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35),
-                                         size=4.0, context=context)
-            if op._dst_frame is not None:
-                _draw_anchor(context, anchor, hv["normal"], length * 0.6 if show_normal else 0.0,
-                             point_role=Role.CLOSEST_POINT,
-                             line_color=_fade(theme, Role.ACTIVE_LINE, 0.9))
-                if sf is not None:
-                    # flight line: source anchor at rest -> target anchor
-                    with draw_scope(blend="ALPHA", depth="NONE"):
-                        iops_draw.edges_3d([Vector(sf.origin), Vector(anchor)],
-                                           color=_fade(theme, Role.PREVIEW_LINE, 0.45),
-                                           width="default", context=context)
-            else:
-                with draw_scope(blend="ALPHA", depth="NONE"):
-                    iops_draw.points([anchor], role=Role.CLOSEST_POINT, context=context)
-        return
-
-    # AIM
+    base = op._base
     hv = op._hover
-    if hv is not None:
+    auto = op.step == STEP_ALIGN and op.rot_mode != ROT_POINTS
+
+    # committed marks: A′ and the A′→B′ axis
+    with draw_scope(blend="ALPHA", depth="NONE"):
+        if op.a_dst is not None:
+            if op.b_dst is not None:
+                iops_draw.edges_3d([op.a_dst, op.b_dst], color=_fade(theme, Role.LOCKED_LINE, 0.7),
+                                   width="default", context=context)
+                iops_draw.points([op.b_dst], color=_fade(theme, Role.LOCKED_POINT, 0.8),
+                                 size="default", context=context)
+            iops_draw.points([op.a_dst], role=Role.LOCKED_POINT, context=context)
+
+    # sticky source: face wash + point, carried by the committed delta so
+    # it sits on the ghost
+    if op._src_face is not None and op.step != STEP_DONE:
+        gpu.matrix.push()
+        try:
+            gpu.matrix.multiply_matrix(base)
+            _draw_face_wash(context, op._src_face,
+                            fill=_fade(theme, Role.LOCKED_LINE, 0.10),
+                            outline=_fade(theme, Role.LOCKED_LINE, 0.55),
+                            roll=_fade(theme, Role.LOCKED_LINE, 0.9) if (auto and op.rot_mode == ROT_EDGE) else None)
+        finally:
+            gpu.matrix.pop()
+        src_pt = base @ op._src_face["closest"]
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            if auto:
+                n = base.to_3x3() @ op._src_face["normal"]
+                iops_draw.edges_3d([src_pt, src_pt + n * length * 0.6],
+                                   color=_fade(theme, Role.LOCKED_LINE, 0.9), width="default", context=context)
+            iops_draw.points([src_pt], role=Role.LOCKED_POINT, context=context)
+
+    # target hover
+    if hv is not None and not op._hover_is_source and op.step != STEP_DONE:
         anchor = op._hover_point()
-        _draw_face_wash(context, theme, hv,
+        _draw_face_wash(context, hv,
                         fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
-                        outline=_fade(theme, Role.ACTIVE_LINE, 0.55))
+                        outline=_fade(theme, Role.ACTIVE_LINE, 0.55),
+                        roll=_fade(theme, Role.CLOSEST_LINE, 0.95) if (auto and op.rot_mode == ROT_EDGE) else None,
+                        roll_shift=op.roll_shift)
         with draw_scope(blend="ALPHA", depth="NONE"):
             if op.snap:
                 others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
                 if others:
-                    iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35),
-                                     size=4.0, context=context)
+                    iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35), size=4.0, context=context)
+            if auto:
+                iops_draw.edges_3d([anchor, anchor + hv["normal"] * length * 0.6],
+                                   color=_fade(theme, Role.ACTIVE_LINE, 0.9), width="default", context=context)
             iops_draw.points([anchor], role=Role.CLOSEST_POINT, context=context)
-    pivot = Vector(op.pivot)
-    pts_locked = [Vector(p) for p in op.targets]
-    with draw_scope(blend="ALPHA", depth="NONE"):
-        for i, p in enumerate(op._aim_targets()):
-            if p is None:
-                continue
-            letter = _letter(op.primary_axis if i == 0 else op.secondary_axis)
-            r, g, b, _ = axis_color(letter)
-            alpha = 0.9 if i < len(pts_locked) else 0.5
-            iops_draw.edges_3d([pivot, Vector(p)], color=(r, g, b, alpha),
-                               width="default", context=context)
-        if pts_locked:
-            iops_draw.points(pts_locked, role=Role.LOCKED_POINT, context=context)
-        iops_draw.points([pivot], role=Role.PIVOT, context=context)
-    if op._dst_frame is not None:
-        # the object's actual local axes at the pivot after the delta
-        rot = (op._delta @ op._orig_active).to_3x3()
-        main = {_letter(op.primary_axis), _letter(op.secondary_axis)}
-        with draw_scope(blend="ALPHA", depth="NONE"):
-            for i, letter in enumerate(AXIS_LETTERS):
-                d = Vector((rot[0][i], rot[1][i], rot[2][i])).normalized()
-                L = length if letter in main else length * 0.5
-                r, g, b, _ = axis_color(letter)
-                iops_draw.edges_3d([pivot, pivot + d * L],
-                                   color=(r, g, b, 0.9 if letter in main else 0.45),
-                                   width="axis_gizmo", context=context)
+            if op._preview is not None and op._src_face is not None and not auto:
+                # flight line: the moving point (after the preview) → its target
+                moved = op._preview @ base @ op._src_face["closest"]
+                start = base @ op._src_face["closest"]
+                iops_draw.edges_3d([start, anchor], color=_fade(theme, Role.PREVIEW_LINE, 0.45),
+                                   width="default", context=context)
+                iops_draw.points([moved], color=_fade(theme, Role.PREVIEW_POINT, 0.9),
+                                 size="preview", context=context)
 
 
 def _draw_pixel(op, context):
-    if op.mode == MODE_AIM:
-        region = context.region
-        rv3d = context.region_data
-        if region is not None and rv3d is not None:
-            theme = get_theme(context)
-            for i, p in enumerate(op._aim_targets()):
-                if p is None:
-                    continue
-                tok = op.primary_axis if i == 0 else op.secondary_axis
-                p2 = location_3d_to_region_2d(region, rv3d, Vector(p))
-                if p2 is None:
-                    continue
-                r, g, b, _ = axis_color(_letter(tok))
-                w, h = hud_text.measure(tok, theme=theme, size_token="axis_letter")
-                hud_text.draw(tok, int(p2.x - w * 0.5), int(p2.y + h * 0.8),
-                              theme=theme, color=(r, g, b, 1.0), size_token="axis_letter")
     for ov in (op._help, op._hud):
         if ov is not None:
             ov.draw(context, op._last_event)
@@ -384,9 +297,9 @@ def _draw_pixel(op, context):
 # --- operator -------------------------------------------------------------
 
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
-    """Land a face of the selection on any face in the scene (hover your
-    object for the source, hover the target, click), or aim its axes at
-    picked points. A ghost previews the result; originals move on confirm"""
+    """Place the selection by point pairs: move a point onto a point, then
+    optionally align a second pair and roll a third. A ghost previews each
+    step; the originals move on confirm"""
 
     bl_idname = "iops.object_modal_three_point_rotation"
     is_bindable = True
@@ -402,24 +315,26 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             and context.active_object is not None
         )
 
-    # --- state helpers ---
+    # --- state ---
 
-    def _reset_picks(self):
-        self.targets = []            # AIM: locked world points (A, B)
-        self._src_face = None        # FACE: sticky source face dict
-        self._src_frame = None
+    def _reset(self):
+        self.step = STEP_MOVE
+        self._base = Matrix.Identity(4)      # committed delta
+        self._history = []                   # (base, a_dst, b_dst, a_face) before each commit
+        self._preview = None                 # pending step delta (left-multiplies base)
+        self.a_dst = None                    # A′ world point (pivot for Align / Roll)
+        self.b_dst = None                    # B′ world point (Roll axis end)
+        self._a_face = None                  # source face of A (for the auto Align)
+        self._a_dst_face = None              # target face of A′
+        self._src_face = None                # sticky source pick for the current step
         self._hover = None
         self._hover_is_source = False
-        self._aim_hover_pt = None
-        self._dst_frame = None
-        self._delta = Matrix.Identity(4)
         self._error = ""
+        self.rot_mode = ROT_POINTS
         self.roll_shift = 0
-        self._dst_anchor = None
 
-    def _delta_is_identity(self):
-        m = self._delta
-        return all(abs(m[i][j] - (1.0 if i == j else 0.0)) < 1e-9 for i in range(4) for j in range(4))
+    def _total(self):
+        return self._preview @ self._base if self._preview is not None else self._base
 
     def _hover_point(self):
         hv = self._hover
@@ -427,28 +342,14 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             return None
         return hv["closest"] if self.snap else hv["hit"]
 
-    def _aim_targets(self):
-        """(A, B) — locked points, the hover filling the next slot."""
-        out = [Vector(p) for p in self.targets]
-        if len(out) < 2 and self._aim_hover_pt is not None:
-            out.append(Vector(self._aim_hover_pt))
-        while len(out) < 2:
-            out.append(None)
-        return out
-
     def _step_label(self):
-        if self.mode == MODE_FACE:
-            if self._src_face is None:
-                return "hover your object: pick the source face"
-            if self._dst_frame is None:
-                return "hover a target face, click to apply"
-            return "click to apply"
-        n = len(self.targets)
-        if n == 0:
-            return f"aim {self.primary_axis}: click a point"
-        if n == 1:
-            return f"roll {self.secondary_axis}: click a point"
-        return "Space to apply"
+        if self.step == STEP_DONE:
+            return "Space to apply"
+        who = "your object" if self._src_face is None else "the target"
+        what = {STEP_MOVE: "A", STEP_ALIGN: "B", STEP_ROLL: "C"}[self.step]
+        if self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS:
+            return "click the target to turn by normals"
+        return f"hover {who}: point {what}{'′' if self._src_face is not None else ''}"
 
     # --- preview math ---
 
@@ -458,107 +359,123 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         _a, _b, e = _face_edge(face, shift)
         return frame_from_face(tuple(anchor), tuple(n), tuple(e))
 
-    def _face_delta(self, src, hv):
-        """World delta for the Face mode according to `rot_mode`. Returns
-        (delta, dst_frame_or_None)."""
-        anchor = Vector(hv["closest"] if self.snap else hv["hit"])
-        o = Vector(src.origin)
-        if self.rot_mode == ROT_KEEP:
-            return Matrix.Translation(anchor - o), None
-        n_src = Vector(src.primary)
-        n_dst = (-hv["normal"] if self.face_to_face else hv["normal"]).normalized()
-        if self.rot_mode == ROT_NORMAL:
-            # minimal rotation n_src -> n_dst; antiparallel is ambiguous, so
-            # fold about the source roll edge (lid on a box) to stay stable
-            if n_src.dot(n_dst) < -0.99999:
-                rot = Matrix.Rotation(3.141592653589793, 4, Vector(src.secondary))
-            else:
-                rot = n_src.rotation_difference(n_dst).to_matrix().to_4x4()
-            delta = Matrix.Translation(anchor) @ rot @ Matrix.Translation(-o)
-            r3 = rot.to_3x3()
-            dst = frame_from_face(tuple(anchor), tuple(n_dst), tuple(r3 @ Vector(src.secondary)))
-            return delta, dst
-        dst = self._face_frame(hv, invert_normal=self.face_to_face, shift=self.roll_shift)
-        return _tuple_matrix(align_matrix(src, dst)), dst
-
     def _update(self):
-        """Recompute the target frame from the current picks, then the delta
-        the ghost is drawn with."""
+        """Recompute the pending step delta from the sticky source and the
+        hovered target."""
         self._error = ""
-        self._dst_frame = None
-        self._delta = Matrix.Identity(4)
+        self._preview = None
+        hv = self._hover
+        if self.step == STEP_DONE or hv is None or self._hover_is_source:
+            return
+        target = Vector(self._hover_point())
         try:
-            if self.mode == MODE_FACE:
-                src = self._src_frame
-                hv = self._hover
-                if src is None or hv is None or self._hover_is_source:
+            if self.step == STEP_MOVE:
+                if self._src_face is None:
                     return
-                self._delta, dst = self._face_delta(src, hv)
-                # Face mode is "armed" once a target is hovered, whatever the
-                # rotation mode — the click test reads _dst_frame
-                self._dst_frame = dst if dst is not None else src
-                return
-            else:
-                src = axis_frame(self._orig_active, self.primary_axis, self.secondary_axis,
-                                 pivot=tuple(self.pivot))
-                a, b = self._aim_targets()
-                if a is None:
+                src = self._src_face["closest"] if self.snap else self._src_face["hit"]
+                self._preview = Matrix.Translation(target - src)
+            elif self.step == STEP_ALIGN:
+                if self.rot_mode == ROT_POINTS:
+                    if self._src_face is None:
+                        return
+                    b_moved = self._base @ (self._src_face["closest"] if self.snap else self._src_face["hit"])
+                    self._preview = _tuple_matrix(rotate_ray_onto(
+                        tuple(self.a_dst), tuple(b_moved), tuple(target)))
+                else:
+                    self._preview = self._auto_align(hv)
+            elif self.step == STEP_ROLL:
+                if self._src_face is None:
                     return
-                try:
-                    dst = frame_from_points(tuple(self.pivot), tuple(a),
-                                            None if b is None else tuple(b),
-                                            secondary_hint=src.secondary)
-                except DegenerateFrame as exc:
-                    if b is None:
-                        raise
-                    # B on the aim line: keep the two-point aim, flag it
-                    self._error = str(exc)
-                    dst = frame_from_points(tuple(self.pivot), tuple(a), None,
-                                            secondary_hint=src.secondary)
-            self._dst_frame = dst
-            self._delta = _tuple_matrix(align_matrix(src, dst))
+                c_moved = self._base @ (self._src_face["closest"] if self.snap else self._src_face["hit"])
+                self._preview = _tuple_matrix(roll_about_axis(
+                    tuple(self.a_dst), tuple(self.b_dst - self.a_dst), tuple(c_moved), tuple(target)))
         except DegenerateFrame as exc:
             self._error = str(exc)
-            self._delta = Matrix.Identity(4)
+            self._preview = None
+
+    def _auto_align(self, hv):
+        """Align step by the faces of A (source, carried by the base) and the
+        hovered target face, about A′."""
+        af = self._a_face
+        if af is None:
+            raise DegenerateFrame("no source face for A")
+        r3 = self._base.to_3x3()
+        n_src = (r3 @ af["normal"]).normalized()
+        n_dst = (-hv["normal"] if self.face_to_face else hv["normal"]).normalized()
+        piv = Vector(self.a_dst)
+        if self.rot_mode == ROT_NORMAL:
+            if n_src.dot(n_dst) < -0.99999:
+                _a, _b, e = _face_edge(af)
+                rot = Matrix.Rotation(3.141592653589793, 4, (r3 @ e).normalized())
+            else:
+                rot = n_src.rotation_difference(n_dst).to_matrix().to_4x4()
+            return Matrix.Translation(piv) @ rot @ Matrix.Translation(-piv)
+        _a, _b, e_src = _face_edge(af)
+        src = frame_from_face(tuple(piv), tuple(n_src), tuple(r3 @ e_src))
+        _a, _b, e_dst = _face_edge(hv, self.roll_shift)
+        dst = frame_from_face(tuple(piv), tuple(n_dst), tuple(e_dst))
+        return _tuple_matrix(align_matrix(src, dst))
+
+    def _commit(self):
+        """LMB: bake the pending preview into the base and advance."""
+        if self._preview is None or self._hover is None:
+            return False
+        target = Vector(self._hover_point())
+        self._history.append((self._base.copy(), self.a_dst, self.b_dst, self._a_face, self._a_dst_face))
+        self._base = self._preview @ self._base
+        self._preview = None
+        if self.step == STEP_MOVE:
+            self.a_dst = target.copy()
+            self._a_face = self._src_face
+            self._a_dst_face = self._hover
+            self.step = STEP_ALIGN
+        elif self.step == STEP_ALIGN:
+            if self.rot_mode == ROT_EDGE:
+                self.step = STEP_DONE
+            else:
+                self.b_dst = target.copy() if self.rot_mode == ROT_POINTS else None
+                self.step = STEP_ROLL if self.b_dst is not None else STEP_DONE
+        elif self.step == STEP_ROLL:
+            self.step = STEP_DONE
+        self._src_face = None
+        return True
+
+    def _step_back(self):
+        if not self._history:
+            return
+        self._base, self.a_dst, self.b_dst, self._a_face, self._a_dst_face = self._history.pop()
+        self.step = {0: STEP_MOVE, 1: STEP_ALIGN, 2: STEP_ROLL}[len(self._history)]
+        self._src_face = None
+        self._preview = None
 
     def _apply(self):
         for ob, mw in self._orig.items():
             try:
-                ob.matrix_world = self._delta @ mw
+                ob.matrix_world = self._base @ mw
             except ReferenceError:
                 continue
 
     def _update_hover(self, context, event):
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-        self._aim_hover_pt = None
         self._hover_is_source = False
-        if self.mode == MODE_FACE:
-            face = _pick_face(context, mouse)
-            self._hover = face
-            if face is not None and face["owner"] in self._moving:
-                # sticky source: follows the cursor while on the object, but
-                # on the same face the anchor only moves when the cursor is
-                # actually near another snap point — sliding off the object
-                # must not swap a picked vertex for the face center
-                self._hover_is_source = True
-                prev = self._src_face
-                same = (prev is not None and prev["owner"] == face["owner"]
-                        and prev["index"] == face["index"])
-                if same and not face["snapped"]:
-                    face["closest"] = prev["closest"]
-                    face["edge_idx"] = prev["edge_idx"]
-                self._src_face = face
-                self._src_frame = self._face_frame(face)
-                self.roll_shift = 0
-            return
-        if len(self.targets) >= 2:
+        if self.step == STEP_DONE:
             self._hover = None
             return
-        self._hover = _pick_face(context, mouse, exclude=self._moving)
-        if self._hover is not None:
-            self._aim_hover_pt = self._hover_point()
-        else:
-            self._aim_hover_pt = _mouse_on_view_plane(context, mouse, Vector(self.pivot))
+        face = _pick_face(context, mouse)
+        self._hover = face
+        if face is not None and face["owner"] in self._moving:
+            # sticky source: follows the cursor while on the object, but on
+            # the same face the anchor only moves when the cursor is actually
+            # near another snap point — sliding off must not swap a picked
+            # vertex for the face center
+            self._hover_is_source = True
+            prev = self._src_face
+            same = (prev is not None and prev["owner"] == face["owner"]
+                    and prev["index"] == face["index"])
+            if same and not face["snapped"]:
+                face["closest"] = prev["closest"]
+                face["edge_idx"] = prev["edge_idx"]
+            self._src_face = face
 
     # --- HUD ---
 
@@ -566,38 +483,29 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         hud = HUDOverlay("three_point_rotation")
         hud.title = "3 Point Rotation"
         hud.bind_region(context.region)
-        hud.add_param(HUDParam("Mode", lambda: MODE_LABELS[self.mode], "str"))
-        hud.add_param(HUDParam("Step", lambda: self._step_label(), "str"))
-        hud.add_param(HUDParam("Axes", lambda: f"{self.primary_axis} → {self.secondary_axis}", "str",
-                               visible_getter=lambda: self.mode == MODE_AIM))
-        hud.add_param(HUDParam("Rotate", lambda: ROT_LABELS[self.rot_mode], "str",
-                               visible_getter=lambda: self.mode == MODE_FACE))
+        hud.add_param(HUDParam("Step", lambda: STEP_NAMES[self.step], "str"))
+        hud.add_param(HUDParam("Do", lambda: self._step_label(), "str"))
+        hud.add_param(HUDParam("Align", lambda: ROT_LABELS[self.rot_mode], "str",
+                               visible_getter=lambda: self.step == STEP_ALIGN))
         hud.add_param(HUDParam("Facing", lambda: "face to face" if self.face_to_face else "same side", "str",
-                               visible_getter=lambda: self.mode == MODE_FACE and self.rot_mode != ROT_KEEP))
-        hud.add_param(HUDParam("Roll edge", lambda: self._roll_label(), "str",
-                               visible_getter=lambda: self.mode == MODE_FACE and self.rot_mode == ROT_EDGE))
+                               visible_getter=lambda: self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS))
+        hud.add_param(HUDParam("Roll edge", lambda: "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}", "str",
+                               visible_getter=lambda: self.step == STEP_ALIGN and self.rot_mode == ROT_EDGE))
         hud.add_param(HUDParam("Snap", lambda: self.snap, "bool"))
-        hud.add_param(HUDParam("Rotation", lambda: f"{rotation_angle_deg(self._delta):.1f}°", "str"))
+        hud.add_param(HUDParam("Rotation", lambda: f"{rotation_angle_deg(self._total()):.1f}°", "str"))
         hud.add_param(HUDParam("Error", lambda: self._error, "str",
                                visible_getter=lambda: bool(self._error)))
         return hud
 
-    def _roll_label(self):
-        return "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}"
-
     def _build_help(self, context):
         helpo = HelpOverlay("three_point_rotation")
         helpo.add_section(HUDSection("3 Point Rotation", [
-            HUDItem("Face: apply on target face  /  Aim: lock point", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Pick pivot on the object (Aim)", "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mode: Face to face / Aim axes", "Tab", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Rotation: keep / match normals / normals + edge (Face)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Facing: meet / same side (Face, rotating)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Roll edge: next / previous (Face, edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Primary axis (repeat flips) (Aim)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Secondary axis (repeat flips) (Aim)", "Shift+X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Commit step: Move A→A′ / Align B→B′ / Roll C→C′", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Align by: points / normals / normals + edge", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Facing: meet / same side (normals)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Roll edge: next / previous (normals + edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap to verts / edge mids / center", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Undo last point (Aim)", "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Step back", "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Reset", "0", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Apply", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -621,19 +529,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         for r in roots:
             self._moving.update(r.children_recursive)
         self._orig = {ob: ob.matrix_world.copy() for ob in roots}
-        self._orig_active = active.matrix_world.copy()
         self._ghost = _gather_ghost(context, self._moving)
 
-        self.mode = MODE_FACE
-        self.primary_axis = "Z"
-        self.secondary_axis = "Y"
         self.snap = True
         self.face_to_face = True
-        self.rot_mode = ROT_KEEP
-        self.pivot = active.matrix_world.translation.copy()
         dims = [d for d in active.dimensions if d > 1e-6]
         self._gizmo_len = max(dims) * 0.35 if dims else 1.0
-        self._reset_picks()
+        self._reset()
 
         self._hud = self._build_hud(context)
         self._help = self._build_help(context)
@@ -657,22 +559,12 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 setattr(self, attr, None)
 
     def _finish(self):
+        if self._preview is not None:
+            self._commit()
         self._apply()
         self._cleanup()
-        self.report({"INFO"}, f"3 Point Rotation: {rotation_angle_deg(self._delta):.1f}°")
+        self.report({"INFO"}, f"3 Point Rotation: {rotation_angle_deg(self._base):.1f}°")
         return {"FINISHED"}
-
-    def _set_axis(self, letter, *, secondary):
-        cur = self.secondary_axis if secondary else self.primary_axis
-        other = self.primary_axis if secondary else self.secondary_axis
-        new = _flip_axis(cur) if _letter(cur) == letter else letter
-        if _letter(other) == letter:
-            # the other slot must move off this axis
-            other = next(a for a in AXIS_LETTERS if a not in (letter, _letter(cur)))
-        if secondary:
-            self.secondary_axis, self.primary_axis = new, other
-        else:
-            self.primary_axis, self.secondary_axis = new, other
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -692,7 +584,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
 
         if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
-            if event.alt and self.mode == MODE_FACE:
+            if event.alt and self.step == STEP_ALIGN:
                 if self.rot_mode != ROT_EDGE:
                     self.rot_mode = ROT_EDGE
                 else:
@@ -712,53 +604,28 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE":
-            if self.mode == MODE_FACE:
-                if self._dst_frame is not None:
-                    return self._finish()
-                return {"RUNNING_MODAL"}
-            if event.shift:
-                mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-                face = _pick_face(context, mouse, restrict_to=self._moving)
-                if face is not None:
-                    self.targets = []
-                    self.pivot = (face["closest"] if self.snap else face["hit"]).copy()
-            elif len(self.targets) < 2 and self._aim_hover_pt is not None:
-                self.targets.append(Vector(self._aim_hover_pt))
+            if self._commit() and self.step == STEP_DONE:
+                return self._finish()
             self._update_hover(context, event)
             self._update()
         elif event.type == "BACK_SPACE":
-            if self.mode == MODE_AIM and self.targets:
-                self.targets.pop()
-                self._update_hover(context, event)
-                self._update()
-        elif event.type == "TAB":
-            self.mode = MODE_AIM if self.mode == MODE_FACE else MODE_FACE
-            self._reset_picks()
+            self._step_back()
             self._update_hover(context, event)
             self._update()
-        elif event.type in AXIS_LETTERS and not (event.ctrl or event.alt):
-            if self.mode == MODE_AIM:
-                self._set_axis(event.type, secondary=event.shift)
-                self._update()
-        elif event.type == "F":
-            if self.mode == MODE_FACE:
-                self.face_to_face = not self.face_to_face
-            elif len(self.targets) == 2:
-                self.targets.reverse()
-            self._update()
-        elif event.type == "R" and self.mode == MODE_FACE:
+        elif event.type == "R" and self.step == STEP_ALIGN:
             i = ROT_CYCLE.index(self.rot_mode)
             self.rot_mode = ROT_CYCLE[(i + 1) % len(ROT_CYCLE)]
+            self._update()
+        elif event.type == "F":
+            self.face_to_face = not self.face_to_face
             self._update()
         elif event.type == "S":
             self.snap = not self.snap
             self._update_hover(context, event)
             self._update()
         elif event.type in {"ZERO", "NUMPAD_0"}:
-            self.pivot = self._orig_active.translation.copy()
-            self.primary_axis, self.secondary_axis = "Z", "Y"
-            self.face_to_face, self.rot_mode = True, ROT_KEEP
-            self._reset_picks()
+            self.face_to_face = True
+            self._reset()
             self._update_hover(context, event)
             self._update()
         elif event.type in {"SPACE", "RET", "NUMPAD_ENTER"}:

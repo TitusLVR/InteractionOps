@@ -174,3 +174,68 @@ def rotation_angle_deg(m):
     tr = m[0][0] + m[1][1] + m[2][2]
     c = max(-1.0, min(1.0, (tr - 1.0) * 0.5))
     return math.degrees(math.acos(c))
+
+
+# --- point-pair rotations (the Align / Roll steps) ------------------------
+
+def _rodrigues(axis_unit, angle):
+    """4x4 rotation about a unit axis through the origin."""
+    x, y, z = axis_unit
+    c, s = math.cos(angle), math.sin(angle)
+    C = 1.0 - c
+    return (
+        (c + x * x * C,     x * y * C - z * s, x * z * C + y * s, 0.0),
+        (y * x * C + z * s, c + y * y * C,     y * z * C - x * s, 0.0),
+        (z * x * C - y * s, z * y * C + x * s, c + z * z * C,     0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+
+def _about_pivot(rot, pivot):
+    """T(pivot) @ rot @ T(-pivot) for a 4x4 rotation `rot`."""
+    p = tuple(float(c) for c in pivot)
+    rp = tuple(rot[i][0] * p[0] + rot[i][1] * p[1] + rot[i][2] * p[2] for i in range(3))
+    return (
+        (rot[0][0], rot[0][1], rot[0][2], p[0] - rp[0]),
+        (rot[1][0], rot[1][1], rot[1][2], p[1] - rp[1]),
+        (rot[2][0], rot[2][1], rot[2][2], p[2] - rp[2]),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+
+def rotate_ray_onto(pivot, from_pt, to_pt):
+    """Minimal rotation about `pivot` that turns the ray pivot→from_pt onto
+    the ray pivot→to_pt. Antiparallel rays turn 180° about a stable
+    perpendicular. Returns a 4x4 (row-major nested tuples)."""
+    u = _sub(from_pt, pivot)
+    v = _sub(to_pt, pivot)
+    if _length(u) < EPS or _length(v) < EPS:
+        raise DegenerateFrame("point coincides with the pivot")
+    u = _normalized(u)
+    v = _normalized(v)
+    axis = _cross(u, v)
+    sin_a = _length(axis)
+    cos_a = max(-1.0, min(1.0, _dot(u, v)))
+    if sin_a < EPS:
+        if cos_a > 0.0:
+            return _about_pivot(_rodrigues((0.0, 0.0, 1.0), 0.0), pivot)
+        return _about_pivot(_rodrigues(_any_perpendicular(u), math.pi), pivot)
+    angle = math.atan2(sin_a, cos_a)
+    return _about_pivot(_rodrigues(_scale(axis, 1.0 / sin_a), angle), pivot)
+
+
+def roll_about_axis(pivot, axis_dir, from_pt, to_pt):
+    """Rotation about the axis (pivot, axis_dir) that brings the projection
+    of from_pt onto the plane ⟂ axis in line with the projection of to_pt.
+    Shortest signed angle. Returns a 4x4."""
+    a = _normalized(axis_dir)
+    u = _sub(from_pt, pivot)
+    v = _sub(to_pt, pivot)
+    u = _sub(u, _scale(a, _dot(u, a)))
+    v = _sub(v, _scale(a, _dot(v, a)))
+    if _length(u) < EPS or _length(v) < EPS:
+        raise DegenerateFrame("point lies on the roll axis")
+    u = _normalized(u)
+    v = _normalized(v)
+    angle = math.atan2(_dot(_cross(u, v), a), _dot(u, v))
+    return _about_pivot(_rodrigues(a, angle), pivot)
