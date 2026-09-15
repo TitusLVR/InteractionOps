@@ -91,12 +91,15 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
             depsgraph, current_origin, view_vector)
         if not result:
             break
-        permitted = (allowed is None or (obj is not None and obj in allowed))
-        if blocked is not None and obj is not None and obj in blocked:
+        # Collection instances: the hit is the instanced mesh (not in the
+        # view layer), so ownership / visibility belong to the instancer.
+        owner = _hit_owner(depsgraph, obj, matrix) if obj is not None else None
+        permitted = (allowed is None or (owner is not None and owner in allowed))
+        if blocked is not None and owner is not None and owner in blocked:
             permitted = False
-        if visible_only and obj is not None:
+        if visible_only and owner is not None:
             try:
-                if not obj.original.visible_get(viewport=viewport):
+                if not owner.visible_get(viewport=viewport):
                     permitted = False
             except (ReferenceError, TypeError):
                 permitted = False
@@ -107,6 +110,38 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
         current_origin = location + view_vec_norm * RAYCAST_OFFSET_DISTANCE
 
     return (False, None, None, None, None, None)
+
+
+def _hit_owner(depsgraph, obj, matrix):
+    """The view-layer object responsible for a `scene.ray_cast` hit: the
+    object itself, or — when the hit geometry comes from a collection
+    instance — the instancing Empty. Instances are matched by object and
+    world matrix among `depsgraph.object_instances`; falls back to the hit
+    object when no instance matches."""
+    try:
+        original = obj.original
+    except (ReferenceError, AttributeError):
+        return obj
+    # Fast path: a plain (non-instanced) hit reports the object's own matrix.
+    try:
+        own = obj.matrix_world
+        if all(abs(own[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
+            return original
+    except (ReferenceError, AttributeError):
+        pass
+    for inst in depsgraph.object_instances:
+        if not inst.is_instance:
+            continue
+        try:
+            if inst.object.original != original:
+                continue
+            m = inst.matrix_world
+        except ReferenceError:
+            continue
+        if all(abs(m[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
+            parent = inst.parent
+            return parent.original if parent is not None else original
+    return original
 
 
 def raycast_with_corner_fallback(context, mouse_coord, *, restrict_to,
