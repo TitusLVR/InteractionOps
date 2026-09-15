@@ -41,7 +41,7 @@ CORNER_FALLBACK_COORDS = (
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        visible_only: bool = False,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS,
-                       region=None, rv3d=None, viewport=None):
+                       region=None, rv3d=None, viewport=None, ray=None):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
     (an iterable of objects), the ray pierces through those objects. If
@@ -57,6 +57,10 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     looked up from the context, which only works while the context is the
     3D viewport itself (not the Properties editor).
 
+    `ray=(origin, direction)` casts that world-space ray instead of the one
+    under the mouse — for picking geometry that is displayed transformed
+    (a ghost) by casting the inverse-transformed ray at the originals.
+
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
     """
@@ -67,8 +71,11 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     if region is None or rv3d is None:
         return (False, None, None, None, None, None)
 
-    view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
-    ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
+    if ray is not None:
+        ray_origin, view_vector = Vector(ray[0]), Vector(ray[1])
+    else:
+        view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
+        ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
     depsgraph = context.evaluated_depsgraph_get()
     allowed = set(restrict_to) if restrict_to is not None else None
     blocked = set(exclude) if exclude is not None else None

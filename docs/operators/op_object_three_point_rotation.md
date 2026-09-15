@@ -8,7 +8,7 @@ Place the selected objects by point pairs, one click per step: move a point onto
 
 ## Steps
 
-Each step is the same gesture: hover your own object to pick a point (it is sticky and stays when you move away), hover the target to pick where it goes, click.
+Each step is the same gesture: hover your own object to pick a point, click to lock it (or just move away, the pick is sticky), hover the target to pick where it goes, click. From the second step on you pick your points on the ghost, where the object is going to be.
 
 1. **Move.** Point A on your object, point A′ on the target. The ghost moves so A sits on A′. No rotation, no flips: identical modules line up as they are. <kbd>Space</kbd> here finishes with a pure move.
 2. **Align.** Point B on your object (you pick it on the ghost), point B′ on the target. The ghost turns about A′ until the ray A′→B lies on A′→B′. Instead of a point pair, <kbd>R</kbd> switches to turning by the face normals of A and A′ (*by normals*: the minimal turn, faces meet; *normals + edge*: also rolls so the picked edges line up, <kbd>Alt</kbd>+wheel cycles the target edge). <kbd>F</kbd> flips between faces meeting and facing the same way.
@@ -20,7 +20,7 @@ Each step is the same gesture: hover your own object to pick a point (it is stic
 
 | Key | Action |
 | --- | --- |
-| <kbd>LMB</kbd> | Commit the step: Move A→A′, Align B→B′, Roll C→C′ |
+| <kbd>LMB</kbd> | On your object: lock the point. On the target: commit the step (Move A→A′, Align B→B′, Roll C→C′) |
 | <kbd>R</kbd> | Align by: points / normals / normals + edge |
 | <kbd>F</kbd> | Facing: faces meet / same side (normals modes) |
 | <kbd>Alt</kbd>+Wheel | Roll edge: next / previous on the target face (normals + edge) |

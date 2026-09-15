@@ -15,7 +15,9 @@ Space / Enter applies at any step, Backspace steps back, Esc cancels.
 import bpy
 import gpu
 from mathutils import Vector, Matrix
-from bpy_extras.view3d_utils import location_3d_to_region_2d
+from bpy_extras.view3d_utils import (
+    location_3d_to_region_2d, region_2d_to_origin_3d, region_2d_to_vector_3d,
+)
 
 from ..ui.draw import primitives as iops_draw
 from ..ui.draw import draw_scope, safe_handler_add, safe_handler_remove
@@ -101,19 +103,34 @@ def _gather_ghost(context, moving):
 
 # --- hover picking ---------------------------------------------------------
 
-def _pick_face(context, mouse):
+def _pick_face(context, mouse, *, restrict_to=None, exclude=None, xform=None):
     """Raycast under the cursor and describe the hit face in world space.
     The snap point is chosen in screen space: a vertex, edge midpoint or the
     center when within SNAP_THRESHOLD_PX of the cursor, else the center.
+
+    `xform` picks geometry that is *displayed* through that rigid matrix (the
+    ghost): the mouse ray is cast through its inverse at the originals, the
+    returned coordinates stay in original space, and screen distances are
+    measured where the ghost is. `depth` is the hit distance along the mouse
+    ray in display space, for choosing between overlapping picks.
     Returns a dict or None on miss."""
     region = context.region
     rv3d = context.region_data
     if region is None or rv3d is None:
         return None
+    origin = region_2d_to_origin_3d(region, rv3d, mouse)
+    direction = region_2d_to_vector_3d(region, rv3d, mouse)
+    ray = None
+    if xform is not None:
+        inv = xform.inverted()
+        ray = (inv @ origin, (inv.to_3x3() @ direction).normalized())
     hit, loc, normal, idx, obj, mat = raycast_from_mouse(
-        context, mouse, visible_only=True, region=region, rv3d=rv3d)
+        context, mouse, restrict_to=restrict_to, exclude=exclude,
+        visible_only=True, region=region, rv3d=rv3d, ray=ray)
     if not hit or obj is None:
         return None
+    shown = (lambda p: xform @ p) if xform is not None else (lambda p: p)
+    depth = (shown(loc) - origin).dot(direction)
     depsgraph = context.evaluated_depsgraph_get()
     owner = hit_owner(depsgraph, obj, mat, view_layer=context.view_layer)
     try:
@@ -131,7 +148,7 @@ def _pick_face(context, mouse):
     mouse_v = Vector(mouse)
     closest, best = center, SNAP_THRESHOLD_PX
     for p in snaps:
-        s = location_3d_to_region_2d(region, rv3d, p)
+        s = location_3d_to_region_2d(region, rv3d, shown(p))
         if s is None:
             continue
         d = (mouse_v - Vector(s)).length
@@ -157,7 +174,7 @@ def _pick_face(context, mouse):
     return {
         "hit": loc, "obj": obj, "owner": owner, "index": idx, "normal": normal.normalized(),
         "center": center, "verts": vw, "snaps": snaps, "closest": closest, "snapped": snapped,
-        "edge_idx": best_i, "tris": tris, "edges": edges,
+        "edge_idx": best_i, "tris": tris, "edges": edges, "depth": depth,
     }
 
 
@@ -255,6 +272,9 @@ def _draw_preview_3d(op, context):
             gpu.matrix.pop()
         src_pt = base @ op._src_face["closest"]
         with draw_scope(blend="ALPHA", depth="NONE"):
+            if op._src_locked:
+                iops_draw.points([src_pt], color=_fade(theme, Role.LOCKED_POINT, 0.35),
+                                 size=theme.point_size("locked") + 8.0, context=context)
             if auto:
                 n = base.to_3x3() @ op._src_face["normal"]
                 iops_draw.edges_3d([src_pt, src_pt + n * length * 0.6],
@@ -327,6 +347,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._a_face = None                  # source face of A (for the auto Align)
         self._a_dst_face = None              # target face of A′
         self._src_face = None                # sticky source pick for the current step
+        self._src_locked = False             # LMB on the source froze the pick
         self._hover = None
         self._hover_is_source = False
         self._error = ""
@@ -345,11 +366,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def _step_label(self):
         if self.step == STEP_DONE:
             return "Space to apply"
-        who = "your object" if self._src_face is None else "the target"
         what = {STEP_MOVE: "A", STEP_ALIGN: "B", STEP_ROLL: "C"}[self.step]
         if self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS:
             return "click the target to turn by normals"
-        return f"hover {who}: point {what}{'′' if self._src_face is not None else ''}"
+        if self._src_face is None:
+            return f"hover your object: point {what} (click to lock)"
+        state = "locked" if self._src_locked else "sticky"
+        return f"{what} {state} — hover the target: {what}′, click"
 
     # --- preview math ---
 
@@ -416,6 +439,15 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         dst = frame_from_face(tuple(piv), tuple(n_dst), tuple(e_dst))
         return _tuple_matrix(align_matrix(src, dst))
 
+    def _lock_source(self):
+        """LMB over the source: freeze the pick where the cursor is now.
+        Clicking again re-picks and stays locked."""
+        if self._hover is None or not self._hover_is_source:
+            return False
+        self._src_face = self._hover
+        self._src_locked = True
+        return True
+
     def _commit(self):
         """LMB: bake the pending preview into the base and advance."""
         if self._preview is None or self._hover is None:
@@ -438,6 +470,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         elif self.step == STEP_ROLL:
             self.step = STEP_DONE
         self._src_face = None
+        self._src_locked = False
         return True
 
     def _step_back(self):
@@ -446,6 +479,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._base, self.a_dst, self.b_dst, self._a_face, self._a_dst_face = self._history.pop()
         self.step = {0: STEP_MOVE, 1: STEP_ALIGN, 2: STEP_ROLL}[len(self._history)]
         self._src_face = None
+        self._src_locked = False
         self._preview = None
 
     def _apply(self):
@@ -461,14 +495,25 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         if self.step == STEP_DONE:
             self._hover = None
             return
-        face = _pick_face(context, mouse)
+        # Two casts: the scene without the selection (targets), and the
+        # selection as displayed — the ghost — via the inverse of the
+        # committed delta. Whichever is nearer along the ray wins, so the
+        # ghost occludes what it sits on and the originals never pick.
+        target = _pick_face(context, mouse, exclude=self._moving)
+        source = _pick_face(context, mouse, restrict_to=self._moving, xform=self._base)
+        if source is not None and (target is None or source["depth"] <= target["depth"]):
+            face = source
+        else:
+            face = target
         self._hover = face
-        if face is not None and face["owner"] in self._moving:
+        if face is source and face is not None:
             # sticky source: follows the cursor while on the object, but on
             # the same face the anchor only moves when the cursor is actually
             # near another snap point — sliding off must not swap a picked
-            # vertex for the face center
+            # vertex for the face center. A click on the source locks it.
             self._hover_is_source = True
+            if self._src_locked:
+                return
             prev = self._src_face
             same = (prev is not None and prev["owner"] == face["owner"]
                     and prev["index"] == face["index"])
@@ -500,7 +545,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def _build_help(self, context):
         helpo = HelpOverlay("three_point_rotation")
         helpo.add_section(HUDSection("3 Point Rotation", [
-            HUDItem("Commit step: Move A→A′ / Align B→B′ / Roll C→C′", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("On your object: lock the point. On the target: commit the step", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align by: points / normals / normals + edge", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Facing: meet / same side (normals)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Roll edge: next / previous (normals + edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -604,7 +649,12 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE":
-            if self._commit() and self.step == STEP_DONE:
+            if self._hover_is_source:
+                # a fresh pick under the cursor, then freeze it
+                self._src_locked = False
+                self._update_hover(context, event)
+                self._lock_source()
+            elif self._commit() and self.step == STEP_DONE:
                 return self._finish()
             self._update_hover(context, event)
             self._update()
