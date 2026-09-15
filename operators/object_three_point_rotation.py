@@ -148,13 +148,14 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     # screen-space snap: nearest vertex / midpoint within the threshold
     mouse_v = Vector(mouse)
     closest, best = center, SNAP_THRESHOLD_PX
-    for p in vw + mids:
+    for p in vw + mids + [center]:
         s = location_3d_to_region_2d(region, rv3d, p)
         if s is None:
             continue
         d = (mouse_v - Vector(s)).length
         if d < best:
             best, closest = d, p
+    snapped = best < SNAP_THRESHOLD_PX
     # nearest edge to the hit point → roll direction (polygon winding)
     best_i, best_d = 0, float("inf")
     for i in range(n):
@@ -172,8 +173,8 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     for i in range(n):
         edges.extend([vw[i], vw[(i + 1) % n]])
     return {
-        "hit": loc, "obj": obj, "owner": owner, "normal": normal.normalized(),
-        "center": center, "verts": vw, "snaps": snaps, "closest": closest,
+        "hit": loc, "obj": obj, "owner": owner, "index": idx, "normal": normal.normalized(),
+        "center": center, "verts": vw, "snaps": snaps, "closest": closest, "snapped": snapped,
         "edge_idx": best_i, "tris": tris, "edges": edges,
     }
 
@@ -535,8 +536,17 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             face = _pick_face(context, mouse)
             self._hover = face
             if face is not None and face["owner"] in self._moving:
-                # sticky source: follows the cursor while on the object
+                # sticky source: follows the cursor while on the object, but
+                # on the same face the anchor only moves when the cursor is
+                # actually near another snap point — sliding off the object
+                # must not swap a picked vertex for the face center
                 self._hover_is_source = True
+                prev = self._src_face
+                same = (prev is not None and prev["owner"] == face["owner"]
+                        and prev["index"] == face["index"])
+                if same and not face["snapped"]:
+                    face["closest"] = prev["closest"]
+                    face["edge_idx"] = prev["edge_idx"]
                 self._src_face = face
                 self._src_frame = self._face_frame(face)
                 self.roll_shift = 0
