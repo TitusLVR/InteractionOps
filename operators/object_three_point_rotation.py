@@ -1,18 +1,20 @@
 """Three Point Rotation — aim an object's axes at picked points, or land a
-face of it onto any face in the scene. The object itself is the preview:
-every hover recomputes the rigid delta and writes matrix_world live; a click
-only locks the current pick. No helper objects, no constraints, no
-tool-settings changes, one undo step.
+face of it onto any face in the scene. The originals stay put; a themed
+ghost of the selection shows the result live and the click applies it. No
+helper objects, no constraints, no tool-settings changes, one undo step.
 
 Modes (Tab):
+  FACE  hover the selected object: the face + snap point under the cursor
+        is the source (sticky — it stays when the cursor leaves). Hover any
+        other face: the ghost lands there (anchor = snap point under the
+        cursor, roll = nearest edge). LMB applies and finishes. One click.
   AIM   pivot = object origin (Shift+LMB picks another point on the object);
         hover aims the primary local axis at the point under the cursor,
-        click locks it; hover then rolls the secondary axis, click locks.
-  FACE  click a face on the selected object(s) → source frame; hovering any
-        other face carries the object there (anchor = snap point under the
-        cursor, roll = nearest edge), click locks.
+        click locks it; hover then rolls the secondary axis, click locks;
+        Space applies.
 """
 import bpy
+import gpu
 from mathutils import Vector, Matrix
 from bpy_extras.view3d_utils import (
     region_2d_to_vector_3d, region_2d_to_origin_3d, location_3d_to_region_2d,
@@ -24,18 +26,19 @@ from ..ui.draw.theme import get_theme, axis_color, Role
 from ..ui.hud import text as hud_text
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
-from ..utils.picking import raycast_from_mouse
+from ..utils.picking import raycast_from_mouse, hit_owner, SNAP_THRESHOLD_PX
 from ..utils.three_point_core import (
     Frame, DegenerateFrame, frame_from_points, frame_from_face, axis_frame,
     align_matrix, rotation_angle_deg,
 )
 
 
-MODE_AIM = "AIM"
 MODE_FACE = "FACE"
-MODE_LABELS = {MODE_AIM: "Aim axes", MODE_FACE: "Face to face"}
+MODE_AIM = "AIM"
+MODE_LABELS = {MODE_FACE: "Face to face", MODE_AIM: "Aim axes"}
 
 AXIS_LETTERS = ("X", "Y", "Z")
+GHOST_FILL_TRI_CAP = 400_000     # above this the ghost is edges only
 
 
 def _flip_axis(token):
@@ -64,12 +67,52 @@ def _tuple_matrix(m):
     return Matrix([tuple(row) for row in m])
 
 
+# --- ghost geometry -------------------------------------------------------
+
+def _gather_ghost(context, moving):
+    """World-space triangle soup + edge segments of everything that will
+    move: the selected objects, their children and the geometry of any
+    collection instances they own. Read once at invoke (nothing moves until
+    confirm), drawn through a gpu matrix push of the delta."""
+    depsgraph = context.evaluated_depsgraph_get()
+    tris, edges = [], []
+    for inst in depsgraph.object_instances:
+        ob = inst.object
+        try:
+            orig = ob.original
+            owner = inst.parent.original if (inst.is_instance and inst.parent is not None) else orig
+        except (ReferenceError, AttributeError):
+            continue
+        if owner not in moving or ob.type != "MESH":
+            continue
+        me = ob.data
+        if me is None:
+            continue
+        mw = inst.matrix_world.copy()
+        try:
+            if not me.loop_triangles:
+                me.calc_loop_triangles()
+            vw = [mw @ v.co for v in me.vertices]
+            loops = me.loops
+            for lt in me.loop_triangles:
+                tris.append(vw[loops[lt.loops[0]].vertex_index])
+                tris.append(vw[loops[lt.loops[1]].vertex_index])
+                tris.append(vw[loops[lt.loops[2]].vertex_index])
+            for e in me.edges:
+                edges.append(vw[e.vertices[0]])
+                edges.append(vw[e.vertices[1]])
+        except (RuntimeError, ReferenceError, IndexError):
+            continue
+    return tris, edges
+
+
 # --- hover picking (one primitive for both modes) -------------------------
 
 def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
-    """Raycast under the cursor and describe the hit face in world space:
-    dict(hit, obj, normal, center, verts, mids, snaps, closest, edge_dir,
-    tris, edges) or None on miss."""
+    """Raycast under the cursor and describe the hit face in world space.
+    The snap point is chosen in screen space: a vertex or edge midpoint only
+    when it is within SNAP_THRESHOLD_PX of the cursor, else the face center.
+    Returns a dict or None on miss."""
     region = context.region
     rv3d = context.region_data
     if region is None or rv3d is None:
@@ -80,6 +123,7 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     if not hit or obj is None:
         return None
     depsgraph = context.evaluated_depsgraph_get()
+    owner = hit_owner(depsgraph, obj, mat, view_layer=context.view_layer)
     try:
         mesh = obj.evaluated_get(depsgraph).data
         poly = mesh.polygons[idx]
@@ -92,7 +136,16 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     center = mat @ poly.center
     mids = [(vw[i] + vw[(i + 1) % n]) * 0.5 for i in range(n)]
     snaps = list(vw) + mids + [center]
-    closest = min(snaps, key=lambda p: (p - loc).length)
+    # screen-space snap: nearest vertex / midpoint within the threshold
+    mouse_v = Vector(mouse)
+    closest, best = center, SNAP_THRESHOLD_PX
+    for p in vw + mids:
+        s = location_3d_to_region_2d(region, rv3d, p)
+        if s is None:
+            continue
+        d = (mouse_v - Vector(s)).length
+        if d < best:
+            best, closest = d, p
     # nearest edge to the hit point → roll direction (polygon winding)
     best_i, best_d = 0, float("inf")
     for i in range(n):
@@ -103,9 +156,6 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
         d = (loc - (a + ab * t)).length
         if d < best_d:
             best_d, best_i = d, i
-    edge_dir = (vw[(best_i + 1) % n] - vw[best_i])
-    if edge_dir.length < 1e-9:
-        edge_dir = Vector((1, 0, 0))
     tris = []
     for i in range(1, n - 1):
         tris.extend([vw[0], vw[i], vw[i + 1]])
@@ -113,11 +163,23 @@ def _pick_face(context, mouse, *, restrict_to=None, exclude=None):
     for i in range(n):
         edges.extend([vw[i], vw[(i + 1) % n]])
     return {
-        "hit": loc, "obj": obj, "normal": normal.normalized(),
+        "hit": loc, "obj": obj, "owner": owner, "normal": normal.normalized(),
         "center": center, "verts": vw, "snaps": snaps, "closest": closest,
-        "edge_dir": edge_dir.normalized(), "edge": (vw[best_i], vw[(best_i + 1) % n]),
-        "tris": tris, "edges": edges,
+        "edge_idx": best_i, "tris": tris, "edges": edges,
     }
+
+
+def _face_edge(face, shift=0):
+    """(a, b, unit direction) of the roll edge: nearest edge to the cursor,
+    cycled by `shift` steps around the polygon."""
+    vw = face["verts"]
+    n = len(vw)
+    i = (face["edge_idx"] + shift) % n
+    a, b = vw[i], vw[(i + 1) % n]
+    d = b - a
+    if d.length < 1e-9:
+        d = Vector((1, 0, 0))
+    return a, b, d.normalized()
 
 
 def _mouse_on_view_plane(context, mouse, through):
@@ -139,20 +201,15 @@ def _mouse_on_view_plane(context, mouse, through):
 
 # --- drawing -------------------------------------------------------------
 
-def _draw_hover(op, context):
-    hv = op._hover
-    if not hv:
-        return
+def _draw_face(context, face, *, fill_role, edge_role, roll_edge=None, roll_shift=0):
     with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
-        iops_draw.tris(hv["tris"], role=Role.GHOST_DEFAULT, context=context)
+        iops_draw.tris(face["tris"], role=fill_role, context=context)
     with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-        iops_draw.edges_3d(hv["edges"], role=Role.GHOST_EDGE, context=context)
-    with draw_scope(blend="ALPHA", depth="NONE"):
-        if op.mode == MODE_FACE:
-            iops_draw.edges_3d(list(hv["edge"]), role=Role.CLOSEST_LINE, context=context)
-        if op.snap:
-            iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
-        iops_draw.points([op._hover_point()], role=Role.CLOSEST_POINT, context=context)
+        iops_draw.edges_3d(face["edges"], role=edge_role, context=context)
+    if roll_edge is not None:
+        a, b, _ = _face_edge(face, roll_shift)
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            iops_draw.edges_3d([a, b], role=roll_edge, width="axis_gizmo", context=context)
 
 
 def _draw_frame(context, frame: Frame, length, *, roles):
@@ -164,65 +221,101 @@ def _draw_frame(context, frame: Frame, length, *, roles):
             iops_draw.edges_3d([o, tip], role=roles[i], width="axis_gizmo", context=context)
 
 
+def _draw_ghost(op, context):
+    """The selection carried by the current delta, in the theme's ghost roles."""
+    if op._delta_is_identity():
+        return
+    tris, edges = op._ghost
+    gpu.matrix.push()
+    try:
+        gpu.matrix.multiply_matrix(op._delta)
+        if tris and len(tris) <= GHOST_FILL_TRI_CAP:
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
+                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
+        if edges:
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
+                iops_draw.edges_3d(edges, role=Role.GHOST_EDGE, context=context)
+    finally:
+        gpu.matrix.pop()
+
+
 def _draw_preview_3d(op, context):
     try:
         length = op._gizmo_len
     except AttributeError:
         return
-    _draw_hover(op, context)
+    _draw_ghost(op, context)
 
-    if op.mode == MODE_AIM:
-        pivot = Vector(op.pivot)
-        pts_locked = [Vector(p) for p in op.targets]
-        tgt = op._aim_targets()
-        # lines pivot → A / B in the color of the local axis they aim
-        with draw_scope(blend="ALPHA", depth="NONE"):
-            for i, p in enumerate(tgt):
-                if p is None:
-                    continue
-                letter = _letter(op.primary_axis if i == 0 else op.secondary_axis)
-                r, g, b, _ = axis_color(letter)
-                alpha = 1.0 if i < len(pts_locked) else 0.6
-                iops_draw.edges_3d([pivot, Vector(p)], color=(r, g, b, alpha),
-                                   width="axis_gizmo", context=context)
-            if pts_locked:
-                iops_draw.points(pts_locked, role=Role.LOCKED_POINT, context=context)
-            iops_draw.points([pivot], role=Role.PIVOT, context=context)
-        if op._dst_frame is not None:
-            # the object's actual local axes at the pivot after the delta
-            rot = (op._delta @ op._orig_active).to_3x3()
-            main = {_letter(op.primary_axis), _letter(op.secondary_axis)}
-            with draw_scope(blend="ALPHA", depth="NONE"):
-                for i, letter in enumerate(AXIS_LETTERS):
-                    d = Vector((rot[0][i], rot[1][i], rot[2][i])).normalized()
-                    L = length if letter in main else length * 0.5
-                    r, g, b, _ = axis_color(letter)
-                    iops_draw.edges_3d([pivot, pivot + d * L], color=(r, g, b, 0.9),
-                                       width="axis_gizmo", context=context)
-    else:
+    if op.mode == MODE_FACE:
+        hv = op._hover
         if op._src_face is not None:
-            # source face ghost carried by the current delta — shows it landing
-            d = op._delta
-            tris = [d @ v for v in op._src_face["tris"]]
-            edges = [d @ v for v in op._src_face["edges"]]
-            with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_LOCKED, context=context)
-                iops_draw.edges_3d(edges, role=Role.LOCKED_LINE, context=context)
-            sf = op._src_frame
-            if sf is not None:
-                moved = Frame(tuple(d @ Vector(sf.origin)),
-                              tuple(d.to_3x3() @ Vector(sf.primary)),
-                              tuple(d.to_3x3() @ Vector(sf.secondary)),
-                              tuple(d.to_3x3() @ Vector(sf.tertiary)))
-                _draw_frame(context, moved, length,
-                            roles=(Role.LOCKED_LINE, Role.LOCKED_LINE, Role.PREVIEW_LINE))
-        if op._dst_frame is not None:
-            _draw_frame(context, op._dst_frame, length,
-                        roles=(Role.ACTIVE_LINE, Role.ACTIVE_LINE, Role.PREVIEW_LINE))
+            # source face: locked look, carried by the delta so it lands on the target
+            gpu.matrix.push()
+            try:
+                gpu.matrix.multiply_matrix(op._delta)
+                _draw_face(context, op._src_face, fill_role=Role.GHOST_LOCKED,
+                           edge_role=Role.LOCKED_LINE, roll_edge=Role.LOCKED_LINE)
+            finally:
+                gpu.matrix.pop()
+            if op._delta_is_identity():
+                # still on the object: show the source anchor + normal
+                sf = op._src_frame
+                if sf is not None:
+                    _draw_frame(context, sf, length,
+                                roles=(Role.LOCKED_LINE, Role.LOCKED_LINE, Role.PREVIEW_LINE))
+                    with draw_scope(blend="ALPHA", depth="NONE"):
+                        iops_draw.points([Vector(sf.origin)], role=Role.LOCKED_POINT, context=context)
+        if hv is not None and not op._hover_is_source:
+            _draw_face(context, hv, fill_role=Role.GHOST_DEFAULT, edge_role=Role.GHOST_EDGE,
+                       roll_edge=Role.CLOSEST_LINE, roll_shift=op.roll_shift)
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                if op.snap:
+                    iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
+                iops_draw.points([op._hover_point()], role=Role.CLOSEST_POINT, context=context)
+            if op._dst_frame is not None:
+                _draw_frame(context, op._dst_frame, length,
+                            roles=(Role.ACTIVE_LINE, Role.ACTIVE_LINE, Role.PREVIEW_LINE))
+        elif hv is not None and op.snap:
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
+        return
+
+    # AIM
+    hv = op._hover
+    if hv is not None:
+        _draw_face(context, hv, fill_role=Role.GHOST_DEFAULT, edge_role=Role.GHOST_EDGE)
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            if op.snap:
+                iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
+            iops_draw.points([op._hover_point()], role=Role.CLOSEST_POINT, context=context)
+    pivot = Vector(op.pivot)
+    pts_locked = [Vector(p) for p in op.targets]
+    with draw_scope(blend="ALPHA", depth="NONE"):
+        for i, p in enumerate(op._aim_targets()):
+            if p is None:
+                continue
+            letter = _letter(op.primary_axis if i == 0 else op.secondary_axis)
+            r, g, b, _ = axis_color(letter)
+            alpha = 1.0 if i < len(pts_locked) else 0.6
+            iops_draw.edges_3d([pivot, Vector(p)], color=(r, g, b, alpha),
+                               width="axis_gizmo", context=context)
+        if pts_locked:
+            iops_draw.points(pts_locked, role=Role.LOCKED_POINT, context=context)
+        iops_draw.points([pivot], role=Role.PIVOT, context=context)
+    if op._dst_frame is not None:
+        # the object's actual local axes at the pivot after the delta
+        rot = (op._delta @ op._orig_active).to_3x3()
+        main = {_letter(op.primary_axis), _letter(op.secondary_axis)}
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            for i, letter in enumerate(AXIS_LETTERS):
+                d = Vector((rot[0][i], rot[1][i], rot[2][i])).normalized()
+                L = length if letter in main else length * 0.5
+                r, g, b, _ = axis_color(letter)
+                iops_draw.edges_3d([pivot, pivot + d * L], color=(r, g, b, 0.9),
+                                   width="axis_gizmo", context=context)
 
 
 def _draw_pixel(op, context):
-    # axis letters at the tips of the aim lines
     if op.mode == MODE_AIM:
         region = context.region
         rv3d = context.region_data
@@ -247,9 +340,9 @@ def _draw_pixel(op, context):
 # --- operator -------------------------------------------------------------
 
 class IOPS_OT_ThreePointRotation(bpy.types.Operator):
-    """Aim the object's axes at picked points, or land one of its faces on
-    any face in the scene. Live preview: the object follows the cursor,
-    clicks only lock the picks"""
+    """Land a face of the selection on any face in the scene (hover your
+    object for the source, hover the target, click), or aim its axes at
+    picked points. A ghost previews the result; originals move on confirm"""
 
     bl_idname = "iops.object_modal_three_point_rotation"
     is_bindable = True
@@ -269,18 +362,19 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
     def _reset_picks(self):
         self.targets = []            # AIM: locked world points (A, B)
-        self._src_face = None        # FACE: locked source face dict
+        self._src_face = None        # FACE: sticky source face dict
         self._src_frame = None
-        self._dst_locked = None      # FACE: locked target frame
         self._hover = None
+        self._hover_is_source = False
+        self._aim_hover_pt = None
         self._dst_frame = None
         self._delta = Matrix.Identity(4)
         self._error = ""
-        self._apply_delta()
+        self.roll_shift = 0
 
-    def _tertiary_letter(self):
-        used = {_letter(self.primary_axis), _letter(self.secondary_axis)}
-        return next(a for a in AXIS_LETTERS if a not in used)
+    def _delta_is_identity(self):
+        m = self._delta
+        return all(abs(m[i][j] - (1.0 if i == j else 0.0)) < 1e-9 for i in range(4) for j in range(4))
 
     def _hover_point(self):
         hv = self._hover
@@ -298,73 +392,67 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         return out
 
     def _step_label(self):
-        if self.mode == MODE_AIM:
-            n = len(self.targets)
-            if n == 0:
-                return f"aim {self.primary_axis}: click a point"
-            if n == 1:
-                return f"roll {self.secondary_axis}: click a point"
-            return "locked — Space to apply"
-        if self._src_face is None:
-            return "click a face on the object"
-        if self._dst_locked is None:
-            return "hover a target face, click to lock"
-        return "locked — Space to apply"
+        if self.mode == MODE_FACE:
+            if self._src_face is None:
+                return "hover your object: pick the source face"
+            if self._dst_frame is None:
+                return "hover a target face, click to apply"
+            return "click to apply"
+        n = len(self.targets)
+        if n == 0:
+            return f"aim {self.primary_axis}: click a point"
+        if n == 1:
+            return f"roll {self.secondary_axis}: click a point"
+        return "Space to apply"
 
     # --- preview math ---
 
-    def _source_frame(self):
-        if self.mode == MODE_AIM:
-            return axis_frame(self._orig_active, self.primary_axis, self.secondary_axis,
-                              pivot=tuple(self.pivot))
-        return self._src_frame
-
-    def _face_frame(self, face, *, invert_normal=False, reverse_edge=False):
+    def _face_frame(self, face, *, invert_normal=False, reverse_edge=False, shift=0):
         anchor = face["closest"] if self.snap else face["hit"]
         n = -face["normal"] if invert_normal else face["normal"]
-        e = -face["edge_dir"] if reverse_edge else face["edge_dir"]
+        _a, _b, e = _face_edge(face, shift)
+        if reverse_edge:
+            e = -e
         return frame_from_face(tuple(anchor), tuple(n), tuple(e))
 
     def _update(self):
-        """Recompute the target frame from locks + hover, then the delta,
-        then push it onto the objects."""
+        """Recompute the target frame from the current picks, then the delta
+        the ghost is drawn with."""
         self._error = ""
         self._dst_frame = None
+        self._delta = Matrix.Identity(4)
         try:
-            src = self._source_frame()
-            dst = None
-            if self.mode == MODE_AIM:
+            if self.mode == MODE_FACE:
+                src = self._src_frame
+                hv = self._hover
+                if src is None or hv is None or self._hover_is_source:
+                    return
+                dst = self._face_frame(hv, invert_normal=self.face_to_face,
+                                       reverse_edge=self.reverse_roll, shift=self.roll_shift)
+            else:
+                src = axis_frame(self._orig_active, self.primary_axis, self.secondary_axis,
+                                 pivot=tuple(self.pivot))
                 a, b = self._aim_targets()
-                if a is not None:
-                    try:
-                        dst = frame_from_points(tuple(self.pivot), tuple(a),
-                                                None if b is None else tuple(b),
-                                                secondary_hint=src.secondary)
-                    except DegenerateFrame as exc:
-                        if b is None:
-                            raise
-                        # B on the aim line: keep the two-point aim, flag it
-                        self._error = str(exc)
-                        dst = frame_from_points(tuple(self.pivot), tuple(a), None,
-                                                secondary_hint=src.secondary)
-            else:
-                if src is not None:
-                    if self._dst_locked is not None:
-                        dst = self._dst_locked
-                    elif self._hover is not None:
-                        dst = self._face_frame(self._hover, invert_normal=self.face_to_face,
-                                               reverse_edge=self.reverse_roll)
-            if dst is None:
-                self._delta = Matrix.Identity(4)
-            else:
-                self._dst_frame = dst
-                self._delta = _tuple_matrix(align_matrix(src, dst))
+                if a is None:
+                    return
+                try:
+                    dst = frame_from_points(tuple(self.pivot), tuple(a),
+                                            None if b is None else tuple(b),
+                                            secondary_hint=src.secondary)
+                except DegenerateFrame as exc:
+                    if b is None:
+                        raise
+                    # B on the aim line: keep the two-point aim, flag it
+                    self._error = str(exc)
+                    dst = frame_from_points(tuple(self.pivot), tuple(a), None,
+                                            secondary_hint=src.secondary)
+            self._dst_frame = dst
+            self._delta = _tuple_matrix(align_matrix(src, dst))
         except DegenerateFrame as exc:
             self._error = str(exc)
             self._delta = Matrix.Identity(4)
-        self._apply_delta()
 
-    def _apply_delta(self):
+    def _apply(self):
         for ob, mw in self._orig.items():
             try:
                 ob.matrix_world = self._delta @ mw
@@ -374,22 +462,25 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
     def _update_hover(self, context, event):
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         self._aim_hover_pt = None
-        if self.mode == MODE_AIM:
-            if len(self.targets) >= 2:
-                self._hover = None
-            else:
-                self._hover = _pick_face(context, mouse, exclude=self._all_selected)
-                if self._hover is not None:
-                    self._aim_hover_pt = self._hover_point()
-                else:
-                    self._aim_hover_pt = _mouse_on_view_plane(context, mouse, Vector(self.pivot))
+        self._hover_is_source = False
+        if self.mode == MODE_FACE:
+            face = _pick_face(context, mouse)
+            self._hover = face
+            if face is not None and face["owner"] in self._moving:
+                # sticky source: follows the cursor while on the object
+                self._hover_is_source = True
+                self._src_face = face
+                self._src_frame = self._face_frame(face)
+                self.roll_shift = 0
+            return
+        if len(self.targets) >= 2:
+            self._hover = None
+            return
+        self._hover = _pick_face(context, mouse, exclude=self._moving)
+        if self._hover is not None:
+            self._aim_hover_pt = self._hover_point()
         else:
-            if self._src_face is None:
-                self._hover = _pick_face(context, mouse, restrict_to=self._all_selected)
-            elif self._dst_locked is None:
-                self._hover = _pick_face(context, mouse, exclude=self._all_selected)
-            else:
-                self._hover = None
+            self._aim_hover_pt = _mouse_on_view_plane(context, mouse, Vector(self.pivot))
 
     # --- HUD ---
 
@@ -403,7 +494,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                                visible_getter=lambda: self.mode == MODE_AIM))
         hud.add_param(HUDParam("Facing", lambda: "face to face" if self.face_to_face else "same side", "str",
                                visible_getter=lambda: self.mode == MODE_FACE))
-        hud.add_param(HUDParam("Roll", lambda: "reversed" if self.reverse_roll else "edge", "str",
+        hud.add_param(HUDParam("Roll", lambda: self._roll_label(), "str",
                                visible_getter=lambda: self.mode == MODE_FACE))
         hud.add_param(HUDParam("Snap", lambda: self.snap, "bool"))
         hud.add_param(HUDParam("Rotation", lambda: f"{rotation_angle_deg(self._delta):.1f}°", "str"))
@@ -411,18 +502,23 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                                visible_getter=lambda: bool(self._error)))
         return hud
 
+    def _roll_label(self):
+        s = "edge" if self.roll_shift == 0 else f"edge {self.roll_shift:+d}"
+        return s + (" reversed" if self.reverse_roll else "")
+
     def _build_help(self, context):
         helpo = HelpOverlay("three_point_rotation")
         helpo.add_section(HUDSection("3 Point Rotation", [
-            HUDItem("Lock pick (aim point / face)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Face: apply on target face  /  Aim: lock point", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Pick pivot on the object (Aim)", "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mode: Aim axes / Face to face", "Tab", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Primary axis (repeat flips)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Secondary axis (repeat flips)", "Shift+X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip: swap A/B (Aim) / facing (Face)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Mode: Face to face / Aim axes", "Tab", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Facing: meet / same side (Face)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Reverse roll 180° (Face)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Roll edge: next / previous (Face)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Primary axis (repeat flips) (Aim)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Secondary axis (repeat flips) (Aim)", "Shift+X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap to verts / edge mids / center", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Undo last pick", "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Undo last point (Aim)", "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Reset", "0", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Apply", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -441,18 +537,21 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         selected = list(context.selected_objects)
         if active not in selected:
             selected.append(active)
-        self._all_selected = set(selected)
-        self._orig = {ob: ob.matrix_world.copy() for ob in _roots(selected)}
+        roots = _roots(selected)
+        self._moving = set(roots)
+        for r in roots:
+            self._moving.update(r.children_recursive)
+        self._orig = {ob: ob.matrix_world.copy() for ob in roots}
         self._orig_active = active.matrix_world.copy()
+        self._ghost = _gather_ghost(context, self._moving)
 
-        self.mode = MODE_AIM
+        self.mode = MODE_FACE
         self.primary_axis = "Z"
         self.secondary_axis = "Y"
         self.snap = True
         self.face_to_face = True
         self.reverse_roll = False
         self.pivot = active.matrix_world.translation.copy()
-        self._aim_hover_pt = None
         dims = [d for d in active.dimensions if d > 1e-6]
         self._gizmo_len = max(dims) * 0.35 if dims else 1.0
         self._reset_picks()
@@ -478,35 +577,11 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 setattr(self, attr, None)
 
-    def _restore(self):
-        self._delta = Matrix.Identity(4)
-        self._apply_delta()
-
-    def _lock(self):
-        if self.mode == MODE_AIM:
-            if len(self.targets) >= 2 or self._aim_hover_pt is None:
-                return
-            self.targets.append(Vector(self._aim_hover_pt))
-        else:
-            if self._hover is None:
-                return
-            if self._src_face is None:
-                self._src_face = self._hover
-                self._src_frame = self._face_frame(self._hover)
-            elif self._dst_locked is None:
-                self._dst_locked = self._face_frame(self._hover, invert_normal=self.face_to_face,
-                                                    reverse_edge=self.reverse_roll)
-
-    def _unlock(self):
-        if self.mode == MODE_AIM:
-            if self.targets:
-                self.targets.pop()
-        else:
-            if self._dst_locked is not None:
-                self._dst_locked = None
-            elif self._src_face is not None:
-                self._src_face = None
-                self._src_frame = None
+    def _finish(self):
+        self._apply()
+        self._cleanup()
+        self.report({"INFO"}, f"3 Point Rotation: {rotation_angle_deg(self._delta):.1f}°")
+        return {"FINISHED"}
 
     def _set_axis(self, letter, *, secondary):
         cur = self.secondary_axis if secondary else self.primary_axis
@@ -514,8 +589,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         new = _flip_axis(cur) if _letter(cur) == letter else letter
         if _letter(other) == letter:
             # the other slot must move off this axis
-            free = next(a for a in AXIS_LETTERS if a not in (letter, _letter(cur)))
-            other = free
+            other = next(a for a in AXIS_LETTERS if a not in (letter, _letter(cur)))
         if secondary:
             self.secondary_axis, self.primary_axis = new, other
         else:
@@ -538,8 +612,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             if self._hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
 
-        if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE",
-                          "TRACKPADPAN", "TRACKPADZOOM"}:
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
+            if event.alt and self.mode == MODE_FACE:
+                self.roll_shift += 1 if event.type == "WHEELUPMOUSE" else -1
+                self._update()
+                return {"RUNNING_MODAL"}
+            return {"PASS_THROUGH"}
+        if event.type in {"MIDDLEMOUSE", "TRACKPADPAN", "TRACKPADZOOM"}:
             return {"PASS_THROUGH"}
 
         if event.type == "MOUSEMOVE":
@@ -551,26 +630,27 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE":
-            if event.shift and self.mode == MODE_AIM:
-                # pivot pick: resets picks so the object is at its original
-                # placement while we raycast it
-                self.targets = []
-                self._delta = Matrix.Identity(4)
-                self._apply_delta()
+            if self.mode == MODE_FACE:
+                if self._dst_frame is not None:
+                    return self._finish()
+                return {"RUNNING_MODAL"}
+            if event.shift:
                 mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-                face = _pick_face(context, mouse, restrict_to=self._all_selected)
+                face = _pick_face(context, mouse, restrict_to=self._moving)
                 if face is not None:
+                    self.targets = []
                     self.pivot = (face["closest"] if self.snap else face["hit"]).copy()
-            else:
-                self._lock()
+            elif len(self.targets) < 2 and self._aim_hover_pt is not None:
+                self.targets.append(Vector(self._aim_hover_pt))
             self._update_hover(context, event)
             self._update()
         elif event.type == "BACK_SPACE":
-            self._unlock()
-            self._update_hover(context, event)
-            self._update()
+            if self.mode == MODE_AIM and self.targets:
+                self.targets.pop()
+                self._update_hover(context, event)
+                self._update()
         elif event.type == "TAB":
-            self.mode = MODE_FACE if self.mode == MODE_AIM else MODE_AIM
+            self.mode = MODE_AIM if self.mode == MODE_FACE else MODE_FACE
             self._reset_picks()
             self._update_hover(context, event)
             self._update()
@@ -579,21 +659,13 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
                 self._set_axis(event.type, secondary=event.shift)
                 self._update()
         elif event.type == "F":
-            if self.mode == MODE_AIM:
-                if len(self.targets) == 2:
-                    self.targets.reverse()
-            else:
+            if self.mode == MODE_FACE:
                 self.face_to_face = not self.face_to_face
-                if self._dst_locked is not None:
-                    # relock from the stored frame: invert primary, keep anchor
-                    f = self._dst_locked
-                    self._dst_locked = frame_from_face(f.origin, tuple(-Vector(f.primary)), f.secondary)
+            elif len(self.targets) == 2:
+                self.targets.reverse()
             self._update()
         elif event.type == "R" and self.mode == MODE_FACE:
             self.reverse_roll = not self.reverse_roll
-            if self._dst_locked is not None:
-                f = self._dst_locked
-                self._dst_locked = frame_from_face(f.origin, f.primary, tuple(-Vector(f.secondary)))
             self._update()
         elif event.type == "S":
             self.snap = not self.snap
@@ -607,11 +679,8 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             self._update_hover(context, event)
             self._update()
         elif event.type in {"SPACE", "RET", "NUMPAD_ENTER"}:
-            self._cleanup()
-            self.report({"INFO"}, f"3 Point Rotation: {rotation_angle_deg(self._delta):.1f}°")
-            return {"FINISHED"}
+            return self._finish()
         elif event.type in {"ESC", "RIGHTMOUSE"}:
-            self._restore()
             self._cleanup()
             return {"CANCELLED"}
 

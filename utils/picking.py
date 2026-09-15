@@ -93,7 +93,8 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
             break
         # Collection instances: the hit is the instanced mesh (not in the
         # view layer), so ownership / visibility belong to the instancer.
-        owner = _hit_owner(depsgraph, obj, matrix) if obj is not None else None
+        owner = (hit_owner(depsgraph, obj, matrix, view_layer=context.view_layer)
+                 if obj is not None else None)
         permitted = (allowed is None or (owner is not None and owner in allowed))
         if blocked is not None and owner is not None and owner in blocked:
             permitted = False
@@ -112,23 +113,32 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     return (False, None, None, None, None, None)
 
 
-def _hit_owner(depsgraph, obj, matrix):
+def hit_owner(depsgraph, obj, matrix, *, view_layer=None):
     """The view-layer object responsible for a `scene.ray_cast` hit: the
     object itself, or — when the hit geometry comes from a collection
     instance — the instancing Empty. Instances are matched by object and
     world matrix among `depsgraph.object_instances`; falls back to the hit
-    object when no instance matches."""
+    object when no instance matches.
+
+    The fast path (hit matrix == the object's own matrix) is only trusted
+    for objects that are in `view_layer`: an instanced object sitting at
+    the origin under an instancer at the origin reports the same matrix."""
     try:
         original = obj.original
     except (ReferenceError, AttributeError):
         return obj
-    # Fast path: a plain (non-instanced) hit reports the object's own matrix.
-    try:
-        own = obj.matrix_world
-        if all(abs(own[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
-            return original
-    except (ReferenceError, AttributeError):
-        pass
+    if view_layer is not None:
+        try:
+            in_layer = original.name in view_layer.objects
+        except (ReferenceError, AttributeError):
+            in_layer = False
+        if in_layer:
+            try:
+                own = obj.matrix_world
+                if all(abs(own[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
+                    return original
+            except (ReferenceError, AttributeError):
+                pass
     for inst in depsgraph.object_instances:
         if not inst.is_instance:
             continue
