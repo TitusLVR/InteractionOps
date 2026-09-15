@@ -89,10 +89,14 @@ def _gather_ghost(context, moving):
                 me.calc_loop_triangles()
             vw = [mw @ v.co for v in me.vertices]
             loops = me.loops
+            # a mirrored instance (negative determinant) flips the winding;
+            # swap two corners so back-face culling still hides the inside
+            flip = mw.to_3x3().determinant() < 0.0
+            i1, i2 = (2, 1) if flip else (1, 2)
             for lt in me.loop_triangles:
                 tris.append(vw[loops[lt.loops[0]].vertex_index])
-                tris.append(vw[loops[lt.loops[1]].vertex_index])
-                tris.append(vw[loops[lt.loops[2]].vertex_index])
+                tris.append(vw[loops[lt.loops[i1]].vertex_index])
+                tris.append(vw[loops[lt.loops[i2]].vertex_index])
             for e in me.edges:
                 edges.append(vw[e.vertices[0]])
                 edges.append(vw[e.vertices[1]])
@@ -214,17 +218,26 @@ def _draw_face_wash(context, face, *, fill, outline, roll=None, roll_shift=0):
 
 
 def _draw_ghost(op, context, theme):
+    """The selection carried by the current delta as one translucent shell.
+
+    Depth pre-pass: the front faces are first written to the depth buffer
+    with the color masked off, then tinted with an EQUAL depth test. Only
+    the nearest surface takes color, so inner walls and overlapping shells
+    never stack up and the ghost reads as a solid, however complex."""
     total = op._total()
     if _is_identity(total):
         return
     tris, edges = op._ghost
-    fill = _fade(theme, Role.GHOST_PREVIEW, 0.16)
-    wire = _fade(theme, Role.GHOST_PREVIEW, 0.28)
+    fill = _fade(theme, Role.GHOST_PREVIEW, 0.22)
+    wire = _fade(theme, Role.GHOST_PREVIEW, 0.30)
     gpu.matrix.push()
     try:
         gpu.matrix.multiply_matrix(total)
         if tris and len(tris) <= GHOST_FILL_TRI_CAP:
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="BACK", depth_mask=False):
+            with draw_scope(blend="NONE", depth="LESS_EQUAL", face_culling="BACK",
+                            depth_mask=True, color_mask=(False, False, False, False)):
+                iops_draw.tris(tris, color=fill, context=context)
+            with draw_scope(blend="ALPHA", depth="EQUAL", face_culling="BACK", depth_mask=False):
                 iops_draw.tris(tris, color=fill, context=context)
         if edges:
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
