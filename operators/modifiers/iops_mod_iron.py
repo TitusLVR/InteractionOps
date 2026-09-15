@@ -15,6 +15,10 @@ import bpy
 #    and one tiny). Its neighbors bend around it and read as a kink.
 #    Fix: collapse the shorter apex edge (apex onto that base end) or
 #    the needle's short edge; the long edges never move.
+# 3. FIN: a flag triangle glued to the mesh by one edge (that edge then
+#    carries three faces) or hanging off another fin: it has an open
+#    edge plus a private vertex or a non-manifold edge. Fix: delete it
+#    (Delete Fins).
 #
 # Both detects resolve to one per-vertex "victim -> target position"
 # field. Victims whose target is itself a victim wait for the next
@@ -35,7 +39,7 @@ import bpy
 #                   indices survive, at the price of zero-area faces.
 
 GROUP_NAME = "iOps_Iron"
-GROUP_VERSION = 2  # bump when the tree layout changes to force rebuild
+GROUP_VERSION = 3  # bump when the tree layout changes to force rebuild
 VERSION_PROP = "iops_iron_version"
 
 PREVIEW_MAT = "iOps_Iron_Preview"
@@ -210,6 +214,13 @@ def _build_group():
         "slivers still collapse. Keep Topology: unfold folds and move "
         "sliver apexes onto their target without welding, so vertex "
         "count and order never change")
+    s_fins = iface.new_socket("Delete Fins", in_out="INPUT",
+                              socket_type="NodeSocketBool", parent=p_detect)
+    s_fins.default_value = True
+    s_fins.description = (
+        "Delete flag triangles: faces with an open edge plus a private "
+        "vertex or a non-manifold edge (the leftovers glued to a closed "
+        "mesh by one edge). Off in Keep Topology mode")
     s_it = iface.new_socket("Iterations", in_out="INPUT",
                             socket_type="NodeSocketInt", parent=p_fix)
     s_it.default_value = 4
@@ -259,6 +270,8 @@ def _build_group():
                        label="Unfold Folds")
     weld = b.compare("INT", "LESS_THAN", -1040, -800, mode_i, 2,
                      label="Weld")
+    delete_fins = b.boolean("AND", -860, -800, weld,
+                            n_in.outputs["Delete Fins"], label="Delete Fins")
     _s = b.frame("Thresholds", _s)
 
     # ---------------- the repeat zone: state = geometry ----------------
@@ -269,7 +282,55 @@ def _build_group():
         n_rout.repeat_items.new("GEOMETRY", "Geometry")
     b.ln(n_in.outputs["Iterations"], n_rin.inputs["Iterations"])
     b.ln(base_geo, n_rin.inputs["Geometry"])
-    geo = n_rin.outputs["Geometry"]
+
+    def fin_mask(x, y):
+        """FACE field: a flag triangle = has an open edge (one face) and
+        either a vertex that belongs to no other face or an edge that
+        carries 3+ faces. A fin glued to a closed mesh by one edge has
+        both; a second fin hanging off the first has the open edges and
+        the lone vertex; the base fin under it has the open edge and
+        the non-manifold edge. On a mesh with a real open border only
+        the corner triangles match, and their removal exposes nothing
+        new, so the rule does not eat the border."""
+        _s = b.snapshot()
+        n_vn = b.node("GeometryNodeInputMeshVertexNeighbors", x, y)
+        n_lone = b.node("GeometryNodeFieldOnDomain", x + 360, y,
+                        data_type="FLOAT", domain="POINT",
+                        label="Lone Vertex Share")
+        b.ln(b.compare("INT", "EQUAL", x + 180, y, n_vn.outputs["Face Count"],
+                       1), n_lone.inputs["Value"])
+        n_en = b.node("GeometryNodeInputMeshEdgeNeighbors", x, y - 200)
+        n_nm = b.node("GeometryNodeFieldOnDomain", x + 360, y - 200,
+                      data_type="FLOAT", domain="EDGE",
+                      label="Non-manifold Edge Share")
+        b.ln(b.compare("INT", "GREATER_THAN", x + 180, y - 200,
+                       n_en.outputs["Face Count"], 2), n_nm.inputs["Value"])
+        n_open = b.node("GeometryNodeFieldOnDomain", x + 360, y - 400,
+                        data_type="FLOAT", domain="EDGE",
+                        label="Open Edge Share")
+        b.ln(b.compare("INT", "EQUAL", x + 180, y - 400,
+                       n_en.outputs["Face Count"], 1), n_open.inputs["Value"])
+        any_lone = b.compare("FLOAT", "GREATER_THAN", x + 540, y,
+                             n_lone.outputs["Value"], 0.0)
+        any_nm = b.compare("FLOAT", "GREATER_THAN", x + 540, y - 200,
+                           n_nm.outputs["Value"], 0.0)
+        any_open = b.compare("FLOAT", "GREATER_THAN", x + 540, y - 400,
+                             n_open.outputs["Value"], 0.0)
+        fin = b.boolean("AND", x + 900, y - 200, any_open,
+                        b.boolean("OR", x + 720, y - 100, any_lone, any_nm),
+                        label="Fin Face")
+        b.frame("Face: Fin Detect", _s)
+        return fin
+
+    # fins go first: a dangling flag has no meaningful fold or sliver fix
+    _s = b.snapshot()
+    n_del = b.node("GeometryNodeDeleteGeometry", -300, 0, domain="FACE",
+                   mode="ALL", label="Delete Fins")
+    b.ln(n_rin.outputs["Geometry"], n_del.inputs["Geometry"])
+    b.ln(b.boolean("AND", -480, -300, fin_mask(-1000, -300), delete_fins),
+         n_del.inputs["Selection"])
+    b.frame("Delete Fins", _s)
+    geo = n_del.outputs["Geometry"]
 
     def defect_fields(x, geo):
         """Everything one pass detects on `geo`. Returns per-POINT
@@ -606,6 +667,11 @@ def _build_group():
     _s = b.snapshot()
     x = 5400
     _, _, _, face_mask = defect_fields(x, base_geo)
+    face_mask = b.boolean(
+        "OR", x + 4200, -500, face_mask,
+        b.boolean("AND", x + 4020, -600, fin_mask(x + 2800, -600),
+                  n_in.outputs["Delete Fins"]),
+        label="Defect or Fin")
     n_mat = b.node("GeometryNodeSetMaterial", x + 4200, -300)
     n_mat.inputs["Material"].default_value = ensure_preview_material()
     b.ln(base_geo, n_mat.inputs["Geometry"])
@@ -661,8 +727,9 @@ def upgrade_modifier(md, ng):
 
 class IOPS_OT_ModIron(bpy.types.Operator):
     """Add a geometry-nodes Iron modifier: collapses or unfolds
-    folded-over flaps and sliver triangles (the kinks a merge-based
-    decimate leaves behind) so the surface reads flat again"""
+    folded-over flaps and sliver triangles and deletes dangling fin
+    triangles (the kinks a merge-based decimate leaves behind) so the
+    surface reads flat again"""
 
     bl_idname = "iops.mod_iron"
     bl_label = "Iron"
