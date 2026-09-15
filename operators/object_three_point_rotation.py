@@ -28,7 +28,7 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
 from ..utils.picking import raycast_from_mouse, hit_owner, SNAP_THRESHOLD_PX
 from ..utils.three_point_core import (
-    Frame, DegenerateFrame, frame_from_points, frame_from_face, axis_frame,
+    DegenerateFrame, frame_from_points, frame_from_face, axis_frame,
     align_matrix, rotation_angle_deg,
 )
 
@@ -200,41 +200,56 @@ def _mouse_on_view_plane(context, mouse, through):
 
 
 # --- drawing -------------------------------------------------------------
+#
+# Restraint: only what the decision needs. The ghost is a soft tinted volume,
+# faces are a faint wash with a hairline outline, the anchor and the roll
+# edge are the only strong marks, and one hairline ties the source anchor to
+# the target anchor so the eye follows the move.
 
-def _draw_face(context, face, *, fill_role, edge_role, roll_edge=None, roll_shift=0):
+def _fade(theme, role, alpha):
+    r, g, b, _a = theme.color_for(role)
+    return (r, g, b, alpha)
+
+
+def _draw_face_wash(context, theme, face, *, fill, outline, roll=None, roll_shift=0):
+    """Faint fill + hairline outline; optional strong roll edge."""
     with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
-        iops_draw.tris(face["tris"], role=fill_role, context=context)
-    with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-        iops_draw.edges_3d(face["edges"], role=edge_role, context=context)
-    if roll_edge is not None:
-        a, b, _ = _face_edge(face, roll_shift)
-        with draw_scope(blend="ALPHA", depth="NONE"):
-            iops_draw.edges_3d([a, b], role=roll_edge, width="axis_gizmo", context=context)
-
-
-def _draw_frame(context, frame: Frame, length, *, roles):
-    o = Vector(frame.origin)
-    dirs = (frame.primary, frame.secondary, frame.tertiary)
+        iops_draw.tris(face["tris"], color=fill, context=context)
     with draw_scope(blend="ALPHA", depth="NONE"):
-        for i, d in enumerate(dirs):
-            tip = o + Vector(d) * (length if i < 2 else length * 0.5)
-            iops_draw.edges_3d([o, tip], role=roles[i], width="axis_gizmo", context=context)
+        iops_draw.edges_3d(face["edges"], color=outline, width="default", context=context)
+        if roll is not None:
+            a, b, _ = _face_edge(face, roll_shift)
+            iops_draw.edges_3d([a, b], color=roll, width="locked", context=context)
 
 
-def _draw_ghost(op, context):
-    """The selection carried by the current delta, in the theme's ghost roles."""
+def _draw_anchor(context, anchor, normal, length, *, point_role, line_color):
+    """Anchor disc with a short normal stub — the face frame reduced to the
+    two things that matter: where, and which way it faces."""
+    o = Vector(anchor)
+    with draw_scope(blend="ALPHA", depth="NONE"):
+        iops_draw.edges_3d([o, o + Vector(normal) * length], color=line_color,
+                           width="default", context=context)
+        iops_draw.points([o], role=point_role, context=context)
+
+
+def _draw_ghost(op, context, theme):
+    """The selection carried by the current delta: a soft tinted volume
+    (back faces culled so overlapping shells don't stack up) with a faint
+    wire so the silhouette still reads on flat shading."""
     if op._delta_is_identity():
         return
     tris, edges = op._ghost
+    fill = _fade(theme, Role.GHOST_PREVIEW, 0.16)
+    wire = _fade(theme, Role.GHOST_PREVIEW, 0.28)
     gpu.matrix.push()
     try:
         gpu.matrix.multiply_matrix(op._delta)
         if tris and len(tris) <= GHOST_FILL_TRI_CAP:
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
-                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
+            with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="BACK", depth_mask=False):
+                iops_draw.tris(tris, color=fill, context=context)
         if edges:
             with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-                iops_draw.edges_3d(edges, role=Role.GHOST_EDGE, context=context)
+                iops_draw.edges_3d(edges, color=wire, width="default", context=context)
     finally:
         gpu.matrix.pop()
 
@@ -244,50 +259,63 @@ def _draw_preview_3d(op, context):
         length = op._gizmo_len
     except AttributeError:
         return
-    _draw_ghost(op, context)
+    theme = get_theme(context)
+    _draw_ghost(op, context, theme)
 
     if op.mode == MODE_FACE:
         hv = op._hover
-        if op._src_face is not None:
-            # source face: locked look, carried by the delta so it lands on the target
-            gpu.matrix.push()
-            try:
-                gpu.matrix.multiply_matrix(op._delta)
-                _draw_face(context, op._src_face, fill_role=Role.GHOST_LOCKED,
-                           edge_role=Role.LOCKED_LINE, roll_edge=Role.LOCKED_LINE)
-            finally:
-                gpu.matrix.pop()
-            if op._delta_is_identity():
-                # still on the object: show the source anchor + normal
-                sf = op._src_frame
-                if sf is not None:
-                    _draw_frame(context, sf, length,
-                                roles=(Role.LOCKED_LINE, Role.LOCKED_LINE, Role.PREVIEW_LINE))
-                    with draw_scope(blend="ALPHA", depth="NONE"):
-                        iops_draw.points([Vector(sf.origin)], role=Role.LOCKED_POINT, context=context)
+        sf = op._src_frame
+        landed = not op._delta_is_identity()
+        if op._src_face is not None and sf is not None and not landed:
+            # source at rest: faint amber wash, anchor + normal stub, roll edge
+            _draw_face_wash(context, theme, op._src_face,
+                            fill=_fade(theme, Role.LOCKED_LINE, 0.12),
+                            outline=_fade(theme, Role.LOCKED_LINE, 0.6),
+                            roll=_fade(theme, Role.LOCKED_LINE, 0.9))
+            _draw_anchor(context, sf.origin, sf.primary, length * 0.6,
+                         point_role=Role.LOCKED_POINT,
+                         line_color=_fade(theme, Role.LOCKED_LINE, 0.9))
         if hv is not None and not op._hover_is_source:
-            _draw_face(context, hv, fill_role=Role.GHOST_DEFAULT, edge_role=Role.GHOST_EDGE,
-                       roll_edge=Role.CLOSEST_LINE, roll_shift=op.roll_shift)
+            anchor = op._hover_point()
+            _draw_face_wash(context, theme, hv,
+                            fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
+                            outline=_fade(theme, Role.ACTIVE_LINE, 0.55),
+                            roll=_fade(theme, Role.CLOSEST_LINE, 0.95), roll_shift=op.roll_shift)
             with draw_scope(blend="ALPHA", depth="NONE"):
                 if op.snap:
-                    iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
-                iops_draw.points([op._hover_point()], role=Role.CLOSEST_POINT, context=context)
+                    others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
+                    if others:
+                        iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35),
+                                         size=4.0, context=context)
             if op._dst_frame is not None:
-                _draw_frame(context, op._dst_frame, length,
-                            roles=(Role.ACTIVE_LINE, Role.ACTIVE_LINE, Role.PREVIEW_LINE))
-        elif hv is not None and op.snap:
-            with draw_scope(blend="ALPHA", depth="NONE"):
-                iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
+                _draw_anchor(context, anchor, hv["normal"], length * 0.6,
+                             point_role=Role.CLOSEST_POINT,
+                             line_color=_fade(theme, Role.ACTIVE_LINE, 0.9))
+                if sf is not None:
+                    # flight line: source anchor at rest -> target anchor
+                    with draw_scope(blend="ALPHA", depth="NONE"):
+                        iops_draw.edges_3d([Vector(sf.origin), Vector(anchor)],
+                                           color=_fade(theme, Role.PREVIEW_LINE, 0.45),
+                                           width="default", context=context)
+            else:
+                with draw_scope(blend="ALPHA", depth="NONE"):
+                    iops_draw.points([anchor], role=Role.CLOSEST_POINT, context=context)
         return
 
     # AIM
     hv = op._hover
     if hv is not None:
-        _draw_face(context, hv, fill_role=Role.GHOST_DEFAULT, edge_role=Role.GHOST_EDGE)
+        anchor = op._hover_point()
+        _draw_face_wash(context, theme, hv,
+                        fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
+                        outline=_fade(theme, Role.ACTIVE_LINE, 0.55))
         with draw_scope(blend="ALPHA", depth="NONE"):
             if op.snap:
-                iops_draw.points(hv["snaps"], role=Role.PREVIEW_POINT, context=context)
-            iops_draw.points([op._hover_point()], role=Role.CLOSEST_POINT, context=context)
+                others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
+                if others:
+                    iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35),
+                                     size=4.0, context=context)
+            iops_draw.points([anchor], role=Role.CLOSEST_POINT, context=context)
     pivot = Vector(op.pivot)
     pts_locked = [Vector(p) for p in op.targets]
     with draw_scope(blend="ALPHA", depth="NONE"):
@@ -296,9 +324,9 @@ def _draw_preview_3d(op, context):
                 continue
             letter = _letter(op.primary_axis if i == 0 else op.secondary_axis)
             r, g, b, _ = axis_color(letter)
-            alpha = 1.0 if i < len(pts_locked) else 0.6
+            alpha = 0.9 if i < len(pts_locked) else 0.5
             iops_draw.edges_3d([pivot, Vector(p)], color=(r, g, b, alpha),
-                               width="axis_gizmo", context=context)
+                               width="default", context=context)
         if pts_locked:
             iops_draw.points(pts_locked, role=Role.LOCKED_POINT, context=context)
         iops_draw.points([pivot], role=Role.PIVOT, context=context)
@@ -311,7 +339,8 @@ def _draw_preview_3d(op, context):
                 d = Vector((rot[0][i], rot[1][i], rot[2][i])).normalized()
                 L = length if letter in main else length * 0.5
                 r, g, b, _ = axis_color(letter)
-                iops_draw.edges_3d([pivot, pivot + d * L], color=(r, g, b, 0.9),
+                iops_draw.edges_3d([pivot, pivot + d * L],
+                                   color=(r, g, b, 0.9 if letter in main else 0.45),
                                    width="axis_gizmo", context=context)
 
 
