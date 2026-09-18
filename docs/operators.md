@@ -85,6 +85,9 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Spline Type](operators/op_curve_spline_type.md) — Poly / Bezier / NURBS with F1–F3.
 - [Subdivide](operators/op_curve_subdivide.md) — subdivide bezier segments with a live preview.
 
+## Node Editor
+- [Node Editor Pie](operators/op_node_pie.md) — contextual pie keyed on the active node; spawns the next node already wired in.
+
 ## Interface
 - [Split Screen Area](operators/op_split_screen_area.md) — open and close a paired editor (legacy version).
 - [Split Screen Area (New)](operators/op_split_screen_area_new.md) — the current area toggler behind the Split pie.
