@@ -103,6 +103,7 @@ from .operators.save_load_space_data import IOPS_OT_LoadSpaceData, IOPS_OT_SaveS
 
 from .prefs.addon_preferences import IOPS_AddonPreferences
 from .prefs.theme import classes as _theme_classes
+from .prefs.node_pie_prefs import classes as _node_pie_prefs_classes
 from .prefs.addon_properties import IOPS_AddonProperties
 from .prefs.addon_properties import IOPS_SceneProperties, IOPS_CollectionItem, IOPS_ExecutorScriptItem, IOPS_WidgetListItem, IOPS_RenameSettings, IOPS_WidgetDataKV, IOPS_WidgetDataBlock
 
@@ -204,6 +205,7 @@ from .ui.iops_pie_shading import (
 )
 
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
+from .ui.iops_pie_node import IOPS_MT_Pie_Node, IOPS_OT_Call_Pie_Node
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 
 # IOPS Library (ported asset-library workflow)
@@ -327,6 +329,7 @@ from .operators.falloff.ops import (IOPS_OT_mesh_falloff_move,
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
 from .operators.mesh_snapshot import IOPS_OT_mesh_snapshot
+from .operators.node_pie import classes as _node_pie_classes
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
                                            IOPS_OT_extrude_attr_fix_post,
                                            IOPS_OT_mesh_extrude_ex_macro,
@@ -439,6 +442,7 @@ bl_info = {
 # Classes for reg and unreg
 classes = (
     *_theme_classes,
+    *_node_pie_prefs_classes,
     *_widget_composer_classes,  # PropertyGroups before IOPS_AddonPreferences
     *iops_mod_defaults.DEFAULTS_CLASSES,  # same rule — per-type defaults
     iops_mod_list.IOPS_ModGridItem,  # after the defaults it points to
@@ -506,6 +510,8 @@ classes = (
     IOPS_OT_Call_TPS_Panel,
     IOPS_MT_Pie_Menu,
     IOPS_OT_Call_Pie_Menu,
+    IOPS_MT_Pie_Node,
+    IOPS_OT_Call_Pie_Node,
     IOPS_MT_Pie_Edit,
     IOPS_MT_Pie_Edit_Modes,
     IOPS_OT_Set_Empty_Size,
@@ -663,6 +669,7 @@ classes = (
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
     IOPS_OT_mesh_snapshot,
+    *_node_pie_classes,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
     IOPS_SS_SceneSet,      # CollectionProperty target — must register before Scene.iops_selection_sets
     IOPS_OT_SSNew,
@@ -900,6 +907,14 @@ def unregister():
         _library_props.unregister_wm_properties()
     except Exception as e:
         print("IOPS: library unregister failed:", e)
+    # Node pie: drop the probed catalog, the merged rules and the warn-once
+    # set, all of which are module globals and would otherwise survive a
+    # disable/enable in the same session.
+    try:
+        from .operators import node_pie as _node_pie
+        _node_pie.unregister()
+    except Exception as e:
+        print("IOPS: node pie unregister failed:", e)
     try:
         bpy.types.MESH_MT_CopyFaceSettings.remove(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.remove(object_copy_match_dimensions)

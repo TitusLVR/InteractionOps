@@ -161,6 +161,8 @@ nav:
       - Curve:
           - Spline Type: operators/op_curve_spline_type.md
           - Subdivide: operators/op_curve_subdivide.md
+      - Node Editor:
+          - Node Editor Pie: operators/op_node_pie.md
       - Assets & Library:
           - Asset Management: operators/op_assets_management.md
           - Render Asset Thumbnail: operators/op_render_asset_thumbnail.md
