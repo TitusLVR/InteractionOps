@@ -11,6 +11,13 @@ import bpy
 from ..operators.node_pie import catalog, store
 from ..utils import node_pie_rules as nr
 
+#: Numpad key -> pie direction. The grid is labelled the way the keys sit
+#: under the hand (Slot 7/8/9, 4/6, 1/2/3), matching the Shading Pie
+#: Layout; the compass names survive only as `nr.SLOT_LABELS`, which is
+#: what actually orders the `slots` list.
+NUMPAD_LABELS = {7: "NW", 8: "N", 9: "NE", 4: "W", 6: "E",
+                 1: "SW", 2: "S", 3: "SE"}
+
 
 def _rules(prefs):
     return dict(store.rules_for(prefs.node_pie_tree_type))
@@ -53,14 +60,90 @@ def _current_rule_key(prefs):
     return nr.FALLBACK_KEY
 
 
-def _write_slot(prefs, index, node_idname):
+def _write_entry(prefs, index, entry):
+    """Replace slot `index` of the rule currently being edited."""
     tree_type = prefs.node_pie_tree_type
     rules = _rules(prefs)
     key = _current_rule_key(prefs)
     slots = nr.normalise_rule(rules.get(key, {}))
-    slots[index] = {"node": node_idname} if node_idname else None
+    slots[index] = entry
     rules[key] = {"slots": slots}
     store.set_rules(tree_type, rules)
+
+
+def _write_slot(prefs, index, node_idname):
+    _write_entry(prefs, index, {"node": node_idname} if node_idname else None)
+
+
+# --- slot proxy properties ------------------------------------------------
+# `layout.prop()` needs a real property to bind to, but a node-pie slot is
+# not addon state: it is an entry in the rule JSON, per tree type and per
+# node type. So the preferences carry SLOT_COUNT Bool/String properties
+# whose get/set read and write the current rule's slot through the store —
+# same get/set-backed-property technique as `theme_preset` /
+# `theme_preset_name` in prefs/theme.py, for the same reason (the real
+# state lives somewhere Blender cannot store for us).
+#
+# Getters run inside draw callbacks, so they must never raise: every one of
+# them degrades to "empty slot" when there is no rule selected, the selected
+# rule has been removed, or the tree type changed under them. Setters are
+# a no-op on an empty slot rather than inventing an entry with no `node`.
+
+
+def _slot_entry(prefs, index):
+    """The current rule's slot `index`, or None. Never raises."""
+    try:
+        slots = nr.normalise_rule(_rules(prefs).get(_current_rule_key(prefs), {}))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    if 0 <= index < len(slots):
+        return slots[index]
+    return None
+
+
+def slot_enable_get(prefs, index):
+    entry = _slot_entry(prefs, index)
+    if entry is None:
+        # An empty slot has nothing to switch off, and reading it as enabled
+        # keeps its cell expanded so the node picker stays reachable.
+        return True
+    return nr.is_enabled(entry)
+
+
+def slot_enable_set(prefs, index, value):
+    entry = _slot_entry(prefs, index)
+    if entry is None:
+        return
+    updated = dict(entry)
+    if value:
+        # Drop the key rather than writing `true`: an untouched entry then
+        # still compares equal to its shipped default and stays out of the
+        # saved file (see _rules_to_save).
+        updated.pop("enabled", None)
+    else:
+        updated["enabled"] = False
+    _write_entry(prefs, index, updated)
+
+
+def slot_name_get(prefs, index):
+    entry = _slot_entry(prefs, index)
+    if entry is None:
+        return ""
+    text = entry.get("text")
+    return text if isinstance(text, str) else ""
+
+
+def slot_name_set(prefs, index, value):
+    entry = _slot_entry(prefs, index)
+    if entry is None:
+        return
+    updated = dict(entry)
+    if value:
+        updated["text"] = value
+    else:
+        # Empty means "use the node's own friendly name".
+        updated.pop("text", None)
+    _write_entry(prefs, index, updated)
 
 
 class IOPS_OT_NodePieSetSlot(bpy.types.Operator):
@@ -261,17 +344,31 @@ def draw_node_pie_tab(prefs, layout, context):
     box = layout.box()
     slots = nr.normalise_rule(rules.get(key, {}))
 
-    def draw_pie_slot(parent, label):
-        # Derive the slot index from SLOT_LABELS rather than a second
-        # hardcoded mapping, so a change there is automatically followed.
-        index = nr.SLOT_LABELS.index(label)
+    def draw_pie_slot(parent, numpad):
+        # Cells are numbered like the numpad (and like the Shading Pie
+        # Layout above), but the slot index comes from SLOT_LABELS via
+        # NUMPAD_LABELS rather than a second hardcoded index table, so a
+        # change to the pie draw order is automatically followed.
+        index = nr.SLOT_LABELS.index(NUMPAD_LABELS[numpad])
         slot = slots[index]
         sub = parent.box().column(align=True)
-        sub.label(text=label, icon='DOT')
-        if slot:
-            text = slot.get("text") or store.label_for(slot["node"])
-        else:
+        sub.prop(prefs, f"node_pie_slot_{index}_enable",
+                 text=f"Slot {numpad}", toggle=True)
+        if not getattr(prefs, f"node_pie_slot_{index}_enable"):
+            # Collapsed to the toggle: the entry is kept, the pie draws a
+            # separator in this position until it is switched back on.
+            return
+        sub.prop(prefs, f"node_pie_slot_{index}_name", text="",
+                 placeholder="custom label")
+        # The picker button names what the slot holds — the node, not the
+        # custom label, which now has its own field above it. `__search__`
+        # is a sentinel, not a node type, so label_for() would print it raw.
+        if not slot:
             text = "—"
+        elif slot["node"] == "__search__":
+            text = "Node Search"
+        else:
+            text = store.label_for(slot["node"])
         btn_row = sub.row(align=True)
         btn_row.operator("iops.node_pie_set_slot", text=text).slot_index = index
         btn_row.operator("iops.node_pie_clear_slot", text="", icon='X') \
@@ -283,15 +380,15 @@ def draw_node_pie_tab(prefs, layout, context):
             info.label(text=", ".join(f"{k}={v}" for k, v in preset.items()))
 
     row = box.row(align=True)
-    for label in ("NW", "N", "NE"):
-        draw_pie_slot(row, label)
+    for numpad in (7, 8, 9):
+        draw_pie_slot(row, numpad)
     row = box.row(align=True)
-    draw_pie_slot(row, "W")
+    draw_pie_slot(row, 4)
     row.box().column(align=True).label(text=" ")
-    draw_pie_slot(row, "E")
+    draw_pie_slot(row, 6)
     row = box.row(align=True)
-    for label in ("SW", "S", "SE"):
-        draw_pie_slot(row, label)
+    for numpad in (1, 2, 3):
+        draw_pie_slot(row, numpad)
 
     row = layout.row(align=True)
     row.operator("iops.node_pie_save", icon='FILE_TICK')

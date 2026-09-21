@@ -23,13 +23,33 @@ TREE_TYPES = ("GeometryNodeTree", "ShaderNodeTree")
 #: go straight into `UILayout.operator()`, which raises TypeError inside
 #: `Menu.draw` on a non-string, and `props`/`inputs` are `.items()`-ed by the
 #: spawn operator, which raises AttributeError on a non-dict. These are
-#: hand-edited JSON fields, so both are reachable.
+#: hand-edited JSON fields, so both are reachable. `enabled` is read by
+#: `is_enabled`, which treats anything but `False` as enabled anyway, so
+#: dropping a non-bool merely keeps the stored entry honest.
 _OPTIONAL_FIELD_TYPES = {
     "text": str,
     "icon": str,
     "props": dict,
     "inputs": dict,
+    "enabled": bool,
 }
+
+
+def is_enabled(entry: object) -> bool:
+    """Whether a slot entry should be offered at all.
+
+    `enabled` is optional and absent means enabled, so presets written
+    before the field existed (and every shipped default) keep working. A
+    non-bool value degrades to enabled — the same "a bad optional field
+    costs the field, not the slot" rule `normalise_entry` follows.
+
+    An empty slot (None) is not enabled: the pie draws a separator for it
+    either way, so both callers can ask this one question.
+    """
+    if not isinstance(entry, dict):
+        return False
+    value = entry.get("enabled", True)
+    return value if isinstance(value, bool) else True
 
 
 def normalise_entry(entry: object) -> dict | None:
