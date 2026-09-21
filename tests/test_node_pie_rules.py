@@ -181,3 +181,59 @@ def test_normalise_entry_rejects_non_dicts_and_missing_node():
     assert nr.normalise_entry("GeometryNodeMeshCube") is None
     assert nr.normalise_entry({"text": "oops"}) is None
     assert nr.normalise_entry({"node": 7}) is None
+
+
+# --- the optional `enabled` flag -----------------------------------------
+# A slot switched off in the preferences keeps its entry (node, label,
+# props, inputs) and only stops being offered. Absent means enabled, so
+# presets written before the field existed load unchanged.
+
+
+def test_enabled_absent_means_the_slot_is_enabled():
+    entry = nr.normalise_rule({"slots": [_entry("A")]})[0]
+    assert entry == {"node": "A"}
+    assert nr.is_enabled(entry) is True
+
+
+def test_enabled_false_is_kept_and_disables_the_slot():
+    entry = nr.normalise_rule({"slots": [{"node": "A", "enabled": False}]})[0]
+    assert entry == {"node": "A", "enabled": False}
+    assert nr.is_enabled(entry) is False
+
+
+def test_enabled_true_is_kept_and_leaves_the_slot_enabled():
+    entry = nr.normalise_rule({"slots": [{"node": "A", "enabled": True}]})[0]
+    assert entry == {"node": "A", "enabled": True}
+    assert nr.is_enabled(entry) is True
+
+
+def test_non_bool_enabled_is_dropped_but_the_slot_survives():
+    entry = nr.normalise_rule({"slots": [{"node": "A", "enabled": "no",
+                                          "text": "T"}]})[0]
+    assert entry == {"node": "A", "text": "T"}
+    assert nr.is_enabled(entry) is True
+
+
+def test_is_enabled_reads_a_raw_non_bool_as_enabled():
+    """Same degrade-to-enabled rule before normalisation as after."""
+    assert nr.is_enabled({"node": "A", "enabled": "no"}) is True
+    assert nr.is_enabled({"node": "A", "enabled": 0}) is True
+
+
+def test_is_enabled_says_no_for_an_empty_slot():
+    assert nr.is_enabled(None) is False
+    assert nr.is_enabled("GeometryNodeMeshCube") is False
+
+
+def test_disabling_a_slot_keeps_the_rest_of_the_entry():
+    entry = {"node": "A", "text": "T", "icon": "VIEWZOOM",
+             "props": {"operation": "MULTIPLY"}, "inputs": {"1": 2.0},
+             "enabled": False}
+    assert nr.normalise_rule({"slots": [entry]})[0] == entry
+
+
+def test_a_disabled_rule_differs_from_the_same_rule_enabled():
+    """What makes a disabled-only edit worth saving (see _rules_to_save)."""
+    shipped = {"slots": [_entry("A")]}
+    edited = {"slots": [{"node": "A", "enabled": False}]}
+    assert nr.normalise_rule(edited) != nr.normalise_rule(shipped)

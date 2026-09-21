@@ -88,7 +88,9 @@ class IOPS_MT_Pie_Node(Menu):
                 or [None] * nr.SLOT_COUNT
 
         for index, entry in enumerate(entries):
-            if entry is None:
+            # Empty slots and slots switched off in the preferences both
+            # leave a hole in the pie — `nr.is_enabled` answers for both.
+            if not nr.is_enabled(entry):
                 pie.separator()
                 continue
             if entry["node"] == "__search__":
