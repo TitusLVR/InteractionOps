@@ -260,21 +260,38 @@ def draw_node_pie_tab(prefs, layout, context):
 
     box = layout.box()
     slots = nr.normalise_rule(rules.get(key, {}))
-    for index, slot in enumerate(slots):
-        row = box.row(align=True)
-        row.label(text=nr.SLOT_LABELS[index], icon='DOT')
+
+    def draw_pie_slot(parent, label):
+        # Derive the slot index from SLOT_LABELS rather than a second
+        # hardcoded mapping, so a change there is automatically followed.
+        index = nr.SLOT_LABELS.index(label)
+        slot = slots[index]
+        sub = parent.box().column(align=True)
+        sub.label(text=label, icon='DOT')
         if slot:
             text = slot.get("text") or store.label_for(slot["node"])
         else:
             text = "—"
-        row.operator("iops.node_pie_set_slot", text=text).slot_index = index
-        if slot and (slot.get("props") or slot.get("inputs")):
-            sub = row.row()
-            sub.enabled = False
-            preset = slot.get("props") or slot.get("inputs")
-            sub.label(text=", ".join(f"{k}={v}" for k, v in preset.items()))
-        row.operator("iops.node_pie_clear_slot", text="", icon='X') \
+        btn_row = sub.row(align=True)
+        btn_row.operator("iops.node_pie_set_slot", text=text).slot_index = index
+        btn_row.operator("iops.node_pie_clear_slot", text="", icon='X') \
             .slot_index = index
+        if slot and (slot.get("props") or slot.get("inputs")):
+            preset = slot.get("props") or slot.get("inputs")
+            info = sub.row()
+            info.enabled = False
+            info.label(text=", ".join(f"{k}={v}" for k, v in preset.items()))
+
+    row = box.row(align=True)
+    for label in ("NW", "N", "NE"):
+        draw_pie_slot(row, label)
+    row = box.row(align=True)
+    draw_pie_slot(row, "W")
+    row.box().column(align=True).label(text=" ")
+    draw_pie_slot(row, "E")
+    row = box.row(align=True)
+    for label in ("SW", "S", "SE"):
+        draw_pie_slot(row, label)
 
     row = layout.row(align=True)
     row.operator("iops.node_pie_save", icon='FILE_TICK')
