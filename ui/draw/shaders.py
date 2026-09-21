@@ -1,6 +1,6 @@
 """Shader cache for the unified UI draw layer.
 
-Three shaders:
+Four shaders:
 - UNIFORM_COLOR — builtin, used for filled tris and simple lines
 - POLYLINE_UNIFORM_COLOR — builtin, antialiased lines independent of MSAA
 - POINT_DISC — custom: antialiased filled disc with 1px contrasting ring.
@@ -8,6 +8,7 @@ Three shaders:
   we do NOT write gl_PointSize from VS because that path requires
   GL_PROGRAM_POINT_SIZE which Blender does not enable by default for
   custom shaders.
+- POINT_FLAT_COLOR — builtin, per-vertex colour points (weight previews).
 """
 from __future__ import annotations
 import gpu
@@ -67,6 +68,17 @@ def polyline_uniform_color():
     if s is None:
         s = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
         _cache["POLYLINE_UNIFORM_COLOR"] = s
+    return s
+
+
+def point_flat_color():
+    """Builtin per-vertex-colour points. Uniform: float `size`. Caller
+    also sets gpu.state.point_size_set(size) for drivers that ignore
+    the uniform."""
+    s = _cache.get("POINT_FLAT_COLOR")
+    if s is None:
+        s = gpu.shader.from_builtin("POINT_FLAT_COLOR")
+        _cache["POINT_FLAT_COLOR"] = s
     return s
 
 

@@ -43,6 +43,7 @@ from ..ui.iops_pie_edit import (
     edit_pie_content_list,
 )
 # from ..utils.functions import ShowMessageBox
+from ..utils import node_pie_rules as nr
 from ..utils.split_areas_dict import (
     # split_areas_dict,
     split_areas_list,
@@ -51,6 +52,17 @@ from ..utils.split_areas_dict import (
 
 # Panels to update
 panels = (IOPS_PT_VCol_Panel,)
+
+# Single source of truth for the top-level preferences tabs: the `tabs`
+# EnumProperty's items, and every place that needs just the identifiers
+# (e.g. the PREFS-tab fallback guard in draw()) derive from this one list.
+_TAB_ITEMS = [
+    ("PREFS", "Preferences", ""),
+    ("KM", "Keymaps", ""),
+    ("WIDGETS", "Widgets", "GPU widget composer"),
+    ("THEME", "Theme", "Unified UI theme"),
+]
+_TAB_IDS = tuple(item[0] for item in _TAB_ITEMS)
 
 
 def _section(parent, prefs, prop_name, title, *, icon="NONE"):
@@ -111,11 +123,23 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     # Area.type, Area.ui_type, Icon, PrefText
     tabs: bpy.props.EnumProperty(
         name="Preferences",
-        items=[("PREFS", "Preferences", ""), ("KM", "Keymaps", ""), ("WIDGETS", "Widgets", "GPU widget composer"), ("THEME", "Theme", "Unified UI theme")],
+        items=_TAB_ITEMS,
         default="PREFS",
     )
 
     iops_theme: bpy.props.PointerProperty(type=IOPS_Theme)
+
+    node_pie_tree_type: bpy.props.EnumProperty(
+        name="Tree",
+        items=[("GeometryNodeTree", "Geometry Nodes", ""),
+               ("ShaderNodeTree", "Shader", "")],
+        default="GeometryNodeTree",
+    )
+    # Dynamic EnumProperty values are not persisted to userpref.blend, so the
+    # selected rule is backed by a real StringProperty — same reasoning as
+    # `theme_preset` / `theme_preset_name` in prefs/theme.py.
+    node_pie_rule_name: bpy.props.StringProperty(default=nr.FALLBACK_KEY,
+                                                 options={"HIDDEN"})
 
     # Widgets tab — UI mirror of presets/IOPS/widgets/*.json (the files
     # are the source of truth; see prefs/widget_composer.py)
@@ -240,6 +264,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_edit_pie_uv: BoolProperty(default=False)
     show_section_modifiers_panel: BoolProperty(default=False)
     show_section_mirror_rotate: BoolProperty(default=False)
+    show_section_node_pie: BoolProperty(default=False)
 
     # --- Mirror Rotate operator: modal start-up defaults ---------------------
     # Values mirror the constants in operators/object_mirror_rotate.py.
@@ -880,6 +905,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 kc_user.keymaps["Screen Editing"],
                 kc_user.keymaps["UV Editor"],
                 kc_user.keymaps["3D View"],
+                kc_user.keymaps["Node Editor"],
             ]
 
 
@@ -1014,7 +1040,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
 
 
-        if self.tabs == "PREFS":
+        # A removed enum item (e.g. the old NODEPIE tab) leaves a saved
+        # `tabs` value that matches nothing in the current items list --
+        # Blender then reads it back as "" rather than raising. Treat
+        # "PREFS" or any other unrecognised value as PREFS, the sensible
+        # default, instead of drawing an empty pane. _TAB_IDS is the one
+        # place listing the known tabs, so adding a tab there keeps this
+        # fallback correct without having to touch it.
+        if self.tabs == "PREFS" or self.tabs not in _TAB_IDS:
             # General
             body = _section(column_main, self, "show_section_general", "General", icon="PREFERENCES")
             if body is not None:
@@ -1276,6 +1309,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     row = ctx_body.row(align=True)
                     draw_edit_pie_slot(row, ctx_key, "sw")
                     draw_edit_pie_slot(row, ctx_key, "se")
+
+            # Node Editor Pie
+            body = _section(column_main, self, "show_section_node_pie", "Node Editor Pie", icon="NODETREE")
+            if body is not None:
+                from .node_pie_prefs import draw_node_pie_tab
+                draw_node_pie_tab(self, body, context)
 
             # Executor
             body = _section(column_main, self, "show_section_executor", "Script Executor", icon="SCRIPT")

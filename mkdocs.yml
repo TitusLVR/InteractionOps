@@ -131,6 +131,7 @@ nav:
           - Shear: operators/op_mesh_shear.md
           - Quick Connect: operators/op_mesh_quick_connect.md
           - Hinge: operators/op_mesh_hinge.md
+          - Falloff Move / Rotate / Scale: operators/op_mesh_falloff_tools.md
           - Converge: operators/op_mesh_converge.md
           - Vert Fuse: operators/op_mesh_vert_fuse.md
           - Mesh Snapshot: operators/op_mesh_snapshot.md
@@ -160,6 +161,8 @@ nav:
       - Curve:
           - Spline Type: operators/op_curve_spline_type.md
           - Subdivide: operators/op_curve_subdivide.md
+      - Node Editor:
+          - Node Editor Pie: operators/op_node_pie.md
       - Assets & Library:
           - Asset Management: operators/op_assets_management.md
           - Render Asset Thumbnail: operators/op_render_asset_thumbnail.md
