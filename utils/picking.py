@@ -41,7 +41,7 @@ CORNER_FALLBACK_COORDS = (
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        visible_only: bool = False,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS,
-                       region=None, rv3d=None):
+                       region=None, rv3d=None, viewport=None, ray=None):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
     (an iterable of objects), the ray pierces through those objects. If
@@ -52,7 +52,14 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
 
     Pass `region` / `rv3d` explicitly when the caller runs outside the 3D
     viewport's WINDOW region (N-panel / popup buttons); otherwise they are
-    taken from the context.
+    taken from the context. `viewport` is the SpaceView3D handed to
+    `visible_get` (local view, per-viewport overrides); when omitted it is
+    looked up from the context, which only works while the context is the
+    3D viewport itself (not the Properties editor).
+
+    `ray=(origin, direction)` casts that world-space ray instead of the one
+    under the mouse — for picking geometry that is displayed transformed
+    (a ghost) by casting the inverse-transformed ray at the originals.
 
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
@@ -64,8 +71,11 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     if region is None or rv3d is None:
         return (False, None, None, None, None, None)
 
-    view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
-    ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
+    if ray is not None:
+        ray_origin, view_vector = Vector(ray[0]), Vector(ray[1])
+    else:
+        view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
+        ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
     depsgraph = context.evaluated_depsgraph_get()
     allowed = set(restrict_to) if restrict_to is not None else None
     blocked = set(exclude) if exclude is not None else None
@@ -73,13 +83,14 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     # Pass the active SpaceView3D to visible_get so local-view (Numpad /) and
     # per-viewport visibility overrides are respected. Fall back to area.spaces
     # when context.space_data isn't the VIEW_3D (e.g. invoked from a header).
-    viewport = None
-    if visible_only:
+    if visible_only and viewport is None:
         sv = getattr(context, "space_data", None)
         if sv is None or sv.type != "VIEW_3D":
             area = getattr(context, "area", None)
             sv = area.spaces.active if (area is not None and area.type == "VIEW_3D") else None
         viewport = sv if (sv is not None and sv.type == "VIEW_3D") else None
+    elif not visible_only:
+        viewport = None
 
     current_origin = ray_origin
     for _ in range(max_iterations):
@@ -87,12 +98,16 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
             depsgraph, current_origin, view_vector)
         if not result:
             break
-        permitted = (allowed is None or (obj is not None and obj in allowed))
-        if blocked is not None and obj is not None and obj in blocked:
+        # Collection instances: the hit is the instanced mesh (not in the
+        # view layer), so ownership / visibility belong to the instancer.
+        owner = (hit_owner(depsgraph, obj, matrix, view_layer=context.view_layer)
+                 if obj is not None else None)
+        permitted = (allowed is None or (owner is not None and owner in allowed))
+        if blocked is not None and owner is not None and owner in blocked:
             permitted = False
-        if visible_only and obj is not None:
+        if visible_only and owner is not None:
             try:
-                if not obj.original.visible_get(viewport=viewport):
+                if not owner.visible_get(viewport=viewport):
                     permitted = False
             except (ReferenceError, TypeError):
                 permitted = False
@@ -103,6 +118,47 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
         current_origin = location + view_vec_norm * RAYCAST_OFFSET_DISTANCE
 
     return (False, None, None, None, None, None)
+
+
+def hit_owner(depsgraph, obj, matrix, *, view_layer=None):
+    """The view-layer object responsible for a `scene.ray_cast` hit: the
+    object itself, or — when the hit geometry comes from a collection
+    instance — the instancing Empty. Instances are matched by object and
+    world matrix among `depsgraph.object_instances`; falls back to the hit
+    object when no instance matches.
+
+    The fast path (hit matrix == the object's own matrix) is only trusted
+    for objects that are in `view_layer`: an instanced object sitting at
+    the origin under an instancer at the origin reports the same matrix."""
+    try:
+        original = obj.original
+    except (ReferenceError, AttributeError):
+        return obj
+    if view_layer is not None:
+        try:
+            in_layer = original.name in view_layer.objects
+        except (ReferenceError, AttributeError):
+            in_layer = False
+        if in_layer:
+            try:
+                own = obj.matrix_world
+                if all(abs(own[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
+                    return original
+            except (ReferenceError, AttributeError):
+                pass
+    for inst in depsgraph.object_instances:
+        if not inst.is_instance:
+            continue
+        try:
+            if inst.object.original != original:
+                continue
+            m = inst.matrix_world
+        except ReferenceError:
+            continue
+        if all(abs(m[i][j] - matrix[i][j]) < 1e-5 for i in range(4) for j in range(4)):
+            parent = inst.parent
+            return parent.original if parent is not None else original
+    return original
 
 
 def raycast_with_corner_fallback(context, mouse_coord, *, restrict_to,

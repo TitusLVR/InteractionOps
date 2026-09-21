@@ -45,6 +45,7 @@ from .operators.outliner_collection_ops import (
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
+    IOPS_OT_Collections_Group_Duplicates,
 )
 
 if bpy.app.version[0] < 3:
@@ -158,7 +159,7 @@ from .operators.modifiers import (
     iops_mod_stack, iops_mod_sort, iops_mod_cleanup, iops_mod_sync_vis,
     iops_mod_pick_target, iops_mod_select_users,
     iops_mod_safe_apply, iops_mod_list, iops_mod_defaults,
-    iops_mod_adaptive_decimate, iops_mod_collapse_stack,
+    iops_mod_adaptive_decimate, iops_mod_collapse_stack, iops_mod_iron,
 )
 
 _modifiers_classes = (
@@ -181,6 +182,7 @@ _modifiers_classes = (
     iops_mod_pick_target.IOPS_OT_ModPickTarget,
     iops_mod_safe_apply.IOPS_OT_ModSafeApplyTransform,
     iops_mod_adaptive_decimate.IOPS_OT_ModAdaptiveDecimate,
+    iops_mod_iron.IOPS_OT_ModIron,
     iops_mod_collapse_stack.IOPS_OT_ModCollapseStack,
 )
 
@@ -455,6 +457,7 @@ classes = (
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
+    IOPS_OT_Collections_Group_Duplicates,
     IOPS_OT_Main,
     IOPS_OT_F1,
     IOPS_OT_F2,
@@ -958,6 +961,7 @@ def outliner_collection_ops(self, context):
     self.layout.operator(IOPS_OT_Collections_Include.bl_idname)
     self.layout.operator(IOPS_OT_Collections_Exclude.bl_idname)
     self.layout.separator()
+    self.layout.operator(IOPS_OT_Collections_Group_Duplicates.bl_idname, icon="OUTLINER_COLLECTION")
     self.layout.operator(IOPS_OT_Collections_Remove_Keep_Objects.bl_idname, icon="TRASH")
 
 

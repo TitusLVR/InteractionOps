@@ -82,13 +82,14 @@ A modifier stack you can drive with modifier keys. The icon grid adds or manages
 | Icon grid, <kbd>Shift</kbd> | Toggle viewport visibility of that type |
 | Icon grid, last **+** button | Blender's own Add Modifier menu, for types not in the grid |
 | **Sort** | Order stacks by the Sort Order set in preferences: rules of modifier type + optional comma-separated names (default: Geometry Nodes "Smooth by Angle" / Mirror / Array on top, Simple Deform / Weighted Normal / Triangulate at the bottom; everything else keeps its order). Also remaps geometry-nodes modifiers from `.001`-style duplicate node groups to the base-named group and deletes the unused duplicates (toggle in the redo panel) |
-| **Cleanup** | Remove modifiers that do nothing (empty targets, zero values) |
+| **Cleanup** | Remove modifiers that do nothing (empty targets, zero values). Alt: also remove modifiers disabled in the viewport |
 | **Sync Vis** | Make render visibility match viewport visibility |
 | **Cursor Target** | Create an empty at the 3D cursor and use it as the modifier target |
 | **Active Target** | Use the active object as the modifier target on the others |
 | **Users** | Select objects whose modifiers reference the active object |
 | **Safe Apply** | Apply transforms without breaking distance-based modifier settings |
 | **Adaptive Decimate** | Add a curvature-aware Geometry Nodes decimate |
+| **Iron** | Add a Geometry Nodes cleanup for folded-over flaps, sliver triangles and dangling fin triangles (the leftovers a decimate leaves behind). Mode: Merge collapses folds and slivers, Unfold relaxes fold apexes onto the surface and only merges slivers, Keep Topology moves vertices without welding so vertex count and order stay intact. Delete Fins removes flag faces glued to the mesh by one edge (off in Keep Topology) |
 | **Apply All** | Bake the whole stack into the mesh |
 | Stack row: expand, name, eye, up, down, apply, copy to selected, remove, save preset | Per-modifier actions. <kbd>Alt</kbd> runs the action on every selected object with the same modifier; <kbd>Shift</kbd> picks the variant (to top / bottom, render visibility, apply up to here) |
 

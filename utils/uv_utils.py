@@ -8,21 +8,33 @@ def get_uv_layer(bm):
     return bm.loops.layers.uv.verify()
 
 
-def get_selected_face_islands(bm, uv_layer):
+def get_selected_face_islands(bm, uv_layer, seed_faces=None,
+                              restrict_to=None):
     """
-    Detect complete UV islands that contain at least one selected face.
-    Walks UV connectivity across ALL mesh faces so that partially-selected
-    islands are expanded to their full extent.
+    Detect complete UV islands that contain at least one seed face
+    (default seeds: the selected faces). Walks UV connectivity across ALL
+    mesh faces so that partially-selected islands are expanded to their
+    full extent -- unless restrict_to (iterable of face indices) is given,
+    in which case only those faces take part in the connectivity.
     Returns list of islands (each a set of face indices) and a UV-to-faces map.
     """
-    selected_set = set(f.index for f in bm.faces if f.select)
+    if seed_faces is None:
+        selected_set = set(f.index for f in bm.faces if f.select)
+    else:
+        selected_set = set(seed_faces)
     if not selected_set:
         return [], {}
 
-    # Build UV connectivity across the entire mesh.
+    if restrict_to is None:
+        faces = list(bm.faces)
+    else:
+        allowed = set(restrict_to)
+        faces = [f for f in bm.faces if f.index in allowed]
+
+    # Build UV connectivity across the participating faces.
     # Key = (vert_index, rounded_u, rounded_v) identifies a UV "weld point".
     uv_to_faces = {}
-    for f in bm.faces:
+    for f in faces:
         for loop in f.loops:
             uv = loop[uv_layer].uv
             key = (loop.vert.index, round(uv.x, 6), round(uv.y, 6))
@@ -31,7 +43,7 @@ def get_selected_face_islands(bm, uv_layer):
             uv_to_faces[key].add(f.index)
 
     face_to_neighbors = {}
-    for f in bm.faces:
+    for f in faces:
         neighbors = set()
         for loop in f.loops:
             uv = loop[uv_layer].uv
@@ -454,20 +466,24 @@ def match_texel_density(bm, ref_island_indices, target_island_indices, uv_layer)
 
 
 def match_island_dimensions(target_loops, uv_layer, target_bbox_min,
-                            target_bbox_max, ref_bbox_min, ref_bbox_max):
-    """Scale and move *target* island so its bounding box matches *ref*."""
+                            target_bbox_max, ref_bbox_min, ref_bbox_max,
+                            mode='BOTH'):
+    """Fit *target* island onto *ref*: turn it 90 degrees if the two are
+    transposed (landscape vs portrait), scale so its bbox matches the
+    reference bbox, then lay it on the reference (bbox centres coincide).
+    mode: 'BOTH' (both axes), 'WIDTH' or 'HEIGHT' (that axis only,
+    measured after the turn), 'UNIFORM' (long side to long side)."""
+    from .uv_match_core import dimension_fit
     tw = target_bbox_max.x - target_bbox_min.x
     th = target_bbox_max.y - target_bbox_min.y
     rw = ref_bbox_max.x - ref_bbox_min.x
     rh = ref_bbox_max.y - ref_bbox_min.y
-
-    sx = rw / tw if abs(tw) > 1e-10 else 1.0
-    sy = rh / th if abs(th) > 1e-10 else 1.0
-
+    rotate, sx, sy = dimension_fit(tw, th, rw, rh, mode)
     tc = Vector(((target_bbox_min.x + target_bbox_max.x) * 0.5,
                  (target_bbox_min.y + target_bbox_max.y) * 0.5))
+    if rotate:
+        rotate_island_uv(target_loops, uv_layer, tc, math.pi / 2)
     scale_island_uv(target_loops, uv_layer, tc, sx, sy)
-
     rc = Vector(((ref_bbox_min.x + ref_bbox_max.x) * 0.5,
                  (ref_bbox_min.y + ref_bbox_max.y) * 0.5))
     move_island_uv(target_loops, uv_layer, rc - tc)
@@ -505,3 +521,74 @@ def straighten_uv_edge_loop(loops_chain, uv_layer):
     for i, loop in enumerate(loops_chain):
         t = i / total
         loop[uv_layer].uv = start.lerp(end, t)
+
+
+def island_centroid_uv(loops, uv_layer):
+    """Mean of the unique UV points of an island."""
+    seen = set()
+    acc = Vector((0.0, 0.0))
+    for loop in loops:
+        key = (round(loop[uv_layer].uv.x, 6), round(loop[uv_layer].uv.y, 6))
+        if key in seen:
+            continue
+        seen.add(key)
+        acc += loop[uv_layer].uv
+    return acc / len(seen) if seen else acc
+
+
+def stitch_island_to_edge_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
+                             dst_centroid, same_side=False):
+    """
+    Rigidly fit an island so its edge src_a->src_b lands on dst_a->dst_b:
+    uniform scale to match length, rotate to match direction, translate
+    so the endpoints coincide. The island lands on the side of the target
+    edge opposite to dst_centroid unless same_side is set.
+    Returns True if the island was moved.
+    """
+    from .uv_stitch_core import stitch_transform
+    src_c = island_centroid_uv(loops, uv_layer)
+    xf = stitch_transform(tuple(src_a), tuple(src_b),
+                          tuple(dst_a), tuple(dst_b),
+                          tuple(src_c), tuple(dst_centroid),
+                          same_side=same_side)
+    if xf is None:
+        return False
+    pivot = Vector(xf['pivot'])
+    scale_island_uv(loops, uv_layer, pivot, xf['scale'], xf['scale'])
+    rotate_island_uv(loops, uv_layer, pivot, xf['angle'])
+    move_island_uv(loops, uv_layer, Vector(xf['translation']))
+    return True
+
+
+def get_unselected_face_islands(bm, uv_layer):
+    """UV islands made of visible faces that contain no selected face.
+    Returns a list of face-index sets."""
+    seeds = [f.index for f in bm.faces if not f.select and not f.hide]
+    islands, _ = get_selected_face_islands(bm, uv_layer, seed_faces=seeds)
+    return [isl for isl in islands
+            if not any(bm.faces[fi].select for fi in isl)]
+
+
+def collect_island_edges(bm, island_face_indices, uv_layer, world_matrix):
+    """Lean edge list for snapping: [(uv_a, uv_b, pos3d_a, pos3d_b)] with
+    each mesh edge listed once per distinct UV placement. Also returns the
+    island loops (for centroid math)."""
+    edges = []
+    loops = []
+    seen = set()
+    for fi in island_face_indices:
+        f = bm.faces[fi]
+        for loop in f.loops:
+            loops.append(loop)
+            nxt = loop.link_loop_next
+            uv_a, uv_b = loop[uv_layer].uv, nxt[uv_layer].uv
+            va, vb = loop.vert, nxt.vert
+            key = tuple(sorted((
+                (va.index, round(uv_a.x, 5), round(uv_a.y, 5)),
+                (vb.index, round(uv_b.x, 5), round(uv_b.y, 5)))))
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append((uv_a.copy(), uv_b.copy(),
+                          world_matrix @ va.co, world_matrix @ vb.co))
+    return edges, loops

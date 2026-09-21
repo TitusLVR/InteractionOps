@@ -127,6 +127,9 @@ class HUDOverlay:
         # because the modal event coordinates are in a different window
         # than the bound viewport region.
         self.mode_override: str | None = None
+        # Optional HelpOverlay whose HUDItem sections are mirrored into
+        # this HUD in compact form — see `mirror_help()`.
+        self._mirrored_help = None
 
     # --- visibility ---
     def toggle_visibility(self) -> bool:
@@ -157,6 +160,19 @@ class HUDOverlay:
         self.sections.append(section)
         for it in section.items:
             self._items_by_key[it.key] = it
+
+    def mirror_help(self, help_overlay) -> None:
+        """Show the Help overlay's toggled hotkeys in this cursor HUD.
+
+        Since the HUD/Help split the hotkey legend lives only on the
+        corner HelpOverlay, so a toggle flipped ON (snap, fill cut, ...)
+        was never reflected next to the cursor — and not at all while
+        Help was collapsed. Mirroring reads the *same* HUDItem objects
+        (no copies), so `help.set_state()` drives both overlays. Only
+        items in a non-default state are shown; `always_show` items and
+        section titles stay in Help — the HUD already has its own title.
+        """
+        self._mirrored_help = help_overlay
 
     def add_param(self, param: HUDParam, *, title: str = "") -> None:
         """Append a HUDParam. If `title` is given and no matching section
@@ -233,6 +249,14 @@ class HUDOverlay:
             items = [it for it in sec.items if it.always_show or it.is_modified()]
             if items:
                 out.append(HUDSection(sec.title, items))
+        # Mirrored Help items: modified toggles only, untitled (the HUD
+        # title already names the operator), merged into one section.
+        helpo = self._mirrored_help
+        if helpo is not None:
+            items = [it for sec in helpo.sections for it in sec.items
+                     if it.is_modified() and not it.always_show]
+            if items:
+                out.append(HUDSection("", items))
         return out
 
     # --- measurement ---

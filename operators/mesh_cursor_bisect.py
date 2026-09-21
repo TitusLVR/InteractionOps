@@ -1972,7 +1972,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._sync_hud_header()
 
     def _sync_hud_header(self):
-        """Update HUD header lines: distance info (first), inset prompt (second)."""
+        """Update HUD header lines: distance info, mark type (while M is on), inset/bevel prompt."""
         if getattr(self, "hud", None) is None:
             return
         lines = []
@@ -1987,6 +1987,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 split = self._fmt(info["split"])
                 lines.append(f"Edge: {total}{unit}")
                 lines.append(f"Split: {split}{unit}")
+
+        if self.mark_edges_active:
+            lines.append(f"Mark: {self._current_mark_type()}")
 
         if self.inset_active or self.bevel_active:
             scale = bpy.context.scene.unit_settings.scale_length or 1.0
@@ -2030,6 +2033,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
         ]))
         helpo.bind_region(context.region)
+        hud.mirror_help(helpo)
         return hud, helpo
 
     # Part 11: Distance Text Drawing

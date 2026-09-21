@@ -127,6 +127,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
 
         self._hud = self._build_hud(context)
         self._help = self._build_help(context)
+        self._hud.mirror_help(self._help)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._handle_text = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)

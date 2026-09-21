@@ -9,7 +9,7 @@ the 3D cursor there (Z = normal) and move the empty with it.
 """
 
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 
 from ...ui.draw import draw_scope, safe_handler_add, safe_handler_remove
 from ...ui.draw import primitives as iops_draw
@@ -48,8 +48,9 @@ _BBOX_EDGES = ((0, 1), (1, 2), (2, 3), (3, 0),
 _STATUS_PICK = ("LMB: pick target object · Alt: also on selection · "
                 "C: empty target at 3D cursor · Esc / RMB: cancel")
 _STATUS_CURSOR = ("LMB: snap to vert / edge-mid / center · "
-                  "Enter / Space: keep at cursor · Alt: also on selection · "
-                  "C: back to object pick · Esc / RMB: cancel")
+                  "Enter / Space: keep at cursor · P: parent empty to object · "
+                  "Alt: also on selection · C: back to object pick · "
+                  "Esc / RMB: cancel")
 
 
 def _build_hud(op, region):
@@ -64,6 +65,9 @@ def _build_hud(op, region):
         "Target", lambda: op._hud_target_label(), "str"))
     hud.add_param(HUDParam(
         "On selection", lambda: op._on_selection(), "bool"))
+    hud.add_param(HUDParam(
+        "Parent empty", lambda: op.parent_empty, "bool",
+        visible_getter=lambda: op.cursor_pick))
     hud.bind_region(region)
     return hud
 
@@ -75,6 +79,7 @@ def _build_help(region):
         HUDItem("Empty target at 3D cursor / back to object pick", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Snap empty to vert / edge-mid / center (cursor mode)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Keep empty at cursor (cursor mode)", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Parent the empty to the object (cursor mode)", "P", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Also set on selected objects' matching modifier", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -94,18 +99,32 @@ def _draw_hud(op, context):
 
 
 def _view3d_region(context):
-    """The 3D viewport's WINDOW region + its RegionView3D. The button
-    lives in the N-panel / popup, so context.region is a UI region."""
+    """The 3D viewport's WINDOW region, its RegionView3D and the
+    SpaceView3D itself (for per-viewport visibility). The button lives
+    in the N-panel / popup / Properties editor, so context.region is a
+    UI region and context.space_data may not be the viewport."""
     area = context.area
     if area is None or area.type != "VIEW_3D":
         area = next((a for a in context.window.screen.areas
                      if a.type == "VIEW_3D"), None)
         if area is None:
-            return None, None
+            return None, None, None
     region = next((r for r in area.regions if r.type == "WINDOW"), None)
     if region is None:
-        return None, None
-    return region, area.spaces.active.region_3d
+        return None, None, None
+    space = area.spaces.active
+    return region, space.region_3d, space
+
+
+def _is_pickable(op, context, obj):
+    """Visible in the view layer (eye / H / excluded collection /
+    hide_viewport) AND in this 3D viewport (local view, per-viewport
+    collection overrides). Hidden objects are never pick candidates."""
+    try:
+        return obj.visible_get(view_layer=context.view_layer,
+                               viewport=getattr(op, "_space", None))
+    except (ReferenceError, TypeError):
+        return False
 
 
 def _wire_np(coords, pairs, mw):
@@ -257,14 +276,15 @@ def _pick_object(op, context, event, region, rv3d, exclude=()):
     far from their origin (array / mirror / boolean / displaced) are
     picked where the user actually clicks. Everything the ray cannot hit
     (curves, armatures, lattices, empties, lights, cameras, wire-only
-    meshes) is picked by screen-space distance to its projected wire."""
+    meshes) is picked by screen-space distance to its projected wire.
+    Only objects visible in the view layer and in this viewport count."""
     if region is None or rv3d is None:
         return None
     import numpy as np
     mouse = Vector((event.mouse_x - region.x, event.mouse_y - region.y))
     hit, _loc, _n, _idx, obj, _mat = raycast_from_mouse(
         context, mouse, exclude=exclude, visible_only=True,
-        region=region, rv3d=rv3d)
+        region=region, rv3d=rv3d, viewport=getattr(op, "_space", None))
     if hit and obj is not None:
         try:
             return obj.original
@@ -274,7 +294,7 @@ def _pick_object(op, context, event, region, rv3d, exclude=()):
     m2 = np.array((mouse.x, mouse.y), dtype=np.float32)
     best, best_d = None, _PICK_WIRE_PX
     for cand in context.visible_objects:
-        if cand in exclude:
+        if cand in exclude or not _is_pickable(op, context, cand):
             continue
         try:
             wire, _tris, has_faces = _wire_for(op, context, cand)
@@ -362,13 +382,39 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                       "LMB: pick object under the cursor\n"
                       "C: empty at the 3D cursor\n"
                       "Shift: clear the target\n"
+                      "Ctrl+Shift: delete the target object\n"
                       "Alt: also on selected objects")
 
     bl_idname = "iops.mod_pick_target"
     bl_label = "Pick Modifier Target"
     bl_options = {"REGISTER", "UNDO"}
 
-    index: bpy.props.IntProperty(options={"SKIP_SAVE"})
+    # Everything the modal decides is mirrored into properties so the
+    # Adjust Last Operation panel can show and re-run it via execute().
+    index: bpy.props.IntProperty(options={"SKIP_SAVE", "HIDDEN"})
+    action: bpy.props.EnumProperty(
+        items=[("PICK", "Set", "Set the target"),
+               ("CLEAR", "Clear", "Clear the target"),
+               ("DELETE", "Delete", "Clear the target and delete the object")],
+        default="PICK", options={"SKIP_SAVE", "HIDDEN"})
+    target: bpy.props.StringProperty(
+        name="Target", description="Object assigned to the modifier",
+        options={"SKIP_SAVE"})
+    at_cursor: bpy.props.BoolProperty(
+        name="Empty", description="Target is an empty created by the operator",
+        options={"SKIP_SAVE", "HIDDEN"})
+    location: bpy.props.FloatVectorProperty(
+        name="Location", subtype="TRANSLATION", size=3, options={"SKIP_SAVE"})
+    rotation: bpy.props.FloatVectorProperty(
+        name="Rotation", subtype="EULER", size=3, options={"SKIP_SAVE"})
+    parent_empty: bpy.props.BoolProperty(
+        name="Parent to Object", default=False,
+        description="Make the empty a child of the modified object (P)",
+        options={"SKIP_SAVE"})
+    on_selection: bpy.props.BoolProperty(
+        name="Also on Selection", default=False,
+        description="Set the matching modifier of every selected object too (Alt)",
+        options={"SKIP_SAVE"})
 
     def _modifier(self):
         try:
@@ -382,6 +428,25 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         # RNA pointer polls can reject some object types (e.g. an
         # empty for a Boolean object)
         return getattr(md, field, None) == obj
+
+    def _targets(self, context, md):
+        """Distinct target objects the Shift action touches: the active
+        modifier's, plus (Alt) those of the matching modifier on every
+        selected object. Objects being modified are never listed."""
+        field = iops_mod_registry.object_fields(md)[0]
+        mods = [md]
+        if self.alt:
+            for o in context.selected_objects:
+                other = o.modifiers.get(md.name)
+                if other is not None and other.type == md.type:
+                    mods.append(other)
+        keep = set(context.selected_objects) | {self._obj}
+        out = []
+        for m in mods:
+            t = getattr(m, field, None)
+            if t is not None and t not in keep and t not in out:
+                out.append(t)
+        return out
 
     def _on_selection(self):
         return self.alt or bool(getattr(self._last_event, "alt", False))
@@ -402,14 +467,140 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                 count += 1
         return count
 
+    def _parent_empty(self, context, empty):
+        """Optional: make the C-created empty a child of the modified
+        object, keeping its world transform, so it travels with the
+        object and lives under it in the outliner. The empty is still
+        unparented here, so its basis already is the wanted world
+        matrix; only the parent's world matrix has to be trusted, and
+        on a redo (undo pop + execute) that matrix is not evaluated yet:
+        reading it then yields identity and the empty lands at its
+        cursor coordinates *inside* the object. Evaluate first."""
+        context.view_layer.update()
+        parent_world = self._obj.matrix_world.copy()
+        empty.parent = self._obj
+        empty.matrix_parent_inverse = parent_world.inverted()
+
     def _commit(self, context, md, target, how):
+        # freeze the modal's decisions into the redo properties
+        self.action = "PICK"
+        self.on_selection = self._on_selection()
+        self.at_cursor = target == self._empty
+        self.target = target.name
+        if self.at_cursor:
+            loc, rot, _scale = target.matrix_world.decompose()
+            self.location = loc
+            self.rotation = rot.to_euler()
         n = 1
-        if self._on_selection():
+        if self.on_selection:
             n = self._assign_selection(context, md, target)
+        if self.at_cursor and self.parent_empty:
+            self._parent_empty(context, target)
+            how += f", parented to {self._obj.name}"
         suffix = f" on {n} objects" if n > 1 else ""
         self.report({"INFO"},
                     f"{md.name}: target = {target.name}{how}{suffix}")
         return self._finish(context)
+
+    def _clear(self, context, md, delete):
+        """Shift / Ctrl+Shift and their redo: clear the field (Alt: on
+        the selection too), optionally deleting the target object(s)."""
+        doomed = self._targets(context, md) if delete else []
+        self._assign(md, None)
+        n = self._assign_selection(context, md, None) if self.alt else 1
+        suffix = f" on {n} objects" if n > 1 else ""
+        if not delete:
+            self.report({"INFO"}, f"{md.name}: target cleared{suffix}")
+            return {"FINISHED"}
+        names = [t.name for t in doomed]
+        for t in doomed:
+            try:
+                bpy.data.objects.remove(t)
+            except ReferenceError:
+                pass
+        if not names:
+            what = "no target to delete"
+        elif len(names) == 1:
+            what = f"deleted {names[0]}"
+        else:
+            what = f"deleted {len(names)} targets"
+        self.report({"INFO"}, f"{md.name}: {what}{suffix}")
+        return {"FINISHED"}
+
+    def _new_empty(self, context, md, matrix):
+        # "<object>_<modifier>_target": the helper is easy to find in the
+        # outliner and tells which object / modifier it belongs to
+        empty = bpy.data.objects.new(f"{self._obj.name}_{md.name}_target", None)
+        empty.empty_display_type = "PLAIN_AXES"
+        empty.empty_display_size = 0.5
+        context.collection.objects.link(empty)
+        empty.matrix_world = matrix
+        return empty
+
+    def _setup(self, context):
+        """Shared invoke / execute entry: resolve object + modifier."""
+        obj = context.active_object
+        if obj is None or not (0 <= self.index < len(obj.modifiers)):
+            return None, None
+        md = obj.modifiers[self.index]
+        if not iops_mod_registry.object_fields(md):
+            self.report({"WARNING"}, "Modifier has no object target field")
+            return None, None
+        self._obj = obj
+        self._last_event = None
+        self._empty = None
+        return obj, md
+
+    def execute(self, context):
+        """Redo (Adjust Last Operation): replay the stored decisions."""
+        obj, md = self._setup(context)
+        if md is None:
+            return {"CANCELLED"}
+        self.alt = self.on_selection
+        if self.action != "PICK":
+            return self._clear(context, md, delete=self.action == "DELETE")
+        if self.at_cursor:
+            target = self._new_empty(context, md, Matrix.LocRotScale(
+                self.location, Euler(self.rotation), None))
+            if not self._assign(md, target):
+                bpy.data.objects.remove(target)
+                self.report({"WARNING"}, f"{md.name}: does not accept an empty")
+                return {"CANCELLED"}
+            self._empty = target
+            self.target = target.name
+            if self.parent_empty:
+                self._parent_empty(context, target)
+        else:
+            target = bpy.data.objects.get(self.target)
+            if target is None or target == obj:
+                self.report({"WARNING"}, f"{md.name}: no valid target object")
+                return {"CANCELLED"}
+            if not self._assign(md, target):
+                self.report({"WARNING"}, f"{md.name}: rejected {target.name}")
+                return {"CANCELLED"}
+        n = 1
+        if self.on_selection:
+            n = self._assign_selection(context, md, target)
+        suffix = f" on {n} objects" if n > 1 else ""
+        self.report({"INFO"}, f"{md.name}: target = {target.name}{suffix}")
+        return {"FINISHED"}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        if self.action == "PICK":
+            if self.at_cursor:
+                col = layout.column(align=True)
+                col.prop(self, "location")
+                col.prop(self, "rotation")
+                layout.prop(self, "parent_empty")
+            else:
+                layout.prop_search(self, "target", bpy.data, "objects")
+        else:
+            layout.label(text="Target deleted" if self.action == "DELETE"
+                         else "Target cleared")
+        layout.prop(self, "on_selection")
 
     def _hud_modifier_label(self):
         md = self._modifier()
@@ -427,33 +618,26 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
             return "<gone>"
 
     def invoke(self, context, event):
-        obj = context.active_object
-        if obj is None or not (0 <= self.index < len(obj.modifiers)):
+        obj, md = self._setup(context)
+        if md is None:
             return {"CANCELLED"}
-        md = obj.modifiers[self.index]
         fields = iops_mod_registry.object_fields(md)
-        if not fields:
-            self.report({"WARNING"}, "Modifier has no object target field")
-            return {"CANCELLED"}
-        self._obj = obj
         self.alt = event.alt              # Alt on the panel button
         if event.shift:
             # Shift: clear the target, no pick session (Alt widens it to
-            # the selection like everywhere else in the stack rows)
-            self._last_event = None
-            self._assign(md, None)
-            n = self._assign_selection(context, md, None) if self.alt else 1
-            suffix = f" on {n} objects" if n > 1 else ""
-            self.report({"INFO"}, f"{md.name}: target cleared{suffix}")
-            return {"FINISHED"}
-        region, rv3d = _view3d_region(context)
+            # the selection like everywhere else in the stack rows).
+            # Ctrl+Shift: also delete the target object(s) from the file
+            self.action = "DELETE" if event.ctrl else "CLEAR"
+            self.on_selection = self.alt
+            return self._clear(context, md, delete=event.ctrl)
+        region, rv3d, space = _view3d_region(context)
         if region is None or rv3d is None:
             self.report({"WARNING"}, "No 3D viewport")
             return {"CANCELLED"}
         self._region = region
         self._rv3d = rv3d
+        self._space = space
         self._prev_target = getattr(md, fields[0], None)
-        self._empty = None               # created by C, removed on cancel
         self._hover = None
         self._wire_cache = {}            # obj pointer -> (wire, tris, has_faces)
         self._fill_cache = None          # (key, coords) for _fill_coords
@@ -506,14 +690,6 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         self._region.tag_redraw()
         return {"CANCELLED"} if cancelled else {"FINISHED"}
 
-    def _spawn_empty_at_cursor(self, context, md):
-        empty = bpy.data.objects.new(f"iops_target_{md.type.lower()}", None)
-        empty.empty_display_type = "PLAIN_AXES"
-        empty.empty_display_size = 0.5
-        context.collection.objects.link(empty)
-        empty.matrix_world = context.scene.cursor.matrix.copy()
-        return empty
-
     def modal(self, context, event):
         self._last_event = capture_event(event, self._last_event)
         try:
@@ -548,7 +724,8 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
             if not self.cursor_pick:
                 # take the cursor position right away: the empty target
                 # exists from this moment; face-pick only refines it
-                self._empty = self._spawn_empty_at_cursor(context, md)
+                self._empty = self._new_empty(
+                    context, md, context.scene.cursor.matrix.copy())
                 if not self._assign(md, self._empty):
                     bpy.data.objects.remove(self._empty)
                     self._empty = None
@@ -570,6 +747,12 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                                        self._region, self._rv3d,
                                        exclude={self._obj})
             context.workspace.status_text_set(_STATUS_PICK)
+            self._region.tag_redraw()
+            return {"RUNNING_MODAL"}
+
+        if (self.cursor_pick and event.type == "P"
+                and event.value == "PRESS"):
+            self.parent_empty = not self.parent_empty
             self._region.tag_redraw()
             return {"RUNNING_MODAL"}
 

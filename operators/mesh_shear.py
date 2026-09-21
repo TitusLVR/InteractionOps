@@ -16,7 +16,8 @@ section) slide as a rigid row along their averaged rail.
   Rails = edges leaving the chain; the plane comes from the linked
   faces (else best-fit of the verts).
 
-Modal UX: numeric angle (0-9 . -), F cycles the four OBB sides, D flips
+Modal UX: numeric angle (0-9 . -), F cycles the four OBB sides, S
+cycles the bbox space (min-OBB / local / world / cursor axes), D flips
 the axis, R snaps perpendicular to the rails, A aligns the axis to a
 picked face, B min-OBB axis, E extrudes the profile along a grabbable
 arrow, Q confirms and hands over to the Hinge operator. Enter confirms,
@@ -210,7 +211,7 @@ def chain_normal(edges, cos):
     return None
 
 
-def build_face_record(face, axis_dir):
+def build_face_record(face, axis_dir, basis=None):
     """Profile record for a BMFace: rails are the edges leaving the face."""
     if not face.is_valid or len(face.verts) < 3:
         return None, "face has fewer than 3 verts"
@@ -219,10 +220,10 @@ def build_face_record(face, axis_dir):
         return None, "degenerate face normal"
     return build_profile_record(list(face.verts), list(face.edges),
                                 normal.normalized(), axis_dir,
-                                face=face, closed=True)
+                                face=face, closed=True, basis=basis)
 
 
-def build_chain_record(edges, axis_dir, normal=None):
+def build_chain_record(edges, axis_dir, normal=None, basis=None):
     """Profile record for one connected chain of edges (open loop, ring
     or a single edge). Rails are the edges leaving the chain."""
     edges = [e for e in edges if e.is_valid]
@@ -245,22 +246,24 @@ def build_chain_record(edges, axis_dir, normal=None):
     # pivot sides). A lone edge stays a 2-vert open profile.
     virtual_close = (not closed) and len(verts) >= 3
     rec, reason = build_profile_record(verts, chain, normal.normalized(), axis_dir,
-                                       face=None, closed=closed or virtual_close)
+                                       face=None, closed=closed or virtual_close,
+                                       basis=basis)
     if rec is not None:
         rec["virtual_close"] = virtual_close
     return rec, reason
 
 
 def build_profile_record(active_verts, edges, normal, axis_dir, *, face,
-                         closed):
+                         closed, basis=None):
     """Shear record for an ordered vert loop with plane `normal`. ALL
     verts slide along their rails — the first link edge outside `edges`,
     or `normal` when the vert has none (open geometry). `axis_dir` is
     projected into the plane; projections are measured along it from
     the pivot side (smallest projection).
 
-    The record caches the profile's min-OBB axes so F can cycle the
-    four bbox sides without recomputing."""
+    The record caches the profile's bbox axes (min-OBB, or aligned to
+    `basis` — see bbox_basis) so F can cycle the four bbox sides
+    without recomputing."""
     if axis_dir is None or axis_dir.length < 1e-9:
         return None, "no axis direction"
     if len(active_verts) < 2:
@@ -367,7 +370,7 @@ def build_profile_record(active_verts, edges, normal, axis_dir, *, face,
         for i in row:
             rails[i]["dir"] = mean_dir.copy()
 
-    pa, pb = profile_principal_axes([v.co for v in active_verts], normal)
+    pa, pb = profile_principal_axes([v.co for v in active_verts], normal, basis)
     return {
         "type": "face",
         "face": face,               # None for an edge-chain record
@@ -383,18 +386,89 @@ def build_profile_record(active_verts, edges, normal, axis_dir, *, face,
         "projections": projections,
         "principal_axes": (pa.copy() if pa else None,
                            pb.copy() if pb else None),
+        "basis": basis,
     }, None
 
 
-def face_principal_axes(face):
+# Bbox orientation spaces (Scene.IOPS.shear_bbox_space). OBB is the
+# profile's own minimum-area box; the others build the box aligned to a
+# fixed frame, which keeps it "straight" for symmetric profiles (a
+# regular N-gon has N equal-area OBB candidates and the min-OBB picks
+# an arbitrary one, e.g. 45° off for a dodecagon).
+BBOX_SPACES = ("OBB", "LOCAL", "WORLD", "CURSOR")
+BBOX_SPACE_LABELS = {"OBB": "Min OBB", "LOCAL": "Local",
+                     "WORLD": "World", "CURSOR": "Cursor"}
+
+# Sentinel for rebuild_record: keep the record's own basis.
+_KEEP = object()
+
+
+def bbox_basis(context, obj, space):
+    """Three unit axes of `space` expressed in `obj`'s local (mesh)
+    coordinates, or None for OBB. LOCAL is the identity; WORLD and
+    CURSOR are brought into local space through matrix_world so the
+    box stays a rectangle in the mesh's own coordinates."""
+    if space == "LOCAL":
+        return [Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)),
+                Vector((0.0, 0.0, 1.0))]
+    if space == "WORLD":
+        frame = None
+    elif space == "CURSOR":
+        frame = context.scene.cursor.matrix.to_3x3()
+    else:
+        return None
+    to_local = obj.matrix_world.to_3x3().inverted_safe()
+    axes = []
+    for i in range(3):
+        a = Vector((0.0, 0.0, 0.0))
+        a[i] = 1.0
+        if frame is not None:
+            a = frame @ a
+        a = to_local @ a
+        if a.length < 1e-9:
+            return None
+        axes.append(a.normalized())
+    return axes
+
+
+def _aligned_axis(cos, normal, basis):
+    """In-plane unit Vector along the longer side of the bbox aligned
+    to `basis` (three local-space axes). The box side is the basis
+    axis with the largest in-plane projection (the one least parallel
+    to the normal); ties keep basis order (X, Y, Z). None if
+    degenerate."""
+    if not basis or len(cos) < 2:
+        return None
+    best = None
+    for a in basis:
+        p = a - a.dot(normal) * normal
+        if best is None or p.length > best.length + 1e-6:
+            best = p
+    if best is None or best.length < 1e-9:
+        return None
+    axis_a = best.normalized()
+    axis_b = normal.cross(axis_a)
+    if axis_b.length < 1e-9:
+        return None
+    axis_b.normalize()
+    a_p = [co.dot(axis_a) for co in cos]
+    b_p = [co.dot(axis_b) for co in cos]
+    # Relative tolerance: a square box (regular N-gon) keeps the
+    # primary axis instead of flipping on float noise.
+    if (max(b_p) - min(b_p)) > (max(a_p) - min(a_p)) * (1.0 + 1e-4):
+        return axis_b
+    return axis_a
+
+
+def face_principal_axes(face, basis=None):
     """OBB axes of a BMFace — see profile_principal_axes."""
     normal = _face_normal_safe(face)
     if normal.length < 1e-9:
         return None, None
-    return profile_principal_axes([v.co for v in face.verts], normal)
+    return profile_principal_axes([v.co for v in face.verts], normal, basis)
 
 
-def profile_principal_axes(cos, normal):
+def profile_principal_axes(cos, normal, basis=None):
     """Two unit axes in the profile plane aligned to the profile's own
     minimum oriented bounding box: axis_a is the OBB's longer side,
     axis_b = normal × axis_a. This keeps the widget/pivot hugging the
@@ -403,13 +477,19 @@ def profile_principal_axes(cos, normal):
     (the OBB side is edge-colinear, unlike PCA). A two-point profile
     (single edge) uses the edge direction.
 
+    With `basis` (see bbox_basis) the box is aligned to that frame
+    instead of the min-OBB — see _aligned_axis.
+
     Fallback when the OBB is degenerate: world +Z projected onto the
     plane, then +Y, then +X."""
     if normal is None or normal.length < 1e-9:
         return None, None
     normal = normal.normalized()
 
-    axis_a = _min_obb_axis(cos, normal)
+    if basis:
+        axis_a = _aligned_axis(cos, normal, basis)
+    else:
+        axis_a = _min_obb_axis(cos, normal)
     if axis_a is None:
         seeds = (
             Vector((0.0, 0.0, 1.0)),
@@ -683,30 +763,34 @@ def restore_records(records):
                 av.co = oc
 
 
-def rebuild_record(rec, axis_dir):
+def rebuild_record(rec, axis_dir, basis=_KEEP):
     """Rebuild `rec` (face or chain) with a new axis. Returns
-    (record_or_None, reason)."""
+    (record_or_None, reason). `basis` defaults to the record's own
+    bbox basis; pass a new one (or None for min-OBB) to change it."""
+    if basis is _KEEP:
+        basis = rec.get("basis")
     face = rec.get("face")
     if face is not None:
         if not face.is_valid:
             return None, "face record invalid"
-        return build_face_record(face, axis_dir)
-    return build_chain_record(rec["edges"], axis_dir, normal=rec.get("normal"))
+        return build_face_record(face, axis_dir, basis=basis)
+    return build_chain_record(rec["edges"], axis_dir, normal=rec.get("normal"),
+                              basis=basis)
 
 
-def records_for_faces(faces):
-    """One profile record per face along its OBB axis. Returns
-    (records, skip_reasons)."""
+def records_for_faces(faces, basis=None):
+    """One profile record per face along its bbox axis (min-OBB, or
+    aligned to `basis`). Returns (records, skip_reasons)."""
     records, reasons = [], []
     for face in faces:
         if not face.is_valid or len(face.edges) < 3:
             reasons.append("face has fewer than 3 edges")
             continue
-        pa, _ = face_principal_axes(face)
+        pa, _ = face_principal_axes(face, basis)
         if pa is None:
             reasons.append("face is degenerate (no principal axes)")
             continue
-        rec, reason = build_face_record(face, pa)
+        rec, reason = build_face_record(face, pa, basis=basis)
         if rec is not None:
             records.append(rec)
         else:
@@ -714,9 +798,10 @@ def records_for_faces(faces):
     return records, reasons
 
 
-def records_for_edges(edges):
+def records_for_edges(edges, basis=None):
     """One profile record per connected chain of `edges`, along the
-    chain's OBB axis. Returns (records, skip_reasons)."""
+    chain's bbox axis (min-OBB, or aligned to `basis`). Returns
+    (records, skip_reasons)."""
     records, reasons = [], []
     edges = [e for e in edges if e.is_valid]
     try:
@@ -729,11 +814,11 @@ def records_for_edges(edges):
         if normal is None:
             reasons.append("edge chain has no plane (wire edge without faces)")
             continue
-        pa, _ = profile_principal_axes(cos, normal)
+        pa, _ = profile_principal_axes(cos, normal, basis)
         if pa is None:
             reasons.append("edge chain is degenerate")
             continue
-        rec, reason = build_chain_record(chain, pa, normal=normal)
+        rec, reason = build_chain_record(chain, pa, normal=normal, basis=basis)
         if rec is not None:
             records.append(rec)
         else:
@@ -1375,12 +1460,21 @@ cancels. LMB clicks only pick widget handles."""
             self.report({"WARNING"}, "Select at least one face or edge")
             return {"CANCELLED"}
 
+        # Bbox orientation (Scene.IOPS.shear_bbox_space, S cycles it):
+        # min-OBB, or a box aligned to local / world / 3D-cursor axes.
+        self._bbox_space = context.scene.IOPS.shear_bbox_space
+        if self._bbox_space not in BBOX_SPACES:
+            self._bbox_space = "OBB"
+        self._bbox_basis = bbox_basis(context, obj, self._bbox_space)
+
         if selected_faces:
             self.mode = "face"
-            self.records, skip_reasons = records_for_faces(selected_faces)
+            self.records, skip_reasons = records_for_faces(
+                selected_faces, self._bbox_basis)
         else:
             self.mode = "edge"
-            self.records, skip_reasons = records_for_edges(selected_edges)
+            self.records, skip_reasons = records_for_edges(
+                selected_edges, self._bbox_basis)
 
         if not self.records:
             msg = f"No valid {self.mode}s for shear"
@@ -1447,7 +1541,8 @@ cancels. LMB clicks only pick widget handles."""
             HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm + Hinge",    "Q",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align axis to face", "A",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis to min OBB",    "B",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Axis to bbox",       "B",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Bbox space (OBB/Local/World/Cursor)", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1491,6 +1586,7 @@ cancels. LMB clicks only pick widget handles."""
         if abs(a) < 1e-6:
             a = getattr(self, "_last_used_angle", 0.0)
         context.scene.IOPS.shear_last_angle = a
+        context.scene.IOPS.shear_bbox_space = self._bbox_space
 
     def _extrude_shear_angle(self):
         # Commit a typed-but-unconfirmed angle first: the mirror reads
@@ -1643,11 +1739,13 @@ cancels. LMB clicks only pick widget handles."""
         bmesh.update_edit_mesh(self.obj.data)
 
     def _b_action(self):
-        """Set axis_dir to the longer side of the face's minimum
-        oriented bounding box (rotating calipers over the face's own
-        edges, so the axis lands along whichever edge produces the
-        smallest bounding rectangle in the face plane). Records are
-        restored to the unsheared pose first; angle resets to 0°.
+        """Set axis_dir to the longer side of the face's bbox in the
+        current bbox space: the minimum oriented bounding box (rotating
+        calipers over the face's own edges, so the axis lands along
+        whichever edge produces the smallest bounding rectangle in the
+        face plane), or the box aligned to local / world / cursor axes.
+        Records are restored to the unsheared pose first; angle resets
+        to 0°.
 
         Same restored-but-unrebuilt safety as _apply_align: if the
         OBB or rebuild can't proceed AFTER restore, re-apply the
@@ -1655,16 +1753,17 @@ cancels. LMB clicks only pick widget handles."""
         if not self.records:
             return
         rec = self.records[0]
-        axis = _min_obb_axis(rec["orig_active_cos"], rec["normal"])
+        axis, _ = profile_principal_axes(rec["orig_active_cos"], rec["normal"],
+                                         self._bbox_basis)
         if axis is None:
-            self.report({"INFO"}, "min-OBB axis unavailable")
+            self.report({"INFO"}, "bbox axis unavailable")
             return
         restore_records(self.records)
         self.bm.normal_update()
-        new_rec, err = rebuild_record(rec, axis)
+        new_rec, err = rebuild_record(rec, axis, basis=self._bbox_basis)
         if new_rec is None:
             self._apply()
-            self.report({"INFO"}, f"min-OBB rebuild failed: {err}")
+            self.report({"INFO"}, f"bbox rebuild failed: {err}")
             return
         self.records = [new_rec]
         self.angle_deg = 0.0
@@ -1672,6 +1771,30 @@ cancels. LMB clicks only pick widget handles."""
         self._hotspots = []
         self._hover_idx = None
         bmesh.update_edit_mesh(self.obj.data)
+
+    def _s_action(self, context):
+        """Cycle the bbox space (min-OBB -> local -> world -> cursor) and
+        rebuild every record on the new box's longer side. The angle
+        is kept — only the frame the box (and so the pivot / F sides)
+        is measured in changes."""
+        i = BBOX_SPACES.index(self._bbox_space)
+        space = BBOX_SPACES[(i + 1) % len(BBOX_SPACES)]
+        basis = bbox_basis(context, self.obj, space)
+        restore_records(self.records)
+        self.bm.normal_update()
+        new_records = []
+        for r in self.records:
+            pa, _ = profile_principal_axes(r["orig_active_cos"], r["normal"], basis)
+            new_rec = None
+            if pa is not None:
+                new_rec, _ = rebuild_record(r, pa, basis=basis)
+            new_records.append(new_rec if new_rec is not None else r)
+        self.records = new_records
+        self._bbox_space = space
+        self._bbox_basis = basis
+        self._hotspots = []
+        self._hover_idx = None
+        self._apply()
 
     def _update_hover(self):
         """Pick the hotspot whose 2D position is closest to the mouse,
@@ -1772,7 +1895,8 @@ cancels. LMB clicks only pick widget handles."""
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Backspace] del | "
             "[F] cycle bbox side | [D] flip direction | "
             "[R] perpendicular to rails | [E] extrude | [Q] hinge | "
-            "[A] align axis to face | [B] min-OBB axis | "
+            "[A] align axis to face | [B] bbox axis | "
+            f"[S] bbox space: {BBOX_SPACE_LABELS[self._bbox_space]} | "
             "[Enter] confirm | [Esc/RMB] cancel"
         )
 
@@ -1900,6 +2024,11 @@ cancels. LMB clicks only pick widget handles."""
 
             if event.type == "B":
                 self._b_action()
+                context.workspace.status_text_set(self._status_text())
+                return {"RUNNING_MODAL"}
+
+            if event.type == "S":
+                self._s_action(context)
                 context.workspace.status_text_set(self._status_text())
                 return {"RUNNING_MODAL"}
 
@@ -2251,7 +2380,8 @@ cancels. LMB clicks only pick widget handles."""
         if hud is None:
             return
         lines = [f"Mode: {self.mode}",
-                 f"Angle: {self._effective_angle():.2f}°"]
+                 f"Angle: {self._effective_angle():.2f}°",
+                 f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
         if self.input_str:
             lines.append(f"Typing: {self.input_str}")
         hud.set_header(*lines)

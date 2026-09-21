@@ -20,11 +20,13 @@ Edit UV islands directly on the model in the 3D Viewport. Islands on the selecte
 | <kbd>Alt</kbd>+<kbd>Wheel</kbd> | Mouse sensitivity |
 | <kbd>C</kbd> / <kbd>P</kbd> | Place the UV cursor / toggle pivot Center ↔ Cursor |
 | <kbd>A</kbd> | Align selected islands to the active one's hovered handle, or pick an edge to align to |
+| <kbd>I</kbd> | Transform scope: All islands ↔ Active only (affects G / R / S / F / N) |
 | <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> | Flip horizontal / vertical |
-| <kbd>D</kbd> | Match the size of selected islands to the active one |
+| <kbd>D</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>D</kbd> | Fit selected islands onto the active one: islands transposed against it (landscape vs portrait) are turned 90° first, then their bounding box is scaled to the active island's box (both axes / width only / height only) and centred on it |
 | <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only |
 | <kbd>U</kbd> | Unwrap the selection |
 | <kbd>T</kbd> | Straighten the UV edge chain under the cursor |
+| <kbd>E</kbd> | Stitch: click a source edge, then move the mouse; the island is scaled, rotated and moved live onto the nearest edge of any other UV island (selected or not). <kbd>LMB</kbd> confirms, <kbd>RMB</kbd> cancels, hold <kbd>Shift</kbd> to land on the same side (overlap) |
 | <kbd>Q</kbd> | Clean view: hide overlays |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo inside the session |
 | <kbd>RMB</kbd> | Cancel the current transform |
