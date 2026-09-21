@@ -14,8 +14,16 @@ for op_name in (
     "library_insert_asset",
     "library_remove_asset",
     "library_popup",
+    "mesh_falloff_move",
+    "mesh_falloff_rotate",
+    "mesh_falloff_scale",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
+
+for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node"):
+    assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
+
+assert hasattr(bpy.types, "IOPS_MT_Pie_Node"), "node pie menu not registered"
 
 prefs = bpy.context.preferences.addons["InteractionOps"].preferences
 for prop_name in ("library_master_file", "library_preview_size", "library_shader_group"):
@@ -34,6 +42,13 @@ assert km.space_type == "VIEW_3D", "3D View keymap has wrong space_type"
 assert any(
     kmi.idname == "iops.library_popup" for kmi in km.keymap_items
 ), "iops.library_popup not bound in 3D View keymap"
+
+km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("Node Editor")
+assert km is not None, "addon 'Node Editor' keymap missing"
+assert km.space_type == "NODE_EDITOR", "Node Editor keymap has wrong space_type"
+assert any(
+    kmi.idname == "iops.call_pie_node" for kmi in km.keymap_items
+), "iops.call_pie_node not bound in Node Editor keymap"
 
 bpy.ops.preferences.addon_disable(module="InteractionOps")
 print("SMOKE_OK")
