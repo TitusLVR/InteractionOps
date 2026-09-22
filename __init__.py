@@ -330,6 +330,7 @@ from .operators.falloff.ops import (IOPS_OT_mesh_falloff_move,
                                     IOPS_OT_mesh_falloff_scale)
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
+from .operators.mesh_vertex_group_rename import IOPS_OT_VertexGroupRenameActive
 from .operators.mesh_snapshot import IOPS_OT_mesh_snapshot
 from .operators.node_pie import classes as _node_pie_classes
 from .operators.mesh_extrude_attrs import (IOPS_OT_extrude_attr_fix,
@@ -671,6 +672,7 @@ classes = (
     IOPS_OT_mesh_falloff_scale,
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
+    IOPS_OT_VertexGroupRenameActive,
     IOPS_OT_mesh_snapshot,
     *_node_pie_classes,
     IOPS_SS_ObjectRef,     # CollectionProperty target — must register before IOPS_SS_SceneSet
@@ -819,6 +821,7 @@ def register():
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
     bpy.types.VIEW3D_MT_edit_mesh_extrude.append(draw_extrude_menu)
+    bpy.types.VIEW3D_MT_vertex_group.append(vertex_group_rename_active)
     register_select_similar_name_menu()
 
     # Register the draw handler if the statistics are enabled and disable the statistics if they are not
@@ -935,6 +938,10 @@ def unregister():
         bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_extrude_menu)
     except Exception:
         pass
+    try:
+        bpy.types.VIEW3D_MT_vertex_group.remove(vertex_group_rename_active)
+    except Exception:
+        pass
     unregister_select_similar_name_menu()
     unregister_pool_menus()
     unreg_cls()
@@ -993,6 +1000,16 @@ def select_interior_faces(self, context):
 def object_apply_change_scale(self, context):
     self.layout.separator()
     self.layout.operator(IOPS_OT_ChangeScale.bl_idname)
+
+
+def vertex_group_rename_active(self, context):
+    # Appended to Blender's Ctrl+G Vertex Groups menu. The menu sets
+    # EXEC_AREA, which would skip invoke(); restore INVOKE so the popup shows.
+    ob = context.active_object
+    if ob is not None and ob.vertex_groups.active is not None:
+        layout = self.layout
+        layout.operator_context = "INVOKE_DEFAULT"
+        layout.operator(IOPS_OT_VertexGroupRenameActive.bl_idname)
 
 
 def object_copy_match_dimensions(self, context):
