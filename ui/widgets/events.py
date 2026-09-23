@@ -14,7 +14,9 @@ Gesture rules:
   ed.undo_push on release;
 - flip/preset apply on press, undo_push on release;
 - action buttons fire on release inside the button;
-- titlebar drag moves the panel, position persists on release.
+- titlebar drag moves the panel, position persists on release;
+- the title-bar Close (×) and Edit (pen) buttons highlight while held and
+  act on release inside — same contract as action buttons.
 
 Controls cache plain floats/bools only; setters/getters re-acquire bmesh
 per call inside the widget's value adapters — nothing bmesh-shaped is
@@ -139,9 +141,15 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         widget._editing = None         # (where, TextEditState) while typing
         widget._dropdown = None        # DropdownState while open
 
-        if kind == "close":
-            state.hide_widget(widget.name)
-            return {"FINISHED"}
+        if kind in ("close", "edit"):
+            # Title-bar buttons: pressed highlight now, act on release
+            # inside (see _finish_gesture). The edit rect only exists for
+            # composed widgets, see render.is_editable.
+            widget._press_cell = kind          # never equals a (row, col)
+            self._rect = (widget.panel.close_rect if kind == "close"
+                          else widget.panel.edit_rect)
+            self._mode = "title_" + kind
+            return self._begin_modal(context)
 
         if kind == "title":
             widget.panel.start_drag(mx, my)
@@ -322,6 +330,17 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                     self.report({"ERROR"}, f"IOPS widget action failed: {e}")
                 self._widget.mark_dirty()
                 self._undo_push()
+        elif mode == "title_close":
+            if self._rect.contains(mx, my):
+                self._widget._press_cell = None
+                state.hide_widget(self._widget.name)
+                return {"FINISHED"}
+        elif mode == "title_edit":
+            # Open the widget's JSON source in the user's text editor
+            # (Preferences > File Paths > Applications > Text Editor, OS
+            # default when unset).
+            if self._rect.contains(mx, my):
+                bpy.ops.iops.widget_edit(name=self._widget.name)
         elif mode == "edit_button":
             # Dropdown / input: pop the native editor on release-inside.
             # NO _undo_push — the native field edit pushes its own undo

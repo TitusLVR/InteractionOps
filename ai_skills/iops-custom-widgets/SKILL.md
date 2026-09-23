@@ -29,8 +29,12 @@ The library folder is a preference (executor-parity), resolved by
   explicit path. Stored in prefs and round-tripped through the prefs JSON.
 - All `*.json` there auto-load and register at addon enable
   (`composed.load_all`); the Widgets-tab list mirrors them (name +
-  toggle-hotkey field per row). Edit them by hand (the tab's Open Folder
-  button) or via Add / Duplicate / Import.
+  toggle-hotkey field per row). Edit them by hand — the pen button in a
+  visible panel's title bar (left of the close glyph, composed widgets
+  only) opens that widget's JSON in the editor set under Preferences >
+  File Paths > Applications > Text Editor (OS default `.json` handler when
+  unset); the tab's Open Folder button opens the library folder — or via
+  Add / Duplicate / Import.
 
 ## JSON schema
 
