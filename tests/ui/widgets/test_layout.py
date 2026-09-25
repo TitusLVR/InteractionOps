@@ -7,7 +7,7 @@ anchored by its TOP-LEFT corner.
 """
 import pytest
 
-from ui.widgets.panel import Rect, WidgetPanel
+from ui.widgets.panel import Rect, WidgetPanel, pen_icon, close_icon
 
 
 # ----------------------------------------------------------------------
@@ -289,3 +289,64 @@ def test_layout_col_spec_wrong_length_falls_back_to_equal():
     cells = panel.row_rects[0]
     assert cells[0].w == pytest.approx(97.0)
     assert cells[1].w == pytest.approx(97.0)
+
+
+# ----------------------------------------------------------------------
+# Edit button (title bar, left of the close glyph)
+# ----------------------------------------------------------------------
+def test_layout_no_edit_rect_by_default():
+    panel = make_panel([(20.0, 1)], content_width=100.0, title_h=22.0)
+    assert panel.edit_rect.w == pytest.approx(0.0)
+    # A zero-size edit rect must never win a hit-test.
+    assert panel.hit_test(panel.title_rect.x + 2.0, panel.title_rect.cy) == \
+        ("title", None)
+
+
+def test_layout_edit_rect_sits_left_of_close():
+    panel = make_panel([(20.0, 1)], content_width=100.0, title_h=22.0,
+                       edit_w=40.0)
+    e, c = panel.edit_rect, panel.close_rect
+    assert e.w == pytest.approx(40.0)
+    assert e.h == pytest.approx(22.0)
+    assert e.x2 == pytest.approx(c.x)
+    assert e.y == pytest.approx(c.y)
+
+
+def test_hit_test_edit_beats_title():
+    panel = make_panel([(20.0, 1)], content_width=100.0, title_h=22.0,
+                       edit_w=40.0)
+    assert panel.hit_test(panel.edit_rect.cx, panel.edit_rect.cy) == \
+        ("edit", None)
+    assert panel.hit_test(panel.close_rect.cx, panel.close_rect.cy) == \
+        ("close", None)
+    assert panel.hit_test(panel.title_rect.x + 2.0, panel.title_rect.cy) == \
+        ("title", None)
+
+
+def test_pen_icon_fits_inside_rect():
+    r = Rect(100.0, 200.0, 22.0, 22.0)
+    geo = pen_icon(r, inset=4.0)
+    assert len(geo["tris"]) == 9            # body quad (6) + tip (3)
+    inner = Rect(r.x + 4.0, r.y + 4.0, r.w - 8.0, r.h - 8.0)
+    for x, y in list(geo["tris"]) + list(geo["cap"]):
+        assert inner.contains(x, y), (x, y)
+    # Tip points lower-left: it is the most bottom-left vertex.
+    tip = geo["tris"][8]
+    assert all(tip[0] <= x + 1e-6 and tip[1] <= y + 1e-6
+               for x, y in geo["tris"])
+
+
+def test_pen_icon_degenerate_rect_is_safe():
+    geo = pen_icon(Rect(0.0, 0.0, 4.0, 4.0), inset=5.0)
+    assert len(geo["tris"]) == 9            # collapses to a point, no error
+
+
+def test_close_icon_diagonals_fit_inside_rect():
+    r = Rect(50.0, 60.0, 22.0, 22.0)
+    (a, b), (c, d) = close_icon(r, inset=6.0)
+    inner = Rect(r.x + 6.0, r.y + 6.0, r.w - 12.0, r.h - 12.0)
+    for x, y in (a, b, c, d):
+        assert inner.contains(x, y)
+    # Both strokes cross at the rect center.
+    assert (a[0] + b[0]) * 0.5 == pytest.approx(r.cx)
+    assert (c[1] + d[1]) * 0.5 == pytest.approx(r.cy)
