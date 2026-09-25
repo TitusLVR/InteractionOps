@@ -146,6 +146,74 @@ class IOPS_OT_WidgetDefExport(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+def _external_editor_command(context, filepath):
+    """Build the argv for the user's external text editor, or None when
+    no editor is configured (Preferences > File Paths > Applications >
+    Text Editor). Mirrors Blender's own `$filepath` template handling
+    (`_bl_text_utils.external_editor`); `$line`/`$column` resolve to 1
+    so an editor preset written for "jump to file at point" still works.
+    An empty Arguments field falls back to passing just the file path."""
+    import shlex
+    from string import Template
+
+    paths = context.preferences.filepaths
+    editor = (getattr(paths, "text_editor", "") or "").strip()
+    if not editor:
+        return None
+    args_fmt = (getattr(paths, "text_editor_args", "") or "").strip()
+    if not args_fmt:
+        return [editor, filepath]
+    if "$filepath" not in args_fmt:
+        args_fmt += " $filepath"
+    template_vars = {"filepath": filepath, "line": 1, "column": 1,
+                     "line0": 0, "column0": 0}
+    argv = [editor]
+    # posix=True like Blender: quotes around "$filepath" are stripped
+    # here, and the path is substituted AFTER splitting so its backslashes
+    # survive intact.
+    for arg in shlex.split(args_fmt):
+        argv.append(Template(arg).safe_substitute(**template_vars))
+    return argv
+
+
+class IOPS_OT_WidgetEdit(bpy.types.Operator):
+    bl_idname = "iops.widget_edit"
+    bl_label = "Edit Widget"
+    bl_description = ("Open this widget's JSON definition in your text "
+                      "editor (Preferences > File Paths > Applications > "
+                      "Text Editor; the OS default app when unset)")
+    bl_options = {"REGISTER", "INTERNAL"}
+
+    name: StringProperty(name="Widget", default="")
+
+    def execute(self, context):
+        import subprocess
+
+        if not self.name:
+            self.report({"ERROR"}, "No widget name given")
+            return {"CANCELLED"}
+        path = composed.widget_path(self.name)
+        if not os.path.isfile(path):
+            self.report({"ERROR"},
+                        f"Widget '{self.name}' has no JSON file at {path}")
+            return {"CANCELLED"}
+
+        argv = _external_editor_command(context, path)
+        if argv is None:
+            # No editor configured: let the OS pick the .json handler.
+            bpy.ops.wm.path_open(filepath=path)
+            return {"FINISHED"}
+        try:
+            # Popen (not run): never block Blender on an editor that
+            # stays in the foreground until closed.
+            subprocess.Popen(argv, close_fds=True)
+        except OSError as ex:
+            self.report({"ERROR"},
+                        f"Could not launch text editor {argv[0]!r}: {ex}")
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class IOPS_OT_WidgetsOpenFolder(bpy.types.Operator):
     bl_idname = "iops.widgets_open_folder"
     bl_label = "Open Widgets Folder"
@@ -165,5 +233,6 @@ classes = (
     IOPS_OT_WidgetDefRemove,
     IOPS_OT_WidgetDefImport,
     IOPS_OT_WidgetDefExport,
+    IOPS_OT_WidgetEdit,
     IOPS_OT_WidgetsOpenFolder,
 )

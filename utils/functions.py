@@ -689,6 +689,11 @@ def keymap_name_for_idname(idname):
         return "Object Mode"
     if "iops.uv" in idname:
         return "UV Editor"
+    # The exact-match clause is load-bearing, not a duplicate: "call_pie_"
+    # breaks the "iops.node" substring test, so iops.call_pie_node would
+    # otherwise fall through to "Window" and silently lose its keymap.
+    if "iops.node" in idname or idname == "iops.call_pie_node":
+        return "Node Editor"
     return "Window"
 
 
@@ -696,7 +701,7 @@ def register_keymaps(keys):
     kc = bpy.context.window_manager.keyconfigs.addon
     km_cache = {}
 
-    km_space_types = {"3D View": "VIEW_3D"}
+    km_space_types = {"3D View": "VIEW_3D", "Node Editor": "NODE_EDITOR"}
 
     def items_for(name):
         if name not in km_cache:
@@ -708,7 +713,8 @@ def register_keymaps(keys):
 
     # Pre-create the keymaps so they exist even when `keys` is empty
     # (the prefs Keymaps UI reads these by name).
-    for name in ("Window", "Mesh", "Object Mode", "UV Editor", "3D View"):
+    for name in ("Window", "Mesh", "Object Mode", "UV Editor", "3D View",
+                 "Node Editor"):
         items_for(name)
 
     for k in keys:

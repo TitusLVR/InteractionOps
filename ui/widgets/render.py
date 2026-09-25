@@ -20,7 +20,7 @@ from ..draw import primitives, draw_scope
 from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
 from .controls import (Row, pixel_from_value, preset_cell_rects)
-from .panel import Rect
+from .panel import Rect, pen_icon, close_icon
 
 # Layout constants (pixels). Heights derive from theme text sizes at
 # layout time; these are paddings/insets around them.
@@ -42,7 +42,9 @@ CHECKER_DARK = (0.30, 0.30, 0.30, 1.0)
 PRESET_GAP = 4.0
 TICK_H = 4.0
 MAX_TICKS = 32
-CLOSE_GLYPH = "×"
+TITLE_BTN_INSET = 3.0       # title-bar buttons: outline inset from their cell
+PEN_INSET = 6.0             # pen icon inset from the Edit cell
+CLOSE_INSET = 7.0           # × strokes inset from the close cell
 OUT_OF_CONTEXT_TEXT = "Go back to Edit Mode"
 MIXED_TEXT = "<mixed>"
 DROPDOWN_GLYPH = "▾"
@@ -238,27 +240,30 @@ def compute_layout(context, widget, theme=None):
         min_content = hud_text.measure(OUT_OF_CONTEXT_TEXT, theme=th)[0] + 8.0
 
     title_h = th.text_size("hud_header") + TITLE_PAD
+    # Edit button only for widgets with a JSON source on disk (composed);
+    # Python-defined widgets have nothing to open.
+    edit_w = title_h if is_editable(widget) else 0.0   # square button cell
     content_w = max(
         PANEL_MIN_CONTENT_W,
         hud_text.measure(widget.panel.title, theme=th,
-                         size_token="hud_header")[0] + title_h + 8.0,
+                         size_token="hud_header")[0] + title_h + edit_w + 8.0,
         min_content,
     )
-    widget.panel.layout(
-        rows, content_w,
-        padding=float(th.hud.bg_padding),
-        title_h=title_h,
-        row_gap=float(th.hud.row_spacing) + 2.0,
-    )
+    layout_kw = dict(padding=float(th.hud.bg_padding), title_h=title_h,
+                     row_gap=float(th.hud.row_spacing) + 2.0, edit_w=edit_w)
+    widget.panel.layout(rows, content_w, **layout_kw)
     region = context.region
     if region is not None:
         widget.panel.clamp_to_region(region.width, region.height)
         # Re-layout at the clamped anchor so rects match the final spot.
-        widget.panel.layout(rows, content_w,
-                            padding=float(th.hud.bg_padding),
-                            title_h=title_h,
-                            row_gap=float(th.hud.row_spacing) + 2.0)
+        widget.panel.layout(rows, content_w, **layout_kw)
     return th
+
+
+def is_editable(widget):
+    """True when the widget was built from a JSON definition (composed) —
+    the only kind the title-bar Edit button can open in an editor."""
+    return getattr(widget, "composed_def", None) is not None
 
 
 # ----------------------------------------------------------------------
@@ -634,7 +639,38 @@ def _draw_dropdown_list(dd, theme):
 # ----------------------------------------------------------------------
 # Panel draw
 # ----------------------------------------------------------------------
-def _draw_chrome(panel, theme, dim):
+def _draw_title_button(rect, theme, dim, pressed):
+    """Shared chrome for title-bar buttons (Edit, Close): outlined square
+    cell, tinted fill while held (set by the interact modal, cleared on
+    release/cancel — same as action buttons). Returns the icon ink color.
+    No hover state: that would need a MOUSEMOVE handler running for every
+    mouse move in the editor."""
+    btn = Rect(rect.x + TITLE_BTN_INSET, rect.y + TITLE_BTN_INSET,
+               rect.w - TITLE_BTN_INSET * 2.0, rect.h - TITLE_BTN_INSET * 2.0)
+    if pressed:
+        primitives.rect_2d(btn.x, btn.y, btn.w, btn.h,
+                           color=_active_fill(theme), theme=theme)
+    _outline(btn, _col(theme, Role.BBOX, dim), theme)
+    return _col(theme, Role.HUD_ACTIVE_VALUE if pressed else Role.HUD_LABEL,
+                dim)
+
+
+def _draw_edit_button(rect, theme, dim, pressed):
+    """Title-bar Edit button: vector pen icon."""
+    ink = _draw_title_button(rect, theme, dim, pressed)
+    geo = pen_icon(rect, inset=PEN_INSET)
+    primitives.tris(geo["tris"], color=ink, theme=theme)
+    primitives.line(*geo["cap"], color=ink, width="default", theme=theme)
+
+
+def _draw_close_button(rect, theme, dim, pressed):
+    """Title-bar Close button: vector × (two diagonal strokes)."""
+    ink = _draw_title_button(rect, theme, dim, pressed)
+    for p1, p2 in close_icon(rect, inset=CLOSE_INSET):
+        primitives.line(p1, p2, color=ink, width="default", theme=theme)
+
+
+def _draw_chrome(panel, theme, dim, press=None):
     b = panel.bounds()
     # Panel fill — the unified HUD background color (already sRGB-encoded
     # by get_theme), drawn even when the HUD bg toggle is off: an
@@ -642,7 +678,7 @@ def _draw_chrome(panel, theme, dim):
     primitives.rect_2d(b.x, b.y, b.w, b.h,
                        color=theme.hud.bg_color, theme=theme)
     _outline(b, _col(theme, Role.BBOX, dim), theme)
-    # Title bar: header text, separator, close glyph.
+    # Title bar: header text, separator, [Edit] and Close buttons.
     tr = panel.title_rect
     _text_left(panel.title, tr, tr.x + 8.0, theme=theme,
                color=_col(theme, Role.HUD_HEADER, dim),
@@ -650,16 +686,17 @@ def _draw_chrome(panel, theme, dim):
     primitives.line((tr.x, tr.y), (tr.x2, tr.y),
                     color=_col(theme, Role.BBOX, dim),
                     width="default", theme=theme)
-    _text_centered(CLOSE_GLYPH, panel.close_rect, theme=theme,
-                   color=_col(theme, Role.HUD_LABEL, dim),
-                   size_token="hud_header")
+    _draw_close_button(panel.close_rect, theme, dim, press == "close")
+    if panel.edit_rect.w > 0.0:
+        _draw_edit_button(panel.edit_rect, theme, dim, press == "edit")
 
 
 def draw_widget(context, widget):
     """Draw one widget panel into the current POST_PIXEL region. Resolves
     the theme per frame, lays out (storing hit rects on the panel), and
     renders chrome + controls. Out of context (widget.poll False): panel
-    collapses to title bar + the hint message; only drag/close active."""
+    collapses to title bar + the hint message; only drag/close/edit
+    active."""
     theme = compute_layout(context, widget)
     panel = widget.panel
     in_context = _in_context(widget, context)
@@ -667,14 +704,14 @@ def draw_widget(context, widget):
 
     with hud_text.isolated(theme):
         with draw_scope(blend="ALPHA"):
-            _draw_chrome(panel, theme, dim)
+            press = getattr(widget, "_press_cell", None)
+            _draw_chrome(panel, theme, dim, press=press)
             if not in_context:
                 _text_centered(OUT_OF_CONTEXT_TEXT, panel.row_rects[0][0],
                                theme=theme,
                                color=_col(theme, Role.HUD_LABEL_INACTIVE,
                                           1.0))
                 return
-            press = getattr(widget, "_press_cell", None)
             editing = getattr(widget, "_editing", None)
             edit_where = editing[0] if editing else None
             edit_state = editing[1] if editing else None

@@ -66,6 +66,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [UV Visual Cursor](operators/op_uv_visual_cursor.md) — place the 2D cursor on a bounding-box point.
 - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md) — highlight faces that are not flat.
 - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md) — mark seams along the shortest path.
+- [Rename Active Group](operators/op_mesh_vertex_group_rename.md) — rename the active vertex group from the Ctrl+G menu.
 
 ## Snap & Transform
 - [Drag Snap](operators/op_drag_snap.md) — move objects vertex to vertex.
@@ -84,6 +85,9 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 ## Curve
 - [Spline Type](operators/op_curve_spline_type.md) — Poly / Bezier / NURBS with F1–F3.
 - [Subdivide](operators/op_curve_subdivide.md) — subdivide bezier segments with a live preview.
+
+## Node Editor
+- [Node Editor Pie](operators/op_node_pie.md) — contextual pie keyed on the active node; spawns the next node already wired in.
 
 ## Interface
 - [Split Screen Area](operators/op_split_screen_area.md) — open and close a paired editor (legacy version).

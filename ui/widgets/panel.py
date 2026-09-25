@@ -50,7 +50,8 @@ class Rect:
 
 
 class WidgetPanel:
-    """Vertical row-stack panel: title bar + close glyph + N control rows.
+    """Vertical row-stack panel: title bar + [edit button] + close glyph
+    + N control rows.
 
     `layout()` consumes a list of (row_height_px, n_columns) tuples and a
     content width, and produces per-cell `Rect`s in `row_rects` — one list
@@ -71,6 +72,10 @@ class WidgetPanel:
         self.title_h = 22.0
         self.title_rect = Rect()
         self.close_rect = Rect()
+        # Optional Edit button (pen icon) left of the close glyph;
+        # zero-width (edit_w=0 in layout) when the widget has no
+        # editable source.
+        self.edit_rect = Rect()
         self.row_rects: list[list[Rect]] = []
         # Drag-by-titlebar state.
         self.dragging = False
@@ -83,8 +88,12 @@ class WidgetPanel:
     # ------------------------------------------------------------------
     def layout(self, rows, content_width: float, *,
                padding: float = 8.0, title_h: float = 22.0,
-               row_gap: float = 4.0, col_gap: float = 6.0) -> "WidgetPanel":
+               row_gap: float = 4.0, col_gap: float = 6.0,
+               edit_w: float = 0.0) -> "WidgetPanel":
         """Compute panel size and all per-cell rects from the top-left anchor.
+
+        `edit_w` > 0 reserves a title-bar cell of that width immediately
+        left of the close glyph for the Edit button (hit kind "edit").
 
         `rows` — sequence of (height_px, n_columns) or
         (height_px, n_columns, col_spec); one entry per visual row.
@@ -110,6 +119,9 @@ class WidgetPanel:
         # Close glyph: square cell flush with the right end of the title bar.
         self.close_rect = Rect(left + self.width - title_h, top - title_h,
                                title_h, title_h)
+        edit_w = max(0.0, float(edit_w))
+        self.edit_rect = Rect(self.close_rect.x - edit_w, top - title_h,
+                              edit_w, title_h)
         cy = top - title_h - padding
         self.row_rects = []
         for entry in rows:
@@ -172,6 +184,7 @@ class WidgetPanel:
 
         Returns one of:
             ("close",   None)        — close glyph
+            ("edit",    None)        — Edit button (when laid out)
             ("title",   None)        — title bar (drag handle)
             ("control", (row, col))  — a control cell
             ("panel",   None)        — inside bounds, on padding/gaps
@@ -181,6 +194,8 @@ class WidgetPanel:
             return None
         if self.close_rect.contains(mx, my):
             return ("close", None)
+        if self.edit_rect.w > 0.0 and self.edit_rect.contains(mx, my):
+            return ("edit", None)
         if self.title_rect.contains(mx, my):
             return ("title", None)
         for r, cells in enumerate(self.row_rects):
@@ -212,3 +227,46 @@ class WidgetPanel:
         if self.dragging:
             self.x, self.y = self._drag_orig
         self.dragging = False
+
+
+def pen_icon(rect: Rect, inset: float = 5.0) -> dict:
+    """Vector pencil icon fitted into `rect` (pure math, no font glyph —
+    the HUD font is user-configurable and may lack "✎").
+
+    The pencil runs along the rect's diagonal, tip pointing lower-left.
+    Returns {"tris": [...], "cap": (p1, p2)}: `tris` is a flat list of
+    (x, y) triangle vertices (body quad + tip), `cap` the ferrule line
+    across the body near the blunt end. Every point lies inside `rect`
+    shrunk by `inset`.
+    """
+    s = max(0.0, min(rect.w, rect.h) * 0.5 - float(inset))
+    cx, cy = rect.cx, rect.cy
+    k = 0.70710678          # 1/sqrt(2)
+    dx, dy = -k, -k          # along the pencil, toward the tip
+    nx, ny = -k, k           # across the pencil
+    hw = 0.22 * s            # half-width of the body
+    tip_len = 0.5 * s
+    butt = (cx - dx * s, cy - dy * s)                 # blunt end (upper-right)
+    tip = (cx + dx * s, cy + dy * s)                  # point (lower-left)
+    base = (tip[0] - dx * tip_len, tip[1] - dy * tip_len)   # where the tip starts
+
+    def off(p, t):
+        return (p[0] + nx * t, p[1] + ny * t)
+
+    a, b = off(butt, -hw), off(butt, hw)
+    c, d = off(base, hw), off(base, -hw)
+    tris = [a, b, c, a, c, d,            # body quad
+            c, d, tip]                   # tip triangle
+    cap_at = (butt[0] + dx * (0.3 * s), butt[1] + dy * (0.3 * s))
+    cap = (off(cap_at, -hw), off(cap_at, hw))
+    return {"tris": tris, "cap": cap}
+
+
+def close_icon(rect: Rect, inset: float = 5.0) -> tuple:
+    """Vector "×" fitted into `rect`: two diagonals of the square centered
+    in the rect, shrunk by `inset`. Returns ((p1, p2), (p3, p4)). Same
+    rationale as `pen_icon`: no dependence on the HUD font's glyph set."""
+    s = max(0.0, min(rect.w, rect.h) * 0.5 - float(inset))
+    cx, cy = rect.cx, rect.cy
+    return (((cx - s, cy - s), (cx + s, cy + s)),
+            ((cx - s, cy + s), (cx + s, cy - s)))

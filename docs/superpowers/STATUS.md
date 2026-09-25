@@ -19,6 +19,8 @@ Legend: ✅ implemented · 🟡 partial · ❌ not landed · 🗑 superseded
 | 2026-05-19 | [hud-params-and-help-split-design](specs/2026-05-19-hud-params-and-help-split-design.md) | ✅ | `c856cfb feat(hud): split HUD … from Help`, `13a984d feat(operators): migrate all modal operators to HUD/Help split`, `73440e1 Refactor HUD help overlay`. |
 | 2026-05-19 | [theme-tab-reorg-design](specs/2026-05-19-theme-tab-reorg-design.md) | ✅ | Collapsible groups (`9ee2f20`), vertical color tables + Text/Font merge + Surfaces rename (`211de45`). |
 | 2026-05-20 | [bevel-snap-mode-design](specs/2026-05-20-bevel-snap-mode-design.md) | ✅ | `9207e61 feat(bisect): add bevel mode for dual cuts`; ~85 bevel/snap_point refs in [`operators/mesh_cursor_bisect.py`](../../operators/mesh_cursor_bisect.py). |
+| 2026-09-07 | [modo-falloff-analysis](specs/2026-09-07-modo-falloff-analysis.md) | ✅ | Research-only doc feeding the falloff tools design. |
+| 2026-09-07 | [modo-falloff-tools-design](specs/2026-09-07-modo-falloff-tools-design.md) | ✅ | `operators/falloff/`, `utils/falloff_core.py`, `tests/test_falloff_core.py`. |
 
 ## Plans
 
@@ -29,6 +31,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not landed · 🗑 superseded
 | 2026-04-20 | [curvature-bias](plans/2026-04-20-curvature-bias.md) | ✅ executed |
 | 2026-05-15 | [unified-ui-foundation](plans/2026-05-15-unified-ui-foundation.md) | ✅ executed (merged via `feat/unified-ui-foundation`) |
 | 2026-05-18 | [theme-palette-unification](plans/2026-05-18-theme-palette-unification.md) | ✅ executed |
+| 2026-09-07 | [modo-falloff-tools](plans/2026-09-07-modo-falloff-tools.md) | ✅ executed |
 
 ## Notes
 
