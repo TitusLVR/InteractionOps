@@ -171,6 +171,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    show_collection_stat: BoolProperty(
+        name="Collection Instance",
+        description="Show the instanced collection name and the library file it "
+                    "is linked from when the active object is a collection instance",
+        default=True,
+    )
+
     show_instances_stat: BoolProperty(
         name="Instances",
         description="Warn when the active object's data is shared by other objects",
@@ -1040,6 +1047,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 sub.prop(self, "show_material_max_rows")
                 grid.prop(self, "show_modifiers_stat", toggle=True)
                 grid.prop(self, "show_instances_stat", toggle=True)
+                grid.prop(self, "show_collection_stat", toggle=True)
                 grid.prop(self, "show_parent_stat", toggle=True)
                 grid.prop(self, "show_units_stat", toggle=True)
                 body.separator()

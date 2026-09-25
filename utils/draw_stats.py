@@ -14,6 +14,23 @@ _MATERIAL_OBJECT_TYPES = frozenset(
 )
 
 
+def _collection_source(coll, prefs):
+    """Where an instanced collection comes from: the linked library file
+    (basename, or full path with show_filename_full_path), or 'local'.
+    Library overrides report the library their reference lives in."""
+    lib = coll.library
+    if lib is None and coll.override_library is not None:
+        ref = coll.override_library.reference
+        lib = ref.library if ref is not None else None
+    if lib is None:
+        return "local"
+    path = lib.filepath or lib.name
+    if not getattr(prefs, "show_filename_full_path", False):
+        path = os.path.basename(bpy.path.abspath(path)) or path
+    prefix = "override " if coll.override_library is not None else ""
+    return f"{prefix}← {path}"
+
+
 def draw_iops_statistics():
     context = bpy.context
     if not context.area or context.area.type != "VIEW_3D":
@@ -102,6 +119,21 @@ def draw_iops_statistics():
             return f"{value:.2f}"
 
         if active_object:
+            if (getattr(prefs, "show_collection_stat", True)
+                    and active_object.instance_type == "COLLECTION"):
+                coll = active_object.instance_collection
+                _t("Instance:", role=Role.HUD_LABEL)
+                if coll is None:
+                    _t("<no collection>", role=Role.HUD_STATS_ERROR,
+                       x=base_column_x)
+                else:
+                    _t(coll.name, role=Role.HUD_LABEL_ACTIVE, x=base_column_x)
+                    w, _h = _dim(coll.name)
+                    source = _collection_source(coll, prefs)
+                    if source:
+                        _t(source, role=Role.HUD_LABEL, x=base_column_x + w + 6)
+                offset_y -= row_step
+
             if prefs.show_dimensions_stat:
                 dims = active_object.dimensions
                 if dims.x or dims.y or dims.z:

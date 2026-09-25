@@ -314,6 +314,7 @@ def load_iops_preferences():
                                 ("show_filename_full_path", False),
                                 ("show_dimensions_stat", True),
                                 ("show_instances_stat", False),
+                                ("show_collection_stat", True),
                                 ("show_modifiers_stat", False),
                                 ("show_material_stat", False),
                                 ("show_material_users_stat", False),
