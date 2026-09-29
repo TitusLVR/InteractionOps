@@ -111,6 +111,7 @@ nav:
           - KitBash Grid: operators/op_object_kitbash_grid.md
           - Name from Active: operators/op_object_name_from_active.md
           - Select Similar Name: operators/op_object_select_similar_name.md
+          - Select Boolean Operands / Targets: operators/op_object_select_booleans.md
           - Replace: operators/op_object_replace.md
           - UVMaps Add/Remove: operators/op_object_uvmaps_add_remove.md
           - UVMaps Cleaner: operators/op_object_uvmaps_cleaner.md
