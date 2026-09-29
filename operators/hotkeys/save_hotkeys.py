@@ -1,6 +1,7 @@
 import bpy
 import os
 import json
+import shutil
 
 
 from ...utils.functions import merge_missing_defaults
@@ -21,11 +22,18 @@ def save_hotkeys():
     user_hotkeys_file = os.path.join(path, "presets", "IOPS", "iops_hotkeys_user.py")
     if not os.path.exists(folder):
         os.makedirs(folder)
-    with open(user_hotkeys_file, "w") as f:
-        # Persist every current iops kmi, plus any default not yet bound, so
-        # newly shipped operators survive a save/load round-trip.
-        data = merge_missing_defaults(get_iops_keys())
+    # Save is a full snapshot of the live keymap, not a merge — after a
+    # Load Default it overwrites every custom binding. Keep the previous
+    # file as .bak so that is one copy away from undone.
+    if os.path.exists(user_hotkeys_file):
+        shutil.copy2(user_hotkeys_file, user_hotkeys_file + ".bak")
+    # Persist every current iops kmi, plus any default not yet bound, so
+    # newly shipped operators survive a save/load round-trip.
+    data = merge_missing_defaults(get_iops_keys())
+    temp_file = user_hotkeys_file + ".tmp"
+    with open(temp_file, "w", encoding="utf-8") as f:
         f.write("[" + ",\n".join(json.dumps(i) for i in data) + "]\n")
+    os.replace(temp_file, user_hotkeys_file)
 
 
 def get_iops_keys():
