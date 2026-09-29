@@ -260,6 +260,10 @@ from .operators.bevel_edge_data import (
 )
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active, IOPS_OT_Object_Name_From_Active_Apply
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
+from .operators.object_select_booleans import (
+    classes as _select_booleans_classes,
+    draw_select_menu as draw_select_booleans_menu,
+)
 
 from .operators.object_uvmaps_cleaner import (
     IOPS_OT_Clean_UVMap_0,
@@ -608,6 +612,7 @@ classes = (
     IOPS_OT_Object_Name_From_Active,
     IOPS_OT_Object_Name_From_Active_Apply,
     IOPS_OT_SelectSimilarName,
+    *_select_booleans_classes,
     IOPS_MouseoverFillSelect,
     IOPS_MESH_OT_CopyEdgesLength,
     IOPS_MESH_OT_CopyEdgesAngle,
@@ -1023,23 +1028,27 @@ def select_grouped_similar_name(self, context):
 
 
 def register_select_similar_name_menu():
-    """Register Select Similar Name to View3D Select menu and HOPS menu if available."""
+    """Register Select Similar Name and the Boolean / Mirror link selectors
+    to the View3D Select menu and the HOPS menu if available."""
     bpy.types.VIEW3D_MT_select_object.append(select_grouped_similar_name)
+    bpy.types.VIEW3D_MT_select_object.append(draw_select_booleans_menu)
     if hasattr(bpy.types, "HOPS_MT_SelectGrouped"):
         bpy.types.HOPS_MT_SelectGrouped.append(select_grouped_similar_name)
+        bpy.types.HOPS_MT_SelectGrouped.append(draw_select_booleans_menu)
 
 
 def unregister_select_similar_name_menu():
-    """Unregister Select Similar Name from menus."""
-    try:
-        bpy.types.VIEW3D_MT_select_object.remove(select_grouped_similar_name)
-    except Exception:
-        pass
-    if hasattr(bpy.types, "HOPS_MT_SelectGrouped"):
+    """Unregister Select Similar Name and the link selectors from menus."""
+    for fn in (select_grouped_similar_name, draw_select_booleans_menu):
         try:
-            bpy.types.HOPS_MT_SelectGrouped.remove(select_grouped_similar_name)
+            bpy.types.VIEW3D_MT_select_object.remove(fn)
         except Exception:
             pass
+        if hasattr(bpy.types, "HOPS_MT_SelectGrouped"):
+            try:
+                bpy.types.HOPS_MT_SelectGrouped.remove(fn)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
