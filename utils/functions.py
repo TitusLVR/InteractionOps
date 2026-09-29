@@ -839,16 +839,24 @@ def fix_old_keymaps():
                 print("IOPS: Invalid hotkeys file format in fix_old_keymaps")
                 return
             
+            changed = False
             for km in keys_user_old:
                 if not isinstance(km, list) or len(km) < 1:
+                    changed = True
                     continue
                 if km[0] not in km_to_remove:
                     if km[0] in old_new_km_map.keys():
                         km[0] = old_new_km_map[km[0]]
-                        fixed_km.append(km)
-                    else:
-                        fixed_km.append(km)
-            
+                        changed = True
+                    fixed_km.append(km)
+                else:
+                    changed = True
+
+            # Runs at every addon register, in every open Blender — leave
+            # the user's file untouched unless there was something to fix.
+            if not changed:
+                return
+
             # Write with atomic operation
             temp_file = user_hotkeys_file + ".tmp"
             with open(temp_file, "w", encoding='utf-8') as f:
