@@ -28,6 +28,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [KitBash Grid](operators/op_object_kitbash_grid.md) — lay kitbash pieces out on a grid or gather them at the centre.
 - [Name from Active](operators/op_object_name_from_active.md) — rename the selection after the active object.
 - [Select Similar Name](operators/op_object_select_similar_name.md) — select objects sharing the active object's name stem.
+- [Select Boolean Operands / Targets / Mirror Objects](operators/op_object_select_booleans.md) — hop between meshes and the cutters or mirror empties wired into their modifiers; local-view aware.
 - [Replace](operators/op_object_replace.md) — swap selected objects for the active one.
 - [UVMaps Add/Remove](operators/op_object_uvmaps_add_remove.md) — add or remove UV maps across the selection.
 - [UVMaps Cleaner](operators/op_object_uvmaps_cleaner.md) — keep only the first N UV maps.
