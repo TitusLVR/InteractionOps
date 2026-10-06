@@ -201,6 +201,27 @@ def get_island_uv_data(bm, island_face_indices, uv_layer):
     }
 
 
+def _uv_match(a, b):
+    return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 < 1e-10
+
+
+def loop_is_uv_boundary(loop, uv_layer, island_set):
+    """A face edge (loop -> loop.link_loop_next) is a UV-island boundary
+    unless another island face shares the mesh edge with continuous UVs
+    across it."""
+    uv_a = loop[uv_layer].uv
+    uv_b = loop.link_loop_next[uv_layer].uv
+    for other in loop.edge.link_loops:
+        if other is loop or other.face.index not in island_set:
+            continue
+        o_a = other[uv_layer].uv
+        o_b = other.link_loop_next[uv_layer].uv
+        if ((_uv_match(o_a, uv_b) and _uv_match(o_b, uv_a))
+                or (_uv_match(o_a, uv_a) and _uv_match(o_b, uv_b))):
+            return False
+    return True
+
+
 def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
     """
     Collect 3D geometry for an island: edge positions, vertex positions,
@@ -210,6 +231,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
       - 'boundary_edges_3d': subset of edges_3d lying on the island's
         UV boundary (no island face shares the edge with continuous UVs)
       - 'edge_uv_pairs': list of ((uv_a, uv_b), (pos3d_a, pos3d_b))
+      - 'boundary_edge_uv_pairs': subset of edge_uv_pairs on the UV boundary
       - 'verts_3d': dict mapping UV key -> world-space 3D position
       - 'center_3d': average world-space position of island vertices
       - 'normal_avg': average face normal (world space, normalized)
@@ -221,22 +243,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
     edges_3d = []
     boundary_edges_3d = []
     edge_uv_pairs = []
-
-    def _uv_match(a, b):
-        return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 < 1e-10
-
-    def _is_uv_boundary(loop, uv_a, uv_b):
-        """A face edge is a UV-island boundary unless another island
-        face shares the mesh edge with continuous UVs across it."""
-        for other in loop.edge.link_loops:
-            if other is loop or other.face.index not in island_set:
-                continue
-            o_a = other[uv_layer].uv
-            o_b = other.link_loop_next[uv_layer].uv
-            if ((_uv_match(o_a, uv_b) and _uv_match(o_b, uv_a))
-                    or (_uv_match(o_a, uv_a) and _uv_match(o_b, uv_b))):
-                return False
-        return True
+    boundary_edge_uv_pairs = []
     verts_3d = {}
     normals = []
     all_positions = []
@@ -275,8 +282,9 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
 
             edges_3d.append((pos_a, pos_b))
             edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
-            if _is_uv_boundary(loop, uv, uv_next):
+            if loop_is_uv_boundary(loop, uv_layer, island_set):
                 boundary_edges_3d.append((pos_a, pos_b))
+                boundary_edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
 
             uv_key = (round(uv.x, 5), round(uv.y, 5))
             if uv_key not in verts_3d:
@@ -297,6 +305,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
         'edges_3d': edges_3d,
         'boundary_edges_3d': boundary_edges_3d,
         'edge_uv_pairs': edge_uv_pairs,
+        'boundary_edge_uv_pairs': boundary_edge_uv_pairs,
         'verts_3d': verts_3d,
         'center_3d': center_3d,
         'normal_avg': normal_avg,
@@ -537,27 +546,29 @@ def island_centroid_uv(loops, uv_layer):
 
 
 def stitch_island_to_edge_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
-                             dst_centroid, same_side=False):
+                             dst_centroid, same_side=False, keep_scale=False):
     """
     Rigidly fit an island so its edge src_a->src_b lands on dst_a->dst_b:
     uniform scale to match length, rotate to match direction, translate
     so the endpoints coincide. The island lands on the side of the target
-    edge opposite to dst_centroid unless same_side is set.
-    Returns True if the island was moved.
+    edge opposite to dst_centroid unless same_side is set. keep_scale
+    skips the scale and centres the edge on the target instead.
+    Returns the applied transform dict, or None if nothing moved.
     """
     from .uv_stitch_core import stitch_transform
     src_c = island_centroid_uv(loops, uv_layer)
     xf = stitch_transform(tuple(src_a), tuple(src_b),
                           tuple(dst_a), tuple(dst_b),
                           tuple(src_c), tuple(dst_centroid),
-                          same_side=same_side)
+                          same_side=same_side, keep_scale=keep_scale)
     if xf is None:
-        return False
+        return None
     pivot = Vector(xf['pivot'])
-    scale_island_uv(loops, uv_layer, pivot, xf['scale'], xf['scale'])
+    if not keep_scale:
+        scale_island_uv(loops, uv_layer, pivot, xf['scale'], xf['scale'])
     rotate_island_uv(loops, uv_layer, pivot, xf['angle'])
     move_island_uv(loops, uv_layer, Vector(xf['translation']))
-    return True
+    return xf
 
 
 def get_unselected_face_islands(bm, uv_layer):
@@ -569,17 +580,24 @@ def get_unselected_face_islands(bm, uv_layer):
             if not any(bm.faces[fi].select for fi in isl)]
 
 
-def collect_island_edges(bm, island_face_indices, uv_layer, world_matrix):
+def collect_island_edges(bm, island_face_indices, uv_layer, world_matrix,
+                         boundary_only=True):
     """Lean edge list for snapping: [(uv_a, uv_b, pos3d_a, pos3d_b)] with
-    each mesh edge listed once per distinct UV placement. Also returns the
+    each mesh edge listed once per distinct UV placement. By default only
+    UV-boundary edges are listed (interior edges are never stitch targets
+    and are not drawn, so snapping to them is confusing). Also returns the
     island loops (for centroid math)."""
     edges = []
     loops = []
     seen = set()
+    island_set = set(island_face_indices)
     for fi in island_face_indices:
         f = bm.faces[fi]
         for loop in f.loops:
             loops.append(loop)
+            if boundary_only and not loop_is_uv_boundary(
+                    loop, uv_layer, island_set):
+                continue
             nxt = loop.link_loop_next
             uv_a, uv_b = loop[uv_layer].uv, nxt[uv_layer].uv
             va, vb = loop.vert, nxt.vert
