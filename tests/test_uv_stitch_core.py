@@ -89,3 +89,28 @@ def test_identity_when_edges_already_match():
     xf = stitch_transform(SRC_A, SRC_B, SRC_A, SRC_B, SRC_C, (1.5, 0.5))
     for p in SRC_QUAD:
         assert _close(apply_similarity(p, xf), p)
+
+
+def test_keep_scale_preserves_edge_length():
+    xf = stitch_transform(SRC_A, SRC_B, DST_A, DST_B, SRC_C, DST_C,
+                          keep_scale=True)
+    assert abs(xf['scale'] - 1.0) < 1e-9
+    q = _apply_all(SRC_QUAD, xf)
+    assert abs(math.dist(q[0], q[1]) - 1.0) < 1e-6
+
+
+def test_keep_scale_centers_edge_on_target_midpoint():
+    xf = stitch_transform(SRC_A, SRC_B, DST_A, DST_B, SRC_C, DST_C,
+                          keep_scale=True)
+    a, b = apply_similarity(SRC_A, xf), apply_similarity(SRC_B, xf)
+    mid = ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5)
+    assert _close(mid, (2.0, 1.0))
+    # Still collinear with the target edge (x == 2) and on its free side.
+    assert abs(a[0] - 2.0) < 1e-6 and abs(b[0] - 2.0) < 1e-6
+    assert apply_similarity(SRC_C, xf)[0] < 2.0 - 1e-6
+
+
+def test_keep_scale_same_side_flag():
+    xf = stitch_transform(SRC_A, SRC_B, DST_A, DST_B, SRC_C, DST_C,
+                          keep_scale=True, same_side=True)
+    assert apply_similarity(SRC_C, xf)[0] > 2.0 + 1e-6

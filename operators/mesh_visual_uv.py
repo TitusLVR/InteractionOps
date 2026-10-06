@@ -66,6 +66,13 @@ STATE_PICK_DENSITY_TGT = 'DENSITY_TGT'
 STATE_PICK_STITCH_SRC = 'STITCH_SRC'
 STATE_STITCH_DRAG = 'STITCH_DRAG'
 STITCH_STATES = (STATE_PICK_STITCH_SRC, STATE_STITCH_DRAG)
+# Click-to-pick sub-modes: Esc / RMB step back to IDLE instead of
+# cancelling the whole operator.
+PICK_STATES = (STATE_PICK_ALIGN_EDGE, STATE_PICK_DENSITY_REF,
+               STATE_PICK_DENSITY_TGT, STATE_PICK_STITCH_SRC)
+# Max screen distance (px) from the mouse to a target edge for the
+# stitch to snap; further away the island stays put ("no target").
+STITCH_SNAP_PX = HIT_RADIUS * 3
 
 PIVOT_CENTER = 'CENTER'
 PIVOT_CURSOR = 'CURSOR'
@@ -450,12 +457,23 @@ def draw_3d_callback(op, context):
                                context=context)
 
     if op.stitch_src is not None and op.state == STATE_STITCH_DRAG:
+        # Source edge = preview, target edge = active, so the two read
+        # differently; the target island gets a faint outline so even
+        # an unselected (otherwise undrawn) island shows where we snap.
         draw_prim.edges_3d(list(op.stitch_src['edge_3d']),
                            role=Role.PREVIEW_LINE, width="active",
                            context=context)
         if op.stitch_target is not None:
+            contour = []
+            for (_, _, pa, pb) in op.stitch_target['entry']['edges']:
+                contour.extend([pa, pb])
+            if contour:
+                lc = get_theme(context).color_for(Role.ACTIVE_LINE)
+                draw_prim.edges_3d(contour,
+                                   color=(lc[0], lc[1], lc[2], lc[3] * 0.35),
+                                   width="default", context=context)
             draw_prim.edges_3d(list(op.stitch_target['edge_3d']),
-                               role=Role.PREVIEW_LINE, width="active",
+                               role=Role.ACTIVE_LINE, width="active",
                                context=context)
 
     if op.hover_edge_3d is not None:
@@ -536,8 +554,7 @@ def draw_pixel_callback(op, context):
 
     # Bounding box + handles (active island)
     if handles and op.state in (STATE_IDLE, STATE_HANDLE_SCALE,
-                                 STATE_PICK_ALIGN_EDGE,
-                                 STATE_PICK_STITCH_SRC):
+                                 STATE_PICK_ALIGN_EDGE):
         if all(n in handles for n in HANDLE_CORNERS):
             box = [(handles[n].x, handles[n].y)
                    for n in ('BL', 'BR', 'TR', 'TL', 'BL')]
@@ -620,10 +637,19 @@ def _draw_transform_feedback(op):
         else:
             _t(f"S {sx:.3f} x {sy:.3f}", role=Role.HUD_ACTIVE_VALUE)
 
-    elif op.state == STATE_STITCH_DRAG:
-        side = "same side" if op.stitch_same_side else "opposite side"
-        _t(f"Stitch  [{side}]  LMB confirm, Shift flip",
+    elif op.state == STATE_PICK_STITCH_SRC:
+        _t("Stitch: pick source edge  [RMB / Esc exit]",
            role=Role.HUD_ACTIVE_VALUE)
+
+    elif op.state == STATE_STITCH_DRAG:
+        scale_mode = "keep scale" if op.stitch_keep_scale else "match edge"
+        if op.stitch_target is None:
+            _t(f"Stitch  no target  [{scale_mode}]",
+               role=Role.HUD_ACTIVE_VALUE)
+        else:
+            _t(f"Stitch  scale {op.stitch_scale:.2f}x  [{scale_mode}]  "
+               "LMB confirm, Shift flip, Ctrl scale mode",
+               role=Role.HUD_ACTIVE_VALUE)
 
     elif op.state == STATE_GRAB:
         sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
@@ -942,7 +968,17 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.hover_rotate_handle = False
         self.hover_handle = None
 
-        handles = _compute_screen_handles(self, context)
+        # Edge-pick modes look at edges only: handles and vertices would
+        # otherwise swallow the hover near corners and the click would
+        # silently do nothing. Stitch sources must be UV-boundary edges.
+        edges_only = self.state in (STATE_PICK_ALIGN_EDGE,
+                                    STATE_PICK_STITCH_SRC)
+        edge_key = ('boundary_edge_uv_pairs'
+                    if self.state == STATE_PICK_STITCH_SRC
+                    else 'edge_uv_pairs')
+
+        handles = None if edges_only else _compute_screen_handles(
+            self, context)
 
         if handles:
             # Hit radius follows the themed handle size so bigger
@@ -967,7 +1003,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         bd, bi, bk = HIT_RADIUS + 1, -1, None
         for idx, idata in enumerate(self.islands_data):
             geo = idata.get('geo3d')
-            if not geo:
+            if not geo or edges_only:
                 continue
             for uv_key, pos3d in geo['verts_3d'].items():
                 sp = location_3d_to_region_2d(region, rv3d, pos3d)
@@ -988,7 +1024,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             geo = idata.get('geo3d')
             if not geo:
                 continue
-            for (uv_a, uv_b), (pa, pb) in geo['edge_uv_pairs']:
+            for (uv_a, uv_b), (pa, pb) in geo[edge_key]:
                 spa = location_3d_to_region_2d(region, rv3d, pa)
                 spb = location_3d_to_region_2d(region, rv3d, pb)
                 if spa is None or spb is None:
@@ -1087,6 +1123,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.stitch_src = None
         self.stitch_target = None
         self.stitch_same_side = False
+        self.stitch_keep_scale = False
+        self.stitch_scale = 1.0
         self.stitch_pool = None
         self.stitch_pool_view = None
         self.scale_handle_name = None
@@ -1188,6 +1226,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                           STATE_STITCH_DRAG):
             return self._modal_transform(context, event)
 
+        if (self.state in PICK_STATES and event.value == 'PRESS'
+                and event.type in {'ESC', 'RIGHTMOUSE'}):
+            self._end_pick()
+            return {'RUNNING_MODAL'}
+
         if event.type == 'ESC' and event.value == 'PRESS':
             restore_uvs(self.uv_cache, self.uv_layer)
             bmesh.update_edit_mesh(context.active_object.data)
@@ -1214,11 +1257,6 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             return self._on_lmb(context, event)
-
-        if (event.type == 'RIGHTMOUSE' and event.value == 'PRESS'
-                and self.state in STITCH_STATES):
-            self._end_stitch_pick()
-            return {'RUNNING_MODAL'}
 
         if event.value == 'PRESS':
             return self._on_key(context, event)
@@ -1251,19 +1289,33 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                             or (not is_handle and event.value == 'PRESS')))
         if lmb_confirm or (event.type in {'RET', 'NUMPAD_ENTER', 'SPACE'}
                            and event.value == 'PRESS'):
+            if self.state == STATE_STITCH_DRAG and self.stitch_target is None:
+                # Nothing snapped: confirming would just end the drag.
+                return {'RUNNING_MODAL'}
+            was_stitch = self.state == STATE_STITCH_DRAG
             if self.pre_drag_cache:
                 self.undo_stack.append(self.pre_drag_cache)
                 self.redo_stack.clear()
             self._update_mesh(context)
             self._end_transform()
+            if was_stitch:
+                # Stitching is almost always a series: stay in pick mode
+                # for the next source edge, RMB / Esc leave it.
+                self._enter_pick(context, STATE_PICK_STITCH_SRC)
             return {'RUNNING_MODAL'}
 
         # Cancel
         if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            was_stitch = self.state == STATE_STITCH_DRAG
             if self.pre_drag_cache:
                 restore_uvs(self.pre_drag_cache, self.uv_layer)
+            if was_stitch:
+                self._restore_stitch_selection()
             self._update_mesh(context)
             self._end_transform()
+            if was_stitch:
+                # One step back: drop the source, keep picking.
+                self._enter_pick(context, STATE_PICK_STITCH_SRC)
             return {'RUNNING_MODAL'}
 
         if (event.type in {'X', 'Y'} and event.value == 'PRESS'
@@ -1276,15 +1328,21 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
 
-        if (self.state == STATE_STITCH_DRAG
-                and event.type in {'LEFT_SHIFT', 'RIGHT_SHIFT'}):
-            self._apply_stitch(context, mx, my,
-                               same_side=(event.value == 'PRESS'))
-            return {'RUNNING_MODAL'}
+        if self.state == STATE_STITCH_DRAG and event.value == 'PRESS':
+            # Toggles, not holds: a held modifier plus a click to
+            # confirm is awkward, and X/Y axis locks already toggle.
+            if event.type in {'LEFT_SHIFT', 'RIGHT_SHIFT'}:
+                self.stitch_same_side = not self.stitch_same_side
+                self._apply_stitch(context, mx, my)
+                return {'RUNNING_MODAL'}
+            if event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}:
+                self.stitch_keep_scale = not self.stitch_keep_scale
+                self._apply_stitch(context, mx, my)
+                return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             if self.state == STATE_STITCH_DRAG:
-                self._apply_stitch(context, mx, my, same_side=event.shift)
+                self._apply_stitch(context, mx, my)
             elif self.state == STATE_GRAB:
                 self._apply_grab(context, mx, my, event)
             elif self.state in (STATE_ROTATE, STATE_HANDLE_ROTATE):
@@ -1307,6 +1365,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
         context.workspace.status_text_set(None)
+        context.window.cursor_modal_restore()
         self._handle_3d = self._handle_pixel = None
         self._handle_shortcuts = self._timer = None
 
@@ -1319,17 +1378,39 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             return set()
         return self.selected_islands
 
-    def _end_stitch_pick(self):
+    def _enter_pick(self, context, state, msg=None):
+        """Switch to a click-to-pick sub-mode: crosshair cursor so the
+        mode is visible even with the HUD hidden."""
+        self.state = state
+        context.window.cursor_modal_set('CROSSHAIR')
+        if msg:
+            self.report({'INFO'}, msg)
+
+    def _end_pick(self):
         self.state = STATE_IDLE
         self.stitch_src = None
         self.stitch_target = None
         self.stitch_pool = None
+        self.density_ref_island = -1
+        bpy.context.window.cursor_modal_restore()
+
+    def _restore_stitch_selection(self):
+        """Undo the active/selected side effect of picking a stitch
+        source (the source must be active during the drag so the live
+        refresh tracks it)."""
+        src = self.stitch_src
+        if not src:
+            return
+        self.active_island_idx = src['prev_active']
+        if not src['was_selected']:
+            self.selected_islands.discard(src['island'])
 
     def _end_transform(self):
         self.state = STATE_IDLE
         self.stitch_src = None
         self.stitch_target = None
         self.stitch_pool = None
+        bpy.context.window.cursor_modal_restore()
         self.pre_drag_cache = None
         self.transform_pivot_uv = None
         self.drag_handle_screen = None
@@ -1500,7 +1581,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.stitch_pool_view = key
 
     def _nearest_pool_edge(self, context, mx, my):
-        """Closest pool edge to the mouse (screen-space, unbounded)."""
+        """Closest pool edge within STITCH_SNAP_PX of the mouse, or None."""
         if not self.stitch_pool:
             return None
         self._project_stitch_pool(context)
@@ -1512,29 +1593,32 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 if spa is None or spb is None:
                     continue
                 d = _seg_dist_2d(mouse, spa, spb)
-                if d < best_d:
+                if d < best_d and d <= STITCH_SNAP_PX:
                     best_d = d
                     best = {'entry': entry, 'edge_uv': (uv_a, uv_b),
                             'edge_3d': (pa, pb)}
         return best
 
-    def _apply_stitch(self, context, mx, my, same_side=False):
+    def _apply_stitch(self, context, mx, my):
         src = self.stitch_src
         if src is None or not self.pre_drag_cache:
             return
         target = self._nearest_pool_edge(context, mx, my)
         self.stitch_target = target
-        self.stitch_same_side = same_side
+        self.stitch_scale = 1.0
         restore_uvs(self.pre_drag_cache, self.uv_layer)
         if target is not None:
             src_loops = self.islands_data[src['island']]['loops']
             dst_loops = target['entry']['loops']
-            stitch_island_to_edge_uv(
+            xf = stitch_island_to_edge_uv(
                 src_loops, self.uv_layer,
                 src['edge_uv'][0], src['edge_uv'][1],
                 target['edge_uv'][0], target['edge_uv'][1],
                 island_centroid_uv(dst_loops, self.uv_layer),
-                same_side=same_side)
+                same_side=self.stitch_same_side,
+                keep_scale=self.stitch_keep_scale)
+            if xf is not None:
+                self.stitch_scale = xf['scale']
         self._update_mesh_live(context)
 
     def _apply_grab(self, context, mx, my, event):
@@ -1749,7 +1833,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     self.hover_edge_uv[0], self.hover_edge_uv[1],
                     _get_pivot_uv(self, idata))
                 self._update_mesh(context)
-            self.state = STATE_IDLE
+            self._end_pick()
             return {'RUNNING_MODAL'}
 
         if self.state == STATE_PICK_STITCH_SRC:
@@ -1758,22 +1842,27 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 if not self.stitch_pool:
                     self.report({'WARNING'},
                                 "Stitch: no other UV island to snap to")
-                    self._end_stitch_pick()
+                    self._end_pick()
                     return {'RUNNING_MODAL'}
-                self.active_island_idx = self.hover_island_idx
-                self.selected_islands.add(self.active_island_idx)
                 self.stitch_src = {
                     'island': self.hover_island_idx,
                     'edge_uv': (self.hover_edge_uv[0].copy(),
                                 self.hover_edge_uv[1].copy()),
                     'edge_3d': self.hover_edge_3d,
+                    'prev_active': self.active_island_idx,
+                    'was_selected': (self.hover_island_idx
+                                     in self.selected_islands),
                 }
+                # Source becomes active for the drag so the live refresh
+                # tracks it; cancelling puts the selection back.
+                self.active_island_idx = self.hover_island_idx
+                self.selected_islands.add(self.active_island_idx)
                 self.stitch_target = None
                 self.pre_drag_cache = cache_all_uvs(self.bm, self.uv_layer)
                 self.state = STATE_STITCH_DRAG
                 self.report({'INFO'},
                             "Stitch: move to target edge, LMB confirm, "
-                            "Shift same side")
+                            "Shift flip side, Ctrl keep scale")
             return {'RUNNING_MODAL'}
 
         if self.state == STATE_PICK_DENSITY_REF:
@@ -1917,11 +2006,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 self._update_mesh(context)
                 self.report({'INFO'}, f"Aligned {len(targets)} to {hn}")
             elif hn is None:
-                self.state = (STATE_PICK_ALIGN_EDGE
-                              if self.state != STATE_PICK_ALIGN_EDGE
-                              else STATE_IDLE)
                 if self.state == STATE_PICK_ALIGN_EDGE:
-                    self.report({'INFO'}, "Click an edge to align island")
+                    self._end_pick()
+                else:
+                    self._enter_pick(context, STATE_PICK_ALIGN_EDGE,
+                                     "Click an edge to align island")
             return {'RUNNING_MODAL'}
 
         if event.type == 'F':
@@ -1959,10 +2048,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         if event.type == 'E':
             if self.state in STITCH_STATES:
-                self._end_stitch_pick()
+                self._end_pick()
             else:
-                self.state = STATE_PICK_STITCH_SRC
-                self.report({'INFO'}, "Click source edge")
+                self._enter_pick(context, STATE_PICK_STITCH_SRC,
+                                 "Stitch: click a boundary edge of the "
+                                 "island to move")
             return {'RUNNING_MODAL'}
 
         if event.type == 'N':
