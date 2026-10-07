@@ -425,6 +425,8 @@ def load_iops_preferences():
                                     it.mod_type = mod_type
                                     names = rule.get("names", "")
                                     it.names = names if isinstance(names, str) else ""
+                                    pin = rule.get("pin_to_last", False)
+                                    it.pin_to_last = pin if isinstance(pin, bool) else False
                                 setattr(prefs, index_prop, min(
                                     getattr(prefs, index_prop), max(len(items) - 1, 0)))
                             if hasattr(prefs, "mod_sort_seeded") and "mod_sort_seeded" in value:

@@ -1,4 +1,5 @@
-from utils.mod_sort_core import (base_name_candidates, parse_names, sort_rank,
+from utils.mod_sort_core import (base_name_candidates, desired_pins,
+                                 parse_names, rule_pin, sort_rank,
                                  sorted_names)
 
 
@@ -79,6 +80,33 @@ class TestSortedNames:
     def test_empty_lists_leave_stack_untouched(self):
         stack = [("Tri", "TRIANGULATE"), ("Mir", "MIRROR")]
         assert sorted_names(stack, [], []) == ["Tri", "Mir"]
+
+
+class TestDesiredPins:
+    TAIL = [("WEIGHTED_NORMAL", (), True), ("TRIANGULATE", ())]
+
+    def test_pin_flag_is_the_optional_third_rule_field(self):
+        assert rule_pin(("WEIGHTED_NORMAL", (), True)) is True
+        assert rule_pin(("TRIANGULATE", ())) is False
+        assert rule_pin(("TRIANGULATE", (), False)) is False
+
+    def test_three_field_rules_still_rank(self):
+        assert sort_rank("WEIGHTED_NORMAL", "WN", [], self.TAIL) == 1000
+
+    def test_tail_pin_rule_pins_other_rules_unpin_unmatched_untouched(self):
+        stack = [("WN", "WEIGHTED_NORMAL"), ("Tri", "TRIANGULATE"),
+                 ("Mir", "MIRROR"), ("Bev", "BEVEL")]
+        assert desired_pins(stack, HEAD, self.TAIL) == {
+            "WN": True, "Tri": False, "Mir": False, "Bev": None}
+
+    def test_head_rule_never_pins(self):
+        head = [("BEVEL", (), True)]
+        assert desired_pins([("Bev", "BEVEL")], head, []) == {"Bev": False}
+
+    def test_match_text_is_used(self):
+        stack = [("GN", "NODES", "GN | Smooth by Angle")]
+        tail = [("NODES", ("smooth by angle",), True)]
+        assert desired_pins(stack, [], tail) == {"GN": True}
 
 
 class TestBaseNameCandidates:

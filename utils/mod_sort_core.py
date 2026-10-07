@@ -6,7 +6,9 @@ that belong at the TOP of a stack and rules for the BOTTOM. A rule is
 name substrings: empty = every modifier of that type, otherwise only
 those whose name contains one of them. Anything unmatched stays in the
 middle with its current relative order. When several rules match one
-modifier the first one in the list wins.
+modifier the first one in the list wins. A rule may carry an optional
+third field, the pin flag: a tail rule with it set pins its modifiers to
+the end of the stack (Blender's use_pin_to_last); see `desired_pins`.
 """
 
 MIDDLE_RANK = 500
@@ -18,8 +20,13 @@ def parse_names(text):
     return tuple(p.strip() for p in text.split(",") if p.strip())
 
 
+def rule_pin(rule):
+    """The optional pin flag of a rule (False when absent)."""
+    return bool(rule[2]) if len(rule) > 2 else False
+
+
 def rule_matches(rule, type_key, name):
-    rule_type, names = rule
+    rule_type, names = rule[0], rule[1]
     if type_key != rule_type:
         return False
     if not names:
@@ -60,6 +67,24 @@ def sorted_names(stack, head, tail):
         return sort_rank(e[1], text, head, tail)
 
     return [e[0] for e in sorted(stack, key=rank)]
+
+
+def desired_pins(stack, head, tail):
+    """Pin-to-last state the rules ask for, per modifier name: True for a
+    modifier caught by a tail rule with the pin flag, False for one caught
+    by any other rule (so the sort can place it), None when no rule
+    matches (left as it is). `stack` as in `sorted_names`."""
+    head = list(head)
+    tail = list(tail)
+    out = {}
+    for e in stack:
+        text = e[2] if len(e) > 2 else e[0]
+        if _first_match(head, e[1], text) is not None:
+            out[e[0]] = False
+            continue
+        i = _first_match(tail, e[1], text)
+        out[e[0]] = None if i is None else rule_pin(tail[i])
+    return out
 
 
 def base_name_candidates(name):
