@@ -154,6 +154,7 @@ def get_island_uv_data(bm, island_face_indices, uv_layer):
       - 'edges': list of (uv1, uv2) tuples
       - 'points': list of unique UV positions
       - 'point_loops': dict mapping rounded UV tuple -> list of loops
+      - 'pinned_keys': set of point_loops keys with a pinned loop
       - 'bbox_min', 'bbox_max': bounding box corners
       - 'center': center of bounding box
       - 'loops': all loops in the island
@@ -161,6 +162,7 @@ def get_island_uv_data(bm, island_face_indices, uv_layer):
     face_lookup = {f.index: f for f in bm.faces}
     edges = []
     point_loops = {}
+    pinned_keys = set()
     all_loops = []
 
     for fi in island_face_indices:
@@ -179,6 +181,8 @@ def get_island_uv_data(bm, island_face_indices, uv_layer):
             if key not in point_loops:
                 point_loops[key] = []
             point_loops[key].append(loop)
+            if loop[uv_layer].pin_uv:
+                pinned_keys.add(key)
 
     points = [Vector((k[0], k[1])) for k in point_loops.keys()]
 
@@ -194,6 +198,7 @@ def get_island_uv_data(bm, island_face_indices, uv_layer):
         'edges': edges,
         'points': points,
         'point_loops': point_loops,
+        'pinned_keys': pinned_keys,
         'bbox_min': Vector((min_u, min_v)),
         'bbox_max': Vector((max_u, max_v)),
         'center': Vector(((min_u + max_u) * 0.5, (min_v + max_v) * 0.5)),
@@ -231,6 +236,8 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
       - 'boundary_edges_3d': subset of edges_3d lying on the island's
         UV boundary (no island face shares the edge with continuous UVs)
       - 'edge_uv_pairs': list of ((uv_a, uv_b), (pos3d_a, pos3d_b))
+      - 'edge_loop_ids': (face_index, loop_pos) per edge_uv_pairs entry,
+        the loop whose uv -> next uv is that edge
       - 'boundary_edge_uv_pairs': subset of edge_uv_pairs on the UV boundary
       - 'verts_3d': dict mapping UV key -> world-space 3D position
       - 'center_3d': average world-space position of island vertices
@@ -243,6 +250,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
     edges_3d = []
     boundary_edges_3d = []
     edge_uv_pairs = []
+    edge_loop_ids = []
     boundary_edge_uv_pairs = []
     verts_3d = {}
     normals = []
@@ -282,6 +290,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
 
             edges_3d.append((pos_a, pos_b))
             edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
+            edge_loop_ids.append((fi, i))
             if loop_is_uv_boundary(loop, uv_layer, island_set):
                 boundary_edges_3d.append((pos_a, pos_b))
                 boundary_edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
@@ -305,6 +314,7 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
         'edges_3d': edges_3d,
         'boundary_edges_3d': boundary_edges_3d,
         'edge_uv_pairs': edge_uv_pairs,
+        'edge_loop_ids': edge_loop_ids,
         'boundary_edge_uv_pairs': boundary_edge_uv_pairs,
         'verts_3d': verts_3d,
         'center_3d': center_3d,
@@ -390,6 +400,72 @@ def align_island_to_edge_uv(loops, uv_layer, edge_uv_a, edge_uv_b, center):
     best = min(snap_angles, key=lambda a: abs(_angle_diff(angle, a)))
     rotation = best - angle
 
+    rotate_island_uv(loops, uv_layer, center, rotation)
+    return rotation
+
+
+def uv_point_key(uv):
+    """point_loops key for a UV coordinate."""
+    return (round(uv.x, 5), round(uv.y, 5))
+
+
+def toggle_pins_uv(point_loops, uv_layer, keys):
+    """Pin every loop at the given point_loops keys, or unpin them all
+    when all of them are already pinned. Returns (pinned, changed_loops)
+    where changed_loops are the loops whose pin state flipped."""
+    groups = [point_loops[k] for k in keys if k in point_loops]
+    if not groups:
+        return False, []
+    all_pinned = all(l[uv_layer].pin_uv for g in groups for l in g)
+    changed = []
+    for g in groups:
+        for loop in g:
+            if loop[uv_layer].pin_uv == all_pinned:
+                loop[uv_layer].pin_uv = not all_pinned
+                changed.append(loop)
+    return (not all_pinned), changed
+
+
+def island_signed_area_uv(bm, face_indices, uv_layer):
+    """Sum of the faces' signed UV areas: the sign tells whether the
+    island is mirrored relative to its mesh winding."""
+    from .uv_stitch_core import signed_area
+    total = 0.0
+    for fi in face_indices:
+        f = bm.faces[fi]
+        total += signed_area([tuple(l[uv_layer].uv) for l in f.loops])
+    return total
+
+
+def flip_island_across_line_uv(loops, uv_layer, a, b):
+    """Mirror the island's UVs across the line through a and b."""
+    from .uv_stitch_core import reflect_point
+    a, b = tuple(a), tuple(b)
+    for loop in loops:
+        uv = loop[uv_layer].uv
+        uv.x, uv.y = reflect_point((uv.x, uv.y), a, b)
+
+
+def clear_pins_uv(loops, uv_layer):
+    """Unpin every loop; returns how many were pinned."""
+    n = 0
+    for loop in loops:
+        if loop[uv_layer].pin_uv:
+            loop[uv_layer].pin_uv = False
+            n += 1
+    return n
+
+
+def align_island_to_edge_dir_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
+                                center, flip=False):
+    """Rotate an island about center so its edge src_a->src_b becomes
+    parallel to dst_a->dst_b (smaller turn; flip for the other one).
+    Returns the applied rotation, or None for a degenerate edge."""
+    from .uv_stitch_core import align_rotation
+    rotation = align_rotation(tuple(src_a), tuple(src_b),
+                              tuple(dst_a), tuple(dst_b), flip=flip)
+    if rotation is None:
+        return None
     rotate_island_uv(loops, uv_layer, center, rotation)
     return rotation
 
@@ -546,7 +622,8 @@ def island_centroid_uv(loops, uv_layer):
 
 
 def stitch_island_to_edge_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
-                             dst_centroid, same_side=False, keep_scale=False):
+                             dst_centroid, same_side=False, keep_scale=False,
+                             src_length=None):
     """
     Rigidly fit an island so its edge src_a->src_b lands on dst_a->dst_b:
     uniform scale to match length, rotate to match direction, translate
@@ -560,7 +637,8 @@ def stitch_island_to_edge_uv(loops, uv_layer, src_a, src_b, dst_a, dst_b,
     xf = stitch_transform(tuple(src_a), tuple(src_b),
                           tuple(dst_a), tuple(dst_b),
                           tuple(src_c), tuple(dst_centroid),
-                          same_side=same_side, keep_scale=keep_scale)
+                          same_side=same_side, keep_scale=keep_scale,
+                          src_length=src_length)
     if xf is None:
         return None
     pivot = Vector(xf['pivot'])

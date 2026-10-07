@@ -114,3 +114,66 @@ def test_keep_scale_same_side_flag():
     xf = stitch_transform(SRC_A, SRC_B, DST_A, DST_B, SRC_C, DST_C,
                           keep_scale=True, same_side=True)
     assert apply_similarity(SRC_C, xf)[0] > 2.0 + 1e-6
+
+
+def test_align_rotation_matches_direction():
+    from utils.uv_stitch_core import align_rotation
+    # Source edge along +x, target along +y: rotate by +90 degrees.
+    assert abs(align_rotation((0, 0), (1, 0), (0, 0), (0, 1)) - math.pi / 2) < 1e-9
+
+
+def test_align_rotation_takes_the_shorter_of_the_two_parallels():
+    from utils.uv_stitch_core import align_rotation
+    # Target along -x is parallel to +x: no rotation, not 180 degrees.
+    assert abs(align_rotation((0, 0), (1, 0), (0, 0), (-1, 0))) < 1e-9
+    # 100 degrees away -> the other parallel is 80 degrees away.
+    a = math.radians(100)
+    r = align_rotation((0, 0), (1, 0), (0, 0), (math.cos(a), math.sin(a)))
+    assert abs(r + math.radians(80)) < 1e-9
+
+
+def test_align_rotation_flip_adds_half_turn():
+    from utils.uv_stitch_core import align_rotation
+    r = align_rotation((0, 0), (1, 0), (0, 0), (0, 1), flip=True)
+    assert abs(abs(r) - math.pi / 2) < 1e-9 and r < 0
+
+
+def test_align_rotation_degenerate_returns_none():
+    from utils.uv_stitch_core import align_rotation
+    assert align_rotation((0, 0), (0, 0), (0, 0), (0, 1)) is None
+    assert align_rotation((0, 0), (1, 0), (2, 2), (2, 2)) is None
+
+
+def test_reflect_point_across_line():
+    from utils.uv_stitch_core import reflect_point
+    # Reflect across the x axis.
+    assert _close(reflect_point((1.0, 2.0), (0.0, 0.0), (5.0, 0.0)), (1.0, -2.0))
+    # Point on the line stays put.
+    assert _close(reflect_point((3.0, 0.0), (0.0, 0.0), (5.0, 0.0)), (3.0, 0.0))
+    # Diagonal line y = x swaps coordinates.
+    assert _close(reflect_point((1.0, 0.0), (0.0, 0.0), (1.0, 1.0)), (0.0, 1.0))
+
+
+def test_reflect_point_degenerate_line_is_identity():
+    from utils.uv_stitch_core import reflect_point
+    assert _close(reflect_point((1.0, 2.0), (3.0, 3.0), (3.0, 3.0)), (1.0, 2.0))
+
+
+def test_signed_area_sign_follows_winding():
+    from utils.uv_stitch_core import signed_area
+    ccw = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    assert signed_area(ccw) > 0
+    assert signed_area(list(reversed(ccw))) < 0
+    assert signed_area([(0, 0), (1, 1)]) == 0.0
+
+
+def test_src_length_override_scales_by_path_length():
+    # A bent chain: end-to-end 1.0, path length 2.0, fitted into the
+    # target edge of length 2.0 -> scale 1 (not 2), start lands on the
+    # target and the end-to-end span covers half of it.
+    xf = stitch_transform(SRC_A, SRC_B, DST_A, DST_B, SRC_C, DST_C,
+                          src_length=2.0)
+    assert abs(xf['scale'] - 1.0) < 1e-9
+    a, b = apply_similarity(SRC_A, xf), apply_similarity(SRC_B, xf)
+    assert _close(a, DST_A) or _close(a, DST_B)
+    assert abs(math.dist(a, b) - 1.0) < 1e-9
