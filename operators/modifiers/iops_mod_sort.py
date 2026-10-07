@@ -13,9 +13,14 @@ type button + names field, so it reads exactly like a modifier stack.
 Geometry-nodes modifiers match their names against both the modifier
 name and the node group name, so the default rule NODES "Smooth by
 Angle" (first in Top of Stack) catches Blender's auto smooth however
-the modifier is called. Modifiers pinned to last (use_pin_to_last —
-auto smooth added via Shade Auto Smooth is) stay at the end regardless:
-Blender refuses to move them.
+the modifier is called.
+
+A Bottom of Stack rule can be flagged Pin to Last: its modifiers get
+Blender's use_pin_to_last (the pin on Shade Auto Smooth's modifier) and
+sit at the very end, in rule order. A modifier caught by any other rule
+is unpinned so the sort can place it; a pinned modifier no rule matches
+stays pinned where it is. Blender refuses to move pinned modifiers with
+move(), so pins are set first and only the unpinned prefix is moved.
 
 Sort also de-duplicates geometry-nodes groups on the selection: a
 modifier pointing at "Smooth by Angle.001" is remapped to "Smooth by
@@ -27,6 +32,7 @@ import bpy
 
 from ...utils.mod_sort_core import (
     base_name_candidates,
+    desired_pins,
     parse_names,
     sorted_names,
 )
@@ -93,8 +99,9 @@ def _index_prop(band):
 
 
 def rules(items):
-    """Collection -> [(type, names tuple)] for the core."""
-    return [(it.mod_type, parse_names(it.names)) for it in items]
+    """Collection -> [(type, names tuple, pin)] for the core."""
+    return [(it.mod_type, parse_names(it.names), it.pin_to_last)
+            for it in items]
 
 
 def _fill(items, defaults):
@@ -128,6 +135,13 @@ class IOPS_ModSortItem(bpy.types.PropertyGroup):
         description="Comma-separated names. Empty: every modifier of this "
                     "type. Otherwise only modifiers of this type whose name "
                     "contains one of them (case-insensitive)",
+    )
+    pin_to_last: bpy.props.BoolProperty(
+        name="Pin to Last",
+        description="Pin the matching modifiers to the end of the stack "
+                    "(Blender's Pin to Last). Modifiers caught by other "
+                    "rules are unpinned so they can be sorted",
+        default=False,
     )
 
 
@@ -303,6 +317,9 @@ def _draw_band(parent, prefs, band, title, add_menu):
         op.index = i
         split.prop(it, "names", text="",
                    placeholder="Any name  (or: name, name, ...)")
+        if band == "TAIL":
+            line.prop(it, "pin_to_last", text="",
+                      icon="PINNED" if it.pin_to_last else "UNPINNED")
     side = row.column(align=True)
     side.menu(add_menu, text="", icon="ADD")
     op = side.operator("iops.mod_sort_list_action", text="", icon="REMOVE")
@@ -369,6 +386,51 @@ def remap_duplicate_node_groups(objects):
 
 # --- the operator -----------------------------------------------------
 
+def _entries(mods):
+    return [(m.name, m.type, match_text(m)) for m in mods]
+
+
+def _apply_pins(obj, head, tail):
+    """Set use_pin_to_last per the rules (see `desired_pins`) and order
+    the pinned block. Blender moves a modifier to the FRONT of the pinned
+    block when it is pinned and to the end of the free block when
+    unpinned, so the block is rebuilt by re-pinning in reverse order.
+    Returns True when anything moved or changed."""
+    mods = obj.modifiers
+    wanted = desired_pins(_entries(mods), head, tail)
+    before = [(m.name, m.use_pin_to_last) for m in mods]
+    for m in list(mods):
+        if wanted.get(m.name) is False and m.use_pin_to_last:
+            m.use_pin_to_last = False
+    pinned = [m for m in mods
+              if wanted.get(m.name) is True or m.use_pin_to_last]
+    order = sorted_names(_entries(pinned), head, tail)
+    if [m.name for m in pinned] != order or any(
+            not m.use_pin_to_last for m in pinned):
+        for name in reversed(order):
+            md = mods[name]
+            md.use_pin_to_last = False
+            md.use_pin_to_last = True
+    return [(m.name, m.use_pin_to_last) for m in mods] != before
+
+
+def _sort_stack(obj, head, tail):
+    """Sort one object's stack in place; True when it changed."""
+    changed = _apply_pins(obj, head, tail)
+    # Pinned modifiers cannot be moved with move() (silently ignored,
+    # which would desync the index walk below), so only the free prefix
+    # is sorted; the pinned block was ordered by _apply_pins.
+    free = [m for m in obj.modifiers if not m.use_pin_to_last]
+    current = [m.name for m in free]
+    desired = sorted_names(_entries(free), head, tail)
+    if desired == current:
+        return changed
+    for target_idx, name in enumerate(desired):
+        current_idx = obj.modifiers.find(name)
+        if current_idx != target_idx:
+            obj.modifiers.move(current_idx, target_idx)
+    return True
+
 class IOPS_OT_ModSortStack(bpy.types.Operator):
     """Sort modifier stacks across the selection by the order set in
     preferences (Top of Stack rules first, Bottom of Stack rules last,
@@ -403,24 +465,8 @@ class IOPS_OT_ModSortStack(bpy.types.Operator):
         for obj in context.selected_objects:
             if len(obj.modifiers) < 2:
                 continue
-            # Modifiers pinned to the end of the stack (use_pin_to_last,
-            # e.g. Blender's own auto smooth) cannot be moved: move() on
-            # them is silently ignored, which would desync the index
-            # walk below and scramble the rest of the stack. Blender
-            # keeps them last, so sort only the unpinned prefix.
-            free = [m for m in obj.modifiers
-                    if not getattr(m, "use_pin_to_last", False)]
-            current = [m.name for m in free]
-            desired = sorted_names(
-                [(m.name, m.type, match_text(m)) for m in free],
-                head, tail)
-            if desired == current:
-                continue
-            for target_idx, name in enumerate(desired):
-                current_idx = obj.modifiers.find(name)
-                if current_idx != target_idx:
-                    obj.modifiers.move(current_idx, target_idx)
-            changed += 1
+            if _sort_stack(obj, head, tail):
+                changed += 1
         msg = f"Sorted stacks on {changed} object(s)"
         if remapped:
             msg += (f", remapped {remapped} node group user(s), "

@@ -60,7 +60,8 @@ def _get_modifiers_panel_section(prefs):
         })
 
     def _rules(band):
-        return [{"mod_type": it.mod_type, "names": it.names}
+        return [{"mod_type": it.mod_type, "names": it.names,
+                 "pin_to_last": bool(getattr(it, "pin_to_last", False))}
                 for it in getattr(prefs, band, ())]
 
     return {
