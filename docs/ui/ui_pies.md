@@ -139,6 +139,25 @@ Slot labels are generated from the preset (for example *Studio / Random* or *Ren
 
 ---
 
+## Snap Combos Pie
+
+The eight [Snap Combo](../operators/op_snap_combos.md) slots as a pie. Click a slot to recall its snap settings; click with the save modifier (*Preferences › iOps › Snap Combo*, Shift by default) to store the current settings in that slot.
+
+**Hotkey:** No default key — assign one to *IOPS Pie Snap Combos* in *Preferences › iOps › Keymaps*.
+
+| Slot | Button | Snap Combo |
+| --- | --- | --- |
+| Left | **C - Cursor** | 3 |
+| Right | **E - Median** | 5 |
+| Bottom | **A - Active** | 1 |
+| Top | **H - Individual** | 8 |
+| Top-left | **G - Grid** | 7 |
+| Top-right | **B - Closest** | 2 |
+| Bottom-left | **F - Face Normal** | 6 |
+| Bottom-right | **D - Center** | 4 |
+
+---
+
 ## Library Popup
 
 A floating palette drawn over the 3D View that shows the assets of your iOps master library as thumbnails, grouped by category. Click a tile to insert that asset at the 3D cursor. The viewport stays fully usable around the palette.
