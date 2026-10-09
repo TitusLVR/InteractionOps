@@ -3,6 +3,7 @@
   "name": "vertex_color",
   "title": "Vertex Color",
   "space": "VIEW_3D",
+  "width": 150,
   "rows": [
     {"type": "SECTION", "label": "Fill RGB"},
     {"type": "ROW", "cells": [
@@ -34,12 +35,14 @@
     ]},
     {"type": "ROW", "cells": [
       {"type": "SWATCH", "prop": "scene.tool_settings.vertex_paint.unified_paint_settings.color", "label": "", "op": "iops.mesh_vertex_paint"},
-      {"type": "BUTTON", "label": "Pick", "op": "iops.mesh_vertex_paint_color"},
-      {"type": "BUTTON", "label": "Blur", "op": "iops.mesh_vertex_color_filter", "op_kwargs": {"mode": "BLUR"}},
-      {"type": "BUTTON", "label": "Sharpen", "op": "iops.mesh_vertex_color_filter", "op_kwargs": {"mode": "SHARPEN"}}
+      {"type": "BUTTON", "label": "Pick", "op": "iops.mesh_vertex_paint_color"}
     ]},
-    {"type": "FLIPBOX", "prop": "scene.IOPS.iops_vp_mute_modifiers", "label": "Mute Mods"},
-    {"type": "FLIPBOX", "prop": "scene.IOPS.iops_vc_preview", "label": "Preview VC"},
+    {"type": "ROW", "cells": [
+      {"type": "BUTTON", "label": "Blur", "op": "iops.mesh_vertex_color_filter", "op_kwargs": {"mode": "BLUR"}},
+      {"type": "BUTTON", "label": "Sharp", "op": "iops.mesh_vertex_color_filter", "op_kwargs": {"mode": "SHARPEN"}}
+    ]},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.iops_vp_mute_modifiers", "label": "Mute"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.iops_vc_preview", "label": "Prev"},
     {"type": "FLIPBOX", "prop": "space_data.overlay.show_wireframes", "label": "Wire"}
   ]
 }

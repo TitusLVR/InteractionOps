@@ -16,6 +16,7 @@ library folder (`composed.widgets_folder()`, default
 | `name` | str | **yes** | Registry key + filename stem. Sanitized: `<>:"/\|?*` → `_`. Empty name → whole def rejected. |
 | `title` | str | no | Title-bar text. Defaults to `name`. |
 | `space` | str or list of str | no | Editor space(s) the panel can anchor in: `"VIEW_3D"` and/or `"IMAGE_EDITOR"`. A string or a list is accepted; unknown values are dropped; defaults to `"VIEW_3D"`. A multi-space widget anchors to whichever listed editor it is toggled from (one at a time). |
+| `width` | number | no | Minimum content width in px (floor; default 180). Rows that need more room still widen the panel. Below 60 or non-numeric → ignored + reported. |
 | `switches` | object `{name: bool}` | no | Non-false defaults for local panel switches. See [Switches](#switches). |
 | `rows` | list of row objects | no | The panel body, top to bottom. Non-list → empty + reported. |
 
