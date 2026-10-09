@@ -39,6 +39,11 @@ _ARROW_OFFSET = {
 }
 
 
+# Arrowhead geometry for the flip-drag preview (region pixels / radians).
+_ARROW_HEAD_LEN = 14.0
+_ARROW_HEAD_ANGLE = math.radians(28.0)
+
+
 def _bbox_snap_points(mn, mx):
     """9 UV-space snap points from a bbox (mn, mx are 2D Vectors).
 
@@ -144,6 +149,7 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         helpo.add_section(HUDSection("Visual Cursor UV", [
             HUDItem("Set 2D cursor to highlighted", "LMB/Space",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Set 2D cursor to point",       "NUM 1-9",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Flip selection over highlighted", "LMB drag",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align islands to highlighted", "Shift+LMB",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Align islands to point",       "Shift+NUM 1-9", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Offset selected UVs by 1 tile", "Arrows",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -226,6 +232,39 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             draw.points([self._region_pt(context, self.nearest)],
                         role=Role.CLOSEST_POINT, context=context)
 
+    def _flip_axis_delta(self):
+        """(axis, region-pixel delta) of the current flip drag, confined to
+        whichever of U / V the drag is closest to."""
+        dx = self.mouse_pos[0] - self.press_pos[0]
+        dy = self.mouse_pos[1] - self.press_pos[1]
+        if abs(dx) >= abs(dy):
+            return "U", Vector((dx, 0.0, 0.0))
+        return "V", Vector((0.0, dy, 0.0))
+
+    def _draw_flip_arrow(self, context):
+        if not self.flip_dragging or self.flip_pivot is None:
+            return
+        axis, delta = self._flip_axis_delta()
+        if delta.length < 1.0:
+            return
+        start = self._region_pt(context, self.flip_pivot)
+        end = start + delta
+        # Mirror line through the pivot, perpendicular to the flip direction.
+        region = context.region
+        if axis == "U":
+            mirror = [Vector((start.x, 0.0, 0.0)), Vector((start.x, region.height, 0.0))]
+        else:
+            mirror = [Vector((0.0, start.y, 0.0)), Vector((region.width, start.y, 0.0))]
+        back = -delta.normalized() * _ARROW_HEAD_LEN
+        c, s = math.cos(_ARROW_HEAD_ANGLE), math.sin(_ARROW_HEAD_ANGLE)
+        head_l = end + Vector((back.x * c - back.y * s, back.x * s + back.y * c, 0.0))
+        head_r = end + Vector((back.x * c + back.y * s, -back.x * s + back.y * c, 0.0))
+        with draw_scope(blend="ALPHA"):
+            draw.line(mirror[0], mirror[1], role=Role.PREVIEW_LINE, context=context)
+            draw.edges_3d([start, end, end, head_l, end, head_r],
+                          role=Role.ACTIVE_LINE, context=context)
+            draw.points([start], role=Role.ACTIVE_POINT, context=context)
+
     # --- Lifecycle -----------------------------------------------------
     def clear_draw_handlers(self):
         for handler in self.sd_handlers:
@@ -277,6 +316,27 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         if sb is not None:
             self.sel_min, self.sel_max = sb
 
+    # --- Flip ------------------------------------------------------------
+    def _flip_selection(self, context, pivot, axis):
+        """Mirror every selected UV vert over `pivot` along `axis` ("U"/"V") -
+        a -1 scale on that axis with the pivot as origin."""
+        flipped = False
+        for loop, uv_layer in _selected_uv_loops(context):
+            uv = loop[uv_layer].uv
+            if axis == "U":
+                uv.x = 2.0 * pivot.x - uv.x
+            else:
+                uv.y = 2.0 * pivot.y - uv.y
+            flipped = True
+        if not flipped:
+            self.report({"INFO"}, "No UVs selected to flip")
+            return
+        bmesh.update_edit_mesh(context.active_object.data)
+        self.did_edit = True
+        sb = _selection_bbox(context)
+        if sb is not None:
+            self.sel_min, self.sel_max = sb
+
     # --- Selection offset ----------------------------------------------
     def _offset_selection(self, context, offset):
         """Translate every selected UV vert by `offset` (UV units)."""
@@ -319,6 +379,33 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             return {"PASS_THROUGH"}
 
         self.mouse_pos = (event.mouse_region_x, event.mouse_region_y)
+
+        # LMB held: the pivot stays fixed; past the drag threshold the press
+        # turns into a flip drag, otherwise its release is a plain click.
+        if self.press_pos is not None:
+            if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+                self.press_pos = None
+                self.flip_dragging = False
+                return {"RUNNING_MODAL"}
+            if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+                pivot, dragging = self.flip_pivot, self.flip_dragging
+                axis, _delta = self._flip_axis_delta()
+                self.press_pos = None
+                self.flip_dragging = False
+                if dragging:
+                    self._flip_selection(context, pivot, axis)
+                    self._update(context, event)
+                    return {"RUNNING_MODAL"}
+                self.nearest = pivot
+                self._set_cursor(context)
+                self.clear_draw_handlers()
+                return {"FINISHED"}
+            if not self.flip_dragging:
+                d = Vector(self.mouse_pos) - Vector(self.press_pos)
+                if d.length > context.preferences.inputs.drag_threshold_mouse:
+                    self.flip_dragging = True
+            return {"RUNNING_MODAL"}
+
         self._update(context, event)
 
         # Axis freeze toggle (mutually exclusive; re-press clears).
@@ -350,7 +437,16 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             self._align_islands(context, self.nearest_idx)
             return {"RUNNING_MODAL"}
 
-        if event.type in {"LEFTMOUSE", "SPACE"} and event.value == "PRESS":
+        # LMB press → arm click (set cursor) / drag (flip) over the highlighted
+        # point; resolved on release above.
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if self.nearest is not None:
+                self.press_pos = self.mouse_pos
+                self.flip_pivot = self.nearest.copy()
+                self.flip_dragging = False
+            return {"RUNNING_MODAL"}
+
+        if event.type == "SPACE" and event.value == "PRESS":
             if self.nearest is not None:
                 self._set_cursor(context)
             self.clear_draw_handlers()
@@ -400,6 +496,9 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         self.pos_batch_uv = []
         self.nearest = None
         self.nearest_idx = 0
+        self.press_pos = None
+        self.flip_pivot = None
+        self.flip_dragging = False
         self.mouse_pos = (event.mouse_region_x, event.mouse_region_y)
         self._update(context, event)
 
@@ -412,9 +511,11 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
             self._draw_cage_points, (context,), "WINDOW", "POST_PIXEL", tick=True)
         h_active = safe_handler_add(bpy.types.SpaceImageEditor,
             self._draw_active_point, (context,), "WINDOW", "POST_PIXEL", tick=True)
+        h_flip = safe_handler_add(bpy.types.SpaceImageEditor,
+            self._draw_flip_arrow, (context,), "WINDOW", "POST_PIXEL", tick=True)
         h_hud = safe_handler_add(bpy.types.SpaceImageEditor,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)
-        self.sd_handlers = [h_lines, h_points, h_active, h_hud]
+        self.sd_handlers = [h_lines, h_points, h_active, h_flip, h_hud]
 
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
