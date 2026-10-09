@@ -11,6 +11,7 @@ the adapter registry (adapters.ADAPTERS). One file per widget in
       "name": "edge_data_custom",
       "title": "Edge Data",
       "space": "VIEW_3D",
+      "width": 150,            (optional: min content width in px)
       "rows": [
         {"type": "SECTION", "label": "Bevel Weight"},
         {"type": "SLIDER",  "target": "BEVEL", "snap": 0.125},
@@ -38,6 +39,7 @@ VALUE_TYPES = ("STRING", "INT", "FLOAT", "DEGREES", "RADIANS", "ENUM")
 FLOAT_TARGETS = ("BEVEL", "CREASE")
 BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
 SCHEMA_VERSION = 1
+MIN_WIDGET_WIDTH = 60.0
 
 # Editor space types a widget panel may anchor in. Kept as a plain tuple
 # (composed.py is bpy-free) — must stay in sync with ui/widgets/state.py
@@ -592,6 +594,20 @@ def validate_def(data):
         "space": clean_spaces(data.get("space")),
         "rows": [],
     }
+    # Optional minimum content width (px). Replaces the renderer's default
+    # floor so a widget can be narrower (or wider) than the standard panel;
+    # rows that need more room still widen the panel.
+    width = data.get("width", None)
+    if width is not None:
+        try:
+            w = float(width)
+        except (TypeError, ValueError):
+            errors.append("width is not a number — ignored")
+        else:
+            if w >= MIN_WIDGET_WIDTH:
+                clean["width"] = w
+            else:
+                errors.append(f"width below {MIN_WIDGET_WIDTH:g} — ignored")
     clean["switches"] = {}
     raw_switches = data.get("switches", {})
     if isinstance(raw_switches, dict):
@@ -825,6 +841,7 @@ def make_widget(wdef):
     inst.name = wdef["name"]
     inst.title = wdef["title"]
     inst.space = wdef.get("space", "VIEW_3D")
+    inst.min_content_w = wdef.get("width")
     inst.composed_def = wdef
     inst.switches = collect_switches(wdef)
     inst.default_switches = dict(inst.switches)
