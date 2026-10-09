@@ -16,6 +16,8 @@ Paints vertex colors with a brush directly in Edit Mesh or Object mode — no sw
 | [ / ] | Radius |
 | Alt+Wheel | Cycle the falloff preset (Custom, Smooth, Smoother, Sphere, Root, Sharp, Linear, Pow4, Inverse Square, Constant) |
 | R / G / B / K / W | Brush color Red / Green / Blue / Black / White |
+| Shift+R / Shift+G / Shift+B | Two-channel mixes: Yellow (R+G) / Cyan (G+B) / Magenta (R+B) |
+| C | Custom color: popup color picker with alpha (also *Pick Color* in the widget; the panel has the picker inline) |
 | A | Toggle RGB / Alpha channel. RGB paints color and keeps alpha; Alpha paints only alpha |
 | Shift+0 / Shift+1 | Brush alpha 0 / 1 |
 | 1 / 2 / 3 | Element mode: Vert / Edge / Face (see below) |
@@ -53,4 +55,4 @@ Every dab tags the mesh for update, which re-evaluates the object's modifier sta
 The brush does not change viewport shading by itself. Press **P** (or use the widget's / panel's **Preview VC** toggle) for the temporary emission material override, use Solid shading with *Color: Attribute*, or a material that reads the color attribute.
 
 ## Widget
-The Vertex Color widget (`presets/widgets_demo/vertex_color.json`) gains a *Paint* section: a Paint Brush button, five color swatches that launch the brush with that color, and the Mute Mods flipbox. The widget stays clickable while the brush runs — clicks on its panel pass through.
+The Vertex Color widget (`presets/widgets_demo/vertex_color.json`) gains a *Paint* section: two rows of color swatches that launch the brush with that color (R G B W / Y C M K), a row with the current brush color swatch (launches the brush as is), *Pick* (color popup), *Blur* and *Sharpen*, and a Mute Mods / Preview VC / Wire flipbox row. The widget stays clickable while the brush runs — clicks on its panel pass through.

@@ -36,7 +36,8 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       ItemState, capture_event)
-from ..utils.vertex_paint_core import (QUICK_COLORS, StrokeHistory,
+from ..utils.vertex_paint_core import (QUICK_COLORS, QUICK_COLORS_SHIFT,
+                                       StrokeHistory,
                                        blend_color, falloff_weight,
                                        filter_color, filter_vertex_colors,
                                        neighborhood_mean, next_preset,
@@ -58,6 +59,63 @@ NAV_TYPES = {"MIDDLEMOUSE", "TRACKPADPAN", "TRACKPADZOOM", "HOME",
              "NUMPAD_5", "NUMPAD_6", "NUMPAD_7", "NUMPAD_8", "NUMPAD_9",
              "NUMPAD_PERIOD", "NUMPAD_MINUS", "NUMPAD_PLUS", "NUMPAD_SLASH"}
 MAX_RADIUS_PX = 2000
+
+
+# ----------------------------------------------------------------------
+# Palette icons — solid color squares for icon-only operator buttons
+# ----------------------------------------------------------------------
+# (label, RGBA): the panel palette row. Order = widget swatch order.
+PALETTE = (
+    ("Red", (1.0, 0.0, 0.0, 1.0)),
+    ("Green", (0.0, 1.0, 0.0, 1.0)),
+    ("Blue", (0.0, 0.0, 1.0, 1.0)),
+    ("Yellow (R+G)", (1.0, 1.0, 0.0, 1.0)),
+    ("Cyan (G+B)", (0.0, 1.0, 1.0, 1.0)),
+    ("Magenta (R+B)", (1.0, 0.0, 1.0, 1.0)),
+    ("Black", (0.0, 0.0, 0.0, 1.0)),
+    ("White", (1.0, 1.0, 1.0, 1.0)),
+)
+_ICON_SIZE = 32
+_previews = None
+
+
+def color_icon_id(rgba):
+    """icon_value of a solid `rgba` square, generated once per color via
+    bpy.utils.previews (icon_pixels_float). 0 when previews are unavailable
+    (background mode), so callers fall back to a text button."""
+    global _previews
+    try:
+        import bpy.utils.previews as previews
+    except ImportError:
+        return 0
+    if _previews is None:
+        _previews = previews.new()
+    key = "vp_%02x%02x%02x%02x" % tuple(int(round(max(0.0, min(1.0, c)) * 255)) for c in rgba)
+    icon = _previews.get(key)
+    if icon is None:
+        icon = _previews.new(key)
+        icon.icon_size = (_ICON_SIZE, _ICON_SIZE)
+        r, g, b, a = (float(c) for c in rgba)
+        px = []
+        n = _ICON_SIZE
+        for y in range(n):
+            for x in range(n):
+                # 1px dark outline so white / light swatches stay visible.
+                edge = x == 0 or y == 0 or x == n - 1 or y == n - 1
+                px.extend((0.15, 0.15, 0.15, 1.0) if edge else (r, g, b, a))
+        icon.icon_pixels_float = px
+    return icon.icon_id
+
+
+def release_color_icons():
+    global _previews
+    if _previews is not None:
+        try:
+            import bpy.utils.previews as previews
+            previews.remove(_previews)
+        except Exception:
+            pass
+        _previews = None
 
 
 # ----------------------------------------------------------------------
@@ -532,7 +590,9 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         ]))
         self._help.add_section(HUDSection("Color", [
             item("Red / Green / Blue", "R / G / B"),
+            item("Yellow / Cyan / Magenta", "Shift+R / Shift+G / Shift+B"),
             item("Black / White", "K / W"),
+            item("Custom color picker", "C"),
             item("RGB / Alpha channel (toggle)", "A"),
             item("Alpha 0 / 1", "Shift+0 / Shift+1"),
         ]))
@@ -917,7 +977,10 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
                 self.report({"WARNING"}, f"Radial control unavailable: {exc}")
             return {"RUNNING_MODAL"}
         if event.type in QUICK_COLORS and not (event.ctrl or event.alt):
-            self.ba.color = QUICK_COLORS[event.type]
+            if event.shift and event.type in QUICK_COLORS_SHIFT:
+                self.ba.color = QUICK_COLORS_SHIFT[event.type]
+            else:
+                self.ba.color = QUICK_COLORS[event.type]
             self._set_status(context)
             return {"RUNNING_MODAL"}
         if event.type == "A":
@@ -953,6 +1016,12 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         if event.type == "T":
             props.iops_vp_tool = "BLUR" if props.iops_vp_tool == "PAINT" else "PAINT"
             self._set_status(context)
+            return {"RUNNING_MODAL"}
+        if event.type == "C":
+            try:
+                bpy.ops.iops.mesh_vertex_paint_color("INVOKE_DEFAULT")
+            except RuntimeError as exc:
+                self.report({"WARNING"}, f"Color picker unavailable: {exc}")
             return {"RUNNING_MODAL"}
         if event.type == "V":
             ov = getattr(context.space_data, "overlay", None)
@@ -1135,6 +1204,37 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
             lines.append("Preview VC: ON")
         self._hud.set_header(*lines)
         self._hud.draw(context, last_event)
+
+
+class IOPS_OT_MeshVertexPaintColor(bpy.types.Operator):
+    """Pick a custom brush color (and alpha) for the Vertex Paint brush in a
+    popup — the same color the brush, the panel and the widget swatch use"""
+
+    bl_idname = "iops.mesh_vertex_paint_color"
+    bl_label = "Vertex Paint Brush Color"
+    bl_options = {"REGISTER", "INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene is not None
+
+    def invoke(self, context, event):
+        # Popup without OK button: edits apply live and it closes when the
+        # mouse leaves — usable while the paint modal is running.
+        return context.window_manager.invoke_popup(self, width=240)
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+    def draw(self, context):
+        ba = BrushAccess(context, ensure_brush(context))
+        owner = ba.ups if ba._u_color else ba.brush
+        layout = self.layout
+        layout.label(text="Brush Color", icon="COLOR")
+        layout.template_color_picker(owner, "color", value_slider=True)
+        row = layout.row(align=True)
+        row.prop(owner, "color", text="")
+        row.prop(context.scene.IOPS, "iops_vp_alpha", text="A", slider=True)
 
 
 class IOPS_OT_MeshVertexColorFilter(bpy.types.Operator):

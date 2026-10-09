@@ -818,11 +818,20 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
         box.label(text="Paint Brush", icon="BRUSH_DATA")
         bcol = box.column(align=True)
         bcol.operator("iops.mesh_vertex_paint", icon="BRUSH_DATA", text="Paint")
+        # Palette: one row of solid color squares, each starts the brush
+        # with that color (icon generated per color; text fallback if the
+        # preview system is unavailable).
+        from ..operators.mesh_vertex_paint import PALETTE, color_icon_id
         row = bcol.row(align=True)
-        for label, rgba in (("R", (1, 0, 0, 1)), ("G", (0, 1, 0, 1)),
-                            ("B", (0, 0, 1, 1)), ("K", (0, 0, 0, 1)),
-                            ("W", (1, 1, 1, 1))):
-            op = row.operator("iops.mesh_vertex_paint", text=label)
+        row.scale_y = 1.3
+        for label, rgba in PALETTE:
+            icon_id = color_icon_id(rgba)
+            if icon_id:
+                # text=" " (not ""): icon-only buttons have a fixed width,
+                # a (blank) label makes them flex to fill the row.
+                op = row.operator("iops.mesh_vertex_paint", text=" ", icon_value=icon_id)
+            else:
+                op = row.operator("iops.mesh_vertex_paint", text=label[:1])
             op.use_start_color = True
             op.start_color = rgba
         # Radius / strength / color: the brush slot is read-only in 4.3+

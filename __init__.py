@@ -113,7 +113,8 @@ from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAlphaAssign,
     IOPS_OT_VertexColorChannel,
 )
-from .operators.mesh_vertex_paint import IOPS_OT_MeshVertexPaint, IOPS_OT_MeshVertexColorFilter
+from .operators.mesh_vertex_paint import (IOPS_OT_MeshVertexPaint, IOPS_OT_MeshVertexColorFilter,
+                                          IOPS_OT_MeshVertexPaintColor)
 from .operators.object_color import (
     IOPS_OT_ObjectColor_Apply,
     IOPS_OT_ObjectColor_CopyFromActive,
@@ -585,6 +586,7 @@ classes = (
     IOPS_OT_VertexColorChannel,
     IOPS_OT_MeshVertexPaint,
     IOPS_OT_MeshVertexColorFilter,
+    IOPS_OT_MeshVertexPaintColor,
     IOPS_PT_VCol_Panel,
     IOPS_OT_ObjectColor_Apply,
     IOPS_OT_ObjectColor_CopyFromActive,
@@ -876,6 +878,12 @@ def register():
 def unregister():
     if bpy.app.timers.is_registered(iops_mod_list.seed_grid_list_if_empty):
         bpy.app.timers.unregister(iops_mod_list.seed_grid_list_if_empty)
+    # Vertex Paint palette icons (bpy.utils.previews collection).
+    try:
+        from .operators.mesh_vertex_paint import release_color_icons
+        release_color_icons()
+    except Exception:
+        pass
     unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its

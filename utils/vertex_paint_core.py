@@ -22,6 +22,12 @@ QUICK_COLORS = {
     "K": (0.0, 0.0, 0.0),
     "W": (1.0, 1.0, 1.0),
 }
+# Shift + R / G / B: the two-channel mixes (R+G, G+B, B+R).
+QUICK_COLORS_SHIFT = {
+    "R": (1.0, 1.0, 0.0),
+    "G": (0.0, 1.0, 1.0),
+    "B": (1.0, 0.0, 1.0),
+}
 
 
 def falloff_weight(preset, p, custom=None):
