@@ -243,8 +243,9 @@ def compute_layout(context, widget, theme=None):
     # Edit button only for widgets with a JSON source on disk (composed);
     # Python-defined widgets have nothing to open.
     edit_w = title_h if is_editable(widget) else 0.0   # square button cell
+    floor_w = getattr(widget, "min_content_w", None) or PANEL_MIN_CONTENT_W
     content_w = max(
-        PANEL_MIN_CONTENT_W,
+        float(floor_w),
         hud_text.measure(widget.panel.title, theme=th,
                          size_token="hud_header")[0] + title_h + edit_w + 8.0,
         min_content,

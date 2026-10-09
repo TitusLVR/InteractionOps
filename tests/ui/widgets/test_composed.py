@@ -1086,3 +1086,20 @@ def test_data_rows_do_not_bind_edges():
         "rows": [{"type": "INPUT", "data": "note"}],
     })
     assert composed._binds_edges(rows["rows"]) is False
+
+
+# ----------------------------------------------------------------------
+# width override
+# ----------------------------------------------------------------------
+def test_width_override_validation():
+    base = {"name": "w", "rows": []}
+    clean, errors = composed.validate_def(dict(base, width=150))
+    assert clean["width"] == 150.0 and not errors
+    clean, errors = composed.validate_def(dict(base, width="120"))
+    assert clean["width"] == 120.0 and not errors
+    clean, errors = composed.validate_def(base)
+    assert "width" not in clean
+    clean, errors = composed.validate_def(dict(base, width=10))
+    assert "width" not in clean and any("width" in e for e in errors)
+    clean, errors = composed.validate_def(dict(base, width="wide"))
+    assert "width" not in clean and any("width" in e for e in errors)
