@@ -475,6 +475,56 @@ class IOPS_SceneProperties(PropertyGroup):
         options={"HIDDEN"},
     )
 
+    # Vertex Paint brush (iops.mesh_vertex_paint). Radius / strength / RGB
+    # live on the Blender Vertex Paint brush; these are the extras.
+    iops_vp_alpha: FloatProperty(
+        name="Brush Alpha",
+        description="Alpha the Vertex Paint brush writes (RGB mode keeps "
+                    "the existing alpha; Alpha mode writes only this)",
+        default=1.0, min=0.0, max=1.0,
+    )
+    iops_vp_channel: EnumProperty(
+        name="Brush Channel",
+        description="Which channels the Vertex Paint brush writes",
+        items=[("RGB", "RGB", "Paint color, keep alpha"),
+               ("ALPHA", "Alpha", "Paint alpha only, keep color")],
+        default="RGB",
+    )
+    iops_vp_element: EnumProperty(
+        name="Brush Element",
+        description="What the Vertex Paint brush picks inside its radius",
+        items=[("VERT", "Vert", "Vertices by distance to the brush center"),
+               ("EDGE", "Edge", "Edges whose midpoint is inside the brush; both ends painted"),
+               ("FACE", "Face", "Faces whose center is inside the brush (plus the face under "
+                                "the cursor); on corner color attributes only that face's corners")],
+        default="VERT",
+    )
+    iops_vp_tool: EnumProperty(
+        name="Brush Tool",
+        description="Vertex Paint brush tool",
+        items=[("PAINT", "Paint", "Blend the brush color in"),
+               ("BLUR", "Blur", "Smooth colors toward the neighborhood mean")],
+        default="PAINT",
+    )
+    iops_vp_eraser: BoolProperty(
+        name="Eraser",
+        description="Vertex Paint brush restores the colors the mesh had "
+                    "when the brush started (Ctrl+LMB does this momentarily)",
+        default=False,
+    )
+    iops_vp_front_only: BoolProperty(
+        name="Front Only",
+        description="Vertex Paint brush skips vertices facing away from the view",
+        default=True,
+    )
+    iops_vp_mute_modifiers: BoolProperty(
+        name="Mute Modifiers",
+        description="Disable the active object's modifiers in the viewport "
+                    "while the Vertex Paint brush runs (restored on exit) — "
+                    "avoids re-evaluating a heavy stack on every dab",
+        default=False,
+    )
+
     # Object Color picker + 8 recent swatches. ``iops_object_color`` is the
     # active picker value; the eight ``iops_object_color_recent_N`` slots are
     # the history shown in the Object Color panel (slot 0 = most recent).

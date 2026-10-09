@@ -63,6 +63,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Quick Snap (Mesh)](operators/op_mesh_quick_snap.md) — snap mesh elements point to point.
 - [UV Channel Hop](operators/op_mesh_uv_channel_hop.md) — cycle the active UV map on the selection.
 - [Assign Vertex Color](operators/op_assign_vertex_color.md) — paint the selection with a colour or alpha.
+- [Vertex Paint Brush](operators/op_mesh_vertex_paint.md) — brush-paint vertex colours in Edit / Object mode without entering Vertex Paint.
 - [Mesh Visual UV](operators/op_mesh_visual_uv.md) — draw the UVs on the mesh in the viewport.
 - [UV Visual Cursor](operators/op_uv_visual_cursor.md) — place the 2D cursor on a bounding-box point.
 - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md) — highlight faces that are not flat.

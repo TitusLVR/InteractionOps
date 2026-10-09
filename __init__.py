@@ -113,6 +113,7 @@ from .operators.assign_vertex_color import (
     IOPS_OT_VertexColorAlphaAssign,
     IOPS_OT_VertexColorChannel,
 )
+from .operators.mesh_vertex_paint import IOPS_OT_MeshVertexPaint, IOPS_OT_MeshVertexColorFilter
 from .operators.object_color import (
     IOPS_OT_ObjectColor_Apply,
     IOPS_OT_ObjectColor_CopyFromActive,
@@ -582,6 +583,8 @@ classes = (
     IOPS_OT_VertexColorAssign,
     IOPS_OT_VertexColorAlphaAssign,
     IOPS_OT_VertexColorChannel,
+    IOPS_OT_MeshVertexPaint,
+    IOPS_OT_MeshVertexColorFilter,
     IOPS_PT_VCol_Panel,
     IOPS_OT_ObjectColor_Apply,
     IOPS_OT_ObjectColor_CopyFromActive,

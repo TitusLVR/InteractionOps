@@ -809,3 +809,60 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
         col.operator(
             "iops.mesh_assign_vertex_color_alpha", icon="GROUP_VCOL", text="Set Alpha"
         )
+
+        # Vertex Paint brush (Edit / Object mode, no Vertex Paint mode switch).
+        scene_props = context.scene.IOPS
+        vp = context.tool_settings.vertex_paint
+        ups = vp.unified_paint_settings
+        box = layout.box()
+        box.label(text="Paint Brush", icon="BRUSH_DATA")
+        bcol = box.column(align=True)
+        bcol.operator("iops.mesh_vertex_paint", icon="BRUSH_DATA", text="Paint")
+        row = bcol.row(align=True)
+        for label, rgba in (("R", (1, 0, 0, 1)), ("G", (0, 1, 0, 1)),
+                            ("B", (0, 0, 1, 1)), ("K", (0, 0, 0, 1)),
+                            ("W", (1, 1, 1, 1))):
+            op = row.operator("iops.mesh_vertex_paint", text=label)
+            op.use_start_color = True
+            op.start_color = rgba
+        # Radius / strength / color: the brush slot is read-only in 4.3+
+        # and empty until Vertex Paint mode was entered, so show the brush
+        # props when a brush is set and the unified ones otherwise.
+        brush = vp.brush
+        scol = box.column(align=True)
+        if brush is not None and not ups.use_unified_size:
+            scol.prop(brush, "size", text="Radius", slider=True)
+        else:
+            scol.prop(ups, "size", text="Radius", slider=True)
+        if brush is not None and not ups.use_unified_strength:
+            scol.prop(brush, "strength", text="Strength", slider=True)
+        else:
+            scol.prop(ups, "strength", text="Strength", slider=True)
+        if brush is not None:
+            scol.prop(brush, "curve_distance_falloff_preset", text="Falloff")
+        crow = box.row(align=True)
+        if brush is not None and not ups.use_unified_color:
+            crow.prop(brush, "color", text="")
+        else:
+            crow.prop(ups, "color", text="")
+        crow.prop(scene_props, "iops_vp_alpha", text="Alpha", slider=True)
+        box.row(align=True).prop(scene_props, "iops_vp_tool", expand=True)
+        box.row(align=True).prop(scene_props, "iops_vp_element", expand=True)
+        box.row(align=True).prop(scene_props, "iops_vp_channel", expand=True)
+        frow = box.row(align=True)
+        frow.prop(scene_props, "iops_vp_eraser", text="Eraser", toggle=True)
+        frow.prop(scene_props, "iops_vp_front_only", text="Front Only", toggle=True)
+        frow.prop(scene_props, "iops_vp_mute_modifiers", text="Mute Mods", toggle=True)
+        vrow = box.row(align=True)
+        vrow.prop(scene_props, "iops_vc_preview", text="Preview VC", toggle=True, icon="HIDE_OFF")
+        overlay = getattr(context.space_data, "overlay", None)
+        if overlay is not None:
+            vrow.prop(overlay, "show_wireframes", text="Wire", toggle=True, icon="SHADING_WIRE")
+        # Whole-attribute post-process (Blur / Sharpen; amount in the redo panel).
+        pbox = layout.box()
+        pbox.label(text="Post Process", icon="MOD_SMOOTH")
+        prow = pbox.row(align=True)
+        op = prow.operator("iops.mesh_vertex_color_filter", text="Blur")
+        op.mode = "BLUR"
+        op = prow.operator("iops.mesh_vertex_color_filter", text="Sharpen")
+        op.mode = "SHARPEN"

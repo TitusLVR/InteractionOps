@@ -124,6 +124,8 @@ Quick vertex colouring: pick a colour or palette swatch and stamp it onto the se
 | Colour picker, palette | Choose the colour |
 | **Set Color** | Assign the colour to the selected vertices / faces |
 | **Set Alpha** | Assign the alpha value only |
+| **Paint Brush** box | [Vertex Paint Brush](../operators/op_mesh_vertex_paint.md): Paint button, R / G / B / K / W start-colour buttons, Radius / Strength / Falloff / Colour / Alpha, Vert / Edge / Face element, Paint / Blur tool, RGB-Alpha channel, Eraser / Front Only / Mute Mods toggles, Preview VC / Wire |
+| **Post Process** box | Blur / Sharpen the whole colour attribute (selection in Edit mode); amount and iterations in the redo panel |
 
 ---
 
