@@ -2,7 +2,7 @@
 
 ![UV Visual Cursor](../img/ops/op_uv_visual_cursor.png)
 
-Place the UV Editor's 2D cursor on a snap point of the selection's bounding box — the UV counterpart of Visual Origin. A nine-point cage (corners, edge midpoints, centre) is drawn around the selected UVs; hover to highlight a point and click to set the cursor there. Hold <kbd>Alt</kbd> to snap to the UDIM tile under the mouse instead. Edit Mode, UV Editor.
+Place the UV Editor's 2D cursor on a snap point of the selection's bounding box — the UV counterpart of Visual Origin. A nine-point cage (corners, edge midpoints, centre) is drawn around the selected UVs; hover to highlight a point and click to set the cursor there. Hold <kbd>Alt</kbd> to snap to the UDIM tile under the mouse instead. Drag from a point to flip the selection over it along U or V. Edit Mode, UV Editor.
 
 **Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from operator search.
 
@@ -10,7 +10,8 @@ Place the UV Editor's 2D cursor on a snap point of the selection's bounding box 
 | Key | Action |
 | --- | --- |
 | Mouse move | Highlight the nearest cage point |
-| <kbd>LMB</kbd> / <kbd>Space</kbd> | Set the 2D cursor to the highlighted point |
+| <kbd>LMB</kbd> click / <kbd>Space</kbd> | Set the 2D cursor to the highlighted point |
+| <kbd>LMB</kbd> drag | Flip the selected UVs over the highlighted point — the arrow snaps to U or V (whichever the drag is closer to) and sets the flip axis |
 | Numpad <kbd>1</kbd>–<kbd>9</kbd> | Set the 2D cursor to that cage point directly |
 | <kbd>Shift</kbd>+<kbd>LMB</kbd> | Align the selected islands to the highlighted point |
 | <kbd>Shift</kbd>+Numpad <kbd>1</kbd>–<kbd>9</kbd> | Align the selected islands to that cage point |
