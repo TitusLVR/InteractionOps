@@ -80,21 +80,23 @@ class GeometryAnalyzer:
 
 
 class SmartRaycaster:
-    """Advanced raycast system with fallback strategies"""
-    
+    """Raycast system with a couple of fallback strategies.
+
+    Excluded objects are skipped by stepping past their hits instead of
+    toggling their visibility: hide_set() dirties the depsgraph, which made
+    every cast re-evaluate the scene (very slow on Adjust Last Operation)."""
+
+    # Max excluded-object hits to step through before giving up on one cast
+    MAX_SKIP_HITS = 64
+    SKIP_EPSILON = 1e-4
+
     def __init__(self, context):
         self.context = context
         self.max_distance = 10000.0  # Much larger default distance
-        self.fallback_attempts = 3
-        self.offset_multiplier = 1.5
-    
-    def get_depsgraph(self):
-        """Get depsgraph in version-agnostic way"""
-        if hasattr(self.context, 'evaluated_depsgraph_get'):
-            return self.context.evaluated_depsgraph_get()
-        else:
-            return self.context.view_layer.depsgraph
-    
+        # Evaluate once per operator run, not once per cast
+        self.depsgraph = context.evaluated_depsgraph_get()
+        self.exclude = set()
+
     def validate_direction(self, direction: Vector) -> bool:
         """Validate raycast direction vector"""
         try:
@@ -127,71 +129,64 @@ class SmartRaycaster:
             return RaycastResult(False, error="Invalid direction vector")
         
         direction_norm = direction.normalized()
-        exclude_objects = exclude_objects or []
-        
-        # Hide excluded objects
-        hidden_states = {}
-        for obj in exclude_objects:
-            hidden_states[obj] = obj.hide_get()
-            obj.hide_set(True)
-        
-        try:
-            # Primary raycast attempt
-            result = self._single_raycast(origin, direction_norm)
+        self.exclude = {o.name for o in (exclude_objects or [])}
+
+        # Primary raycast attempt
+        result = self._single_raycast(origin, direction_norm)
+        if result.success:
+            return result
+
+        # Fallback 1: Try from much higher position
+        high_origin = Vector(origin)
+        high_origin.z += 50.0
+        result = self._single_raycast(high_origin, direction_norm)
+        if result.success:
+            return result
+
+        # Fallback 2: Try pure downward direction
+        down_direction = Vector((0, 0, -1))
+        if (direction_norm - down_direction).length > 1e-6:
+            result = self._single_raycast(origin, down_direction)
             if result.success:
                 return result
-            
-            # Fallback 1: Try from much higher position
-            high_origin = Vector(origin)
-            high_origin.z += 50.0
-            result = self._single_raycast(high_origin, direction_norm)
+            result = self._single_raycast(high_origin, down_direction)
             if result.success:
                 return result
-            
-            # Fallback 2: Try pure downward direction
-            if direction_norm != Vector((0, 0, -1)):
-                down_direction = Vector((0, 0, -1))
-                result = self._single_raycast(origin, down_direction)
-                if result.success:
-                    return result
-                
-                # Try downward from high position
-                result = self._single_raycast(high_origin, down_direction)
-                if result.success:
-                    return result
-            
-            # Fallback 3: Try with origin variations
-            for i in range(3):
-                offset_distance = 2.0 * (i + 1)
-                for offset_dir in [Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((-1, 0, 0)), Vector((0, -1, 0))]:
-                    offset_origin = origin + (offset_dir * offset_distance)
-                    result = self._single_raycast(offset_origin, direction_norm)
-                    if result.success:
-                        return result
-            
-            return RaycastResult(False, error=f"No surface found. Origin: {origin}, Direction: {direction_norm}")
-        
-        finally:
-            # Restore hidden states
-            for obj, state in hidden_states.items():
-                obj.hide_set(state)
-    
+
+        return RaycastResult(False, error="No surface found")
+
     def _single_raycast(self, origin: Vector, direction: Vector) -> RaycastResult:
-        """Perform single raycast attempt"""
+        """Cast once, stepping past hits on excluded objects"""
+        scene = self.context.scene
+        start = Vector(origin)
+        remaining = self.max_distance
         try:
-            depsgraph = self.get_depsgraph()
-            success, location, normal, *_ = bpy.context.scene.ray_cast(
-                depsgraph, origin, direction, distance=self.max_distance
-            )
-            
-            if success and location and normal:
+            for _ in range(self.MAX_SKIP_HITS):
+                success, location, normal, _index, hit_obj, _matrix = scene.ray_cast(
+                    self.depsgraph, start, direction, distance=remaining
+                )
+                if not success:
+                    return RaycastResult(False, error="No intersection found")
+
+                hit_name = getattr(getattr(hit_obj, "original", hit_obj), "name", None)
+                if hit_name in self.exclude:
+                    travelled = (location - start).length + self.SKIP_EPSILON
+                    remaining -= travelled
+                    if remaining <= 0.0:
+                        return RaycastResult(False, error="No intersection found")
+                    start = location + direction * self.SKIP_EPSILON
+                    continue
+
+                if normal.length < 1e-6:
+                    # Degenerate face: fall back to facing against the cast
+                    normal = -direction
                 distance = (location - origin).length
                 return RaycastResult(True, location, normal.normalized(), distance)
-            else:
-                return RaycastResult(False, error="No intersection found")
-        
+
+            return RaycastResult(False, error="No intersection found")
+
         except Exception as e:
-            return RaycastResult(False, error=f"Raycast exception: {str(e)}")
+            return RaycastResult(False, error=f"Raycast exception: {e}")
 
 
 class IOPS_OT_Drop_It(bpy.types.Operator):
@@ -282,59 +277,61 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return context.area.type == "VIEW_3D"
-    
+        return context.area is not None and context.area.type == "VIEW_3D"
+
     def execute(self, context):
+        # Adjust Last Operation re-runs execute on every tweak; a CANCELLED
+        # there drops the redo panel, so stay FINISHED and let the user fix
+        # the parameters (failed objects are left untouched anyway).
+        is_repeat = self.options.is_repeat
+
         selected_objs = [obj for obj in context.selected_objects if obj.type == 'MESH']
         if not selected_objs:
-            self.report({"ERROR"}, "No mesh objects selected")
-            return {"CANCELLED"}
-        
+            self.report({"WARNING"}, "Drop It!: no mesh objects selected")
+            return {"FINISHED"} if is_repeat else {"CANCELLED"}
+
+        if not self.use_local_z and Vector(self.drop_it_direction).length < 1e-6:
+            self.report({"WARNING"}, "Drop It!: direction is zero")
+            return {"FINISHED"} if is_repeat else {"CANCELLED"}
+
         raycaster = SmartRaycaster(context)
         raycaster.max_distance = self.max_raycast_distance
-        
-        results = {"success": [], "failed": []}
-        
+
+        dropped = 0
+        failed = []
+
         for obj in selected_objs:
             try:
                 result = self.process_object(obj, raycaster)
-                if result["success"]:
-                    results["success"].append(obj.name)
-                    if self.detailed_reporting:
-                        self.report({"INFO"}, f"SUCCESS: {obj.name}")
-                else:
-                    results["failed"].append({"name": obj.name, "error": result["error"]})
-                    if self.detailed_reporting:
-                        self.report({"ERROR"}, f"FAILED {obj.name}: {result['error']}")
-                    if not self.continue_on_failure:
-                        break
+                error = None if result["success"] else result["error"]
             except Exception as e:
-                import traceback
-                error_msg = f"Unexpected error: {str(e)}"
+                error = f"Unexpected error: {e}"
                 if self.detailed_reporting:
-                    error_msg += f"\nTraceback: {traceback.format_exc()}"
-                results["failed"].append({"name": obj.name, "error": error_msg})
-                if self.detailed_reporting:
-                    self.report({"ERROR"}, f"EXCEPTION {obj.name}: {error_msg}")
-                if not self.continue_on_failure:
-                    break
-        
-        # Report results
-        success_count = len(results["success"])
-        failure_count = len(results["failed"])
-        
-        if failure_count == 0:
-            self.report({"INFO"}, f"Drop It! SUCCESS: {success_count} objects dropped")
-        elif success_count == 0:
-            self.report({"ERROR"}, f"Drop It! FAILED: All {failure_count} objects failed")
-            # Show first failure reason
-            if results["failed"]:
-                first_error = results["failed"][0]["error"]
-                self.report({"ERROR"}, f"Primary error: {first_error}")
+                    import traceback
+                    traceback.print_exc()
+
+            if error is None:
+                dropped += 1
+                continue
+
+            failed.append(obj.name)
+            if self.detailed_reporting:
+                print(f"IOPS Drop It!: {obj.name}: {error}")
+            if not self.continue_on_failure:
+                break
+
+        # One summary line per run: redo can fire execute many times a second
+        if not failed:
+            self.report({"INFO"}, f"Drop It!: {dropped} dropped")
+        elif dropped == 0:
+            names = ", ".join(failed[:3]) + ("…" if len(failed) > 3 else "")
+            self.report({"WARNING"}, f"Drop It!: no surface found for {names}")
         else:
-            self.report({"WARNING"}, f"Drop It! PARTIAL: {success_count} success, {failure_count} failed")
-        
-        return {"FINISHED"} if success_count > 0 else {"CANCELLED"}
+            self.report({"WARNING"}, f"Drop It!: {dropped} dropped, {len(failed)} found no surface")
+
+        if dropped == 0 and not is_repeat:
+            return {"CANCELLED"}
+        return {"FINISHED"}
     
     def process_object(self, obj, raycaster: SmartRaycaster) -> Dict[str, Any]:
         """Process a single object"""
@@ -496,4 +493,5 @@ class IOPS_OT_Drop_It(bpy.types.Operator):
             row.prop(self, "up_axis")
         
         layout.prop(self, "drop_it_offset")
-        layout.prop(self, "detailed_reporting", text="Debug")
+        layout.prop(self, "max_raycast_distance")
+        layout.prop(self, "detailed_reporting", text="Debug (console)")
