@@ -48,6 +48,13 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
         max=10,
     )
 
+    counter_start: IntProperty(
+        name="Counter Start",
+        description="Value the counter starts from (+1 shift is added on top)",
+        default=0,
+        min=0,
+    )
+
     counter_shift: BoolProperty(
         name="+1",
         description="+1 shift for counter, useful when we need to rename active object too",
@@ -174,7 +181,7 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
                             col_map.setdefault(ob.name, []).append(col.name)
 
                 # counter - per-collection when [COL] is used, otherwise global
-                start = 1 if self.counter_shift else 0
+                start = self.counter_start + (1 if self.counter_shift else 0)
                 counters = {}
 
                 for name in to_rename:
@@ -234,6 +241,9 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
             row.label(text="Counter Digits")
             row.prop(self, "counter_digits", text="")
             row.prop(self, "counter_shift", text="+1 Shift")
+            row = col.row(align=True)
+            row.label(text="Counter Start")
+            row.prop(self, "counter_start", text="")
             layout.separator()
 
             col = layout.column(align=True)
