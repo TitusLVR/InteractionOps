@@ -246,27 +246,34 @@ def _combo_deltas(op, context):
     return deltas
 
 
-def _reflect_rotation(mirror_delta, root_mw, first_normal):
+def _reflect_rotation(mirror_delta, root_mw, fold_dir):
     """World delta that reproduces `mirror_delta` for the subtree rooted at
     `root_mw` with a proper rotation. The root origin lands exactly where the
     mirror puts it; its orientation is the mirrored orientation folded back
-    across the root's own local axis most parallel to the mirror normal —
-    so an axis-aligned piece keeps its orientation and just moves, a piece
-    turned 30° about Z comes out turned −30°, exactly like the true mirror
-    of a piece symmetric about that local axis. Scale is untouched."""
+    across the root's own local axis most parallel to `fold_dir` — an axis
+    lying IN the mirror plane. Folding across an in-plane axis turns the
+    mirror into a 180° spin for an aligned piece (X-mirror → turn about Z),
+    so the clone reads as reflected instead of merely moved, and a piece
+    turned −33° about Z comes out at −147° — exactly the mirror of a piece
+    symmetric about that in-plane local axis. Scale is untouched."""
     S3 = mirror_delta.to_3x3()
     if S3.determinant() > 0.0:
         # An even number of reflections already is a rotation — exact.
         return mirror_delta
     t = root_mw.translation
     R3 = root_mw.to_quaternion().to_matrix()
-    # Local axis (world direction) most aligned with the mirror normal.
-    best = max(range(3), key=lambda i: abs(R3.col[i].dot(first_normal)))
+    # Local axis (world direction) most aligned with the in-plane fold axis.
+    best = max(range(3), key=lambda i: abs(R3.col[i].dot(fold_dir)))
     fold = Matrix.Scale(-1.0, 3, _AXIS_UNIT[AXIS_LETTERS[best]])
     R_new = S3 @ R3 @ fold
     D3 = R_new @ R3.inverted()
     t_new = mirror_delta @ t
     return Matrix.Translation(t_new) @ D3.to_4x4() @ Matrix.Translation(-t)
+
+
+# In-plane frame axis the Reflect fold happens across, per mirror normal:
+# keep the frame's Z "up" for the side mirrors, spin about X for the Z mirror.
+_REFLECT_FOLD_AXIS = {"X": "Y", "Y": "X", "Z": "X"}
 
 
 def _subtree_delta(op, context, delta, subtree):
@@ -278,9 +285,10 @@ def _subtree_delta(op, context, delta, subtree):
         root_mw = subtree[0].matrix_world.copy()
     except (ReferenceError, IndexError):
         return delta
-    normals = _axis_normals(op, context)
-    first = next((normals[a] for a in AXIS_LETTERS if a in normals), Vector((0, 0, 1)))
-    return _reflect_rotation(delta, root_mw, first)
+    first = next((a for a in AXIS_LETTERS if a in op.axes), "Z")
+    frame = _pivot_frame_3x3(op, context)
+    fold_dir = (frame @ _AXIS_UNIT[_REFLECT_FOLD_AXIS[first]]).normalized()
+    return _reflect_rotation(delta, root_mw, fold_dir)
 
 
 def _pivot_frame_3x3(op, context):
