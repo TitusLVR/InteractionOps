@@ -239,6 +239,32 @@ class IOPS_AddonProperties(PropertyGroup):
         description="Rotate only the 3D cursor around its own axis, leave objects untouched",
         default=False,
     )
+    iops_rotate_space: EnumProperty(
+        name="Space",
+        description="Which axes the rotation step is taken around",
+        items=[
+            ("LOCAL", "Local", "Object's own axes (cursor's own axes in Cursor Only)"),
+            ("GLOBAL", "Global", "World axes"),
+            ("CURSOR", "Cursor", "3D cursor axes"),
+            ("VIEW", "View", "Viewport axes"),
+        ],
+        default="LOCAL",
+    )
+    iops_rotate_skip_children: bpy.props.BoolProperty(
+        name="Skip Children",
+        description="Do not rotate objects whose parent is also selected (avoids a double rotation)",
+        default=True,
+    )
+    iops_rotate_snap: bpy.props.BoolProperty(
+        name="Snap",
+        description="Round the current rotation to the nearest multiple of the angle before stepping",
+        default=False,
+    )
+    iops_rotate_respect_locks: bpy.props.BoolProperty(
+        name="Respect Locks",
+        description="Skip objects whose rotation is locked on the axis being rotated",
+        default=True,
+    )
     iops_split_previous: StringProperty(
         name="iops_split_previous",
         default="VIEW_3D",
