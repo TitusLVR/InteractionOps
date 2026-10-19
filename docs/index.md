@@ -31,7 +31,6 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Object Normalize](operators/op_object_normalize.md)
         - [Match Transform Active](operators/op_object_match_transform_active.md)
         - [Change Scale](operators/op_object_change_scale.md)
-        - [Cursor Rotate](operators/op_cursor_rotate.md)
     - **Object — Utilities**
         - [Auto Smooth](operators/op_object_auto_smooth.md)
         - [KitBash Grid](operators/op_object_kitbash_grid.md)

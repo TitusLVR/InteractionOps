@@ -234,6 +234,11 @@ class IOPS_AddonProperties(PropertyGroup):
     iops_rotation_angle: FloatProperty(
         name="Angle", description="Degrees", default=90, min=0.0
     )
+    iops_rotate_cursor_only: bpy.props.BoolProperty(
+        name="Cursor Only",
+        description="Rotate only the 3D cursor around its own axis, leave objects untouched",
+        default=False,
+    )
     iops_split_previous: StringProperty(
         name="iops_split_previous",
         default="VIEW_3D",

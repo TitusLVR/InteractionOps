@@ -21,7 +21,6 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Object Normalize](operators/op_object_normalize.md) — clear rotation and scale, keep the look.
 - [Match Transform Active](operators/op_object_match_transform_active.md) — copy the active object's transform to the selection.
 - [Change Scale](operators/op_object_change_scale.md) — scale the selection by a typed factor.
-- [Cursor Rotate](operators/op_cursor_rotate.md) — spin the 3D cursor in steps.
 
 ## Object — Utilities
 - [Auto Smooth](operators/op_object_auto_smooth.md) — smooth-by-angle shading for the selection.
