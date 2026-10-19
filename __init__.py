@@ -325,9 +325,6 @@ from .utils.draw_stats import draw_iops_statistics
 # IOPS UV Channel Hop
 from .operators.mesh_uv_channel_hop import IOPS_OT_Mesh_UV_Channel_Hop
 
-# IOPS Cursor rotate
-from .operators.cursor_rotate import IOPS_OT_Cursor_Rotate
-
 # IOPS Edge bisect with cursor
 from .operators.mesh_cursor_bisect import IOPS_OT_Mesh_Cursor_Bisect
 from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
@@ -635,7 +632,6 @@ classes = (
     IOPS_OT_Select_All_Collections,
     IOPS_UL_SourceCollectionsList,
     IOPS_OT_Reload_Images,
-    IOPS_OT_Cursor_Rotate,
     Z_OT_GrowLoop,
     Z_OT_ShrinkLoop,
     Z_OT_GrowRing,

@@ -1,6 +1,6 @@
 import bpy
 import math
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 # import bmesh
 # from mathutils import Matrix,
@@ -40,6 +40,12 @@ def iops_rotate(reset, angle, object, axis, axis_x, axis_y, axis_z):
         bpy.context.scene.cursor.rotation_mode = rotation_mode
 
 
+def iops_rotate_cursor(angle, axis):
+    """Rotate the 3D cursor around its own local axis, objects untouched."""
+    cursor = bpy.context.scene.cursor
+    cursor.matrix = cursor.matrix @ Matrix.Rotation(math.radians(angle), 4, axis)
+
+
 def iops_per_obj(name):
     ob = bpy.data.objects[name]
     bpy.ops.object.select_all(action="DESELECT")
@@ -68,11 +74,18 @@ class IOPS_OT_object_rotate_Z(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "Z")
+            self.report({"INFO"}, "IOPS Rotate Cursor +Z")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -95,6 +108,7 @@ class IOPS_OT_object_rotate_Z(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
 
 
 class IOPS_OT_object_rotate_MZ(bpy.types.Operator):
@@ -117,11 +131,18 @@ class IOPS_OT_object_rotate_MZ(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "Z")
+            self.report({"INFO"}, "IOPS Rotate Cursor -Z")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -144,6 +165,7 @@ class IOPS_OT_object_rotate_MZ(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
 
 
 class IOPS_OT_object_rotate_Y(bpy.types.Operator):
@@ -166,11 +188,18 @@ class IOPS_OT_object_rotate_Y(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "Y")
+            self.report({"INFO"}, "IOPS Rotate Cursor +Y")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -193,6 +222,7 @@ class IOPS_OT_object_rotate_Y(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
 
 
 class IOPS_OT_object_rotate_MY(bpy.types.Operator):
@@ -215,11 +245,18 @@ class IOPS_OT_object_rotate_MY(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "Y")
+            self.report({"INFO"}, "IOPS Rotate Cursor -Y")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -242,6 +279,7 @@ class IOPS_OT_object_rotate_MY(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
 
 
 class IOPS_OT_object_rotate_X(bpy.types.Operator):
@@ -264,11 +302,18 @@ class IOPS_OT_object_rotate_X(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "X")
+            self.report({"INFO"}, "IOPS Rotate Cursor +X")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -291,6 +336,7 @@ class IOPS_OT_object_rotate_X(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
 
 
 class IOPS_OT_object_rotate_MX(bpy.types.Operator):
@@ -313,12 +359,18 @@ class IOPS_OT_object_rotate_MX(bpy.types.Operator):
         return (
             context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and len(context.view_layer.objects.selected) != 0
+            and (
+                context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only
+                or len(context.view_layer.objects.selected) != 0
+            )
         )
 
     def execute(self, context):
         rotation = context.window_manager.IOPS_AddonProperties.iops_rotation_angle * -1
-
+        if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
+            iops_rotate_cursor(rotation, "X")
+            self.report({"INFO"}, "IOPS Rotate Cursor -X")
+            return {"FINISHED"}
         if self.per_object:
             selection = [o.name for o in context.view_layer.objects.selected]
             for name in selection:
@@ -341,3 +393,4 @@ class IOPS_OT_object_rotate_MX(bpy.types.Operator):
         row.prop(self, "reset_cursor")
         row.prop(self, "per_object")
         col.prop(props, "iops_rotation_angle")
+        col.prop(props, "iops_rotate_cursor_only")
