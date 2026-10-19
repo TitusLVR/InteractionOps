@@ -1,5 +1,4 @@
 import bpy
-import bmesh
 import math
 from mathutils import Matrix, Vector
 from bpy.props import BoolProperty
@@ -7,8 +6,8 @@ from bpy.props import BoolProperty
 AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
 
 
-def world_axis(context, space, axis, obj_world=None):
-    """Unit vector of the requested axis in world space."""
+def world_axis(context, space, axis):
+    """Unit vector of the requested axis in world space (non-local spaces)."""
     i = AXIS_INDEX[axis]
     if space == "GLOBAL":
         v = Vector((0.0, 0.0, 0.0))
@@ -19,8 +18,7 @@ def world_axis(context, space, axis, obj_world=None):
     if space == "VIEW":
         rv3d = context.region_data or context.space_data.region_3d
         return rv3d.view_matrix.inverted().to_3x3().col[i].normalized()
-    # LOCAL
-    return obj_world.to_3x3().col[i].normalized()
+    raise ValueError(f"world_axis: unexpected space {space!r}")
 
 
 def snap_euler(euler, step):
@@ -80,39 +78,6 @@ def rotate_cursor(context, angle, axis, space):
     cursor.matrix = r @ cursor.matrix
 
 
-def edit_pivot(context, obj, bm, verts):
-    """Pivot in object local space, following the viewport pivot point setting."""
-    pivot_mode = context.scene.tool_settings.transform_pivot_point
-    if pivot_mode == "CURSOR":
-        return obj.matrix_world.inverted() @ context.scene.cursor.location
-    if pivot_mode == "ACTIVE_ELEMENT":
-        active = bm.select_history.active
-        if active is not None:
-            if isinstance(active, bmesh.types.BMVert):
-                return active.co.copy()
-            return sum((v.co for v in active.verts), Vector()) / len(active.verts)
-    return sum((v.co for v in verts), Vector()) / len(verts)
-
-
-def rotate_edit_mesh(context, obj, angle, axis, space):
-    """Rotate the selected vertices of an edit-mode mesh. Returns vertex count."""
-    bm = bmesh.from_edit_mesh(obj.data)
-    verts = [v for v in bm.verts if v.select]
-    if not verts:
-        return 0
-    m3 = obj.matrix_world.to_3x3()
-    ax_world = world_axis(context, space, axis, obj.matrix_world)
-    # World-space rotation expressed in object space; exact even with
-    # non-uniform scale (gives the matching affine transform).
-    r_local = m3.inverted() @ Matrix.Rotation(math.radians(angle), 3, ax_world) @ m3
-    pivot = edit_pivot(context, obj, bm, verts)
-    for v in verts:
-        v.co = pivot + r_local @ (v.co - pivot)
-    bmesh.update_edit_mesh(obj.data)
-    obj.data.update_tag()
-    return len(verts)
-
-
 def _parents(obj):
     p = obj.parent
     while p is not None:
@@ -139,11 +104,9 @@ class IOPS_OT_object_rotate_base(bpy.types.Operator):
     def poll(cls, context):
         if context.area is None or context.area.type != "VIEW_3D":
             return False
-        if context.mode not in ("OBJECT", "EDIT_MESH"):
+        if context.mode != "OBJECT":
             return False
         if context.window_manager.IOPS_AddonProperties.iops_rotate_cursor_only:
-            return True
-        if context.mode == "EDIT_MESH":
             return True
         return len(context.view_layer.objects.selected) != 0
 
@@ -160,16 +123,6 @@ class IOPS_OT_object_rotate_base(bpy.types.Operator):
                 )
             rotate_cursor(context, angle, self.axis, space)
             self.report({"INFO"}, f"IOPS Rotate Cursor {label}")
-            return {"FINISHED"}
-
-        if context.mode == "EDIT_MESH":
-            count = 0
-            for obj in context.objects_in_mode_unique_data:
-                count += rotate_edit_mesh(context, obj, angle, self.axis, space)
-            if count == 0:
-                self.report({"WARNING"}, "Nothing selected")
-                return {"CANCELLED"}
-            self.report({"INFO"}, f"IOPS Rotate {label}: {count} verts")
             return {"FINISHED"}
 
         if self.per_object:

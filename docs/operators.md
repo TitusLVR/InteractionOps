@@ -17,7 +17,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 
 ## Object — Transform
 - [Three Point Rotation](operators/op_object_three_point_rotation.md) — place by point pairs: move A onto A′, align B, roll C; one click per step, ghost preview.
-- [Object Rotate (XYZ ±)](operators/op_object_rotate.md) — step-rotate objects, mesh selection or the 3D cursor with the arrow keys in Local/Global/Cursor/View space.
+- [Object Rotate (XYZ ±)](operators/op_object_rotate.md) — step-rotate objects or the 3D cursor with the arrow keys in Local/Global/Cursor/View space.
 - [Object Normalize](operators/op_object_normalize.md) — clear rotation and scale, keep the look.
 - [Match Transform Active](operators/op_object_match_transform_active.md) — copy the active object's transform to the selection.
 - [Change Scale](operators/op_object_change_scale.md) — scale the selection by a typed factor.
