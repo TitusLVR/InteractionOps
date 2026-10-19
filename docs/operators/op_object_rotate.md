@@ -8,11 +8,10 @@ Rotates every selected object by a fixed step (90° by default) around its own l
 
 - **Rotation Angle** — the step in degrees; shared by all six directions and remembered for the next press.
 - **Per Object** — rotate each selected object around its own origin (on) or only the active object (off).
-- **Reset Cursor** — restore the 3D cursor's rotation mode afterwards.
 - **Cursor Only** — leave the objects alone and turn the 3D cursor itself around its own local axis by the same step. Works with nothing selected; remembered for the next press like the angle.
 
 ## Tips
 
-- The 3D cursor is used as a temporary pivot and ends up at the last rotated object.
+- The rotation is applied straight to the object's own transform, so parenting, rotation mode and the Transform Options panel do not get in the way; the 3D cursor is never moved.
 - Set the angle to 45 or 15 in the redo panel for finer steps.
 - *Cursor Only* is the quick way to set up a cursor-based pivot or transform orientation without leaving the viewport.
