@@ -151,3 +151,17 @@ def test_build_frame_zero_normal_falls_back():
 def test_build_frame_degenerate_edge_falls_back():
     m = build_frame((0, 0, 1), (0, 0, 0), "Z", "X")
     assert math.isclose(_det(m), 1.0, abs_tol=1e-9) and _approx(m[2], (0, 0, 1))
+
+
+# --- aim_edge_dir ------------------------------------------------------------
+
+def test_aim_edge_dir_projects_target_into_tangent_plane():
+    from utils.cursor_place_core import aim_edge_dir
+    d = aim_edge_dir((1, 1, 0), (0, 0, 1), (3, 1, 5))
+    assert _approx(d, (1, 0, 0))
+
+
+def test_aim_edge_dir_degenerate_returns_none():
+    from utils.cursor_place_core import aim_edge_dir
+    assert aim_edge_dir((1, 1, 0), (0, 0, 1), (1, 1, 7)) is None
+    assert aim_edge_dir((1, 1, 0), (0, 0, 1), None) is None

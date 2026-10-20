@@ -11,6 +11,8 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 | --- | --- |
 | <kbd>Shift</kbd> + <kbd>RMB</kbd> (hold + move) | Slide: the cursor follows the mouse on the face, or along the nearest edge within the snap threshold; the element and the cursor axes are previewed in the theme / axis colours |
 | <kbd>RMB</kbd> held, <kbd>Shift</kbd> up | Snap: nearest vertex, edge midpoint or face centre of the polygon under the mouse |
+| <kbd>Ctrl</kbd> (hold) | Aim: the position stays put, the edge axis points at the mouse in the surface plane |
+| <kbd>Alt</kbd> (hold) | Move with the orientation frozen at the moment Alt went down |
 | <kbd>X</kbd> / <kbd>Y</kbd> / <kbd>Z</kbd> | Which cursor axis follows the surface normal (if it collides with the edge axis, the two swap) |
 | <kbd>F</kbd> | Flip the normal axis |
 | Wheel | Switch the edge axis to the other free letter |

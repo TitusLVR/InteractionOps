@@ -170,3 +170,10 @@ Highlight colours / widths come from the theme; no new theme fields.
   pick at the raw ray hit; `raycast_from_mouse(owner_cache=...)` memoises
   instance ownership per modal; face fill is tessellated once per pick;
   zero normals fall back instead of raising; key auto-repeat is ignored.
+- **Ctrl / Alt in the modal (user request, same day):** Ctrl held locks
+  the position and element at the first Ctrl move and aims the edge axis
+  at the mouse (mouse ray intersected with the tangent plane, projected
+  perpendicular to the normal; `aim_edge_dir`). Alt held keeps the
+  position following the mouse but freezes (normal, edge_dir) from the
+  first Alt move; X/Y/Z/F/wheel still remap the frozen frame. Ctrl wins
+  over Alt. Releasing the modifier returns to normal following.
