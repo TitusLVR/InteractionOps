@@ -34,7 +34,7 @@ from ..ui.draw.theme import get_theme, axis_color
 from ..ui.hud import text as hud_text
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
-from ..utils.picking import raycast_from_mouse, SNAP_THRESHOLD_PX
+from ..utils.picking import raycast_from_mouse, px_world_at, SNAP_THRESHOLD_PX
 from ..utils.cursor_place_core import (
     AXES, Pick, pick_element, slide_element, build_frame, set_normal_axis,
     cycle_edge_axis, aim_edge_dir,
@@ -170,31 +170,12 @@ def _draw_pixel(op, context):
         hud.draw(context, last_event)
 
 
-def _px_world_at(region, rv3d, pos):
-    """World size of one screen pixel at the depth of `pos` (0 when `pos`
-    is behind the camera).
-
-    Straight from the projection: a world offset `d` parallel to the screen
-    maps to `d * P00 * width / (2 * w)` pixels, with `w` the clip-space w
-    of `pos`. (`region_2d_to_location_3d` is NOT usable for this — away
-    from the screen centre its lateral distances are off by up to 2x.)
-    """
-    pm = rv3d.perspective_matrix
-    w = pm[3][0] * pos.x + pm[3][1] * pos.y + pm[3][2] * pos.z + pm[3][3]
-    if w <= 1e-9 or region.width <= 0:
-        return 0.0
-    p00 = pm[0][0]
-    if abs(p00) < 1e-12:
-        return 0.0
-    return 2.0 * w / (region.width * abs(p00))
-
-
 def _gizmo_length(context, region, rv3d, pos, axis_px):
     """World length of the axis ghost: `axis_px` pixels at the depth of
     `pos`, clamped in perspective so the tips stay in front of the near
     clipping plane (otherwise an axis pointing at a close camera gets cut
     off and its letter blinks)."""
-    length = axis_px * _px_world_at(region, rv3d, pos)
+    length = axis_px * px_world_at(region, rv3d, pos)
     if length <= 0.0:
         return 0.0
     if rv3d.is_perspective:
@@ -438,7 +419,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 verts3d = [matrix @ verts[i].co for i in poly.vertices]
                 if not self._snap:
                     # Edge threshold is a pixel pref: convert at the hit depth.
-                    threshold = self._slide_px * _px_world_at(region, rv3d, loc)
+                    threshold = self._slide_px * px_world_at(region, rv3d, loc)
                     pick = slide_element(verts3d, loc, poly_normal=poly_normal,
                                          threshold=threshold)
                 else:
