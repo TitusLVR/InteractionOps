@@ -24,5 +24,5 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 - The edge axis points toward the edge endpoint nearest the mouse, so you can flip its direction by hovering the other half of the edge.
 - Over empty space the release behaves like Blender's cursor placement: the cursor moves to the mouse on the view plane and keeps its rotation. On curves, text and other non-mesh surfaces the cursor lands on the hit point, aligned to the hit normal.
 - Right-click-select keymaps keep their Shift+RMB extend-select: the operator passes the click through. Bind it to another key in that case.
-- Defaults for the two axes and the preview size live in *Preferences › iOps › Cursor Place*. Key presses during the drag override them for that placement only.
+- Defaults for the two axes (normal Z, edge Y), the preview size and the axis letters live in *Preferences › iOps › Cursor Place*. Key presses during the drag override them for that placement only.
 - The next pivot tool (Object Rotate, Mirror Rotate, Cursor Bisect, Three Point Rotation) now starts from a cursor that is already aligned to the surface.

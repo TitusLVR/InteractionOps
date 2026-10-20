@@ -9,7 +9,7 @@ Collapsible sections, top to bottom:
 - **Statistics Overlay** — master toggle and per-row toggles for the top-left statistics block (file name, dimensions, position, material, modifiers, instances, parent, units).
 - **Visual UV** — surface offset and the eight island colours for [Mesh Visual UV](operators/op_mesh_visual_uv.md).
 - **Cursor Bisect** — preview depth, snap distance, subdivisions, merge distance and rotation step for [Cursor Bisect](operators/op_mesh_cursor_bisect.md).
-- **Cursor Place** — default normal axis, edge axis and preview axis size (pixels) for [Cursor Place](operators/op_cursor_place.md).
+- **Cursor Place** — default normal axis (Z) and edge axis (Y), preview axis size (pixels) and whether the X / Y / Z letters are drawn, for [Cursor Place](operators/op_cursor_place.md).
 - **Non-Planar Overlay** — thresholds for the [non-planar face overlay](operators/op_mesh_nonplanar_overlay.md).
 - **Snap Combo** — which modifier key saves a slot in [Snap Combos](operators/op_snap_combos.md).
 - **Modifier Window** — how the floating modifier window is created.

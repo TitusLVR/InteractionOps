@@ -108,7 +108,8 @@ def _draw_pixel(op, context):
     data = getattr(op, "_pick", None)
     region = context.region
     rv3d = context.region_data
-    if data is not None and region is not None and rv3d is not None:
+    if (data is not None and region is not None and rv3d is not None
+            and getattr(op, "_axis_letters", True)):
         pick, frame, _verts3d, px_world, _tris = data
         pos = Vector(pick.position)
         length = op._axis_px * px_world
@@ -189,10 +190,12 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._normal_axis = prefs.cursor_place_normal_axis
             self._edge_axis = prefs.cursor_place_edge_axis
             self._axis_px = float(prefs.cursor_place_axis_size)
+            self._axis_letters = bool(prefs.cursor_place_axis_letters)
             self._slide_px = float(getattr(prefs, "cursor_bisect_snap_threshold",
                                            SNAP_THRESHOLD_PX))
         except (KeyError, AttributeError):
-            self._normal_axis, self._edge_axis, self._axis_px = "Z", "X", 60.0
+            self._normal_axis, self._edge_axis, self._axis_px = "Z", "Y", 42.0
+            self._axis_letters = True
             self._slide_px = SNAP_THRESHOLD_PX
         if self._normal_axis == self._edge_axis:
             self._edge_axis = cycle_edge_axis(self._normal_axis, self._normal_axis)

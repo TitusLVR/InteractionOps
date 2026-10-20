@@ -89,7 +89,7 @@ _CURSOR_PLACE_AXIS_ITEMS = (("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", ""))
 _cursor_place_guard = False
 # Last known distinct (normal, edge) pair — update callbacks get no "old
 # value", so the letter a changed prop gave up is read from here.
-_cursor_place_last = {"normal": "Z", "edge": "X"}
+_cursor_place_last = {"normal": "Z", "edge": "Y"}
 
 
 def _cursor_place_swap(self, changed, other):
@@ -776,16 +776,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         name="Edge Axis",
         description="Cursor axis aligned to the nearest edge",
         items=_CURSOR_PLACE_AXIS_ITEMS,
-        default="X",
+        default="Y",
         update=_cursor_place_edge_axis_update,
     )
     cursor_place_axis_size: bpy.props.IntProperty(
         name="Axis Size",
         description="Length of the cursor preview axes, in pixels",
-        default=60,
+        default=42,
         min=10,
         max=400,
         subtype="PIXEL",
+    )
+    cursor_place_axis_letters: bpy.props.BoolProperty(
+        name="Axis Letters",
+        description="Draw X / Y / Z letters at the tips of the cursor preview axes",
+        default=True,
     )
 
     # Non-Planar Faces Overlay (iops.mesh_nonplanar_overlay)
@@ -1196,6 +1201,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_place_normal_axis")
                 row.prop(self, "cursor_place_edge_axis")
                 row.prop(self, "cursor_place_axis_size")
+                row.prop(self, "cursor_place_axis_letters")
 
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",
