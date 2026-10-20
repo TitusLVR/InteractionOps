@@ -13,7 +13,7 @@ from collections import namedtuple
 
 from .three_point_core import (
     EPS, DegenerateFrame, _orthonormal, _any_perpendicular, _normalized,
-    _cross, _sub, _add, _scale, _length,
+    _cross, _dot, _sub, _add, _scale, _length,
 )
 
 AXES = ("X", "Y", "Z")
@@ -155,6 +155,20 @@ def slide_element(verts3d, verts2d, mouse, *, hit_location, poly_normal,
                     _tuple3(edge_dir), edge)
     return Pick("FACE", None, _tuple3(hit_location), _tuple3(poly_normal),
                 _tuple3(edge_dir), edge)
+
+
+def aim_edge_dir(position, normal, target):
+    """Edge direction aimed from `position` at `target`, projected into the
+    plane perpendicular to `normal`. None when `target` is missing or sits
+    on the normal line (nothing to aim at)."""
+    if target is None:
+        return None
+    nrm = _normalized(normal)
+    d = _sub(target, position)
+    d = _sub(d, _scale(nrm, _dot(d, nrm)))
+    if _length(d) < 1e-9:
+        return None
+    return _tuple3(_normalized(d))
 
 
 # --- axis letters ----------------------------------------------------------

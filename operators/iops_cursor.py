@@ -20,7 +20,10 @@ from mathutils.geometry import tessellate_polygon
 from bpy_extras.view3d_utils import (
     location_3d_to_region_2d,
     region_2d_to_location_3d,
+    region_2d_to_origin_3d,
+    region_2d_to_vector_3d,
 )
+from mathutils.geometry import intersect_line_plane
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -31,7 +34,7 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
 from ..utils.picking import raycast_from_mouse, SNAP_THRESHOLD_PX
 from ..utils.cursor_place_core import (
     AXES, Pick, pick_element, slide_element, build_frame, set_normal_axis,
-    cycle_edge_axis,
+    cycle_edge_axis, aim_edge_dir,
 )
 from ..utils.three_point_core import _any_perpendicular
 
@@ -58,6 +61,8 @@ def _build_help(context):
     helpo.add_section(HUDSection("Cursor Place", [
         HUDItem("Snap to nearest vertex / edge mid / face centre", "Hover (Shift up)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Slide along the face / edge under the mouse", "Hold Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Aim the edge axis at the mouse (position locked)", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -201,6 +206,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._edge_axis = cycle_edge_axis(self._normal_axis, self._normal_axis)
         self._flip = False
         self._slide = bool(event.shift)
+        self._aim_lock = None      # Ctrl: (pick, verts3d) frozen at the first Ctrl move
+        self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         # The key/button whose release confirms: whatever invoked us.
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
         self._mesh_cache = {}
@@ -211,7 +218,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._handles = []
 
         self._hud = _build_hud(context)
-        self._hud.add_param(HUDParam("Mode", lambda: "Slide" if self._slide else "Snap", "str"))
+        self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
         self._hud.add_param(HUDParam("Edge axis", lambda: self._edge_axis, "str"))
@@ -228,6 +235,14 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._update(context, event)
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+
+    def _mode_label(self):
+        base = "Slide" if self._slide else "Snap"
+        if self._aim_lock is not None:
+            return base + " · Aim edge axis"
+        if self._orient_lock is not None:
+            return base + " · Orientation locked"
+        return base
 
     def _snap_label(self):
         data = self._pick
@@ -258,14 +273,46 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._mouse = (mx, my)
         self._slide = bool(event.shift)
 
-        hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
-            context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
-            owner_cache=self._owner_cache)
+        ctrl, alt = bool(event.ctrl), bool(event.alt)
+        if not ctrl:
+            self._aim_lock = None
+        if not alt or ctrl:
+            self._orient_lock = None
+
+        pick = verts3d = None
+        if ctrl and self._aim_lock is not None:
+            # Ctrl: the position (and element) stay where Ctrl was first
+            # seen; the edge axis points at the mouse, in the tangent plane.
+            pick, verts3d = self._aim_lock
+            pos = Vector(pick.position)
+            origin = region_2d_to_origin_3d(region, rv3d, (mx, my))
+            direction = region_2d_to_vector_3d(region, rv3d, (mx, my))
+            target = intersect_line_plane(origin, origin + direction, pos, Vector(pick.normal))
+            aimed = aim_edge_dir(pick.position, pick.normal,
+                                 tuple(target) if target is not None else None)
+            if aimed is not None:
+                pick = pick._replace(edge_dir=aimed)
+            self._aim_lock = (pick, verts3d)
+        else:
+            hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
+                context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
+                owner_cache=self._owner_cache)
+            if hit:
+                pick, verts3d = self._pick_on_hit(region, rv3d, (mx, my), loc, nrm,
+                                                  face_index, obj, matrix)
+                if ctrl:
+                    self._aim_lock = (pick, verts3d)
+                elif alt:
+                    # Alt: move freely, keep the orientation from the first
+                    # Alt move (axis letters / flip still apply on top).
+                    if self._orient_lock is None:
+                        self._orient_lock = (pick.normal, pick.edge_dir)
+                    pick = pick._replace(normal=self._orient_lock[0],
+                                         edge_dir=self._orient_lock[1])
+
         new_pick = None
         sig = None
-        if hit:
-            pick, verts3d = self._pick_on_hit(region, rv3d, (mx, my), loc, nrm,
-                                              face_index, obj, matrix)
+        if pick is not None:
             frame = build_frame(pick.normal, pick.edge_dir,
                                 self._normal_axis, self._edge_axis,
                                 flip=self._flip)
@@ -389,7 +436,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._update(context, event)
             return {"RUNNING_MODAL"}
 
-        if et in {"LEFT_SHIFT", "RIGHT_SHIFT"}:
+        if et in {"LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_CTRL", "RIGHT_CTRL",
+                  "LEFT_ALT", "RIGHT_ALT"}:
             self._update(context, event)
             return {"RUNNING_MODAL"}
 
