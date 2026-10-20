@@ -53,7 +53,8 @@ assert any(
 # Cursor Place (iops.cursor_place)
 # hasattr(bpy.ops.iops, ...) is always True (lazy wrapper) -- resolve the RNA type.
 bpy.ops.iops.cursor_place.get_rna_type()
-for prop_name in ("cursor_place_normal_axis", "cursor_place_edge_axis", "cursor_place_axis_size"):
+for prop_name in ("cursor_place_normal_axis", "cursor_place_edge_axis",
+                  "cursor_place_axis_size", "cursor_place_axis_letters"):
     assert hasattr(prefs, prop_name), "missing pref: %s" % prop_name
 km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
 assert any(

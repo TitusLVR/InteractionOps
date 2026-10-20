@@ -56,7 +56,7 @@ Two axes are mapped, the third follows by right-hand rule:
     free; averaging with the opposite face would need an edge→poly map
     over the whole mesh — rejected for speed)
   - vertex: evaluated vertex normal
-- **Edge axis** (pref, default **X**): parallel to the reference edge,
+- **Edge axis** (pref, default **Y**): parallel to the reference edge,
   projected into the plane orthogonal to the normal axis, oriented so it
   points from the element toward the edge endpoint nearest the mouse.
   Reference edge:
@@ -87,7 +87,7 @@ Drawn with the iops draw framework and theme roles:
   `axis_x/y/z` theme colours (`ui.draw.theme.axis_color`), the normal
   axis and edge axis full length, the derived third axis at 60 %, plus
   the letters at the tips. Length = `cursor_place_axis_size` pixels
-  (pref, default 60), converted to world units at the snap point so the
+  (pref, default 42), converted to world units at the snap point so the
   gizmo is screen-constant.
 - Depth test off (always visible). Small HUD/Help via `ui.hud`, same
   pattern as `drag_snap_cursor` (H toggles).
@@ -104,9 +104,10 @@ In `IOPS_AddonPreferences` (new "Cursor Place" block near the
 cursor-bisect settings):
 
 - `cursor_place_normal_axis` Enum X/Y/Z, default Z
-- `cursor_place_edge_axis` Enum X/Y/Z, default X (update callbacks keep
+- `cursor_place_edge_axis` Enum X/Y/Z, default Y (update callbacks keep
   them distinct by swapping)
-- `cursor_place_axis_size` Int px, default 60, 10..400
+- `cursor_place_axis_size` Int px, default 42, 10..400
+- `cursor_place_axis_letters` Bool, default True (draw X/Y/Z at the tips)
 
 Highlight colours / widths come from the theme; no new theme fields.
 
