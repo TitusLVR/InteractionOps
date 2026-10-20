@@ -50,5 +50,16 @@ assert any(
     kmi.idname == "iops.call_pie_node" for kmi in km.keymap_items
 ), "iops.call_pie_node not bound in Node Editor keymap"
 
+# Cursor Place (iops.cursor_place)
+# hasattr(bpy.ops.iops, ...) is always True (lazy wrapper) -- resolve the RNA type.
+bpy.ops.iops.cursor_place.get_rna_type()
+for prop_name in ("cursor_place_normal_axis", "cursor_place_edge_axis", "cursor_place_axis_size"):
+    assert hasattr(prefs, prop_name), "missing pref: %s" % prop_name
+km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
+assert any(
+    kmi.idname == "iops.cursor_place" and kmi.type == "RIGHTMOUSE" and kmi.shift
+    for kmi in km.keymap_items
+), "iops.cursor_place not bound to Shift+RMB in 3D View keymap"
+
 bpy.ops.preferences.addon_disable(module="InteractionOps")
 print("SMOKE_OK")

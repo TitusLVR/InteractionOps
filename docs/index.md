@@ -72,6 +72,7 @@ It is a set of operators which boost Blender interactivity between user and appl
     - **Snap & Transform**
         - [Drag Snap](operators/op_drag_snap.md)
         - [Drag Snap Cursor](operators/op_drag_snap_cursor.md)
+        - [Cursor Place](operators/op_cursor_place.md)
         - [Drag Snap UV](operators/op_drag_snap_uv.md)
         - [Snap Combos](operators/op_snap_combos.md)
     - **Grid**

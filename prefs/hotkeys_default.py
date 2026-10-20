@@ -42,6 +42,7 @@ keys_default = [
     ("iops.object_normalize", "UP_ARROW", "PRESS", False, False, False, False),
     ("iops.object_drag_snap", "S", "PRESS", True, True, True, False),
     ("iops.object_drag_snap_cursor", "F19", "PRESS", True, True, True, False),
+    ("iops.cursor_place", "RIGHTMOUSE", "PRESS", False, False, True, False),
     ("iops.uv_drag_snap_uv", "D", "PRESS", False, False, False, False),
     ("iops.uv_visual_cursor", "F19", "PRESS", True, True, True, False),
     ("iops.object_active_object_scroll_up", "WHEELUPMOUSE", "PRESS", True, True, False, True),
