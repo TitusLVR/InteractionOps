@@ -172,8 +172,10 @@ Highlight colours / widths come from the theme; no new theme fields.
   zero normals fall back instead of raising; key auto-repeat is ignored.
 - **Ctrl / Alt in the modal (user request, same day):** Ctrl held locks
   the position and element at the first Ctrl move and aims the edge axis
-  at the mouse (mouse ray intersected with the tangent plane, projected
-  perpendicular to the normal; `aim_edge_dir`). Alt held keeps the
+  at the nearest element under the mouse (the usual snap/slide pick on
+  the hit polygon, drawn in ACTIVE roles with a guide line), or, over
+  empty space, at the mouse ray intersected with the tangent plane;
+  the direction is projected perpendicular to the normal (`aim_edge_dir`). Alt held keeps the
   position following the mouse but freezes (normal, edge_dir) from the
   first Alt move; X/Y/Z/F/wheel still remap the frozen frame. Ctrl wins
   over Alt. Releasing the modifier returns to normal following.

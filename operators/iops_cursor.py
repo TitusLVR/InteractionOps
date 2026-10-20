@@ -61,7 +61,7 @@ def _build_help(context):
     helpo.add_section(HUDSection("Cursor Place", [
         HUDItem("Snap to nearest vertex / edge mid / face centre", "Hover (Shift up)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Slide along the face / edge under the mouse", "Hold Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Aim the edge axis at the mouse (position locked)", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Aim the edge axis at the element under the mouse (position locked)", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -82,7 +82,7 @@ def _draw_preview_3d(op, context):
     data = getattr(op, "_pick", None)
     if data is None:
         return
-    pick, frame, verts3d, px_world, tris = data
+    pick, frame, verts3d, px_world, tris, aim = data
     pos = Vector(pick.position)
 
     with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE"):
@@ -97,6 +97,19 @@ def _draw_preview_3d(op, context):
                           role=Role.CLOSEST_LINE, width="closest", context=context)
         else:
             draw.points([pos], role=Role.CLOSEST_POINT, context=context)
+
+        if aim is not None:
+            tpick, tverts = aim
+            tpos = Vector(tpick.position)
+            if tpick.kind == "FACE" and len(tverts) >= 2:
+                draw.polyline(list(tverts) + [tverts[0]], role=Role.ACTIVE_LINE,
+                              width="active", context=context)
+            elif tpick.kind == "EDGE":
+                draw.edges_3d([Vector(tpick.edge[0]), Vector(tpick.edge[1])],
+                              role=Role.ACTIVE_LINE, width="active", context=context)
+            draw.points([tpos], role=Role.ACTIVE_POINT, context=context)
+            draw.edges_3d([pos, tpos], role=Role.PREVIEW_LINE, width="preview",
+                          context=context)
 
         # Cursor ghost: three equal, screen-constant axis lines in Blender's
         # axis colours and a small centre dot. Letters go in the pixel pass.
@@ -115,7 +128,7 @@ def _draw_pixel(op, context):
     rv3d = context.region_data
     if (data is not None and region is not None and rv3d is not None
             and getattr(op, "_axis_letters", True)):
-        pick, frame, _verts3d, px_world, _tris = data
+        pick, frame, _verts3d, px_world, _tris, _aim = data
         pos = Vector(pick.position)
         length = op._axis_px * px_world
         theme = get_theme(context)
@@ -280,23 +293,32 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._orient_lock = None
 
         pick = verts3d = None
+        aim = None
+        hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
+            context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
+            owner_cache=self._owner_cache)
         if ctrl and self._aim_lock is not None:
             # Ctrl: the position (and element) stay where Ctrl was first
-            # seen; the edge axis points at the mouse, in the tangent plane.
+            # seen; the edge axis points at the nearest element under the
+            # mouse (snap or slide pick on the hit polygon), or at the
+            # mouse itself in the tangent plane when nothing is hit.
             pick, verts3d = self._aim_lock
             pos = Vector(pick.position)
-            origin = region_2d_to_origin_3d(region, rv3d, (mx, my))
-            direction = region_2d_to_vector_3d(region, rv3d, (mx, my))
-            target = intersect_line_plane(origin, origin + direction, pos, Vector(pick.normal))
-            aimed = aim_edge_dir(pick.position, pick.normal,
-                                 tuple(target) if target is not None else None)
+            if hit:
+                tpick, tverts = self._pick_on_hit(region, rv3d, (mx, my), loc, nrm,
+                                                  face_index, obj, matrix)
+                target = tpick.position
+                aim = (tpick, tverts)
+            else:
+                origin = region_2d_to_origin_3d(region, rv3d, (mx, my))
+                direction = region_2d_to_vector_3d(region, rv3d, (mx, my))
+                t = intersect_line_plane(origin, origin + direction, pos, Vector(pick.normal))
+                target = tuple(t) if t is not None else None
+            aimed = aim_edge_dir(pick.position, pick.normal, target)
             if aimed is not None:
                 pick = pick._replace(edge_dir=aimed)
             self._aim_lock = (pick, verts3d)
         else:
-            hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
-                context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
-                owner_cache=self._owner_cache)
             if hit:
                 pick, verts3d = self._pick_on_hit(region, rv3d, (mx, my), loc, nrm,
                                                   face_index, obj, matrix)
@@ -324,11 +346,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             else:
                 px_world = 0.0
             tris = _face_tris(verts3d) if pick.kind == "FACE" else []
-            new_pick = (pick, frame, verts3d, px_world, tris)
+            new_pick = (pick, frame, verts3d, px_world, tris, aim)
             sig = (pick.kind, pick.index,
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
-                   round(px_world, 9), len(verts3d))
+                   round(px_world, 9), len(verts3d),
+                   None if aim is None else (aim[0].kind, aim[0].index,
+                                             tuple(round(c, 6) for c in aim[0].position)))
 
         # Always keep the freshest pick (the commit reads it); the signature
         # only decides whether the viewport needs a redraw.
@@ -397,7 +421,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         scene = context.scene
         data = self._pick
         if data is not None:
-            pick, frame, _verts3d, _px, _tris = data
+            pick, frame, _verts3d, _px, _tris, _aim = data
             rot = Matrix((frame[0], frame[1], frame[2])).transposed()
             scene.cursor.matrix = Matrix.Translation(Vector(pick.position)) @ rot.to_4x4()
         else:
