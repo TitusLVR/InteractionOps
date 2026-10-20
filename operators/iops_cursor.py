@@ -63,6 +63,7 @@ def _build_help(context):
         HUDItem("Slide along the face / edge under the mouse", "Hold Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Aim the edge axis at the element under the mouse (position locked)", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -219,6 +220,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._edge_axis = cycle_edge_axis(self._normal_axis, self._normal_axis)
         self._flip = False
         self._slide = bool(event.shift)
+        self._active_only = False  # A: raycast only the active object
         self._aim_lock = None      # Ctrl: (pick, verts3d) frozen at the first Ctrl move
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         # The key/button whose release confirms: whatever invoked us.
@@ -233,6 +235,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud = _build_hud(context)
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
+        self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
         self._hud.add_param(HUDParam("Edge axis", lambda: self._edge_axis, "str"))
         self._help = _build_help(context)
@@ -294,9 +297,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
 
         pick = verts3d = None
         aim = None
+        restrict = None
+        if self._active_only:
+            active = context.view_layer.objects.active
+            restrict = [active] if active is not None else []
         hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
             context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
-            owner_cache=self._owner_cache)
+            owner_cache=self._owner_cache, restrict_to=restrict)
         if ctrl and self._aim_lock is not None:
             # Ctrl: the position (and element) stay where Ctrl was first
             # seen; the edge axis points at the nearest element under the
@@ -486,6 +493,10 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
             if et == "F":
                 self._flip = not self._flip
+                self._update(context, event)
+                return {"RUNNING_MODAL"}
+            if et == "A":
+                self._active_only = not self._active_only
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
