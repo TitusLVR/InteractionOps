@@ -1196,12 +1196,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             body = _section(column_main, self, "show_section_cursor_place", "Cursor Place", icon="PIVOT_CURSOR")
             if body is not None:
-                body.label(text="Shift+RMB: snap the 3D cursor to the nearest vertex / edge / face and orient it.", icon="INFO")
-                row = body.row(align=True)
-                row.prop(self, "cursor_place_normal_axis")
-                row.prop(self, "cursor_place_edge_axis")
-                row.prop(self, "cursor_place_axis_size")
-                row.prop(self, "cursor_place_axis_letters")
+                col = body.column()
+                col.use_property_split = True
+                col.use_property_decorate = False
+                col.row(align=True).prop(self, "cursor_place_normal_axis", expand=True)
+                col.row(align=True).prop(self, "cursor_place_edge_axis", expand=True)
+                col.separator()
+                col.prop(self, "cursor_place_axis_size")
+                col.prop(self, "cursor_place_axis_letters")
 
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",
