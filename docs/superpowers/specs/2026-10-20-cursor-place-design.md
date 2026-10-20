@@ -179,3 +179,6 @@ Highlight colours / widths come from the theme; no new theme fields.
   position following the mouse but freezes (normal, edge_dir) from the
   first Alt move; X/Y/Z/F/wheel still remap the frozen frame. Ctrl wins
   over Alt. Releasing the modifier returns to normal following.
+- **A (user request):** toggles active-object-only picking; the ray
+  pierces every other object (`raycast_from_mouse(restrict_to=[active])`,
+  so a collection-instance Empty as active works through `hit_owner`).
