@@ -41,7 +41,8 @@ CORNER_FALLBACK_COORDS = (
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
                        visible_only: bool = False,
                        max_iterations: int = MAX_RAYCAST_ITERATIONS,
-                       region=None, rv3d=None, viewport=None, ray=None):
+                       region=None, rv3d=None, viewport=None, ray=None,
+                       owner_cache: dict | None = None):
     """Raycast from mouse position. If `restrict_to` is provided (an iterable
     of objects), the ray pierces through anything else. If `exclude` is provided
     (an iterable of objects), the ray pierces through those objects. If
@@ -60,6 +61,12 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     `ray=(origin, direction)` casts that world-space ray instead of the one
     under the mouse — for picking geometry that is displayed transformed
     (a ghost) by casting the inverse-transformed ray at the originals.
+
+    `owner_cache` (a dict the caller keeps for the duration of a modal)
+    memoises `hit_owner` + visibility per (object, instance matrix):
+    resolving a collection-instance hit walks every depsgraph instance in
+    Python, which is too slow to repeat on every mouse move in a
+    kitbash scene. Instances don't change while a modal holds all events.
 
     Returns `(result, location, normal, face_index, obj, matrix)`. On miss,
     returns `(False, None, None, None, None, None)`.
@@ -100,17 +107,30 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
             break
         # Collection instances: the hit is the instanced mesh (not in the
         # view layer), so ownership / visibility belong to the instancer.
-        owner = (hit_owner(depsgraph, obj, matrix, view_layer=context.view_layer)
-                 if obj is not None else None)
+        cache_key = None
+        cached = None
+        if owner_cache is not None and obj is not None:
+            cache_key = (obj.as_pointer(),
+                         tuple(round(matrix[i][j], 5) for i in range(4) for j in range(4)))
+            cached = owner_cache.get(cache_key)
+        if cached is not None:
+            owner, visible = cached
+        else:
+            owner = (hit_owner(depsgraph, obj, matrix, view_layer=context.view_layer)
+                     if obj is not None else None)
+            visible = True
+            if visible_only and owner is not None:
+                try:
+                    visible = bool(owner.visible_get(viewport=viewport))
+                except (ReferenceError, TypeError):
+                    visible = False
+            if cache_key is not None:
+                owner_cache[cache_key] = (owner, visible)
         permitted = (allowed is None or (owner is not None and owner in allowed))
         if blocked is not None and owner is not None and owner in blocked:
             permitted = False
-        if visible_only and owner is not None:
-            try:
-                if not owner.visible_get(viewport=viewport):
-                    permitted = False
-            except (ReferenceError, TypeError):
-                permitted = False
+        if visible_only and not visible:
+            permitted = False
         if permitted:
             return (True, location, normal, face_index, obj, matrix)
         if location is None:

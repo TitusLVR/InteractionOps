@@ -72,6 +72,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 ## Snap & Transform
 - [Drag Snap](operators/op_drag_snap.md) — move objects vertex to vertex.
 - [Drag Snap Cursor](operators/op_drag_snap_cursor.md) — the same, driven by the 3D cursor.
+- [Cursor Place](operators/op_cursor_place.md) — Shift+RMB: snap the 3D cursor to the nearest vertex / edge / face and align it.
 - [Drag Snap UV](operators/op_drag_snap_uv.md) — move UVs vertex to vertex.
 - [Snap Combos](operators/op_snap_combos.md) — eight memory slots for snap settings.
 

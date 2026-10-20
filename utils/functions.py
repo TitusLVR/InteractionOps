@@ -685,6 +685,10 @@ def keymap_name_for_idname(idname):
         return "3D View"
     if ".z_" in idname or "iops.mesh" in idname:
         return "Mesh"
+    # RMB-driven cursor placement must live in the 3D View region keymap,
+    # not in Window (which would swallow right-clicks in every editor).
+    if idname.startswith("iops.cursor_place"):
+        return "3D View"
     if "iops.object" in idname:
         return "Object Mode"
     if "iops.uv" in idname:

@@ -83,6 +83,7 @@ from .operators.drag_snap_uv import IOPS_OT_DragSnapUV
 from .operators.uv_info import IOPS_OT_UVInfoRect
 from .operators.uv_visual_cursor import IOPS_OT_VisualCursorUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
+from .operators.iops_cursor import IOPS_OT_CursorPlace
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_replace import IOPS_OT_Object_Replace
 from .operators.object_rotate import (
@@ -583,6 +584,7 @@ classes = (
     IOPS_OT_UVInfoRect,
     IOPS_OT_VisualCursorUV,
     IOPS_OT_DragSnapCursor,
+    IOPS_OT_CursorPlace,
     IOPS_OT_ActiveObject_Scroll_UP,
     IOPS_OT_ActiveObject_Scroll_DOWN,
     IOPS_OT_VertexColorAssign,

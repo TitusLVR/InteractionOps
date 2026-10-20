@@ -85,6 +85,47 @@ def _section(parent, prefs, prop_name, title, *, icon="NONE"):
     return body
 
 
+_CURSOR_PLACE_AXIS_ITEMS = (("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", ""))
+_cursor_place_guard = False
+# Last known distinct (normal, edge) pair — update callbacks get no "old
+# value", so the letter a changed prop gave up is read from here.
+_cursor_place_last = {"normal": "Z", "edge": "X"}
+
+
+def _cursor_place_swap(self, changed, other):
+    """Keep the two Cursor Place axes distinct: when `changed` collides with
+    `other`, `other` takes the letter `changed` just gave up (a swap)."""
+    global _cursor_place_guard
+    if _cursor_place_guard:
+        return
+    a, b = getattr(self, changed), getattr(self, other)
+    key_changed = "normal" if changed == "cursor_place_normal_axis" else "edge"
+    key_other = "edge" if key_changed == "normal" else "normal"
+    if a != b:
+        _cursor_place_last[key_changed] = a
+        _cursor_place_last[key_other] = b
+        return
+    given_up = _cursor_place_last[key_changed]
+    if given_up == a:
+        from ..utils.cursor_place_core import other_axis
+        given_up = other_axis(a, a)
+    _cursor_place_guard = True
+    try:
+        setattr(self, other, given_up)
+    finally:
+        _cursor_place_guard = False
+    _cursor_place_last[key_changed] = a
+    _cursor_place_last[key_other] = given_up
+
+
+def _cursor_place_normal_axis_update(self, context):
+    _cursor_place_swap(self, "cursor_place_normal_axis", "cursor_place_edge_axis")
+
+
+def _cursor_place_edge_axis_update(self, context):
+    _cursor_place_swap(self, "cursor_place_edge_axis", "cursor_place_normal_axis")
+
+
 def update_category(self, context):
     message = "Panel Update Failed"
     try:
@@ -262,6 +303,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_executor: BoolProperty(default=False)
     show_section_textures: BoolProperty(default=False)
     show_section_bisect: BoolProperty(default=False)
+    show_section_cursor_place: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
@@ -722,6 +764,30 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     default=True
     )
 
+    # Cursor Place (iops.cursor_place)
+    cursor_place_normal_axis: bpy.props.EnumProperty(
+        name="Normal Axis",
+        description="Cursor axis aligned to the surface normal",
+        items=_CURSOR_PLACE_AXIS_ITEMS,
+        default="Z",
+        update=_cursor_place_normal_axis_update,
+    )
+    cursor_place_edge_axis: bpy.props.EnumProperty(
+        name="Edge Axis",
+        description="Cursor axis aligned to the nearest edge",
+        items=_CURSOR_PLACE_AXIS_ITEMS,
+        default="X",
+        update=_cursor_place_edge_axis_update,
+    )
+    cursor_place_axis_size: bpy.props.IntProperty(
+        name="Axis Size",
+        description="Length of the cursor preview axes, in pixels",
+        default=60,
+        min=10,
+        max=400,
+        subtype="PIXEL",
+    )
+
     # Non-Planar Faces Overlay (iops.mesh_nonplanar_overlay)
     nonplanar_angle: bpy.props.FloatProperty(
         name="Non-Planar Angle",
@@ -1122,6 +1188,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_bisect_merge_distance")
                 row.prop(self, "cursor_bisect_rotation_step")
                 row.prop(self, "cursor_bisect_coplanar_angle")
+
+            body = _section(column_main, self, "show_section_cursor_place", "Cursor Place", icon="PIVOT_CURSOR")
+            if body is not None:
+                body.label(text="Shift+RMB: snap the 3D cursor to the nearest vertex / edge / face and orient it.", icon="INFO")
+                row = body.row(align=True)
+                row.prop(self, "cursor_place_normal_axis")
+                row.prop(self, "cursor_place_edge_axis")
+                row.prop(self, "cursor_place_axis_size")
 
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",
