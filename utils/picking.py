@@ -36,6 +36,29 @@ CORNER_FALLBACK_COORDS = (
 )
 
 
+# --- Pixel size ----------------------------------------------------------
+
+def px_world_at(region, rv3d, pos):
+    """World size of one screen pixel at the depth of `pos` (0 when `pos`
+    is behind the camera), exact in perspective and ortho.
+
+    A world offset parallel to the screen maps to
+    `d * W00 * width / (2 * w)` pixels, with `W00` from the pure projection
+    (`rv3d.window_matrix`) and `w` the clip-space w of `pos`. Do NOT derive
+    this from `region_2d_to_location_3d` with a one-pixel offset: mathutils
+    works in float32 and the 1 px difference drowns in rounding (measured
+    0.5x..2x off, pulsing with the mouse position).
+    """
+    pm = rv3d.perspective_matrix
+    w = pm[3][0] * pos[0] + pm[3][1] * pos[1] + pm[3][2] * pos[2] + pm[3][3]
+    if w <= 1e-9 or region.width <= 0:
+        return 0.0
+    w00 = rv3d.window_matrix[0][0]
+    if abs(w00) < 1e-12:
+        return 0.0
+    return 2.0 * w / (region.width * abs(w00))
+
+
 # --- Raycast ------------------------------------------------------------
 
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,

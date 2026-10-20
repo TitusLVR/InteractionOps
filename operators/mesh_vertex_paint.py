@@ -28,6 +28,8 @@ import math
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty,
                        FloatVectorProperty, IntProperty)
 from bpy_extras import view3d_utils
+
+from ..utils.picking import px_world_at
 from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 
@@ -685,9 +687,12 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         px = float(self.ba.size)
         if self.brush.use_pressure_size:
             px *= self._pressure
-        p1 = view3d_utils.region_2d_to_location_3d(region, rv3d, (mx, my), hit_world)
-        p2 = view3d_utils.region_2d_to_location_3d(region, rv3d, (mx + px, my), hit_world)
-        self._radius_world = (p2 - p1).length
+        # Exact pixel size at the hit depth (see picking.px_world_at); the
+        # old two-point unprojection pulsed with the mouse position.
+        self._radius_world = px * px_world_at(region, rv3d, hit_world)
+        right = rv3d.view_matrix.inverted().col[0].xyz.normalized()
+        p1 = hit_world
+        p2 = hit_world + right * self._radius_world
         return ((self._mw_inv @ p2) - (self._mw_inv @ p1)).length
 
     # ------------------------------------------------------------------
