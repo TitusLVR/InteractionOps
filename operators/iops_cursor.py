@@ -36,6 +36,7 @@ from ..utils.cursor_place_core import (
 from ..utils.three_point_core import _any_perpendicular
 
 _KIND_LABELS = {"VERT": "Vertex", "EDGE": "Edge", "FACE": "Face"}
+_LETTER_GAP_PX = 9.0
 _FAR_2D = (1e9, 1e9)
 # A hit polygon is trusted only when the ray hit lies (nearly) in its plane;
 # otherwise `face_index` indexes some other geometry (e.g. a geometry-nodes
@@ -92,15 +93,14 @@ def _draw_preview_3d(op, context):
         else:
             draw.points([pos], role=Role.CLOSEST_POINT, context=context)
 
+        # Cursor ghost: three equal, screen-constant axis lines in Blender's
+        # axis colours and a small centre dot. Letters go in the pixel pass.
         length = op._axis_px * px_world
         for i, letter in enumerate(AXES):
-            d = Vector(frame[i])
-            full = letter in (op._normal_axis, op._edge_axis)
-            tip = pos + d * (length * (1.0 if full else 0.6))
             r, g, b, _ = axis_color(letter)
-            col = (r, g, b, 1.0 if full else 0.45)
-            draw.edges_3d([pos, tip], color=col, width="axis_gizmo", context=context)
-            draw.points([tip], color=col, size=6.0, context=context)
+            draw.edges_3d([pos, pos + Vector(frame[i]) * length],
+                          color=(r, g, b, 1.0), width="axis_gizmo", context=context)
+        draw.points([pos], color=(1.0, 1.0, 1.0, 0.9), size=4.0, context=context)
 
 
 def _draw_pixel(op, context):
@@ -113,16 +113,20 @@ def _draw_pixel(op, context):
         pos = Vector(pick.position)
         length = op._axis_px * px_world
         theme = get_theme(context)
+        origin2d = location_3d_to_region_2d(region, rv3d, pos)
         for i, letter in enumerate(AXES):
-            full = letter in (op._normal_axis, op._edge_axis)
-            tip = pos + Vector(frame[i]) * (length * (1.0 if full else 0.6))
+            tip = pos + Vector(frame[i]) * length
             p2 = location_3d_to_region_2d(region, rv3d, tip)
             if p2 is None:
                 continue
+            # Letter sits a few pixels past the tip, continuing the axis
+            # direction on screen, centred on that point.
+            if origin2d is not None and (p2 - origin2d).length_squared > 1.0:
+                p2 = p2 + (p2 - origin2d).normalized() * _LETTER_GAP_PX
             r, g, b, _ = axis_color(letter)
             w, h = hud_text.measure(letter, theme=theme, size_token="axis_letter")
-            hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y + h * 0.6),
-                          theme=theme, color=(r, g, b, 1.0 if full else 0.5),
+            hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y - h * 0.5),
+                          theme=theme, color=(r, g, b, 1.0),
                           size_token="axis_letter")
 
     helpo = getattr(op, "_help", None)
