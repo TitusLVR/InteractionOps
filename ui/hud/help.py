@@ -70,6 +70,7 @@ class HelpOverlay:
         self._bound_region = None
         # Drag state (Shift+Ctrl+Alt+LMB → switch to Free + Position).
         self._drag = DragState()
+        self._auto_hide_token: int = 0
         self._last_origin: tuple[int, int] = (0, 0)
         self._last_size: tuple[int, int] = (0, 0)
 
@@ -90,6 +91,44 @@ class HelpOverlay:
 
     def bind_region(self, region) -> None:
         self._bound_region = region.as_pointer() if region is not None else None
+        self._apply_auto_hide()
+
+    # --- auto-hide (theme pref `help_auto_hide`) ---
+    def _apply_auto_hide(self) -> None:
+        """Honour the theme's start-up visibility: 0 open until toggled,
+        > 0 open then collapsed after that many seconds, -1 collapsed right
+        away — always through the regular toggle animation (preset,
+        duration, wave / slide / shockwave knobs), never a hard cut. A
+        manual H meanwhile cancels the pending collapse."""
+        try:
+            import bpy
+            seconds = float(bpy.context.preferences.addons["InteractionOps"]
+                            .preferences.iops_theme.help_auto_hide)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            seconds = 0.0
+        self._auto_hide_token += 1
+        if seconds != 0.0 and self.expanded:
+            import bpy
+            token = self._auto_hide_token
+            delay = max(0.0, seconds)      # -1: collapse on the next tick
+
+            def _collapse():
+                # Stale when H was pressed (token bumped) or already closed.
+                if token != self._auto_hide_token or not self.expanded:
+                    return None
+                dur = 0.18
+                try:
+                    prefs = bpy.context.preferences.addons["InteractionOps"].preferences.iops_theme
+                    dur = self._effective_duration(prefs)
+                except (KeyError, AttributeError):
+                    pass
+                self.toggle_expanded(duration=dur)
+                rgn = self._find_bound_region()
+                if rgn is not None:
+                    rgn.tag_redraw()
+                return None
+
+            bpy.app.timers.register(_collapse, first_interval=delay)
 
     def _find_bound_region(self):
         """Resolve the live region object for `_bound_region`. Lets us use
@@ -219,6 +258,7 @@ class HelpOverlay:
         if event.shift or event.ctrl or event.alt or event.oskey:
             return False
         dur = self._effective_duration(prefs)
+        self._auto_hide_token += 1      # a manual toggle cancels a pending auto-hide
         self.toggle_expanded(duration=dur)
         return True
 

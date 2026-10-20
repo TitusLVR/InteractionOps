@@ -29,6 +29,6 @@ Every iOps hotkey, grouped by area (Main F-keys, Cursor, Object Mode, Mesh, UV E
 Compose GPU viewport widgets from JSON definitions and assign their toggle hotkeys. See the [Widgets panel](ui/ui_menus.md#widgets).
 
 ## Theme tab
-Colours, text sizes, panel background, shadow, font, HUD placement and help-legend animation for the [HUD](ui/ui_hud.md). Pick a bundled preset (Default, Dark+, Light+, Monokai, Blender Default, Solarized Dark), **Save As** your own, **Use Blender Theme HUD Colors** to match your Blender theme, or **Theme Preview** to see every element live in the viewport.
+Colours, text sizes, panel background, shadow, font, HUD placement, help-legend animation and *Auto-hide after* for the [HUD](ui/ui_hud.md). Auto-hide applies to the help legend of every iOps modal: -1 collapses it right away, 0 keeps it open until <kbd>H</kbd>, a positive value (default 1 s) collapses it after that many seconds; the collapse plays the configured help animation. Pick a bundled preset (Default, Dark+, Light+, Monokai, Blender Default, Solarized Dark), **Save As** your own, **Use Blender Theme HUD Colors** to match your Blender theme, or **Theme Preview** to see every element live in the viewport.
 
 Your settings, hotkeys and themes are stored in your Blender user scripts folder under *presets/IOPS*.
