@@ -236,6 +236,16 @@ class IOPS_Theme(bpy.types.PropertyGroup):
                     "outward from the box centre",
         default=160, min=20, max=800,
     )
+    help_auto_hide: FloatProperty(
+        name="Auto-hide after",
+        description="Help legend when a modal starts: 0 keeps it open "
+                    "until H is pressed, -1 collapses it right away, a "
+                    "positive value collapses it after that many seconds. "
+                    "The collapse plays the Help animation; H still toggles "
+                    "it any time",
+        default=1.0, min=-1.0, max=120.0, step=50, precision=1,
+        subtype="TIME_ABSOLUTE",
+    )
     help_hint_text: bpy.props.StringProperty(
         name="Help hint text",
         description="Text shown when Help is collapsed. {key} is replaced "
@@ -621,6 +631,7 @@ def draw_theme_tab(layout, theme):
                 row.prop(theme, "help_offset_x")
                 row.prop(theme, "help_offset_y")
             body.prop(theme, "help_hint_text")
+            body.prop(theme, "help_auto_hide")
             body.separator()
             body.prop(theme, "help_anim_preset")
             preset = theme.help_anim_preset

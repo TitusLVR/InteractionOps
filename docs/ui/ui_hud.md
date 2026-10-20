@@ -15,6 +15,7 @@ Every interactive iOps tool draws the same kind of on-screen readout while it ru
 - Drag it with <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>Alt</kbd> to place it where you like.
 - The toggle key is a normal keymap entry (*Keymaps › UI Toggles*), so you can change it.
 - Expand / collapse animation styles (fade, slide, wave, shockwave or none) are chosen in the Theme tab.
+- *Auto-hide after* (Theme tab › Help Overlay) sets how the legend starts in every tool: -1 collapses it right away, 0 keeps it open until you press <kbd>H</kbd>, a positive number (default 1 s) collapses it after that many seconds. The collapse plays the configured help animation (preset, duration and the preset's own knobs). Pressing <kbd>H</kbd> yourself cancels the pending auto-hide.
 
 ## Statistics
 
