@@ -689,8 +689,7 @@ class IOPS_MT_Pie_Edit(Menu):
                 draw_empty_pie_size_display_and_image(pie, context)
 
                 # 2 - BOTTOM
-                op = pie.operator("object.duplicates_make_real", text="Make Instances Real")
-                op.use_hierarchy = True
+                pie.operator("iops.make_instances_real", text="Make Instances Real")
 
                 # 8 - TOP
                 pie.operator(

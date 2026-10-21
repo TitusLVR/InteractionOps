@@ -678,6 +678,89 @@ class IOPS_OT_ExpandInstanceCollection(bpy.types.Operator):
         return {"FINISHED"}
 
 
+_ONLY_TYPE_ITEMS = [
+    ("ALL", "All", "Keep every object the instances expand to"),
+    ("MESH", "Mesh", "Keep only meshes; empties and every other type are deleted"),
+    ("CURVE", "Curve", "Keep only curves"),
+    ("FONT", "Text", "Keep only text objects"),
+    ("EMPTY", "Empty", "Keep only empties"),
+    ("LIGHT", "Light", "Keep only lights"),
+    ("CAMERA", "Camera", "Keep only cameras"),
+    ("ARMATURE", "Armature", "Keep only armatures"),
+]
+
+
+class IOPS_OT_MakeInstancesReal(bpy.types.Operator):
+    """Make the selected instances real. Only Type keeps just the objects of
+    that type: everything else, instancer empties included, is deleted and
+    the kept objects stay where they are in world space"""
+
+    bl_idname = "iops.make_instances_real"
+    bl_label = "Make Instances Real"
+    bl_options = {"REGISTER", "UNDO"}
+
+    only_type: EnumProperty(
+        name="Only Type",
+        description="Keep only objects of this type after the instances are "
+                    "made real; All keeps everything",
+        items=_ONLY_TYPE_ITEMS,
+        default="ALL",
+    )
+    use_hierarchy: bpy.props.BoolProperty(
+        name="Keep Hierarchy",
+        description="Maintain parent-child relationships",
+        default=True,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return any(
+            getattr(o, "instance_type", "NONE") != "NONE"
+            for o in (context.selected_objects or [])
+        )
+
+    def execute(self, context):
+        instancers = [
+            o for o in context.selected_objects
+            if getattr(o, "instance_type", "NONE") != "NONE"
+        ]
+        before = {o.name for o in bpy.data.objects}
+        bpy.ops.object.duplicates_make_real(
+            use_base_parent=False, use_hierarchy=self.use_hierarchy
+        )
+        if self.only_type == "ALL":
+            return {"FINISHED"}
+
+        created = [o for o in bpy.data.objects if o.name not in before]
+        pool = created + instancers
+        doomed = {o for o in pool if o.type != self.only_type}
+        kept = [o for o in pool if o not in doomed]
+
+        # Re-hang every kept object whose parent is about to go on its
+        # nearest surviving ancestor (or nothing), world transform intact.
+        for obj in kept:
+            parent = obj.parent
+            if parent is None or parent not in doomed:
+                continue
+            while parent is not None and parent in doomed:
+                parent = parent.parent
+            mw = obj.matrix_world.copy()
+            obj.parent = parent
+            obj.matrix_world = mw
+
+        for obj in doomed:
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except (ReferenceError, RuntimeError):
+                pass
+        for obj in kept:
+            obj.select_set(True)
+        if kept and context.view_layer.objects.active not in kept:
+            context.view_layer.objects.active = kept[0]
+        self.report({"INFO"}, f"{len(kept)} kept, {len(doomed)} removed")
+        return {"FINISHED"}
+
+
 def _find_layer_collection(layer_coll, coll):
     """Depth-first search for the LayerCollection wrapping `coll`."""
     if layer_coll.collection == coll:
