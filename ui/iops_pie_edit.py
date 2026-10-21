@@ -729,7 +729,15 @@ class IOPS_MT_Pie_Edit(Menu):
                     icon="OUTLINER_COLLECTION",
                 )
 
-                # 3 - BOTTOM-RIGHT
+                # 3 - BOTTOM-RIGHT: all instances of the same collection
+                op = pie.operator(
+                    "object.select_linked",
+                    text="Select All Instances",
+                    icon="RESTRICT_SELECT_OFF",
+                )
+                op.type = "DUPGROUP"
+                op.extend = False
+
                 draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
                 draw_empty_pie_size_display_and_image(pie, context)
