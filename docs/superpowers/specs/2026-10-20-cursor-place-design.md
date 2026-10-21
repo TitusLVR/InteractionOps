@@ -182,3 +182,23 @@ Highlight colours / widths come from the theme; no new theme fields.
 - **A (user request):** toggles active-object-only picking; the ray
   pierces every other object (`raycast_from_mouse(restrict_to=[active])`,
   so a collection-instance Empty as active works through `hit_owner`).
+- **Modifier scheme v3 (user request, same day):** slide is the default
+  (the Shift that invoked the modal can be released without any jump);
+  **Ctrl held = snap** to the nearest element, as in Blender; **Shift
+  pressed again = aim mode toggle** (position + element locked, edge axis
+  aims at the slide point or, with Ctrl, at the snapped element under the
+  mouse); Alt unchanged. Aim replaces the earlier "Ctrl = aim" binding.
+- **3D picking (close-camera jitter fix, same day):** all nearest-element
+  and nearest-edge decisions are made in 3D from the ray hit point, not in
+  screen space. Screen projection of polygon vertices returned None behind
+  a close camera and the reference edge flipped between moves. The slide
+  edge threshold stays a pixel pref, converted to world units at the hit
+  depth. Gizmo length is additionally clamped so no tip crosses the near
+  clipping plane, and the axis letters keep a gap no larger than the
+  on-screen stub of their axis. Side effect: zero per-vertex projections
+  on the hot path.
+- **Visible only (user request):** on top of `visible_only=True` (H,
+  monitor icon, collection eye / exclude, local view, object-type
+  visibility — all verified), geometry objects displayed as Wire or
+  Bounds are collected once per modal and passed as `exclude`, so the ray
+  pierces them.

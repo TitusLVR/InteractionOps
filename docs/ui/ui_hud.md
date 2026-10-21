@@ -15,10 +15,11 @@ Every interactive iOps tool draws the same kind of on-screen readout while it ru
 - Drag it with <kbd>Shift</kbd>+<kbd>Ctrl</kbd>+<kbd>Alt</kbd> to place it where you like.
 - The toggle key is a normal keymap entry (*Keymaps › UI Toggles*), so you can change it.
 - Expand / collapse animation styles (fade, slide, wave, shockwave or none) are chosen in the Theme tab.
+- *Auto-hide after* (Theme tab › Help Overlay) sets how the legend starts in every tool: -1 collapses it right away, 0 keeps it open until you press <kbd>H</kbd>, a positive number (default 1 s) collapses it after that many seconds. The collapse plays the configured help animation (preset, duration and the preset's own knobs). Pressing <kbd>H</kbd> yourself cancels the pending auto-hide.
 
 ## Statistics
 
-- File name (red when unsaved), dimensions, position, material, modifiers, instances, parent and unit warnings for the active object.
+- File name (red when unsaved), dimensions, position, material, modifiers, instances, parent, unit and empty-mesh warnings for the active object.
 - Turn individual rows on or off in *Preferences › iOps › Statistics Overlay*; turn the whole block off with the master toggle.
 - Respects the viewport's *Show Overlays* switch.
 
