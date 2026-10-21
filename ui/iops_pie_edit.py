@@ -717,6 +717,19 @@ class IOPS_MT_Pie_Edit(Menu):
                         text=f"Reload {os.path.basename(blendpath)}",
                         icon="FILE_REFRESH"
                     )
+                else:
+                    # keep slot order: skip 7 and 9 so the next button lands on 1
+                    pie.separator()
+                    pie.separator()
+
+                # 1 - BOTTOM-LEFT
+                pie.operator(
+                    "iops.select_instance_source_collection",
+                    text="Select Source Collection",
+                    icon="OUTLINER_COLLECTION",
+                )
+
+                # 3 - BOTTOM-RIGHT
                 draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
                 draw_empty_pie_size_display_and_image(pie, context)

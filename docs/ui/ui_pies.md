@@ -67,7 +67,7 @@ Extras:
 | --- | --- | --- |
 | Empty | **Size** box: 0.1 / 0.5 / 1 / 2 / 5 / 10, custom slider, **Copy from Active** | Set the display size of the selected empties |
 | Empty | **Display** box: Plain Axes, Arrows, Single Arrow, Circle, Cube, Sphere, Cone, Image | Change the empty's display type; image empties get **Reload Image** and **Origin to Geometry** |
-| Linked collection instance | **Make Instances Real**, **Expand Collection to Scene**, **Open <file>**, **Reload <file>** | Work with the instanced library |
+| Collection instance | **Make Instances Real**, **Expand Collection to Scene**, **Select Source Collection** (SW), **Open <file>**, **Reload <file>** | Work with the instanced collection; **Select Source Collection** makes the instanced collection active in the Outliner when it lives in the current scene, object selection stays as is |
 | Mesh, Edit Mode | **Visual UV** | Show UVs on the mesh in the viewport |
 | UV Editor | Vertex / Edge / Face / Esc + **Island Selection** | UV select modes and island toggle |
 | No active object | **Open Asset in Current Blender** | When an asset is selected in the Asset Browser |

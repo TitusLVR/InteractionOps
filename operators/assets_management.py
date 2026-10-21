@@ -678,6 +678,56 @@ class IOPS_OT_ExpandInstanceCollection(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _find_layer_collection(layer_coll, coll):
+    """Depth-first search for the LayerCollection wrapping `coll`."""
+    if layer_coll.collection == coll:
+        return layer_coll
+    for child in layer_coll.children:
+        found = _find_layer_collection(child, coll)
+        if found is not None:
+            return found
+    return None
+
+
+class IOPS_OT_SelectInstanceSourceCollection(bpy.types.Operator):
+    """Make the instanced collection active in the Outliner (if it lives in this scene).
+Object selection is left untouched"""
+
+    bl_idname = "iops.select_instance_source_collection"
+    bl_label = "Select Source Collection"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if (
+            obj is None
+            or obj.type != "EMPTY"
+            or getattr(obj, "instance_type", None) != "COLLECTION"
+            or obj.instance_collection is None
+        ):
+            return False
+        return (
+            _find_layer_collection(
+                context.view_layer.layer_collection, obj.instance_collection
+            )
+            is not None
+        )
+
+    def execute(self, context):
+        coll = context.active_object.instance_collection
+        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is None:
+            self.report({"WARNING"}, f"Collection '{coll.name}' is not in this scene")
+            return {"CANCELLED"}
+        context.view_layer.active_layer_collection = layer_coll
+        for area in context.screen.areas:
+            if area.type == "OUTLINER":
+                area.tag_redraw()
+        self.report({"INFO"}, f"Active collection: {coll.name}")
+        return {"FINISHED"}
+
+
 class IOPS_OT_Call_Pie_Assets(bpy.types.Operator):
     """Call the asset management pie menu"""
 
