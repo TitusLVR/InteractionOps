@@ -1,10 +1,9 @@
 import bpy
 import bmesh
 import math
-import gpu
-from ..ui.draw import safe_handler_add, safe_handler_remove
+from ..ui.draw import safe_handler_add, safe_handler_remove, draw_scope, Role
+from ..ui.draw import primitives as draw_prim
 from ..ui.hud import handle_hud_toggle, handle_help_toggle, capture_event
-from gpu_extras.batch import batch_for_shader
 import bpy_extras
 import blf
 from mathutils import Vector
@@ -44,16 +43,7 @@ FLOW_STEP = 5
 DEFAULT_SHARP_ANGLE = 30
 SHARP_ANGLE_STEP = 5
 
-# Drawing
-PATH_COLOR = (0.0, 1.0, 1.0, 1.0)
-PATH_WIDTH = 3.0
-HOVER_COLOR = (1.0, 1.0, 0.0, 1.0)
-HOVER_WIDTH = 4.0
-BARRIER_COLOR = (1.0, 0.2, 0.2, 0.8)
-BARRIER_WIDTH = 2.5
-
-ANCHOR_COLOR = (0.0, 0.8, 0.0, 1.0)
-ANCHOR_SIZE = 10.0
+# Drawing: everything comes from the iOps theme roles (see _draw_3d).
 
 PATH_MODES = ('DIRECTION', 'BUILD')
 PATH_MODE_LABELS = {'DIRECTION': 'Direction', 'BUILD': 'Build'}
@@ -80,10 +70,6 @@ SMOOTH_MAGNET_STEP = 1
 SMOOTH_MARKED_WINDOW = 5
 MAX_SMOOTH_ITERATIONS = 100
 SMOOTH_ITER_STEP = 1
-SMOOTH_PREVIEW_COLOR = (1.0, 0.85, 0.0, 1.0)
-SMOOTH_PREVIEW_WIDTH = 3.5
-SMOOTH_ORIGINAL_COLOR = (0.6, 0.3, 0.3, 0.8)
-SMOOTH_ORIGINAL_WIDTH = 2.0
 # Weighted A*: inflates the heuristic to prune the frontier aggressively.
 # Paths are at most ASTAR_H_WEIGHT× optimal length; on curved/non-convex meshes
 # the Euclidean-distance heuristic is a very loose bound, so amortized paths
@@ -1791,103 +1777,62 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         if not context or not context.scene:
             return
 
+        # Theme roles: marked path = Active, hover target = Closest,
+        # barrier edges = Error, build anchor = Locked, smooth preview =
+        # Preview over the dropped original as a plain Line.
         try:
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            shader.bind()
+            with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                if self._smooth_mode:
+                    if self._smooth_original_coords:
+                        coords = []
+                        for a, b in self._smooth_original_coords:
+                            coords.extend([a, b])
+                        draw_prim.edges_3d(coords, role=Role.LINE, context=context)
+                    if self._smooth_preview_coords:
+                        coords = []
+                        for a, b in self._smooth_preview_coords:
+                            coords.extend([a, b])
+                        draw_prim.edges_3d(coords, role=Role.PREVIEW_LINE, context=context)
 
-            # Smooth-marked preview: dropped-original (faded) + proposed (yellow)
-            if self._smooth_mode:
-                if self._smooth_original_coords:
+                if self.path_coords:
                     coords = []
-                    for a, b in self._smooth_original_coords:
+                    for a, b in self.path_coords:
                         coords.extend([a, b])
-                    shader.uniform_float("color", SMOOTH_ORIGINAL_COLOR)
-                    gpu.state.line_width_set(SMOOTH_ORIGINAL_WIDTH)
-                    gpu.state.depth_test_set('ALWAYS')
-                    gpu.state.blend_set('ALPHA')
-                    batch = batch_for_shader(shader, 'LINES', {"pos": coords})
-                    batch.draw(shader)
-                if self._smooth_preview_coords:
-                    coords = []
-                    for a, b in self._smooth_preview_coords:
-                        coords.extend([a, b])
-                    shader.uniform_float("color", SMOOTH_PREVIEW_COLOR)
-                    gpu.state.line_width_set(SMOOTH_PREVIEW_WIDTH)
-                    gpu.state.depth_test_set('ALWAYS')
-                    gpu.state.blend_set('ALPHA')
-                    batch = batch_for_shader(shader, 'LINES', {"pos": coords})
-                    batch.draw(shader)
+                    draw_prim.edges_3d(coords, role=Role.ACTIVE_LINE, context=context)
 
-            # Path edges
-            if self.path_coords:
-                coords = []
-                for a, b in self.path_coords:
-                    coords.extend([a, b])
-                shader.uniform_float("color", PATH_COLOR)
-                gpu.state.line_width_set(PATH_WIDTH)
-                gpu.state.depth_test_set('ALWAYS')
-                gpu.state.blend_set('ALPHA')
-                batch = batch_for_shader(shader, 'LINES', {"pos": coords})
-                batch.draw(shader)
+                if self.barrier_coords:
+                    bcoords = []
+                    for a, b in self.barrier_coords:
+                        bcoords.extend([a, b])
+                    draw_prim.edges_3d(bcoords, role=Role.ERROR_LINE, context=context)
 
-            # Barrier edges on the hovered face
-            if self.barrier_coords:
-                bcoords = []
-                for a, b in self.barrier_coords:
-                    bcoords.extend([a, b])
-                shader.uniform_float("color", BARRIER_COLOR)
-                gpu.state.line_width_set(BARRIER_WIDTH)
-                gpu.state.depth_test_set('ALWAYS')
-                bb = batch_for_shader(shader, 'LINES', {"pos": bcoords})
-                bb.draw(shader)
+                if self.anchor_coords:
+                    draw_prim.points(list(self.anchor_coords), role=Role.LOCKED_POINT,
+                                     context=context)
 
-            # Anchor dot (build mode)
-            if self.anchor_coords:
-                shader.uniform_float("color", ANCHOR_COLOR)
-                gpu.state.point_size_set(ANCHOR_SIZE)
-                gpu.state.depth_test_set('ALWAYS')
-                ab = batch_for_shader(
-                    shader, 'POINTS', {"pos": self.anchor_coords}
-                )
-                ab.draw(shader)
-
-            # Hover highlight: target vertex (Build) or edge (Direction)
-            if self.hit_obj and self.hit_obj.mode == 'EDIT':
-                try:
-                    obj = self.hit_obj
-                    bm = bmesh.from_edit_mesh(obj.data)
-                    if (self.path_mode == 'BUILD'
-                            and self._target_vert_index >= 0):
-                        bm.verts.ensure_lookup_table()
-                        if self._target_vert_index < len(bm.verts):
-                            v = bm.verts[self._target_vert_index]
-                            p = obj.matrix_world @ v.co.copy()
-                            shader.uniform_float("color", HOVER_COLOR)
-                            gpu.state.point_size_set(ANCHOR_SIZE)
-                            tb = batch_for_shader(
-                                shader, 'POINTS', {"pos": [p]}
-                            )
-                            tb.draw(shader)
-                    elif self.path_mode != 'BUILD' and self.hovered_edge_index >= 0:
-                        bm.edges.ensure_lookup_table()
-                        if self.hovered_edge_index < len(bm.edges):
-                            e = bm.edges[self.hovered_edge_index]
-                            a = obj.matrix_world @ e.verts[0].co.copy()
-                            b = obj.matrix_world @ e.verts[1].co.copy()
-                            shader.uniform_float("color", HOVER_COLOR)
-                            gpu.state.line_width_set(HOVER_WIDTH)
-                            hb = batch_for_shader(
-                                shader, 'LINES', {"pos": [a, b]}
-                            )
-                            hb.draw(shader)
-                except (IndexError, AttributeError, ReferenceError):
-                    pass
-
-            gpu.state.line_width_set(1.0)
-            gpu.state.point_size_set(1.0)
-            gpu.state.depth_test_set('LESS')
-            gpu.state.blend_set('NONE')
-
+                # Hover highlight: target vertex (Build) or edge (Direction)
+                if self.hit_obj and self.hit_obj.mode == 'EDIT':
+                    try:
+                        obj = self.hit_obj
+                        bm = bmesh.from_edit_mesh(obj.data)
+                        if (self.path_mode == 'BUILD'
+                                and self._target_vert_index >= 0):
+                            bm.verts.ensure_lookup_table()
+                            if self._target_vert_index < len(bm.verts):
+                                v = bm.verts[self._target_vert_index]
+                                p = obj.matrix_world @ v.co.copy()
+                                draw_prim.points([p], role=Role.CLOSEST_POINT,
+                                                 context=context)
+                        elif self.path_mode != 'BUILD' and self.hovered_edge_index >= 0:
+                            bm.edges.ensure_lookup_table()
+                            if self.hovered_edge_index < len(bm.edges):
+                                e = bm.edges[self.hovered_edge_index]
+                                a = obj.matrix_world @ e.verts[0].co.copy()
+                                b = obj.matrix_world @ e.verts[1].co.copy()
+                                draw_prim.edges_3d([a, b], role=Role.CLOSEST_LINE,
+                                                   context=context)
+                    except (IndexError, AttributeError, ReferenceError):
+                        pass
         except (ReferenceError, AttributeError, ValueError):
             pass
 
