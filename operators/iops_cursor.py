@@ -27,6 +27,7 @@ from bpy_extras.view3d_utils import (
     region_2d_to_vector_3d,
 )
 from mathutils.geometry import intersect_line_plane
+import numpy as np
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -70,7 +71,7 @@ def _build_help(context):
         HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Ignore Triangulate modifiers", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Ignore triangulation (pick the source n-gon)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -83,6 +84,40 @@ def _build_help(context):
 
 
 # --- Draw callbacks ----------------------------------------------------------
+
+def _build_vert_poly_lookup(mesh):
+    """(sorted loop vertex ids, matching polygon ids, mesh) for `mesh`.
+    numpy foreach_get + one argsort: ~0.1 s per million loops, done once
+    per original mesh per modal."""
+    try:
+        n_loops = len(mesh.loops)
+        n_polys = len(mesh.polygons)
+        if n_loops == 0 or n_polys == 0:
+            return (None, None, mesh)
+        loop_verts = np.empty(n_loops, dtype=np.int32)
+        mesh.loops.foreach_get("vertex_index", loop_verts)
+        loop_total = np.empty(n_polys, dtype=np.int32)
+        mesh.polygons.foreach_get("loop_total", loop_total)
+        loop_polys = np.repeat(np.arange(n_polys, dtype=np.int32), loop_total)
+        order = np.argsort(loop_verts, kind="stable")
+        return (loop_verts[order], loop_polys[order], mesh)
+    except (ReferenceError, AttributeError, ValueError):
+        return (None, None, mesh)
+
+
+def _newell_normal(verts3d):
+    n = Vector((0.0, 0.0, 0.0))
+    count = len(verts3d)
+    for i in range(count):
+        a = verts3d[i]
+        b = verts3d[(i + 1) % count]
+        n.x += (a.y - b.y) * (a.z + b.z)
+        n.y += (a.z - b.z) * (a.x + b.x)
+        n.z += (a.x - b.x) * (a.y + b.y)
+    if n.length_squared <= 0.0:
+        return Vector((0.0, 0.0, 1.0))
+    return n.normalized()
+
 
 def _snap_candidates(verts3d, chosen):
     """Snap candidates of one polygon (vertices, edge midpoints, centre)
@@ -284,8 +319,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._snap = bool(event.ctrl)
         self._aim = False          # Shift (toggle): aim mode on/off
         self._active_only = False  # A: raycast only the active object
-        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs (on by default, set below)
-        self._tri_mods = []        # [(modifier, original show_viewport)] to restore
+        self._ignore_tri = True    # T: pick the pre-triangulation polygon (see _ngon_for)
+        self._ngon_cache = {}      # original-mesh pointer -> (loop_verts_sorted, loop_poly_sorted, mesh)
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         # The key/button whose release confirms: whatever invoked us.
@@ -293,7 +328,6 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._mesh_cache = {}
         self._owner_cache = {}
         self._exclude = _see_through_objects(context)
-        self._set_ignore_triangulate(context, True)   # default on: pick pre-triangulation n-gons
         self._pick = None
         self._sig = None
         self._mouse = (event.mouse_region_x, event.mouse_region_y)
@@ -334,47 +368,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return "—"
         return _KIND_LABELS.get(data[0].kind, "?")
 
-    def _set_ignore_triangulate(self, context, enabled):
-        """T: hide every Triangulate modifier in the view layer so the ray
-        hits the pre-triangulation polygons (n-gons stay n-gons); restore
-        the recorded viewport states when switched off or on exit."""
-        if enabled == self._ignore_tri:
-            return
-        self._ignore_tri = enabled
-        if enabled:
-            self._tri_mods = []
-            try:
-                objects = list(context.view_layer.objects)
-            except (ReferenceError, AttributeError):
-                objects = []
-            for ob in objects:
-                if ob.type != "MESH":
-                    continue
-                for mod in ob.modifiers:
-                    if mod.type != "TRIANGULATE" or not mod.show_viewport:
-                        continue
-                    try:
-                        mod.show_viewport = False  # linked data is read-only
-                    except (AttributeError, TypeError):
-                        continue
-                    self._tri_mods.append((mod, True))
-        else:
-            self._restore_triangulate()
-        # Evaluated meshes change shape: drop everything cached from them.
-        self._mesh_cache = {}
-        self._owner_cache = {}
-
-    def _restore_triangulate(self):
-        for mod, state in self._tri_mods:
-            try:
-                mod.show_viewport = state
-            except (ReferenceError, AttributeError, TypeError):
-                pass
-        self._tri_mods = []
-
     def _cleanup(self, context):
-        self._restore_triangulate()
-        self._ignore_tri = False
         for h in self._handles:
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
@@ -383,6 +377,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._handles = []
         self._mesh_cache = {}
         self._owner_cache = {}
+        self._ngon_cache = {}
         if context.area is not None:
             context.area.tag_redraw()
 
@@ -483,12 +478,22 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         if (mesh is not None and face_index is not None
                 and 0 <= face_index < len(mesh.polygons)):
             poly = mesh.polygons[face_index]
-            nmat = matrix.inverted_safe().transposed().to_3x3()
-            poly_normal = (nmat @ poly.normal).normalized()
-            center = matrix @ poly.center
+            verts = mesh.vertices
+            vert_ids = None
+            if self._ignore_tri:
+                vert_ids = self._ngon_for(obj, mesh, poly)
+            if vert_ids is not None:
+                verts3d = [matrix @ verts[i].co for i in vert_ids]
+                poly_normal = _newell_normal(verts3d)
+                center = sum(verts3d, Vector()) / len(verts3d)
+            else:
+                nmat = matrix.inverted_safe().transposed().to_3x3()
+                poly_normal = (nmat @ poly.normal).normalized()
+                center = matrix @ poly.center
+                verts3d = None
             if abs((loc - center).dot(poly_normal)) <= _PLANE_TOLERANCE * max(1.0, center.length):
-                verts = mesh.vertices
-                verts3d = [matrix @ verts[i].co for i in poly.vertices]
+                if verts3d is None:
+                    verts3d = [matrix @ verts[i].co for i in poly.vertices]
                 if not self._snap:
                     # Edge threshold is a pixel pref: convert at the hit depth.
                     threshold = self._slide_px * px_world_at(region, rv3d, loc)
@@ -523,6 +528,48 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         if mesh is not None:
             self._mesh_cache[key] = mesh
         return mesh
+
+    def _ngon_for(self, obj, mesh, poly):
+        """Vertex indices of the *original* polygon the evaluated polygon
+        `poly` is a piece of, or None when the mapping is not safe.
+
+        Triangulate (and any topology-preserving stack around it) keeps the
+        vertex count and order of the original mesh, so the triangle's
+        vertex ids name the original polygon directly. No modifier is
+        touched, so nothing re-evaluates: in a multi-million-tri scene the
+        old show_viewport toggle cost a full depsgraph pass on entry and
+        again on release. Anything that changed the vertex count (Bevel,
+        Mirror, Subdivision...) falls back to the evaluated polygon."""
+        try:
+            orig = obj.original.data if obj.is_evaluated else obj.data
+        except (ReferenceError, AttributeError):
+            return None
+        if orig is None or len(orig.vertices) != len(mesh.vertices):
+            return None
+        if len(orig.polygons) >= len(mesh.polygons):
+            return None     # nothing was triangulated
+        key = orig.as_pointer()
+        entry = self._ngon_cache.get(key)
+        if entry is None:
+            entry = _build_vert_poly_lookup(orig)
+            self._ngon_cache[key] = entry
+        loop_verts, loop_polys, _keep = entry
+        if loop_verts is None:
+            return None
+        ids = list(poly.vertices)
+        if len(ids) < 3:
+            return None
+        cands = None
+        for v in ids[:3]:
+            lo = np.searchsorted(loop_verts, v, side="left")
+            hi = np.searchsorted(loop_verts, v, side="right")
+            ps = set(loop_polys[lo:hi].tolist())
+            cands = ps if cands is None else (cands & ps)
+            if not cands:
+                return None
+        if len(cands) != 1:
+            return None
+        return list(orig.polygons[cands.pop()].vertices)
 
     # --- commit -------------------------------------------------------------
 
@@ -613,7 +660,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et == "T":
-                self._set_ignore_triangulate(context, not self._ignore_tri)
+                self._ignore_tri = not self._ignore_tri
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
