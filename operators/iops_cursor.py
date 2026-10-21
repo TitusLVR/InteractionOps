@@ -70,6 +70,7 @@ def _build_help(context):
         HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Ignore Triangulate modifiers", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -261,6 +262,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._snap = bool(event.ctrl)
         self._aim = False          # Shift (toggle): aim mode on/off
         self._active_only = False  # A: raycast only the active object
+        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs
+        self._tri_mods = []        # [(modifier, original show_viewport)] to restore
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         # The key/button whose release confirms: whatever invoked us.
@@ -277,6 +280,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
         self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
+        self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
         self._hud.add_param(HUDParam("Edge axis", lambda: self._edge_axis, "str"))
         self._help = _build_help(context)
@@ -307,7 +311,47 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return "—"
         return _KIND_LABELS.get(data[0].kind, "?")
 
+    def _set_ignore_triangulate(self, context, enabled):
+        """T: hide every Triangulate modifier in the view layer so the ray
+        hits the pre-triangulation polygons (n-gons stay n-gons); restore
+        the recorded viewport states when switched off or on exit."""
+        if enabled == self._ignore_tri:
+            return
+        self._ignore_tri = enabled
+        if enabled:
+            self._tri_mods = []
+            try:
+                objects = list(context.view_layer.objects)
+            except (ReferenceError, AttributeError):
+                objects = []
+            for ob in objects:
+                if ob.type != "MESH":
+                    continue
+                for mod in ob.modifiers:
+                    if mod.type != "TRIANGULATE" or not mod.show_viewport:
+                        continue
+                    try:
+                        mod.show_viewport = False  # linked data is read-only
+                    except (AttributeError, TypeError):
+                        continue
+                    self._tri_mods.append((mod, True))
+        else:
+            self._restore_triangulate()
+        # Evaluated meshes change shape: drop everything cached from them.
+        self._mesh_cache = {}
+        self._owner_cache = {}
+
+    def _restore_triangulate(self):
+        for mod, state in self._tri_mods:
+            try:
+                mod.show_viewport = state
+            except (ReferenceError, AttributeError, TypeError):
+                pass
+        self._tri_mods = []
+
     def _cleanup(self, context):
+        self._restore_triangulate()
+        self._ignore_tri = False
         for h in self._handles:
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
@@ -538,6 +582,10 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 return {"RUNNING_MODAL"}
             if et == "A":
                 self._active_only = not self._active_only
+                self._update(context, event)
+                return {"RUNNING_MODAL"}
+            if et == "T":
+                self._set_ignore_triangulate(context, not self._ignore_tri)
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:

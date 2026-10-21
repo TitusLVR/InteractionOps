@@ -14,6 +14,7 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 | <kbd>Shift</kbd> (press again) | Aim, toggle: the position stays put, the edge axis points at the point under the mouse (the snapped element with Ctrl, highlighted), or at the mouse itself over empty space |
 | <kbd>Alt</kbd> (hold) | Move with the orientation frozen at the moment Alt went down |
 | <kbd>A</kbd> | Toggle: pick only on the active object, the ray passes through everything else |
+| <kbd>T</kbd> | Toggle: ignore Triangulate modifiers (hidden in the viewport while the modal runs, restored on exit), so n-gons are picked whole |
 | <kbd>X</kbd> / <kbd>Y</kbd> / <kbd>Z</kbd> | Which cursor axis follows the surface normal (if it collides with the edge axis, the two swap) |
 | <kbd>F</kbd> | Flip the normal axis |
 | Wheel | Switch the edge axis to the other free letter |
