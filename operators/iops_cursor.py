@@ -105,7 +105,10 @@ def _build_vert_poly_lookup(mesh):
         return (None, None, mesh)
 
 
-def _newell_normal(verts3d):
+def _newell_normal(verts3d, fallback=None):
+    """Mean plane normal of a polygon (Newell), winding-consistent with
+    Blender's. A degenerate ring (bow-tie, collinear, zero area) has no
+    mean plane: return `fallback` (the ray hit normal) or world Z."""
     n = Vector((0.0, 0.0, 0.0))
     count = len(verts3d)
     for i in range(count):
@@ -114,7 +117,9 @@ def _newell_normal(verts3d):
         n.x += (a.y - b.y) * (a.z + b.z)
         n.y += (a.z - b.z) * (a.x + b.x)
         n.z += (a.x - b.x) * (a.y + b.y)
-    if n.length_squared <= 0.0:
+    if n.length_squared <= 1e-18:
+        if fallback is not None and fallback.length_squared > 0.0:
+            return fallback.normalized()
         return Vector((0.0, 0.0, 1.0))
     return n.normalized()
 
@@ -485,7 +490,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             if vert_ids is None:
                 vert_ids = list(poly.vertices)
             verts3d = [matrix @ verts[i].co for i in vert_ids]
-            poly_normal = _newell_normal(verts3d)
+            poly_normal = _newell_normal(verts3d, nrm)
             center = sum(verts3d, Vector()) / len(verts3d)
             # Sanity guard against a stale face index: the hit must lie on
             # the polygon. For a non-planar polygon the ray lands on one of
