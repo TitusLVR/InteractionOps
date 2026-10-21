@@ -3,6 +3,10 @@ import os
 from bpy.types import Menu
 
 from ..operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
+from ..operators.assets_management import (
+    all_instances_selected,
+    instance_source_is_active,
+)
 from ..operators.mesh_nonplanar_overlay import overlay_enabled
 from ..utils.op_call import parse_operator_call
 
@@ -722,21 +726,25 @@ class IOPS_MT_Pie_Edit(Menu):
                     pie.separator()
                     pie.separator()
 
-                # 1 - BOTTOM-LEFT
+                # 1 - BOTTOM-LEFT (toggle): source collection <-> own collection
+                src_on = instance_source_is_active(context)
                 pie.operator(
                     "iops.select_instance_source_collection",
-                    text="Select Source Collection",
+                    text=("Back to Instance Collection" if src_on
+                          else "Select Source Collection"),
                     icon="OUTLINER_COLLECTION",
+                    depress=src_on,
                 )
 
-                # 3 - BOTTOM-RIGHT: all instances of the same collection
-                op = pie.operator(
-                    "object.select_linked",
-                    text="Select All Instances",
+                # 3 - BOTTOM-RIGHT (toggle): all instances of the same collection
+                all_on = all_instances_selected(context)
+                pie.operator(
+                    "iops.select_collection_instances",
+                    text=("Deselect Other Instances" if all_on
+                          else "Select All Instances"),
                     icon="RESTRICT_SELECT_OFF",
+                    depress=all_on,
                 )
-                op.type = "DUPGROUP"
-                op.extend = False
 
                 draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
