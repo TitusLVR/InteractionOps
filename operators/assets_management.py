@@ -705,6 +705,12 @@ class IOPS_OT_MakeInstancesReal(bpy.types.Operator):
                     "made real; All keeps everything",
         items=_ONLY_TYPE_ITEMS,
         default="ALL",
+        options={"SKIP_SAVE"},   # every pie press starts from All, never a remembered filter
+    )
+    use_base_parent: bpy.props.BoolProperty(
+        name="Parent",
+        description="Parent newly created objects to the original instancer",
+        default=False,
     )
     use_hierarchy: bpy.props.BoolProperty(
         name="Keep Hierarchy",
@@ -726,7 +732,7 @@ class IOPS_OT_MakeInstancesReal(bpy.types.Operator):
         ]
         before = {o.name for o in bpy.data.objects}
         bpy.ops.object.duplicates_make_real(
-            use_base_parent=False, use_hierarchy=self.use_hierarchy
+            use_base_parent=self.use_base_parent, use_hierarchy=self.use_hierarchy
         )
         if self.only_type == "ALL":
             return {"FINISHED"}
