@@ -9,8 +9,8 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 ## Controls
 | Key | Action |
 | --- | --- |
-| <kbd>Shift</kbd> + <kbd>RMB</kbd> (hold + move) | Slide: the cursor follows the mouse on the face, or along the nearest edge within the snap threshold; the element and the cursor axes are previewed in the theme / axis colours |
-| <kbd>Ctrl</kbd> (hold) | Snap: nearest vertex, edge midpoint or face centre of the polygon under the mouse |
+| <kbd>Shift</kbd> + <kbd>RMB</kbd> (hold + move) | Slide: the cursor follows the mouse on the face, or along the nearest edge within the snap threshold; the element is highlighted in the theme Closest colour, the landing point is the Result Preview point and the cursor axes use the axis colours (width from Theme › Axis gizmo) |
+| <kbd>Ctrl</kbd> (hold) | Snap: nearest vertex, edge midpoint or face centre of the polygon under the mouse; every candidate is drawn as a theme point, the chosen one in the Result Preview colour, the element itself in Closest |
 | <kbd>Shift</kbd> (press again) | Aim, toggle: the position stays put, the edge axis points at the point under the mouse (the snapped element with Ctrl, highlighted), or at the mouse itself over empty space |
 | <kbd>Alt</kbd> (hold) | Move with the orientation frozen at the moment Alt went down |
 | <kbd>A</kbd> | Toggle: pick only on the active object, the ray passes through everything else |

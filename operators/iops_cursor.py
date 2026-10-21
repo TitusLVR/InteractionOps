@@ -84,16 +84,31 @@ def _build_help(context):
 
 # --- Draw callbacks ----------------------------------------------------------
 
+def _snap_candidates(verts3d, chosen):
+    """Snap candidates of one polygon (vertices, edge midpoints, centre)
+    minus the chosen one, which is drawn separately as the Preview point."""
+    n = len(verts3d)
+    if n < 3:
+        return []
+    pts = list(verts3d)
+    pts += [(verts3d[i] + verts3d[(i + 1) % n]) * 0.5 for i in range(n)]
+    pts.append(sum(verts3d, Vector()) / n)
+    c = Vector(chosen)
+    tol = 1e-10 * max(1.0, c.length_squared)
+    return [p for p in pts if (p - c).length_squared > tol]
+
+
 def _draw_preview_3d(op, context):
     """POST_VIEW: element highlight + cursor axis ghost. Reads `op._pick`
     only — no scene queries in the draw handler."""
     data = getattr(op, "_pick", None)
     if data is None:
         return
-    pick, frame, verts3d, axis_len, tris, aim = data
+    pick, frame, verts3d, axis_len, tris, aim, snap_pts = data
     pos = Vector(pick.position)
 
     with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE"):
+        # Element under the mouse (or the frozen one in aim mode): Closest.
         if pick.kind == "FACE":
             if tris:
                 draw.tris(tris, role=Role.GHOST_CLOSEST, context=context)
@@ -105,6 +120,11 @@ def _draw_preview_3d(op, context):
                           role=Role.CLOSEST_LINE, width="closest", context=context)
         else:
             draw.points([pos], role=Role.CLOSEST_POINT, context=context)
+
+        # Snap (Ctrl): every candidate of the hit polygon as a plain theme
+        # point; the chosen one is drawn in Preview below, on top.
+        if snap_pts:
+            draw.points(snap_pts, role=Role.POINT, context=context)
 
         if aim is not None:
             tpick, tverts = aim
@@ -126,7 +146,9 @@ def _draw_preview_3d(op, context):
             r, g, b, _ = axis_color(letter)
             draw.edges_3d([pos, pos + Vector(frame[i]) * length],
                           color=(r, g, b, 1.0), width="axis_gizmo", context=context)
-        draw.points([pos], color=(1.0, 1.0, 1.0, 0.9), size=4.0, context=context)
+        # Where the cursor will land (slide point or snapped candidate):
+        # the Result Preview point of the theme.
+        draw.points([pos], role=Role.PREVIEW_POINT, context=context)
 
 
 def _draw_pixel(op, context):
@@ -136,7 +158,7 @@ def _draw_pixel(op, context):
     rv3d = context.region_data
     if (data is not None and region is not None and rv3d is not None
             and getattr(op, "_axis_letters", True)):
-        pick, frame, _verts3d, axis_len, _tris, _aim = data
+        pick, frame, _verts3d, axis_len, _tris, _aim, _snap_pts = data
         pos = Vector(pick.position)
         length = axis_len
         theme = get_theme(context)
@@ -434,8 +456,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             pos = Vector(pick.position)
             axis_len = _gizmo_length(context, region, rv3d, pos, self._axis_px)
             tris = _face_tris(verts3d) if pick.kind == "FACE" else []
-            new_pick = (pick, frame, verts3d, axis_len, tris, aim)
-            sig = (pick.kind, pick.index,
+            # Candidates belong to the polygon under the mouse: the aim
+            # target while aiming, the pick itself otherwise.
+            under = aim[1] if aim is not None else verts3d
+            snapped = aim[0].position if aim is not None else pick.position
+            snap_pts = _snap_candidates(under, snapped) if self._snap else []
+            new_pick = (pick, frame, verts3d, axis_len, tris, aim, snap_pts)
+            sig = (pick.kind, pick.index, self._snap,
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
                    round(axis_len, 9), len(verts3d),
@@ -503,7 +530,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         scene = context.scene
         data = self._pick
         if data is not None:
-            pick, frame, _verts3d, _px, _tris, _aim = data
+            pick, frame, _verts3d, _px, _tris, _aim, _snap_pts = data
             rot = Matrix((frame[0], frame[1], frame[2])).transposed()
             scene.cursor.matrix = Matrix.Translation(Vector(pick.position)) @ rot.to_4x4()
         else:
