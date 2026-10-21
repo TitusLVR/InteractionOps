@@ -19,7 +19,7 @@ Every interactive iOps tool draws the same kind of on-screen readout while it ru
 
 ## Statistics
 
-- File name (red when unsaved), dimensions, position, material, modifiers, instances, parent and unit warnings for the active object.
+- File name (red when unsaved), dimensions, position, material, modifiers, instances, parent, unit and empty-mesh warnings for the active object.
 - Turn individual rows on or off in *Preferences › iOps › Statistics Overlay*; turn the whole block off with the master toggle.
 - Respects the viewport's *Show Overlays* switch.
 
