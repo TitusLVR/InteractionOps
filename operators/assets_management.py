@@ -720,16 +720,20 @@ class IOPS_OT_MakeInstancesReal(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return any(
-            getattr(o, "instance_type", "NONE") != "NONE"
-            for o in (context.selected_objects or [])
-        )
+        # Deliberately loose: the redo panel polls against the *post*-op
+        # scene (instancers already gone from the selection) before it
+        # undoes and re-runs, so checking for instancers here would make
+        # Only Type changes in Adjust Last Operation silently do nothing.
+        return context.mode == "OBJECT"
 
     def execute(self, context):
         instancers = [
             o for o in context.selected_objects
             if getattr(o, "instance_type", "NONE") != "NONE"
         ]
+        if not instancers:
+            self.report({"WARNING"}, "No instances selected")
+            return {"CANCELLED"}
         before = {o.name for o in bpy.data.objects}
         bpy.ops.object.duplicates_make_real(
             use_base_parent=self.use_base_parent, use_hierarchy=self.use_hierarchy
