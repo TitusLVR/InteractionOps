@@ -262,7 +262,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._snap = bool(event.ctrl)
         self._aim = False          # Shift (toggle): aim mode on/off
         self._active_only = False  # A: raycast only the active object
-        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs
+        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs (on by default, set below)
         self._tri_mods = []        # [(modifier, original show_viewport)] to restore
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
@@ -271,6 +271,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._mesh_cache = {}
         self._owner_cache = {}
         self._exclude = _see_through_objects(context)
+        self._set_ignore_triangulate(context, True)   # default on: pick pre-triangulation n-gons
         self._pick = None
         self._sig = None
         self._mouse = (event.mouse_region_x, event.mouse_region_y)

@@ -243,7 +243,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
                     "positive value collapses it after that many seconds. "
                     "The collapse plays the Help animation; H still toggles "
                     "it any time",
-        default=1.0, min=-1.0, max=120.0, step=50, precision=1,
+        default=0.0, min=-1.0, max=120.0, step=50, precision=1,
         subtype="TIME_ABSOLUTE",
     )
     help_hint_text: bpy.props.StringProperty(
