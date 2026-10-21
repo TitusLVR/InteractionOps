@@ -714,12 +714,45 @@ Object selection is left untouched"""
             is not None
         )
 
+    @staticmethod
+    def _reveal_in_outliners(context, layer_coll):
+        """Expand the Outliner tree down to `layer_coll` and scroll to it.
+
+        outliner.show_active only knows about the active *object*, so an
+        object from inside the collection is made active for a moment; the
+        expansion it triggers (parents included) persists afterwards.
+        """
+        vl = context.view_layer
+        probe = next(
+            (o for o in layer_coll.collection.all_objects if o.name in vl.objects),
+            None,
+        )
+        if probe is None:
+            return False
+        prev_active = vl.objects.active
+        vl.objects.active = probe
+        try:
+            for area in context.screen.areas:
+                if area.type != "OUTLINER":
+                    continue
+                if area.spaces.active.display_mode != "VIEW_LAYER":
+                    continue
+                region = next((r for r in area.regions if r.type == "WINDOW"), None)
+                if region is None:
+                    continue
+                with context.temp_override(area=area, region=region):
+                    bpy.ops.outliner.show_active()
+        finally:
+            vl.objects.active = prev_active
+        return True
+
     def execute(self, context):
         coll = context.active_object.instance_collection
         layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
         if layer_coll is None:
             self.report({"WARNING"}, f"Collection '{coll.name}' is not in this scene")
             return {"CANCELLED"}
+        self._reveal_in_outliners(context, layer_coll)
         context.view_layer.active_layer_collection = layer_coll
         for area in context.screen.areas:
             if area.type == "OUTLINER":
