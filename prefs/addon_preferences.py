@@ -290,6 +290,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=False,
     )
 
+    show_empty_mesh_stat: BoolProperty(
+        name="Empty Mesh Warning",
+        description="Warn when the active mesh object has no vertices, edges or faces",
+        default=True,
+    )
+
     show_view_position_stat: BoolProperty(
         name="Position / Distance",
         description="Show active object world position and distance to the viewpoint",
@@ -1158,6 +1164,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 grid.prop(self, "show_collection_stat", toggle=True)
                 grid.prop(self, "show_parent_stat", toggle=True)
                 grid.prop(self, "show_units_stat", toggle=True)
+                grid.prop(self, "show_empty_mesh_stat", toggle=True)
                 body.separator()
                 body.label(text="Colors, sizes and text positioning live in the Theme tab.")
 

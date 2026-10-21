@@ -229,6 +229,13 @@ def draw_iops_statistics():
             offset_y -= row_step
 
         if active_object and active_object.type == "MESH":
+            if (getattr(prefs, "show_empty_mesh_stat", True)
+                    and len(active_object.data.vertices) == 0):
+                _t("Mesh:", role=Role.HUD_LABEL)
+                _t("Empty (0 verts / 0 edges / 0 faces)",
+                   role=Role.HUD_STATS_ERROR, x=base_column_x)
+                offset_y -= row_step
+
             scale_stat = []
             scale = active_object.scale
             if scale[0] != 1 and scale[1] != 1 and scale[2] != 1:
