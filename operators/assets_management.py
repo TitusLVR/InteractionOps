@@ -689,9 +689,59 @@ def _find_layer_collection(layer_coll, coll):
     return None
 
 
+def _is_collection_instance(obj):
+    return (
+        obj is not None
+        and obj.type == "EMPTY"
+        and getattr(obj, "instance_type", None) == "COLLECTION"
+        and obj.instance_collection is not None
+    )
+
+
+def _instance_source_layer_collection(context):
+    """LayerCollection of the active instancer's collection, or None."""
+    obj = context.active_object
+    if not _is_collection_instance(obj):
+        return None
+    return _find_layer_collection(
+        context.view_layer.layer_collection, obj.instance_collection
+    )
+
+
+def _instance_home_layer_collection(context):
+    """LayerCollection the active instancer empty itself lives in, or None."""
+    obj = context.active_object
+    if obj is None:
+        return None
+    for coll in obj.users_collection:
+        found = _find_layer_collection(context.view_layer.layer_collection, coll)
+        if found is not None:
+            return found
+    return None
+
+
+def instance_source_is_active(context):
+    """True when the Outliner's active collection is already the instanced one."""
+    source = _instance_source_layer_collection(context)
+    return source is not None and context.view_layer.active_layer_collection == source
+
+
+def _show_active_in_outliners(context):
+    for area in context.screen.areas:
+        if area.type != "OUTLINER":
+            continue
+        if area.spaces.active.display_mode != "VIEW_LAYER":
+            continue
+        region = next((r for r in area.regions if r.type == "WINDOW"), None)
+        if region is None:
+            continue
+        with context.temp_override(area=area, region=region):
+            bpy.ops.outliner.show_active()
+
+
 class IOPS_OT_SelectInstanceSourceCollection(bpy.types.Operator):
-    """Make the instanced collection active in the Outliner (if it lives in this scene).
-Object selection is left untouched"""
+    """Toggle the Outliner between the instanced collection and the instance's own collection.
+Expands the tree and scrolls to it; object selection is left untouched"""
 
     bl_idname = "iops.select_instance_source_collection"
     bl_label = "Select Source Collection"
@@ -699,20 +749,7 @@ Object selection is left untouched"""
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        if (
-            obj is None
-            or obj.type != "EMPTY"
-            or getattr(obj, "instance_type", None) != "COLLECTION"
-            or obj.instance_collection is None
-        ):
-            return False
-        return (
-            _find_layer_collection(
-                context.view_layer.layer_collection, obj.instance_collection
-            )
-            is not None
-        )
+        return _instance_source_layer_collection(context) is not None
 
     @staticmethod
     def _reveal_in_outliners(context, layer_coll):
@@ -732,32 +769,77 @@ Object selection is left untouched"""
         prev_active = vl.objects.active
         vl.objects.active = probe
         try:
-            for area in context.screen.areas:
-                if area.type != "OUTLINER":
-                    continue
-                if area.spaces.active.display_mode != "VIEW_LAYER":
-                    continue
-                region = next((r for r in area.regions if r.type == "WINDOW"), None)
-                if region is None:
-                    continue
-                with context.temp_override(area=area, region=region):
-                    bpy.ops.outliner.show_active()
+            _show_active_in_outliners(context)
         finally:
             vl.objects.active = prev_active
         return True
 
     def execute(self, context):
-        coll = context.active_object.instance_collection
-        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
-        if layer_coll is None:
-            self.report({"WARNING"}, f"Collection '{coll.name}' is not in this scene")
+        source = _instance_source_layer_collection(context)
+        if source is None:
+            self.report({"WARNING"}, "Instanced collection is not in this scene")
             return {"CANCELLED"}
-        self._reveal_in_outliners(context, layer_coll)
-        context.view_layer.active_layer_collection = layer_coll
+        if context.view_layer.active_layer_collection == source:
+            # Toggle off: back to where the instancer empty itself lives.
+            home = _instance_home_layer_collection(context)
+            if home is None:
+                return {"CANCELLED"}
+            _show_active_in_outliners(context)
+            context.view_layer.active_layer_collection = home
+            msg = f"Active collection: {home.collection.name}"
+        else:
+            self._reveal_in_outliners(context, source)
+            context.view_layer.active_layer_collection = source
+            msg = f"Active collection: {source.collection.name}"
         for area in context.screen.areas:
             if area.type == "OUTLINER":
                 area.tag_redraw()
-        self.report({"INFO"}, f"Active collection: {coll.name}")
+        self.report({"INFO"}, msg)
+        return {"FINISHED"}
+
+
+def _visible_collection_instances(context, coll):
+    return [
+        o for o in context.visible_objects
+        if _is_collection_instance(o) and o.instance_collection == coll
+    ]
+
+
+def all_instances_selected(context):
+    """True when every visible instance of the active empty's collection is selected."""
+    obj = context.active_object
+    if not _is_collection_instance(obj):
+        return False
+    others = [o for o in _visible_collection_instances(context, obj.instance_collection)
+              if o is not obj]
+    return bool(others) and all(o.select_get() for o in others)
+
+
+class IOPS_OT_SelectCollectionInstances(bpy.types.Operator):
+    """Toggle selection of every visible instance of the active empty's collection.
+The active instance stays active"""
+
+    bl_idname = "iops.select_collection_instances"
+    bl_label = "Select All Instances"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _is_collection_instance(context.active_object)
+
+    def execute(self, context):
+        obj = context.active_object
+        others = [o for o in _visible_collection_instances(context, obj.instance_collection)
+                  if o is not obj]
+        if not others:
+            self.report({"INFO"}, "No other instances of this collection")
+            return {"CANCELLED"}
+        select = not all(o.select_get() for o in others)
+        for o in others:
+            o.select_set(select)
+        obj.select_set(True)
+        self.report({"INFO"}, (f"Selected {len(others) + 1} instances" if select
+                               else "Deselected other instances"))
         return {"FINISHED"}
 
 
