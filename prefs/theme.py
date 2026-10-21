@@ -65,7 +65,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
         default=1.0, min=0.1, max=4.0, step=10, precision=2,
     )
     axis_gizmo_line_width: FloatProperty(
-        name="Line width", default=1.5, min=0.5, max=12.0,
+        name="Line width", default=1.0, min=0.5, max=12.0,
     )
     axis_gizmo_text_size: IntProperty(
         name="Letter size",
