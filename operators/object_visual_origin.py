@@ -74,11 +74,14 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
     @classmethod
     def poll(self, context):
+        active = context.view_layer.objects.active
         return (
-            context.area.type == "VIEW_3D"
+            context.area is not None
+            and context.area.type == "VIEW_3D"
             and context.mode == "OBJECT"
-            and context.view_layer.objects.active.type == "MESH"
-            and context.view_layer.objects.selected[:] != []
+            and active is not None
+            and active.type == "MESH"
+            and len(context.view_layer.objects.selected) > 0
         )
 
     def _build_hud(self, context):
@@ -90,6 +93,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             HUDItem("World space group",         "F1",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Local space for active",    "F2",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("World space for active",    "F3",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Oriented box for active (aligns rotation)", "F4", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Origin → World center",     "W",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Selected → World center",   "M",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Pick active object",        "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -196,6 +200,41 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         if self.offset_instances:
             self.compensate_instances(instances, ref_positions)
 
+        self.align_rotation_to_cage(context, instances)
+
+    def align_rotation_to_cage(self, context, instances=()):
+        """After an F4 (oriented) cage: rotate the fitted object so its
+        local axes follow the cage frame, keeping world geometry in place.
+
+        New world matrix = T(origin) @ (old 3x3 @ frame); the mesh is
+        counter-transformed by the local delta D = new^-1 @ old. Linked
+        duplicates sharing the mesh get W @ D^-1 so they don't move
+        (only when Offset Instances is on, same as the origin shift).
+        """
+        from mathutils import Matrix
+        obj = getattr(self, "obb_obj", None)
+        frame = getattr(self, "obb_frame", None)
+        if obj is None or frame is None or obj.type != "MESH":
+            return
+        old = obj.matrix_world.copy()
+        rot3 = old.to_3x3() @ frame
+        target = Matrix.Translation(old.translation) @ rot3.to_4x4()
+        # matrix_world's setter decomposes to loc/rot/scale (shear is
+        # dropped); build the matrix from that decomposition up front so the
+        # mesh delta matches what the object will actually carry.
+        loc, rot, scale = target.decompose()
+        new = Matrix.LocRotScale(loc, rot, scale)
+        delta = new.inverted() @ old
+        obj.matrix_world = new
+        obj.data.transform(delta)
+        obj.data.update()
+        delta_inv = delta.inverted()
+        for inst in instances:
+            if inst.data == obj.data:
+                inst.matrix_world = inst.matrix_world @ delta_inv
+        self.obb_obj = None
+        self.obb_frame = None
+
     def move_selected_to_world(self, context):
         objs = context.view_layer.objects.selected
         for ob in objs:
@@ -269,6 +308,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                 bpy.data.images.remove(block)
 
     def getBBOX_from_selected(self, context):
+        self.obb_obj = None
+        self.obb_frame = None
         sel_objs = []
         for ob in context.view_layer.objects.selected:
             if ob.type == "MESH":
@@ -317,6 +358,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             self.vp_group = bbox
 
     def active_to_world(self, context):
+        self.obb_obj = None
+        self.obb_frame = None
         sel_objs = []
         for ob in context.view_layer.objects.selected:
             if ob.type == "MESH":
@@ -358,6 +401,62 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             self.result = True
             self.result_obj = bbox
             self.vp_group = bbox
+
+    def active_to_oriented(self, context):
+        """Cage = oriented bounding box of the active mesh.
+
+        For meshes whose rotation was applied, bound_box is axis-aligned
+        and no longer hugs the geometry. Fit a box from the vertex cloud
+        (PCA + dominant face normals, min volume; see utils/obb_core) in
+        mesh space and build the cage object with matrix_world = object
+        transform @ fitted frame, so the shared object_bbox() path reads
+        its bound_box as the local box.
+        """
+        import numpy as np
+        from mathutils import Matrix
+        from ..utils.obb_core import (oriented_bbox, box_corners_local,
+                                      DegenerateCloud)
+
+        obj = context.view_layer.objects.active
+        me = obj.data
+        if len(me.vertices) == 0:
+            self.report({"WARNING"}, "Active mesh has no vertices")
+            return
+        # Fit in object-local (mesh) space: the object's own transform is
+        # kept as-is and composed on top, so both an unapplied rotation and
+        # a rotation baked into the vertices are honoured, and non-uniform
+        # object scale stays what it is instead of skewing the fit.
+        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get("co", co)
+        pts = co.reshape(-1, 3)
+
+        normals = areas = None
+        if len(me.polygons):
+            normals = np.empty(len(me.polygons) * 3, dtype=np.float64)
+            me.polygons.foreach_get("normal", normals)
+            normals = normals.reshape(-1, 3)
+            areas = np.empty(len(me.polygons), dtype=np.float64)
+            me.polygons.foreach_get("area", areas)
+
+        try:
+            box = oriented_bbox(pts, normals, areas)
+        except DegenerateCloud:
+            self.report({"WARNING"}, "Active mesh has no extent")
+            return
+
+        corners = [Vector(c) for c in box_corners_local(box.mins, box.maxs)]
+        mesh = bpy.data.meshes.new("iops_bbox_mesh")
+        mesh.from_pydata(corners, [], [])
+        bbox = bpy.data.objects.new("iops_bbox", mesh)
+        frame = Matrix([[float(box.axes[r, c]) for c in range(3)] for r in range(3)])
+        bbox.matrix_world = obj.matrix_world @ frame.to_4x4()
+        context.scene.collection.objects.link(bbox)
+
+        self.obb_obj = obj
+        self.obb_frame = frame
+        self.result = True
+        self.result_obj = bbox
+        self.vp_group = bbox
 
     def scene_ray_cast(self, context):
         from ..utils.picking import raycast_from_mouse
@@ -472,6 +571,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         elif event.shift:
             if event.type == "LEFTMOUSE" and event.value == "PRESS":
                 self.mouse_pos = event.mouse_region_x, event.mouse_region_y
+                self.obb_obj = None
+                self.obb_frame = None
                 self.scene_ray_cast(context)
                 self.object_bbox(context)
                 self.calc_distance(context)
@@ -493,6 +594,17 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                 self.object_bbox(context)
                 self.calc_distance(context)
 
+        elif event.type == "F4" and event.value == "PRESS":
+            if self.vp_group is not None:
+                bpy.data.objects.remove(
+                    self.vp_group, do_unlink=True, do_id_user=True, do_ui_user=True
+                )
+                self.vp_group = None
+                self.orphan_data_purge(context)
+            self.active_to_oriented(context)
+            self.object_bbox(context)
+            self.calc_distance(context)
+
         elif event.type == "F1" and event.value == "PRESS":
             if self.vp_group is not None:
                 bpy.data.objects.remove(
@@ -507,6 +619,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
                 self.orphan_data_purge(context)
 
         elif event.type == "F2" and event.value == "PRESS":
+            self.obb_obj = None
+            self.obb_frame = None
             self.result_obj, self.vp_objs = self.getActiveFromSelected(context)
             self.object_bbox(context)
             self.calc_distance(context)
@@ -578,6 +692,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             context.scene.cursor.rotation_euler.copy(),
         ]
         self.mouse_pos = event.mouse_region_x, event.mouse_region_y
+        self.obb_obj = None
+        self.obb_frame = None
         self.result_obj, self.vp_objs = self.getActiveFromSelected(context)
         self.object_bbox(context)
         self.calc_distance(context)
