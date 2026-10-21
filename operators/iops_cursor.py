@@ -3,13 +3,16 @@ evaluated surface under the mouse (modifiers and collection instances
 included) and orients it — one cursor axis along the surface normal,
 another along the nearest edge.
 
-Two ways to pick the position while the button is held:
+While the button is held:
 
-* **Snap** (Shift released): nearest vertex / edge midpoint / face centre
-  of the hit polygon, in screen space.
-* **Slide** (Shift held): the cursor follows the mouse — projected onto a
+* **Slide** (default): the cursor follows the mouse — projected onto a
   polygon edge when within the snap threshold of one, otherwise free on
   the face at the raycast hit point.
+* **Snap** (Ctrl held, like Blender's snapping): nearest vertex / edge
+  midpoint / face centre of the hit polygon, in screen space.
+* **Aim** (Shift pressed again, toggle): the position is locked and the
+  edge axis points at whatever is under the mouse.
+* **Alt** held: the position keeps following, the orientation is frozen.
 
 Hot path per mouse move: one `scene.ray_cast`, then only the hit polygon's
 vertices are read from the evaluated mesh and projected. No bmesh.
@@ -31,7 +34,7 @@ from ..ui.draw.theme import get_theme, axis_color
 from ..ui.hud import text as hud_text
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
-from ..utils.picking import raycast_from_mouse, SNAP_THRESHOLD_PX
+from ..utils.picking import raycast_from_mouse, px_world_at, SNAP_THRESHOLD_PX
 from ..utils.cursor_place_core import (
     AXES, Pick, pick_element, slide_element, build_frame, set_normal_axis,
     cycle_edge_axis, aim_edge_dir,
@@ -40,7 +43,10 @@ from ..utils.three_point_core import _any_perpendicular
 
 _KIND_LABELS = {"VERT": "Vertex", "EDGE": "Edge", "FACE": "Face"}
 _LETTER_GAP_PX = 9.0
-_FAR_2D = (1e9, 1e9)
+# Objects drawn without a surface are see-through for the ray, like for the
+# eye: wire / bounds display of a geometry object shows no face to land on.
+_SEE_THROUGH_DISPLAY = {"WIRE", "BOUNDS"}
+_SURFACE_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META", "CURVES", "POINTCLOUD", "VOLUME"}
 # A hit polygon is trusted only when the ray hit lies (nearly) in its plane;
 # otherwise `face_index` indexes some other geometry (e.g. a geometry-nodes
 # instance) and the raw hit point/normal are used instead.
@@ -59,17 +65,18 @@ def _build_hud(context):
 def _build_help(context):
     helpo = HelpOverlay("cursor_place")
     helpo.add_section(HUDSection("Cursor Place", [
-        HUDItem("Snap to nearest vertex / edge mid / face centre", "Hover (Shift up)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Slide along the face / edge under the mouse", "Hold Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Aim the edge axis at the element under the mouse (position locked)", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Slide along the face / edge under the mouse", "Move", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Snap to nearest vertex / edge mid / face centre", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Ignore Triangulate modifiers", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Confirm", "Release", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Cancel", "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD", "H (Shift up)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
     helpo.bind_region(context.region)
     return helpo
@@ -83,7 +90,7 @@ def _draw_preview_3d(op, context):
     data = getattr(op, "_pick", None)
     if data is None:
         return
-    pick, frame, verts3d, px_world, tris, aim = data
+    pick, frame, verts3d, axis_len, tris, aim = data
     pos = Vector(pick.position)
 
     with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE"):
@@ -114,7 +121,7 @@ def _draw_preview_3d(op, context):
 
         # Cursor ghost: three equal, screen-constant axis lines in Blender's
         # axis colours and a small centre dot. Letters go in the pixel pass.
-        length = op._axis_px * px_world
+        length = axis_len
         for i, letter in enumerate(AXES):
             r, g, b, _ = axis_color(letter)
             draw.edges_3d([pos, pos + Vector(frame[i]) * length],
@@ -129,9 +136,9 @@ def _draw_pixel(op, context):
     rv3d = context.region_data
     if (data is not None and region is not None and rv3d is not None
             and getattr(op, "_axis_letters", True)):
-        pick, frame, _verts3d, px_world, _tris, _aim = data
+        pick, frame, _verts3d, axis_len, _tris, _aim = data
         pos = Vector(pick.position)
-        length = op._axis_px * px_world
+        length = axis_len
         theme = get_theme(context)
         origin2d = location_3d_to_region_2d(region, rv3d, pos)
         for i, letter in enumerate(AXES):
@@ -140,9 +147,15 @@ def _draw_pixel(op, context):
             if p2 is None:
                 continue
             # Letter sits a few pixels past the tip, continuing the axis
-            # direction on screen, centred on that point.
-            if origin2d is not None and (p2 - origin2d).length_squared > 1.0:
-                p2 = p2 + (p2 - origin2d).normalized() * _LETTER_GAP_PX
+            # direction on screen. An axis pointing (almost) at the camera
+            # projects to a stub, so the gap shrinks with the stub instead
+            # of flipping around a noisy direction.
+            if origin2d is not None:
+                d2 = p2 - origin2d
+                l2 = d2.length
+                if l2 > 1e-3:
+                    gap = min(_LETTER_GAP_PX, l2)
+                    p2 = p2 + d2 * (gap / l2)
             r, g, b, _ = axis_color(letter)
             w, h = hud_text.measure(letter, theme=theme, size_token="axis_letter")
             hud_text.draw(letter, int(p2.x - w * 0.5), int(p2.y - h * 0.5),
@@ -156,6 +169,32 @@ def _draw_pixel(op, context):
         helpo.draw(context, last_event)
     if hud is not None:
         hud.draw(context, last_event)
+
+
+def _gizmo_length(context, region, rv3d, pos, axis_px):
+    """World length of the axis ghost: `axis_px` pixels at the depth of
+    `pos`, clamped in perspective so the tips stay in front of the near
+    clipping plane (otherwise an axis pointing at a close camera gets cut
+    off and its letter blinks)."""
+    length = axis_px * px_world_at(region, rv3d, pos)
+    if length <= 0.0:
+        return 0.0
+    if rv3d.is_perspective:
+        try:
+            if rv3d.view_perspective == "CAMERA" and context.scene.camera is not None:
+                clip_start = context.scene.camera.data.clip_start
+            else:
+                clip_start = context.space_data.clip_start
+        except AttributeError:
+            clip_start = 0.1
+        view_inv = rv3d.view_matrix.inverted()
+        cam_pos = view_inv.translation
+        view_dir = -view_inv.col[2].xyz.normalized()
+        depth = (pos - cam_pos).dot(view_dir)
+        room = (depth - clip_start) * 0.85
+        if room < length:
+            length = max(room, 0.0)
+    return length
 
 
 def _face_tris(verts3d):
@@ -177,9 +216,10 @@ def _face_tris(verts3d):
 class IOPS_OT_CursorPlace(bpy.types.Operator):
     """Hold Shift+RMB: place the 3D cursor on the surface under the mouse
     (modifiers and collection instances included) and orient it to the
-    surface normal and nearest edge. Shift released: snap to the nearest
-    vertex / edge midpoint / face centre. Shift held: slide along the face
-    or edge. Release to place, Esc to cancel"""
+    surface normal and nearest edge. Move: slide along the face or edge.
+    Ctrl: snap to the nearest vertex / edge midpoint / face centre. Shift
+    again: lock the position and aim the edge axis. Alt: move with the
+    orientation frozen. Release to place, Esc to cancel"""
 
     bl_idname = "iops.cursor_place"
     bl_label = "IOPS Cursor Place"
@@ -219,14 +259,18 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         if self._normal_axis == self._edge_axis:
             self._edge_axis = cycle_edge_axis(self._normal_axis, self._normal_axis)
         self._flip = False
-        self._slide = bool(event.shift)
+        self._snap = bool(event.ctrl)
+        self._aim = False          # Shift (toggle): aim mode on/off
         self._active_only = False  # A: raycast only the active object
-        self._aim_lock = None      # Ctrl: (pick, verts3d) frozen at the first Ctrl move
+        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs
+        self._tri_mods = []        # [(modifier, original show_viewport)] to restore
+        self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         # The key/button whose release confirms: whatever invoked us.
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
         self._mesh_cache = {}
         self._owner_cache = {}
+        self._exclude = _see_through_objects(context)
         self._pick = None
         self._sig = None
         self._mouse = (event.mouse_region_x, event.mouse_region_y)
@@ -236,6 +280,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
         self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
+        self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
         self._hud.add_param(HUDParam("Edge axis", lambda: self._edge_axis, "str"))
         self._help = _build_help(context)
@@ -253,8 +298,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def _mode_label(self):
-        base = "Slide" if self._slide else "Snap"
-        if self._aim_lock is not None:
+        base = "Snap" if self._snap else "Slide"
+        if self._aim:
             return base + " · Aim edge axis"
         if self._orient_lock is not None:
             return base + " · Orientation locked"
@@ -266,7 +311,47 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return "—"
         return _KIND_LABELS.get(data[0].kind, "?")
 
+    def _set_ignore_triangulate(self, context, enabled):
+        """T: hide every Triangulate modifier in the view layer so the ray
+        hits the pre-triangulation polygons (n-gons stay n-gons); restore
+        the recorded viewport states when switched off or on exit."""
+        if enabled == self._ignore_tri:
+            return
+        self._ignore_tri = enabled
+        if enabled:
+            self._tri_mods = []
+            try:
+                objects = list(context.view_layer.objects)
+            except (ReferenceError, AttributeError):
+                objects = []
+            for ob in objects:
+                if ob.type != "MESH":
+                    continue
+                for mod in ob.modifiers:
+                    if mod.type != "TRIANGULATE" or not mod.show_viewport:
+                        continue
+                    try:
+                        mod.show_viewport = False  # linked data is read-only
+                    except (AttributeError, TypeError):
+                        continue
+                    self._tri_mods.append((mod, True))
+        else:
+            self._restore_triangulate()
+        # Evaluated meshes change shape: drop everything cached from them.
+        self._mesh_cache = {}
+        self._owner_cache = {}
+
+    def _restore_triangulate(self):
+        for mod, state in self._tri_mods:
+            try:
+                mod.show_viewport = state
+            except (ReferenceError, AttributeError, TypeError):
+                pass
+        self._tri_mods = []
+
     def _cleanup(self, context):
+        self._restore_triangulate()
+        self._ignore_tri = False
         for h in self._handles:
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
@@ -287,12 +372,11 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return
         mx, my = event.mouse_region_x, event.mouse_region_y
         self._mouse = (mx, my)
-        self._slide = bool(event.shift)
-
-        ctrl, alt = bool(event.ctrl), bool(event.alt)
-        if not ctrl:
+        self._snap = bool(event.ctrl)
+        alt = bool(event.alt)
+        if not self._aim:
             self._aim_lock = None
-        if not alt or ctrl:
+        if not alt or self._aim:
             self._orient_lock = None
 
         pick = verts3d = None
@@ -303,11 +387,12 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             restrict = [active] if active is not None else []
         hit, loc, nrm, face_index, obj, matrix = raycast_from_mouse(
             context, (mx, my), visible_only=True, region=region, rv3d=rv3d,
-            owner_cache=self._owner_cache, restrict_to=restrict)
-        if ctrl and self._aim_lock is not None:
-            # Ctrl: the position (and element) stay where Ctrl was first
-            # seen; the edge axis points at the nearest element under the
-            # mouse (snap or slide pick on the hit polygon), or at the
+            owner_cache=self._owner_cache, restrict_to=restrict,
+            exclude=self._exclude)
+        if self._aim and self._aim_lock is not None:
+            # Aim: the position (and element) stay where aim mode was
+            # switched on; the edge axis points at the pick under the mouse
+            # (slide point, or the snapped element with Ctrl), or at the
             # mouse itself in the tangent plane when nothing is hit.
             pick, verts3d = self._aim_lock
             pos = Vector(pick.position)
@@ -329,7 +414,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             if hit:
                 pick, verts3d = self._pick_on_hit(region, rv3d, (mx, my), loc, nrm,
                                                   face_index, obj, matrix)
-                if ctrl:
+                if self._aim:
                     self._aim_lock = (pick, verts3d)
                 elif alt:
                     # Alt: move freely, keep the orientation from the first
@@ -346,18 +431,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                                 self._normal_axis, self._edge_axis,
                                 flip=self._flip)
             pos = Vector(pick.position)
-            p2 = location_3d_to_region_2d(region, rv3d, pos)
-            if p2 is not None:
-                px_world = (region_2d_to_location_3d(
-                    region, rv3d, (p2.x + 1.0, p2.y), pos) - pos).length
-            else:
-                px_world = 0.0
+            axis_len = _gizmo_length(context, region, rv3d, pos, self._axis_px)
             tris = _face_tris(verts3d) if pick.kind == "FACE" else []
-            new_pick = (pick, frame, verts3d, px_world, tris, aim)
+            new_pick = (pick, frame, verts3d, axis_len, tris, aim)
             sig = (pick.kind, pick.index,
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
-                   round(px_world, 9), len(verts3d),
+                   round(axis_len, 9), len(verts3d),
                    None if aim is None else (aim[0].kind, aim[0].index,
                                              tuple(round(c, 6) for c in aim[0].position)))
 
@@ -381,20 +461,14 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             if abs((loc - center).dot(poly_normal)) <= _PLANE_TOLERANCE * max(1.0, center.length):
                 verts = mesh.vertices
                 verts3d = [matrix @ verts[i].co for i in poly.vertices]
-                verts2d = []
-                for v in verts3d:
-                    p2 = location_3d_to_region_2d(region, rv3d, v)
-                    verts2d.append((p2.x, p2.y) if p2 is not None else _FAR_2D)
-                if self._slide:
-                    pick = slide_element(verts3d, verts2d, mouse, hit_location=loc,
-                                         poly_normal=poly_normal,
-                                         threshold_px=self._slide_px)
+                if not self._snap:
+                    # Edge threshold is a pixel pref: convert at the hit depth.
+                    threshold = self._slide_px * px_world_at(region, rv3d, loc)
+                    pick = slide_element(verts3d, loc, poly_normal=poly_normal,
+                                         threshold=threshold)
                 else:
-                    c2 = location_3d_to_region_2d(region, rv3d, center)
-                    center2d = (c2.x, c2.y) if c2 is not None else _FAR_2D
-                    pick = pick_element(verts3d, verts2d, mouse,
-                                        poly_normal=poly_normal, poly_center=center,
-                                        poly_center2d=center2d)
+                    pick = pick_element(verts3d, loc, poly_normal=poly_normal,
+                                        poly_center=center)
                 return pick, verts3d
         # Fallback: the raw ray hit (curves/text/GN instances, bad indices).
         n = tuple(nrm) if nrm is not None and nrm.length_squared > 0.0 else (0.0, 0.0, 1.0)
@@ -467,8 +541,19 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._update(context, event)
             return {"RUNNING_MODAL"}
 
-        if et in {"LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_CTRL", "RIGHT_CTRL",
-                  "LEFT_ALT", "RIGHT_ALT"}:
+        if et in {"LEFT_SHIFT", "RIGHT_SHIFT"}:
+            # The Shift that invoked us is simply released at some point;
+            # every later Shift press toggles aim mode, locking the pick.
+            if ev == "PRESS" and not event.is_repeat:
+                self._aim = not self._aim
+                if self._aim and self._pick is not None:
+                    self._aim_lock = (self._pick[0], self._pick[2])
+                else:
+                    self._aim_lock = None
+                self._update(context, event)
+            return {"RUNNING_MODAL"}
+
+        if et in {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_ALT", "RIGHT_ALT"}:
             self._update(context, event)
             return {"RUNNING_MODAL"}
 
@@ -499,12 +584,29 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 self._active_only = not self._active_only
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
+            if et == "T":
+                self._set_ignore_triangulate(context, not self._ignore_tri)
+                self._update(context, event)
+                return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
                 self._edge_axis = cycle_edge_axis(self._normal_axis, self._edge_axis)
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
 
         return {"RUNNING_MODAL"}
+
+
+def _see_through_objects(context):
+    """View-layer objects the ray must pierce: geometry displayed as wire or
+    bounds. Scanned once per modal (hundreds of objects, microseconds)."""
+    out = []
+    try:
+        for ob in context.view_layer.objects:
+            if ob.type in _SURFACE_TYPES and ob.display_type in _SEE_THROUGH_DISPLAY:
+                out.append(ob)
+    except (ReferenceError, AttributeError):
+        return None
+    return out or None
 
 
 def _inside_region(region, event):

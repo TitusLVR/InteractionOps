@@ -15,6 +15,7 @@ Sets the origin of the selected objects by picking a point on a bounding cage. R
 | <kbd>F1</kbd> | Cage around the whole selection |
 | <kbd>F2</kbd> | Cage in the active object's local space |
 | <kbd>F3</kbd> | Cage in world axes around the active object |
+| <kbd>F4</kbd> | Oriented cage fitted to the active object's geometry (for meshes with applied rotation); confirming also aligns the origin's axes to the cage |
 | <kbd>Shift</kbd>+<kbd>LMB</kbd> | Click another selected object to make it the cage object |
 | <kbd>W</kbd> | Put the origins of all selected objects at the world center and finish |
 | <kbd>M</kbd> | Move all selected objects to the world center and finish |
@@ -28,3 +29,4 @@ Sets the origin of the selected objects by picking a point on a bounding cage. R
 
 ## Tips
 - The whole-selection and world cages (F1 / F3) are rebuilt from a temporary join of the meshes — heavy selections take a moment.
+- F4 is for objects whose rotation was applied: the local cage (F2) is then just an axis-aligned box around tilted geometry. The oriented cage is fitted in the object's own space from the vertices and the dominant face normals, then placed with the object's transform on top, so an unapplied rotation and a baked one are both honoured. Boxy hard-surface meshes get their true box back; organic shapes get a principal-axes fit. Confirming from an F4 cage also rotates the origin's axes to match the box: the geometry stays exactly where it is in the world, only the object's local axes change.
