@@ -482,18 +482,19 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             vert_ids = None
             if self._ignore_tri:
                 vert_ids = self._ngon_for(obj, mesh, poly)
-            if vert_ids is not None:
-                verts3d = [matrix @ verts[i].co for i in vert_ids]
-                poly_normal = _newell_normal(verts3d)
-                center = sum(verts3d, Vector()) / len(verts3d)
-            else:
-                nmat = matrix.inverted_safe().transposed().to_3x3()
-                poly_normal = (nmat @ poly.normal).normalized()
-                center = matrix @ poly.center
-                verts3d = None
-            if abs((loc - center).dot(poly_normal)) <= _PLANE_TOLERANCE * max(1.0, center.length):
-                if verts3d is None:
-                    verts3d = [matrix @ verts[i].co for i in poly.vertices]
+            if vert_ids is None:
+                vert_ids = list(poly.vertices)
+            verts3d = [matrix @ verts[i].co for i in vert_ids]
+            poly_normal = _newell_normal(verts3d)
+            center = sum(verts3d, Vector()) / len(verts3d)
+            # Sanity guard against a stale face index: the hit must lie on
+            # the polygon. For a non-planar polygon the ray lands on one of
+            # its loop triangles, i.e. within the vertices' own spread
+            # about the mean plane, so allow that spread on top of the
+            # absolute tolerance.
+            spread = max(abs((v - center).dot(poly_normal)) for v in verts3d)
+            tol = _PLANE_TOLERANCE * max(1.0, center.length) + spread
+            if abs((loc - center).dot(poly_normal)) <= tol:
                 if not self._snap:
                     # Edge threshold is a pixel pref: convert at the hit depth.
                     threshold = self._slide_px * px_world_at(region, rv3d, loc)
