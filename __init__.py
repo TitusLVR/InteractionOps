@@ -366,6 +366,7 @@ from .operators.mesh_selection_sets import (
     IOPS_OT_SSBool,
 )
 from .operators import instance_edit_state
+from .operators.instance_edit import IOPS_OT_instance_edit_start
 from .ui.iops_selection_sets_panel import (
     IOPS_SS_MirrorItem,
     IOPS_OT_SSRefresh,
@@ -715,6 +716,7 @@ classes = (
     IOPS_UL_SelectionSets,
     IOPS_PT_SelectionSets_Panel,
     *instance_edit_state.CLASSES,
+    IOPS_OT_instance_edit_start,
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,
