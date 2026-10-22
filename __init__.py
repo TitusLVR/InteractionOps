@@ -365,6 +365,7 @@ from .operators.mesh_selection_sets import (
     IOPS_OT_SSRename,
     IOPS_OT_SSBool,
 )
+from .operators import instance_edit_state
 from .ui.iops_selection_sets_panel import (
     IOPS_SS_MirrorItem,
     IOPS_OT_SSRefresh,
@@ -713,6 +714,7 @@ classes = (
     IOPS_OT_SSPreviewAll,
     IOPS_UL_SelectionSets,
     IOPS_PT_SelectionSets_Panel,
+    *instance_edit_state.CLASSES,
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,
@@ -829,6 +831,7 @@ def register():
     bpy.types.Scene.iops_selection_sets = bpy.props.CollectionProperty(
         type=IOPS_SS_SceneSet
     )
+    instance_edit_state.register_props()
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
@@ -978,6 +981,7 @@ def unregister():
         del bpy.types.Scene.iops_selection_sets
     except AttributeError:
         pass
+    instance_edit_state.unregister_props()
     try:
         from .operators.uv_image_slots import unregister_slot_props
         unregister_slot_props()
