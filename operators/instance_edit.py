@@ -24,6 +24,7 @@ from .instance_edit_state import (
     get_frame,
     layer_collection_by_path,
     layer_collection_path,
+    pop_session,
     push_session,
     resolve_collection,
     resolve_object,
@@ -103,8 +104,9 @@ def _scene_ancestors(scene, coll):
 
 
 def _layer_colls_of(root, coll):
-    """Every LayerCollection of ``coll`` under ``root`` plus all their
-    descendants, parents before children."""
+    """For every LayerCollection of ``coll`` under ``root``: its ancestors
+    below ``root`` (top-down), then it and all its descendants, parents
+    before children. May repeat shared ancestors; callers dedupe by path."""
     out = []
 
     def add_subtree(lc):
@@ -112,15 +114,20 @@ def _layer_colls_of(root, coll):
         for ch in lc.children:
             add_subtree(ch)
 
-    def walk(lc):
+    def walk(lc, ancestors):
         if lc.collection == coll:
+            out.extend(ancestors)
             add_subtree(lc)
             return
         for ch in lc.children:
-            walk(ch)
+            walk(ch, ancestors + [lc] if lc != root else ancestors)
 
-    walk(root)
+    walk(root, [])
     return out
+
+
+def _is_ancestor_layer_coll(lc, coll):
+    return lc.collection != coll and coll in lc.collection.children_recursive
 
 
 def _has_transform_anim(obj):
@@ -169,6 +176,8 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
 
     # A collection Start has to link under the scene root has no layer
     # collections yet; fresh ones are visible and vanish again on unlink.
+    # Ancestor layer collections are recorded too (real exclude value) since
+    # their hide_viewport hides the content; only that flag gets cleared.
     seen_paths = set()
     for lc in _layer_colls_of(root_lc, coll):
         path = layer_collection_path(root_lc, lc)
@@ -189,14 +198,15 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
 
 
 def apply_edit_state(context, session):
-    """Mutation half of Start, driven by the snapshot. Returns the names of
-    objects that could not be hidden/unhidden or selected (not in the view
-    layer); they are still moved."""
+    """Mutation half of Start, driven by the snapshot. Returns
+    ``(targets, instancers)``: names of target objects that could not be
+    unhidden or selected (they are still moved) and of instancers that
+    could not be hidden, because they are not in the view layer."""
     scene = context.scene
     view_layer = context.view_layer
     root_lc = view_layer.layer_collection
     coll = session.collection or bpy.data.collections.get(session.collection_name)
-    skipped = []
+    skipped, skipped_inst = [], []
 
     # 1. Layer / collection visibility.
     if session.linked_to_scene and coll not in scene.collection.children_recursive:
@@ -205,7 +215,10 @@ def apply_edit_state(context, session):
         lc = layer_collection_by_path(root_lc, row.path)
         if lc is None:
             continue
-        lc.exclude = False
+        if not _is_ancestor_layer_coll(lc, coll):
+            # An excluded ancestor is mirrored onto this exclude; clearing the
+            # ancestor's own exclude would reveal every sibling as well.
+            lc.exclude = False
         lc.hide_viewport = False
     for row in session.colls:
         c = resolve_collection(row)
@@ -231,7 +244,7 @@ def apply_edit_state(context, session):
         try:
             obj.hide_set(True, view_layer=view_layer)
         except RuntimeError:
-            skipped.append(obj.name)
+            skipped_inst.append(obj.name)
 
     # 4. Transforms: roots only, through matrix_world (honours outside parents).
     view_layer.update()
@@ -263,7 +276,7 @@ def apply_edit_state(context, session):
     if active is not None:
         view_layer.objects.active = active
 
-    return skipped
+    return skipped, skipped_inst
 
 
 class IOPS_OT_instance_edit_start(bpy.types.Operator):
@@ -290,7 +303,13 @@ class IOPS_OT_instance_edit_start(bpy.types.Operator):
         frame = edit_frame(np.array(instancer.matrix_world), tuple(coll.instance_offset))
         targets = collect_targets(coll)
         names = [o.name for o in targets]
-        parent_of = {o.name: o.parent.name for o in targets if o.parent is not None}
+        # Whole parent chains, outside objects included: a target reached
+        # through an outside object from another target follows it.
+        parent_of = {}
+        for o in targets:
+            while o is not None and o.name not in parent_of:
+                parent_of[o.name] = o.parent.name if o.parent is not None else None
+                o = o.parent
         root_names, _children = split_roots(names, parent_of)
 
         by_name = {o.name: o for o in targets}
@@ -305,17 +324,29 @@ class IOPS_OT_instance_edit_start(bpy.types.Operator):
         if lines:
             self.report({"WARNING"}, "\n".join(lines))
 
-        session = push_session(scene)
-        write_snapshot(context, session, instancer, coll, targets, root_names, frame)
+        depth = len(scene.iops_instance_edit.sessions)
+        mutating = False
         try:
-            skipped = apply_edit_state(context, active_session(scene))
+            session = push_session(scene)
+            write_snapshot(context, session, instancer, coll, targets, root_names, frame)
+            mutating = True
+            skipped, skipped_inst = apply_edit_state(context, active_session(scene))
         except Exception:
-            # rollback wired to restore_session in Task 4
+            if not mutating:
+                # Nothing touched yet: drop the half-written session.
+                if len(scene.iops_instance_edit.sessions) > depth:
+                    pop_session(scene)
+            # else: rollback wired to restore_session in Task 4
             raise
 
         if skipped:
             self.report(
                 {"WARNING"},
                 "Not in the view layer (moved, not shown/selected): " + ", ".join(skipped),
+            )
+        if skipped_inst:
+            self.report(
+                {"WARNING"},
+                "Instancers not in the view layer (not hidden): " + ", ".join(skipped_inst),
             )
         return {"FINISHED"}
