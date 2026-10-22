@@ -136,7 +136,9 @@ reset anything to the snapshot:
 3. Call the shared **unhide** routine: everything the visibility part of
    Restore does (layer collections, collections, object and instancer
    visibility, unlinking the collection if Start linked it), then clear the
-   session.
+   session. Object visibility is restored only for snapshot objects that
+   are still in the collection; an object the user moved elsewhere keeps
+   whatever state it has now (step 2).
 4. Select the instancer and make it active, if it still exists.
 
 Stop and Restore share the visibility/cleanup routine, so that part of the
@@ -199,6 +201,7 @@ IOPS_InstanceEdit_State
   instancer         PointerProperty(Object)      + instancer_name StringProperty
   collection        PointerProperty(Collection)  + collection_name
   frame             FloatVectorProperty(size=16)  # A, row-major
+  view_layer_name   StringProperty
   linked_to_scene   BoolProperty   # Start linked the collection under scene root
   objects           CollectionProperty(IOPS_InstanceEdit_ObjRef)
   instancers        CollectionProperty(IOPS_InstanceEdit_InstRef)
@@ -217,7 +220,8 @@ IOPS_InstanceEdit_InstRef
   ref, name, hide_get
 
 IOPS_InstanceEdit_LayerRef
-  path              StringProperty   # "/".join of collection names from the view layer root
+  path              StringProperty   # names from the view layer root, joined
+  ref               PointerProperty(Collection)  # fallback when a rename broke the path
   exclude, hide_viewport   BoolProperty
 
 IOPS_InstanceEdit_CollRef
@@ -305,7 +309,11 @@ the Selection Sets one.
   `exclude`; objects then exist in the view layer so `hide_set` works.
   Order of operations in Start is fixed: layer/collection visibility first,
   object visibility second, transforms last.
-- Several view layers: only the current `context.view_layer` is touched.
+- Several view layers: Start records the name of `context.view_layer`;
+  Stop/Restore act on that view layer (resolved by name on the scene), not
+  on whatever is current, so switching view layers mid-session cannot write
+  visibility into the wrong layer. If it no longer exists they fall back to
+  the current one and report it.
 - Multiple instances selected: only the active one is edited.
 - Multiple scenes: the session is per scene; Stop/Restore act on the scene
   that holds the snapshot.
