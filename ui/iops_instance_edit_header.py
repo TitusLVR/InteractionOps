@@ -1,24 +1,16 @@
 import os
-import time
 
 import bpy
 
 from ..operators.instance_edit_state import active_session, session_active
 
-# Rollback buttons stat a backup file per library; cache so a redraw storm
-# does not hit the disk. (timestamp, paths)
-_ROLLBACK_TTL = 2.0
-_rollback_cache = (float("-inf"), [])
+def _rollback_paths(context):
+    """Source paths of the file's libraries with backup points, through the
+    throttled cache Rollback's poll shares (a redraw storm does not hit the
+    disk)."""
+    from ..operators.instance_edit_linked import cached_backup_points_for_libraries
 
-
-def _rollback_paths():
-    global _rollback_cache
-    now = time.monotonic()
-    if now - _rollback_cache[0] >= _ROLLBACK_TTL:
-        from ..operators.instance_edit_linked import backup_exists_for_any_library
-
-        _rollback_cache = (now, backup_exists_for_any_library())
-    return _rollback_cache[1]
+    return list(cached_backup_points_for_libraries(context))
 
 
 def _active_linked_instancer(context):
@@ -37,7 +29,8 @@ def draw_iops_instance_edit_header(self, context):
     Commit/Cancel, plus the session depth when nested. The idle Edit button
     (Edit Instance, or Edit Linked on a linked instancer) shows in Object and
     Edit Mode only and follows the iops_instance_edit_header preference.
-    Rollback buttons show in Object Mode with no session open."""
+    Rollback buttons (one per library with backup points in the backup
+    folder) show in Object Mode with no session open."""
     layout = self.layout
     scene = context.scene
     if scene is not None and session_active(scene):
@@ -62,7 +55,7 @@ def draw_iops_instance_edit_header(self, context):
         icon = "LINKED" if _active_linked_instancer(context) else "OUTLINER_COLLECTION"
         layout.row(align=True).operator("iops.instance_edit_start", text="", icon=icon)
     if context.mode == "OBJECT":
-        for path in _rollback_paths():
+        for path in _rollback_paths(context):
             op = layout.row(align=True).operator(
                 "iops.instance_edit_rollback_source",
                 text="",

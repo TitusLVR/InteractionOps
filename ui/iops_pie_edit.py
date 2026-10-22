@@ -22,6 +22,30 @@ def draw_open_asset_in_pie_if_poll(pie, context):
     return True
 
 
+def draw_instance_edit_pie_slot(pie, context):
+    """One pie slot for Instance Edit, mirroring the 3D View header: idle it
+    is "Edit Instance" (collection icon for a local collection, chain icon
+    for a linked one); with a session open it becomes the session pair,
+    Stop + Restore for a local session or Commit + Cancel for a linked one."""
+    from ..operators.instance_edit_state import active_session, session_active
+
+    scene = context.scene
+    if scene is not None and session_active(scene):
+        top = active_session(scene)
+        col = pie.column(align=True)
+        col.alert = True
+        if top.kind == "LINKED":
+            col.operator("iops.instance_edit_commit", text="Commit Instance Edit", icon="LINKED", depress=True)
+            col.operator("iops.instance_edit_cancel", text="Cancel Instance Edit", icon="X")
+        else:
+            col.operator("iops.instance_edit_stop", text="Stop Instance Edit", icon="OUTLINER_COLLECTION", depress=True)
+            col.operator("iops.instance_edit_restore", text="Restore Instance Edit", icon="RECOVER_LAST")
+        return
+    coll = context.object.instance_collection
+    icon = "LINKED" if coll is not None and coll.library else "OUTLINER_COLLECTION"
+    pie.operator("iops.instance_edit_start", text="Edit Instance", icon=icon)
+
+
 # --- Customizable diagonal slots (NW/NE/SW/SE) -------------------------------
 # Cardinals (F1/F2/F3/ESC) stay hardcoded; only the diagonals are
 # prefs-driven, with a separate config per context.
@@ -691,14 +715,11 @@ class IOPS_MT_Pie_Edit(Menu):
                 # 2 - BOTTOM
                 pie.operator("iops.make_instances_real", text="Make Instances Real")
 
-                # 8 - TOP
-                pie.operator(
-                    "iops.expand_instance_collection",
-                    text="Expand Collection to Scene",
-                    icon="OUTLINER_OB_GROUP_INSTANCE",
-                )
-
-                # 7 - TOP-LEFT
+                # 8 - TOP: file actions. Library collection: column with
+                # Open <file> in a new Blender, Reload <file>, Open in current
+                # Blender (when it polls). Local collection: Open in current
+                # Blender or an empty slot. Slot order: 2, 8, 7, 9, 1, 3;
+                # nothing trails after 3.
                 if context.object.instance_collection.library:
                     blendpath = os.path.abspath(
                         bpy.path.abspath(
@@ -706,35 +727,34 @@ class IOPS_MT_Pie_Edit(Menu):
                         )
                     )
                     library = context.object.instance_collection.library.name
-
-                    op = pie.operator(
+                    col = pie.column(align=True)
+                    op = col.operator(
                         "iops.open_asset_in_new_blender",
                         text=f"Open {os.path.basename(blendpath)}",
+                        icon="BLENDER",
                     )
                     op.blendpath = blendpath
                     op.library = library
-                    
-                    # 9 - TOP-RIGHT - column: Edit Linked Instance, Reload,
-                    # Open in current Blender (when it polls). Library slot
-                    # order: 7 Open, 9 column, 1, 3; nothing trails after 3.
-                    col = pie.column(align=True)
-                    col.operator(
-                        "iops.instance_edit_start",
-                        text="Edit Linked Instance",
-                        icon="LINKED",
-                    )
                     col.operator(
                         "iops.reload_instance_library",
                         text=f"Reload {os.path.basename(blendpath)}",
                         icon="FILE_REFRESH",
                     )
                     draw_open_asset_in_pie_if_poll(col, context)
-                else:
-                    # slot 7: Edit Instance; slot 9: Open in current Blender
-                    # when it polls, otherwise empty so the next button lands on 1
-                    pie.operator("iops.instance_edit_start", text="Edit Instance", icon="OUTLINER_COLLECTION")
-                    if not draw_open_asset_in_pie_if_poll(pie, context):
-                        pie.separator()
+                elif not draw_open_asset_in_pie_if_poll(pie, context):
+                    pie.separator()
+
+                # 7 - TOP-LEFT: the Instance Edit slot, same for local and
+                # linked collections (only the icon differs); while a session
+                # is open it swaps to the session pair like the header does.
+                draw_instance_edit_pie_slot(pie, context)
+
+                # 9 - TOP-RIGHT
+                pie.operator(
+                    "iops.expand_instance_collection",
+                    text="Expand Collection to Scene",
+                    icon="OUTLINER_OB_GROUP_INSTANCE",
+                )
 
                 # 1 - BOTTOM-LEFT (toggle): source collection <-> own collection
                 src_on = instance_source_is_active(context)

@@ -15,7 +15,10 @@ be named InteractionOps. Commit spawns the merge worker through
 
 Every test builds its own files in a fresh directory below one run
 directory (under ``$IOPS_TEST_TMP`` when set, else the system temp dir),
-removed after the test; the run directory is removed at the end:
+removed after the test; the run directory is removed at the end. Each
+test points the *backup folder* preference at its own directory below the
+run directory too (restored at the end), so Commit never writes into the
+real Blender config folder:
 
 - ``src.blend`` (the source library): collection ``C`` (``Cube`` with
   ``CubeMesh`` + ``SharedMat`` (red), ``Child`` parented to ``Cube``,
@@ -38,6 +41,7 @@ the traceback per test and exits with code 1 if any test failed.
 
 Not collected by pytest (tests/conftest.py ignores tests/blender).
 """
+import datetime
 import json
 import math
 import os
@@ -49,6 +53,7 @@ import sys
 import tempfile
 import time
 import traceback
+import types
 
 import bpy
 from mathutils import Euler, Matrix, Vector
@@ -71,12 +76,12 @@ EXPECTED_OWNED = {
 }
 
 # Bound by enable_addon(): the addon modules under test.
-iel = active_session = get_frame = source_stat = backup_paths = None
+iel = active_session = get_frame = source_stat = core = None
 RUN_DIR = None
 
 
 def enable_addon():
-    global iel, active_session, get_frame, source_stat, backup_paths
+    global iel, active_session, get_frame, source_stat, core
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     repo_parent = os.path.dirname(repo_root)
     if repo_parent not in sys.path:
@@ -96,7 +101,11 @@ def enable_addon():
     active_session = instance_edit_state.active_session
     get_frame = instance_edit_state.get_frame
     source_stat = instance_edit_state.source_stat
-    backup_paths = instance_edit_core.backup_paths
+    core = instance_edit_core
+
+
+def addon_prefs():
+    return bpy.context.preferences.addons[ADDON].preferences
 
 
 # --- fixture -------------------------------------------------------------------
@@ -106,9 +115,11 @@ class Fixture:
         self.dir = tempfile.mkdtemp(prefix="t_", dir=RUN_DIR)
         self.src = os.path.join(self.dir, "src.blend")
         self.lib3 = os.path.join(self.dir, "lib3.blend")
-        self.bak, self.sidecar = backup_paths(self.src)
         self.lock = self.src + ".iops_lock"
         self.files = {"src.blend"}
+        # Commit backups go here, never next to the source.
+        self.backups = tempfile.mkdtemp(prefix="bak_", dir=RUN_DIR)
+        addon_prefs().iops_instance_edit_backup_dir = self.backups
 
 
 def build_source(fx, with_lib3=False, assets=False):
@@ -295,6 +306,48 @@ def read(path):
 
 def listing(fx):
     return set(os.listdir(fx.dir))
+
+
+def points(fx):
+    """Backup points of src.blend in the fixture's backup folder, newest first."""
+    folder, pts = iel.source_points(bpy.context, fx.src)
+    assert same_path(folder, fx.backups), folder
+    return pts
+
+
+def point_files(fx, point):
+    return iel.point_files(fx.backups, point)
+
+
+def sidecar(fx, point):
+    return iel.read_point(point_files(fx, point)[1])
+
+
+def backup_listing(fx):
+    return set(os.listdir(fx.backups))
+
+
+def fake_point(fx, when, content_from=None):
+    """A backup point of src.blend stamped ``when`` (UTC), its .blend a copy
+    of ``content_from`` (a file) or empty, with a sidecar."""
+    name = core.backup_basename(fx.src, when)
+    blend, side = point_files(fx, name)
+    if content_from:
+        shutil.copyfile(content_from, blend)
+    else:
+        open(blend, "wb").close()
+    with open(side, "w", encoding="utf-8") as fh:
+        json.dump({"source_path": fx.src, "backup_time": when.isoformat(),
+                   "source_stat": None, "session_uuid": None}, fh)
+    return name
+
+
+UTC = datetime.timezone.utc
+CANNOT = "Cannot tell whether src.blend was modified after this backup"
+
+
+def fake_session(uuid, fx):
+    return types.SimpleNamespace(uuid=uuid, source_path=fx.src)
 
 
 def linked(name, fx):
@@ -493,7 +546,8 @@ def test_commit_round_trip_untouched_is_exact(fx):
     assert result["lines"] == [] and result["missing"] == [], result
     assert stack_len() == 0 and hidden_objects() == set()
     assert local_ids() == before, local_ids() ^ before
-    assert listing(fx) == {"src.blend", "lib3.blend", "src.blend.iops_bak", "src.blend.iops_bak.json"}, listing(fx)
+    assert listing(fx) == {"src.blend", "lib3.blend"}, listing(fx)
+    assert len(points(fx)) == 1, backup_listing(fx)
 
     bpy.ops.wm.open_mainfile(filepath=fx.src)
     C = bpy.data.collections["C"]
@@ -528,9 +582,27 @@ def test_commit_moves_and_adds(fx):
     assert ("objects", "NewObj") in keyset(plan, "added"), plan
     assert ("objects", "Cube") in keyset(plan, "replaced"), plan
     assert result["ok"], result
-    assert result["backup"] == fx.bak and read(fx.bak) == src_bytes, "backup is not the pre-commit source"
-    assert listing(fx) == {"src.blend", "src.blend.iops_bak", "src.blend.iops_bak.json"}, listing(fx)
-    assert iel.read_sidecar(fx.src)["session_uuid"] == session_uuid, iel.read_sidecar(fx.src)
+    # The backup lands in the backup folder, named for the source; nothing
+    # is left next to the source.
+    assert listing(fx) == {"src.blend"}, listing(fx)
+    pts = points(fx)
+    prefix = core.backup_basename(fx.src, datetime.datetime.now())[:-len("YYYYMMDD-HHMMSS")]
+    assert len(pts) == 1 and pts[0].startswith(prefix), (pts, prefix)
+    assert re.fullmatch(r"src-[0-9a-f]{8}-\d{8}-\d{6}", pts[0]), pts
+    assert backup_listing(fx) == {pts[0] + ".blend", pts[0] + ".json"}, backup_listing(fx)
+    bak, _side = point_files(fx, pts[0])
+    assert same_path(result["backup"], bak) and read(bak) == src_bytes, "backup is not the pre-commit source"
+    side = sidecar(fx, pts[0])
+    assert set(side) == {"source_path", "backup_time", "source_stat", "session_uuid"}, side
+    assert os.path.isabs(side["source_path"]) and same_path(side["source_path"], fx.src), side
+    taken = datetime.datetime.fromisoformat(side["backup_time"])
+    assert taken.utcoffset() == datetime.timedelta(0), side["backup_time"]
+    assert abs((datetime.datetime.now(datetime.timezone.utc) - taken).total_seconds()) < 600, taken
+    # The name's stamp is the backup time in UTC.
+    assert core.point_stamp(pts[0]) == taken, (pts[0], taken)
+    assert side["session_uuid"] == session_uuid, side
+    assert tuple(side["source_stat"]) == iel.file_stat(fx.src), (side, iel.file_stat(fx.src))
+    assert iel.already_committed(fake_session(session_uuid, fx))
     assert stack_len() == 0
     assert bpy.data.collections.get("C [edit]") is None
     assert local_ids() == before, local_ids() ^ before
@@ -576,6 +648,7 @@ def test_commit_warns_when_source_changed(fx):
     assert not result["ok"], result
     assert result["error"] == "src.blend changed since the dry run: Commit again", result["error"]
     assert read(fx.src) == src_bytes and listing(fx) == {"src.blend"}, listing(fx)
+    assert points(fx) == [], backup_listing(fx)
     assert stack_len() == 1
     # Committed after a fresh dry run: it runs and carries the warning.
     _plan, result = commit(top())
@@ -603,14 +676,18 @@ def test_commit_failure_keeps_session(fx):
     assert bpy.data.collections.get("C [edit]") == s.copy_collection
     assert editing_state(s) == state
     no_tags()
-    assert listing(fx) == {"src.blend", "src.blend.iops_bak", "src.blend.iops_bak.json"}, listing(fx)
-    assert iel.read_sidecar(fx.src).get("session_uuid") is None, "a failed write recorded the session"
+    assert listing(fx) == {"src.blend"}, listing(fx)
+    # The source was not touched: its point is removed again, so a failed
+    # Commit never pushes a real point out.
+    assert result["backup"] is None and backup_listing(fx) == set(), backup_listing(fx)
+    assert not iel.already_committed(s), "a failed write counts as committed"
     assert hidden_objects() == {"Inst"}
     assert "NewObj" not in linked("C", fx).objects
     # The session still commits (the operator without a dialog).
     assert bpy.ops.iops.instance_edit_commit("EXEC_DEFAULT") == {"FINISHED"}
     assert stack_len() == 0
     assert "NewObj" in linked("C", fx).objects
+    assert len(points(fx)) == 1, backup_listing(fx)
 
 
 def test_nested_sessions_commit_inner_then_outer(fx):
@@ -684,14 +761,31 @@ def test_rollback_restores_backup(fx):
     _plan, result = commit(s, {("materials", "SharedMat")})
     assert result["ok"], result
     assert ("materials", "SharedMat") in keyset(result["plan"], "replaced"), result["plan"]
-    assert read(fx.bak) == original
+    pts = points(fx)
+    assert len(pts) == 1 and read(point_files(fx, pts[0])[0]) == original, pts
     lc = linked("C", fx)
     assert "NewObj" in lc.objects
     assert tuple(lc.objects["Cube"].data.materials[0].diffuse_color) == GREEN
     assert read(fx.src) != original
 
-    assert [os.path.normcase(p) for p in iel.backup_exists_for_any_library()] == [os.path.normcase(fx.src)]
+    found = iel.backup_points_for_libraries(bpy.context)
+    assert [os.path.normcase(p) for p in found] == [os.path.normcase(fx.src)], found
+    assert list(found.values()) == [pts], found
     assert bpy.ops.iops.instance_edit_rollback_source.poll()
+    assert iel.rollback_point_warning(bpy.context, fx.src, pts[0]) is None
+    # A corrupt or missing sidecar: the point is still offered, with a
+    # warning that its state is unknown.
+    _bak, side = point_files(fx, pts[0])
+    with open(side, "w", encoding="utf-8") as fh:
+        fh.write("{not json")
+    for _round in ("corrupt", "missing"):
+        assert iel.rollback_point_warning(bpy.context, fx.src, pts[0]) == CANNOT, _round
+        snap = iel.rollback_snapshot(bpy.context, fx.src)
+        assert [it[0] for it in snap["items"]] == pts and snap["warnings"] == {pts[0]: CANNOT}, snap
+        items = iel._point_items(types.SimpleNamespace(source_path=fx.src), bpy.context)
+        assert [it[0] for it in items] == pts, items
+        if _round == "corrupt":
+            os.remove(side)
     # Rollback is refused while another Commit holds the source.
     with open(fx.lock, "w"):
         pass
@@ -705,8 +799,8 @@ def test_rollback_restores_backup(fx):
     os.remove(fx.lock)
     assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src) == {"FINISHED"}
     assert read(fx.src) == original
-    assert listing(fx) == {"src.blend", "src.blend.iops_bak", "src.blend.iops_bak.json"}, listing(fx)
-    assert iel.read_sidecar(fx.src).get("session_uuid") is None
+    assert listing(fx) == {"src.blend"}, listing(fx)
+    assert points(fx) == pts and sidecar(fx, pts[0]).get("session_uuid") is None, sidecar(fx, pts[0])
     lc = linked("C", fx)
     assert {o.name for o in lc.objects} == {"Cube", "Child", "DInst"}
     assert close(lc.objects["Cube"].matrix_world, CUBE_WORLD)
@@ -811,19 +905,35 @@ def test_commit_refuses_already_committed_session(fx):
     s = top()
     edit_session(s)
     src_bytes = read(fx.src)
-    # What a Commit of this session leaves, then an undo bringing it back.
-    with open(fx.sidecar, "w", encoding="utf-8") as fh:
-        json.dump({"backup_time": time.time(), "source_stat": None, "session_uuid": s.uuid}, fh)
+    # Sidecars of several Commits of this source, one of them by this
+    # session (what its Commit leaves, then an undo bringing it back).
+    t0 = datetime.datetime(2026, 1, 2, 3, 4, 5)
+    names = [core.backup_basename(fx.src, t0 + datetime.timedelta(minutes=m)) for m in range(3)]
+    stranger = core.backup_basename(os.path.join(fx.dir, "other", "src.blend"), t0)
+
+    def write_sidecars(mine_stat):
+        rows = [(names[0], "1" * 32, [1.0, 2]), (names[1], s.uuid, mine_stat),
+                (names[2], "2" * 32, None), (stranger, "3" * 32, [1.0, 2])]
+        for name, owner, st in rows:
+            with open(os.path.join(fx.backups, name + ".json"), "w", encoding="utf-8") as fh:
+                json.dump({"source_path": fx.src, "backup_time": t0.isoformat(),
+                           "source_stat": st, "session_uuid": owner}, fh)
+
+    write_sidecars([1.0, 2])
     assert iel.already_committed(s)
     assert iel.preflight(bpy.context, s) == (False, [iel.ALREADY_COMMITTED], False)
     result = iel.commit_linked(bpy.context, s)
     assert not result["ok"] and result["error"] == iel.ALREADY_COMMITTED, result
     assert result["error"] == "This session was already committed; Cancel it"
-    assert read(fx.src) == src_bytes and listing(fx) == {"src.blend", "src.blend.iops_bak.json"}, listing(fx)
+    assert read(fx.src) == src_bytes and listing(fx) == {"src.blend"}, listing(fx)
+    assert backup_listing(fx) == {n + ".json" for n in names + [stranger]}, backup_listing(fx)
     assert stack_len() == 1 and bpy.data.collections.get("C [edit]") == top().copy_collection
-    # Another session's uuid does not block.
-    with open(fx.sidecar, "w", encoding="utf-8") as fh:
-        json.dump({"session_uuid": "0" * 32}, fh)
+    # A sidecar of another source naming the session does not block, nor
+    # one whose write never succeeded (no source_stat), nor other uuids.
+    assert not iel.already_committed(fake_session("3" * 32, fx))
+    assert not iel.already_committed(fake_session("2" * 32, fx))
+    assert iel.already_committed(fake_session("1" * 32, fx))
+    write_sidecars(None)
     assert not iel.already_committed(top())
     _plan, result = commit(top())
     assert result["ok"], result
@@ -853,7 +963,8 @@ def test_commit_refuses_while_source_locked(fx):
     os.utime(fx.lock, (old, old))
     _plan, result = commit(top())
     assert result["ok"], result
-    assert listing(fx) == {"src.blend", "src.blend.iops_bak", "src.blend.iops_bak.json"}, listing(fx)
+    assert listing(fx) == {"src.blend"}, listing(fx)
+    assert len(points(fx)) == 1, backup_listing(fx)
 
 
 def test_p4_edit_output_shown_and_must_sync_refuses(fx):
@@ -892,12 +1003,228 @@ def test_p4_edit_output_shown_and_must_sync_refuses(fx):
         answer["out"] = "//depot/src.blend#4 - opened for edit\n"
         os.chmod(fx.src, stat.S_IREAD)
         assert iel.preflight(bpy.context, s) == (
-            True, ["p4 edit: //depot/src.blend#4 - opened for edit"], True)
+            True,
+            ["Checked out in Perforce: src.blend",
+             "p4 edit: //depot/src.blend#4 - opened for edit"],
+            True)
     finally:
         subprocess.run = real_run
         prefs.iops_instance_edit_p4 = was_p4
         os.chmod(fx.src, stat.S_IREAD | stat.S_IWRITE)
     assert bpy.ops.iops.instance_edit_cancel() == {"FINISHED"}
+
+
+def test_backups_pruned_and_rollback_to_a_point(fx):
+    prefs = addon_prefs()
+    was_count = prefs.iops_instance_edit_backup_count
+    prefs.iops_instance_edit_backup_count = 2
+    try:
+        _saved, inst, _inst2, _before = start(fx)
+        states, uuids, cubes = [read(fx.src)], [], [Matrix(CUBE_WORLD)]
+        for i in range(3):
+            if i:
+                activate(inst)
+                assert bpy.ops.iops.instance_edit_start() == {"FINISHED"}
+            s = top()
+            uuids.append(s.uuid)
+            owned(s, "objects", "Cube").location.x += 1.0
+            bpy.context.view_layer.update()
+            _plan, result = commit(s)
+            assert result["ok"], result
+            assert stack_len() == 0
+            states.append(read(fx.src))
+            cubes.append(Matrix(linked("C", fx).objects["Cube"].matrix_world))
+        assert len(set(states)) == 4, "each Commit changes the source"
+        # Three Commits, two points kept: the oldest (the original source)
+        # was removed with its sidecar.
+        pts = points(fx)
+        assert len(pts) == 2, backup_listing(fx)
+        assert backup_listing(fx) == {p + e for p in pts for e in (".blend", ".json")}, backup_listing(fx)
+        assert sorted(pts, reverse=True) == pts
+        assert [read(point_files(fx, p)[0]) for p in pts] == [states[2], states[1]]
+        assert [sidecar(fx, p)["session_uuid"] for p in pts] == [uuids[2], uuids[1]]
+        assert listing(fx) == {"src.blend"}, listing(fx)
+        # already_committed reads every sidecar of the source.
+        assert iel.already_committed(fake_session(uuids[2], fx))
+        assert iel.already_committed(fake_session(uuids[1], fx))
+        assert not iel.already_committed(fake_session(uuids[0], fx)), "its point was pruned"
+        assert list(iel.backup_points_for_libraries(bpy.context).values()) == [pts]
+        # The point enum: newest first, "<time>  -  <basename>".
+        items = iel._point_items(types.SimpleNamespace(source_path=fx.src), bpy.context)
+        assert [it[0] for it in items] == pts, items
+        for it in items:
+            assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  \u2014  " + re.escape(it[0]), it[1]), it
+        # Only the newest point matches the source as it is now.
+        assert iel.rollback_point_warning(bpy.context, fx.src, pts[0]) is None
+        assert iel.rollback_point_warning(bpy.context, fx.src, pts[1]) == "src.blend was modified after this backup"
+
+        # Rollback without a point: the newest.
+        assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src) == {"FINISHED"}
+        assert read(fx.src) == states[2]
+        assert close(linked("C", fx).objects["Cube"].matrix_world, cubes[2])
+        assert not iel.already_committed(fake_session(uuids[2], fx))
+        assert iel.already_committed(fake_session(uuids[1], fx))
+        assert points(fx) == pts, "Rollback removed a point"
+        # Rollback to the older point; the newer one's session is free too.
+        assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src, point=pts[1]) == {"FINISHED"}
+        assert read(fx.src) == states[1]
+        assert close(linked("C", fx).objects["Cube"].matrix_world, cubes[1])
+        assert not any(iel.already_committed(fake_session(u, fx)) for u in uuids)
+        assert points(fx) == pts and listing(fx) == {"src.blend"}, (points(fx), listing(fx))
+        # A point that is not this file's is refused.
+        try:
+            bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src, point="nope")
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("an unknown point was accepted")
+
+        # The dialog: invoke snapshots the points and preselects the newest;
+        # the user picks pts[0]; a newer point appears (another Blender
+        # committed) before Rollback is pressed: pts[0] is still restored.
+        shift = {}
+
+        def between(op):
+            assert op.point == pts[0] and op._snapshot["items"][0][0] == pts[0]
+            before = [it[0] for it in iel._point_items(op, bpy.context)]
+            shift["new"] = fake_point(fx, datetime.datetime(2030, 1, 1, tzinfo=UTC),
+                                      point_files(fx, pts[1])[0])
+            after = [it[0] for it in iel._point_items(op, bpy.context)]
+            shift["moved"] = (before.index(pts[0]), after.index(pts[0]))
+
+        op_cls = rollback_test_operator(between)
+        bpy.utils.register_class(op_cls)
+        try:
+            assert bpy.ops.iops.test_rollback_shift(source_path=fx.src) == {"FINISHED"}
+        finally:
+            bpy.utils.unregister_class(op_cls)
+        assert shift["moved"] == (0, 1), shift  # a list index would have shifted
+        assert read(fx.src) == states[2]
+        assert close(linked("C", fx).objects["Cube"].matrix_world, cubes[2])
+        assert points(fx) == [shift["new"]] + pts
+        assert iel._rollback_dialog["snapshot"] is None, "the snapshot outlived the dialog"
+    finally:
+        prefs.iops_instance_edit_backup_count = was_count
+
+
+def rollback_test_operator(between):
+    """Rollback with invoke's work (snapshot, newest preselected), then
+    ``between(op)`` where the dialog would be shown, then execute. Done in
+    execute: headless there is no event, so Blender never calls invoke."""
+    class IOPS_OT_test_rollback_shift(iel.IOPS_OT_instance_edit_rollback_source):
+        bl_idname = "iops.test_rollback_shift"
+        bl_label = "Test Rollback Shift"
+        source_path: bpy.props.StringProperty()
+        point: bpy.props.EnumProperty(items=iel._point_items, options={"SKIP_SAVE"})
+
+        def execute(self, context):
+            assert self.prepare(context) is not None
+            between(self)
+            return super().execute(context)
+
+    return IOPS_OT_test_rollback_shift
+
+
+def test_prune_keeps_the_point_just_written(fx):
+    prefs = addon_prefs()
+    was_count = prefs.iops_instance_edit_backup_count
+    prefs.iops_instance_edit_backup_count = 1
+    try:
+        _saved, _inst, _inst2, _before = start(fx)
+        src_bytes = read(fx.src)
+        # A point stamped later than now (a clock set back since): the
+        # point Commit writes sorts oldest, and must survive the pruning.
+        future = fake_point(fx, datetime.datetime(2030, 6, 1, tzinfo=UTC))
+        edit_session(top())
+        _plan, result = commit(top())
+        assert result["ok"], result
+        pts = points(fx)
+        assert len(pts) == 1 and pts[0] != future, pts
+        bak, _side = point_files(fx, pts[0])
+        assert same_path(result["backup"], bak) and read(bak) == src_bytes
+        assert backup_listing(fx) == {pts[0] + ".blend", pts[0] + ".json"}, backup_listing(fx)
+    finally:
+        prefs.iops_instance_edit_backup_count = was_count
+
+
+def test_commit_refuses_unusable_backup_folder(fx):
+    _saved, _inst, _inst2, _before = start(fx)
+    edit_session(top())
+    src_bytes = read(fx.src)
+    prefs = addon_prefs()
+    expect = "Could not back up src.blend: "
+    blocker = os.path.join(fx.backups, "not_a_folder")
+    open(blocker, "w").close()
+
+    def refused(patch_name=None, replacement=None):
+        plan, stat = dry_run(top())
+        owner = iel.shutil if patch_name == "copy2" else iel
+        real = getattr(owner, patch_name) if patch_name else None
+        if patch_name:
+            setattr(owner, patch_name, replacement)
+        try:
+            result = iel.commit_linked(bpy.context, top(), set(), plan, stat)
+        finally:
+            if patch_name:
+                setattr(owner, patch_name, real)
+        assert not result["ok"] and result["error"].startswith(expect), result
+        assert read(fx.src) == src_bytes, "the source was written without a backup"
+        assert listing(fx) == {"src.blend"} and stack_len() == 1, listing(fx)
+        assert backup_listing(fx) == {"not_a_folder"}, backup_listing(fx)
+
+    try:
+        # The folder cannot be created (a file is in the way).
+        prefs.iops_instance_edit_backup_dir = blocker
+        refused()
+        prefs.iops_instance_edit_backup_dir = fx.backups
+
+        # A read-only folder: the copy is refused.
+        def deny(src, dst, *args, **kwargs):
+            raise PermissionError(13, "Access is denied", dst)
+        refused("copy2", deny)
+
+        # The sidecar cannot be written: the copy is removed again.
+        def full(path, data):
+            raise OSError(28, "No space left on device", path)
+        refused("_write_point_json", full)
+
+        # A relative folder preference is ignored, with a line saying so.
+        prefs.iops_instance_edit_backup_dir = "//backups"
+        ok, lines, _w = iel.preflight(bpy.context, top())
+        assert ok and lines == [iel.backup_dir_problem(bpy.context)], lines
+        prefs.iops_instance_edit_backup_dir = fx.backups
+        _plan, result = commit(top())
+        assert result["ok"], result
+        assert len(points(fx)) == 1, backup_listing(fx)
+    finally:
+        prefs.iops_instance_edit_backup_dir = fx.backups
+
+
+def test_backup_dir_default_and_pref():
+    prefs = addon_prefs()
+    was = prefs.iops_instance_edit_backup_dir
+    try:
+        prefs.iops_instance_edit_backup_dir = ""
+        expected = os.path.join(bpy.utils.user_resource("CONFIG"), "iops", "instance_edit_backups")
+        assert same_path(iel.backup_dir(bpy.context, create=False), expected)
+        assert iel.backup_dir_problem(bpy.context) is None
+        prefs.iops_instance_edit_backup_dir = RUN_DIR
+        assert same_path(iel.backup_dir(bpy.context, create=False), RUN_DIR)
+        assert iel.backup_dir_problem(bpy.context) is None
+        # Relative values are ignored (with a problem line), never resolved
+        # against whichever file is open.
+        for rel in ("//backups", "rel/backups"):
+            prefs.iops_instance_edit_backup_dir = rel
+            assert same_path(iel.backup_dir(bpy.context, create=False), expected), rel
+            problem = iel.backup_dir_problem(bpy.context)
+            assert problem and "not an absolute path" in problem and rel in problem, problem
+        made = os.path.join(RUN_DIR, "made", "here")
+        prefs.iops_instance_edit_backup_dir = made
+        assert not os.path.exists(made)
+        assert iel.backup_points_for_libraries(bpy.context) == {} and not os.path.exists(made)
+        assert same_path(iel.backup_dir(bpy.context), made) and os.path.isdir(made)
+    finally:
+        prefs.iops_instance_edit_backup_dir = was
 
 
 def test_newer_source_is_refused():
@@ -921,6 +1248,9 @@ TESTS = [
     test_commit_failure_keeps_session,
     test_nested_sessions_commit_inner_then_outer,
     test_rollback_restores_backup,
+    test_backups_pruned_and_rollback_to_a_point,
+    test_prune_keeps_the_point_just_written,
+    test_commit_refuses_unusable_backup_folder,
     test_cancel_keeps_users_own_datablocks,
     test_commit_keeps_users_own_datablocks,
     test_commit_keeps_asset_metadata_and_relative_paths,
@@ -930,16 +1260,20 @@ TESTS = [
 ]
 
 
+PLAIN_TESTS = [test_newer_source_is_refused, test_backup_dir_default_and_pref]
+
+
 def run_tests():
     failed = []
-    try:
-        test_newer_source_is_refused()
-    except Exception:
-        failed.append("test_newer_source_is_refused")
-        print("FAIL test_newer_source_is_refused")
-        traceback.print_exc()
-    else:
-        print("PASS test_newer_source_is_refused")
+    for fn in PLAIN_TESTS:
+        try:
+            fn()
+        except Exception:
+            failed.append(fn.__name__)
+            print("FAIL %s" % fn.__name__)
+            traceback.print_exc()
+        else:
+            print("PASS %s" % fn.__name__)
     for fn in TESTS:
         fx = Fixture()
         try:
@@ -954,7 +1288,7 @@ def run_tests():
             # Drop every reference to the fixture files before removing them.
             bpy.ops.wm.read_homefile(use_empty=True)
             shutil.rmtree(fx.dir, ignore_errors=True)
-    print("%d passed, %d failed" % (len(TESTS) + 1 - len(failed), len(failed)))
+    print("%d passed, %d failed" % (len(TESTS) + len(PLAIN_TESTS) - len(failed), len(failed)))
     return failed
 
 
@@ -970,12 +1304,15 @@ def main():
         sys.stdout.flush()
         sys.exit(1)
     RUN_DIR = tempfile.mkdtemp(prefix="iops_linked_", dir=TMP_ROOT)
+    prefs = addon_prefs()
+    was_backup_dir = prefs.iops_instance_edit_backup_dir
     try:
         failed = run_tests()
     except Exception:
         traceback.print_exc()
         failed = ["run_tests"]
     finally:
+        prefs.iops_instance_edit_backup_dir = was_backup_dir
         shutil.rmtree(RUN_DIR, ignore_errors=True)
     if os.path.exists(RUN_DIR):
         print("FAIL cleanup: %s not removed" % RUN_DIR)
