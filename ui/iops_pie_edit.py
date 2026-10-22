@@ -721,8 +721,8 @@ class IOPS_MT_Pie_Edit(Menu):
                         icon="FILE_REFRESH"
                     )
                 else:
-                    # keep slot order: skip 7 and 9 so the next button lands on 1
-                    pie.separator()
+                    # slot 7: Edit Instance; slot 9 stays empty so the next button lands on 1
+                    pie.operator("iops.instance_edit_start", text="Edit Instance", icon="OUTLINER_COLLECTION")
                     pie.separator()
 
                 # 1 - BOTTOM-LEFT (toggle): source collection <-> own collection

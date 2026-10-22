@@ -571,5 +571,13 @@ class IOPS_OT_instance_edit_stop(_SessionOperator, bpy.types.Operator):
     bl_idname = "iops.instance_edit_stop"
     bl_label = "Stop Instance Edit"
 
+    @classmethod
+    def description(cls, context, properties):
+        scene = getattr(context, "scene", None)
+        if scene is not None and session_active(scene):
+            s = active_session(scene)
+            return f"Stop editing {s.collection_name} (instanced by {s.instancer_name})"
+        return cls.__doc__
+
     def execute(self, context):
         return self._finish(stop_session(context, active_session(context.scene)))

@@ -371,6 +371,7 @@ from .operators.instance_edit import (
     IOPS_OT_instance_edit_restore,
     IOPS_OT_instance_edit_stop,
 )
+from .ui.iops_instance_edit_header import draw_iops_instance_edit_header
 from .ui.iops_selection_sets_panel import (
     IOPS_SS_MirrorItem,
     IOPS_OT_SSRefresh,
@@ -852,6 +853,7 @@ def register():
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
+    bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_instance_edit_header)
     bpy.types.VIEW3D_MT_edit_mesh_extrude.append(draw_extrude_menu)
     bpy.types.VIEW3D_MT_vertex_group.append(vertex_group_rename_active)
     register_select_similar_name_menu()
@@ -970,6 +972,10 @@ def unregister():
         print(e)
     try:
         bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_ss_header)
+    except Exception:
+        pass
+    try:
+        bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_instance_edit_header)
     except Exception:
         pass
     try:
