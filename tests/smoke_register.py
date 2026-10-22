@@ -17,6 +17,9 @@ for op_name in (
     "mesh_falloff_move",
     "mesh_falloff_rotate",
     "mesh_falloff_scale",
+    "instance_edit_start",
+    "instance_edit_stop",
+    "instance_edit_restore",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
 
