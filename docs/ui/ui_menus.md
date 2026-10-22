@@ -154,6 +154,8 @@ Named vertex / edge / face selections stored on the mesh. Save, recall, replace 
 
 **Hotkey:** None — sidebar panel and header popover.
 
+The 3D View header also carries an **Edit Instance** icon right after the Selection Sets block; while an edit is open it turns red and a **Restore** icon appears beside it. See [Edit Instance](../operators/op_instance_edit.md).
+
 | Button | What it does |
 | --- | --- |
 | Set list | Pick the active set; shows element type and a stale warning |

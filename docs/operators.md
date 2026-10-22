@@ -23,6 +23,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Change Scale](operators/op_object_change_scale.md) — scale the selection by a typed factor.
 
 ## Object — Utilities
+- [Edit Instance](operators/op_instance_edit.md) — edit a collection instance in place with Start / Stop / Restore.
 - [Auto Smooth](operators/op_object_auto_smooth.md) — smooth-by-angle shading for the selection.
 - [KitBash Grid](operators/op_object_kitbash_grid.md) — lay kitbash pieces out on a grid or gather them at the centre.
 - [Name from Active](operators/op_object_name_from_active.md) — rename the selection after the active object.
