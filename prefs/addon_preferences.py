@@ -228,6 +228,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    iops_instance_edit_header: BoolProperty(
+        name="Instance Edit in 3D View Header",
+        description="Show the Edit Instance button in the 3D View header (the red icon of an open session is always shown)",
+        default=True,
+    )
+
     show_filename_full_path: BoolProperty(
         name="Full Path",
         description="Show the full .blend file path instead of just the filename",
@@ -1146,6 +1152,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
                 body.prop(self, "iops_ss_header", toggle=True)
+                body.prop(self, "iops_instance_edit_header", toggle=True)
                 row = body.row(align=True)
                 row.prop(self, "show_filename_stat", toggle=True)
                 sub = row.row(align=True)

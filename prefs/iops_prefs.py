@@ -244,6 +244,7 @@ def get_iops_prefs():
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
             "iops_ss_header": safe("iops_ss_header", True),
+            "iops_instance_edit_header": safe("iops_instance_edit_header", True),
             "show_filename_full_path": safe("show_filename_full_path", False),
             "show_dimensions_stat": safe("show_dimensions_stat", True),
             "show_instances_stat": safe("show_instances_stat", False),

@@ -311,6 +311,7 @@ def load_iops_preferences():
                             prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
                             for key_, default_ in (
                                 ("iops_ss_header", True),
+                                ("iops_instance_edit_header", True),
                                 ("show_filename_full_path", False),
                                 ("show_dimensions_stat", True),
                                 ("show_instances_stat", False),
