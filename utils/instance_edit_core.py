@@ -29,12 +29,19 @@ def from_flat(flat):
 
 
 def split_roots(names, parent_of):
-    """Split names into (roots, children); a root has no parent inside names."""
+    """Split names into (roots, children). A root has no ancestor, through
+    any parent chain (``parent_of`` may hold names outside ``names``), inside
+    names; a child follows such an ancestor and must not be moved itself."""
     inside = set(names)
     roots, children = [], []
     for n in names:
+        seen = {n}
         p = parent_of.get(n)
-        (children if p is not None and p in inside else roots).append(n)
+        while p is not None and p not in seen and p not in inside:
+            seen.add(p)
+            p = parent_of.get(p)
+        # p in seen: cycle guard (a chain looping back to n is not a parent).
+        (children if p is not None and p in inside and p not in seen else roots).append(n)
     return roots, children
 
 

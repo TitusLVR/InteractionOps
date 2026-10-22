@@ -29,6 +29,9 @@ def test_split_roots_parent_outside_is_root():
     roots, children = split_roots(["a","b","c"], {"a": None, "b": "a", "c": "ext"})
     assert roots == ["a","c"] and children == ["b"]
 
+def test_split_roots_ancestor_through_outside_is_child():
+    assert split_roots(["Cube","R"], {"Cube": None, "R": "Outside", "Outside": "Cube"}) == (["Cube"], ["R"])
+
 def test_split_roots_chain_inside():
     roots, children = split_roots(["x","y","z"], {"x": None, "y": "x", "z": "y"})
     assert roots == ["x"] and children == ["y","z"]
