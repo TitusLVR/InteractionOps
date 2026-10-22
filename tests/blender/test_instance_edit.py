@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 import traceback
+from types import SimpleNamespace
 
 import bpy
 from mathutils import Matrix, Vector
@@ -159,6 +160,48 @@ def expected_frame(s):
     return to_matrix(edit_frame(s["A"].matrix_world, s["asset"].instance_offset))
 
 
+def channels(o):
+    """Everything Stop/Restore write back, as plain values compared with ==
+    (bit-exact, no tolerance)."""
+    return (
+        tuple(o.location),
+        o.rotation_mode,
+        tuple(o.rotation_euler),
+        tuple(o.rotation_quaternion),
+        tuple(o.rotation_axis_angle),
+        tuple(o.scale),
+        o.parent,
+        o.parent_type,
+        o.parent_bone,
+        tuple(tuple(r) for r in o.matrix_parent_inverse),
+    )
+
+
+def run_capturing(op_name):
+    """Run iops.<op_name> and return (result, names it reported missing).
+    _finish(missing) is where the operator turns those names into
+    self.report("Missing: ..."); self.report itself cannot be wrapped (RNA
+    functions win attribute lookup on a registered operator instance)."""
+    cls = {
+        "instance_edit_stop": ie.IOPS_OT_instance_edit_stop,
+        "instance_edit_restore": ie.IOPS_OT_instance_edit_restore,
+    }[op_name]
+    reported = []
+    orig_finish = cls._finish
+
+    def capture(self, missing):
+        reported.extend(missing)
+        return orig_finish(self, missing)
+
+    cls._finish = capture
+    try:
+        res = run_op(op_name)
+    finally:
+        del cls._finish
+    assert cls._finish is orig_finish
+    return res, reported
+
+
 # --- tests -------------------------------------------------------------------
 
 def test_start_places_roots():
@@ -277,24 +320,7 @@ def test_restore_after_object_deleted():
     bpy.data.objects.remove(s["sphere"])
     cube.location.x += 2
 
-    # Capture what the real operator reports: _finish(missing) is where it
-    # turns the names it could not find into self.report("Missing: ...").
-    # (self.report itself cannot be wrapped: RNA functions win attribute
-    # lookup on a registered operator instance.)
-    reported = []
-    cls = ie.IOPS_OT_instance_edit_restore
-    orig_finish = cls._finish
-
-    def capture(self, missing):
-        reported.extend(missing)
-        return orig_finish(self, missing)
-
-    cls._finish = capture
-    try:
-        res = run_op("instance_edit_restore")
-    finally:
-        del cls._finish
-    assert cls._finish is orig_finish
+    res, reported = run_capturing("instance_edit_restore")
 
     assert res == {"FINISHED"}
     assert stack_len() == 0
@@ -352,6 +378,279 @@ def test_poll_refuses_linked_and_nested_session():
         bpy.ops.wm.read_homefile(use_empty=True)
 
 
+def test_stop_round_trip_is_exact():
+    s = build_scene()
+    vl, A, cube = s["vl"], s["A"], s["cube"]
+    cube.location = (1.1, 2.2, 3.3)
+    cube.rotation_euler = [math.radians(v) for v in (170, -60, 400)]
+    cube.scale = (-1, 1, 1)
+    A.rotation_euler = [math.radians(v) for v in (20, -35, 110)]
+    A.scale = (2, 2, 2)
+    vl.update()
+    objs = [s[k] for k in ("cube", "child", "child2", "sphere")]
+    before = {o.name: channels(o) for o in objs}
+
+    for cycle in range(3):
+        assert run_op("instance_edit_start", A) == {"FINISHED"}
+        vl.update()
+        assert channels(cube) != before["Cube"], "Start did not move Cube"
+        assert run_op("instance_edit_stop") == {"FINISHED"}
+        vl.update()
+        for o in objs:
+            assert channels(o) == before[o.name], "cycle %d %s: %r != %r" % (
+                cycle, o.name, channels(o), before[o.name])
+    assert stack_len() == 0
+
+
+def test_start_refuses_non_uniform_scale():
+    s = build_scene()
+    A = s["A"]
+    A.scale = (1, 3, 1)
+    s["vl"].update()
+    select_only([A], A)
+    ok, reason = ie.can_start(bpy.context)
+    assert ok is False, reason
+    assert reason == "Instance is non-uniformly scaled or sheared; edit a uniformly scaled instance", reason
+    assert not bpy.ops.iops.instance_edit_start.poll()
+
+    # Uniform again: allowed.
+    A.scale = (3, 3, 3)
+    s["vl"].update()
+    assert ie.can_start(bpy.context)[0] is True
+
+
+def test_start_refuses_zero_scale():
+    s = build_scene()
+    A = s["A"]
+    A.scale = (0, 0, 0)
+    s["vl"].update()
+    select_only([A], A)
+    ok, reason = ie.can_start(bpy.context)
+    assert ok is False
+    assert reason == "Instance is non-uniformly scaled or sheared; edit a uniformly scaled instance", reason
+    assert not bpy.ops.iops.instance_edit_start.poll()
+    assert stack_len() == 0
+
+
+def test_restore_after_reparent():
+    s = build_scene()
+    vl, cube, child = s["vl"], s["cube"], s["child"]
+    cube2 = mesh_obj("Cube2", s["asset"], (5, 0, 0))
+    vl.update()
+    world = {o.name: o.matrix_world.copy() for o in (cube, child)}
+    before = {o.name: channels(o) for o in (cube, child, cube2)}
+
+    assert run_op("instance_edit_start", s["A"]) == {"FINISHED"}
+    vl.update()
+    # Ctrl+P (Object, keep transform): Cube under Cube2.
+    cube.parent = cube2
+    cube.matrix_parent_inverse = cube2.matrix_world.inverted()
+    # Alt+P (clear, keep transform): Child off Cube.
+    child_world = child.matrix_world.copy()
+    child.parent = None
+    child.matrix_world = child_world
+    vl.update()
+    assert run_op("instance_edit_restore") == {"FINISHED"}
+    vl.update()
+
+    assert cube.parent is None and child.parent == cube
+    for o in (cube, child, cube2):
+        assert channels(o) == before[o.name], "%s: %r != %r" % (o.name, channels(o), before[o.name])
+    for o in (cube, child):
+        assert_matrix_close(o.matrix_world, world[o.name], o.name + " world")
+    assert stack_len() == 0
+
+
+def test_restore_ignores_object_that_took_the_name():
+    s = build_scene()
+    vl = s["vl"]
+    outsider = mesh_obj("Outsider", s["scene"].collection, (50, 50, 50))
+    vl.update()
+    out_before = channels(outsider)
+    out_world = outsider.matrix_world.copy()
+
+    assert run_op("instance_edit_start", s["A"]) == {"FINISHED"}
+    bpy.data.objects.remove(s["cube"])
+    outsider.name = "Cube"
+    assert outsider.name == "Cube"
+    res, reported = run_capturing("instance_edit_restore")
+    vl.update()
+
+    assert res == {"FINISHED"} and stack_len() == 0
+    assert "Cube" in reported, reported
+    assert channels(outsider) == out_before, "outside object was touched"
+    assert_matrix_close(outsider.matrix_world, out_world, "outside object world")
+    assert not outsider.hide_get() and not outsider.hide_select
+
+
+def test_stop_after_collection_deleted():
+    s = build_scene()
+    scene, vl, asset, sub, A, B = s["scene"], s["vl"], s["asset"], s["sub"], s["A"], s["B"]
+    cube, child, child2, sphere = s["cube"], s["child"], s["child2"], s["sphere"]
+    frame = expected_frame(s)
+    before = {o.name: channels(o) for o in (child, child2, sphere)}
+
+    assert run_op("instance_edit_start", A) == {"FINISHED"}
+    cube.location.x += 1
+    vl.update()
+    cube_world = cube.matrix_world.copy()
+    # Outliner Delete: the content moves up to the parent, the collection goes.
+    for o in list(asset.objects):
+        scene.collection.objects.link(o)
+    scene.collection.children.link(sub)
+    bpy.data.collections.remove(asset)
+    vl.update()
+
+    res, reported = run_capturing("instance_edit_stop")
+    vl.update()
+
+    assert res == {"FINISHED"} and stack_len() == 0
+    assert reported.count("Asset") == 1, reported
+    # The edit is kept and Cube is back in the collection's native frame.
+    assert_matrix_close(cube.matrix_world, frame.inverted() @ cube_world, "Cube world")
+    for o in (child, child2, sphere):
+        assert channels(o) == before[o.name], "%s: %r != %r" % (o.name, channels(o), before[o.name])
+    assert not A.hide_get() and not B.hide_get()
+
+
+def test_hide_select_cleared_and_restored():
+    s = build_scene()
+    asset, sub, cube = s["asset"], s["sub"], s["cube"]
+    targets = [s[k] for k in ("cube", "child", "child2", "sphere")]
+    asset.hide_select = True
+    sub.hide_select = True
+    cube.hide_select = True
+
+    assert run_op("instance_edit_start", s["A"]) == {"FINISHED"}
+    s["vl"].update()
+    assert not asset.hide_select and not sub.hide_select and not cube.hide_select
+    for o in targets:
+        assert o.select_get(), o.name + " not selected after Start"
+
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    assert asset.hide_select and sub.hide_select and cube.hide_select
+    assert not s["child"].hide_select
+
+
+def test_hidden_ancestor_layer_collection():
+    bpy.ops.wm.read_homefile(use_empty=True)
+    scene = bpy.context.scene
+    vl = bpy.context.view_layer
+    parent = bpy.data.collections.new("Parent")
+    scene.collection.children.link(parent)
+    asset = bpy.data.collections.new("Asset")
+    parent.children.link(asset)
+    cube = mesh_obj("Cube", asset)
+    inst = bpy.data.objects.new("Inst", None)
+    inst.instance_type = "COLLECTION"
+    inst.instance_collection = asset
+    inst.location = (10, 0, 0)
+    scene.collection.objects.link(inst)
+    vl.update()
+    vl.layer_collection.children["Parent"].hide_viewport = True
+    vl.update()
+    assert not cube.visible_get()
+
+    assert run_op("instance_edit_start", inst) == {"FINISHED"}
+    vl.update()
+    assert cube.visible_get(), "Cube not visible after Start"
+
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    assert vl.layer_collection.children["Parent"].hide_viewport
+    assert not inst.hide_get()
+    assert stack_len() == 0
+
+
+def test_stop_on_recorded_view_layer():
+    s = build_scene()
+    scene, vl1, A, B = s["scene"], s["vl"], s["A"], s["B"]
+    vl2 = scene.view_layers.new("VL2")
+    vl2_asset = vl2.layer_collection.children["Asset"]
+    vl2_asset.exclude = False
+    A.hide_set(True, view_layer=vl2)
+    vl2_state = (vl2_asset.exclude, vl2_asset.hide_viewport,
+                 A.hide_get(view_layer=vl2), B.hide_get(view_layer=vl2))
+    assert vl2_state == (False, False, True, False)
+
+    assert run_op("instance_edit_start", A) == {"FINISHED"}
+    with bpy.context.temp_override(view_layer=vl2):
+        assert bpy.context.view_layer == vl2
+        assert bpy.ops.iops.instance_edit_stop() == {"FINISHED"}
+    assert stack_len() == 0
+
+    lca = vl1.layer_collection.children["Asset"]
+    assert lca.exclude and lca.children["Sub"].exclude, "first view layer not restored"
+    assert not A.hide_get(view_layer=vl1) and not B.hide_get(view_layer=vl1)
+    vl2_asset = vl2.layer_collection.children["Asset"]
+    assert (vl2_asset.exclude, vl2_asset.hide_viewport,
+            A.hide_get(view_layer=vl2), B.hide_get(view_layer=vl2)) == vl2_state, "VL2 touched"
+
+
+class _StubRow:
+    def __init__(self, log):
+        self.log = log
+        self.alert = False
+
+    def operator(self, idname, **_kw):
+        self.log.append(idname)
+
+
+class _StubLayout:
+    def __init__(self):
+        self.log = []
+
+    def separator(self):
+        self.log.append("|")
+
+    def row(self, align=False):
+        return _StubRow(self.log)
+
+
+def _draw_header(mode):
+    from InteractionOps.ui.iops_instance_edit_header import draw_iops_instance_edit_header
+
+    layout = _StubLayout()
+    ctx = SimpleNamespace(scene=bpy.context.scene, mode=mode, preferences=bpy.context.preferences)
+    draw_iops_instance_edit_header(SimpleNamespace(layout=layout), ctx)
+    return layout.log
+
+
+def test_header_pair_in_every_mode():
+    s = build_scene()
+    prefs = bpy.context.preferences.addons[ADDON].preferences
+    pref_before = prefs.iops_instance_edit_header
+    pair = ["|", "iops.instance_edit_stop", "iops.instance_edit_restore"]
+    modes = ("OBJECT", "EDIT_MESH", "EDIT_CURVE", "SCULPT", "PAINT_WEIGHT", "POSE")
+    try:
+        prefs.iops_instance_edit_header = True
+        assert _draw_header("OBJECT") == ["|", "iops.instance_edit_start"]
+        assert _draw_header("EDIT_MESH") == ["|", "iops.instance_edit_start"]
+        assert _draw_header("SCULPT") == [], "idle button or stray separator outside Object/Edit Mode"
+        prefs.iops_instance_edit_header = False
+        assert _draw_header("OBJECT") == [], "stray separator with the button turned off"
+
+        assert run_op("instance_edit_start", s["A"]) == {"FINISHED"}
+        for pref in (False, True):
+            prefs.iops_instance_edit_header = pref
+            for mode in modes:
+                assert _draw_header(mode) == pair, (mode, pref, _draw_header(mode))
+        assert run_op("instance_edit_stop") == {"FINISHED"}
+    finally:
+        prefs.iops_instance_edit_header = pref_before
+
+
+def test_session_ops_require_local_kind():
+    s = build_scene()
+    assert run_op("instance_edit_start", s["A"]) == {"FINISHED"}
+    session = s["scene"].iops_instance_edit.sessions[-1]
+    session.kind = "LINKED"
+    assert not bpy.ops.iops.instance_edit_stop.poll()
+    assert not bpy.ops.iops.instance_edit_restore.poll()
+    session.kind = "LOCAL"
+    assert bpy.ops.iops.instance_edit_stop.poll()
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+
+
 TESTS = [
     test_start_places_roots,
     test_restore_external_parent,
@@ -361,6 +660,17 @@ TESTS = [
     test_restore_after_object_deleted,
     test_header_draw_with_session_no_selection,
     test_poll_refuses_linked_and_nested_session,
+    test_stop_round_trip_is_exact,
+    test_start_refuses_non_uniform_scale,
+    test_start_refuses_zero_scale,
+    test_restore_after_reparent,
+    test_restore_ignores_object_that_took_the_name,
+    test_stop_after_collection_deleted,
+    test_hide_select_cleared_and_restored,
+    test_hidden_ancestor_layer_collection,
+    test_stop_on_recorded_view_layer,
+    test_header_pair_in_every_mode,
+    test_session_ops_require_local_kind,
 ]
 
 
