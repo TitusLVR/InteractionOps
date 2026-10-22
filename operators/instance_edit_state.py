@@ -20,9 +20,26 @@ class IOPS_IE_ObjRef(bpy.types.PropertyGroup):
     ref: bpy.props.PointerProperty(type=bpy.types.Object)
     name: bpy.props.StringProperty()
     is_root: bpy.props.BoolProperty()
+    # Pre-Start matrix_basis (report/debug) and, for roots, the post-Start one:
+    # Stop writes the snapshot channels back when the basis is still this.
     basis: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
+    edit_basis: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
+    # Transform channels, written back verbatim (same float32 storage as
+    # the Object, so a round trip is bit-exact).
+    location: bpy.props.FloatVectorProperty(size=3)
+    rotation_mode: bpy.props.StringProperty(default="XYZ")
+    rotation_euler: bpy.props.FloatVectorProperty(size=3)
+    rotation_quaternion: bpy.props.FloatVectorProperty(size=4, default=(1.0, 0.0, 0.0, 0.0))
+    rotation_axis_angle: bpy.props.FloatVectorProperty(size=4, default=(0.0, 0.0, 1.0, 0.0))
+    scale: bpy.props.FloatVectorProperty(size=3, default=(1.0, 1.0, 1.0))
+    # Parent relation, restored before the channels.
+    parent: bpy.props.PointerProperty(type=bpy.types.Object)
+    parent_type: bpy.props.StringProperty(default="OBJECT")
+    parent_bone: bpy.props.StringProperty()
+    matrix_parent_inverse: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
     hide_get: bpy.props.BoolProperty()
     hide_viewport: bpy.props.BoolProperty()
+    hide_select: bpy.props.BoolProperty()
 
 
 class IOPS_IE_InstRef(bpy.types.PropertyGroup):
@@ -43,6 +60,7 @@ class IOPS_IE_CollRef(bpy.types.PropertyGroup):
     ref: bpy.props.PointerProperty(type=bpy.types.Collection)
     name: bpy.props.StringProperty()
     hide_viewport: bpy.props.BoolProperty()
+    hide_select: bpy.props.BoolProperty()
 
 
 class IOPS_IE_Session(bpy.types.PropertyGroup):
@@ -112,11 +130,16 @@ def pop_session(scene):
 
 
 def resolve_object(row):
-    return row.ref if row.ref is not None else bpy.data.objects.get(row.name)
+    """The row's object, or None when it was deleted. Renames never break
+    the pointer, so there is no name fallback: a name match could only be a
+    different object that took the name, outside the edited collection."""
+    return row.ref
 
 
 def resolve_collection(row):
-    return row.ref if row.ref is not None else bpy.data.collections.get(row.name)
+    """The row's collection, or None when it was deleted (no name fallback,
+    see ``resolve_object``)."""
+    return row.ref
 
 
 def find_layer_collection(root_layer_coll, collection):
@@ -165,10 +188,11 @@ def get_frame(session):
     return from_flat(list(session.frame))
 
 
-def set_basis(row, matrix):
-    row.basis = [v for r in matrix for v in r]
+def set_basis(row, matrix, attr="basis"):
+    """Store a 4x4 matrix row-major in the 16-float property ``attr``."""
+    setattr(row, attr, [v for r in matrix for v in r])
 
 
-def get_basis(row):
-    b = list(row.basis)
+def get_basis(row, attr="basis"):
+    b = list(getattr(row, attr))
     return mathutils.Matrix([b[0:4], b[4:8], b[8:12], b[12:16]])

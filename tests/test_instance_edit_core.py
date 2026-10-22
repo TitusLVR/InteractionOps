@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from utils.instance_edit_core import (edit_frame, moved, unmoved, to_flat, from_flat,
                                       split_roots, layer_path, split_layer_path,
-                                      plan_restore, warnings)
+                                      plan_restore, warnings, is_similarity)
 
 def rot_z(deg):
     c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg))
@@ -54,3 +54,25 @@ def test_warnings_lines():
     assert out == ["Do not edit these objects or change the frame while editing:",
                    "a: animated/driven transform", "a: transform constraint",
                    "b: transform constraint"]
+
+def test_is_similarity_uniform_scale_rotation():
+    M = rot_z(37) @ np.diag([2.5, 2.5, 2.5, 1.0]); M[:3, 3] = (12345.678, -9876.5, 321)
+    assert is_similarity(edit_frame(M, (1, 2, 3)))
+    assert is_similarity(np.eye(4))
+    # A mirror is still a similarity (negative determinant).
+    assert is_similarity(rot_z(10) @ np.diag([-1.0, 1, 1, 1]))
+
+def test_is_similarity_non_uniform_scale():
+    assert not is_similarity(rot_z(90) @ np.diag([1, 3, 1, 1.0]))
+    assert not is_similarity(np.diag([1, 1, 1.001, 1.0]))
+
+def test_is_similarity_shear():
+    S = np.eye(4); S[0, 1] = 0.5
+    assert not is_similarity(S)
+    # Rotation under a non-uniformly scaled parent: sheared.
+    assert not is_similarity(np.diag([1, 2, 1, 1.0]) @ rot_z(30))
+
+def test_is_similarity_zero_scale():
+    assert not is_similarity(np.diag([0, 0, 0, 1.0]))
+    assert not is_similarity(np.diag([1, 1, 0, 1.0]))
+    assert not is_similarity(np.diag([1e-4, 1e-4, 1e-4, 1.0]))  # |det| 1e-12
