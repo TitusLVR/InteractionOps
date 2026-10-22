@@ -721,9 +721,11 @@ class IOPS_MT_Pie_Edit(Menu):
                         icon="FILE_REFRESH"
                     )
                 else:
-                    # slot 7: Edit Instance; slot 9 stays empty so the next button lands on 1
+                    # slot 7: Edit Instance; slot 9: Open in current Blender
+                    # when it polls, otherwise empty so the next button lands on 1
                     pie.operator("iops.instance_edit_start", text="Edit Instance", icon="OUTLINER_COLLECTION")
-                    pie.separator()
+                    if not draw_open_asset_in_pie_if_poll(pie, context):
+                        pie.separator()
 
                 # 1 - BOTTOM-LEFT (toggle): source collection <-> own collection
                 src_on = instance_source_is_active(context)
@@ -745,7 +747,9 @@ class IOPS_MT_Pie_Edit(Menu):
                     depress=all_on,
                 )
 
-                draw_open_asset_in_pie_if_poll(pie, context)
+                if context.object.instance_collection.library:
+                    # the local branch already placed it in slot 9
+                    draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
                 draw_empty_pie_size_display_and_image(pie, context)
                 draw_open_asset_in_pie_if_poll(pie, context)
