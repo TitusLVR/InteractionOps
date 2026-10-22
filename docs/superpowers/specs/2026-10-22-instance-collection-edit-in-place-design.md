@@ -77,6 +77,14 @@ writes their snapshot basis like any other object.
 Steps, in order, snapshot first:
 
 1. Build the **edit frame** `A = M_instance @ Translation(-instance_offset)`.
+   `A` must be a **similarity transform** (rotation x uniform scale x
+   translation, non-zero scale): a non-uniformly scaled or sheared
+   instancer, or one under a non-uniformly scaled parent, turns rotated
+   originals into sheared matrices that `matrix_world` cannot represent, and
+   Stop would silently corrupt the asset. Start refuses such an instancer
+   (poll message: "Instance is non-uniformly scaled or sheared; edit a
+   uniformly scaled instance"); a zero-scale instancer is refused the same
+   way.
 2. Collect `targets = collection.all_objects` (recursive: nested child
    collections are part of the instance's content). Split into **roots**
    (no ancestor, through any parent chain, is in `targets`) and children.
@@ -99,9 +107,11 @@ Steps, in order, snapshot first:
    only (a hidden parent hides its children; an excluded parent is already
    mirrored onto the child's own `exclude`, and clearing the parent's
    exclude would reveal every sibling asset); record and clear
-   `Collection.hide_viewport` for it, its ancestors in the scene tree and
-   its descendants; record and clear `hide_get()` / `hide_viewport` on each
-   target object.
+   `Collection.hide_viewport` and `hide_select` for it, its ancestors in
+   the scene tree and its descendants; record and clear `hide_get()` /
+   `hide_viewport` / `hide_select` on each target object (locked asset
+   collections are common; "selected and ready to edit" must hold for them
+   too).
 6. For every **root**: `obj.matrix_world = A @ obj.matrix_world`. Children
    are not touched; they follow their parent. Roots whose parent lies
    outside the collection are also moved through `matrix_world` (the setter
@@ -124,11 +134,21 @@ Stop **keeps every edit** the user made, transforms included. It does not
 reset anything to the snapshot:
 
 1. Every object in `collection.all_objects` that is a root *now* (snapshot
-   roots and objects added during the session alike) gets
-   `matrix_world = inverse(A) @ matrix_world`. Children are not touched. An
-   object moved by the user while editing therefore keeps its new place
-   relative to the collection, and an added object lands in the
-   collection's native frame; both show correctly in every instance.
+   roots and objects added during the session alike) goes back to the
+   collection frame. A snapshot root whose parent is unchanged and whose
+   `matrix_basis` still equals the post-Start basis (within 1e-6) was not
+   edited: it gets its **snapshot channels written back verbatim**
+   (`location`, `rotation_mode` + the matching rotation channel, `scale`),
+   so an untouched object survives any number of Start/Stop cycles bit
+   for bit, with its Euler values and negative scale untouched. Every other
+   root gets `matrix_world = inverse(A) @ matrix_world` (its channels are
+   re-derived from the matrix, which is unavoidable for an edited object).
+   Children are not touched. An object moved by the user while editing
+   therefore keeps its new place relative to the collection, and an added
+   object lands in the collection's native frame; both show correctly in
+   every instance.
+   If the collection itself no longer exists, the alive snapshot roots are
+   moved back the same way (edits kept) and the collection is reported.
 2. Objects the user unlinked from the collection during the session are
    accepted silently: they are no longer in `all_objects`, so they are not
    transformed and not restored. (The snapshot pointer keeps them alive in
@@ -154,10 +174,13 @@ it puts things back exactly as the snapshot says. **Transform edits made
 during the session are discarded** by Restore (geometry, modifier and
 material edits are on the data and stay). The tooltip says so.
 
-- For every snapshot object still alive: `matrix_basis = snapshot basis`
-  (basis, not world, so the result does not depend on the order objects are
-  processed or on a stale depsgraph). Then restore its `hide_get` /
-  `hide_viewport`.
+- For every snapshot object still alive: first its parent relation
+  (`parent`, `parent_type`, `parent_bone`, `matrix_parent_inverse`), then
+  its **transform channels** from the snapshot (`location`, `rotation_mode`,
+  rotation channel, `scale`), never a decomposed matrix, so the result does
+  not depend on processing order, on a stale depsgraph, or on matrix
+  decomposition. Then restore its `hide_get` / `hide_viewport` /
+  `hide_select`.
 - Restore `exclude` / `hide_viewport` of the recorded layer collections and
   `hide_viewport` of the recorded collections; unlink the collection from
   the scene root if Start linked it.
@@ -210,11 +233,23 @@ IOPS_InstanceEdit_State
 
 IOPS_InstanceEdit_ObjRef
   ref               PointerProperty(Object)
-  name              StringProperty          # fallback lookup + report text
+  name              StringProperty          # report text
   is_root           BoolProperty
-  basis             FloatVectorProperty(size=16)
+  basis             FloatVectorProperty(size=16)   # pre-Start matrix_basis
+  edit_basis        FloatVectorProperty(size=16)   # post-Start matrix_basis (roots)
+  location          FloatVectorProperty(size=3)
+  rotation_mode     StringProperty
+  rotation_euler    FloatVectorProperty(size=3)
+  rotation_quaternion FloatVectorProperty(size=4)
+  rotation_axis_angle FloatVectorProperty(size=4)
+  scale             FloatVectorProperty(size=3)
+  parent            PointerProperty(Object)
+  parent_type       StringProperty
+  parent_bone       StringProperty
+  matrix_parent_inverse FloatVectorProperty(size=16)
   hide_get          BoolProperty
   hide_viewport     BoolProperty
+  hide_select       BoolProperty
 
 IOPS_InstanceEdit_InstRef
   ref, name, hide_get
@@ -225,7 +260,10 @@ IOPS_InstanceEdit_LayerRef
   exclude, hide_viewport   BoolProperty
 
 IOPS_InstanceEdit_CollRef
-  ref (Collection), name, hide_viewport
+  ref (Collection), name, hide_viewport, hide_select
+
+(Implementation names: `IOPS_IE_*`; the stack length replaces `active`;
+`kind` and `prev_active_layer_path` are additional fields.)
 ```
 
 Pointer properties to IDs in a PropertyGroup hold a user, so an object the
@@ -233,8 +271,12 @@ user "deletes" while editing stays in `bpy.data` and Restore can still put
 it back; it just becomes unlinked from its collections (reported). Names
 are kept as a fallback and for messages.
 
-Lookup rule: use `ref` if it is not None, else `bpy.data.objects.get(name)`,
-else skip + report.
+Lookup rule: use `ref`; when it is None the object was really deleted
+(renames never break pointers), so skip + report. There is **no name
+fallback**: a name match could only ever hit a different object that took
+the name, and touching it would violate the anti-goal. The same holds for
+the session collection. Layer rows resolve by path, then by their
+collection `ref`.
 
 ## Pure core (testable without Blender)
 
@@ -262,7 +304,9 @@ parent outside the collection and with chains inside; missing-object plan.
 **3D View header**, appended to `VIEW3D_MT_editor_menus` right after the
 Selection Sets block (same mechanism as `draw_iops_ss_header`; the draw
 function is appended after the Selection Sets one so it lands to its right).
-Shown in Object Mode and Edit Mode. Gated by a new addon preference
+The idle button is shown in Object Mode and Edit Mode; the session pair
+(red icon + Restore) is drawn in **every** mode, because it is the only way
+out and Stop/Restore switch to Object Mode themselves. Gated by a new addon preference
 `iops_instance_edit_header` (default on), next to `iops_ss_header`.
 
 - **Idle**: one icon button, `OUTLINER_COLLECTION`, runs
