@@ -4,7 +4,7 @@
 
 A Blender addon that boosts day-to-day interactivity by mapping a large set of context-aware operators onto a small number of functional buttons (F1–F5 + ESC), wrapped in a unified themed UI with on-canvas HUD and Help overlays.
 
-Includes Edit Instance: edit a collection instance in place from the 3D View header or the instancer pie.
+Includes Edit Instance: edit a collection instance in place from the 3D View header or the instancer pie, for local and linked (library) collections; a linked edit is written back to its source file with Commit, with a backup and Rollback.
 
 Target: Blender 5.0+ · Issues: https://github.com/TitusLVR/InteractionOps/issues
 

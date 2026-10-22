@@ -1,4 +1,6 @@
 """Pure math/bookkeeping for Instance Collection Edit In Place (no bpy)."""
+import os
+from collections import namedtuple
 import numpy as np
 
 _SEP = "\x1f"
@@ -99,3 +101,108 @@ def warnings(roots_info):
     if lines:
         lines.insert(0, "Do not edit these objects or change the frame while editing:")
     return lines
+
+
+OwnedRow = namedtuple("OwnedRow", "index id_type source_name local_name")
+
+
+def merge_plan(owned_rows, tagged, untagged_added, existing, users_outside,
+               update_shared):
+    """Plan a linked write-back merge as sorted ``(id_type, name)`` lists."""
+    replaced, added, kept, shared = [], [], [], []
+    for row in owned_rows:
+        key = (row.id_type, row.source_name)
+        if row.index not in tagged:
+            continue
+        if key not in existing:
+            added.append(key)
+            continue
+        is_shared = key in users_outside
+        if is_shared:
+            shared.append(key)
+        if is_shared and key not in update_shared:
+            kept.append(key)
+        else:
+            replaced.append(key)
+    added.extend(untagged_added)
+    return {"replaced": sorted(replaced), "added": sorted(added),
+            "kept": sorted(kept), "shared": sorted(shared),
+            "unlinked": [], "deleted": [], "discarded": []}
+
+
+PLAN_KEYS = ("replaced", "added", "kept", "unlinked", "deleted", "discarded")
+
+
+def plans_match(a, b):
+    """Same sets of ``(id_type, name)`` per plan list (JSON lists accepted)."""
+    return all({tuple(x) for x in a[k]} == {tuple(x) for x in b[k]} for k in PLAN_KEYS)
+
+
+def source_changed(recorded, current):
+    return abs(recorded[0] - current[0]) > 1e-3 or recorded[1] != current[1]
+
+
+CommitPaths = namedtuple("CommitPaths", "temp_blend temp_json result_json backup sidecar lock")
+
+
+def backup_paths(source_path):
+    """``(backup, sidecar)`` of a source: ``<source>.blend.iops_bak`` (no
+    ``.blend`` extension, so asset libraries and master-file detection never
+    index it) and ``<source>.blend.iops_bak.json``."""
+    return source_path + ".iops_bak", source_path + ".iops_bak.json"
+
+
+def lock_path(source_path):
+    """``<source>.blend.iops_lock``: one Commit at a time per source."""
+    return source_path + ".iops_lock"
+
+
+def commit_temp_paths(source_path, run_id):
+    """Every file one Commit run uses next to the source. ``run_id`` (a short
+    uuid hex) keeps two runs on one source from sharing temp files:
+    ``<stem>.iops_commit-<run_id>.blend`` / ``.json`` / ``.result.json``."""
+    if not run_id or not all(ch.isalnum() for ch in run_id):
+        raise ValueError("run_id must be a non-empty alphanumeric string: %r" % (run_id,))
+    folder, base = os.path.split(source_path)
+    stem = os.path.join(folder, os.path.splitext(base)[0] + ".iops_commit-" + run_id)
+    backup, sidecar = backup_paths(source_path)
+    return CommitPaths(stem + ".blend", stem + ".json", stem + ".result.json",
+                       backup, sidecar, lock_path(source_path))
+
+
+def newer_blender(source_version, running_version):
+    """Whether a file saved by ``source_version`` comes from a newer Blender
+    than ``running_version`` (major/minor compared, the patch / file
+    subversion ignored). Saving such a file would silently down-version it."""
+    if not source_version or not running_version:
+        return False
+    return tuple(int(v) for v in source_version[:2]) > tuple(int(v) for v in running_version[:2])
+
+
+def _keyset(plan, name):
+    return {tuple(x) for x in plan.get(name) or ()}
+
+
+def ticked_plan_problem(confirmed, ticked, update_shared):
+    """Why a plan computed with ``update_shared`` ticked is not the confirmed
+    dry run (computed with nothing ticked) plus the ticks, or None.
+
+    Ticking moves shared IDs (and the dependencies they pull) from ``kept``
+    to ``replaced`` and can only rescue ``discarded`` IDs into ``added``;
+    the set of shared IDs never changes. Membership lists (``unlinked`` /
+    ``deleted``) may change with a ticked child collection and are not
+    compared."""
+    if _keyset(confirmed, "shared") != _keyset(ticked, "shared"):
+        return "the shared datablocks changed"
+    kept_c, kept_t = _keyset(confirmed, "kept"), _keyset(ticked, "kept")
+    repl_c, repl_t = _keyset(confirmed, "replaced"), _keyset(ticked, "replaced")
+    if not kept_t <= kept_c or not repl_c <= repl_t or kept_c - kept_t != repl_t - repl_c:
+        return "replaced/kept changed beyond the ticked datablocks"
+    missing = {tuple(k) for k in update_shared} - repl_t
+    if missing:
+        return "ticked datablocks not replaced: " + ", ".join(sorted(n for _t, n in missing))
+    disc_c, disc_t = _keyset(confirmed, "discarded"), _keyset(ticked, "discarded")
+    add_c, add_t = _keyset(confirmed, "added"), _keyset(ticked, "added")
+    if not disc_t <= disc_c or not add_c <= add_t or not add_t - add_c <= disc_c:
+        return "added/discarded changed beyond the ticked datablocks"
+    return None

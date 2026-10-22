@@ -63,6 +63,35 @@ class IOPS_IE_CollRef(bpy.types.PropertyGroup):
     hide_select: bpy.props.BoolProperty()
 
 
+class IOPS_IE_OwnedRef(bpy.types.PropertyGroup):
+    """An ID created by a linked session (object, mesh, material, ...)."""
+    id_type: bpy.props.StringProperty()  # bpy.data attribute, e.g. "objects"
+    source_name: bpy.props.StringProperty()
+    local_name: bpy.props.StringProperty()
+    ref: bpy.props.PointerProperty(type=bpy.types.ID)
+    is_root: bpy.props.BoolProperty()
+    # Same transform fields as IOPS_IE_ObjRef (duck-typed by the helpers).
+    edit_basis: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
+    location: bpy.props.FloatVectorProperty(size=3)
+    rotation_mode: bpy.props.StringProperty(default="XYZ")
+    rotation_euler: bpy.props.FloatVectorProperty(size=3)
+    rotation_quaternion: bpy.props.FloatVectorProperty(size=4, default=(1.0, 0.0, 0.0, 0.0))
+    rotation_axis_angle: bpy.props.FloatVectorProperty(size=4, default=(0.0, 0.0, 1.0, 0.0))
+    scale: bpy.props.FloatVectorProperty(size=3, default=(1.0, 1.0, 1.0))
+    parent: bpy.props.PointerProperty(type=bpy.types.Object)
+    parent_type: bpy.props.StringProperty(default="OBJECT")
+    parent_bone: bpy.props.StringProperty()
+    matrix_parent_inverse: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
+
+
+class IOPS_IE_SharedRow(bpy.types.PropertyGroup):
+    """A datablock of the edit copy that other users outside it also use."""
+    id_type: bpy.props.StringProperty()
+    source_name: bpy.props.StringProperty()
+    users: bpy.props.StringProperty()  # comma-joined other users
+    update: bpy.props.BoolProperty(default=False)
+
+
 class IOPS_IE_Session(bpy.types.PropertyGroup):
     kind: bpy.props.EnumProperty(
         items=[("LOCAL", "Local", ""), ("LINKED", "Linked", "")],
@@ -80,6 +109,22 @@ class IOPS_IE_Session(bpy.types.PropertyGroup):
     instancers: bpy.props.CollectionProperty(type=IOPS_IE_InstRef)
     layer_colls: bpy.props.CollectionProperty(type=IOPS_IE_LayerRef)
     colls: bpy.props.CollectionProperty(type=IOPS_IE_CollRef)
+    # Linked write-back.
+    source_path: bpy.props.StringProperty()
+    # os.stat() mtime and size as strings: FloatProperty is float32 (cannot
+    # hold a current timestamp to the second), IntProperty is 32-bit (files
+    # over 2 GB). Written by set_source_stat(), read by source_stat().
+    source_mtime: bpy.props.StringProperty()
+    source_size: bpy.props.StringProperty()
+    source_coll_name: bpy.props.StringProperty()
+    copy_collection: bpy.props.PointerProperty(type=bpy.types.Collection)
+    copy_collection_name: bpy.props.StringProperty()
+    owned: bpy.props.CollectionProperty(type=IOPS_IE_OwnedRef)
+    library_name: bpy.props.StringProperty()  # bpy.data.libraries entry name
+    # Set at a linked Start (uuid4 hex); the backup sidecar records it once
+    # the session committed, so an undo that brings the session back cannot
+    # commit it twice.
+    uuid: bpy.props.StringProperty()
 
 
 class IOPS_IE_Stack(bpy.types.PropertyGroup):
@@ -92,6 +137,8 @@ CLASSES = (
     IOPS_IE_InstRef,
     IOPS_IE_LayerRef,
     IOPS_IE_CollRef,
+    IOPS_IE_OwnedRef,
+    IOPS_IE_SharedRow,
     IOPS_IE_Session,
     IOPS_IE_Stack,
 )
@@ -101,13 +148,20 @@ def register_props():
     bpy.types.Scene.iops_instance_edit = bpy.props.PointerProperty(
         type=IOPS_IE_Stack
     )
+    bpy.types.WindowManager.iops_ie_shared = bpy.props.CollectionProperty(
+        type=IOPS_IE_SharedRow
+    )
 
 
 def unregister_props():
-    try:
-        del bpy.types.Scene.iops_instance_edit
-    except AttributeError:
-        pass
+    for owner, name in (
+        (bpy.types.WindowManager, "iops_ie_shared"),
+        (bpy.types.Scene, "iops_instance_edit"),
+    ):
+        try:
+            delattr(owner, name)
+        except AttributeError:
+            pass
 
 
 def session_active(scene):
@@ -139,6 +193,11 @@ def resolve_object(row):
 def resolve_collection(row):
     """The row's collection, or None when it was deleted (no name fallback,
     see ``resolve_object``)."""
+    return row.ref
+
+
+def resolve_owned(row):
+    """The row's ID, or None when it was deleted (pointer only)."""
     return row.ref
 
 
@@ -178,6 +237,17 @@ def layer_collection_by_path(root, path):
         if node is None:
             return None
     return node
+
+
+def set_source_stat(session, stat):
+    """Record an ``os.stat`` result of the source file on ``session``."""
+    session.source_mtime = repr(float(stat.st_mtime))
+    session.source_size = str(int(stat.st_size))
+
+
+def source_stat(session):
+    """``(mtime, size)`` recorded by ``set_source_stat``."""
+    return float(session.source_mtime or 0.0), int(session.source_size or 0)
 
 
 def set_frame(session, np_matrix):

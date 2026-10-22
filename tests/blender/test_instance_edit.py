@@ -1,11 +1,14 @@
 """Headless integration test of Instance Collection Edit In Place
 (iops.instance_edit_start / stop / restore). Run from the repo root via:
 
-    blender --background --factory-startup --python tests/blender/test_instance_edit.py
+    blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_instance_edit.py
 
 The script enables the addon itself: it puts the parent of this repo on
 sys.path and enables it as module "InteractionOps", so the repo folder must
-be named InteractionOps. No BLENDER_USER_SCRIPTS setup is needed.
+be named InteractionOps. No BLENDER_USER_SCRIPTS setup is needed, but
+pointing BLENDER_USER_SCRIPTS and BLENDER_USER_CONFIG at scratch directories
+is recommended: enabling the addon saves its preferences file under the user
+scripts folder on quit.
 
 Each test_* function starts from a fresh empty home file. Nothing is saved
 except the tiny library .blend the linked-object test writes to a temporary

@@ -234,6 +234,24 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    iops_instance_edit_p4: BoolProperty(
+        name="Instance Edit: Perforce checkout",
+        description="Run 'p4 edit' on a read-only source file before Commit",
+        default=False,
+    )
+
+    iops_instance_edit_worker_timeout: IntProperty(
+        name="Instance Edit: worker timeout (s)",
+        description=(
+            "How long one run of the Instance Edit merge worker (a background Blender "
+            "loading the source file) may take before Commit gives up; Blender is "
+            "blocked while it runs. A Commit lock older than this is treated as stale"
+        ),
+        default=300,
+        min=30,
+        max=3600,
+    )
+
     show_filename_full_path: BoolProperty(
         name="Full Path",
         description="Show the full .blend file path instead of just the filename",
@@ -1153,6 +1171,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 body.prop(self, "iops_stat", toggle=True)
                 body.prop(self, "iops_ss_header", toggle=True)
                 body.prop(self, "iops_instance_edit_header", toggle=True)
+                body.prop(self, "iops_instance_edit_p4", toggle=True)
+                body.prop(self, "iops_instance_edit_worker_timeout")
                 row = body.row(align=True)
                 row.prop(self, "show_filename_stat", toggle=True)
                 sub = row.row(align=True)

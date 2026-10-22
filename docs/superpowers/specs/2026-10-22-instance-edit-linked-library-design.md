@@ -116,9 +116,14 @@ Poll: top-of-stack session is a linked session. Drops to Object Mode.
    ID occupying a copy's name, the 63-byte name limit and leftovers from
    earlier runs all break name matching). Write
    the copy collection with `bpy.data.libraries.write(temp_blend,
-   {collection}, path_remap='ABSOLUTE', fake_user=False)` where
-   `temp_blend = <source dir>/<source stem>.iops_commit.blend` (next to the
-   source so relative paths of other libraries resolve identically); write
+   {collection}, path_remap='RELATIVE', fake_user=False)` where
+   `temp_blend = <source dir>/<source stem>.iops_commit-<run id>.blend`
+   (next to the source so relative paths of other libraries, caches and
+   texts resolve identically; `RELATIVE` keeps them relative, the worker
+   only relativises paths that were absolute because the editing file was
+   unsaved). The run id is a per-Commit uuid so two Commits on one source
+   never share temp files; an `O_EXCL` lock file `<source>.iops_lock`
+   (stale after the worker timeout) serialises Commits on one source; write
    `<temp>.json` with the owned set (row index → `id_type`,
    `source_name`), the source collection name and the local collection
    name. Then, in the same operator, **strip** the tags from every owned ID
@@ -137,15 +142,36 @@ Poll: top-of-stack session is a linked session. Drops to Object Mode.
    session's copy is discarded. Touching another asset therefore takes an
    explicit tick in a dialog that shows who else uses the datablock. The
    ticked set goes to the worker as `update_shared: [(type, source_name)]`.
+   **Sharing propagates to dependencies:** an ID is shared when any of its
+   users is outside `C`'s subtree *or is itself shared* (iterated to a fixed
+   point), so the mesh of a kept shared object, or the node group of a kept
+   shared material, is kept too and no edit leaks into another asset
+   without a tick. The dialog also lists **discarded** IDs: objects the user
+   added inside a kept shared child collection (and anything else that
+   would end up without users), so nothing is dropped silently; ticking the
+   collection keeps them.
    Cancel = nothing written, session stays open.
-4. **Write**: back up the source to `<source>.iops_bak.blend` (one backup
-   per source, overwritten), then run the worker in write mode. Non-zero
+4. **Write**: back up the source to `<source>.blend.iops_bak` (no `.blend`
+   extension, so asset libraries and this addon's master-file detection
+   never index it; one backup per source, overwritten) with a sidecar
+   `<source>.blend.iops_bak.json` (backup time, post-write source stat,
+   the committing session's uuid), then run the worker in write mode. A
+   session carries a uuid from Start; Commit refuses a session whose uuid
+   the sidecar already names ("this session was already committed; Cancel
+   it"), which closes the Ctrl+Z-after-Commit double merge. A source saved
+   by a **newer** Blender than the running one is refused (the worker
+   would silently save the whole library down-version). The `p4 edit`
+   output is shown in the dialog and a "must sync/resolve" answer refuses.
+   The UI is blocked while the worker runs (wait cursor + status text; the
+   docs say so). Non-zero
    exit or a plan/result mismatch → report, session stays open, source
    untouched (the worker saves only at its very end).
 5. **Reload**: `library.reload()` for this source's Library datablock.
 6. **Cleanup**: remove the copy collection and every owned ID that has no
-   other users; delete the temp blend/json; unhide the instancer; pop the
-   session; select the instancer. Report the backup path.
+   other users (a fake user counts as a user for IDs that existed before
+   Start: the user's own local assets are never removed); delete the temp
+   blend/json; unhide the instancer; pop the session; select the
+   instancer. Report the backup path.
 
 ### Cancel — `iops.instance_edit_cancel` (linked sessions' "Restore")
 
@@ -154,8 +180,9 @@ without reload, and never touches the source file.
 
 ### Rollback — `iops.instance_edit_rollback_source`
 
-Copies `<source>.iops_bak.blend` over the source (after the same writable
-check as Commit) and reloads the library. Available from the header while a
+Copies `<source>.blend.iops_bak` over the source (after the same writable
+check as Commit; via a temp file and `os.replace`, never in place) after an
+explicit confirmation naming the backup time, and reloads the library. Available from the header while a
 backup exists for any library of the current file. One level deep only.
 
 ### Session stack
@@ -194,10 +221,13 @@ Algorithm (both modes compute the plan; only `write` mutates and saves):
    and look up its row (`id_type`, `source_name`). Then:
    - `old = getattr(bpy.data, id_type).get(source_name)`, local to the
      file and not the appended ID itself. If `old` exists and (the ID is
-     exclusive, or it is in `update_shared`): `old.user_remap(new)` (same
-     ID type only, the call is a silent no-op across types), remove `old`,
-     `new.name = source_name`. Record `replaced`, plus `shared` when `old`
-     had users outside `C`'s subtree.
+     exclusive, or it is in `update_shared`): copy asset metadata when
+     `old.asset_data` exists and `new.asset_data` is None (`asset_mark`,
+     catalog id, description, author, copyright, license, tags, asset
+     IDProperties: appending an already-linked collection drops them),
+     then `old.user_remap(new)` (same ID type only, the call is a silent
+     no-op across types), remove `old`, `new.name = source_name`. Record
+     `replaced`, plus `shared` when `old` had users outside `C`'s subtree.
    - if `old` exists, the ID is shared and **not** in `update_shared`:
      `new.user_remap(old)`, remove `new`. The source keeps its version.
      Record `kept`.
@@ -218,6 +248,13 @@ Algorithm (both modes compute the plan; only `write` mutates and saves):
    others are kept. Record `unlinked` / `deleted`.
 6. Re-link the new `C` under every recorded parent (children / scene
    collections). Child collections of `C` were handled by the rename pass.
+   Per-view-layer state is preserved: before the merge the worker records,
+   for every scene and view layer, `exclude`, `hide_viewport`, `holdout`
+   and `indirect_only` of the layer collections of `C` and its child
+   collections (by source name) and the base hide state of the subtree's
+   objects, and re-applies them after the relink (removing the old `C`
+   discards its layer collections and bases; fresh ones carry default
+   flags).
 7. Path remap for appended images / libraries: `bpy.ops.file.make_paths_
    relative()` is file-wide, so instead set `filepath` relative only on the
    appended IDs (`bpy.path.relpath`).
@@ -285,7 +322,7 @@ Header block from phase 1, extended:
   <file> on Commit)".
 - Linked session active: red `LINKED` icon = Commit (opens the plan
   dialog), `X` = Cancel, depth label when the stack is deeper than one.
-- Rollback: `LOOP_BACK` icon shown while a `.iops_bak.blend` exists for
+- Rollback: `LOOP_BACK` icon shown while a `.blend.iops_bak` exists for
   any library of the current file; tooltip names the file.
 
 Pie entry (phase 1) gains the linked branch automatically through the
@@ -298,7 +335,8 @@ shared operator.
   users_outside, update_shared)` → dict of `replaced / added / shared /
   kept / unlinked / deleted`; owned IDs are keyed by their tag index, never
   by name; every shared ID not in `update_shared` lands in `kept`.
-- `plans_match(a, b)` for the dry-run vs write comparison.
+- `plans_match(a, b)` for the dry-run vs write comparison, over
+  `replaced / added / kept / unlinked / deleted / discarded`.
 - `source_changed(recorded, current)` for the mtime/size check.
 
 `tests/test_instance_edit_core.py` gains cases for: owned name with and
