@@ -301,6 +301,29 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
         row.hide_select = c.hide_select
 
 
+def _reveal_active_in_outliners(context):
+    """Expand every View Layer Outliner down to the active object and scroll
+    to it, so the user sees where the edited collection (Start) or the
+    instancer (Stop) lives. No-op without a screen (background mode)."""
+    screen = getattr(context, "screen", None)
+    if screen is None:
+        return
+    for area in screen.areas:
+        if area.type != "OUTLINER":
+            continue
+        if area.spaces.active.display_mode != "VIEW_LAYER":
+            continue
+        region = next((r for r in area.regions if r.type == "WINDOW"), None)
+        if region is None:
+            continue
+        try:
+            with context.temp_override(area=area, region=region):
+                bpy.ops.outliner.show_active()
+        except RuntimeError:
+            pass
+        area.tag_redraw()
+
+
 def apply_edit_state(context, session):
     """Mutation half of Start, driven by the snapshot. Returns
     ``(targets, instancers)``: names of target objects that could not be
@@ -382,6 +405,8 @@ def apply_edit_state(context, session):
     active = next((o for o in roots if _in_view_layer(view_layer, o)), None)
     if active is not None:
         view_layer.objects.active = active
+        if view_layer == context.view_layer:
+            _reveal_active_in_outliners(context)
 
     return skipped, skipped_inst
 
@@ -575,6 +600,8 @@ def stop_session(context, session):
         except RuntimeError:
             pass
         view_layer.objects.active = instancer
+        if view_layer == context.view_layer:
+            _reveal_active_in_outliners(context)
     return list(dict.fromkeys(missing))
 
 
