@@ -12,9 +12,16 @@ never touched; they follow their parent.
 Mutation order is fixed: layer/collection visibility, object visibility,
 instancers hidden, transforms, active layer collection + selection.
 
-Stop keeps every edit and moves the collection's current roots back
-through ``inverse(A)``; Restore rewinds every snapshot object to its
-recorded ``matrix_basis``. Both then share ``restore_visibility``.
+Start refuses an edit frame that is not a similarity transform (sheared,
+non-uniformly or zero scaled): such a frame cannot be undone through
+``matrix_world`` without corrupting the originals.
+
+Stop keeps every edit: a snapshot root nobody touched gets its recorded
+channels back verbatim (bit-exact over any number of cycles), every other
+current root moves back through ``inverse(A)``. Restore rewinds every
+snapshot object to its recorded parent relation and transform channels.
+Both then share ``restore_visibility``. Snapshot rows resolve by pointer
+only; a deleted object is skipped and reported, never looked up by name.
 """
 import bpy
 import mathutils
@@ -22,6 +29,7 @@ import numpy as np
 
 from ..utils.instance_edit_core import (
     edit_frame,
+    is_similarity,
     plan_restore,
     split_layer_path,
     split_roots,
@@ -46,6 +54,8 @@ from .instance_edit_state import (
 )
 
 _TRANSFORM_PATHS = ("location", "rotation", "scale", "delta_")
+_NOT_SIMILAR = "Instance is non-uniformly scaled or sheared; edit a uniformly scaled instance"
+_UNTOUCHED_EPS = 1e-6
 
 
 def collect_targets(coll):
@@ -98,6 +108,8 @@ def can_start(context):
     linked = next((o for o in coll.all_objects if o.library is not None), None)
     if linked is not None:
         return False, f"Object '{linked.name}' is linked from a library"
+    if not is_similarity(edit_frame(np.array(obj.matrix_world), tuple(coll.instance_offset))):
+        return False, _NOT_SIMILAR
     return True, ""
 
 
@@ -164,6 +176,68 @@ def _has_transform_anim(obj):
     return any(d.data_path.startswith(_TRANSFORM_PATHS) for d in ad.drivers)
 
 
+def _matrices_close(a, b, eps=_UNTOUCHED_EPS):
+    return all(abs(a[i][j] - b[i][j]) <= eps for i in range(4) for j in range(4))
+
+
+def _record_transform(row, obj):
+    """Parent relation and transform channels of ``obj`` into ``row``."""
+    row.location = obj.location
+    row.rotation_mode = obj.rotation_mode
+    row.rotation_euler = obj.rotation_euler
+    row.rotation_quaternion = obj.rotation_quaternion
+    row.rotation_axis_angle = obj.rotation_axis_angle
+    row.scale = obj.scale
+    row.parent = obj.parent
+    row.parent_type = obj.parent_type
+    row.parent_bone = obj.parent_bone
+    set_basis(row, obj.matrix_parent_inverse, "matrix_parent_inverse")
+
+
+def _write_channels(obj, row):
+    """Recorded transform channels back onto ``obj``, verbatim: rotation
+    mode first (setting it converts the rotation), then the rotation
+    channels (the matching one is what counts), location and scale."""
+    if obj.rotation_mode != row.rotation_mode:
+        obj.rotation_mode = row.rotation_mode
+    obj.rotation_euler = row.rotation_euler
+    obj.rotation_quaternion = row.rotation_quaternion
+    obj.rotation_axis_angle = row.rotation_axis_angle
+    obj.location = row.location
+    obj.scale = row.scale
+
+
+def _parent_unchanged(obj, row):
+    return (
+        obj.parent == row.parent
+        and obj.parent_type == row.parent_type
+        and obj.parent_bone == row.parent_bone
+        and _matrices_close(obj.matrix_parent_inverse, get_basis(row, "matrix_parent_inverse"))
+    )
+
+
+def _restore_parents(pairs):
+    """Recorded parent relations back onto ``(obj, row)`` pairs. Changed
+    parents are cleared first, so re-parenting in any order cannot run into
+    a transient parent loop (Blender refuses those silently). Setting
+    parent, parent type or bone resets matrix_parent_inverse, so it goes
+    last."""
+    for obj, row in pairs:
+        if obj.parent is not None and obj.parent != row.parent:
+            obj.parent = None
+    for obj, row in pairs:
+        if obj.parent != row.parent:
+            obj.parent = row.parent
+        if obj.parent_type != row.parent_type:
+            try:
+                obj.parent_type = row.parent_type
+            except TypeError:
+                pass  # not valid for the current parent (it was deleted)
+        if obj.parent_bone != row.parent_bone:
+            obj.parent_bone = row.parent_bone
+        obj.matrix_parent_inverse = get_basis(row, "matrix_parent_inverse")
+
+
 def write_snapshot(context, session, instancer, coll, targets, root_names, frame):
     """Record everything Start is about to change. Mutates nothing but ``session``."""
     scene = context.scene
@@ -189,8 +263,10 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
         row.name = obj.name
         row.is_root = obj.name in roots
         set_basis(row, obj.matrix_basis)
+        _record_transform(row, obj)
         row.hide_get = _safe_hide_get(view_layer, obj)
         row.hide_viewport = obj.hide_viewport
+        row.hide_select = obj.hide_select
 
     for obj in instancers_of(scene, coll):
         if not _in_view_layer(view_layer, obj):
@@ -222,6 +298,7 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
         row.ref = c
         row.name = c.name
         row.hide_viewport = c.hide_viewport
+        row.hide_select = c.hide_select
 
 
 def apply_edit_state(context, session):
@@ -232,7 +309,7 @@ def apply_edit_state(context, session):
     scene = context.scene
     view_layer = context.view_layer
     root_lc = view_layer.layer_collection
-    coll = session.collection or bpy.data.collections.get(session.collection_name)
+    coll = session.collection
     skipped, skipped_inst = [], []
 
     # 1. Layer / collection visibility.
@@ -251,6 +328,7 @@ def apply_edit_state(context, session):
         c = resolve_collection(row)
         if c is not None:
             c.hide_viewport = False
+            c.hide_select = False
 
     # 2. Object visibility.
     targets = [(row, resolve_object(row)) for row in session.objects]
@@ -258,6 +336,7 @@ def apply_edit_state(context, session):
         if obj is None:
             continue
         obj.hide_viewport = False
+        obj.hide_select = False
         try:
             obj.hide_set(False, view_layer=view_layer)
         except RuntimeError:
@@ -281,6 +360,7 @@ def apply_edit_state(context, session):
         if obj is None or not row.is_root:
             continue
         obj.matrix_world = frame @ obj.matrix_world
+        set_basis(row, obj.matrix_basis, "edit_basis")
         roots.append(obj)
     view_layer.update()
 
@@ -329,7 +409,8 @@ def _ensure_object_mode(context):
 
 
 def _session_collection(session):
-    return session.collection or bpy.data.collections.get(session.collection_name)
+    """The edited collection, or None when it was deleted (no name fallback)."""
+    return session.collection
 
 
 def _session_view_layer(context, session):
@@ -373,6 +454,7 @@ def restore_visibility(context, session, only_objects=None):
         if only_objects is not None and obj not in only_objects:
             continue
         obj.hide_viewport = row.hide_viewport
+        obj.hide_select = row.hide_select
         try:
             obj.hide_set(row.hide_get, view_layer=view_layer)
         except RuntimeError:
@@ -400,6 +482,7 @@ def restore_visibility(context, session, only_objects=None):
         c = resolve_collection(row)
         if c is not None:
             c.hide_viewport = row.hide_viewport
+            c.hide_select = row.hide_select
 
     lc = layer_collection_by_path(root_lc, session.prev_active_layer_path)
     if lc is not None:
@@ -415,45 +498,71 @@ def restore_visibility(context, session, only_objects=None):
 
 
 def restore_session(context, session):
-    """Restore: rewind every snapshot object to its recorded matrix_basis,
-    then restore visibility and drop the session. The session is popped
-    only after everything before it ran, so a failure leaves it in place."""
+    """Restore: give every alive snapshot object its recorded parent
+    relation, then its recorded transform channels (never a decomposed
+    matrix), then restore visibility and drop the session. The session is
+    popped only after everything before it ran, so a failure leaves it in
+    place. Returns the names of what could not be found, once each."""
     _ensure_object_mode(context)
     rows, _missing = _alive_rows(session.objects)
-    for row in rows:
-        _alive(row).matrix_basis = get_basis(row)
+    pairs = [(_alive(row), row) for row in rows]
+    _restore_parents(pairs)
+    for obj, row in pairs:
+        _write_channels(obj, row)
     missing = restore_visibility(context, session)
     pop_session(context.scene)
-    return missing
+    return list(dict.fromkeys(missing))
 
 
 def stop_session(context, session):
     """Stop: keep every edit. Every current root of the collection goes back
-    to the collection's native frame through inverse(frame); then
-    visibility is restored (objects still in the collection only), the
-    session dropped and the instancer selected."""
+    to the collection's native frame: a snapshot root whose parent relation
+    is unchanged and whose matrix_basis is still the post-Start one gets its
+    snapshot channels back verbatim, every other root goes through
+    inverse(frame). When the collection itself was deleted, the alive
+    snapshot objects are brought back the same way and the collection is
+    reported. Then visibility is restored (those objects only), the session
+    dropped and the instancer selected. Returns the names of what could not
+    be found, once each."""
     _ensure_object_mode(context)
     view_layer, _fell_back = _session_view_layer(context, session)
     view_layer.update()
     coll = _session_collection(session)
     missing = []
-    targets = []
     if coll is None:
         missing.append(session.collection_name)
+        alive_rows, _gone = _alive_rows(session.objects)  # reported below
+        targets = [_alive(row) for row in alive_rows]
     else:
-        frame = get_frame(session)
         targets = collect_targets(coll)
-        roots = set(root_names_of(targets))
-        # Compute every matrix before writing any: a failure leaves nothing
-        # half-moved, so Stop can be pressed again.
-        moves = [
-            (obj, mathutils.Matrix(unmoved(frame, np.array(obj.matrix_world)).tolist()))
-            for obj in targets
-            if obj.name in roots
-        ]
-        for obj, world in moves:
-            obj.matrix_world = world
-    instancer = session.instancer or bpy.data.objects.get(session.instancer_name)
+    frame = get_frame(session)
+    roots = set(root_names_of(targets))
+    snapshot_roots = {
+        row.ref.as_pointer(): row
+        for row in session.objects
+        if row.is_root and row.ref is not None
+    }
+    # Compute every matrix before writing any: a failure leaves nothing
+    # half-moved, so Stop can be pressed again.
+    untouched, moves = [], []
+    for obj in targets:
+        if obj.name not in roots:
+            continue
+        row = snapshot_roots.get(obj.as_pointer())
+        if (
+            row is not None
+            and _parent_unchanged(obj, row)
+            and _matrices_close(obj.matrix_basis, get_basis(row, "edit_basis"))
+        ):
+            untouched.append((obj, row))
+        else:
+            world = unmoved(frame, np.array(obj.matrix_world))
+            moves.append((obj, mathutils.Matrix(world.tolist())))
+    for obj, row in untouched:
+        _write_channels(obj, row)
+    for obj, world in moves:
+        obj.matrix_world = world
+    instancer = session.instancer
     missing += restore_visibility(context, session, only_objects=set(targets))
     pop_session(context.scene)
 
@@ -466,7 +575,8 @@ def stop_session(context, session):
         except RuntimeError:
             pass
         view_layer.objects.active = instancer
-    return missing
+    return list(dict.fromkeys(missing))
+
 
 class IOPS_OT_instance_edit_start(bpy.types.Operator):
     """Edit the instanced collection's objects in place, at this instancer.
@@ -540,8 +650,12 @@ class _SessionOperator:
 
     @classmethod
     def poll(cls, context):
-        if context.scene is None or not session_active(context.scene):
+        scene = context.scene
+        if scene is None or not session_active(scene):
             cls.poll_message_set("No instance edit in progress")
+            return False
+        if active_session(scene).kind != "LOCAL":
+            cls.poll_message_set("Linked-library instance edit is not supported yet")
             return False
         return True
 

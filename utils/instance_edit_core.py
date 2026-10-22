@@ -12,6 +12,31 @@ def edit_frame(instance_matrix, instance_offset):
     return m @ t
 
 
+def is_similarity(frame, tol=1e-5):
+    """True when the 3x3 part of ``frame`` is rotation x uniform scale
+    (optionally mirrored): columns pairwise orthogonal and of equal length,
+    both within ``tol`` relative to the largest column, and ``|det| >= 1e-9``.
+    A sheared or non-uniformly scaled frame turns rotated objects into
+    matrices ``matrix_world`` cannot represent; a zero-scale one has no
+    inverse."""
+    m = np.asarray(frame, dtype=float)[:3, :3]
+    if not np.all(np.isfinite(m)):
+        return False
+    det = np.linalg.det(m)
+    if abs(det) < 1e-9:
+        return False
+    cols = [m[:, i] for i in range(3)]
+    lengths = [float(np.linalg.norm(c)) for c in cols]
+    ref = max(lengths)
+    if any(abs(n - ref) > tol * ref for n in lengths):
+        return False
+    for i in range(3):
+        for j in range(i + 1, 3):
+            if abs(float(np.dot(cols[i], cols[j]))) > tol * ref * ref:
+                return False
+    return True
+
+
 def moved(frame, world):
     return np.asarray(frame, dtype=float) @ np.asarray(world, dtype=float)
 
