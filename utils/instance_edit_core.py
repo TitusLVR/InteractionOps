@@ -1,5 +1,8 @@
 """Pure math/bookkeeping for Instance Collection Edit In Place (no bpy)."""
+import datetime
+import hashlib
 import os
+import re
 from collections import namedtuple
 import numpy as np
 
@@ -142,14 +145,88 @@ def source_changed(recorded, current):
     return abs(recorded[0] - current[0]) > 1e-3 or recorded[1] != current[1]
 
 
-CommitPaths = namedtuple("CommitPaths", "temp_blend temp_json result_json backup sidecar lock")
+CommitPaths = namedtuple("CommitPaths", "temp_blend temp_json result_json lock")
 
 
-def backup_paths(source_path):
-    """``(backup, sidecar)`` of a source: ``<source>.blend.iops_bak`` (no
-    ``.blend`` extension, so asset libraries and master-file detection never
-    index it) and ``<source>.blend.iops_bak.json``."""
-    return source_path + ".iops_bak", source_path + ".iops_bak.json"
+def _source_key(source_path):
+    """The absolute, normalised (and on Windows case-folded) source path
+    the backup names hash."""
+    return os.path.normcase(os.path.normpath(os.path.abspath(source_path)))
+
+
+def _backup_prefix(source_path):
+    stem = os.path.splitext(os.path.basename(source_path))[0]
+    digest = hashlib.sha1(_source_key(source_path).encode("utf-8")).hexdigest()[:8]
+    return f"{stem}-{digest}-"
+
+
+_STAMP_FORMAT = "%Y%m%d-%H%M%S"
+_STAMP_LEN = len("YYYYMMDD-HHMMSS")
+_EPOCH = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+
+
+def backup_basename(source_path, when):
+    """Name (no extension) of a Commit backup point of ``source_path`` taken
+    at ``when``: ``<stem>-<8 hex of sha1(absolute source path)>-
+    <YYYYMMDD-HHMMSS>``, the stamp in UTC (an aware ``when`` is converted, a
+    naive one is taken as UTC), so names sort by time across DST and clock
+    changes. Callers append ``.blend`` (the copy) and ``.json`` (its
+    sidecar). The hash keeps two sources with one stem apart in the shared
+    backup folder."""
+    if when.tzinfo is not None:
+        when = when.astimezone(datetime.timezone.utc)
+    return f"{_backup_prefix(source_path)}{when:{_STAMP_FORMAT}}"
+
+
+def point_stamp(point):
+    """The aware UTC datetime a point's name ends with, or None."""
+    try:
+        when = datetime.datetime.strptime(point[-_STAMP_LEN:], _STAMP_FORMAT)
+    except ValueError:
+        return None
+    return when.replace(tzinfo=datetime.timezone.utc)
+
+
+def point_number(point):
+    """Stable enum number of a point: seconds since 2020-01-01 UTC from its
+    name (the value Blender stores for the Rollback point enum, so a point
+    added or removed while the dialog is open never shifts the choice).
+    0 for a name without a stamp."""
+    when = point_stamp(point)
+    if when is None:
+        return 0
+    return max(0, min(int((when - _EPOCH).total_seconds()), 2 ** 31 - 1))
+
+
+_STAMP = re.compile(r"\d{8}-\d{6}")
+
+
+def backup_points(listing, source_path, ext=".blend"):
+    """Basenames (no extension) of the backup points of ``source_path`` in
+    ``listing`` (file names of the backup folder): the ``<ext>`` files
+    named by ``backup_basename`` for this source, newest first."""
+    prefix = os.path.normcase(_backup_prefix(source_path))
+    found = {}
+    for name in listing:
+        base, e = os.path.splitext(name)
+        if os.path.normcase(e) != os.path.normcase(ext):
+            continue
+        key = os.path.normcase(base)
+        if key.startswith(prefix) and _STAMP.fullmatch(key[len(prefix):]):
+            found[(key[len(prefix):], base)] = base
+    return [found[k] for k in sorted(found, reverse=True)]
+
+
+def prune_backups(points, keep, protect=None):
+    """The points (``backup_points`` basenames of one source) to delete so
+    that ``keep`` remain: ``protect`` (the point just written) is never
+    deleted and counts as one of them, the rest are the newest by the time
+    stamp the names end with, whatever the order of ``points``."""
+    ordered = sorted(points, key=lambda p: p[-_STAMP_LEN:], reverse=True)
+    keep = max(int(keep), 0)
+    if protect is not None and protect in ordered:
+        return [p for p in ordered if p != protect][max(keep - 1, 0):]
+    return ordered[keep:]
 
 
 def lock_path(source_path):
@@ -165,9 +242,7 @@ def commit_temp_paths(source_path, run_id):
         raise ValueError("run_id must be a non-empty alphanumeric string: %r" % (run_id,))
     folder, base = os.path.split(source_path)
     stem = os.path.join(folder, os.path.splitext(base)[0] + ".iops_commit-" + run_id)
-    backup, sidecar = backup_paths(source_path)
-    return CommitPaths(stem + ".blend", stem + ".json", stem + ".result.json",
-                       backup, sidecar, lock_path(source_path))
+    return CommitPaths(stem + ".blend", stem + ".json", stem + ".result.json", lock_path(source_path))
 
 
 def newer_blender(source_version, running_version):

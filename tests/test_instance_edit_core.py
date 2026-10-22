@@ -1,3 +1,7 @@
+import datetime
+import hashlib
+import os
+
 import numpy as np
 import pytest
 from utils.instance_edit_core import (edit_frame, moved, unmoved, to_flat, from_flat,
@@ -79,7 +83,8 @@ def test_is_similarity_zero_scale():
 
 
 from utils.instance_edit_core import (OwnedRow, merge_plan, plans_match,
-                                      source_changed, commit_temp_paths, backup_paths,
+                                      source_changed, commit_temp_paths, backup_basename,
+                                      backup_points, prune_backups, point_number, point_stamp,
                                       newer_blender)
 
 ROWS = [OwnedRow(0, "objects", "Cube", "Cube"), OwnedRow(1, "materials", "SharedMat", "SharedMat.001"),
@@ -121,16 +126,88 @@ def test_commit_temp_paths():
     assert p.temp_blend.endswith("Props.iops_commit-1a2b3c4d.blend")
     assert p.temp_json.endswith("Props.iops_commit-1a2b3c4d.json")
     assert p.result_json.endswith("Props.iops_commit-1a2b3c4d.result.json")
-    # The backup has no .blend extension: asset libraries never index it.
-    assert p.backup == "D:/lib/Props.blend.iops_bak" and not p.backup.endswith(".blend")
-    assert p.sidecar == "D:/lib/Props.blend.iops_bak.json"
     assert p.lock == "D:/lib/Props.blend.iops_lock"
-    assert backup_paths("D:/lib/Props.blend") == (p.backup, p.sidecar)
-    # Two runs never share a temp file; backup, sidecar and lock are per source.
+    # Two runs never share a temp file; the lock is per source.
     q = commit_temp_paths("D:/lib/Props.blend", "ffff0000")
     assert {p.temp_blend, p.temp_json, p.result_json}.isdisjoint({q.temp_blend, q.temp_json, q.result_json})
-    assert (p.backup, p.sidecar, p.lock) == (q.backup, q.sidecar, q.lock)
+    assert p.lock == q.lock
+    assert set(p._fields) == {"temp_blend", "temp_json", "result_json", "lock"}
 
+
+WHEN = datetime.datetime(2026, 10, 22, 9, 5, 7)
+
+
+def test_backup_basename():
+    src = "D:/lib/Props.blend"
+    digest = hashlib.sha1(os.path.normcase(os.path.normpath(os.path.abspath(src))).encode()).hexdigest()[:8]
+    assert backup_basename(src, WHEN) == f"Props-{digest}-20261022-090507"
+    # Same stem in another folder: another hash, so their points never mix.
+    other = backup_basename("D:/other/Props.blend", WHEN)
+    assert other.startswith("Props-") and other != backup_basename(src, WHEN)
+    # The same file spelled differently hashes the same.
+    assert backup_basename("D:/lib/sub/../Props.blend", WHEN) == backup_basename(src, WHEN)
+
+
+def test_backup_points_newest_first_only_this_source():
+    src = "D:/lib/Props.blend"
+    times = [WHEN + datetime.timedelta(seconds=s) for s in (0, 3600, 60)]
+    names = [backup_basename(src, t) for t in times]
+    stranger = backup_basename("D:/other/Props.blend", WHEN)
+    listing = ([n + ".blend" for n in names] + [n + ".json" for n in names]
+               + [stranger + ".blend", stranger + ".json", "Props.blend", "notes.txt",
+                  names[0] + "x.blend", backup_basename("D:/lib/Prop.blend", WHEN) + ".blend"])
+    assert backup_points(listing, src) == [names[1], names[2], names[0]]
+    assert backup_points([n + ".json" for n in names], src) == []
+    assert backup_points(listing, src, ext=".json") == [names[1], names[2], names[0]]
+    assert backup_points([], src) == []
+
+
+def test_prune_backups_keeps_newest():
+    src = "D:/lib/Props.blend"
+    pts = [backup_basename(src, WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3, 2, 1)]
+    assert prune_backups(pts, 3) == pts[3:]
+    assert prune_backups(list(reversed(pts)), 2) == pts[2:]
+    assert prune_backups(pts, 5) == [] and prune_backups(pts, 50) == []
+    assert prune_backups(pts, 1) == pts[1:]
+    assert prune_backups([], 3) == []
+
+
+def test_prune_backups_never_deletes_the_point_just_written():
+    src = "D:/lib/Props.blend"
+    pts = [backup_basename(src, WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3)]
+    # A clock set back: the point just written sorts oldest.
+    just = backup_basename(src, WHEN)
+    assert prune_backups(pts + [just], 1, protect=just) == pts
+    assert prune_backups(pts + [just], 2, protect=just) == pts[1:]
+    assert prune_backups(pts + [just], 4, protect=just) == []
+    assert prune_backups(pts, 1, protect=pts[0]) == pts[1:]
+    assert prune_backups(pts, 1, protect="gone") == pts[1:]
+
+
+def test_backup_names_are_utc():
+    src = "D:/lib/Props.blend"
+    plus2 = datetime.timezone(datetime.timedelta(hours=2))
+    local = datetime.datetime(2026, 3, 29, 3, 30, 0, tzinfo=plus2)
+    assert backup_basename(src, local).endswith("-20260329-013000")
+    assert backup_basename(src, local) == backup_basename(src, local.astimezone(datetime.timezone.utc))
+    # Naive datetimes are taken as UTC.
+    assert backup_basename(src, datetime.datetime(2026, 3, 29, 1, 30)) == backup_basename(src, local)
+    # Across a DST change (CEST -> CET), a later moment never sorts earlier.
+    before = datetime.datetime(2026, 10, 25, 2, 59, tzinfo=plus2)
+    after = datetime.datetime(2026, 10, 25, 2, 1, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
+    assert after > before and backup_basename(src, after) > backup_basename(src, before)
+
+
+def test_point_number_stable_and_ordered():
+    src = "D:/lib/Props.blend"
+    utc = datetime.timezone.utc
+    a = backup_basename(src, datetime.datetime(2020, 1, 1, 0, 0, 7, tzinfo=utc))
+    b = backup_basename(src, datetime.datetime(2026, 10, 22, 9, 5, 7, tzinfo=utc))
+    assert point_number(a) == 7
+    assert point_number(b) > point_number(a)
+    assert point_number(b) == point_number(backup_basename("D:/x/Props.blend", datetime.datetime(2026, 10, 22, 9, 5, 7)))
+    assert point_stamp(b) == datetime.datetime(2026, 10, 22, 9, 5, 7, tzinfo=utc)
+    assert point_number("Props-nostamp") == 0 and point_stamp("Props-nostamp") is None
 
 @pytest.mark.parametrize("run_id", ["", None, "../x", "a.b"])
 def test_commit_temp_paths_rejects_bad_run_id(run_id):

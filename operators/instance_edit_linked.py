@@ -10,12 +10,14 @@ linked data until the library is reloaded after Commit.
 Commit exports the copy to a temp blend next to the source (roots moved
 back to the collection's native frame and every owned ID tagged, both
 undone before the export returns), runs the merge worker in plan mode,
-shows the plan, then backs the source up and runs the worker in write
-mode. The session is closed only after the worker reported success and the
+shows the plan, then backs the source up into the per-user backup
+folder (several points per source) and runs the worker in write mode.
+The session is closed only after the worker reported success and the
 library was reloaded. Every worker run happens under the source's lock file
 with per-run temp names. Cancel closes the session without touching the
-source. Rollback copies the backup over the source.
+source. Rollback copies a chosen backup point over the source.
 """
+import datetime
 import json
 import os
 import re
@@ -32,12 +34,16 @@ import mathutils
 import numpy as np
 
 from ..utils.instance_edit_core import (
-    backup_paths,
+    backup_basename,
+    backup_points,
     commit_temp_paths,
     edit_frame,
     is_similarity,
     lock_path,
     newer_blender,
+    point_number,
+    point_stamp,
+    prune_backups,
     source_changed,
     ticked_plan_problem,
     unmoved,
@@ -403,6 +409,7 @@ def start_linked(context, instancer):
                 "Linked objects hidden while editing (cannot be moved): "
                 + ", ".join(o.name for o in foreign)
             )
+        lines += _read_only_notice(context, source_path)
 
         session = push_session(scene)
         session.kind = "LINKED"
@@ -744,7 +751,7 @@ def _sweep_leftovers(source_path):
     other run can be using them."""
     folder, base = os.path.split(source_path)
     pattern = re.compile(
-        re.escape(os.path.splitext(base)[0]) + r"\.iops_commit-[0-9a-f]{8}\.(blend|json|result\.json)$",
+        re.escape(os.path.splitext(base)[0]) + r"\.iops_commit-[0-9a-f]{8}\.(blend|json|result\.json|tmp)$",
         re.IGNORECASE,
     )
     try:
@@ -915,39 +922,74 @@ def _p4_edit(path):
             check=False,
         )
         return ((done.stdout or b"") + b"\n" + (done.stderr or b"")).decode("utf-8", "replace")
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
         return str(exc)
+    except OSError as exc:
+        return f"P4_NOT_FOUND: {exc}"
+
+
+def _p4_auto(context):
+    prefs = get_prefs(context)
+    return prefs is not None and getattr(prefs, "iops_instance_edit_p4", True)
+
+
+def _read_only_notice(context, path):
+    """One line for Start when the source is read-only: it is checked out
+    in Perforce automatically on Commit (preference on) or the user has to
+    check it out first (preference off). Empty when writable."""
+    if not os.path.isfile(path) or not _read_only(path):
+        return []
+    name = os.path.basename(path)
+    if _p4_auto(context):
+        return [f"{name} is read-only: it will be checked out in Perforce (p4 edit) on Commit"]
+    return [f"{name} is read-only: check it out before Commit (Perforce auto checkout is off)"]
 
 
 def ensure_writable(context, path):
     """``(writable, reason, lines)``. A read-only file gets one ``p4 edit``
-    when the Perforce preference is on; the read-only bit is never cleared.
-    ``lines`` is the ``p4 edit`` output (warnings for the dialog). An answer
-    saying the file must be synced / resolved or is not in the client
-    refuses, with that line as the reason."""
+    automatically (the *Perforce checkout* preference, on by default); the
+    read-only bit is never cleared. ``lines`` is what to tell the user: a
+    "Checked out in Perforce" line on success plus the ``p4 edit`` output.
+    An answer saying the file must be synced / resolved or is not in the
+    client refuses, with that line as the reason."""
     name = os.path.basename(path)
     if not _read_only(path):
         return True, "", []
-    prefs = get_prefs(context)
-    if prefs is None or not getattr(prefs, "iops_instance_edit_p4", False):
-        return False, f"{name} is read-only: check it out (or enable the Perforce option in the preferences)", []
+    if not _p4_auto(context):
+        return False, f"{name} is read-only: check it out first (Perforce auto checkout is off in the preferences)", []
     out = _p4_edit(path)
     lines = [f"p4 edit: {ln.strip()}" for ln in out.splitlines() if ln.strip()]
+    if _p4_missing(out):
+        return False, f"{name} is read-only and 'p4' was not found on PATH: check the file out by hand", lines
     bad = next((ln for ln in lines if _P4_REFUSE.search(ln)), None)
     if bad is not None:
         return False, f"{name}: {bad}", lines
     if not _read_only(path):
-        return True, "", lines
+        return True, "", [f"Checked out in Perforce: {name}"] + lines
     return False, f"{name} is still read-only after 'p4 edit': {_tail(out, 3) or 'no output'}", lines
+
+
+def _p4_missing(out):
+    """Whether ``_p4_edit`` could not start ``p4`` at all."""
+    return out.startswith("P4_NOT_FOUND")
 
 
 ALREADY_COMMITTED = "This session was already committed; Cancel it"
 
 
 def already_committed(session):
-    """Whether the backup sidecar of the session's source names this
-    session: it was committed, and an undo brought it back."""
-    return bool(session.uuid) and read_sidecar(session.source_path).get("session_uuid") == session.uuid
+    """Whether a backup sidecar of the session's source names this session
+    with a successful write (``source_stat`` set): it was committed, and an
+    undo brought it back. Every sidecar of the source in the backup folder
+    is read."""
+    if not session.uuid:
+        return False
+    folder = backup_dir(create=False)
+    for point in backup_points(_listing(folder), session.source_path, ext=".json"):
+        side = read_point(point_files(folder, point)[1])
+        if side.get("session_uuid") == session.uuid and side.get("source_stat") is not None:
+            return True
+    return False
 
 
 def preflight(context, session):
@@ -955,7 +997,9 @@ def preflight(context, session):
     exists and this session was not committed already (else not ok), a
     warning line when it changed since Start, and the writable check (with
     ``p4 edit``, whose output joins ``lines``; not ok when still read-only
-    or when Perforce says the file must be synced / resolved)."""
+    or when Perforce says the file must be synced / resolved). A *backup
+    folder* preference that is not an absolute path adds a line (it is
+    ignored)."""
     path = session.source_path
     if not os.path.isfile(path):
         return False, [f"Source file not found: {path}"], False
@@ -967,6 +1011,9 @@ def preflight(context, session):
         lines.append(
             f"{os.path.basename(path)} changed since Start: the merge runs on its current content"
         )
+    problem = backup_dir_problem(context)
+    if problem:
+        lines.append(problem)
     writable, reason, p4_lines = ensure_writable(context, path)
     if not writable:
         return False, [reason] + p4_lines, False
@@ -1143,31 +1190,175 @@ def _stat_differs(a, b):
     return a is None or b is None or source_changed(a, b)
 
 
-def backup_sidecar(source_path):
-    """``<source>.iops_bak.json`` next to the backup: when it was taken,
-    the source's ``(mtime, size)`` after the Commit that took it and that
-    Commit's session uuid."""
-    return backup_paths(source_path)[1]
+def _default_backup_dir():
+    return os.path.join(bpy.utils.user_resource("CONFIG"), "iops", "instance_edit_backups")
 
 
-def _write_sidecar(source_path, **values):
-    path = backup_sidecar(source_path)
-    data = read_sidecar(source_path)
-    data.update(values)
+def _backup_dir_pref(context=None):
+    prefs = get_prefs(context)
+    return (getattr(prefs, "iops_instance_edit_backup_dir", "") or "").strip() if prefs is not None else ""
+
+
+def _absolute_folder(folder):
+    """Whether ``folder`` is a usable absolute path: not Blender's ``//``
+    relative prefix (which Windows would read as a UNC path; a UNC folder
+    is written with backslashes) and, on Windows, with a drive or share."""
+    if not folder or folder.startswith("//") or not os.path.isabs(folder):
+        return False
+    return os.name != "nt" or bool(os.path.splitdrive(folder)[0])
+
+
+def backup_dir_problem(context=None):
+    """Why the *backup folder* preference is not used, or None: only an
+    absolute path is (a ``//`` path would follow whichever file is open)."""
+    folder = _backup_dir_pref(context)
+    if folder and not _absolute_folder(folder):
+        return (
+            f"Instance Edit backup folder '{folder}' is not an absolute path: ignored, "
+            f"backups go to {os.path.normpath(_default_backup_dir())}"
+        )
+    return None
+
+
+def backup_dir(context=None, create=True):
+    """The folder Commit keeps its backups in: the *backup folder*
+    preference when it is an absolute path, else (empty, or relative: see
+    ``backup_dir_problem``) ``<Blender user config>/iops/
+    instance_edit_backups``. Created when ``create`` (raises OSError when
+    that fails); listings pass False and treat a missing folder as empty."""
+    folder = _backup_dir_pref(context)
+    if not _absolute_folder(folder):
+        folder = _default_backup_dir()
+    folder = os.path.normpath(folder)
+    if create:
+        os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _backup_count(context=None):
+    prefs = get_prefs(context)
+    count = getattr(prefs, "iops_instance_edit_backup_count", 3) if prefs is not None else 3
+    return max(1, int(count))
+
+
+def _listing(folder):
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=1)
+        return os.listdir(folder)
     except OSError:
-        pass  # informational only: Rollback falls back to the backup's mtime
+        return []
 
 
-def read_sidecar(source_path):
+def point_files(folder, point):
+    """``(blend, json)`` of the backup point ``point`` (a basename) in ``folder``."""
+    base = os.path.join(folder, point)
+    return base + ".blend", base + ".json"
+
+
+def source_points(context, source_path):
+    """``(folder, points)``: the backup folder and the basenames of the
+    backup points of ``source_path`` in it, newest first."""
+    folder = backup_dir(context, create=False)
+    return folder, backup_points(_listing(folder), source_path)
+
+
+def read_point(json_path):
+    """A backup point's sidecar: ``source_path`` (absolute), ``backup_time``
+    (ISO, UTC), ``source_stat`` (the source's ``(mtime, size)`` after the
+    Commit that took the point wrote it; None until that write succeeded)
+    and ``session_uuid`` (the committing session). Empty when unreadable."""
     try:
-        with open(backup_sidecar(source_path), encoding="utf-8") as fh:
+        with open(json_path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _write_point_json(json_path, data):
+    with open(json_path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1)
+
+
+def update_point(json_path, **values):
+    """Merge ``values`` into a sidecar. Returns False when it could not be
+    written (callers that cannot go on without it check)."""
+    data = read_point(json_path)
+    data.update(values)
+    try:
+        _write_point_json(json_path, data)
+    except OSError:
+        return False
+    return True
+
+
+def _remove_point(blend, side):
+    """Remove a point's ``.blend``, then its sidecar. True when the
+    ``.blend`` is gone (a locked copy keeps the point whole)."""
+    try:
+        os.remove(blend)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    try:
+        os.remove(side)
+    except OSError:
+        pass
+    return True
+
+
+def write_backup(context, source_path, session_uuid):
+    """Copy ``source_path`` into the backup folder as a new backup point
+    and write its sidecar (``source_stat`` None until the write succeeds).
+    Returns ``(blend, json)``. The name's stamp is UTC; a name taken in the
+    same second moves on by a second, so points never overwrite each other
+    and the names keep sorting by time. Raises OSError when the folder, the
+    copy or the sidecar cannot be written (nothing is left behind then):
+    the Commit is refused before the source is touched. Pruning to the
+    *backups per file* preference is ``prune_points``, run after the write
+    succeeded."""
+    folder = backup_dir(context)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    when = now
+    while True:
+        blend, side = point_files(folder, backup_basename(source_path, when))
+        if not os.path.exists(blend) and not os.path.exists(side):
+            break
+        when += datetime.timedelta(seconds=1)
+    try:
+        shutil.copy2(source_path, blend)
+        _write_point_json(side, {
+            "source_path": os.path.normpath(os.path.abspath(source_path)),
+            "backup_time": now.isoformat(timespec="seconds"),
+            "source_stat": None,
+            "session_uuid": session_uuid,
+        })
+    except OSError:
+        _remove_point(blend, side)
+        raise
+    invalidate_points_cache()
+    return blend, side
+
+
+def prune_points(context, source_path, protect=None):
+    """Remove the oldest backup points of ``source_path`` beyond the
+    *backups per file* preference, never ``protect`` (the point just
+    written), and every sidecar of the source left without its ``.blend``.
+    Returns the basenames whose ``.blend`` was actually removed."""
+    folder = backup_dir(context, create=False)
+    listing = _listing(folder)
+    points = backup_points(listing, source_path)
+    removed = []
+    for point in prune_backups(points, _backup_count(context), protect):
+        if _remove_point(*point_files(folder, point)):
+            removed.append(point)
+    for orphan in set(backup_points(listing, source_path, ext=".json")) - set(points):
+        try:
+            os.remove(point_files(folder, orphan)[1])
+        except OSError:
+            pass
+    invalidate_points_cache()
+    return removed
 
 
 def _membership_extras(confirmed, planned):
@@ -1211,7 +1402,8 @@ def commit_linked(context, session, update_shared=(), expected_plan=None, dry_ru
         return out
     timeout = _worker_timeout(context)
     paths = commit_temp_paths(path, _run_id())
-    temp_json, result_json, backup = paths.temp_json, paths.result_json, paths.backup
+    temp_json, result_json = paths.temp_json, paths.result_json
+    backup = None
     lock = SourceLock(path, timeout)
     try:
         lock.acquire()
@@ -1251,25 +1443,37 @@ def commit_linked(context, session, update_shared=(), expected_plan=None, dry_ru
         # Backed up only once nothing can refuse any more: a refused Commit
         # must not overwrite the backup of the previous one.
         try:
-            shutil.copy2(path, backup)
+            backup, sidecar = write_backup(context, path, session.uuid)
         except OSError as exc:
             out["error"] = f"Could not back up {name}: {exc}"
             return out
         out["backup"] = backup
-        _write_sidecar(path, backup_time=time.time(), source_stat=None, session_uuid=None)
         written = run_worker(path, temp_json, "write", result_json, timeout, lock)
         if not written.get("ok"):
             print(written.get("error"))
             if _stat_differs(before, file_stat(path)):
+                # The point stays (its source_stat unknown): it is the way back.
                 out["error"] = (
                     f"Merge failed, but the worker may have written {name}; check it "
                     f"before committing again (backup: {backup}): " + _error_line(written)
                 )
             else:
+                # The source is untouched: this point is a copy of it and
+                # must not push a real one out of the backups per file.
+                _remove_point(backup, sidecar)
+                invalidate_points_cache()
+                out["backup"] = None
                 out["error"] = f"Merge failed, {name} not written: " + _error_line(written)
             return out
         out["plan"] = written.get("plan")
-        _write_sidecar(path, source_stat=file_stat(path), session_uuid=session.uuid)
+        if not update_point(sidecar, source_stat=file_stat(path)):
+            out["lines"].append(
+                f"Could not record this Commit in {sidecar}: an undo that brings the "
+                "session back is not recognised as committed"
+            )
+        # Only after a successful write, and never the point just written
+        # (a clock set back would sort it oldest).
+        prune_points(context, path, protect=os.path.splitext(os.path.basename(backup))[0])
         if planned is not None and expected_plan is not None:
             extra = _membership_extras(expected_plan, out["plan"] or {})
             if extra:
@@ -1339,17 +1543,44 @@ def busy(context, text):
             workspace.status_text_set(None)
 
 
-def backup_exists_for_any_library():
-    """Source paths of the file's libraries that have a Commit backup."""
-    out, seen = [], set()
+# Header buttons and Rollback's poll run on every redraw: the folder listing
+# is cached for _POINTS_TTL seconds per (backup folder, library paths) and
+# dropped whenever Commit or Rollback changes the folder or the source.
+_POINTS_TTL = 2.0
+_points_cache = {"key": None, "time": float("-inf"), "value": {}}
+
+
+def invalidate_points_cache():
+    _points_cache["key"] = None
+
+
+def cached_backup_points_for_libraries(context=None):
+    """``backup_points_for_libraries`` through the throttled cache."""
+    key = (backup_dir(context, create=False), tuple(lib.filepath for lib in bpy.data.libraries))
+    now = time.monotonic()
+    if _points_cache["key"] != key or now - _points_cache["time"] >= _POINTS_TTL:
+        _points_cache.update(key=key, time=now, value=backup_points_for_libraries(context))
+    return _points_cache["value"]
+
+
+def backup_points_for_libraries(context=None):
+    """``{source path: [backup point, newest first]}`` for every library
+    of the file that has a backup point in the backup folder (one listing
+    of the folder)."""
+    folder = backup_dir(context, create=False)
+    listing = _listing(folder)
+    out, seen = {}, set()
+    if not listing:
+        return out
     for lib in bpy.data.libraries:
         path = library_path(lib)
         key = _norm_path(path)
         if key in seen:
             continue
         seen.add(key)
-        if os.path.isfile(backup_paths(path)[0]):
-            out.append(path)
+        points = backup_points(listing, path)
+        if points:
+            out[path] = points
     return out
 
 
@@ -1539,10 +1770,11 @@ class IOPS_OT_instance_edit_cancel(_LinkedSessionOperator, bpy.types.Operator):
 
 
 def replace_from_backup(backup, path):
-    """Copy ``backup`` over ``path`` through a temp file next to it and
-    ``os.replace``: ``path`` is either the old file or the whole backup,
-    never half-written."""
-    tmp = f"{backup}.{_run_id()}.tmp"
+    """Copy ``backup`` over ``path`` through a temp file next to ``path``
+    (``<stem>.iops_commit-<run id>.tmp``: same volume, so ``os.replace`` is
+    atomic) and ``os.replace``: ``path`` is either the old file or the whole
+    backup, never half-written."""
+    tmp = os.path.splitext(commit_temp_paths(path, _run_id()).temp_blend)[0] + ".tmp"
     try:
         shutil.copyfile(backup, tmp)
         os.replace(tmp, path)
@@ -1554,48 +1786,118 @@ def replace_from_backup(backup, path):
         raise
 
 
-def rollback_confirm_text(source_path):
-    """``(title, message)`` of Rollback's confirmation: when the backup was
-    taken, what gets replaced, and whether the source was modified after
-    the Commit that took it."""
+def point_time(point):
+    """Display time of a backup point, local time, from the UTC stamp its
+    name ends with (no sidecar read)."""
+    when = point_stamp(point)
+    if when is None:
+        return "an unknown time"
+    return when.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def rollback_point_warning(context, source_path, point):
+    """The warning line for rolling ``source_path`` back to ``point``:
+    ``"<name> was modified after this backup"`` when the source's ``(mtime,
+    size)`` differs from the one the point's sidecar recorded after its
+    Commit wrote the source, ``"cannot tell whether <name> was modified
+    after this backup"`` when nothing usable was recorded (missing or
+    corrupt sidecar, a write that failed after the worker may have written),
+    else None."""
+    if not point:
+        return None
     name = os.path.basename(source_path)
-    backup = backup_paths(source_path)[0]
-    side = read_sidecar(source_path)
-    when = side.get("backup_time")
-    if not isinstance(when, (int, float)):
-        try:
-            when = os.path.getmtime(backup)
-        except OSError:
-            when = None
-    stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(when)) if when else "an unknown time"
-    title = f"Rollback {name} to the backup of {stamp}?"
-    message = f"Everything saved to {name} since then is replaced."
-    recorded = side.get("source_stat")
-    if recorded and _stat_differs(tuple(recorded), file_stat(source_path)):
-        message += " The file was modified after this backup."
-    return title, message
+    folder = backup_dir(context, create=False)
+    recorded = read_point(point_files(folder, point)[1]).get("source_stat")
+    try:
+        recorded = (float(recorded[0]), int(recorded[1]))
+    except (TypeError, ValueError, IndexError, KeyError):
+        return f"Cannot tell whether {name} was modified after this backup"
+    if _stat_differs(recorded, file_stat(source_path)):
+        return f"{name} was modified after this backup"
+    return None
+
+
+def _rollback_path(context, source_path):
+    """The library file Rollback acts on: ``source_path``, or the only
+    library of the file with backup points when it is empty."""
+    path = source_path
+    if not path:
+        paths = list(backup_points_for_libraries(context))
+        if len(paths) != 1:
+            return None
+        path = paths[0]
+    return os.path.normpath(bpy.path.abspath(path))
+
+
+def _point_item(point, label=None):
+    return (point, label or f"{point_time(point)}  \u2014  {point}", "Backup point taken by Commit",
+            point_number(point))
+
+
+def rollback_snapshot(context, path):
+    """What Rollback's dialog shows, taken once at invoke: ``{"key",
+    "items", "warnings"}`` with the enum items of the source's points
+    (newest first, each with its stable ``point_number``) and the warning
+    line per point. The dialog's draw and the enum's items read it instead
+    of the folder and the sidecars."""
+    _folder, points = source_points(context, path)
+    return {
+        "key": _norm_path(path),
+        "items": [_point_item(p) for p in points],
+        "warnings": {p: rollback_point_warning(context, path, p) for p in points},
+    }
+
+
+# The snapshot of the open Rollback dialog (the enum items callback gets no
+# operator instance to read it from). Blender also needs the item strings
+# to outlive the callback.
+_rollback_dialog = {"snapshot": None, "items": []}
+
+
+def _point_items(self, context):
+    """Items of the point enum: the invoke snapshot when it is for this
+    source, plus any point that appeared since (so a script call after a
+    dismissed dialog still finds it); else the folder. Values are the
+    points' stable numbers, never list positions."""
+    path = _rollback_path(context, self.source_path)
+    items = []
+    if path is not None:
+        snap = _rollback_dialog["snapshot"]
+        items = list(snap["items"]) if snap and snap["key"] == _norm_path(path) else []
+        known = {it[0] for it in items}
+        items += [_point_item(p) for p in source_points(context, path)[1] if p not in known]
+        items.sort(key=lambda it: it[3], reverse=True)
+    _rollback_dialog["items"] = items
+    return items
 
 
 class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
     bl_idname = "iops.instance_edit_rollback_source"
     bl_label = "Rollback Source"
     bl_description = (
-        "Copy the backup taken by the last Commit over the source file and "
+        "Copy a backup point taken by Commit over the source file and "
         "reload it (cannot be undone with Ctrl+Z)"
     )
     # Never replayed by undo/redo: it overwrites a file.
     bl_options = set()
 
+    # Declared before ``point``: its items are the points of this file.
     source_path: bpy.props.StringProperty(
         name="Source",
-        description="Library file to restore from its .blend.iops_bak backup",
+        description="Library file to restore from one of its Commit backups",
+    )
+    point: bpy.props.EnumProperty(
+        name="Backup",
+        description="Backup point to restore (newest first); not set = the newest",
+        items=_point_items,
+        options={"SKIP_SAVE"},
     )
 
     @classmethod
     def poll(cls, context):
-        # Operator properties are not available in poll: the path itself
-        # is checked in execute.
-        if not backup_exists_for_any_library():
+        # Operator properties are not available in poll: the path and the
+        # point are checked in execute. Cached: poll runs on every redraw.
+        if not cached_backup_points_for_libraries(context):
             cls.poll_message_set("No Commit backup exists for a library of this file")
             return False
         return True
@@ -1604,38 +1906,74 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
     def description(cls, context, properties):
         if properties.source_path:
             return (
-                f"Restore {os.path.basename(properties.source_path)} from the backup "
-                "taken by the last Commit and reload it (cannot be undone with Ctrl+Z)"
+                f"Restore {os.path.basename(properties.source_path)} from one of the backups "
+                "taken by Commit (choose the point) and reload it (cannot be undone with Ctrl+Z)"
             )
         return cls.bl_description
 
-    def _path(self):
-        path = self.source_path
-        if not path:
-            paths = backup_exists_for_any_library()
-            if len(paths) != 1:
-                return None
-            path = paths[0]
-        return os.path.normpath(bpy.path.abspath(path))
+    def prepare(self, context):
+        """Invoke's work before the dialog: snapshot the points and preselect
+        the newest. Returns the source path, or None when there is nothing
+        to choose from."""
+        _rollback_dialog["snapshot"] = None
+        path = _rollback_path(context, self.source_path)
+        if path is None:
+            return None
+        snap = rollback_snapshot(context, path)
+        if not snap["items"]:
+            return None
+        self._snapshot = snap
+        _rollback_dialog["snapshot"] = snap
+        self.point = snap["items"][0][0]
+        return path
 
     def invoke(self, context, event):
-        path = self._path()
-        if path is None or not os.path.isfile(backup_paths(path)[0]):
+        path = self.prepare(context)
+        if path is None:
             return self.execute(context)  # reports why
-        title, message = rollback_confirm_text(path)
-        return context.window_manager.invoke_confirm(
-            self, event, title=title, message=message, confirm_text="Rollback", icon="WARNING",
+        return context.window_manager.invoke_props_dialog(
+            self, width=520, title=f"Rollback {os.path.basename(path)}", confirm_text="Rollback",
         )
 
+    def cancel(self, context):
+        _rollback_dialog["snapshot"] = None
+
+    def draw(self, context):
+        layout = self.layout
+        snap = getattr(self, "_snapshot", None) or _rollback_dialog["snapshot"]
+        path = _rollback_path(context, self.source_path)
+        if path is None or snap is None:
+            return
+        name = os.path.basename(path)
+        layout.label(text=path, icon="FILE_BLEND")
+        layout.prop(self, "point", text="")
+        warning = snap["warnings"].get(self.point)
+        if warning:
+            layout.label(text=warning, icon="ERROR")
+        layout.label(text=f"Everything saved to {name} since then is replaced.", icon="INFO")
+
     def execute(self, context):
-        path = self._path()
+        try:
+            return self._execute(context)
+        finally:
+            _rollback_dialog["snapshot"] = None
+
+    def _execute(self, context):
+        path = _rollback_path(context, self.source_path)
         if path is None:
             self.report({"ERROR"}, "Name the library file to roll back")
             return {"CANCELLED"}
-        backup = backup_paths(path)[0]
-        if not os.path.isfile(backup):
+        folder, points = source_points(context, path)
+        if not points:
             self.report({"ERROR"}, f"No Commit backup for {os.path.basename(path)}")
             return {"CANCELLED"}
+        # Not set: the newest. Set: the identifier the stored number maps
+        # to, which survives points appearing or going while the dialog is open.
+        point = self.point if self.properties.is_property_set("point") else points[0]
+        if point not in points:
+            self.report({"ERROR"}, f"Backup point {point or '?'} of {os.path.basename(path)} no longer exists")
+            return {"CANCELLED"}
+        backup, side = point_files(folder, point)
         if os.path.isfile(path):
             writable, reason, p4_lines = ensure_writable(context, path)
             for line in p4_lines:
@@ -1645,6 +1983,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
                 return {"CANCELLED"}
         try:
             with SourceLock(path, _worker_timeout(context)):
+                _sweep_leftovers(path)
                 replace_from_backup(backup, path)
         except CommitRefused as exc:
             self.report({"ERROR"}, f"Rollback refused: {exc}")
@@ -1652,8 +1991,16 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         except OSError as exc:
             self.report({"ERROR"}, f"Rollback failed, {os.path.basename(path)} not changed: {exc}")
             return {"CANCELLED"}
-        # The source is the pre-Commit one again: that session may commit anew.
-        _write_sidecar(path, source_stat=file_stat(path), session_uuid=None)
+        finally:
+            invalidate_points_cache()
+        # The source is the one from before the Commit that took this point:
+        # that session, and those of every newer point, may commit anew.
+        # Caveat: rolling forward again (to a newer point) does not restore
+        # the uuids cleared here, so a session revived by undo after a
+        # roll-back-then-forward is not recognised as committed any more.
+        update_point(side, source_stat=file_stat(path), session_uuid=None)
+        for newer in points[:points.index(point)]:
+            update_point(point_files(folder, newer)[1], session_uuid=None)
         libs = _source_libraries(path)
         failed = []
         for lib in libs:
@@ -1665,7 +2012,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
             self.report({"WARNING"}, "Restored, but reloading failed (reload by hand): " + "; ".join(failed))
         self.report(
             {"INFO"},
-            f"Restored {os.path.basename(path)} from {backup}; "
+            f"Restored {os.path.basename(path)} from {backup} ({point_time(point)}); "
             f"{len(libs) - len(failed)} library datablock(s) reloaded",
         )
         return {"FINISHED"}

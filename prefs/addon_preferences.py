@@ -236,8 +236,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
     iops_instance_edit_p4: BoolProperty(
         name="Instance Edit: Perforce checkout",
-        description="Run 'p4 edit' on a read-only source file before Commit",
-        default=False,
+        description="A read-only source file is checked out in Perforce (p4 edit) automatically before Commit and Rollback, and you are told about it",
+        default=True,
     )
 
     iops_instance_edit_worker_timeout: IntProperty(
@@ -250,6 +250,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=300,
         min=30,
         max=3600,
+    )
+
+    iops_instance_edit_backup_dir: StringProperty(
+        name="Instance Edit: backup folder",
+        subtype="DIR_PATH",
+        default="",
+        description="Where Commit keeps backups of library files it writes; empty = <Blender user config>/iops/instance_edit_backups",
+    )
+
+    iops_instance_edit_backup_count: IntProperty(
+        name="Instance Edit: backups per file",
+        default=3,
+        min=1,
+        max=50,
+        description="How many backup points Commit keeps per library file (oldest removed)",
     )
 
     show_filename_full_path: BoolProperty(
@@ -334,6 +349,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_textures: BoolProperty(default=False)
     show_section_bisect: BoolProperty(default=False)
     show_section_cursor_place: BoolProperty(default=False)
+    show_section_instance_edit: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
@@ -1170,9 +1186,6 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "iops_stat", toggle=True)
                 body.prop(self, "iops_ss_header", toggle=True)
-                body.prop(self, "iops_instance_edit_header", toggle=True)
-                body.prop(self, "iops_instance_edit_p4", toggle=True)
-                body.prop(self, "iops_instance_edit_worker_timeout")
                 row = body.row(align=True)
                 row.prop(self, "show_filename_stat", toggle=True)
                 sub = row.row(align=True)
@@ -1238,6 +1251,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.separator()
                 col.prop(self, "cursor_place_axis_size")
                 col.prop(self, "cursor_place_axis_letters")
+
+            body = _section(column_main, self, "show_section_instance_edit", "Instance Edit", icon="OUTLINER_COLLECTION")
+            if body is not None:
+                col = body.column()
+                col.use_property_split = True
+                col.use_property_decorate = False
+                col.prop(self, "iops_instance_edit_header", text="Button in 3D View Header")
+                col.separator()
+                col.label(text="Linked collections (Commit):")
+                col.prop(self, "iops_instance_edit_p4", text="Perforce Checkout")
+                col.prop(self, "iops_instance_edit_worker_timeout", text="Worker Timeout (s)")
+                col.separator()
+                col.label(text="Rollback:")
+                col.prop(self, "iops_instance_edit_backup_dir", text="Backup Folder")
+                col.prop(self, "iops_instance_edit_backup_count", text="Backups per File")
 
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",

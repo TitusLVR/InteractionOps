@@ -151,21 +151,27 @@ Poll: top-of-stack session is a linked session. Drops to Object Mode.
    would end up without users), so nothing is dropped silently; ticking the
    collection keeps them.
    Cancel = nothing written, session stays open.
-4. **Write**: back up the source to `<source>.blend.iops_bak` (no `.blend`
-   extension, so asset libraries and this addon's master-file detection
-   never index it; one backup per source, overwritten) with a sidecar
-   `<source>.blend.iops_bak.json` (backup time, post-write source stat,
-   the committing session's uuid), then run the worker in write mode. A
-   session carries a uuid from Start; Commit refuses a session whose uuid
-   the sidecar already names ("this session was already committed; Cancel
-   it"), which closes the Ctrl+Z-after-Commit double merge. A source saved
-   by a **newer** Blender than the running one is refused (the worker
-   would silently save the whole library down-version). The `p4 edit`
-   output is shown in the dialog and a "must sync/resolve" answer refuses.
-   The UI is blocked while the worker runs (wait cursor + status text; the
-   docs say so). Non-zero
-   exit or a plan/result mismatch → report, session stays open, source
-   untouched (the worker saves only at its very end).
+4. **Write**: back up the source into the **backup folder** (preference
+   `iops_instance_edit_backup_dir`, default `<Blender user config>/iops/
+   instance_edit_backups/`; never next to the source, so nothing lands in
+   Perforce or in an asset-library folder, and users on a shared drive do
+   not overwrite each other's backups) as
+   `<stem>-<8 hex of sha1(absolute source path)>-<YYYYMMDD-HHMMSS>.blend`
+   with a sidecar `.json` (original absolute path, backup time, post-write
+   source stat, the committing session's uuid). Keep the newest
+   `iops_instance_edit_backup_count` backups per source (default 3,
+   oldest removed after a successful write). Then run the worker in write
+   mode. A session carries a uuid from Start; Commit refuses a session
+   whose uuid any backup sidecar of that source names ("this session was
+   already committed; Cancel it"), which closes the Ctrl+Z-after-Commit
+   double merge. A source saved by a **newer** Blender than the running one
+   is refused (the worker would silently save the whole library
+   down-version). A read-only source is checked out in Perforce
+   automatically (`p4 edit`, preference on by default) and the user is
+   told; the `p4 edit` output is shown in the dialog and a "must
+   sync/resolve" answer refuses. The UI is blocked while the worker runs
+   (wait cursor + status text; the docs say so). Backups are per machine:
+   Rollback is for "just now", Perforce holds the history.
 5. **Reload**: `library.reload()` for this source's Library datablock.
 6. **Cleanup**: remove the copy collection and every owned ID that has no
    other users (a fake user counts as a user for IDs that existed before
@@ -180,10 +186,14 @@ without reload, and never touches the source file.
 
 ### Rollback — `iops.instance_edit_rollback_source`
 
-Copies `<source>.blend.iops_bak` over the source (after the same writable
-check as Commit; via a temp file and `os.replace`, never in place) after an
-explicit confirmation naming the backup time, and reloads the library. Available from the header while a
-backup exists for any library of the current file. One level deep only.
+Lists the backup points of the libraries of the current file (newest
+first, per source), lets the user pick one (default: the newest of the
+chosen source), and after an explicit confirmation naming the backup time
+(and warning when the source was modified after that backup) copies it
+over the source via a temp file and `os.replace` (after the same writable
+check as Commit, incl. Perforce checkout), then reloads the library. The
+header shows the Rollback button while any library of the file has a
+backup point.
 
 ### Session stack
 
@@ -313,6 +323,9 @@ Next to `iops_ss_header`:
 - `iops_instance_edit_p4` BoolProperty, default off: try `p4 edit` on a
   read-only source before Commit.
 - `iops_instance_edit_worker_timeout` IntProperty, default 300.
+- `iops_instance_edit_backup_dir` StringProperty (DIR_PATH), default empty
+  = `<Blender user config>/iops/instance_edit_backups/`.
+- `iops_instance_edit_backup_count` IntProperty, default 3, min 1, max 50.
 
 ## UI
 
@@ -322,8 +335,8 @@ Header block from phase 1, extended:
   <file> on Commit)".
 - Linked session active: red `LINKED` icon = Commit (opens the plan
   dialog), `X` = Cancel, depth label when the stack is deeper than one.
-- Rollback: `LOOP_BACK` icon shown while a `.blend.iops_bak` exists for
-  any library of the current file; tooltip names the file.
+- Rollback: `LOOP_BACK` icon shown while any library of the current file
+  has a backup point in the backup folder; tooltip names the file.
 
 Pie entry (phase 1) gains the linked branch automatically through the
 shared operator.
