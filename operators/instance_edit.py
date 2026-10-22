@@ -23,6 +23,7 @@ import numpy as np
 from ..utils.instance_edit_core import (
     edit_frame,
     plan_restore,
+    split_layer_path,
     split_roots,
     unmoved,
     warnings,
@@ -175,6 +176,7 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
     session.collection = coll
     session.collection_name = coll.name
     set_frame(session, frame)
+    session.view_layer_name = view_layer.name
     session.linked_to_scene = coll not in scene.collection.children_recursive
     session.prev_active_layer_path = layer_collection_path(
         root_lc, view_layer.active_layer_collection
@@ -210,6 +212,7 @@ def write_snapshot(context, session, instancer, coll, targets, root_names, frame
         seen_paths.add(path)
         row = session.layer_colls.add()
         row.path = path
+        row.ref = lc.collection
         row.exclude = lc.exclude
         row.hide_viewport = lc.hide_viewport
 
@@ -329,20 +332,46 @@ def _session_collection(session):
     return session.collection or bpy.data.collections.get(session.collection_name)
 
 
-def restore_visibility(context, session):
-    """Put back everything Start's visibility half changed: object and
-    instancer visibility, layer collections, collections, the active layer
-    collection, and the scene-root link Start added. Returns the names of
-    snapshot objects and instancers that no longer exist."""
+def _session_view_layer(context, session):
+    """The view layer Start ran in, or the current one when it is gone
+    (second value True then)."""
+    vl = context.scene.view_layers.get(session.view_layer_name)
+    if vl is None:
+        return context.view_layer, True
+    return vl, False
+
+
+def _resolve_layer_row(root_lc, row):
+    """Layer collection of a snapshot row: by path, then by the recorded
+    collection when a rename broke the path."""
+    lc = layer_collection_by_path(root_lc, row.path)
+    if lc is not None and (row.ref is None or lc.collection == row.ref):
+        return lc
+    if row.ref is not None:
+        return find_layer_collection(root_lc, row.ref)
+    return lc
+
+
+def restore_visibility(context, session, only_objects=None):
+    """Put back everything Start's visibility half changed, in the view
+    layer Start ran in: object and instancer visibility, layer collections,
+    collections, the active layer collection, and the scene-root link Start
+    added. ``only_objects`` (a set) limits object visibility to those
+    objects. Returns the names of what could not be found: snapshot
+    objects, instancers, layer collections, and the view layer itself."""
     scene = context.scene
-    view_layer = context.view_layer
+    view_layer, fell_back = _session_view_layer(context, session)
     root_lc = view_layer.layer_collection
     coll = _session_collection(session)
+    missing = [f"view layer '{session.view_layer_name}'"] if fell_back else []
 
     # Objects first, while their layer collections still include them.
-    rows, missing = _alive_rows(session.objects)
+    rows, obj_missing = _alive_rows(session.objects)
+    missing += obj_missing
     for row in rows:
         obj = _alive(row)
+        if only_objects is not None and obj not in only_objects:
+            continue
         obj.hide_viewport = row.hide_viewport
         try:
             obj.hide_set(row.hide_get, view_layer=view_layer)
@@ -360,8 +389,9 @@ def restore_visibility(context, session):
     # excluded before its parent comes back excluded when the parent does.
     # Unchanged exclude flags (untouched ancestors) are not re-set.
     for row in reversed(list(session.layer_colls)):
-        lc = layer_collection_by_path(root_lc, row.path)
+        lc = _resolve_layer_row(root_lc, row)
         if lc is None:
+            missing.append(split_layer_path(row.path)[-1])
             continue
         if lc.exclude != row.exclude:
             lc.exclude = row.exclude
@@ -400,25 +430,31 @@ def restore_session(context, session):
 def stop_session(context, session):
     """Stop: keep every edit. Every current root of the collection goes back
     to the collection's native frame through inverse(frame); then
-    visibility is restored, the session dropped and the instancer selected."""
+    visibility is restored (objects still in the collection only), the
+    session dropped and the instancer selected."""
     _ensure_object_mode(context)
-    view_layer = context.view_layer
+    view_layer, _fell_back = _session_view_layer(context, session)
     view_layer.update()
     coll = _session_collection(session)
     missing = []
+    targets = []
     if coll is None:
         missing.append(session.collection_name)
     else:
         frame = get_frame(session)
         targets = collect_targets(coll)
         roots = set(root_names_of(targets))
-        for obj in targets:
-            if obj.name in roots:
-                obj.matrix_world = mathutils.Matrix(
-                    unmoved(frame, np.array(obj.matrix_world)).tolist()
-                )
+        # Compute every matrix before writing any: a failure leaves nothing
+        # half-moved, so Stop can be pressed again.
+        moves = [
+            (obj, mathutils.Matrix(unmoved(frame, np.array(obj.matrix_world)).tolist()))
+            for obj in targets
+            if obj.name in roots
+        ]
+        for obj, world in moves:
+            obj.matrix_world = world
     instancer = session.instancer or bpy.data.objects.get(session.instancer_name)
-    missing += restore_visibility(context, session)
+    missing += restore_visibility(context, session, only_objects=set(targets))
     pop_session(context.scene)
 
     if instancer is not None and _in_view_layer(view_layer, instancer):
@@ -431,7 +467,6 @@ def stop_session(context, session):
             pass
         view_layer.objects.active = instancer
     return missing
-
 
 class IOPS_OT_instance_edit_start(bpy.types.Operator):
     """Edit the instanced collection's objects in place, at this instancer.
