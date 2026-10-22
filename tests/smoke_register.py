@@ -20,8 +20,14 @@ for op_name in (
     "instance_edit_start",
     "instance_edit_stop",
     "instance_edit_restore",
+    "instance_edit_commit",
+    "instance_edit_cancel",
+    "instance_edit_rollback_source",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
+    if op_name.startswith("instance_edit_"):
+        # hasattr is always True (lazy wrapper): resolve the RNA type.
+        getattr(bpy.ops.iops, op_name).get_rna_type()
 
 for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node"):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name

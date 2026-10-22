@@ -714,12 +714,21 @@ class IOPS_MT_Pie_Edit(Menu):
                     op.blendpath = blendpath
                     op.library = library
                     
-                    # 9 - TOP-RIGHT - Reload Library
-                    op = pie.operator(
+                    # 9 - TOP-RIGHT - column: Edit Linked Instance, Reload,
+                    # Open in current Blender (when it polls). Library slot
+                    # order: 7 Open, 9 column, 1, 3; nothing trails after 3.
+                    col = pie.column(align=True)
+                    col.operator(
+                        "iops.instance_edit_start",
+                        text="Edit Linked Instance",
+                        icon="LINKED",
+                    )
+                    col.operator(
                         "iops.reload_instance_library",
                         text=f"Reload {os.path.basename(blendpath)}",
-                        icon="FILE_REFRESH"
+                        icon="FILE_REFRESH",
                     )
+                    draw_open_asset_in_pie_if_poll(col, context)
                 else:
                     # slot 7: Edit Instance; slot 9: Open in current Blender
                     # when it polls, otherwise empty so the next button lands on 1
@@ -747,9 +756,6 @@ class IOPS_MT_Pie_Edit(Menu):
                     depress=all_on,
                 )
 
-                if context.object.instance_collection.library:
-                    # the local branch already placed it in slot 9
-                    draw_open_asset_in_pie_if_poll(pie, context)
             elif context.object.type == "EMPTY":
                 draw_empty_pie_size_display_and_image(pie, context)
                 draw_open_asset_in_pie_if_poll(pie, context)

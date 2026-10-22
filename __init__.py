@@ -371,6 +371,11 @@ from .operators.instance_edit import (
     IOPS_OT_instance_edit_restore,
     IOPS_OT_instance_edit_stop,
 )
+from .operators.instance_edit_linked import (
+    IOPS_OT_instance_edit_commit,
+    IOPS_OT_instance_edit_cancel,
+    IOPS_OT_instance_edit_rollback_source,
+)
 from .ui.iops_instance_edit_header import draw_iops_instance_edit_header
 from .ui.iops_selection_sets_panel import (
     IOPS_SS_MirrorItem,
@@ -724,6 +729,9 @@ classes = (
     IOPS_OT_instance_edit_start,
     IOPS_OT_instance_edit_restore,
     IOPS_OT_instance_edit_stop,
+    IOPS_OT_instance_edit_commit,
+    IOPS_OT_instance_edit_cancel,
+    IOPS_OT_instance_edit_rollback_source,
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,

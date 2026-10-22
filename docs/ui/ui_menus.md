@@ -154,7 +154,7 @@ Named vertex / edge / face selections stored on the mesh. Save, recall, replace 
 
 **Hotkey:** None — sidebar panel and header popover.
 
-The 3D View header also carries an **Edit Instance** icon right after the Selection Sets block; while an edit is open it turns red and a **Restore** icon appears beside it. See [Edit Instance](../operators/op_instance_edit.md).
+The 3D View header also carries an **Edit Instance** icon right after the Selection Sets block; while an edit is open it turns red and a **Restore** icon appears beside it. See [Edit Instance](../operators/op_instance_edit.md). On a linked instancer the idle icon is a chain; an open linked session shows a red **Commit** (chain) and **Cancel** (X) pair instead, plus the session depth number when sessions are nested. A **Rollback** icon appears in Object Mode when a library of the file has a Commit backup. See [Linked collections](../operators/op_instance_edit.md#linked-collections).
 
 | Button | What it does |
 | --- | --- |

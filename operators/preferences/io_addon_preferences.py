@@ -312,6 +312,8 @@ def load_iops_preferences():
                             for key_, default_ in (
                                 ("iops_ss_header", True),
                                 ("iops_instance_edit_header", True),
+                                ("iops_instance_edit_p4", False),
+                                ("iops_instance_edit_worker_timeout", 300),
                                 ("show_filename_full_path", False),
                                 ("show_dimensions_stat", True),
                                 ("show_instances_stat", False),

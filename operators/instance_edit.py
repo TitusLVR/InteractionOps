@@ -23,6 +23,8 @@ snapshot object to its recorded parent relation and transform channels.
 Both then share ``restore_visibility``. Snapshot rows resolve by pointer
 only; a deleted object is skipped and reported, never looked up by name.
 """
+import os
+
 import bpy
 import mathutils
 import numpy as np
@@ -91,15 +93,26 @@ def root_names_of(targets):
 
 
 def can_start(context):
-    """Global Constraints poll of Start: (ok, reason)."""
+    """Global Constraints poll of Start: (ok, reason). An instancer of a
+    library collection goes through the linked rules instead."""
     scene = context.scene
     if scene is None:
         return False, "No scene"
+    active = context.view_layer.objects.active if context.view_layer else None
+    if _is_collection_instance(active) and active.instance_collection.library is not None:
+        from .instance_edit_linked import can_start_linked
+
+        return can_start_linked(context)
+    obj = active
     if session_active(scene):
-        return False, "Instance edit in progress: Stop or Restore first"
+        # A LOCAL session may nest on a LINKED one when the instancer is
+        # inside that session's copy (a local sub-collection instancer).
+        top = active_session(scene)
+        copy = top.copy_collection if top.kind == "LINKED" else None
+        if obj is None or copy is None or copy.all_objects.get(obj.name) != obj:
+            return False, "Instance edit in progress: Stop or Restore first"
     if context.mode != "OBJECT":
         return False, "Switch to Object Mode"
-    obj = context.view_layer.objects.active if context.view_layer else None
     if not _is_collection_instance(obj):
         return False, "Active object is not a collection instance"
     coll = obj.instance_collection
@@ -614,6 +627,15 @@ class IOPS_OT_instance_edit_start(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
+    def description(cls, context, properties):
+        obj = getattr(context, "active_object", None)
+        coll = obj.instance_collection if obj is not None and obj.type == "EMPTY" else None
+        if coll is not None and coll.library is not None:
+            name = os.path.basename(bpy.path.abspath(coll.library.filepath))
+            return f"Edit linked collection {coll.name} (writes back to {name} on Commit)"
+        return cls.__doc__
+
+    @classmethod
     def poll(cls, context):
         ok, reason = can_start(context)
         if not ok:
@@ -624,6 +646,14 @@ class IOPS_OT_instance_edit_start(bpy.types.Operator):
         scene = context.scene
         instancer = context.view_layer.objects.active
         coll = instancer.instance_collection
+        if coll.library is not None:
+            from .instance_edit_linked import start_linked
+
+            # start_linked undoes its own partial work before re-raising.
+            lines = start_linked(context, instancer)
+            if lines:
+                self.report({"WARNING"}, "\n".join(lines))
+            return {"FINISHED"}
 
         # instance_offset lives on the Collection (Object has none).
         frame = edit_frame(np.array(instancer.matrix_world), tuple(coll.instance_offset))

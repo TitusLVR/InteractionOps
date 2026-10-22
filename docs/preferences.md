@@ -6,7 +6,7 @@ Open *Edit › Preferences › Add-ons › InteractionOps*. The settings are spl
 Collapsible sections, top to bottom:
 
 - **General** — name of the sidebar tab (default *iOps*).
-- **Statistics Overlay** — master toggle and per-row toggles for the top-left statistics block (file name, dimensions, position, material, modifiers, instances, parent, units, empty mesh), and the 3D View header toggles, including **Instance Edit in 3D View Header** for the [Edit Instance](operators/op_instance_edit.md) button (the red icon of an open session always shows).
+- **Statistics Overlay** — master toggle and per-row toggles for the top-left statistics block (file name, dimensions, position, material, modifiers, instances, parent, units, empty mesh), and the 3D View header toggles, including **Instance Edit in 3D View Header** for the [Edit Instance](operators/op_instance_edit.md) button (the red icon of an open session always shows). Also **Instance Edit: Perforce checkout** (run `p4 edit` on a read-only source before Commit and Rollback) and **Instance Edit: worker timeout (s)** (how long one run of the merge worker may take, default 300, range 30 to 3600; Blender is blocked while it runs, and a Commit lock older than this counts as stale).
 - **Visual UV** — surface offset and the eight island colours for [Mesh Visual UV](operators/op_mesh_visual_uv.md).
 - **Cursor Bisect** — preview depth, snap distance, subdivisions, merge distance and rotation step for [Cursor Bisect](operators/op_mesh_cursor_bisect.md).
 - **Cursor Place** — default normal axis (Z) and edge axis (Y), preview axis size (pixels) and whether the X / Y / Z letters are drawn, for [Cursor Place](operators/op_cursor_place.md).
