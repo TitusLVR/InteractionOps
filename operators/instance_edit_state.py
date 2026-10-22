@@ -33,6 +33,8 @@ class IOPS_IE_InstRef(bpy.types.PropertyGroup):
 
 class IOPS_IE_LayerRef(bpy.types.PropertyGroup):
     path: bpy.props.StringProperty()
+    # Fallback when a rename mid-session broke the path.
+    ref: bpy.props.PointerProperty(type=bpy.types.Collection)
     exclude: bpy.props.BoolProperty()
     hide_viewport: bpy.props.BoolProperty()
 
@@ -53,6 +55,7 @@ class IOPS_IE_Session(bpy.types.PropertyGroup):
     collection: bpy.props.PointerProperty(type=bpy.types.Collection)
     collection_name: bpy.props.StringProperty()
     frame: bpy.props.FloatVectorProperty(size=16, default=_IDENTITY_FLAT)
+    view_layer_name: bpy.props.StringProperty()
     linked_to_scene: bpy.props.BoolProperty()
     prev_active_layer_path: bpy.props.StringProperty()
     objects: bpy.props.CollectionProperty(type=IOPS_IE_ObjRef)
