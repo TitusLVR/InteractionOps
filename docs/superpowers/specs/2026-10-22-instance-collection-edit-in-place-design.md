@@ -79,7 +79,9 @@ Steps, in order, snapshot first:
 1. Build the **edit frame** `A = M_instance @ Translation(-instance_offset)`.
 2. Collect `targets = collection.all_objects` (recursive: nested child
    collections are part of the instance's content). Split into **roots**
-   (parent is None or parent not in `targets`) and children.
+   (no ancestor, through any parent chain, is in `targets`) and children.
+   A target reached through a non-target parent that itself hangs under a
+   target is a child: moving it again would double the move.
 3. Write the **snapshot** to `Scene.iops_instance_edit` (see Storage)
    *before any mutation*. Nothing is touched until the snapshot is complete.
 4. Hide (view-layer `hide_set(True)`) the instancer itself and every other
@@ -92,7 +94,11 @@ Steps, in order, snapshot first:
 5. Make the source collection visible: if it is not reachable in the
    current scene's hierarchy, link it under the scene root collection and
    record that; find its `LayerCollection`(s) **and all their descendants**,
-   record and clear `exclude` and `hide_viewport`; record and clear
+   record and clear `exclude` and `hide_viewport`; for the **ancestor**
+   layer collections of each occurrence record and clear `hide_viewport`
+   only (a hidden parent hides its children; an excluded parent is already
+   mirrored onto the child's own `exclude`, and clearing the parent's
+   exclude would reveal every sibling asset); record and clear
    `Collection.hide_viewport` for it, its ancestors in the scene tree and
    its descendants; record and clear `hide_get()` / `hide_viewport` on each
    target object.
