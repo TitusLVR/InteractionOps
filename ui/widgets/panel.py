@@ -31,15 +31,16 @@ def grid_cells(spans, content_width: float, col_gap: float):
     return out
 
 
-def grid_min_content(spans, mins, col_gap: float) -> float:
-    """Smallest content width where every cell i is >= mins[i]."""
-    if not spans:
+def grid_natural_content(mins, col_gap: float) -> float:
+    """Auto-fit content width of a grid row: its cells side by side at
+    their natural widths plus one `col_gap` between neighbours (spacers
+    pass 0). Spans don't scale this up — the row still lays out on the
+    12-step grid (`grid_cells`), so a cell narrower than its content
+    truncates its label instead of inflating the whole panel."""
+    mins = [max(0.0, float(m)) for m in mins]
+    if not mins:
         return 0.0
-    u = 0.0
-    for s, m in zip(spans, mins):
-        s = max(1, int(s))
-        u = max(u, (m - (s - 1) * col_gap) / s)
-    return max(0.0, GRID * u + (GRID - 1) * col_gap)
+    return sum(mins) + float(col_gap) * (len(mins) - 1)
 
 
 class Rect:

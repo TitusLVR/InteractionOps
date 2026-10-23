@@ -511,7 +511,8 @@ class IOPS_WidgetEditorProps(PropertyGroup):
     w_title: StringProperty(name="Title", update=_upd("w_title"))
     w_width: FloatProperty(name="Width", min=0.0, default=0.0,
                            description="Minimum content width in px "
-                                       "(0 = default)",
+                                       "(0 = auto-fit). Also set by "
+                                       "dragging the panel's right edge",
                            update=_upd("w_width"))
     w_space_view3d: BoolProperty(name="3D Viewport", default=True,
                                  update=_upd("w_space_view3d"))
@@ -541,6 +542,22 @@ class IOPS_OT_widget_editor_save(_SessionOp, Operator):
 
     def execute(self, context):
         ok, msg = _editor().save()
+        if not ok:
+            self.report({"ERROR"}, msg)
+            return {"CANCELLED"}
+        self.report({"INFO"}, msg)
+        return {"FINISHED"}
+
+
+class IOPS_OT_widget_editor_save_duplicate(_SessionOp, Operator):
+    bl_idname = "iops.widget_editor_save_duplicate"
+    bl_label = "Save Duplicate"
+    bl_description = ("Write the edited widget as a new widget (unique "
+                      "name), leave the original unchanged and leave "
+                      "edit mode")
+
+    def execute(self, context):
+        ok, msg = _editor().save_duplicate()
         if not ok:
             self.report({"ERROR"}, msg)
             return {"CANCELLED"}
@@ -823,6 +840,8 @@ def draw_editor(layout, context):
     row = layout.row(align=True)
     row.scale_y = 1.3
     row.operator("iops.widget_editor_save", text="Save", icon="CHECKMARK")
+    row.operator("iops.widget_editor_save_duplicate", text="Save Duplicate",
+                 icon="DUPLICATE")
     row.operator("iops.widget_editor_cancel",
                  text="Cancel (delete new)" if s.is_new else "Cancel",
                  icon="CANCEL")
@@ -872,6 +891,7 @@ def unregister_props():
 classes = (
     IOPS_WidgetEditorProps,
     IOPS_OT_widget_editor_save,
+    IOPS_OT_widget_editor_save_duplicate,
     IOPS_OT_widget_editor_cancel,
     IOPS_OT_widget_editor_undo,
     IOPS_OT_widget_editor_redo,

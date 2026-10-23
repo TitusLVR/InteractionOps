@@ -16,7 +16,7 @@ library folder (`composed.widgets_folder()`, default
 | `name` | str | **yes** | Registry key + filename stem. Sanitized: `<>:"/\|?*` → `_`. Empty name → whole def rejected. |
 | `title` | str | no | Title-bar text. Defaults to `name`. |
 | `space` | str or list of str | no | Editor space(s) the panel can anchor in: `"VIEW_3D"` and/or `"IMAGE_EDITOR"`. A string or a list is accepted; unknown values are dropped; defaults to `"VIEW_3D"`. A multi-space widget anchors to whichever listed editor it is toggled from (one at a time). |
-| `width` | number | no | Minimum content width in px (floor; default 180). Rows that need more room still widen the panel. Below 60 or non-numeric → ignored + reported. |
+| `width` | number | no | Minimum content width in px (a floor). Unset = **auto-fit**: the panel is as wide as its widest row's natural width (and the title), never below 180. Set = that floor instead of 180, so a widget can be narrower or wider; rows that need more than the floor still widen the panel. Below 60 or non-numeric → ignored + reported. The visual editor sets it by dragging the panel's right edge. |
 | `switches` | object `{name: bool}` | no | Non-false defaults for local panel switches. See [Switches](#switches). |
 | `rows` | list of row objects | no | The panel body, top to bottom. Non-list → empty + reported. |
 
@@ -230,6 +230,12 @@ row/cell is kept.
 - Spans may sum to less than 12; the remainder is empty space on the right.
   A sum over 12 is clamped by the layout.
 - A top-level row with `span` is laid out on the same grid, left-aligned.
+- **Spans don't widen the panel.** A grid row needs only its cells side by
+  side at their natural widths (plus gaps; spacers count 0), and a top-level
+  spanned row only its own natural width. Each cell still gets its twelfths
+  of the content width, so a cell narrower than its content **truncates its
+  label** with a middle ellipsis (`Sel…All`) instead of overflowing. Give a
+  narrow cell a short label, or raise `width`, if the truncation shows.
 - **Spanned flipboxes never auto-merge**: a top-level `FLIPBOX` carrying
   `span` (or `show_if`) stands alone and stays stacked. Unspanned adjacent
   flipboxes in old files still merge as before.

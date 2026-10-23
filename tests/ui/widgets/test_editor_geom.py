@@ -163,3 +163,57 @@ def test_is_noop_move():
     assert not eg.is_noop_move((1, 2), (2, 2))
     assert not eg.is_noop_move((1, 2), (1, None))
     assert not eg.is_noop_move((1, 2), (2, None))
+
+
+# ----------------------------------------------------------------------
+# Panel right-edge (width) grip
+# ----------------------------------------------------------------------
+def test_panel_edge_hit_body_band():
+    panel = make_panel([(20.0, 1), (20.0, 2)], padding=8.0)
+    x2 = panel.x + panel.width
+    body_y = panel.y - panel.title_h - 10.0
+    half = eg.HANDLE_W * 0.5
+    assert eg.panel_edge_hit(panel, x2, body_y)
+    assert eg.panel_edge_hit(panel, x2 - half, body_y)
+    assert eg.panel_edge_hit(panel, x2 + half, body_y)
+    assert not eg.panel_edge_hit(panel, x2 - half - 1.0, body_y)
+    assert not eg.panel_edge_hit(panel, x2 + half + 1.0, body_y)
+
+
+def test_panel_edge_hit_spans_body_height_not_title():
+    panel = make_panel([(20.0, 1), (20.0, 2)], padding=8.0)
+    x2 = panel.x + panel.width
+    bottom = panel.y - panel.height
+    assert eg.panel_edge_hit(panel, x2, bottom)            # bottom padding
+    assert eg.panel_edge_hit(panel, x2, panel.y - panel.title_h - 0.5)
+    # title bar (close cell) is excluded
+    assert not eg.panel_edge_hit(panel, x2, panel.y - 2.0)
+    assert not eg.panel_edge_hit(panel, x2, bottom - 1.0)  # below the panel
+
+
+def test_panel_edge_band_disjoint_from_cell_grips():
+    # cells end `padding` px before the panel edge: a cell's resize band
+    # (c.x2 +- HANDLE_W/2) never reaches the panel-edge band.
+    panel = make_panel([(20.0, 1), (20.0, 2)], padding=8.0)
+    kinds = [False, True]
+    half = eg.HANDLE_W * 0.5
+    for cells in panel.row_rects:
+        c = cells[-1]
+        assert not eg.panel_edge_hit(panel, c.x2 + half, c.cy)
+        assert eg.edit_hit(panel, kinds, panel.x + panel.width - half,
+                           c.cy) != ("resize", (0, None))
+        assert c.x2 + half < panel.x + panel.width - half
+
+
+def test_drag_moved_threshold():
+    t = eg.MOVE_THRESHOLD
+    assert not eg.drag_moved(100.0, 100.0)
+    assert not eg.drag_moved(100.0, 100.0 + t - 0.5)
+    assert not eg.drag_moved(100.0, 100.0 - t + 0.5)
+    assert eg.drag_moved(100.0, 100.0 + t)
+    assert eg.drag_moved(100.0, 100.0 - t - 1.0)
+
+
+def test_panel_edge_hit_empty_layout_is_false():
+    panel = WidgetPanel(title="T")
+    assert not eg.panel_edge_hit(panel, panel.x, panel.y - 30.0)

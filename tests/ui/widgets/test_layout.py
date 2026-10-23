@@ -355,7 +355,7 @@ def test_close_icon_diagonals_fit_inside_rect():
 # ----------------------------------------------------------------------
 # 12-step grid
 # ----------------------------------------------------------------------
-from ui.widgets.panel import grid_cells, grid_min_content
+from ui.widgets.panel import grid_cells, grid_natural_content
 
 
 def test_grid_cells_thirds():
@@ -369,14 +369,27 @@ def test_grid_cells_partial_row_leaves_right_empty():
     assert dx == 0.0 and w == pytest.approx(6 * 10 + 5 * 2)
 
 
-def test_grid_min_content():
-    # 1-span cell needing 20px -> u >= 20 -> W = 240 + 22
-    assert grid_min_content([1, 11], [20.0, 0.0], 2.0) == pytest.approx(262.0)
+def test_grid_natural_content_cells_side_by_side():
+    # natural widths + one gap between each pair, independent of spans
+    assert grid_natural_content([70.0, 40.0, 30.0], 6.0) ==         pytest.approx(140.0 + 12.0)
 
 
-def test_grid_min_content_floor_zero():
-    assert grid_min_content([12], [0.0], 2.0) == pytest.approx(22.0)
-    assert grid_min_content([], [], 2.0) == 0.0
+def test_grid_natural_content_narrow_span_does_not_inflate():
+    # a span-2 button needing 70px must not force ~450px (old rule)
+    assert grid_natural_content([70.0, 50.0], 6.0) == pytest.approx(126.0)
+
+
+def test_grid_natural_content_spacers_count_zero():
+    assert grid_natural_content([0.0, 50.0, 0.0], 6.0) == pytest.approx(62.0)
+
+
+def test_grid_natural_content_single_and_empty():
+    assert grid_natural_content([80.0], 6.0) == pytest.approx(80.0)
+    assert grid_natural_content([], 6.0) == 0.0
+
+
+def test_grid_natural_content_negative_mins_clamped():
+    assert grid_natural_content([-5.0, 10.0], 2.0) == pytest.approx(12.0)
 
 
 def test_layout_grid_spec():

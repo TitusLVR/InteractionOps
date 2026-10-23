@@ -12,6 +12,9 @@ Lifecycle:
                              undo and redo — never on MOUSEMOVE
     save() / cancel()     -> explicit exits; both delete the draft (but
                              never an older draft still undecided)
+    save_duplicate()      -> explicit exit: writes the doc as a NEW widget
+                             (unique name), restores the original
+    set_width(w)          -> commit of the edge-drag width gesture
     can_edit()            -> False while an older draft awaits
                              Resume/Discard: every doc-changing caller
                              refuses the edit (selection still works)
@@ -74,6 +77,12 @@ _session = None
 def active():
     return _session
 
+
+# Edge-drag width commits share the N-panel Width field's merge key, so a
+# run of width changes (drags or field steps) is one undo step.
+WIDTH_MERGE_KEY = ("field", None, "w_width")
+DUPLICATE_OFFSET = (24.0, -24.0)    # Save Duplicate: new panel vs original
+DUPLICATE_TITLE_SUFFIX = " (copy)"
 
 # Shown by the N-panel (and reported by refused edits) while an older
 # draft is undecided.
@@ -360,6 +369,20 @@ def select(path):
     _redraw()
 
 
+def set_width(width):
+    """Commit the edge-drag width (rounded, >= composed.MIN_WIDGET_WIDTH —
+    validate_def rejects less). Returns True when the doc changed."""
+    s = _session
+    if s is None or not can_edit():
+        return False
+    composed = _composed()
+    w = int(round(max(float(composed.MIN_WIDGET_WIDTH), float(width))))
+    changed = s.doc.set_widget_field("width", w, merge_key=WIDTH_MERGE_KEY)
+    if changed:
+        after_commit()
+    return bool(changed)
+
+
 def end(keep_draft=True):
     """Leave edit mode without saving (implicit exit). The draft written
     by the last commit stays on disk unless keep_draft is False — and an
@@ -463,6 +486,38 @@ def _taken_names():
     return names
 
 
+def _validated(s):
+    """(clean_def, None) for the session doc, or (None, refusal message)
+    when an element is incomplete or validate_def reports errors — the
+    refusals shared by save() and save_duplicate()."""
+    composed = _composed()
+    bad = s.doc.incomplete()
+    s.incomplete = bad
+    if bad:
+        return None, ("Incomplete elements: "
+                      + ", ".join(_format_path(p) for p in bad))
+    clean, errors = composed.validate_def(s.doc.wdef)
+    if clean is None or errors:
+        return None, "Invalid widget: " + "; ".join(errors or ["no name"])
+    return clean, None
+
+
+def _exit_session(s):
+    """End `s` after a successful write: drop the debounced draft write,
+    leave edit mode and delete this session's draft (an undecided older
+    draft stays offered). Returns (x, y, visible, area) of the panel as
+    it was being edited."""
+    from . import state
+    x, y = s.widget.panel.x, s.widget.panel.y
+    visible = bool(state.get_state(s.name).get("visible"))
+    area = _find_area(s.area_ptr)
+    _cancel_draft_timer()    # the draft is deleted below anyway
+    end()
+    if not s.draft_available:
+        _remove_file(s.draft_file)
+    return x, y, visible, area
+
+
 def save():
     """Validate, write and re-register the widget, then end the session.
     Returns (ok, message)."""
@@ -472,14 +527,9 @@ def save():
     composed = _composed()
     from . import state
     from . import events
-    bad = s.doc.incomplete()
-    s.incomplete = bad
-    if bad:
-        return False, ("Incomplete elements: "
-                       + ", ".join(_format_path(p) for p in bad))
-    clean, errors = composed.validate_def(s.doc.wdef)
-    if clean is None or errors:
-        return False, "Invalid widget: " + "; ".join(errors or ["no name"])
+    clean, err = _validated(s)
+    if err:
+        return False, err
     old = s.name
     new = editor_model.resolve_save_name(clean["name"], old, _taken_names())
     clean["name"] = new
@@ -495,15 +545,7 @@ def save():
     except OSError as e:
         return False, f"Save failed: {e}"
 
-    widget = s.widget
-    st = state.get_state(old)
-    x, y = widget.panel.x, widget.panel.y
-    visible = bool(st.get("visible"))
-    area = _find_area(s.area_ptr)
-    _cancel_draft_timer()    # the draft is deleted below anyway
-    end()
-    if not s.draft_available:   # an undecided older draft stays offered
-        _remove_file(s.draft_file)
+    x, y, visible, area = _exit_session(s)
     state.store_position(old, x, y)
     if new != old:
         state.store_position(new, x, y)
@@ -521,6 +563,58 @@ def save():
     _sync_prefs(new)
     _redraw()
     return True, f"Saved widget '{new}'"
+
+
+def save_duplicate():
+    """Write the edited doc as a NEW widget (unique name from the Name in
+    the doc, title + " (copy)") and show it offset from the original; the
+    original file is never touched (no .bak either) and the original
+    widget goes back to its on-disk definition, like cancel(). A
+    never-saved New Widget has no real original: its blank placeholder is
+    removed the way cancel() does. Ends the session. Returns
+    (ok, message)."""
+    s = _session
+    if s is None:
+        return False, "No active widget edit session"
+    composed = _composed()
+    from . import state
+    clean, err = _validated(s)
+    if err:
+        return False, err
+    old = s.name
+    new = composed.unique_name(clean["name"], _taken_names())
+    clean["name"] = new
+    clean["title"] = (clean.get("title") or old) + DUPLICATE_TITLE_SUFFIX
+    path = composed.widget_path(new)
+    if path == composed.widget_path(old) or os.path.exists(path):
+        return False, f"Save Duplicate failed: '{new}' already exists"
+    try:
+        composed.save_def(clean)
+    except OSError as e:
+        return False, f"Save Duplicate failed: {e}"
+
+    x, y, visible, area = _exit_session(s)
+    if s.is_new:
+        state.hide_widget(old)
+        composed.unregister_composed(old)
+        composed.delete_def(old)
+    else:
+        state.store_position(old, x, y)
+        composed.register_composed(s.doc.original)
+        if visible:
+            state.show_widget(old, area=area, x=x, y=y)
+    nx, ny = x + DUPLICATE_OFFSET[0], y + DUPLICATE_OFFSET[1]
+    state.store_position(new, nx, ny)
+    composed.register_composed(clean)
+    if area is None:
+        try:
+            area = state.find_largest_area(clean.get("space") or "VIEW_3D")
+        except Exception:
+            area = None
+    state.show_widget(new, area=area, x=nx, y=ny)
+    _sync_prefs(new)
+    _redraw()
+    return True, f"Saved duplicate widget '{new}'"
 
 
 def cancel():

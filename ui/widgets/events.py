@@ -20,7 +20,8 @@ Gesture rules:
   enters the visual editor (editor.begin);
 - edit mode (an editor session owns the widget): presses on the widget
   body / Add palette become edit gestures — add from the palette, move
-  a cell/row (after MOVE_THRESHOLD px), resize at a cell's right edge.
+  a cell/row (after MOVE_THRESHOLD px), resize at a cell's right edge,
+  drag the panel's right edge to set the widget `width`.
   MOUSEMOVE only rewrites session.drag + tags a redraw; the EditorDoc is
   mutated once on release (then editor.after_commit); ESC/RMB drops it.
 
@@ -68,6 +69,13 @@ def _over_session(context, mx, my):
         return True
     return session.widget.panel.contains(mx, my) and bool(
         state.get_state(session.widget.name).get("visible"))
+
+
+def _on_session_edge(session, mx, my):
+    """True on the visible session widget's right-edge width grip."""
+    from .editor_geom import panel_edge_hit
+    return (bool(state.get_state(session.widget.name).get("visible"))
+            and panel_edge_hit(session.widget.panel, mx, my))
 
 
 def _over_session_sidebar(context):
@@ -172,6 +180,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         session = _session_here(context)
         if session is not None and session.palette.contains(mx, my):
             return self._invoke_palette(context, session, mx, my)
+        if session is not None and _on_session_edge(session, mx, my):
+            return self._invoke_width(context, session, mx)
         widget = state.widget_under_mouse(context.area, mx, my)
         if widget is None:
             return {"PASS_THROUGH"}
@@ -262,6 +272,44 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                             "indicator": None, "ghost": (mx, my, label)}
             self._mode = "ed_add"
         return self._begin_modal(context)
+
+    def _invoke_width(self, context, session, mx):
+        """Press on the edited panel's right edge: start an `ed_width`
+        drag. The preview width lives in session.drag (render lays the
+        panel out at it); the doc is written once, on release."""
+        from . import editor, render
+        from ...widgets import composed
+        widget = session.widget
+        self._widget = widget
+        self._control = None
+        self._session = session
+        self._mode = "swallow"
+        widget._press_cell = None
+        widget._editing = None
+        widget._dropdown = None
+        if not editor.can_edit():
+            return self._begin_modal(context)      # draft undecided: inert
+        panel = widget.panel
+        lo = max(float(composed.MIN_WIDGET_WIDTH),
+                 render.content_min_width(context, widget, saved=True))
+        hi = float("inf")
+        if context.region is not None:
+            # Keep the right edge inside the region (no clamp shift).
+            hi = max(lo, context.region.width - panel.x
+                     - 2.0 * panel.padding)
+        self._wd = {"x": panel.x, "pad": panel.padding, "lo": lo, "hi": hi,
+                    "mx0": mx, "mx": mx}
+        session.drag = {"kind": "width",
+                        "width": panel.width - 2.0 * panel.padding}
+        self._update_width(session, mx)
+        self._mode = "ed_width"
+        return self._begin_modal(context)
+
+    def _update_width(self, session, mx):
+        wd = self._wd
+        wd["mx"] = mx
+        w = mx - wd["x"] - 2.0 * wd["pad"]
+        session.drag["width"] = min(max(w, wd["lo"]), wd["hi"])
 
     def _invoke_edit(self, context, session, mx, my):
         from .editor_geom import edit_hit
@@ -375,6 +423,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             self._update_drop(session, mx, my, session.drag["rows_only"])
         elif mode == "ed_resize":
             self._update_resize(session, mx)
+        elif mode == "ed_width":
+            self._update_width(session, mx)
         _tag_redraw(context)
         return {"RUNNING_MODAL"}
 
@@ -410,6 +460,12 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             span = drag.get("span")
             if span is not None and span != self._rz["span0"]:
                 changed = session.doc.set_span(self._rz["path"], span)
+        elif mode == "ed_width" and drag and drag.get("width") is not None:
+            from .editor_geom import drag_moved
+            # A click on the grip (no real travel) must not pin auto-fit
+            # to a fixed width nor add an undo step.
+            if drag_moved(self._wd["mx0"], self._wd["mx"]):
+                editor.set_width(drag["width"])    # commits + after_commit
         if changed:
             editor.after_commit()
         _tag_redraw(context)
