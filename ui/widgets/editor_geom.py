@@ -46,6 +46,24 @@ def edit_hit(panel, row_kinds, mx, my):
     return None
 
 
+def panel_edge_hit(panel, mx, my):
+    """True when (mx, my) is on the panel's right edge (within HANDLE_W/2
+    either side) anywhere along the BODY height — the title bar (close
+    cell) is excluded. Cells end `panel.padding` px before the edge, so
+    with padding > HANDLE_W this band never overlaps a cell resize grip."""
+    if panel.width <= 0.0 or panel.height <= 0.0:
+        return False
+    if abs(mx - (panel.x + panel.width)) > HANDLE_W * 0.5:
+        return False
+    return panel.y - panel.height <= my < panel.y - panel.title_h
+
+
+def drag_moved(x0, x):
+    """True once a horizontal drag travelled MOVE_THRESHOLD px or more —
+    below that a press+release is a click and must not commit."""
+    return abs(float(x) - float(x0)) >= MOVE_THRESHOLD
+
+
 def _hline(panel, y):
     return ("hline", panel.x + panel.padding, y,
             panel.width - 2.0 * panel.padding)

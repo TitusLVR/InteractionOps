@@ -20,7 +20,7 @@ from ..draw import primitives, draw_scope
 from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
 from .controls import (Row, pixel_from_value, preset_cell_rects)
-from .panel import (Rect, pen_icon, close_icon, GRID, grid_min_content,
+from .panel import (Rect, pen_icon, close_icon, GRID, grid_natural_content,
                     grid_cells)
 from .editor_geom import HANDLE_W
 
@@ -52,6 +52,8 @@ OUT_OF_CONTEXT_TEXT = "Go back to Edit Mode"
 MIXED_TEXT = "<mixed>"
 DROPDOWN_GLYPH = "▾"
 CELL_INSET = 6.0            # horizontal text inset inside dropdown/input box
+LABEL_INSET = 8.0           # total horizontal room kept free around a
+                            # centered (button/preset/swatch) label
 EMPTY_TEXT = "—"
 DROPDOWN_ITEM_H = 22.0      # height of one open-dropdown list item (px)
 SCROLL_UP_GLYPH = "▲"       # clipped-items hint at the list's top edge
@@ -71,6 +73,7 @@ EDIT_SPACER_FILL = 0.12     # faint spacer fill (pre-mixed over the bg)
 DASH_LEN = 4.0
 DASH_GAP = 3.0
 HIDDEN_GLYPH_W = 10.0       # "hidden" diamond-with-slash at a cell's right
+EDGE_GRIP_H = 24.0          # panel right-edge (width) grip length, mid-height
 PALETTE_TITLE = "Add"
 PALETTE_GAP = 8.0           # gap between the palette and the edited panel
 GHOST_PAD = 6.0
@@ -115,11 +118,17 @@ def _text_left(text, rect, x, *, theme, color, size_token="hud_label"):
 def _truncate_middle(text, max_w, theme, size_token="hud_label"):
     """Shorten `text` to fit `max_w` px with a middle ellipsis
     (`very lo…_end`), keeping both ends so a leading name and trailing
-    counter stay visible. Returns `text` unchanged when it already fits."""
+    counter stay visible. Returns `text` unchanged when it already fits,
+    "" when not even the ellipsis fits (a cell narrower than any text).
+    The one truncation rule for every label drawn inside a cell: grid
+    cells keep their 12-step share even when narrower than their content
+    (auto-fit width), so labels shorten instead of overflowing."""
     def m(s):
         return hud_text.measure(s, theme=theme, size_token=size_token)[0]
-    if max_w <= 0 or m(text) <= max_w:
+    if not text or m(text) <= max_w:
         return text
+    if max_w < m(ELLIPSIS):
+        return ""
     n = len(text)
     # Shrink the kept character count until head+…+tail fits.
     for keep in range(n - 1, 0, -1):
@@ -209,7 +218,9 @@ def _control_min_width(control, theme, context=None):
         if spans is not None:
             mins = [_control_min_width(c, theme, context)
                     for c in control.children]
-            return grid_min_content(spans, mins, GRID_COL_GAP)
+            # Auto-fit: cells side by side at their natural widths; the
+            # grid share they get may be narrower (labels truncate).
+            return grid_natural_content(mins, GRID_COL_GAP)
         # Fixed cells (buttons hug their label) contribute their own min;
         # flex cells end up equal-width, so each must fit the widest one.
         n = max(1, len(control.children))
@@ -238,16 +249,6 @@ def _row_spans(row):
     return [int(getattr(c, "_span", None) or dflt) for c in kids]
 
 
-def _entry_min_width(control, theme, context=None):
-    """Min content width of a top-level control; a top-level span < GRID
-    makes it one grid cell, so it needs GRID/span times the room."""
-    w = _control_min_width(control, theme, context)
-    sp = getattr(control, "_span", None)
-    if control.kind != "row" and sp is not None and sp < GRID:
-        return grid_min_content([sp], [w], GRID_COL_GAP)
-    return w
-
-
 def _is_editing(widget):
     return getattr(widget, "_editor", None) is not None
 
@@ -266,64 +267,108 @@ def _in_context(widget, context):
     return _poll(widget, context)
 
 
+def _layout_rows(context, widget, th):
+    """(rows spec for WidgetPanel.layout, auto-fit min content width of
+    the rows). A top-level control with span < GRID contributes just its
+    own natural min - it truncates inside its grid share."""
+    rows = []
+    if not _in_context(widget, context):
+        rows.append((th.text_size("hud_label") + ROW_PAD_CONTROL, 1))
+        return rows, hud_text.measure(OUT_OF_CONTEXT_TEXT, theme=th)[0] + 8.0
+    controls = widget.rows(context)
+    for control in controls:
+        if isinstance(control, Row):
+            height = max((_row_height(c, th, top_level=False)
+                          for c in control.children),
+                         default=_row_height(control, th))
+            spans = _row_spans(control)
+            if spans is not None:
+                rows.append((height, control.columns, {"spans": spans}))
+                continue
+            # Buttons hug their label (fixed cell); everything else
+            # flexes over the remaining width. No buttons -> equal split.
+            spec = [_control_min_width(c, th, context)
+                    if c.kind == "button" else None
+                    for c in control.children]
+            if any(w is not None for w in spec):
+                rows.append((height, control.columns, spec))
+            else:
+                rows.append((height, control.columns))
+        else:
+            sp = getattr(control, "_span", None)
+            if sp is not None and sp < GRID:
+                rows.append((_row_height(control, th), 1,
+                             {"spans": [sp]}))
+            else:
+                rows.append((_row_height(control, th), 1))
+    min_content = max((_control_min_width(c, th, context)
+                       for c in controls), default=0.0)
+    return rows, min_content
+
+
+def _title_metrics(widget, th, editing=None):
+    """(title_h, edit_w, content width the title bar needs). `editing`
+    None = the widget's current state; False = as drawn outside edit mode
+    (pen cell, no EDITING tag)."""
+    title_h = th.text_size("hud_header") + TITLE_PAD
+    # Edit button only for widgets with a JSON source on disk (composed);
+    # Python-defined widgets have nothing to open.
+    # No Edit button while editing: the EDITING tag takes its place.
+    if editing is None:
+        editing = _is_editing(widget)
+    edit_w = title_h if (is_editable(widget) and not editing) else 0.0
+    tag_w = (hud_text.measure(EDIT_TAG, theme=th)[0] + EDIT_TAG_GAP
+             if editing else 0.0)
+    need = (hud_text.measure(widget.panel.title, theme=th,
+                             size_token="hud_header")[0]
+            + title_h + edit_w + tag_w + 8.0)
+    return title_h, edit_w, need
+
+
+def content_min_width(context, widget, theme=None, saved=False):
+    """Auto-fit content width of `widget`: the widest row's natural width
+    and the title bar's needs, IGNORING the `width` floor and
+    PANEL_MIN_CONTENT_W. Same rows/title rules as compute_layout.
+
+    `saved=True` measures the title bar as it is drawn OUTSIDE edit mode
+    (pen cell, no EDITING tag) — the lower bound of the edge drag, so the
+    narrowest stored width is not inflated by the edit-only tag (edit
+    mode may still render wider while editing)."""
+    th = theme if theme is not None else get_theme(context)
+    _rows, min_content = _layout_rows(context, widget, th)
+    title = _title_metrics(widget, th, editing=False if saved else None)
+    return max(title[2], min_content)
+
+
+def _width_drag(widget):
+    """Preview content width of an edge drag on this widget, or None."""
+    session = getattr(widget, "_editor", None)
+    drag = getattr(session, "drag", None) if session is not None else None
+    if drag and drag.get("kind") == "width":
+        return drag.get("width")
+    return None
+
+
 def compute_layout(context, widget, theme=None):
     """Compute row heights/content width from the theme and lay the panel
     out (clamped to the region). Returns the resolved theme. Safe to call
     from both the draw handler and the interact operator.
 
+    Content width = max(floor, title needs, widest row's natural width);
+    floor = the def's `width` if set, else PANEL_MIN_CONTENT_W. While the
+    right edge is dragged in edit mode the preview width replaces the
+    floor (no doc commit until release).
+
     Out of context the panel collapses to title bar + one message row, so
     hit rects match the collapsed draw."""
     th = theme if theme is not None else get_theme(context)
-    rows = []
-    if _in_context(widget, context):
-        for control in widget.rows(context):
-            if isinstance(control, Row):
-                height = max((_row_height(c, th, top_level=False)
-                              for c in control.children),
-                             default=_row_height(control, th))
-                spans = _row_spans(control)
-                if spans is not None:
-                    rows.append((height, control.columns, {"spans": spans}))
-                    continue
-                # Buttons hug their label (fixed cell); everything else
-                # flexes over the remaining width. No buttons -> equal split.
-                spec = [_control_min_width(c, th, context)
-                        if c.kind == "button" else None
-                        for c in control.children]
-                if any(w is not None for w in spec):
-                    rows.append((height, control.columns, spec))
-                else:
-                    rows.append((height, control.columns))
-            else:
-                sp = getattr(control, "_span", None)
-                if sp is not None and sp < GRID:
-                    rows.append((_row_height(control, th), 1,
-                                 {"spans": [sp]}))
-                else:
-                    rows.append((_row_height(control, th), 1))
-        min_content = max((_entry_min_width(c, th, context)
-                           for c in widget.rows(context)),
-                          default=0.0)
-    else:
-        rows.append((th.text_size("hud_label") + ROW_PAD_CONTROL, 1))
-        min_content = hud_text.measure(OUT_OF_CONTEXT_TEXT, theme=th)[0] + 8.0
-
-    title_h = th.text_size("hud_header") + TITLE_PAD
-    # Edit button only for widgets with a JSON source on disk (composed);
-    # Python-defined widgets have nothing to open.
-    # No Edit button while editing: the EDITING tag takes its place.
-    editing = _is_editing(widget)
-    edit_w = title_h if (is_editable(widget) and not editing) else 0.0
-    floor_w = getattr(widget, "min_content_w", None) or PANEL_MIN_CONTENT_W
-    tag_w = (hud_text.measure(EDIT_TAG, theme=th)[0] + EDIT_TAG_GAP
-             if editing else 0.0)
-    content_w = max(
-        float(floor_w),
-        hud_text.measure(widget.panel.title, theme=th,
-                         size_token="hud_header")[0] + title_h + edit_w
-        + tag_w + 8.0,
-        min_content,
-    )
+    rows, min_content = _layout_rows(context, widget, th)
+    title_h, edit_w, title_need = _title_metrics(widget, th)
+    floor_w = _width_drag(widget)
+    if floor_w is None:
+        floor_w = (getattr(widget, "min_content_w", None)
+                   or PANEL_MIN_CONTENT_W)
+    content_w = max(float(floor_w), title_need, min_content)
     layout_kw = dict(padding=float(th.hud.bg_padding), title_h=title_h,
                      row_gap=float(th.hud.row_spacing) + 2.0, edit_w=edit_w,
                      col_gap=GRID_COL_GAP)
@@ -347,7 +392,8 @@ def is_editable(widget):
 # ----------------------------------------------------------------------
 def _draw_section(control, rect, theme, dim):
     color = _col(theme, Role.HUD_LABEL_INACTIVE, dim)
-    _text_left(control.label, rect, rect.x, theme=theme, color=color)
+    _text_left(_truncate_middle(control.label, rect.w, theme), rect, rect.x,
+               theme=theme, color=color)
 
 
 def _draw_slider(control, rect, theme, dim, context, live):
@@ -402,6 +448,7 @@ def _draw_slider(control, rect, theme, dim, context, live):
     else:
         value_text = "—"
 
+    value_text = _truncate_middle(value_text, rect.w, theme)
     tw, _ = hud_text.measure(value_text, theme=theme)
     hud_text.draw(value_text, int(rect.x2 - tw),
                   _baseline_y(cy, theme, "hud_label"),
@@ -418,8 +465,9 @@ def _draw_presets(control, rect, theme, dim):
             control.values):
         cell = Rect(cx, rect.y + 1.0, cw, rect.h - 2.0)
         _outline(cell, line_color, theme)
-        _text_centered(control.fmt.format(value), cell,
-                       theme=theme, color=label_color)
+        _text_centered(_truncate_middle(control.fmt.format(value),
+                                        cell.w - LABEL_INSET, theme),
+                       cell, theme=theme, color=label_color)
 
 
 def _draw_flipbox(control, rect, theme, dim, context, live):
@@ -442,7 +490,9 @@ def _draw_flipbox(control, rect, theme, dim, context, live):
         primitives.rect_2d(bx + BOX_INSET, by + BOX_INSET,
                            box - BOX_INSET * 2.0, box - BOX_INSET * 2.0,
                            color=fill_color, theme=theme)
-    _text_left(control.label, rect, bx + box + 6.0,
+    _text_left(_truncate_middle(control.label, rect.x2 - (bx + box + 6.0),
+                                theme),
+               rect, bx + box + 6.0,
                theme=theme, color=_col(theme, Role.HUD_LABEL, eff))
 
 
@@ -471,7 +521,9 @@ def _draw_button(control, rect, theme, dim, pressed=False):
         line_color = _col(theme, Role.LINE, eff)
         text_color = _col(theme, Role.HUD_LABEL, eff)
     _outline(rect, line_color, theme)
-    _text_centered(control.label, rect, theme=theme, color=text_color)
+    _text_centered(_truncate_middle(control.label, rect.w - LABEL_INSET,
+                                    theme),
+                   rect, theme=theme, color=text_color)
 
 
 def _draw_checker(x, y, w, h, theme):
@@ -515,7 +567,9 @@ def _draw_swatch(control, rect, theme, dim, context, live):
     # Outline/label carry the disabled fade; the fill stays readable.
     _outline(rect, _col(theme, Role.LINE, eff), theme)
     if control.label:
-        _text_centered(control.label, rect, theme=theme,
+        _text_centered(_truncate_middle(control.label,
+                                        rect.w - LABEL_INSET, theme),
+                       rect, theme=theme,
                        color=_col(theme, Role.HUD_LABEL, eff))
 
 
@@ -587,13 +641,22 @@ def _draw_input(control, rect, theme, dim, context, pressed=False, edit=None):
         primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
                            color=_active_fill(theme), theme=theme)
     _outline(rect, line_color, theme)
-    _text_left(control.label, rect, rect.x + CELL_INSET,
-               theme=theme, color=_col(theme, Role.HUD_LABEL, eff))
     shown = EMPTY_TEXT if value_text is None else value_text
+    # Narrow cell: the label gives up room down to half the field, the
+    # value gets the rest; both middle-truncate so neither overruns.
+    room = rect.w - CELL_INSET * 3.0
+    label = control.label or ""
+    label_w, _ = hud_text.measure(label, theme=theme)
+    value_w, _ = hud_text.measure(shown, theme=theme)
+    if label_w + value_w > room:
+        label = _truncate_middle(label, max(room - value_w, room * 0.5),
+                                 theme)
+        label_w, _ = hud_text.measure(label, theme=theme)
+    _text_left(label, rect, rect.x + CELL_INSET,
+               theme=theme, color=_col(theme, Role.HUD_LABEL, eff))
     # Value region = field minus the label and both insets; middle-truncate
     # so a long value never overruns the label / panel edge.
-    label_w, _ = hud_text.measure(control.label, theme=theme)
-    avail = rect.w - CELL_INSET * 3.0 - label_w
+    avail = room - label_w
     shown = _truncate_middle(shown, avail, theme)
     vw, _ = hud_text.measure(shown, theme=theme)
     _text_left(shown, rect, rect.x2 - CELL_INSET - vw,
@@ -615,7 +678,8 @@ def _draw_buttons(control, rect, theme, dim, context):
             primitives.rect_2d(cell.x, cell.y, cell.w, cell.h,
                                color=fill, theme=theme)
         _outline(cell, line_color, theme)
-        _text_centered(label, cell, theme=theme, color=label_color)
+        _text_centered(_truncate_middle(label, cell.w - LABEL_INSET, theme),
+                       cell, theme=theme, color=label_color)
 
 
 def _draw_control(control, rect, theme, dim, context, live, pressed=False,
@@ -835,7 +899,9 @@ def _draw_edit_cell(control, rect, theme, hidden):
                                 EDIT_SPACER_ALPHA), theme)
         label = getattr(control, "placeholder", "")
         if label:
-            _text_centered(label, rect, theme=theme,
+            _text_centered(_truncate_middle(label, rect.w - LABEL_INSET,
+                                            theme),
+                           rect, theme=theme,
                            color=_col(theme, Role.HUD_STATS_ERROR, 1.0))
     if hidden:
         _draw_hidden_glyph(rect, theme)
@@ -895,7 +961,21 @@ def _draw_edit_overlays(panel, controls, theme, session):
         primitives.rect_2d(grip.x2 - HANDLE_W * 0.5, grip.y, HANDLE_W, grip.h,
                            color=active, theme=theme)
 
+    # Panel right edge: short width grip mid-body (drag sets `width`),
+    # or a full-height line while the edge is being dragged.
     drag = session.drag
+    ex = panel.x + panel.width
+    body_top = panel.y - panel.title_h
+    body_bot = panel.y - panel.height
+    if drag and drag.get("kind") == "width":
+        primitives.line((ex, body_bot), (ex, body_top), color=active,
+                        width="active", theme=theme)
+    else:
+        gh = min(EDGE_GRIP_H, max(0.0, body_top - body_bot))
+        gy = (body_top + body_bot - gh) * 0.5
+        primitives.rect_2d(ex - HANDLE_W * 0.5, gy, HANDLE_W, gh,
+                           color=active, theme=theme)
+
     # Resize preview: the cell outline at the snapped span (events sets
     # drag["outline"] alongside drag["span"]).
     pre = drag.get("outline") if drag else None
