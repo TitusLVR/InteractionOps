@@ -13,7 +13,10 @@ from ...utils.functions import merge_missing_defaults
 # iops.widget_toggle: the tuple drops the `name` operator property, so
 # the per-widget entries would collapse into nameless duplicates. Their
 # owner (ui/widgets/events.py) registers both itself at addon register.
-NEVER_SAVE = {"iops.widget_interact", "iops.widget_toggle"}
+# iops.widget_editor_key: transient, exists only during a widget edit
+# session (events.add_editor_kmis / remove_editor_kmis).
+NEVER_SAVE = {"iops.widget_interact", "iops.widget_toggle",
+              "iops.widget_editor_key"}
 
 
 def save_hotkeys():

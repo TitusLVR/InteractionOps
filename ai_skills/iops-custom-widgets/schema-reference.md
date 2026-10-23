@@ -194,6 +194,16 @@ introspected** from RNA. A bare string is used as both value and label; a
 A `BUTTONS` row that ends up with no options (empty `values`/`items`) is dropped
 and reported.
 
+### `SPACER` — empty cell / vertical gap
+| key | type | required | default |
+|---|---|---|---|
+| `span` | int 1-12 | no | equal share (in a `ROW`) / full width (top level) |
+| `height` | number >= 2 px | no | normal row height (**top-level only**; smaller/invalid is ignored) |
+
+Draws nothing outside edit mode. In a `ROW` it pushes neighbours (a spacer on
+the left aligns content right; spacers on both sides center it). As a
+top-level row it is a vertical gap. Takes `show_if` like any row.
+
 ### `ROW` — horizontal container
 | key | type | required | default |
 |---|---|---|---|
@@ -205,6 +215,48 @@ auto-merge of adjacent bare flipboxes). `INPUT`/`DROPDOWN`/`BUTTONS` lay out one
 per row on their own, but also work inside a `ROW` cell (the cell splits width).
 The new types are **not** part of the flipbox auto-merge (only adjacent
 `FLIPBOX`es merge).
+
+## `span` — 12-step grid width
+
+Any `ROW` cell **and** any top-level row may carry `"span": 1..12`, its width
+in twelfths of the content width (gaps between cells follow the normal row
+gap). Invalid span (non-int, out of range) is ignored + reported; the
+row/cell is kept.
+
+- A `ROW`'s cell spans are **all-or-nothing**: if any cell has a `span`, the
+  row uses the grid; cells without one share the remaining columns equally
+  (each at least 1). A row with no `span` anywhere renders exactly as before
+  (equal split, BUTTON cells hug their label).
+- Spans may sum to less than 12; the remainder is empty space on the right.
+  A sum over 12 is clamped by the layout.
+- A top-level row with `span` is laid out on the same grid, left-aligned.
+- **Spanned flipboxes never auto-merge**: a top-level `FLIPBOX` carrying
+  `span` (or `show_if`) stands alone and stays stacked. Unspanned adjacent
+  flipboxes in old files still merge as before.
+
+## Cell `show_if`
+
+`ROW` cells may carry `show_if` (same clauses as top-level rows, ANDed). A
+hidden cell leaves its grid slot **empty** (neighbours do not move). An
+invalid clause is dropped + reported and the cell stays visible.
+
+## Editor files (drafts and backups)
+
+Written next to the widget JSON by the Visual Widget Editor; neither is ever
+listed or loaded as a widget (`composed.load_all` skips `*.draft.json`).
+
+- `<name>.draft.json` — the in-memory def, kept (debounced) while editing and
+  written when edit mode ends without Save/Cancel (widget closed, file load,
+  addon reload, quit). Offered as Resume / Discard the next time that
+  widget's edit mode is opened with its pen; doc edits are refused until
+  one is chosen. Save and Cancel delete it (an undecided one is kept).
+- `<name>.json.bak` — one-time copy of the original file, made on the first
+  Save when loading reported problems (invalid rows/cells or unknown keys —
+  `composed.dropped_keys` lists the keys Save would drop). Never
+  overwritten.
+
+The editor saves the **normalized** def (defaults filled in), so hand-written
+extras that validation does not model are not preserved.
 
 ## `data` — per-.blend storage binding
 

@@ -1103,3 +1103,126 @@ def test_width_override_validation():
     assert "width" not in clean and any("width" in e for e in errors)
     clean, errors = composed.validate_def(dict(base, width="wide"))
     assert "width" not in clean and any("width" in e for e in errors)
+
+
+def test_spacer_row_validates():
+    d, errs = composed.validate_def({"name": "w", "rows": [
+        {"type": "SPACER"}, {"type": "SPACER", "span": 3, "height": 12}]})
+    assert errs == []
+    assert d["rows"][0] == {"type": "SPACER"}
+    assert d["rows"][1] == {"type": "SPACER", "span": 3, "height": 12.0}
+
+
+def test_span_out_of_range_dropped_row_kept():
+    d, errs = composed.validate_def({"name": "w", "rows": [
+        {"type": "SECTION", "label": "A", "span": 13}]})
+    assert "span" not in d["rows"][0] and errs
+
+
+def test_row_spans_normalized_all_or_nothing():
+    d, _ = composed.validate_def({"name": "w", "rows": [{"type": "ROW", "cells": [
+        {"type": "SPACER", "span": 3},
+        {"type": "BUTTON", "op": "a.b"},
+        {"type": "SPACER", "span": 3}]}]})
+    assert [c["span"] for c in d["rows"][0]["cells"]] == [3, 6, 3]
+
+
+def test_normalize_spans():
+    assert composed.normalize_spans([None, None]) is None
+    assert composed.normalize_spans([4, None, None]) == [4, 4, 4]
+    assert composed.normalize_spans([10, 10]) == [10, 2]
+    assert composed.normalize_spans([12, None]) == [11, 1]
+
+
+def test_cell_show_if_kept():
+    d, errs = composed.validate_def({"name": "w", "rows": [{"type": "ROW", "cells": [
+        {"type": "BUTTON", "op": "a.b", "show_if": {"mode": "OBJECT"}}]}]})
+    assert d["rows"][0]["cells"][0]["show_if"] == {"mode": ["OBJECT"]}
+
+
+def test_spanned_flipboxes_not_merged():
+    rows = [{"type": "FLIPBOX", "switch": "a", "span": 12},
+            {"type": "FLIPBOX", "switch": "b", "span": 12}]
+    assert composed.merge_flipbox_runs(rows) == rows
+
+
+def test_list_widget_files_skips_drafts(tmp_path, monkeypatch):
+    for fn in ("a.json", "a.draft.json", "b.json.bak"):
+        (tmp_path / fn).write_text("{}")
+    monkeypatch.setattr(composed, "widgets_folder", lambda: str(tmp_path))
+    assert composed.list_widget_files() == ["a.json"]
+
+
+def test_build_controls_spacer_and_span():
+    ctrls = composed.build_controls([
+        {"type": "SPACER", "span": 4},
+        {"type": "ROW", "cells": [{"type": "SECTION", "label": "x", "span": 6,
+                                   "show_if": {"mode": "OBJECT"}},
+                                  {"type": "SPACER", "span": 6}]}])
+    assert ctrls[0].kind == "spacer" and ctrls[0]._span == 4
+    cell = ctrls[1].children[0]
+    assert cell._span == 6 and cell._show_if == {"mode": "OBJECT"}
+
+
+def test_cell_span_out_of_range_reported_cell_kept():
+    d, errs = composed.validate_def({"name": "w", "rows": [{"type": "ROW", "cells": [
+        {"type": "BUTTON", "op": "a.b", "span": 13}]}]})
+    cell = d["rows"][0]["cells"][0]
+    assert "span" not in cell and any("cell 0" in e and "span" in e for e in errs)
+
+
+def test_dropped_cell_reported():
+    d, errs = composed.validate_def({"name": "w", "rows": [{"type": "ROW", "cells": [
+        {"type": "BUTTON", "op": "a.b"}, {"type": "NOPE"}]}]})
+    assert len(d["rows"][0]["cells"]) == 1
+    assert any("cell 1" in e for e in errs)
+
+
+# ----------------------------------------------------------------------
+# dropped_keys — unknown keys validate_def drops silently (editor .bak)
+# ----------------------------------------------------------------------
+def test_dropped_keys_clean_def_is_empty():
+    data = {"name": "w", "title": "T", "space": ["VIEW_3D"], "width": 200,
+            "switches": {"a": True}, "version": 1, "rows": [
+                {"type": "button", "op": "a.b", "label": "B",
+                 "op_kwargs": {}, "role": "error", "span": 6,
+                 "show_if": {"mode": "OBJECT"}},
+                {"type": "ROW", "cells": [
+                    {"type": "SWATCH", "color": [1, 0, 0, 1], "op": "a.b",
+                     "show_alpha": False}]},
+                {"type": "SPACER", "height": 8}]}
+    assert composed.dropped_keys(data) == []
+
+
+def test_dropped_keys_top_row_cell_and_show_if():
+    data = {"name": "w", "author": "me", "rows": [
+        {"type": "BUTTON", "op": "a.b", "tooltip": "x",
+         "show_if": {"mode": "OBJECT", "when": 1}},
+        {"type": "ROW", "color": "red", "cells": [
+            {"type": "SECTION", "label": "L", "op": "a.b"}]}]}
+    msgs = composed.dropped_keys(data)
+    assert len(msgs) == 5
+    assert any("'author'" in m for m in msgs)
+    assert any(m.startswith("row 0:") and "'tooltip'" in m for m in msgs)
+    assert any(m.startswith("row 0:") and "show_if key 'when'" in m
+               for m in msgs)
+    assert any(m.startswith("row 1:") and "'color'" in m for m in msgs)
+    assert any(m.startswith("row 1 cell 0:") and "'op'" in m for m in msgs)
+
+
+def test_dropped_keys_skips_values_validate_def_reports():
+    # Bad width / span / show_if values are reported by validate_def
+    # itself; dropped rows and cells too — no duplicate messages.
+    data = {"name": "w", "width": "wide", "rows": [
+        {"type": "BUTTON", "op": "a.b", "span": 99, "show_if": 5},
+        {"type": "NOPE", "junk": 1},
+        {"type": "ROW", "cells": [{"type": "NOPE", "junk": 1},
+                                  {"type": "BUTTON", "op": "a.b"}]}]}
+    assert composed.dropped_keys(data) == []
+    _clean, errs = composed.validate_def(data)
+    assert errs                                  # reported there instead
+
+
+def test_dropped_keys_not_a_def():
+    assert composed.dropped_keys([]) == []
+    assert composed.dropped_keys({"rows": []}) == []     # no name

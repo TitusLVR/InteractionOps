@@ -231,7 +231,26 @@ A popup list of the GPU widgets defined in your widgets folder (JSON). Click a w
 | --- | --- |
 | Widget name | Toggle that widget in the viewport |
 
-Widgets are composed in *Preferences › iOps › Widgets*.
+Widgets are composed in *Preferences › iOps › Widgets*, or edited directly in the viewport with the [Visual Widget Editor](#visual-widget-editor).
+
+### Visual Widget Editor
+
+Edit a JSON-composed widget in place and see the result immediately. Widgets built in Python (Edge Data and the like) have no edit mode.
+
+**Enter:** click the pen in the widget's title bar, or press **+** in *Preferences › iOps › Widgets* to start a blank widget (shown in the viewport and put straight into edit mode). The edited widget gets an orange outline and an EDITING tag, every row is drawn (rows hidden in the current context are dimmed), and controls are inert: clicks select, nothing fires.
+
+- **Select** a cell by clicking it; the row gutter selects the whole row.
+- **Move** by dragging a cell: a line or ghost shows where it lands (between rows, or inside a row).
+- **Resize** by dragging the grip on the right edge. Widths snap to a **12-step grid** (halves, thirds, quarters, sixths); neighbours do not change.
+- **Add** by dragging an item from the floating **Add** palette (Layout: Section, Spacer, Row; Controls: Slider, Presets, FlipBox, Button, Buttons, Dropdown, Input, Swatch) into the widget.
+- **Align** with **Spacer** cells: a spacer on the left pushes content right, spacers on both sides center it; a full-width spacer row is a vertical gap (set its height in the sidebar panel).
+- **Hotkeys**, only while the mouse is over the widget or palette: <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo, <kbd>X</kbd> / <kbd>Del</kbd> delete the selection (in Object Mode and every edit mode). Undo and redo also work over the Widget Editor sidebar. Elsewhere they keep their normal Blender meaning.
+
+The **Widget Editor** panel opens in the *iOps* tab of the sidebar (and returns to its previous state on exit). It edits the selected element (label, binding, operator and arguments, value type, range, values, items, colour, span, Show If) and the widget itself (name, title, width, space, switches), and has **Undo / Redo / Delete**, **Save**, **Cancel** and **Open JSON** (opens the file in your text editor). New elements start unbound and are marked incomplete; Save is refused until they are filled in or deleted.
+
+**Drafts and backups.** If edit mode ends without Save or Cancel (widget closed, file loaded, add-on reloaded), your edits are kept in `<name>.draft.json` beside the widget. The next time you open that widget's edit mode with its pen, the panel offers **Resume Draft / Discard Draft**; until you pick one, edits are blocked (selecting still works) so the draft can't be lost. Save and Cancel remove the draft (an undecided one is kept). If loading the file reported problems (invalid rows or cells, or unknown keys, which Save drops), the first Save keeps a one-time `<name>.json.bak` copy of the original.
+
+The layout keys behind this (`span`, `SPACER`, cell `show_if`) are documented in the schema reference of the *iops-custom-widgets* AI skill.
 
 ---
 

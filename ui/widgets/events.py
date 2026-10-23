@@ -16,14 +16,20 @@ Gesture rules:
 - action buttons fire on release inside the button;
 - titlebar drag moves the panel, position persists on release;
 - the title-bar Close (×) and Edit (pen) buttons highlight while held and
-  act on release inside — same contract as action buttons.
+  act on release inside — same contract as action buttons; the pen
+  enters the visual editor (editor.begin);
+- edit mode (an editor session owns the widget): presses on the widget
+  body / Add palette become edit gestures — add from the palette, move
+  a cell/row (after MOVE_THRESHOLD px), resize at a cell's right edge.
+  MOUSEMOVE only rewrites session.drag + tags a redraw; the EditorDoc is
+  mutated once on release (then editor.after_commit); ESC/RMB drops it.
 
 Controls cache plain floats/bools only; setters/getters re-acquire bmesh
 per call inside the widget's value adapters — nothing bmesh-shaped is
 ever stored on the operator.
 """
 import bpy
-from bpy.props import BoolProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, StringProperty
 
 from . import state
 from .controls import TextEditState, DropdownState
@@ -32,6 +38,44 @@ from .controls import TextEditState, DropdownState
 def _tag_redraw(context):
     if context.area is not None:
         context.area.tag_redraw()
+
+
+def _session_here(context):
+    """The active edit session when `context.area` is its area, else None."""
+    from . import editor
+    session = editor.active()
+    if (session is None or context.area is None
+            or session.area_ptr != context.area.as_pointer()):
+        return None
+    return session
+
+
+def _row_kinds(session):
+    """Per visual row: True for a ROW container (doc rows are 1:1 with the
+    visual rows in edit mode)."""
+    return [isinstance(r, dict) and r.get("type") == "ROW"
+            for r in session.doc.wdef.get("rows", [])]
+
+
+def _over_session(context, mx, my):
+    """True when (mx, my) is over the session widget or its palette in the
+    session's own area (WINDOW region)."""
+    session = _session_here(context)
+    if session is None or context.region is None \
+            or context.region.type != "WINDOW":
+        return False
+    if session.palette.contains(mx, my):
+        return True
+    return session.widget.panel.contains(mx, my) and bool(
+        state.get_state(session.widget.name).get("visible"))
+
+
+def _over_session_sidebar(context):
+    """True when the event's region is the sidebar (UI region) of the
+    session's own area — where the Widget Editor panel lives."""
+    return (_session_here(context) is not None
+            and context.region is not None
+            and context.region.type == "UI")
 
 
 class IOPS_OT_widget_toggle(bpy.types.Operator):
@@ -125,6 +169,9 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         if context.region is None or context.region.type != "WINDOW":
             return {"PASS_THROUGH"}
         mx, my = event.mouse_region_x, event.mouse_region_y
+        session = _session_here(context)
+        if session is not None and session.palette.contains(mx, my):
+            return self._invoke_palette(context, session, mx, my)
         widget = state.widget_under_mouse(context.area, mx, my)
         if widget is None:
             return {"PASS_THROUGH"}
@@ -136,10 +183,15 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
 
         self._widget = widget          # registry instance — plain python
         self._control = None
+        self._session = None
         self._mode = "swallow"         # consume press+release, no action
         widget._press_cell = None      # clear any stale pressed highlight
         widget._editing = None         # (where, TextEditState) while typing
         widget._dropdown = None        # DropdownState while open
+
+        if (session is not None and widget is session.widget
+                and kind not in ("close", "edit", "title")):
+            return self._invoke_edit(context, session, mx, my)
 
         if kind in ("close", "edit"):
             # Title-bar buttons: pressed highlight now, act on release
@@ -182,6 +234,186 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         _tag_redraw(context)
         return {"RUNNING_MODAL"}
+
+    # ------------------------------------------------------------------
+    # Edit-mode gestures (visual widget editor). Press routes here when
+    # the click lands on the session widget body or its Add palette.
+    # MOUSEMOVE only rewrites session.drag (plain data read by render)
+    # and tags a redraw; the doc is touched once, on release.
+    # ------------------------------------------------------------------
+    def _invoke_palette(self, context, session, mx, my):
+        from .editor_geom import palette_hit, palette_items
+        pal = session.palette
+        self._widget = session.widget
+        self._control = None
+        self._session = session
+        self._mode = "swallow"
+        if pal.title_rect.contains(mx, my):
+            pal.start_drag(mx, my)
+            self._mode = "ed_pal_drag"
+            return self._begin_modal(context)
+        from . import editor
+        rtype = palette_hit(pal.row_rects, palette_items(), mx, my)
+        # Adding is a doc change: refused while a draft is undecided
+        # (editor.can_edit) — the press is swallowed, no ghost appears.
+        if rtype is not None and editor.can_edit():
+            label = next(lbl for t, lbl in palette_items() if t == rtype)
+            session.drag = {"kind": "add", "rtype": rtype, "target": None,
+                            "indicator": None, "ghost": (mx, my, label)}
+            self._mode = "ed_add"
+        return self._begin_modal(context)
+
+    def _invoke_edit(self, context, session, mx, my):
+        from .editor_geom import edit_hit
+        from . import editor
+        self._session = session
+        hit = edit_hit(self._widget.panel, _row_kinds(session), mx, my)
+        if hit is None:
+            return self._begin_modal(context)          # padding — swallow
+        kind, path = hit
+        if kind == "resize" and editor.can_edit():
+            if self._start_resize(session, path, mx):
+                editor.select(path)
+                self._mode = "ed_resize"
+                return self._begin_modal(context)
+            kind = "cell"          # not resizable (bad path) — select it
+        # "cell" / "row": select now, becomes a move after MOVE_THRESHOLD.
+        editor.select(path)
+        self._press_xy = (mx, my)
+        self._src = path
+        self._mode = "ed_press"
+        return self._begin_modal(context)
+
+    def _start_resize(self, session, path, mx):
+        from .editor_model import span_bounds
+        from .render import GRID_COL_GAP
+        bounds = span_bounds(session.doc.wdef.get("rows", []), path)
+        if bounds is None:
+            return False
+        r, c = path
+        panel = self._widget.panel
+        cells = panel.row_rects[r] if r < len(panel.row_rects) else []
+        idx = c if c is not None else 0
+        if idx >= len(cells):
+            return False
+        cell = cells[idx]
+        start, span, max_span = bounds
+        self._rz = {
+            "path": path, "start": start, "span0": span, "max": max_span,
+            "left": panel.x + panel.padding,
+            "cw": panel.width - panel.padding * 2.0,
+            "gap": GRID_COL_GAP, "y": cell.y, "h": cell.h,
+        }
+        session.drag = {"kind": "resize", "src": path, "span": span}
+        self._update_resize(session, mx)
+        return True
+
+    def _update_resize(self, session, mx):
+        from .editor_geom import grid_edge_x, span_from_mouse
+        rz = self._rz
+        span = span_from_mouse(mx, rz["left"], rz["cw"], rz["gap"],
+                               rz["start"], rz["max"])
+        x0 = grid_edge_x(rz["left"], rz["cw"], rz["gap"], rz["start"]) \
+            + rz["gap"]
+        x1 = grid_edge_x(rz["left"], rz["cw"], rz["gap"], rz["start"] + span)
+        drag = session.drag
+        drag["span"] = span
+        drag["outline"] = (x0, rz["y"], x1 - x0, rz["h"])
+        drag["indicator"] = ("vline", x1, rz["y"], rz["h"])
+
+    def _start_move(self, session):
+        from . import editor
+        src = self._src
+        el = session.doc.get(src)
+        if el is None or not editor.can_edit():
+            return False         # refused move: the press only selected
+        label = el.get("label") or el.get("type", "").title() or "Item"
+        rows_only = src[1] is None and el.get("type") == "ROW"
+        session.drag = {"kind": "move", "src": src, "rows_only": rows_only,
+                        "target": None, "indicator": None,
+                        "ghost": (self._press_xy[0], self._press_xy[1],
+                                  label)}
+        return True
+
+    def _update_drop(self, session, mx, my, rows_only):
+        from .editor_geom import drop_target
+        drag = session.drag
+        hit = drop_target(session.widget.panel, _row_kinds(session), mx, my,
+                          rows_only=rows_only)
+        if hit is None:
+            drag["target"], drag["indicator"] = None, None
+        else:
+            drag["target"], drag["indicator"] = hit
+        _x, _y, label = drag["ghost"]
+        drag["ghost"] = (mx, my, label)
+
+    def _modal_edit_move(self, context, mx, my):
+        """MOUSEMOVE for edit gestures — plain drag state + redraw only."""
+        session = self._session
+        mode = self._mode
+        if session is None:
+            return {"RUNNING_MODAL"}
+        if mode == "ed_pal_drag":
+            session.palette.update_drag(mx, my)
+            _tag_redraw(context)
+            return {"RUNNING_MODAL"}
+        if mode == "ed_press":
+            from .editor_geom import MOVE_THRESHOLD
+            px, py = self._press_xy
+            if abs(mx - px) < MOVE_THRESHOLD and abs(my - py) < MOVE_THRESHOLD:
+                return {"RUNNING_MODAL"}
+            if not self._start_move(session):
+                self._mode = "swallow"
+                return {"RUNNING_MODAL"}
+            self._mode = mode = "ed_move"
+        if session.drag is None:
+            return {"RUNNING_MODAL"}
+        if mode == "ed_add":
+            self._update_drop(session, mx, my,
+                              session.drag["rtype"] == "ROW")
+        elif mode == "ed_move":
+            self._update_drop(session, mx, my, session.drag["rows_only"])
+        elif mode == "ed_resize":
+            self._update_resize(session, mx)
+        _tag_redraw(context)
+        return {"RUNNING_MODAL"}
+
+    def _finish_edit(self, context):
+        """Release of an edit gesture: one doc mutation + after_commit()."""
+        from . import editor
+        from .editor_geom import is_noop_move
+        from .editor_model import new_element
+        session = self._session
+        mode = self._mode
+        drag = session.drag if session is not None else None
+        if session is not None:
+            session.drag = None
+        if session is None or editor.active() is not session:
+            _tag_redraw(context)
+            return {"FINISHED"}
+        changed = False
+        if mode != "ed_pal_drag" and not editor.can_edit():
+            mode = None          # draft undecided: never mutate the doc
+        if mode == "ed_pal_drag":
+            session.palette.end_drag()
+            if context.region is not None:
+                session.palette.clamp_to_region(context.region.width,
+                                                context.region.height)
+        elif mode == "ed_add" and drag and drag.get("target") is not None:
+            changed = session.doc.insert(
+                drag["target"], new_element(drag["rtype"])) is not None
+        elif mode == "ed_move" and drag and drag.get("target") is not None:
+            if not is_noop_move(drag["src"], drag["target"]):
+                changed = session.doc.move(drag["src"],
+                                           drag["target"]) is not None
+        elif mode == "ed_resize" and drag:
+            span = drag.get("span")
+            if span is not None and span != self._rz["span0"]:
+                changed = session.doc.set_span(self._rz["path"], span)
+        if changed:
+            editor.after_commit()
+        _tag_redraw(context)
+        return {"FINISHED"}
 
     def _begin_gesture(self, context, event, control):
         mx = event.mouse_region_x
@@ -292,6 +524,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             return self._cancel_gesture(context)
 
         if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            if self._mode.startswith("ed_"):
+                return self._modal_edit_move(context, mx, my)
             if self._mode == "drag":
                 panel.update_drag(mx, my)
                 _tag_redraw(context)
@@ -312,6 +546,8 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
     def _finish_gesture(self, context, mx, my):
         panel = self._widget.panel
         mode = self._mode
+        if mode.startswith("ed_"):
+            return self._finish_edit(context)
         if mode == "drag":
             panel.end_drag()
             if context.region is not None:
@@ -336,11 +572,14 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                 state.hide_widget(self._widget.name)
                 return {"FINISHED"}
         elif mode == "title_edit":
-            # Open the widget's JSON source in the user's text editor
-            # (Preferences > File Paths > Applications > Text Editor, OS
-            # default when unset).
+            # Enter the visual editor on this widget (the N-panel's "Open
+            # JSON" button still opens the raw file). Inert on the widget
+            # already being edited (its pen isn't laid out anyway).
             if self._rect.contains(mx, my):
-                bpy.ops.iops.widget_edit(name=self._widget.name)
+                from . import editor
+                session = editor.active()
+                if session is None or session.widget is not self._widget:
+                    editor.begin(context, self._widget.name)
         elif mode == "edit_button":
             # Dropdown / input: pop the native editor on release-inside.
             # NO _undo_push — the native field edit pushes its own undo
@@ -357,6 +596,15 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
 
     def _cancel_gesture(self, context):
         panel = self._widget.panel
+        if self._mode.startswith("ed_"):
+            # Edit drags: drop the preview — the doc was never touched.
+            session = self._session
+            if session is not None:
+                session.drag = None
+                if self._mode == "ed_pal_drag":
+                    session.palette.cancel_drag()
+            _tag_redraw(context)
+            return {"CANCELLED"}
         if self._mode == "drag":
             panel.cancel_drag()
         elif self._mode == "release_undo":
@@ -679,4 +927,142 @@ def find_user_toggle_kmi(name):
     return None, None
 
 
-classes = (IOPS_OT_widget_toggle, IOPS_OT_widget_interact)
+# ----------------------------------------------------------------------
+# Editor hotkeys — exist only while an edit session is active (added by
+# editor.begin, removed by editor.end): zero idle cost otherwise. Over the
+# edited widget / its palette they act on the EditorDoc; anywhere else the
+# operator PASS_THROUGHs so Ctrl+Z / X keep their normal meaning.
+# Excluded from save_hotkeys (NEVER_SAVE).
+# ----------------------------------------------------------------------
+class IOPS_OT_widget_editor_key(bpy.types.Operator):
+    """Undo/redo/delete inside the visual widget editor"""
+
+    bl_idname = "iops.widget_editor_key"
+    bl_label = "IOPS Widget Editor Key"
+    bl_options = {"INTERNAL"}
+
+    action: EnumProperty(
+        name="Action",
+        items=(("UNDO", "Undo", "Undo the last widget edit"),
+               ("REDO", "Redo", "Redo the last undone widget edit"),
+               ("DELETE", "Delete", "Delete the selected element")),
+        default="UNDO")
+
+    @classmethod
+    def poll(cls, context):
+        from . import editor
+        return editor.active() is not None
+
+    @staticmethod
+    def run(action):
+        """Apply `action` to the active session's doc. Returns True when
+        the doc changed (after_commit already called)."""
+        from . import editor
+        session = editor.active()
+        if session is None or not editor.can_edit():
+            return False         # no session, or a draft is undecided
+        doc = session.doc
+        if action == "UNDO":
+            changed = doc.undo()
+        elif action == "REDO":
+            changed = doc.redo()
+        elif action == "DELETE":
+            changed = (doc.selection is not None
+                       and doc.delete(doc.selection))
+        else:
+            changed = False
+        if changed:
+            editor.after_commit()
+        return changed
+
+    def invoke(self, context, event):
+        if not (_over_session(context, event.mouse_region_x,
+                              event.mouse_region_y)
+                or (self.action in ("UNDO", "REDO")
+                    and _over_session_sidebar(context))):
+            return {"PASS_THROUGH"}
+        # Over the editor the key is always consumed (even with nothing to
+        # undo/delete) so it never falls through to the mesh/scene below.
+        from . import editor
+        if not editor.can_edit():
+            self.report({"WARNING"}, editor.DRAFT_GATE_MSG)
+            return {"FINISHED"}
+        self.run(self.action)
+        return {"FINISHED"}
+
+
+# (keymap name, space_type, key group) -> hosts the editor keys.
+# "3D View"/"Image" are the WINDOW region's own keymaps (all keys). The
+# mode / tool keymaps below come BEFORE them in the region handler list
+# and bind X/DEL to a destructive op, so DELETE is mirrored there or it
+# would never reach us and the scene data under the widget would be
+# deleted instead (names verified against the 5.x default keyconfig;
+# "Font" mirrors DEL only — X there is text input). The "* Generic"
+# keymaps also serve the sidebar (UI region): undo/redo there acts on
+# the widget doc while the mouse is over the Widget Editor sidebar.
+_EDITOR_KEYMAPS = (
+    ("3D View", "VIEW_3D", "ALL"),
+    ("Image", "IMAGE_EDITOR", "ALL"),
+    ("3D View Generic", "VIEW_3D", "UNDO"),
+    ("Image Generic", "IMAGE_EDITOR", "UNDO"),
+    ("Object Mode", "EMPTY", "DELETE"),
+    ("Mesh", "EMPTY", "DELETE"),
+    ("Curve", "EMPTY", "DELETE"),
+    ("Curves", "EMPTY", "DELETE"),
+    ("Armature", "EMPTY", "DELETE"),
+    ("Metaball", "EMPTY", "DELETE"),
+    ("Grease Pencil Edit Mode", "EMPTY", "DELETE"),
+    ("Particle", "EMPTY", "DELETE"),
+    ("Point Cloud", "EMPTY", "DELETE"),
+    ("Paint Curve", "EMPTY", "DELETE"),
+    ("Mask Editing", "EMPTY", "DELETE"),
+    ("3D View Tool: Measure", "VIEW_3D", "DELETE"),
+    ("Font", "EMPTY", "DEL"),
+)
+# (action, type, ctrl, shift, key groups that include it)
+_EDITOR_KEYS = (
+    ("UNDO", "Z", True, False, ("ALL", "UNDO")),
+    ("REDO", "Z", True, True, ("ALL", "UNDO")),
+    ("DELETE", "X", False, False, ("ALL", "DELETE")),
+    ("DELETE", "DEL", False, False, ("ALL", "DELETE", "DEL")),
+)
+_editor_kmis = []
+
+
+def add_editor_kmis():
+    """Add the editor hotkeys (idempotent). Called by editor.begin."""
+    if _editor_kmis:
+        return
+    wm = getattr(bpy.context, "window_manager", None)
+    kc = wm.keyconfigs.addon if wm is not None else None
+    if kc is None:
+        return
+    for km_name, space_type, group in _EDITOR_KEYMAPS:
+        km = kc.keymaps.new(km_name, space_type=space_type)
+        for action, key, ctrl, shift, groups in _EDITOR_KEYS:
+            if group not in groups:
+                continue
+            kmi = km.keymap_items.new(IOPS_OT_widget_editor_key.bl_idname,
+                                      key, "PRESS", ctrl=ctrl, shift=shift)
+            kmi.properties.action = action
+            _editor_kmis.append((km, kmi))
+    wm.keyconfigs.update()
+
+
+def remove_editor_kmis():
+    """Remove ONLY the entries add_editor_kmis made. Idempotent; called by
+    editor.end (also on addon unregister via editor.unregister)."""
+    for km, kmi in _editor_kmis:
+        try:
+            km.keymap_items.remove(kmi)
+        except (ReferenceError, RuntimeError):
+            pass
+    _editor_kmis.clear()
+    try:
+        bpy.context.window_manager.keyconfigs.update()
+    except Exception:
+        pass
+
+
+classes = (IOPS_OT_widget_toggle, IOPS_OT_widget_interact,
+           IOPS_OT_widget_editor_key)

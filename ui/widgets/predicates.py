@@ -77,10 +77,45 @@ def eval_show_if(pred, ctx):
     return True
 
 
+def _row_view(row, ctx):
+    """Row with per-cell show_if applied -> `row` itself when nothing is
+    gated, a NEW Row view otherwise, None when every cell is hidden.
+    Grid rows (any child _span) keep hidden cells as Spacer(span) stand-ins
+    so the other cells stay put; legacy rows just drop them."""
+    from .controls import Row, Spacer
+    kids = row.children
+    if not any(getattr(c, "_show_if", None) for c in kids):
+        return row
+    shown = [eval_show_if(getattr(c, "_show_if", None), ctx) for c in kids]
+    if not any(shown):
+        return None
+    grid = any(getattr(c, "_span", None) is not None for c in kids)
+    out = []
+    for c, ok in zip(kids, shown):
+        if ok:
+            out.append(c)
+        elif grid:
+            out.append(Spacer(span=getattr(c, "_span", None)))
+    view = Row(out)
+    view._show_if = getattr(row, "_show_if", None)
+    view._span = getattr(row, "_span", None)
+    view._source = row
+    return view
+
+
 def filter_controls(controls, ctx):
-    """Top-level controls whose predicate passes, preserving order."""
-    return [c for c in controls
-            if eval_show_if(getattr(c, "_show_if", None), ctx)]
+    """Top-level controls whose predicate passes, preserving order. Rows
+    with gated cells come back as views (see `_row_view`)."""
+    out = []
+    for c in controls:
+        if not eval_show_if(getattr(c, "_show_if", None), ctx):
+            continue
+        if getattr(c, "kind", None) == "row":
+            c = _row_view(c, ctx)
+            if c is None:
+                continue
+        out.append(c)
+    return out
 
 
 def build_eval_ctx(context, switches):

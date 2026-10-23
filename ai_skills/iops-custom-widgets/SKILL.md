@@ -29,12 +29,16 @@ The library folder is a preference (executor-parity), resolved by
   explicit path. Stored in prefs and round-tripped through the prefs JSON.
 - All `*.json` there auto-load and register at addon enable
   (`composed.load_all`); the Widgets-tab list mirrors them (name +
-  toggle-hotkey field per row). Edit them by hand — the pen button in a
-  visible panel's title bar (left of the close glyph, composed widgets
-  only) opens that widget's JSON in the editor set under Preferences >
-  File Paths > Applications > Text Editor (OS default `.json` handler when
-  unset); the tab's Open Folder button opens the library folder — or via
-  Add / Duplicate / Import.
+  toggle-hotkey field per row). Edit them by hand, with the **Visual Widget
+  Editor** (the pen button in a visible composed widget's title bar enters
+  edit mode on the live widget; the prefs "+" starts a blank widget in edit
+  mode; the N-panel's *Open JSON* button opens the file in the Text Editor
+  set under Preferences > File Paths > Applications; the tab's Open Folder
+  button opens the library folder), or via Add / Duplicate / Import.
+  Editor side files `<name>.draft.json` (unsaved session) and
+  `<name>.json.bak` (one-time original backup) sit beside the JSON and are
+  ignored by the loader; do not hand-author them. The editor saves the
+  normalized def, so keys the schema does not model are dropped on Save.
 
 ## JSON schema
 
@@ -57,6 +61,7 @@ Row types:
 | `SECTION` | `label` | — (non-interactive header) |
 | `SLIDER` | EXACTLY ONE of `target` (BEVEL/CREASE) or `prop` (dotted RNA path, + `value_type`, `min`, `max`, `fmt`); `snap` | edge float attribute, or arbitrary scalar RNA number/angle |
 | `PRESETS` | `target` (BEVEL/CREASE), `values` (list 0..1) | edge float attribute |
+| `SPACER` | `span` (1-12), `height` (px, top-level only) | — (empty cell / vertical gap; drawn only in edit mode) |
 | `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
 | `SWATCH` | EXACTLY ONE of `prop` (RNA color path) or `color` (literal RGBA list); `op` (operator idname), `op_kwargs`, `label`, `show_alpha` | shows a color (live or fixed), fires an operator on click |
@@ -127,6 +132,26 @@ panel:
 
 Invalid rows are dropped with an error (the rest of the widget survives);
 `composed.load_def` / `validate_def` return `(clean_def, errors)`.
+
+### Grid layout: `span`, `SPACER`, cell `show_if`
+
+- `"span": 1..12` on any `ROW` cell or top-level row = width in twelfths of
+  the content width. If any cell in a `ROW` has a span the row uses the grid
+  (unspanned cells share the rest); no span anywhere = legacy equal split.
+  Spans may sum to <12 (empty space on the right).
+- `SPACER` is an empty cell/row: spacers left/right of a cell align or center
+  it; a top-level `SPACER` with `height` (px) is a vertical gap.
+- `ROW` cells may carry their own `show_if`; a hidden cell leaves its slot
+  empty.
+- A spanned (or `show_if`) top-level `FLIPBOX` never auto-merges with
+  neighbours.
+
+```json
+{"type": "ROW", "cells": [
+  {"type": "SPACER", "span": 3},
+  {"type": "BUTTON", "label": "Go", "op": "a.b", "span": 6},
+  {"type": "SPACER", "span": 3}]}
+```
 
 ### Top-level `switches` map
 
@@ -340,6 +365,7 @@ Then `python -m pytest tests -q` stays green (`composed.py` is bpy-free).
 
 | Symptom / trap | Reality |
 |---|---|
+| Spanned flipboxes won't merge | A top-level `FLIPBOX` with `span` (or `show_if`) always stands alone; the editor writes spans so stacked boxes stay stacked |
 | Stacked toggles merged into one row | Consecutive bare `FLIPBOX` rows auto-merge; wrap each in a single-cell `ROW` to force one-per-row |
 | `FLIPBOX` rejected on validate | Needs EXACTLY ONE of `target`, `prop`, or `switch` (none/multiple → dropped) |
 | Scene-prop toggle always disabled | The RNA `prop` path doesn't resolve against `context` (owning addon absent, or wrong path) — that's the intended disabled state |

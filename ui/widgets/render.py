@@ -20,7 +20,9 @@ from ..draw import primitives, draw_scope
 from ..draw.theme import Role, get_theme, _srgb_encode
 from ..hud import text as hud_text
 from .controls import (Row, pixel_from_value, preset_cell_rects)
-from .panel import Rect, pen_icon, close_icon
+from .panel import (Rect, pen_icon, close_icon, GRID, grid_min_content,
+                    grid_cells)
+from .editor_geom import HANDLE_W
 
 # Layout constants (pixels). Heights derive from theme text sizes at
 # layout time; these are paddings/insets around them.
@@ -29,6 +31,7 @@ DISABLED_ALPHA = 0.35
 MIXED_FILL_ALPHA = 0.45
 ROW_PAD_SECTION = 6.0
 ROW_PAD_CONTROL = 10.0
+GRID_COL_GAP = 6.0     # == WidgetPanel.layout's default col_gap
 TITLE_PAD = 10.0
 SLIDER_VALUE_COL = 8.0      # gap between track and value text
 BOX_INSET = 3.0             # flipbox check inset
@@ -58,6 +61,19 @@ CARET_GLYPH = "|"
 INPUT_VALUE_MAX_W = 150.0   # cap the value text's contribution to panel width;
                             # longer values are middle-truncated on display
 ELLIPSIS = "…"
+
+# Edit mode (visual widget editor)
+EDIT_TAG = "EDITING"
+EDIT_TAG_GAP = 8.0          # gap between the tag and the title-bar buttons
+EDIT_GRID_ALPHA = 0.25      # faint 12-step grid ticks under every row
+EDIT_SPACER_ALPHA = 0.6     # dashed spacer outline
+EDIT_SPACER_FILL = 0.12     # faint spacer fill (pre-mixed over the bg)
+DASH_LEN = 4.0
+DASH_GAP = 3.0
+HIDDEN_GLYPH_W = 10.0       # "hidden" diamond-with-slash at a cell's right
+PALETTE_TITLE = "Add"
+PALETTE_GAP = 8.0           # gap between the palette and the edited panel
+GHOST_PAD = 6.0
 
 
 def _fade(color, mul):
@@ -118,8 +134,15 @@ def _truncate_middle(text, max_w, theme, size_token="hud_label"):
 # ----------------------------------------------------------------------
 # Layout
 # ----------------------------------------------------------------------
-def _row_height(control, theme):
+def _row_height(control, theme, top_level=True):
     label_h = theme.text_size("hud_label")
+    if control.kind == "spacer":
+        # `height` only applies to top-level SPACER rows; cell stand-ins
+        # share their row's height.
+        h = getattr(control, "height", None)
+        if top_level and h:
+            return float(h)
+        return label_h + ROW_PAD_CONTROL
     if control.kind == "section":
         return label_h + ROW_PAD_SECTION
     if control.kind == "swatch":
@@ -182,6 +205,11 @@ def _control_min_width(control, theme, context=None):
         labels_w = sum(tw(label) + 12.0 for _v, label in control.options)
         return labels_w + PRESET_GAP * max(0, len(control.options) - 1)
     if control.kind == "row":
+        spans = _row_spans(control)
+        if spans is not None:
+            mins = [_control_min_width(c, theme, context)
+                    for c in control.children]
+            return grid_min_content(spans, mins, GRID_COL_GAP)
         # Fixed cells (buttons hug their label) contribute their own min;
         # flex cells end up equal-width, so each must fit the widest one.
         n = max(1, len(control.children))
@@ -200,11 +228,42 @@ def _control_min_width(control, theme, context=None):
     return 0.0
 
 
-def _in_context(widget, context):
+def _row_spans(row):
+    """Per-cell grid spans of a Row, or None for a legacy (hug/equal) row.
+    A grid row has any child `_span`; unspanned stragglers share evenly."""
+    kids = row.children
+    if not any(getattr(c, "_span", None) is not None for c in kids):
+        return None
+    dflt = max(1, GRID // max(1, len(kids)))
+    return [int(getattr(c, "_span", None) or dflt) for c in kids]
+
+
+def _entry_min_width(control, theme, context=None):
+    """Min content width of a top-level control; a top-level span < GRID
+    makes it one grid cell, so it needs GRID/span times the room."""
+    w = _control_min_width(control, theme, context)
+    sp = getattr(control, "_span", None)
+    if control.kind != "row" and sp is not None and sp < GRID:
+        return grid_min_content([sp], [w], GRID_COL_GAP)
+    return w
+
+
+def _is_editing(widget):
+    return getattr(widget, "_editor", None) is not None
+
+
+def _poll(widget, context):
+    """widget.poll guarded — a raising poll counts as out of context."""
     try:
         return bool(widget.poll(context))
     except Exception:
         return False
+
+
+def _in_context(widget, context):
+    if _is_editing(widget):
+        return True    # edit mode shows every row regardless of poll
+    return _poll(widget, context)
 
 
 def compute_layout(context, widget, theme=None):
@@ -219,8 +278,13 @@ def compute_layout(context, widget, theme=None):
     if _in_context(widget, context):
         for control in widget.rows(context):
             if isinstance(control, Row):
-                height = max((_row_height(c, th) for c in control.children),
+                height = max((_row_height(c, th, top_level=False)
+                              for c in control.children),
                              default=_row_height(control, th))
+                spans = _row_spans(control)
+                if spans is not None:
+                    rows.append((height, control.columns, {"spans": spans}))
+                    continue
                 # Buttons hug their label (fixed cell); everything else
                 # flexes over the remaining width. No buttons -> equal split.
                 spec = [_control_min_width(c, th, context)
@@ -231,8 +295,13 @@ def compute_layout(context, widget, theme=None):
                 else:
                     rows.append((height, control.columns))
             else:
-                rows.append((_row_height(control, th), 1))
-        min_content = max((_control_min_width(c, th, context)
+                sp = getattr(control, "_span", None)
+                if sp is not None and sp < GRID:
+                    rows.append((_row_height(control, th), 1,
+                                 {"spans": [sp]}))
+                else:
+                    rows.append((_row_height(control, th), 1))
+        min_content = max((_entry_min_width(c, th, context)
                            for c in widget.rows(context)),
                           default=0.0)
     else:
@@ -242,16 +311,22 @@ def compute_layout(context, widget, theme=None):
     title_h = th.text_size("hud_header") + TITLE_PAD
     # Edit button only for widgets with a JSON source on disk (composed);
     # Python-defined widgets have nothing to open.
-    edit_w = title_h if is_editable(widget) else 0.0   # square button cell
+    # No Edit button while editing: the EDITING tag takes its place.
+    editing = _is_editing(widget)
+    edit_w = title_h if (is_editable(widget) and not editing) else 0.0
     floor_w = getattr(widget, "min_content_w", None) or PANEL_MIN_CONTENT_W
+    tag_w = (hud_text.measure(EDIT_TAG, theme=th)[0] + EDIT_TAG_GAP
+             if editing else 0.0)
     content_w = max(
         float(floor_w),
         hud_text.measure(widget.panel.title, theme=th,
-                         size_token="hud_header")[0] + title_h + edit_w + 8.0,
+                         size_token="hud_header")[0] + title_h + edit_w
+        + tag_w + 8.0,
         min_content,
     )
     layout_kw = dict(padding=float(th.hud.bg_padding), title_h=title_h,
-                     row_gap=float(th.hud.row_spacing) + 2.0, edit_w=edit_w)
+                     row_gap=float(th.hud.row_spacing) + 2.0, edit_w=edit_w,
+                     col_gap=GRID_COL_GAP)
     widget.panel.layout(rows, content_w, **layout_kw)
     region = context.region
     if region is not None:
@@ -671,7 +746,7 @@ def _draw_close_button(rect, theme, dim, pressed):
         primitives.line(p1, p2, color=ink, width="default", theme=theme)
 
 
-def _draw_chrome(panel, theme, dim, press=None):
+def _draw_chrome(panel, theme, dim, press=None, *, close=True, tag=None):
     b = panel.bounds()
     # Panel fill — the unified HUD background color (already sRGB-encoded
     # by get_theme), drawn even when the HUD bg toggle is off: an
@@ -687,9 +762,154 @@ def _draw_chrome(panel, theme, dim, press=None):
     primitives.line((tr.x, tr.y), (tr.x2, tr.y),
                     color=_col(theme, Role.BBOX, dim),
                     width="default", theme=theme)
-    _draw_close_button(panel.close_rect, theme, dim, press == "close")
+    if tag:
+        tw, _ = hud_text.measure(tag, theme=theme)
+        _text_left(tag, tr, panel.edit_rect.x - EDIT_TAG_GAP - tw,
+                   theme=theme, color=_col(theme, Role.HUD_ACTIVE_VALUE, 1.0))
+    if close:
+        _draw_close_button(panel.close_rect, theme, dim, press == "close")
     if panel.edit_rect.w > 0.0:
         _draw_edit_button(panel.edit_rect, theme, dim, press == "edit")
+
+
+def _hidden(control, ectx):
+    """True when the control's show_if is false in the current context."""
+    from .predicates import eval_show_if
+    return not eval_show_if(getattr(control, "_show_if", None), ectx)
+
+
+def _tint(theme, role, t):
+    """`role` color at strength `t` pre-mixed over the panel bg (the
+    filled-tri shader doesn't honor low alphas reliably, see _active_fill)."""
+    bg = theme.hud.bg_color
+    hot = theme.color_for(role)
+    return (bg[0] * (1.0 - t) + hot[0] * t,
+            bg[1] * (1.0 - t) + hot[1] * t,
+            bg[2] * (1.0 - t) + hot[2] * t,
+            bg[3])
+
+
+def _dashed_rect(rect, color, theme):
+    """Rect outline as short dashes (one batched edges call)."""
+    segs = []
+    corners = ((rect.x, rect.y), (rect.x2, rect.y), (rect.x2, rect.y2),
+               (rect.x, rect.y2), (rect.x, rect.y))
+    step = DASH_LEN + DASH_GAP
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:]):
+        length = abs(x1 - x0) + abs(y1 - y0)
+        if length <= 0.0:
+            continue
+        ux, uy = (x1 - x0) / length, (y1 - y0) / length
+        d = 0.0
+        while d < length:
+            e = min(d + DASH_LEN, length)
+            segs.extend([(x0 + ux * d, y0 + uy * d),
+                         (x0 + ux * e, y0 + uy * e)])
+            d += step
+    if segs:
+        primitives.edges_3d(segs, color=color, width="default", theme=theme)
+
+
+def _draw_hidden_glyph(rect, theme):
+    """Small diamond with a slash at the cell's right: this control is
+    hidden (show_if false) in the current context."""
+    w = HIDDEN_GLYPH_W
+    cx, cy = rect.x2 - w, rect.cy
+    ink = _col(theme, Role.HUD_LABEL_INACTIVE, 1.0)
+    hw, hh = w * 0.5, w * 0.35
+    primitives.polyline([(cx - hw, cy), (cx, cy + hh), (cx + hw, cy),
+                         (cx, cy - hh), (cx - hw, cy)],
+                        color=ink, width="default", theme=theme)
+    primitives.line((cx - hw, cy - hh), (cx + hw, cy + hh),
+                    color=ink, width="default", theme=theme)
+
+
+def _draw_edit_cell(control, rect, theme, hidden):
+    """Edit-mode extras on one cell: spacer outline + placeholder text,
+    hidden glyph."""
+    if control.kind == "spacer":
+        primitives.rect_2d(rect.x, rect.y, rect.w, rect.h,
+                           color=_tint(theme, Role.HUD_LABEL_INACTIVE,
+                                       EDIT_SPACER_FILL), theme=theme)
+        _dashed_rect(rect, _col(theme, Role.HUD_LABEL_INACTIVE,
+                                EDIT_SPACER_ALPHA), theme)
+        label = getattr(control, "placeholder", "")
+        if label:
+            _text_centered(label, rect, theme=theme,
+                           color=_col(theme, Role.HUD_STATS_ERROR, 1.0))
+    if hidden:
+        _draw_hidden_glyph(rect, theme)
+
+
+def _edit_selection_rects(panel, controls, path):
+    """(outline Rect, grip cell Rect | None) for the selected Path, or
+    (None, None) when it doesn't resolve onto the current layout."""
+    if path is None:
+        return None, None
+    r, c = path
+    if not (0 <= r < len(panel.row_rects) and r < len(controls)):
+        return None, None
+    cells = panel.row_rects[r]
+    if not cells:
+        return None, None
+    is_row = isinstance(controls[r], Row)
+    if c is None:
+        x0, x1 = cells[0].x, cells[-1].x2
+        outline = Rect(x0, cells[0].y, x1 - x0, cells[0].h)
+        return outline, (None if is_row else cells[0])
+    if not (0 <= c < len(cells)):
+        return None, None
+    return cells[c], cells[c]
+
+
+def _polyline_rect(rect, color, theme):
+    pts = [(rect.x, rect.y), (rect.x2, rect.y), (rect.x2, rect.y2),
+           (rect.x, rect.y2), (rect.x, rect.y)]
+    primitives.polyline(pts, color=color, width="active", theme=theme)
+
+
+def _draw_edit_overlays(panel, controls, theme, session):
+    """Grid ticks, selection outline + resize grip, drop indicator."""
+    # 12 faint grid ticks per row (batched into one call).
+    cw = panel.width - panel.padding * 2.0
+    cols = grid_cells([1] * GRID, cw, GRID_COL_GAP)
+    ticks = []
+    for cells in panel.row_rects:
+        if not cells:
+            continue
+        y = cells[0].y
+        for dx, _w in cols:
+            x = panel.x + panel.padding + dx
+            ticks.extend([(x, y), (x, y + TICK_H)])
+    if ticks:
+        primitives.edges_3d(ticks, color=_col(theme, Role.HUD_LABEL_INACTIVE,
+                                              EDIT_GRID_ALPHA),
+                            width="default", theme=theme)
+
+    active = _col(theme, Role.HUD_ACTIVE_VALUE, 1.0)
+    outline, grip = _edit_selection_rects(panel, controls,
+                                          session.doc.selection)
+    if outline is not None:
+        _polyline_rect(outline, active, theme)
+    if grip is not None:
+        primitives.rect_2d(grip.x2 - HANDLE_W * 0.5, grip.y, HANDLE_W, grip.h,
+                           color=active, theme=theme)
+
+    drag = session.drag
+    # Resize preview: the cell outline at the snapped span (events sets
+    # drag["outline"] alongside drag["span"]).
+    pre = drag.get("outline") if drag else None
+    if pre:
+        _polyline_rect(Rect(*pre), active, theme)
+    ind = drag.get("indicator") if drag else None
+    if ind:
+        if ind[0] == "hline":
+            _, x, y, w = ind
+            p1, p2 = (x, y), (x + w, y)
+        else:
+            _, x, y, h = ind
+            p1, p2 = (x, y), (x, y + h)
+        primitives.line(p1, p2, color=active, width="active", theme=theme)
 
 
 def draw_widget(context, widget):
@@ -697,41 +917,148 @@ def draw_widget(context, widget):
     the theme per frame, lays out (storing hit rects on the panel), and
     renders chrome + controls. Out of context (widget.poll False): panel
     collapses to title bar + the hint message; only drag/close/edit
-    active."""
+    active. While an edit session owns the widget every row is drawn, with
+    show_if-hidden controls dimmed, plus the editor overlays."""
     theme = compute_layout(context, widget)
     panel = widget.panel
     in_context = _in_context(widget, context)
     dim = 1.0 if in_context else DISABLED_ALPHA
+    session = getattr(widget, "_editor", None)
+    editing = session is not None
+    # Edit mode lays out every row regardless of poll, but controls read
+    # live values only when the widget's own context is valid (an edge-
+    # bound slider in Sculpt/Paint would otherwise hit bmesh.from_edit_mesh
+    # and mute the widget); out of it they draw their cached value.
+    live = _poll(widget, context) if editing else in_context
 
     with hud_text.isolated(theme):
         with draw_scope(blend="ALPHA"):
             press = getattr(widget, "_press_cell", None)
-            _draw_chrome(panel, theme, dim, press=press)
+            _draw_chrome(panel, theme, dim, press=press,
+                         tag=EDIT_TAG if editing else None)
             if not in_context:
                 _text_centered(OUT_OF_CONTEXT_TEXT, panel.row_rects[0][0],
                                theme=theme,
                                color=_col(theme, Role.HUD_LABEL_INACTIVE,
                                           1.0))
                 return
-            editing = getattr(widget, "_editing", None)
-            edit_where = editing[0] if editing else None
-            edit_state = editing[1] if editing else None
-            for r, control in enumerate(widget.rows(context)):
+            editing_state = getattr(widget, "_editing", None)
+            edit_where = editing_state[0] if editing_state else None
+            edit_state = editing_state[1] if editing_state else None
+            ectx = None
+            if editing:
+                from .predicates import build_eval_ctx
+                ectx = build_eval_ctx(context,
+                                      getattr(widget, "switches", None) or {})
+            controls = widget.rows(context)
+            for r, control in enumerate(controls):
                 cells = panel.row_rects[r]
+                row_hidden = editing and _hidden(control, ectx)
                 if isinstance(control, Row):
                     for c, child in enumerate(control.children):
-                        _draw_control(child, cells[c], theme, dim,
-                                      context, in_context,
+                        hid = row_hidden or (editing
+                                             and _hidden(child, ectx))
+                        _draw_control(child, cells[c], theme,
+                                      dim * (DISABLED_ALPHA if hid else 1.0),
+                                      context, live,
                                       pressed=(press == (r, c)),
                                       edit=(edit_state
                                             if edit_where == (r, c) else None))
+                        if editing:
+                            _draw_edit_cell(child, cells[c], theme, hid)
                 else:
-                    _draw_control(control, cells[0], theme, dim,
-                                  context, in_context,
+                    _draw_control(control, cells[0], theme,
+                                  dim * (DISABLED_ALPHA if row_hidden else 1.0),
+                                  context, live,
                                   pressed=(press == (r, 0)),
                                   edit=(edit_state
                                         if edit_where == (r, 0) else None))
+                    if editing:
+                        _draw_edit_cell(control, cells[0], theme, row_hidden)
+            if editing:
+                _polyline_rect(panel.bounds(),
+                               _col(theme, Role.HUD_ACTIVE_VALUE, 1.0), theme)
+                _draw_edit_overlays(panel, controls, theme, session)
             # Open dropdown list draws last so it sits on top of the panel.
             dd = getattr(widget, "_dropdown", None)
             if dd is not None:
                 _draw_dropdown_list(dd, theme)
+
+
+# ----------------------------------------------------------------------
+# Add palette (edit mode)
+# ----------------------------------------------------------------------
+def compute_palette_layout(context, session, theme=None):
+    """Lay out `session.palette` with exactly one visual row per
+    `editor_geom.palette_items()` entry (headers included), so hit tests can
+    zip rects with items. Default position: left of the edited widget at the
+    same top y, clamped to the region; placed once (a later user move
+    sticks). No Edit/Close buttons. Returns the resolved theme."""
+    from .editor import PALETTE_W
+    from .editor_geom import palette_items
+    th = theme if theme is not None else get_theme(context)
+    items = palette_items()
+    label_h = th.text_size("hud_label")
+    rows = [((label_h + ROW_PAD_CONTROL) if rtype
+             else (label_h + ROW_PAD_SECTION), 1) for rtype, _l in items]
+    title_h = th.text_size("hud_header") + TITLE_PAD
+    widest = max((hud_text.measure(lbl, theme=th)[0] + 24.0
+                  for rtype, lbl in items if rtype), default=0.0)
+    content_w = max(
+        widest, PALETTE_W - 16.0,
+        hud_text.measure(PALETTE_TITLE, theme=th,
+                         size_token="hud_header")[0] + 16.0)
+    pal = session.palette
+    pal.title = PALETTE_TITLE
+    layout_kw = dict(padding=float(th.hud.bg_padding), title_h=title_h,
+                     row_gap=float(th.hud.row_spacing) + 2.0, edit_w=0.0,
+                     col_gap=GRID_COL_GAP)
+    wp = session.widget.panel
+    if not session.palette_placed and wp.width > 0.0:
+        pal.x = wp.x - (content_w + layout_kw["padding"] * 2.0) - PALETTE_GAP
+        pal.y = wp.y
+        session.palette_placed = True
+    pal.layout(rows, content_w, **layout_kw)
+    region = context.region
+    if region is not None:
+        pal.clamp_to_region(region.width, region.height)
+        pal.layout(rows, content_w, **layout_kw)
+    pal.close_rect = Rect()   # no close glyph: never hit-testable
+    return th
+
+
+def _draw_drag_ghost(drag, theme):
+    ghost = drag.get("ghost") if drag else None
+    if not ghost:
+        return
+    x, y, label = ghost
+    w, _ = hud_text.measure(label, theme=theme)
+    h = float(theme.text_size("hud_label")) + ROW_PAD_CONTROL
+    box = Rect(x + 12.0, y - h - 4.0, w + GHOST_PAD * 2.0, h)
+    primitives.rect_2d(box.x, box.y, box.w, box.h,
+                       color=theme.hud.bg_color, theme=theme)
+    active = _col(theme, Role.HUD_ACTIVE_VALUE, 1.0)
+    _outline(box, active, theme)
+    _text_centered(label, box, theme=theme, color=active)
+
+
+def draw_palette(context, session):
+    """Draw the floating "Add" palette (and the drag ghost on top) for the
+    edit session. Call after the widgets so it sits above them."""
+    from .editor_geom import palette_items
+    theme = compute_palette_layout(context, session)
+    pal = session.palette
+    with hud_text.isolated(theme):
+        with draw_scope(blend="ALPHA"):
+            _draw_chrome(pal, theme, 1.0, close=False)
+            line = _col(theme, Role.LINE, 1.0)
+            label = _col(theme, Role.HUD_LABEL, 1.0)
+            hint = _col(theme, Role.HUD_LABEL_INACTIVE, 1.0)
+            for (rtype, text), cells in zip(palette_items(), pal.row_rects):
+                rect = cells[0]
+                if not rtype:
+                    _text_left(text, rect, rect.x, theme=theme, color=hint)
+                else:
+                    _outline(rect, line, theme)
+                    _text_centered(text, rect, theme=theme, color=label)
+            _draw_drag_ghost(session.drag, theme)

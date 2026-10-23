@@ -25,17 +25,25 @@ def _taken_names():
 class IOPS_OT_WidgetDefAdd(bpy.types.Operator):
     bl_idname = "iops.widget_def_add"
     bl_label = "New Widget"
-    bl_description = "Create a new empty widget definition"
+    bl_description = ("Create a blank widget, show it in the largest 3D "
+                      "Viewport and open it in the visual widget editor")
     bl_options = {"REGISTER"}
 
     def execute(self, context):
+        from ...ui.widgets import editor
         name = composed.unique_name("my_widget", _taken_names())
         wdef, _ = composed.validate_def(
             {"name": name, "title": name.replace("_", " ").title(),
-             "rows": [{"type": "SECTION", "label": "Section"}]})
+             "rows": []})
         composed.save_def(wdef)
         composed.register_composed(wdef)
         widget_composer.sync_from_files(select=name)
+        # editor.begin falls back to the largest VIEW_3D (the prefs area
+        # can't host it) and shows the widget there. Cancel on a never-
+        # saved new widget deletes its file again.
+        if editor.begin(context, name, is_new=True) is None:
+            self.report({"WARNING"},
+                        f"Created '{name}' but could not open the editor")
         return {"FINISHED"}
 
 
@@ -179,9 +187,12 @@ def _external_editor_command(context, filepath):
 class IOPS_OT_WidgetEdit(bpy.types.Operator):
     bl_idname = "iops.widget_edit"
     bl_label = "Edit Widget"
-    bl_description = ("Open this widget's JSON definition in your text "
-                      "editor (Preferences > File Paths > Applications > "
-                      "Text Editor; the OS default app when unset)")
+    # Used by the widget editor N-panel's "Open JSON" button; the
+    # title-bar pen now enters the visual editor instead.
+    bl_description = ("Open this widget's raw JSON definition in your "
+                      "text editor (Preferences > File Paths > "
+                      "Applications > Text Editor; the OS default app "
+                      "when unset)")
     bl_options = {"REGISTER", "INTERNAL"}
 
     name: StringProperty(name="Widget", default="")

@@ -18,9 +18,18 @@ the adapter registry (adapters.ADAPTERS). One file per widget in
         {"type": "PRESETS", "target": "BEVEL", "values": [0, 0.25, 0.5, 1.0]},
         {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
         {"type": "BUTTON",  "label": "Clear", "op": "iops.executor",
-         "op_kwargs": {"script": "..."}, "role": "error"}
+         "op_kwargs": {"script": "..."}, "role": "error"},
+        {"type": "SPACER", "height": 12},
+        {"type": "ROW", "cells": [
+            {"type": "BUTTON", "label": "A", "op": "a.b", "span": 8},
+            {"type": "BUTTON", "label": "B", "op": "a.c", "span": 4,
+             "show_if": {"mode": "OBJECT"}}]}
       ]
     }
+
+Any row or ROW cell may carry `"span": 1..12` (12-step grid; a ROW's cell
+spans are all-or-nothing, see normalize_spans). Cells may carry `show_if`.
+SPACER is an empty row/cell (`height` px, top-level only).
 
 Adjacent FLIPBOX rows merge into one panel row (matches the edge_data
 look without exposing column configuration).
@@ -34,7 +43,9 @@ import math
 import os
 
 ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON", "ROW",
-             "SWATCH", "DROPDOWN", "INPUT", "BUTTONS")
+             "SWATCH", "DROPDOWN", "INPUT", "BUTTONS", "SPACER")
+GRID = 12
+MIN_SPACER_HEIGHT = 2.0
 VALUE_TYPES = ("STRING", "INT", "FLOAT", "DEGREES", "RADIANS", "ENUM")
 FLOAT_TARGETS = ("BEVEL", "CREASE")
 BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
@@ -46,6 +57,8 @@ MIN_WIDGET_WIDTH = 60.0
 # SPACE_TYPES.
 WIDGET_SPACES = ("VIEW_3D", "IMAGE_EDITOR")
 _EXT = ".json"
+# Editor drafts live next to the real file and are never listed/loaded.
+DRAFT_SUFFIX = ".draft.json"
 
 # Composer-editable mirror of widgets/edge_data.py — the template behind
 # "Duplicate" on the built-in entry and its JSON export.
@@ -334,6 +347,15 @@ def _clean_row_body(row):
     if rtype == "SECTION":
         out["label"] = str(row.get("label", ""))
         return out, None
+    if rtype == "SPACER":
+        if "height" in row:
+            try:
+                h = float(row["height"])
+            except (TypeError, ValueError):
+                h = None
+            if h is not None and h >= MIN_SPACER_HEIGHT:
+                out["height"] = h
+        return out, None
     if rtype == "SLIDER":
         prop = str(row.get("prop", "")).strip()
         if prop and row.get("target"):
@@ -414,15 +436,26 @@ def _clean_row_body(row):
         if not isinstance(cells_in, list):
             return None, "row cells is not a list"
         cells = []
-        for cell in cells_in:
-            c, _err = _clean_row_body(cell)
-            if c is None or c["type"] == "ROW":
-                continue   # drop unusable / nested ROW cells silently
+        cell_errs = []
+        for j, cell in enumerate(cells_in):
+            c, cerr = _clean_row(cell)
+            if c is None:
+                cell_errs.append(f"cell {j}: {cerr} — dropped")
+                continue
+            if c["type"] == "ROW":
+                cell_errs.append(f"cell {j}: nested ROW — dropped")
+                continue
+            if cerr:
+                cell_errs.append(f"cell {j}: {cerr}")
             cells.append(c)
         if not cells:
             return None, "row has no usable cells"
+        spans = normalize_spans([c.get("span") for c in cells])
+        if spans is not None:
+            for c, sp in zip(cells, spans):
+                c["span"] = sp
         out["cells"] = cells
-        return out, None
+        return out, ("; ".join(cell_errs) or None)
     if rtype == "DROPDOWN":
         prop = str(row.get("prop", "")).strip()
         data = str(row.get("data", "")).strip()
@@ -559,13 +592,43 @@ def _clean_row_body(row):
     return out, None
 
 
+def normalize_spans(spans):
+    """Resolve a ROW's per-cell spans (ints or None). None when no cell
+    has one; otherwise missing entries share the remaining grid steps
+    (>= 1 each) and the total is clipped from the right to <= GRID,
+    keeping every span >= 1. Pure."""
+    if all(s is None for s in spans):
+        return None
+    missing = sum(1 for s in spans if s is None)
+    given = sum(s for s in spans if s is not None)
+    fill = max(1, (GRID - given) // missing) if missing else 0
+    out = [fill if s is None else s for s in spans]
+    excess = sum(out) - GRID
+    for i in range(len(out) - 1, -1, -1):
+        if excess <= 0:
+            break
+        cut = min(excess, out[i] - 1)
+        out[i] -= cut
+        excess -= cut
+    return out
+
+
 def _clean_row(row):
-    """Validate one row (delegates to _clean_row_body), then parse an
-    optional show_if. Invalid show_if keeps the row always-visible and
-    reports — never drops the row for a bad predicate."""
+    """Validate one row (delegates to _clean_row_body), then parse the
+    optional `span` and `show_if`. A bad span / show_if keeps the row
+    (span dropped / always-visible) and reports — never drops the row for
+    them. Used for top-level rows AND ROW cells."""
     out, err = _clean_row_body(row)
     if out is None:
         return None, err
+    if isinstance(row, dict) and "span" in row:
+        sp = row["span"]
+        if (isinstance(sp, int) and not isinstance(sp, bool)
+                and 1 <= sp <= GRID):
+            out["span"] = sp
+        else:
+            serr = f"invalid span ({sp!r}); expected 1..{GRID} — ignored"
+            err = f"{err}; {serr}" if err else serr
     if isinstance(row, dict) and "show_if" in row:
         si, si_err = _clean_show_if(row["show_if"])
         if si_err:
@@ -626,6 +689,55 @@ def validate_def(data):
     return clean, errors
 
 
+# Keys whose drop is already reported by validate_def (bad value) or is a
+# pure default normalization — never reported as "dropped" again.
+_REPORTED_TOP_KEYS = ("width",)
+_REPORTED_ROW_KEYS = ("span", "show_if")
+
+
+def _row_dropped_keys(row, out, where):
+    msgs = []
+    for k in row:
+        if k in out or k in _REPORTED_ROW_KEYS:
+            continue
+        if k == "show_alpha" and not row[k]:
+            continue                    # False is the default
+        msgs.append(f"{where}: unknown or unused key '{k}' — dropped")
+    si = row.get("show_if")
+    if isinstance(si, dict) and isinstance(out.get("show_if"), dict):
+        for k in si:
+            if k not in out["show_if"]:
+                msgs.append(f"{where}: unknown show_if key '{k}' — dropped")
+    if out.get("type") == "ROW" and isinstance(row.get("cells"), list):
+        for j, cell in enumerate(row["cells"]):
+            c, _err = _clean_row(cell)
+            if c is None or c["type"] == "ROW":
+                continue                # whole cell dropped (reported)
+            msgs.extend(_row_dropped_keys(cell, c, f"{where} cell {j}"))
+    return msgs
+
+
+def dropped_keys(data):
+    """One message per key of the raw definition `data` that validate_def
+    silently drops (top level, rows, ROW cells, show_if clauses). Rows and
+    cells dropped as a whole are skipped — validate_def reports those.
+    Pure — pytest-covered."""
+    if not isinstance(data, dict):
+        return []
+    clean, _errors = validate_def(data)
+    if clean is None:
+        return []
+    msgs = [f"unknown key '{k}' — dropped" for k in data
+            if k not in clean and k not in _REPORTED_TOP_KEYS]
+    rows = data.get("rows", [])
+    if isinstance(rows, list):
+        for i, row in enumerate(rows):
+            out, _err = _clean_row(row)
+            if out is not None:
+                msgs.extend(_row_dropped_keys(row, out, f"row {i}"))
+    return msgs
+
+
 def merge_flipbox_runs(rows):
     """Group consecutive FLIPBOX row defs: returns a list where each item
     is either a single row def or a list of >=2 flipbox defs (one panel
@@ -633,7 +745,8 @@ def merge_flipbox_runs(rows):
     merged = []
     run = []
     for row in rows:
-        if row.get("type") == "FLIPBOX" and "show_if" not in row:
+        if (row.get("type") == "FLIPBOX" and "show_if" not in row
+                and "span" not in row):
             run.append(row)
             continue
         if run:
@@ -685,12 +798,12 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
         from ..ui.widgets import (Section, Slider, PresetRow, FlipBox,
                                   ActionButton, Row, Swatch, Dropdown,
                                   InputField, ButtonGroup)
-        from ..ui.widgets.controls import button_group_options
+        from ..ui.widgets.controls import button_group_options, Spacer
     except ImportError:
         from ui.widgets import (Section, Slider, PresetRow, FlipBox,
                                 ActionButton, Row, Swatch, Dropdown,
                                 InputField, ButtonGroup)
-        from ui.widgets.controls import button_group_options
+        from ui.widgets.controls import button_group_options, Spacer
 
     if switch_store is None:
         switch_store = {}
@@ -704,9 +817,19 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
         gate = has_selected_edges
 
     def one(row):
+        ctrl = _one(row)
+        if ctrl is not None:
+            ctrl._span = row.get("span")
+            ctrl._show_if = row.get("show_if")
+        return ctrl
+
+    def _one(row):
         rtype = row["type"]
         if rtype == "SECTION":
             return Section(row.get("label", ""))
+        if rtype == "SPACER":
+            return Spacer(span=row.get("span"), height=row.get("height"),
+                          placeholder=row.get("_placeholder", ""))
         if rtype == "SLIDER":
             if row.get("prop"):
                 # Scalar prop slider: value/range in author space (degrees
@@ -808,14 +931,15 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
         if isinstance(item, list):
             ctrl = Row([one(r) for r in item])
             ctrl._show_if = None
+            ctrl._span = None
         elif isinstance(item, dict) and item.get("type") == "ROW":
             ctrl = Row([one(r) for r in item["cells"]])
             ctrl._show_if = item.get("show_if")
+            ctrl._span = item.get("span")
         else:
             ctrl = one(item)
             if ctrl is None:
                 continue
-            ctrl._show_if = item.get("show_if")
         controls.append(ctrl)
     return controls
 
@@ -885,12 +1009,17 @@ def widget_path(name):
     return os.path.join(widgets_folder(), sanitize_name(name) + _EXT)
 
 
+def draft_path(name):
+    return os.path.join(widgets_folder(),
+                        sanitize_name(name) + DRAFT_SUFFIX)
+
+
 def list_widget_files():
     folder = widgets_folder()
     if not os.path.isdir(folder):
         return []
     return sorted(f for f in os.listdir(folder)
-                  if f.endswith(_EXT)
+                  if f.endswith(_EXT) and not f.endswith(DRAFT_SUFFIX)
                   and os.path.isfile(os.path.join(folder, f)))
 
 
@@ -950,11 +1079,16 @@ def register_composed(wdef):
             if k in inst.switches:
                 inst.switches[k] = bool(v)
     _live.add(wdef["name"])
+    # An active edit session on this widget follows the fresh instance.
+    from ..ui.widgets import editor
+    editor.on_widget_registered(inst)
     return inst, None
 
 
 def unregister_composed(name):
     from ..ui import widgets as framework
+    from ..ui.widgets import editor
+    editor.on_widget_unregistered(name)
     if name in _live:
         framework.unregister_widget(name)
         _live.discard(name)

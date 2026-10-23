@@ -13,6 +13,35 @@ downward from the title bar.
 from __future__ import annotations
 
 
+GRID = 12   # layout columns (mirrors widgets.composed.GRID)
+
+
+def grid_cells(spans, content_width: float, col_gap: float):
+    """(dx, w) per cell for consecutive spans from column 0 of a 12-step
+    grid. Unit u = (content_width - col_gap*(GRID-1)) / GRID; a cell at
+    column c with span s -> dx = c*(u+gap), w = s*u + (s-1)*gap. Spans
+    that sum to < GRID leave the right side empty."""
+    u = (content_width - col_gap * (GRID - 1)) / GRID
+    out = []
+    c = 0
+    for s in spans:
+        s = int(s)
+        out.append((c * (u + col_gap), s * u + (s - 1) * col_gap))
+        c += s
+    return out
+
+
+def grid_min_content(spans, mins, col_gap: float) -> float:
+    """Smallest content width where every cell i is >= mins[i]."""
+    if not spans:
+        return 0.0
+    u = 0.0
+    for s, m in zip(spans, mins):
+        s = max(1, int(s))
+        u = max(u, (m - (s - 1) * col_gap) / s)
+    return max(0.0, GRID * u + (GRID - 1) * col_gap)
+
+
 class Rect:
     """Axis-aligned rectangle in region pixels. (x, y) is bottom-left."""
 
@@ -102,7 +131,8 @@ class WidgetPanel:
         float is a FIXED pixel width (a button hugging its label) and
         None is FLEX (shares the remaining width equally). All-fixed
         specs scale proportionally to fill; a spec whose length doesn't
-        match n_columns falls back to the equal split.
+        match n_columns falls back to the equal split. A dict spec
+        {"spans": [..]} places cells on the 12-step grid (`grid_cells`).
         """
         rows = list(rows)
         self.padding = float(padding)
@@ -130,6 +160,13 @@ class WidgetPanel:
             cy -= height
             n = max(1, int(ncols))
             avail = content_width - col_gap * (n - 1)
+            if isinstance(spec, dict):
+                cells = [Rect(left + padding + dx, cy, w, height)
+                         for dx, w in grid_cells(spec["spans"],
+                                                 content_width, col_gap)]
+                self.row_rects.append(cells)
+                cy -= row_gap
+                continue
             if spec is not None and len(spec) == n:
                 fixed = sum(w for w in spec if w is not None)
                 nflex = sum(1 for w in spec if w is None)

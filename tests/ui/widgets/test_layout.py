@@ -350,3 +350,37 @@ def test_close_icon_diagonals_fit_inside_rect():
     # Both strokes cross at the rect center.
     assert (a[0] + b[0]) * 0.5 == pytest.approx(r.cx)
     assert (c[1] + d[1]) * 0.5 == pytest.approx(r.cy)
+
+
+# ----------------------------------------------------------------------
+# 12-step grid
+# ----------------------------------------------------------------------
+from ui.widgets.panel import grid_cells, grid_min_content
+
+
+def test_grid_cells_thirds():
+    cells = grid_cells([4, 4, 4], 120.0 + 11 * 2.0, 2.0)   # u = 10
+    assert [round(dx, 3) for dx, _ in cells] == [0.0, 48.0, 96.0]
+    assert [round(w, 3) for _, w in cells] == [46.0, 46.0, 46.0]
+
+
+def test_grid_cells_partial_row_leaves_right_empty():
+    (dx, w), = grid_cells([6], 142.0, 2.0)   # u = 10
+    assert dx == 0.0 and w == pytest.approx(6 * 10 + 5 * 2)
+
+
+def test_grid_min_content():
+    # 1-span cell needing 20px -> u >= 20 -> W = 240 + 22
+    assert grid_min_content([1, 11], [20.0, 0.0], 2.0) == pytest.approx(262.0)
+
+
+def test_grid_min_content_floor_zero():
+    assert grid_min_content([12], [0.0], 2.0) == pytest.approx(22.0)
+    assert grid_min_content([], [], 2.0) == 0.0
+
+
+def test_layout_grid_spec():
+    p = make_panel([(20.0, 3, {"spans": [3, 6, 3]})],
+                   content_width=120.0 + 11 * 6.0, col_gap=6.0)
+    xs = [round(c.x - p.row_rects[0][0].x, 3) for c in p.row_rects[0]]
+    assert xs == [0.0, 48.0, 144.0]
