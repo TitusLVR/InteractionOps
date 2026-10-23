@@ -9,7 +9,9 @@ While the button is held:
   polygon edge when within the snap threshold of one, otherwise free on
   the face at the raycast hit point.
 * **Snap** (Ctrl held, like Blender's snapping): nearest vertex / edge
-  midpoint / face centre of the hit polygon, in screen space.
+  midpoint / face centre of the hit polygon, in screen space. **A** marks
+  the snapped point (A again on it unmarks) and the cursor goes to the
+  centre of the marked points, like Blender's multi-point snapping.
 * **Aim** (Shift pressed again, toggle): the position is locked and the
   edge axis points at whatever is under the mouse.
 * **Alt** held: the position keeps following, the orientation is frozen.
@@ -70,6 +72,7 @@ def _build_help(context):
         HUDItem("Snap to nearest vertex / edge mid / face centre", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Mark / unmark the snapped point, cursor at their centre (Ctrl held)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Ignore triangulation (pick the source n-gon)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -165,6 +168,20 @@ def _draw_preview_3d(op, context):
         # point; the chosen one is drawn in Preview below, on top.
         if snap_pts:
             draw.points(snap_pts, role=Role.POINT, context=context)
+
+        # Multi-point snap (A): marked points in Locked, each tied to the
+        # averaged landing point.
+        marks = getattr(op, "_marks", None)
+        if marks and getattr(op, "_snap", False):
+            draw.points(marks, role=Role.LOCKED_POINT, context=context)
+            lines = []
+            for m in marks:
+                lines += [pos, m]
+            draw.edges_3d(lines, role=Role.LOCKED_LINE, width="preview", context=context)
+            # The snapped point under the mouse: the next candidate to mark.
+            hover = getattr(op, "_snap_pos", None)
+            if hover is not None and aim is None:
+                draw.points([hover], role=Role.ACTIVE_POINT, context=context)
 
         if aim is not None:
             tpick, tverts = aim
@@ -279,7 +296,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
     """Hold Shift+RMB: place the 3D cursor on the surface under the mouse
     (modifiers and collection instances included) and orient it to the
     surface normal and nearest edge. Move: slide along the face or edge.
-    Ctrl: snap to the nearest vertex / edge midpoint / face centre. Shift
+    Ctrl: snap to the nearest vertex / edge midpoint / face centre; A marks
+    the snapped point, the cursor goes to their centre (A again unmarks). Shift
     again: lock the position and aim the edge axis. Alt: move with the
     orientation frozen. Release to place, Esc to cancel"""
 
@@ -328,8 +346,11 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._ngon_cache = {}      # original-mesh pointer -> (loop_verts_sorted, loop_poly_sorted, mesh)
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
+        self._marks = []           # A (with Ctrl): marked snap points, averaged with the current one
+        self._snap_pos = None      # the snapped point under the mouse before averaging
         # The key/button whose release confirms: whatever invoked us.
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
+        self._mark_frame = None    # (normal, edge_dir) of the last pick, for the average over empty space
         self._mesh_cache = {}
         self._owner_cache = {}
         self._exclude = _see_through_objects(context)
@@ -341,6 +362,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud = _build_hud(context)
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
+        self._hud.add_param(HUDParam("Marked points", lambda: len(self._marks), "int"))
         self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
         self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
@@ -447,6 +469,21 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                     pick = pick._replace(normal=self._orient_lock[0],
                                          edge_dir=self._orient_lock[1])
 
+        # Multi-point snap: with marked points the landing point is their
+        # centre; the snapped point under the mouse is only a candidate to
+        # mark next. Orientation stays that of the surface under the mouse.
+        self._snap_pos = Vector(pick.position) if pick is not None else None
+        if self._snap and self._marks and aim is None:
+            avg = sum(self._marks, Vector()) / len(self._marks)
+            if pick is not None:
+                pick = pick._replace(position=tuple(avg))
+            elif self._mark_frame is not None:
+                normal, edge_dir = self._mark_frame
+                pick = Pick("VERT", -1, tuple(avg), normal, edge_dir, None)
+                verts3d = []
+        if pick is not None:
+            self._mark_frame = (pick.normal, pick.edge_dir)
+
         new_pick = None
         sig = None
         if pick is not None:
@@ -459,10 +496,10 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             # Candidates belong to the polygon under the mouse: the aim
             # target while aiming, the pick itself otherwise.
             under = aim[1] if aim is not None else verts3d
-            snapped = aim[0].position if aim is not None else pick.position
+            snapped = aim[0].position if aim is not None else self._snap_pos
             snap_pts = _snap_candidates(under, snapped) if self._snap else []
             new_pick = (pick, frame, verts3d, axis_len, tris, aim, snap_pts)
-            sig = (pick.kind, pick.index, self._snap,
+            sig = (pick.kind, pick.index, self._snap, len(self._marks),
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
                    round(axis_len, 9), len(verts3d),
@@ -577,6 +614,17 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return None
         return list(orig.polygons[cands.pop()].vertices)
 
+    def _toggle_mark(self):
+        pos = self._snap_pos
+        if pos is None:
+            return
+        tol = 1e-10 * max(1.0, pos.length_squared)
+        for i, m in enumerate(self._marks):
+            if (m - pos).length_squared <= tol:
+                del self._marks[i]
+                return
+        self._marks.append(pos.copy())
+
     # --- commit -------------------------------------------------------------
 
     def _commit(self, context):
@@ -662,7 +710,12 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et == "A":
-                self._active_only = not self._active_only
+                if self._snap:
+                    # Blender's multi-point snap: A marks the snapped point;
+                    # A on a point already marked unmarks it.
+                    self._toggle_mark()
+                else:
+                    self._active_only = not self._active_only
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et == "T":

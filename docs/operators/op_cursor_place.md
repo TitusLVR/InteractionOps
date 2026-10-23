@@ -13,7 +13,8 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 | <kbd>Ctrl</kbd> (hold) | Snap: nearest vertex, edge midpoint or face centre of the polygon under the mouse; every candidate is drawn as a theme point, the chosen one in the Result Preview colour, the element itself in Closest |
 | <kbd>Shift</kbd> (press again) | Aim, toggle: the position stays put, the edge axis points at the point under the mouse (the snapped element with Ctrl, highlighted), or at the mouse itself over empty space |
 | <kbd>Alt</kbd> (hold) | Move with the orientation frozen at the moment Alt went down |
-| <kbd>A</kbd> | Toggle: pick only on the active object, the ray passes through everything else |
+| <kbd>A</kbd> (Ctrl held) | Multi-point snap, like Blender's: mark the snapped point under the mouse; the cursor lands on the centre of all marked points. <kbd>A</kbd> on a point already marked unmarks it. Marked points are drawn in the Locked colour, each tied to the landing point, the snapped point under the mouse in Active as the next candidate; they stay for the whole drag and count only while <kbd>Ctrl</kbd> is held |
+| <kbd>A</kbd> (no Ctrl) | Toggle: pick only on the active object, the ray passes through everything else |
 | <kbd>T</kbd> | Toggle (on by default): ignore triangulation, so a triangulated n-gon is picked whole. The source polygon is read from the original mesh by vertex index, no modifier is touched and nothing re-evaluates; when the modifier stack changed the vertex count (Bevel, Mirror, Subdivision) the evaluated polygon is used as is |
 | <kbd>X</kbd> / <kbd>Y</kbd> / <kbd>Z</kbd> | Which cursor axis follows the surface normal (if it collides with the edge axis, the two swap) |
 | <kbd>F</kbd> | Flip the normal axis |
@@ -23,6 +24,7 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 | <kbd>H</kbd> | Show / hide the help legend |
 
 ## Tips
+- Centre between two vertices or faces: hold Ctrl, hover the first, press A, hover the second, press A, release. With points marked the cursor no longer follows the snap under the mouse: it sits on their centre, oriented to the surface under the mouse (or the last one over empty space).
 - Snap (Ctrl) is nearest-wins: hover a corner for the vertex, the middle of an edge for its midpoint, the middle of a face for its centre. The orientation always comes from the face under the mouse, also on a vertex, so a cube corner aligns to the face you point at rather than to the averaged vertex normal.
 - Slide uses the *Snap Threshold* from the Cursor Bisect preferences to decide when the mouse is "on" an edge. Letting go of the Shift that started the drag changes nothing: the cursor stays under the mouse.
 - The edge axis points toward the edge endpoint nearest the mouse, so you can flip its direction by hovering the other half of the edge.
