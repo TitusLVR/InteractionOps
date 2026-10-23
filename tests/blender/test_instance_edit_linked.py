@@ -17,8 +17,10 @@ Every test builds its own files in a fresh directory below one run
 directory (under ``$IOPS_TEST_TMP`` when set, else the system temp dir),
 removed after the test; the run directory is removed at the end. Each
 test points the *backup folder* preference at its own directory below the
-run directory too (restored at the end), so Commit never writes into the
-real Blender config folder:
+run directory too and starts in the *Custom folder* backup location
+(restored at the end), so Commit never writes into the real Blender config
+folder; the next-to-source tests switch to *Next to source*, whose
+``.iopsbackup`` folder lands in the test's own directory:
 
 - ``src.blend`` (the source library): collection ``C`` (``Cube`` with
   ``CubeMesh`` + ``SharedMat`` (red), ``Child`` parented to ``Cube``,
@@ -45,6 +47,7 @@ import datetime
 import json
 import math
 import os
+import platform
 import re
 import shutil
 import stat
@@ -117,9 +120,15 @@ class Fixture:
         self.lib3 = os.path.join(self.dir, "lib3.blend")
         self.lock = self.src + ".iops_lock"
         self.files = {"src.blend"}
-        # Commit backups go here, never next to the source.
+        # Commit backups go here (custom folder mode), never into the
+        # Blender config folder; next-to-source tests switch the mode.
         self.backups = tempfile.mkdtemp(prefix="bak_", dir=RUN_DIR)
-        addon_prefs().iops_instance_edit_backup_dir = self.backups
+        self.ibkp = os.path.join(self.dir, core.BACKUP_SUBFOLDER)
+        prefs = addon_prefs()
+        prefs.iops_instance_edit_backup_dir = self.backups
+        prefs.iops_instance_edit_backup_location = "CUSTOM_FOLDER"
+        prefs.iops_instance_edit_prune_only_mine = True
+        prefs.iops_instance_edit_backup_count = 3
 
 
 def build_source(fx, with_lib3=False, assets=False):
@@ -308,37 +317,52 @@ def listing(fx):
     return set(os.listdir(fx.dir))
 
 
-def points(fx):
-    """Backup points of src.blend in the fixture's backup folder, newest first."""
-    folder, pts = iel.source_points(bpy.context, fx.src)
-    assert same_path(folder, fx.backups), folder
-    return pts
+EXT, SIDE = ".iopsbackup", ".iopsbackup.json"
 
 
-def point_files(fx, point):
-    return iel.point_files(fx.backups, point)
+def points(fx, folder=None):
+    """Names of the backup points of src.blend (both locations), newest
+    first; all of them in ``folder`` (default: the custom backup folder)."""
+    pts = iel.source_points(bpy.context, fx.src)
+    folder = folder or fx.backups
+    assert all(same_path(p.folder, folder) for p in pts), [(p.name, p.folder) for p in pts]
+    return [p.name for p in pts]
 
 
-def sidecar(fx, point):
-    return iel.read_point(point_files(fx, point)[1])
+def point_files(fx, point, folder=None):
+    return iel.point_files(folder or fx.backups, point)
 
 
-def backup_listing(fx):
-    return set(os.listdir(fx.backups))
+def sidecar(fx, point, folder=None):
+    return iel.read_point(point_files(fx, point, folder)[1])
 
 
-def fake_point(fx, when, content_from=None):
-    """A backup point of src.blend stamped ``when`` (UTC), its .blend a copy
-    of ``content_from`` (a file) or empty, with a sidecar."""
-    name = core.backup_basename(fx.src, when)
-    blend, side = point_files(fx, name)
+def backup_listing(fx, folder=None):
+    folder = folder or fx.backups
+    return set(os.listdir(folder)) if os.path.isdir(folder) else set()
+
+
+def fake_point(fx, when, content_from=None, user=None, folder=None, sidecar_data=None):
+    """A backup point of src.blend stamped ``when`` (UTC) by ``user``
+    (default: the current user) in ``folder`` (default: the custom folder,
+    named with the source's hash; ``fx.ibkp``: next to the source), its copy
+    a copy of ``content_from`` (a file) or empty, with a sidecar (none when
+    ``sidecar_data`` is False)."""
+    folder = folder or fx.backups
+    path_hash = None if same_path(folder, fx.ibkp) else core.source_hash(fx.src)
+    name = core.point_name("src", user or iel.backup_user(), when, path_hash)
+    os.makedirs(folder, exist_ok=True)
+    blend, side = iel.point_files(folder, name)
     if content_from:
         shutil.copyfile(content_from, blend)
     else:
         open(blend, "wb").close()
-    with open(side, "w", encoding="utf-8") as fh:
-        json.dump({"source_path": fx.src, "backup_time": when.isoformat(),
-                   "source_stat": None, "session_uuid": None}, fh)
+    if sidecar_data is not False:
+        data = {"source_path": fx.src, "backup_time": when.isoformat(),
+                "source_stat": None, "session_uuid": None}
+        data.update(sidecar_data or {})
+        with open(side, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
     return name
 
 
@@ -582,18 +606,19 @@ def test_commit_moves_and_adds(fx):
     assert ("objects", "NewObj") in keyset(plan, "added"), plan
     assert ("objects", "Cube") in keyset(plan, "replaced"), plan
     assert result["ok"], result
-    # The backup lands in the backup folder, named for the source; nothing
-    # is left next to the source.
+    # The backup lands in the custom backup folder, named for the source
+    # (stem, path hash, user, UTC stamp); nothing is left next to the source.
     assert listing(fx) == {"src.blend"}, listing(fx)
     pts = points(fx)
-    prefix = core.backup_basename(fx.src, datetime.datetime.now())[:-len("YYYYMMDD-HHMMSS")]
-    assert len(pts) == 1 and pts[0].startswith(prefix), (pts, prefix)
-    assert re.fullmatch(r"src-[0-9a-f]{8}-\d{8}-\d{6}", pts[0]), pts
-    assert backup_listing(fx) == {pts[0] + ".blend", pts[0] + ".json"}, backup_listing(fx)
+    user = iel.backup_user()
+    assert len(pts) == 1 and re.fullmatch(
+        r"src\.%s\.%s\.\d{6}-\d{6}" % (core.source_hash(fx.src), re.escape(user)), pts[0]), pts
+    assert backup_listing(fx) == {pts[0] + EXT, pts[0] + SIDE}, backup_listing(fx)
     bak, _side = point_files(fx, pts[0])
     assert same_path(result["backup"], bak) and read(bak) == src_bytes, "backup is not the pre-commit source"
     side = sidecar(fx, pts[0])
-    assert set(side) == {"source_path", "backup_time", "source_stat", "session_uuid"}, side
+    assert set(side) == {"source_path", "backup_time", "source_stat", "session_uuid", "user", "machine"}, side
+    assert core.user_tag(side["user"]) == user and side["machine"] == platform.node(), side
     assert os.path.isabs(side["source_path"]) and same_path(side["source_path"], fx.src), side
     taken = datetime.datetime.fromisoformat(side["backup_time"])
     assert taken.utcoffset() == datetime.timedelta(0), side["backup_time"]
@@ -770,7 +795,7 @@ def test_rollback_restores_backup(fx):
 
     found = iel.backup_points_for_libraries(bpy.context)
     assert [os.path.normcase(p) for p in found] == [os.path.normcase(fx.src)], found
-    assert list(found.values()) == [pts], found
+    assert [[p.name for p in v] for v in found.values()] == [pts], found
     assert bpy.ops.iops.instance_edit_rollback_source.poll()
     assert iel.rollback_point_warning(bpy.context, fx.src, pts[0]) is None
     # A corrupt or missing sidecar: the point is still offered, with a
@@ -908,14 +933,15 @@ def test_commit_refuses_already_committed_session(fx):
     # Sidecars of several Commits of this source, one of them by this
     # session (what its Commit leaves, then an undo bringing it back).
     t0 = datetime.datetime(2026, 1, 2, 3, 4, 5)
-    names = [core.backup_basename(fx.src, t0 + datetime.timedelta(minutes=m)) for m in range(3)]
-    stranger = core.backup_basename(os.path.join(fx.dir, "other", "src.blend"), t0)
+    me, h = iel.backup_user(), core.source_hash(fx.src)
+    names = [core.point_name("src", me, t0 + datetime.timedelta(minutes=m), h) for m in range(3)]
+    stranger = core.point_name("src", me, t0, core.source_hash(os.path.join(fx.dir, "other", "src.blend")))
 
     def write_sidecars(mine_stat):
         rows = [(names[0], "1" * 32, [1.0, 2]), (names[1], s.uuid, mine_stat),
                 (names[2], "2" * 32, None), (stranger, "3" * 32, [1.0, 2])]
         for name, owner, st in rows:
-            with open(os.path.join(fx.backups, name + ".json"), "w", encoding="utf-8") as fh:
+            with open(os.path.join(fx.backups, name + SIDE), "w", encoding="utf-8") as fh:
                 json.dump({"source_path": fx.src, "backup_time": t0.isoformat(),
                            "source_stat": st, "session_uuid": owner}, fh)
 
@@ -926,7 +952,7 @@ def test_commit_refuses_already_committed_session(fx):
     assert not result["ok"] and result["error"] == iel.ALREADY_COMMITTED, result
     assert result["error"] == "This session was already committed; Cancel it"
     assert read(fx.src) == src_bytes and listing(fx) == {"src.blend"}, listing(fx)
-    assert backup_listing(fx) == {n + ".json" for n in names + [stranger]}, backup_listing(fx)
+    assert backup_listing(fx) == {n + SIDE for n in names + [stranger]}, backup_listing(fx)
     assert stack_len() == 1 and bpy.data.collections.get("C [edit]") == top().copy_collection
     # A sidecar of another source naming the session does not block, nor
     # one whose write never succeeded (no source_stat), nor other uuids.
@@ -1039,7 +1065,7 @@ def test_backups_pruned_and_rollback_to_a_point(fx):
         # was removed with its sidecar.
         pts = points(fx)
         assert len(pts) == 2, backup_listing(fx)
-        assert backup_listing(fx) == {p + e for p in pts for e in (".blend", ".json")}, backup_listing(fx)
+        assert backup_listing(fx) == {p + e for p in pts for e in (EXT, SIDE)}, backup_listing(fx)
         assert sorted(pts, reverse=True) == pts
         assert [read(point_files(fx, p)[0]) for p in pts] == [states[2], states[1]]
         assert [sidecar(fx, p)["session_uuid"] for p in pts] == [uuids[2], uuids[1]]
@@ -1048,12 +1074,12 @@ def test_backups_pruned_and_rollback_to_a_point(fx):
         assert iel.already_committed(fake_session(uuids[2], fx))
         assert iel.already_committed(fake_session(uuids[1], fx))
         assert not iel.already_committed(fake_session(uuids[0], fx)), "its point was pruned"
-        assert list(iel.backup_points_for_libraries(bpy.context).values()) == [pts]
-        # The point enum: newest first, "<time>  -  <basename>".
+        assert [[p.name for p in v] for v in iel.backup_points_for_libraries(bpy.context).values()] == [pts]
+        # The point enum: newest first, "<local time>  mine  [folder]".
         items = iel._point_items(types.SimpleNamespace(source_path=fx.src), bpy.context)
         assert [it[0] for it in items] == pts, items
         for it in items:
-            assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  \u2014  " + re.escape(it[0]), it[1]), it
+            assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  mine  \[folder\]", it[1]), it
         # Only the newest point matches the source as it is now.
         assert iel.rollback_point_warning(bpy.context, fx.src, pts[0]) is None
         assert iel.rollback_point_warning(bpy.context, fx.src, pts[1]) == "src.blend was modified after this backup"
@@ -1108,19 +1134,25 @@ def test_backups_pruned_and_rollback_to_a_point(fx):
 
 
 def rollback_test_operator(between):
-    """Rollback with invoke's work (snapshot, newest preselected), then
+    """Rollback with invoke's work (snapshot, newest own point preselected), then
     ``between(op)`` where the dialog would be shown, then execute. Done in
-    execute: headless there is no event, so Blender never calls invoke."""
-    class IOPS_OT_test_rollback_shift(iel.IOPS_OT_instance_edit_rollback_source):
+    execute: headless there is no event, so Blender never calls invoke.
+    Not a subclass: unregistering a subclass strips the inherited
+    callbacks (poll) from the real operator class."""
+    real = iel.IOPS_OT_instance_edit_rollback_source
+
+    class IOPS_OT_test_rollback_shift(bpy.types.Operator):
         bl_idname = "iops.test_rollback_shift"
         bl_label = "Test Rollback Shift"
         source_path: bpy.props.StringProperty()
         point: bpy.props.EnumProperty(items=iel._point_items, options={"SKIP_SAVE"})
+        prepare = real.prepare
+        _execute = real._execute
 
         def execute(self, context):
             assert self.prepare(context) is not None
             between(self)
-            return super().execute(context)
+            return real.execute(self, context)
 
     return IOPS_OT_test_rollback_shift
 
@@ -1142,7 +1174,7 @@ def test_prune_keeps_the_point_just_written(fx):
         assert len(pts) == 1 and pts[0] != future, pts
         bak, _side = point_files(fx, pts[0])
         assert same_path(result["backup"], bak) and read(bak) == src_bytes
-        assert backup_listing(fx) == {pts[0] + ".blend", pts[0] + ".json"}, backup_listing(fx)
+        assert backup_listing(fx) == {pts[0] + EXT, pts[0] + SIDE}, backup_listing(fx)
     finally:
         prefs.iops_instance_edit_backup_count = was_count
 
@@ -1227,6 +1259,377 @@ def test_backup_dir_default_and_pref():
         prefs.iops_instance_edit_backup_dir = was
 
 
+# --- backup location next to the source, other users' points, cleanup --------
+
+OTHER = "colleague"
+
+
+def next_to_source(fx):
+    addon_prefs().iops_instance_edit_backup_location = "NEXT_TO_SOURCE"
+    assert OTHER != iel.backup_user()
+
+
+def bump_cube(inst):
+    activate(inst)
+    assert bpy.ops.iops.instance_edit_start() == {"FINISHED"}
+    owned(top(), "objects", "Cube").location.x += 1.0
+    bpy.context.view_layer.update()
+
+
+def test_next_to_source_commit_and_per_user_prune(fx):
+    prefs = addon_prefs()
+    next_to_source(fx)
+    prefs.iops_instance_edit_backup_count = 2
+    _saved, inst, _inst2, _before = start(fx)
+    src_bytes = read(fx.src)
+    session_uuid = top().uuid
+    edit_session(top())
+    # While the Commit runs only its temp files, its lock and the backup
+    # folder appear beside the source.
+    seen = []
+    real_run = iel.run_worker
+
+    def spy(*args, **kwargs):
+        seen.append(listing(fx))
+        return real_run(*args, **kwargs)
+
+    copies = []
+    real_copy2 = iel.shutil.copy2
+
+    def copy_spy(src, dst, *args, **kwargs):
+        copies.append(os.path.basename(dst))
+        assert iel.source_points(bpy.context, fx.src) == [], "a half copy is listed"
+        out = real_copy2(src, dst, *args, **kwargs)
+        assert iel.source_points(bpy.context, fx.src) == [], "a .part copy is listed"
+        return out
+
+    iel.run_worker = spy
+    iel.shutil.copy2 = copy_spy
+    try:
+        _plan, result = commit(top())
+    finally:
+        iel.run_worker = real_run
+        iel.shutil.copy2 = real_copy2
+    assert len(copies) == 1 and copies[0].endswith(".iopsbackup.part"), copies
+    assert result["ok"], result
+    allowed = re.compile(
+        r"src\.iops_commit-[0-9a-f]{8}\.(blend|json|result\.json)|src\.blend\.iops_lock|src\.blend|\.iopsbackup")
+    assert len(seen) >= 2 and all(allowed.fullmatch(n) for names in seen for n in names), seen
+    assert any("src.blend.iops_lock" in names for names in seen), seen
+    assert listing(fx) == {"src.blend", ".iopsbackup"}, listing(fx)
+    assert backup_listing(fx) == set(), "the custom folder was used in next-to-source mode"
+    user = iel.backup_user()
+    pts = points(fx, fx.ibkp)
+    assert len(pts) == 1 and re.fullmatch(r"src\.%s\.\d{6}-\d{6}" % re.escape(user), pts[0]), pts
+    assert backup_listing(fx, fx.ibkp) == {pts[0] + EXT, pts[0] + SIDE}, backup_listing(fx, fx.ibkp)
+    assert same_path(result["backup"], point_files(fx, pts[0], fx.ibkp)[0]) and read(result["backup"]) == src_bytes
+    side = sidecar(fx, pts[0], fx.ibkp)
+    assert core.user_tag(side["user"]) == user and side["machine"] == platform.node(), side
+    assert side["session_uuid"] == session_uuid and tuple(side["source_stat"]) == iel.file_stat(fx.src), side
+    assert iel.already_committed(fake_session(session_uuid, fx))
+
+    # A colleague's points and two older points of mine in the same folder.
+    t = datetime.datetime(2025, 1, 1, tzinfo=UTC)
+    theirs = [fake_point(fx, t + datetime.timedelta(days=d), fx.src, user=OTHER, folder=fx.ibkp) for d in range(3)]
+    old_own = [fake_point(fx, t + datetime.timedelta(days=10 + d), fx.src, folder=fx.ibkp) for d in range(2)]
+    stale_part = core.point_name("src", user, t)  # a crashed Commit's copy
+    fresh_part = core.point_name("src", user, datetime.datetime.now(UTC))  # being written now
+    for name in (stale_part, fresh_part):
+        open(iel.part_path(fx.ibkp, name), "wb").close()
+    bump_cube(inst)
+    _plan, result = commit(top())
+    assert result["ok"], result
+    # The limit (2) counts only my points: the two Commits stay, my older
+    # points go, every one of the colleague's points stays whole.
+    pts = points(fx, fx.ibkp)
+    own = [p for p in pts if core.point_user(p) == user]
+    assert len(own) == 2, pts
+    assert not set(own) & set(old_own) and set(pts) == set(own) | set(theirs), pts
+    assert all(os.path.exists(f) for p in theirs for f in point_files(fx, p, fx.ibkp)), backup_listing(fx, fx.ibkp)
+    assert not any(os.path.exists(f) for p in old_own for f in point_files(fx, p, fx.ibkp))
+    assert not os.path.exists(iel.part_path(fx.ibkp, stale_part)), "stale .part not swept"
+    assert os.path.exists(iel.part_path(fx.ibkp, fresh_part)), "a fresh .part was removed"
+    os.remove(iel.part_path(fx.ibkp, fresh_part))
+
+    # Off: the limit counts every point of the source, so the colleague's
+    # (older) points go too; the protected point always stays.
+    prefs.iops_instance_edit_prune_only_mine = False
+    removed = iel.prune_points(bpy.context, fx.src, protect=own[1])
+    assert set(removed) == set(theirs), removed
+    assert points(fx, fx.ibkp) == own
+    assert backup_listing(fx, fx.ibkp) == {p + e for p in own for e in (EXT, SIDE)}, backup_listing(fx, fx.ibkp)
+
+
+def test_rollback_lists_everyones_points(fx):
+    next_to_source(fx)
+    _saved, _inst, _inst2, _before = start(fx)
+    original = read(fx.src)
+    edit_session(top())
+    _plan, result = commit(top())
+    assert result["ok"], result
+    state1 = read(fx.src)
+    mine = points(fx, fx.ibkp)
+    assert len(mine) == 1 and read(point_files(fx, mine[0], fx.ibkp)[0]) == original
+    # A colleague's newer point (the source as it is now) next to the
+    # source, and a point of mine left in the custom folder (taken before
+    # the location mode was switched).
+    theirs = fake_point(fx, datetime.datetime(2030, 1, 1, tzinfo=UTC), fx.src, user=OTHER, folder=fx.ibkp,
+                        sidecar_data={"user": "Col League"})
+    custom = fake_point(fx, datetime.datetime(2024, 1, 1, tzinfo=UTC), point_files(fx, mine[0], fx.ibkp)[0])
+    pts = iel.source_points(bpy.context, fx.src)
+    assert [p.name for p in pts] == [theirs, mine[0], custom], pts
+    assert [p.kind for p in pts] == ["NEXT_TO_SOURCE", "NEXT_TO_SOURCE", "CUSTOM_FOLDER"], pts
+    found = iel.backup_points_for_libraries(bpy.context)
+    assert [os.path.normcase(p) for p in found] == [os.path.normcase(fx.src)], found
+    assert bpy.ops.iops.instance_edit_rollback_source.poll()
+
+    snap = iel.rollback_snapshot(bpy.context, fx.src)
+    assert snap["default"] == mine[0], snap["default"]
+    labels = [it[1] for it in snap["items"]]
+    assert [it[0] for it in snap["items"]] == [theirs, mine[0], custom], snap["items"]
+    assert labels[0].endswith("  Col League  [.iopsbackup]"), labels  # the raw sidecar user
+    assert labels[1].endswith("  mine  [.iopsbackup]") and labels[2].endswith("  mine  [folder]"), labels
+    assert re.match(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  ", labels[0]), labels
+    assert len({it[3] for it in snap["items"]}) == 3
+    # Two points of one second (two users): distinct enum numbers.
+    same = [core.point_name("src", u, datetime.datetime(2030, 1, 1, tzinfo=UTC)) for u in ("a", "b")]
+    assert len(set(iel.point_numbers(same).values())) == 2
+    # The open dialog's numbers stay fixed: a point of the same second as
+    # mine[0] that appears meanwhile (and would sort first) is numbered
+    # around them, so the stored choice still maps to mine[0].
+    numbers = {it[0]: it[3] for it in snap["items"]}
+    stamp = core.point_stamp(mine[0])
+    intruder = fake_point(fx, stamp, fx.src, user="aaa", folder=fx.ibkp)
+    assert iel.point_numbers([intruder, mine[0]])[intruder] == numbers[mine[0]], "no collision to test"
+    iel._rollback_dialog["snapshot"] = snap
+    try:
+        now_items = {it[0]: it[3] for it in iel._point_items(types.SimpleNamespace(source_path=fx.src), bpy.context)}
+    finally:
+        iel._rollback_dialog["snapshot"] = None
+    assert all(now_items[n] == v for n, v in numbers.items()), (numbers, now_items)
+    assert now_items[intruder] not in numbers.values(), now_items
+    iel._remove_point(*point_files(fx, intruder, fx.ibkp))
+    # A missing sidecar: still listed, the user taken from the file name.
+    os.remove(point_files(fx, theirs, fx.ibkp)[1])
+    snap = iel.rollback_snapshot(bpy.context, fx.src)
+    assert [it[0] for it in snap["items"]] == [theirs, mine[0], custom], snap["items"]
+    assert snap["items"][0][1].endswith("  %s  [.iopsbackup]" % OTHER), snap["items"][0]
+    assert snap["warnings"][theirs] == CANNOT, snap["warnings"]
+
+    # The dialog preselects my newest point, not the colleague's newer one.
+    chosen = {}
+
+    def between(op):
+        chosen["point"] = op.point
+
+    op_cls = rollback_test_operator(between)
+    bpy.utils.register_class(op_cls)
+    try:
+        assert bpy.ops.iops.test_rollback_shift(source_path=fx.src) == {"FINISHED"}
+    finally:
+        bpy.utils.unregister_class(op_cls)
+    assert chosen["point"] == mine[0] and read(fx.src) == original, chosen
+    # The colleague's point, chosen explicitly.
+    assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src, point=theirs) == {"FINISHED"}
+    assert read(fx.src) == state1
+    assert "NewObj" in linked("C", fx).objects
+    # Without a point: my newest again.
+    assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src) == {"FINISHED"}
+    assert read(fx.src) == original
+    # The point in the other location.
+    assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src, point=theirs) == {"FINISHED"}
+    assert bpy.ops.iops.instance_edit_rollback_source(source_path=fx.src, point=custom) == {"FINISHED"}
+    assert read(fx.src) == original
+    assert "NewObj" not in linked("C", fx).objects
+    assert listing(fx) == {"src.blend", ".iopsbackup"}, listing(fx)
+    assert [p.name for p in iel.source_points(bpy.context, fx.src)] == [theirs, mine[0], custom]
+
+
+def test_cleanup_backups(fx):
+    next_to_source(fx)
+    build_source(fx)
+    build_editing_file(fx)
+    # Saved next to the source, so "//src.blend" names the source.
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(fx.dir, "edit.blend"))
+    me = iel.backup_user()
+    now = datetime.datetime.now(UTC).replace(microsecond=0)
+    old, recent = now - datetime.timedelta(days=60), now - datetime.timedelta(days=1)
+    own_old = fake_point(fx, old, fx.src, folder=fx.ibkp)
+    own_recent = fake_point(fx, recent, fx.src, folder=fx.ibkp)
+    their_old = fake_point(fx, old, fx.src, user=OTHER, folder=fx.ibkp, sidecar_data={"user": OTHER})
+    custom_old = fake_point(fx, old, fx.src)
+    # A sidecar whose copy is gone counts as a point; so does a stale .part
+    # copy (a crashed Commit's), never a fresh one (a Commit writing now).
+    orphan = fake_point(fx, old - datetime.timedelta(minutes=5), folder=fx.ibkp)
+    os.remove(point_files(fx, orphan, fx.ibkp)[0])
+    stale_part = core.point_name("src", me, old - datetime.timedelta(minutes=9))
+    fresh_part = core.point_name("src", me, now)
+    for name in (stale_part, fresh_part):
+        shutil.copyfile(fx.src, iel.part_path(fx.ibkp, name))
+    # Another source's point in the custom folder, and files that are no
+    # backup points (some with the backup extensions).
+    stranger = core.point_name("zzz", me, old, "0a1b2c3d")
+    for path in iel.point_files(fx.backups, stranger):
+        shutil.copyfile(fx.src, path)
+    junk = ("notes.txt", "notes.iopsbackup", "src.iopsbackup", "x.y.iopsbackup.json",
+            "src.%s.2601-01.iopsbackup" % me)
+    for folder in (fx.backups, fx.ibkp):
+        for name in junk:
+            open(os.path.join(folder, name), "w").close()
+
+    def plan(scope="LIBRARIES", days=30, only_mine=True, source="", not_after=None):
+        return iel.cleanup_candidates(bpy.context, scope, days, only_mine, source, not_after)
+
+    def names(pl):
+        return sorted(n for _f, n in pl.points)
+
+    mine_old = sorted([own_old, custom_old, orphan, stale_part])
+    assert names(plan()) == mine_old, names(plan())
+    assert names(plan(only_mine=False)) == sorted(mine_old + [their_old])
+    assert names(plan(days=0)) == sorted(mine_old + [own_recent])  # a fresh .part is no candidate
+    assert names(plan(days=0, only_mine=False)) == sorted(mine_old + [own_recent, their_old])
+    # Points taken after the dialog opened are never candidates.
+    assert names(plan(days=0, not_after=recent - datetime.timedelta(hours=1))) == mine_old
+    assert names(plan(source=fx.src)) == mine_old
+    assert names(plan(source="//src.blend")) == mine_old
+    assert names(plan(source=os.path.join(fx.dir, "nope.blend"))) == []
+    assert names(plan("CUSTOM_FOLDER")) == sorted([custom_old, stranger])
+    assert names(plan("CUSTOM_FOLDER", source=fx.src)) == [custom_old]
+    assert names(plan("CUSTOM_FOLDER", source="//src.blend")) == [custom_old]
+    dry = plan()
+    expected = {own_old + EXT, own_old + SIDE, custom_old + EXT, custom_old + SIDE, orphan + SIDE,
+                stale_part + ".iopsbackup.part"}
+    assert {os.path.basename(f) for f in dry.files} == expected, dry.files
+    assert dry.bytes == sum(os.path.getsize(f) for f in dry.files), dry
+    assert [same_path(src, fx.src) for src, _files in dry.groups] == [True], dry.groups
+
+    # The source is locked (a Commit runs): its files are skipped, whole.
+    with open(fx.lock, "w"):
+        pass
+    assert iel.run_cleanup(bpy.context, dry)[:4] == (0, 0, 0, len(dry.files))
+    assert all(os.path.exists(f) for f in dry.files)
+    os.remove(fx.lock)
+    # The confirmed plan is deleted exactly: a matching point that appears
+    # after it was taken stays.
+    late = fake_point(fx, old + datetime.timedelta(minutes=1), fx.src, folder=fx.ibkp)
+    before_ibkp, before_custom = backup_listing(fx, fx.ibkp), backup_listing(fx)
+    deleted, freed, failed, skipped, _refusals = iel.run_cleanup(bpy.context, dry)
+    assert (deleted, freed, failed, skipped) == (len(dry.files), dry.bytes, 0, 0)
+    gone = {os.path.basename(f) for f in dry.files}
+    assert backup_listing(fx, fx.ibkp) == before_ibkp - gone, backup_listing(fx, fx.ibkp)
+    assert backup_listing(fx) == before_custom - gone, backup_listing(fx)
+    assert os.path.exists(point_files(fx, late, fx.ibkp)[0]) and not os.path.exists(fx.lock)
+    # Through the operator (scripted, so it plans itself).
+    assert bpy.ops.iops.instance_edit_backups_cleanup(scope="LIBRARIES", older_than_days=30, only_mine=True) == {"FINISHED"}
+    assert not os.path.exists(point_files(fx, late, fx.ibkp)[0])
+    # only_mine not given: the prune preference decides (off: everyone's).
+    addon_prefs().iops_instance_edit_prune_only_mine = False
+    assert bpy.ops.iops.instance_edit_backups_cleanup(older_than_days=30) == {"FINISHED"}
+    keep = {own_recent + EXT, own_recent + SIDE, fresh_part + ".iopsbackup.part"} | set(junk)
+    assert backup_listing(fx, fx.ibkp) == keep, backup_listing(fx, fx.ibkp)
+    # The whole custom folder, every age: the other source's point goes,
+    # files outside the point grammar stay.
+    assert names(plan("CUSTOM_FOLDER", days=0, only_mine=False)) == [stranger]
+    assert bpy.ops.iops.instance_edit_backups_cleanup(scope="CUSTOM_FOLDER", older_than_days=0, only_mine=False) == {"FINISHED"}
+    assert backup_listing(fx) == set(junk), backup_listing(fx)
+    assert backup_listing(fx, fx.ibkp) == keep
+    assert listing(fx) == {"src.blend", "edit.blend", ".iopsbackup"}, listing(fx)
+
+
+# Two raw OS user names that reduce to one backup-name tag ("____").
+IVAN = "".join(map(chr, (0x418, 0x432, 0x430, 0x43D)))
+PETR = "".join(map(chr, (0x41F, 0x451, 0x442, 0x440)))
+
+
+def test_same_tag_users_kept_apart(fx):
+    next_to_source(fx)
+    prefs = addon_prefs()
+    prefs.iops_instance_edit_backup_count = 1
+    build_source(fx)
+    build_editing_file(fx)
+    real_user = iel._os_user
+    iel._os_user = lambda: IVAN
+    try:
+        assert iel.backup_user() == core.user_tag(PETR) == "____"
+        t = datetime.datetime(2025, 1, 1, tzinfo=UTC)
+
+        def at(hours, user, side_user):
+            data = False if side_user is False else {"user": side_user}
+            return fake_point(fx, t + datetime.timedelta(hours=hours), fx.src, user=user, folder=fx.ibkp,
+                              sidecar_data=data)
+
+        # The sidecar's user decides (case-folded); a point without a
+        # sidecar falls back to the tag in its name.
+        ivan = [at(1, IVAN, IVAN), at(3, IVAN, IVAN.upper())]
+        petr = [at(2, PETR, PETR), at(4, PETR, PETR)]
+        bare = at(0, IVAN, False)
+        assert [iel.is_mine(n, fx.ibkp) for n in ivan + petr + [bare]] == [True, True, False, False, True]
+
+        snap = iel.rollback_snapshot(bpy.context, fx.src)
+        assert snap["default"] == ivan[1], snap["default"]  # not Petr's newer point
+        labels = {it[0]: it[1] for it in snap["items"]}
+        assert labels[ivan[1]].endswith("  mine  [.iopsbackup]"), labels
+        assert labels[petr[1]].endswith("  %s  [.iopsbackup]" % PETR), labels
+        plan = iel.cleanup_candidates(bpy.context, "LIBRARIES", 0, True)
+        assert sorted(n for _f, n in plan.points) == sorted(ivan + [bare]), plan.points
+
+        # Petr sees his own points as his, Ivan's labelled with Ivan's name.
+        iel._os_user = lambda: PETR
+        snap = iel.rollback_snapshot(bpy.context, fx.src)
+        assert snap["default"] == petr[1], snap["default"]
+        labels = {it[0]: it[1] for it in snap["items"]}
+        assert labels[petr[1]].endswith("  mine  [.iopsbackup]"), labels
+        assert labels[ivan[0]].endswith("  %s  [.iopsbackup]" % IVAN), labels
+        plan = iel.cleanup_candidates(bpy.context, "LIBRARIES", 0, True)
+        assert sorted(n for _f, n in plan.points) == sorted(petr + [bare]), plan.points
+        # Pruning to one point counts only Petr's (the bare point's tag is
+        # his too): Ivan's points stay whole.
+        removed = iel.prune_points(bpy.context, fx.src, protect=petr[1])
+        assert sorted(removed) == sorted([petr[0], bare]), removed
+        iel._os_user = lambda: IVAN
+        removed = iel.prune_points(bpy.context, fx.src, protect=ivan[1])
+        assert removed == [ivan[0]], removed
+        assert points(fx, fx.ibkp) == [petr[1], ivan[1]]
+        assert all(os.path.exists(f) for n in (petr[1], ivan[1]) for f in point_files(fx, n, fx.ibkp))
+    finally:
+        iel._os_user = real_user
+
+
+def test_next_to_source_folder_not_creatable(fx):
+    next_to_source(fx)
+    _saved, _inst, _inst2, _before = start(fx)
+    edit_session(top())
+    src_bytes = read(fx.src)
+    plan, stat = dry_run(top())
+    real = os.makedirs
+
+    def deny(path, *args, **kwargs):
+        if os.path.basename(os.path.normpath(path)) == core.BACKUP_SUBFOLDER:
+            raise PermissionError(13, "Access is denied", path)
+        return real(path, *args, **kwargs)
+
+    iel.os.makedirs = deny
+    try:
+        result = iel.commit_linked(bpy.context, top(), set(), plan, stat)
+    finally:
+        iel.os.makedirs = real
+    assert not result["ok"] and result["error"].startswith("Could not back up src.blend: "), result
+    assert read(fx.src) == src_bytes, "the source was written without a backup"
+    assert listing(fx) == {"src.blend"} and stack_len() == 1, listing(fx)
+    assert iel.source_points(bpy.context, fx.src) == [] and backup_listing(fx) == set()
+    # A merge that fails without touching the source removes its point and
+    # the .iopsbackup folder it created.
+    plan, stat = dry_run(top())
+    wrong = dict(plan)
+    wrong["replaced"] = []
+    result = iel.commit_linked(bpy.context, top(), set(), wrong, stat)
+    assert not result["ok"] and result["error"].startswith("Merge failed, src.blend not written: "), result
+    assert read(fx.src) == src_bytes and listing(fx) == {"src.blend"}, listing(fx)
+    _plan, result = commit(top())
+    assert result["ok"], result
+    assert listing(fx) == {"src.blend", ".iopsbackup"} and len(points(fx, fx.ibkp)) == 1, listing(fx)
+
+
 def test_newer_source_is_refused():
     assert iel.newer_source_error({"source_blender_version": list(bpy.app.version_file)}) is None
     assert iel.newer_source_error({}) is None
@@ -1257,6 +1660,11 @@ TESTS = [
     test_commit_refuses_already_committed_session,
     test_commit_refuses_while_source_locked,
     test_p4_edit_output_shown_and_must_sync_refuses,
+    test_next_to_source_commit_and_per_user_prune,
+    test_rollback_lists_everyones_points,
+    test_cleanup_backups,
+    test_same_tag_users_kept_apart,
+    test_next_to_source_folder_not_creatable,
 ]
 
 
@@ -1305,14 +1713,17 @@ def main():
         sys.exit(1)
     RUN_DIR = tempfile.mkdtemp(prefix="iops_linked_", dir=TMP_ROOT)
     prefs = addon_prefs()
-    was_backup_dir = prefs.iops_instance_edit_backup_dir
+    kept = ("iops_instance_edit_backup_dir", "iops_instance_edit_backup_location",
+            "iops_instance_edit_prune_only_mine", "iops_instance_edit_backup_count")
+    was = {name: getattr(prefs, name) for name in kept}
     try:
         failed = run_tests()
     except Exception:
         traceback.print_exc()
         failed = ["run_tests"]
     finally:
-        prefs.iops_instance_edit_backup_dir = was_backup_dir
+        for name, value in was.items():
+            setattr(prefs, name, value)
         shutil.rmtree(RUN_DIR, ignore_errors=True)
     if os.path.exists(RUN_DIR):
         print("FAIL cleanup: %s not removed" % RUN_DIR)

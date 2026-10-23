@@ -151,27 +151,32 @@ Poll: top-of-stack session is a linked session. Drops to Object Mode.
    would end up without users), so nothing is dropped silently; ticking the
    collection keeps them.
    Cancel = nothing written, session stays open.
-4. **Write**: back up the source into the **backup folder** (preference
-   `iops_instance_edit_backup_dir`, default `<Blender user config>/iops/
-   instance_edit_backups/`; never next to the source, so nothing lands in
-   Perforce or in an asset-library folder, and users on a shared drive do
-   not overwrite each other's backups) as
-   `<stem>-<8 hex of sha1(absolute source path)>-<YYYYMMDD-HHMMSS>.blend`
-   with a sidecar `.json` (original absolute path, backup time, post-write
-   source stat, the committing session's uuid). Keep the newest
-   `iops_instance_edit_backup_count` backups per source (default 3,
-   oldest removed after a successful write). Then run the worker in write
-   mode. A session carries a uuid from Start; Commit refuses a session
-   whose uuid any backup sidecar of that source names ("this session was
-   already committed; Cancel it"), which closes the Ctrl+Z-after-Commit
-   double merge. A source saved by a **newer** Blender than the running one
-   is refused (the worker would silently save the whole library
-   down-version). A read-only source is checked out in Perforce
+4. **Write**: back up the source first. **Backup location** is a
+   preference with two modes:
+   - **Next to source** (default): a subfolder `.iopsbackup` beside the source
+     file, backups named `<stem>.<user>.<YYMMDD-HHMMSS>.iopsbackup` (UTC stamp,
+     `user` = the OS user name, cut to 12 chars) with a sidecar
+     `.iopsbackup.json` (source path, backup time, post-write source stat, the
+     committing session's uuid, user and machine). One folder per library
+     folder, one `.p4ignore` line (`.iopsbackup/`), Asset Browser and the
+     addon's master-file detection ignore it (not `.blend`), colleagues on
+     a shared drive can see and restore each other's points.
+   - **Custom folder** (preference `iops_instance_edit_backup_dir`, empty =
+     `<Blender user config>/iops/instance_edit_backups/`): per-user,
+     nothing lands in the workspace; names carry a path hash in addition:
+     `<stem>.<hash8>.<user>.<stamp>.iopsbackup`.
+   The newest `iops_instance_edit_backup_count` points per source are
+   kept (default 3). With **Prune only my backups** on (default) the limit
+   counts only the current user's points and other users' points are
+   never deleted; off, the limit counts every point of the source. The
+   point just written is never pruned. Then run the worker in write mode.
+   A session carries a uuid from Start; Commit refuses a session whose
+   uuid a backup sidecar of that source names ("this session was already
+   committed; Cancel it"). A source saved by a **newer** Blender than the
+   running one is refused. A read-only source is checked out in Perforce
    automatically (`p4 edit`, preference on by default) and the user is
-   told; the `p4 edit` output is shown in the dialog and a "must
-   sync/resolve" answer refuses. The UI is blocked while the worker runs
-   (wait cursor + status text; the docs say so). Backups are per machine:
-   Rollback is for "just now", Perforce holds the history.
+   told; a "must sync/resolve" answer refuses. The UI is blocked while the
+   worker runs (wait cursor + status text).
 5. **Reload**: `library.reload()` for this source's Library datablock.
 6. **Cleanup**: remove the copy collection and every owned ID that has no
    other users (a fake user counts as a user for IDs that existed before
@@ -186,14 +191,24 @@ without reload, and never touches the source file.
 
 ### Rollback — `iops.instance_edit_rollback_source`
 
-Lists the backup points of the libraries of the current file (newest
-first, per source), lets the user pick one (default: the newest of the
-chosen source), and after an explicit confirmation naming the backup time
-(and warning when the source was modified after that backup) copies it
-over the source via a temp file and `os.replace` (after the same writable
-check as Commit, incl. Perforce checkout), then reloads the library. The
-header shows the Rollback button while any library of the file has a
-backup point.
+Scans the backup location of a source and lists **every** point found
+there, own and other users' (label: local time, user, and "mine" /
+"<user>"), newest first, the newest own point preselected. After an
+explicit confirmation naming the point (warning when the source was
+modified after it, or when that cannot be told) it copies the point over
+the source via a temp file and `os.replace` (after the same writable check
+as Commit, incl. Perforce checkout) and reloads the library. The header
+shows the Rollback button while any library of the file has a point.
+
+### Clean Up Backups — `iops.instance_edit_backups_cleanup`
+
+Button in the Instance Edit preferences section and in the Rollback
+dialog. Dialog: scope (the backup locations of the current file's
+libraries, or the whole custom folder), age ("older than N days", default
+30, 0 = all), and "only my backups" (default = the prune preference). It
+shows how many files and megabytes will go, then deletes `.iopsbackup` +
+sidecar pairs after confirmation. Other users' points are deleted only
+when "only my backups" is off.
 
 ### Session stack
 
@@ -323,9 +338,12 @@ Next to `iops_ss_header`:
 - `iops_instance_edit_p4` BoolProperty, default off: try `p4 edit` on a
   read-only source before Commit.
 - `iops_instance_edit_worker_timeout` IntProperty, default 300.
+- `iops_instance_edit_backup_location` EnumProperty NEXT_TO_SOURCE
+  (default) | CUSTOM_FOLDER.
 - `iops_instance_edit_backup_dir` StringProperty (DIR_PATH), default empty
-  = `<Blender user config>/iops/instance_edit_backups/`.
+  = `<Blender user config>/iops/instance_edit_backups/` (custom mode only).
 - `iops_instance_edit_backup_count` IntProperty, default 3, min 1, max 50.
+- `iops_instance_edit_prune_only_mine` BoolProperty, default True.
 
 ## UI
 

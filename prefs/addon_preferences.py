@@ -252,11 +252,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=3600,
     )
 
+    iops_instance_edit_backup_location: EnumProperty(
+        name="Instance Edit: backup location",
+        description="Where Commit keeps backups of library files it writes",
+        items=[
+            ("NEXT_TO_SOURCE", "Next to source", ".iopsbackup subfolder beside the library file; colleagues on a shared drive see each other's points"),
+            ("CUSTOM_FOLDER", "Custom folder", "A per-user folder (Backup Folder below); nothing lands in the workspace"),
+        ],
+        default="NEXT_TO_SOURCE",
+    )
+
     iops_instance_edit_backup_dir: StringProperty(
         name="Instance Edit: backup folder",
         subtype="DIR_PATH",
         default="",
-        description="Where Commit keeps backups of library files it writes; empty = <Blender user config>/iops/instance_edit_backups",
+        description="Custom backup location only: where Commit keeps backups of library files it writes; empty = <Blender user config>/iops/instance_edit_backups",
     )
 
     iops_instance_edit_backup_count: IntProperty(
@@ -265,6 +275,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=1,
         max=50,
         description="How many backup points Commit keeps per library file (oldest removed)",
+    )
+
+    iops_instance_edit_prune_only_mine: BoolProperty(
+        name="Prune Only My Backups",
+        default=True,
+        description="The backups-per-file limit counts only your own points; other users' points are never deleted",
     )
 
     show_filename_full_path: BoolProperty(
@@ -1264,8 +1280,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.prop(self, "iops_instance_edit_worker_timeout", text="Worker Timeout (s)")
                 col.separator()
                 col.label(text="Rollback:")
-                col.prop(self, "iops_instance_edit_backup_dir", text="Backup Folder")
+                col.prop(self, "iops_instance_edit_backup_location", text="Backup Location")
+                sub = col.column()
+                sub.active = self.iops_instance_edit_backup_location == "CUSTOM_FOLDER"
+                sub.prop(self, "iops_instance_edit_backup_dir", text="Backup Folder")
                 col.prop(self, "iops_instance_edit_backup_count", text="Backups per File")
+                col.prop(self, "iops_instance_edit_prune_only_mine", text="Prune Only My Backups")
+                col.operator("iops.instance_edit_backups_cleanup", text="Clean Up Backups\u2026", icon="TRASH")
 
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",

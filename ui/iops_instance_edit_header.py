@@ -29,8 +29,8 @@ def draw_iops_instance_edit_header(self, context):
     Commit/Cancel, plus the session depth when nested. The idle Edit button
     (Edit Instance, or Edit Linked on a linked instancer) shows in Object and
     Edit Mode only and follows the iops_instance_edit_header preference.
-    Rollback buttons (one per library with backup points in the backup
-    folder) show in Object Mode with no session open."""
+    Rollback buttons (one per library with backup points in either backup
+    location) show in Object Mode with no session open."""
     layout = self.layout
     scene = context.scene
     if scene is not None and session_active(scene):
