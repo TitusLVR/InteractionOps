@@ -123,6 +123,9 @@ class Control:
         # composed builder; None = always visible. Read by the framework's
         # row filtering (ui/widgets/predicates.filter_controls).
         self._show_if = None
+        # Optional 12-grid column span (int 1..12) attached by the composed
+        # builder; None = unspecified (equal split / default).
+        self._span = None
 
     def mark_dirty(self):
         """Invalidate any cached display value / enabled state. Extended
@@ -147,6 +150,20 @@ class Section(Control):
     def __init__(self, label):
         super().__init__()
         self.label = label
+
+
+class Spacer(Control):
+    """Empty non-interactive row/cell. `height` (px, top-level only) and
+    `placeholder` (element-type label shown for incomplete elements in
+    edit mode) are layout/editor hints."""
+
+    kind = "spacer"
+
+    def __init__(self, span=None, height=None, placeholder=""):
+        super().__init__()
+        self._span = span
+        self.height = height
+        self.placeholder = placeholder
 
 
 class _ValueControl(Control):

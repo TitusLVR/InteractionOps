@@ -180,3 +180,74 @@ def test_widget_spaces_from_list():
         name = "w_list"
         space = ["VIEW_3D", "IMAGE_EDITOR"]
     assert W().spaces == frozenset({"VIEW_3D", "IMAGE_EDITOR"})
+
+
+# ---------------------------------------------------------------------------
+# Row cell visibility (grid rows keep slots, legacy rows collapse)
+# ---------------------------------------------------------------------------
+def _row_widget(children):
+    from ui.widgets import Row
+    inst, *_ = _make_real_widget()
+    row = Row(children)
+    inst.controls = [row]
+    inst.switches = {"adv": False}
+    return inst, row
+
+
+def _btn(label, span=None, hidden=False):
+    from ui.widgets import ActionButton
+    b = ActionButton(label, "iops.x")
+    b._span = span
+    if hidden:
+        b._show_if = {"switch": "adv"}
+    return b
+
+
+def test_hidden_cell_in_grid_row_keeps_slot():
+    a, b, c = _btn("a", 4), _btn("b", 4, hidden=True), _btn("c", 4)
+    inst, _row = _row_widget([a, b, c])
+    (view,) = inst.rows(_FakeCtx())
+    assert len(view.children) == 3
+    assert view.children[0] is a and view.children[2] is c
+    st = view.children[1]
+    assert st.kind == "spacer" and st._span == 4
+
+
+def test_hidden_cell_in_legacy_row_collapses():
+    a, b, c = _btn("a"), _btn("b", hidden=True), _btn("c")
+    inst, _row = _row_widget([a, b, c])
+    (view,) = inst.rows(_FakeCtx())
+    assert view.children == [a, c]
+
+
+def test_all_cells_hidden_drops_row():
+    inst, _row = _row_widget([_btn("a", 6, hidden=True),
+                              _btn("b", 6, hidden=True)])
+    assert inst.rows(_FakeCtx()) == []
+
+
+def test_row_without_cell_show_if_returned_as_is():
+    inst, row = _row_widget([_btn("a", 6), _btn("b", 6)])
+    assert inst.rows(_FakeCtx()) == [row]
+    assert inst.rows(_FakeCtx())[0] is row
+
+
+def test_row_view_carries_row_attrs_and_source():
+    a, b = _btn("a", 6), _btn("b", 6, hidden=True)
+    inst, row = _row_widget([a, b])
+    row._show_if = {"mode": ["OBJECT"]}
+    row._span = 12
+    (view,) = inst.rows(_FakeCtx())
+    assert view is not row and view._source is row
+    assert view._show_if == row._show_if and view._span == 12
+
+
+def test_control_at_resolves_through_row_view():
+    a, b, c = _btn("a", 4), _btn("b", 4, hidden=True), _btn("c", 4)
+    inst, _row = _row_widget([a, b, c])
+    ctx = _FakeCtx()
+    assert inst.control_at(ctx, 0, 0) is a      # original, not a stand-in
+    assert inst.control_at(ctx, 0, 2) is c
+    assert inst.control_at(ctx, 0, 1).kind == "spacer"
+    inst.switches["adv"] = True
+    assert inst.control_at(ctx, 0, 1) is b

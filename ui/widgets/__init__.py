@@ -22,7 +22,7 @@ stay importable from the test harness too.
 from .panel import WidgetPanel, Rect
 from .controls import (Control, Section, Slider, PresetRow, FlipBox,
                        ActionButton, Row, Swatch,
-                       Dropdown, InputField, ButtonGroup)
+                       Dropdown, InputField, ButtonGroup, Spacer)
 
 try:
     import bpy  # noqa: F401
@@ -69,8 +69,10 @@ class Widget:
     def rows(self, context=None):
         """Visible top-level controls. With a context, rows are filtered by
         each control's show_if predicate (one visual row each: Row = 1 row,
-        N cols). context=None returns the unfiltered list (back-compat)."""
-        if context is None:
+        N cols). context=None returns the unfiltered list (back-compat).
+        While an edit session owns the widget (`_editor` set) every row is
+        returned unfiltered so screen rows map 1:1 to def paths."""
+        if context is None or getattr(self, "_editor", None) is not None:
             return self.controls
         from .predicates import build_eval_ctx, filter_controls
         ctx = build_eval_ctx(context, getattr(self, "switches", None) or {})
@@ -131,17 +133,27 @@ def iter_widgets():
 # registered and after load_iops_preferences() (it reads persisted state).
 # ----------------------------------------------------------------------
 if _HAS_BPY:
-    from . import events, state, render  # noqa: F401
+    from . import events, state, render, editor, editor_panel  # noqa: F401
 
-    classes = events.classes
+    # editor_panel.classes includes the WindowManager PropertyGroup that
+    # register() points `wm.iops_widget_editor` at.
+    classes = events.classes + editor_panel.classes
 
     def register():
+        editor_panel.register_props()
         state.register()
         events.register_keymap()
+        editor.register()
 
     def unregister():
+        # End any edit session first (its draft is already on disk).
+        try:
+            editor.unregister()
+        except Exception as e:
+            print("IOPS widgets: editor unregister failed:", e)
         events.unregister_keymap()
         state.unregister()
+        editor_panel.unregister_props()
 else:  # plain pytest / headless tooling without bpy
     classes = ()
 
@@ -156,7 +168,7 @@ __all__ = [
     "Widget", "WidgetPanel", "Rect",
     "Control", "Section", "Slider", "PresetRow", "FlipBox",
     "ActionButton", "Row", "Swatch",
-    "Dropdown", "InputField", "ButtonGroup",
+    "Dropdown", "InputField", "ButtonGroup", "Spacer",
     "register_widget", "unregister_widget", "get_widget", "iter_widgets",
     "classes", "register", "unregister",
 ]

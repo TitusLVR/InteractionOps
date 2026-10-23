@@ -26,7 +26,7 @@ Collapsible sections, top to bottom:
 Every iOps hotkey, grouped by area (Main F-keys, Cursor, Object Mode, Mesh, UV Editor, Panels, Pie Menus, Scripts, UI Toggles). Edit a key in place, then use **Save User's Hotkeys** to keep it, **Load User's Hotkeys** to reapply your file, or **Load Default Hotkeys** to reset everything. Tools listed without a key are not bound by default — give them one here.
 
 ## Widgets tab
-Compose GPU viewport widgets from JSON definitions and assign their toggle hotkeys. See the [Widgets panel](ui/ui_menus.md#widgets).
+Compose GPU viewport widgets from JSON definitions and assign their toggle hotkeys. See the [Widgets panel](ui/ui_menus.md#widgets). The **+** button creates a blank widget and opens it in the [Visual Widget Editor](ui/ui_menus.md#visual-widget-editor).
 
 ## Theme tab
 Colours, text sizes, panel background, shadow, font, HUD placement, help-legend animation and *Auto-hide after* for the [HUD](ui/ui_hud.md). Auto-hide applies to the help legend of every iOps modal: -1 collapses it right away, 0 keeps it open until <kbd>H</kbd>, a positive value (default 1 s) collapses it after that many seconds; the collapse plays the configured help animation. Pick a bundled preset (Default, Dark+, Light+, Monokai, Blender Default, Solarized Dark), **Save As** your own, **Use Blender Theme HUD Colors** to match your Blender theme, or **Theme Preview** to see every element live in the viewport.

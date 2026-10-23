@@ -94,8 +94,10 @@ def show_widget(name, area=None, x=None, y=None):
 def hide_widget(name):
     """Hide a widget, recording its current panel position (runtime only —
     persisted at next save). Removes the draw handler when nothing is
-    left visible."""
-    from . import get_widget
+    left visible. Closing the widget being edited ends its edit session
+    (implicit exit; the draft stays on disk)."""
+    from . import get_widget, editor
+    editor.on_widget_hidden(name)
     st = get_state(name)
     widget = get_widget(name)
     if widget is not None:
@@ -320,6 +322,19 @@ def _draw_widgets(space):
                     print(f"IOPS widgets: draw failed for '{widget.name}'"
                           " — frame skipped (further errors muted until"
                           " re-shown)")
+        # Edit mode: the floating Add palette sits above the widgets.
+        from . import editor
+        session = editor.active()
+        if session is not None and session.area_ptr == area.as_pointer():
+            try:
+                render.draw_palette(ctx, session)
+            except Exception:
+                if "<palette>" not in _draw_error_logged:
+                    _draw_error_logged.add("<palette>")
+                    import traceback
+                    traceback.print_exc()
+                    print("IOPS widgets: palette draw failed — frame skipped"
+                          " (further errors muted)")
     except Exception:
         if not _draw_guard_logged:
             _draw_guard_logged = True
@@ -417,7 +432,19 @@ def _on_undo_redo(*_args):
         tag_redraw_all()
 
 
+@persistent
+def _on_load_pre(_dummy):
+    # Loading a file is an implicit edit-mode exit (the draft written by
+    # the last commit stays on disk).
+    from . import editor
+    try:
+        editor.end()
+    except Exception as e:
+        print("IOPS widgets: edit session end on load failed:", e)
+
+
 _APP_HANDLER_SLOTS = (
+    ("load_pre", _on_load_pre),
     ("load_post", _on_load_post),
     ("save_pre", _on_save_pre),
     ("depsgraph_update_post", _on_depsgraph_update),
