@@ -10,16 +10,20 @@ linked data until the library is reloaded after Commit.
 Commit exports the copy to a temp blend next to the source (roots moved
 back to the collection's native frame and every owned ID tagged, both
 undone before the export returns), runs the merge worker in plan mode,
-shows the plan, then backs the source up into the per-user backup
-folder (several points per source) and runs the worker in write mode.
+shows the plan, then backs the source up (an ``.iopsbackup`` folder beside
+it by default, or the per-user custom backup folder; several points per
+source and user) and runs the worker in write mode.
 The session is closed only after the worker reported success and the
 library was reloaded. Every worker run happens under the source's lock file
 with per-run temp names. Cancel closes the session without touching the
-source. Rollback copies a chosen backup point over the source.
+source. Rollback copies a chosen backup point (anyone's, from either
+location) over the source; Clean Up Backups deletes old points.
 """
 import datetime
+import getpass
 import json
 import os
+import platform
 import re
 import shutil
 import stat
@@ -34,19 +38,27 @@ import mathutils
 import numpy as np
 
 from ..utils.instance_edit_core import (
-    backup_basename,
+    BACKUP_EXT,
+    BACKUP_PART_EXT,
+    BACKUP_SIDECAR_EXT,
+    BACKUP_SUBFOLDER,
     backup_points,
     commit_temp_paths,
     edit_frame,
     is_similarity,
     lock_path,
     newer_blender,
+    parse_point,
+    point_name,
     point_number,
     point_stamp,
+    point_user,
     prune_backups,
     source_changed,
+    source_hash,
     ticked_plan_problem,
     unmoved,
+    user_tag,
     warnings,
 )
 from .assets_management import _is_collection_instance
@@ -980,13 +992,12 @@ ALREADY_COMMITTED = "This session was already committed; Cancel it"
 def already_committed(session):
     """Whether a backup sidecar of the session's source names this session
     with a successful write (``source_stat`` set): it was committed, and an
-    undo brought it back. Every sidecar of the source in the backup folder
-    is read."""
+    undo brought it back. Every sidecar of the source in both backup
+    locations (next to the source and the custom folder) is read."""
     if not session.uuid:
         return False
-    folder = backup_dir(create=False)
-    for point in backup_points(_listing(folder), session.source_path, ext=".json"):
-        side = read_point(point_files(folder, point)[1])
+    for point in source_points(None, session.source_path, ext=BACKUP_SIDECAR_EXT):
+        side = read_point(point.sidecar)
         if side.get("session_uuid") == session.uuid and side.get("source_stat") is not None:
             return True
     return False
@@ -997,9 +1008,9 @@ def preflight(context, session):
     exists and this session was not committed already (else not ok), a
     warning line when it changed since Start, and the writable check (with
     ``p4 edit``, whose output joins ``lines``; not ok when still read-only
-    or when Perforce says the file must be synced / resolved). A *backup
-    folder* preference that is not an absolute path adds a line (it is
-    ignored)."""
+    or when Perforce says the file must be synced / resolved). In the
+    custom-folder location mode, a *backup folder* preference that is not
+    an absolute path adds a line (it is ignored)."""
     path = session.source_path
     if not os.path.isfile(path):
         return False, [f"Source file not found: {path}"], False
@@ -1011,7 +1022,7 @@ def preflight(context, session):
         lines.append(
             f"{os.path.basename(path)} changed since Start: the merge runs on its current content"
         )
-    problem = backup_dir_problem(context)
+    problem = backup_dir_problem(context) if location_mode(context) == "CUSTOM_FOLDER" else None
     if problem:
         lines.append(problem)
     writable, reason, p4_lines = ensure_writable(context, path)
@@ -1221,11 +1232,11 @@ def backup_dir_problem(context=None):
 
 
 def backup_dir(context=None, create=True):
-    """The folder Commit keeps its backups in: the *backup folder*
-    preference when it is an absolute path, else (empty, or relative: see
-    ``backup_dir_problem``) ``<Blender user config>/iops/
-    instance_edit_backups``. Created when ``create`` (raises OSError when
-    that fails); listings pass False and treat a missing folder as empty."""
+    """The custom backup folder: the *backup folder* preference when it is
+    an absolute path, else (empty, or relative: see ``backup_dir_problem``)
+    ``<Blender user config>/iops/instance_edit_backups``. Created when
+    ``create`` (raises OSError when that fails); listings pass False and
+    treat a missing folder as empty."""
     folder = _backup_dir_pref(context)
     if not _absolute_folder(folder):
         folder = _default_backup_dir()
@@ -1233,6 +1244,83 @@ def backup_dir(context=None, create=True):
     if create:
         os.makedirs(folder, exist_ok=True)
     return folder
+
+
+LOCATIONS = ("NEXT_TO_SOURCE", "CUSTOM_FOLDER")
+# How the Rollback list names a point's location.
+LOCATION_TAGS = {"NEXT_TO_SOURCE": BACKUP_SUBFOLDER, "CUSTOM_FOLDER": "folder"}
+
+
+def location_mode(context=None):
+    """The *backup location* preference: ``NEXT_TO_SOURCE`` (default) or
+    ``CUSTOM_FOLDER``."""
+    prefs = get_prefs(context)
+    mode = getattr(prefs, "iops_instance_edit_backup_location", LOCATIONS[0]) if prefs is not None else LOCATIONS[0]
+    return mode if mode in LOCATIONS else LOCATIONS[0]
+
+
+def next_to_source_dir(source_path):
+    """``<folder of the source>/.iopsbackup``."""
+    return os.path.join(os.path.dirname(os.path.normpath(os.path.abspath(source_path))), BACKUP_SUBFOLDER)
+
+
+def backup_location_for(context, source_path, mode=None):
+    """``(folder, path_hash)`` where Commit backs ``source_path`` up in
+    location ``mode`` (default: the preference): next to the source, the
+    ``.iopsbackup`` subfolder and no hash in the names; the custom folder
+    (``backup_dir``) with the source's path hash in the names. Never
+    creates the folder."""
+    mode = mode or location_mode(context)
+    if mode == "CUSTOM_FOLDER":
+        return backup_dir(context, create=False), source_hash(source_path)
+    return next_to_source_dir(source_path), None
+
+
+def _locations(context, source_path):
+    """``[(mode, folder, path_hash)]``: the current location mode first,
+    then the other one (points stay reachable after switching modes)."""
+    current = location_mode(context)
+    modes = [current] + [m for m in LOCATIONS if m != current]
+    return [(mode,) + backup_location_for(context, source_path, mode) for mode in modes]
+
+
+def backup_user():
+    """The OS user name as backup names carry it (``user_tag``)."""
+    return user_tag(_os_user())
+
+
+def _os_user():
+    try:
+        return getpass.getuser()
+    except Exception:  # no user name in the environment / password database
+        return ""
+
+
+def point_owner(side):
+    """The raw OS user name a sidecar records, or None (no sidecar, an old
+    or damaged one)."""
+    user = side.get("user") if isinstance(side, dict) else None
+    return user if isinstance(user, str) and user else None
+
+
+def is_mine(name, folder=None, side=None):
+    """Whether the point ``name`` was taken by the current OS user: the raw
+    ``user`` its sidecar records (``side``, or read from ``folder``),
+    case-folded, against the raw OS user name. Only without a usable
+    sidecar does the user tag the name carries decide (case ignored), so
+    two people whose names reduce to one tag (``____``, a shared 12-char
+    prefix) stay apart wherever their sidecars exist."""
+    if side is None and folder is not None:
+        side = read_point(point_files(folder, name)[1])
+    owner = point_owner(side)
+    if owner is not None:
+        return owner.casefold() == _os_user().casefold()
+    return (point_user(name) or "").lower() == backup_user().lower()
+
+
+def _prune_only_mine(context=None):
+    prefs = get_prefs(context)
+    return bool(getattr(prefs, "iops_instance_edit_prune_only_mine", True)) if prefs is not None else True
 
 
 def _backup_count(context=None):
@@ -1249,23 +1337,67 @@ def _listing(folder):
 
 
 def point_files(folder, point):
-    """``(blend, json)`` of the backup point ``point`` (a basename) in ``folder``."""
+    """``(copy, sidecar)`` of the backup point ``point`` (a name) in ``folder``."""
     base = os.path.join(folder, point)
-    return base + ".blend", base + ".json"
+    return base + BACKUP_EXT, base + BACKUP_SIDECAR_EXT
 
 
-def source_points(context, source_path):
-    """``(folder, points)``: the backup folder and the basenames of the
-    backup points of ``source_path`` in it, newest first."""
-    folder = backup_dir(context, create=False)
-    return folder, backup_points(_listing(folder), source_path)
+class BackupPoint(namedtuple("BackupPoint", "name folder kind")):
+    """One backup point: its name (no extension), the folder it lies in and
+    the location mode of that folder (``NEXT_TO_SOURCE`` / ``CUSTOM_FOLDER``)."""
+
+    __slots__ = ()
+
+    @property
+    def blend(self):
+        return point_files(self.folder, self.name)[0]
+
+    @property
+    def sidecar(self):
+        return point_files(self.folder, self.name)[1]
+
+    @property
+    def user(self):
+        return point_user(self.name)
+
+
+def _stem(source_path):
+    return os.path.splitext(os.path.basename(source_path))[0]
+
+
+def _stamp_key(point):
+    return (point.name.rsplit(".", 1)[-1], point.name)
+
+
+def source_points(context, source_path, ext=BACKUP_EXT, listings=None):
+    """Every backup point of ``source_path`` in both locations, every
+    user's, newest first, as ``BackupPoint``. ``ext=BACKUP_SIDECAR_EXT``
+    lists sidecars instead. ``listings`` (folder -> names) shares folder
+    listings between calls."""
+    stem = _stem(source_path)
+    out, seen = [], set()
+    for mode, folder, path_hash in _locations(context, source_path):
+        if listings is None:
+            names = _listing(folder)
+        else:
+            names = listings.get(folder)
+            if names is None:
+                names = listings[folder] = _listing(folder)
+        for name in backup_points(names, stem, path_hash, ext=ext):
+            key = (_norm_path(folder), name)
+            if key not in seen:
+                seen.add(key)
+                out.append(BackupPoint(name, folder, mode))
+    out.sort(key=_stamp_key, reverse=True)
+    return out
 
 
 def read_point(json_path):
     """A backup point's sidecar: ``source_path`` (absolute), ``backup_time``
     (ISO, UTC), ``source_stat`` (the source's ``(mtime, size)`` after the
-    Commit that took the point wrote it; None until that write succeeded)
-    and ``session_uuid`` (the committing session). Empty when unreadable."""
+    Commit that took the point wrote it; None until that write succeeded),
+    ``session_uuid`` (the committing session), ``user`` and ``machine``.
+    Empty when unreadable."""
     try:
         with open(json_path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -1292,8 +1424,8 @@ def update_point(json_path, **values):
 
 
 def _remove_point(blend, side):
-    """Remove a point's ``.blend``, then its sidecar. True when the
-    ``.blend`` is gone (a locked copy keeps the point whole)."""
+    """Remove a point's copy, then its sidecar. True when the copy is gone
+    (a locked copy keeps the point whole)."""
     try:
         os.remove(blend)
     except FileNotFoundError:
@@ -1307,58 +1439,235 @@ def _remove_point(blend, side):
     return True
 
 
+def _drop_empty_subfolder(folder):
+    """Remove ``folder`` when it is an empty ``.iopsbackup`` folder (left by
+    a Commit whose only point was removed again)."""
+    if os.path.basename(os.path.normpath(folder)) == BACKUP_SUBFOLDER:
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass  # not empty, or in use: keep it
+
+
+def part_path(folder, point):
+    """``<point>.iopsbackup.part``: the copy of ``point`` while it is written."""
+    return os.path.join(folder, point + BACKUP_PART_EXT)
+
+
+def _part_stale_after(context=None):
+    """Seconds after which a ``.part`` copy is a crashed Commit's leftover
+    (its stamp is when the copy started)."""
+    return max(3600, _worker_timeout(context))
+
+
+def _stale_part(name, context=None, now=None):
+    when = point_stamp(name)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return when is not None and (now - when).total_seconds() > _part_stale_after(context)
+
+
 def write_backup(context, source_path, session_uuid):
-    """Copy ``source_path`` into the backup folder as a new backup point
-    and write its sidecar (``source_stat`` None until the write succeeds).
-    Returns ``(blend, json)``. The name's stamp is UTC; a name taken in the
-    same second moves on by a second, so points never overwrite each other
-    and the names keep sorting by time. Raises OSError when the folder, the
-    copy or the sidecar cannot be written (nothing is left behind then):
-    the Commit is refused before the source is touched. Pruning to the
-    *backups per file* preference is ``prune_points``, run after the write
-    succeeded."""
-    folder = backup_dir(context)
+    """Copy ``source_path`` into its backup location (the *backup location*
+    preference: the ``.iopsbackup`` folder beside it, created here, or the
+    custom folder) as a new backup point ``<stem>[.<hash>].<user>.<stamp>
+    .iopsbackup`` and write its sidecar (``source_stat`` None until the
+    write succeeds; ``user`` the raw OS user name, ``machine``). The copy
+    is written as ``<point>.iopsbackup.part`` (never listed as a point) and
+    moved into place with ``os.replace``, so no listing ever sees a half
+    copy. Returns ``(copy, sidecar)``. The stamp is UTC; a name taken in the
+    same second moves on by a second, so points never overwrite each other.
+    Raises OSError when the folder cannot be created or the copy or the
+    sidecar cannot be written (nothing is left behind then): the Commit is
+    refused before the source is touched. Pruning to the *backups per file*
+    preference is ``prune_points``, run after the write succeeded."""
+    folder, path_hash = backup_location_for(context, source_path)
+    os.makedirs(folder, exist_ok=True)
+    os_user = _os_user()
+    stem = _stem(source_path)
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     when = now
     while True:
-        blend, side = point_files(folder, backup_basename(source_path, when))
-        if not os.path.exists(blend) and not os.path.exists(side):
+        name = point_name(stem, os_user, when, path_hash)
+        blend, side = point_files(folder, name)
+        part = part_path(folder, name)
+        if not any(os.path.exists(p) for p in (blend, side, part)):
             break
         when += datetime.timedelta(seconds=1)
     try:
-        shutil.copy2(source_path, blend)
+        shutil.copy2(source_path, part)
+        os.replace(part, blend)
         _write_point_json(side, {
             "source_path": os.path.normpath(os.path.abspath(source_path)),
             "backup_time": now.isoformat(timespec="seconds"),
             "source_stat": None,
             "session_uuid": session_uuid,
+            "user": os_user,
+            "machine": platform.node(),
         })
     except OSError:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
         _remove_point(blend, side)
+        _drop_empty_subfolder(folder)
         raise
     invalidate_points_cache()
     return blend, side
 
 
 def prune_points(context, source_path, protect=None):
-    """Remove the oldest backup points of ``source_path`` beyond the
-    *backups per file* preference, never ``protect`` (the point just
-    written), and every sidecar of the source left without its ``.blend``.
-    Returns the basenames whose ``.blend`` was actually removed."""
-    folder = backup_dir(context, create=False)
+    """Remove the oldest backup points of ``source_path`` in its current
+    backup location beyond the *backups per file* preference, never
+    ``protect`` (the point just written). With *prune only my backups* on,
+    only the current user's points (``is_mine``: by the sidecar's raw user)
+    are counted and removed; other users' points are never touched.
+    Sidecars of the source left without their copy go too, and ``.part``
+    copies older than ``_part_stale_after`` (only the current user's, with
+    the preference on). Returns the names whose copy was actually removed."""
+    folder, path_hash = backup_location_for(context, source_path)
+    stem = _stem(source_path)
     listing = _listing(folder)
-    points = backup_points(listing, source_path)
+    names = backup_points(listing, stem, path_hash)
+    mine = (lambda n: is_mine(n, folder)) if _prune_only_mine(context) else None
     removed = []
-    for point in prune_backups(points, _backup_count(context), protect):
-        if _remove_point(*point_files(folder, point)):
-            removed.append(point)
-    for orphan in set(backup_points(listing, source_path, ext=".json")) - set(points):
+    for name in prune_backups(names, _backup_count(context), protect, mine):
+        if _remove_point(*point_files(folder, name)):
+            removed.append(name)
+    leftovers = [point_files(folder, n)[1]
+                 for n in set(backup_points(listing, stem, path_hash, ext=BACKUP_SIDECAR_EXT)) - set(names)
+                 if mine is None or mine(n)]
+    leftovers += [part_path(folder, n) for n in backup_points(listing, stem, path_hash, ext=BACKUP_PART_EXT)
+                  if _stale_part(n, context) and (mine is None or mine(n))]
+    for path in leftovers:
         try:
-            os.remove(point_files(folder, orphan)[1])
+            os.remove(path)
         except OSError:
             pass
     invalidate_points_cache()
     return removed
+
+
+CleanupPlan = namedtuple("CleanupPlan", "points files bytes groups")
+
+
+def cleanup_candidates(context, scope, older_than_days, only_mine, source_path="", not_after=None):
+    """What Clean Up Backups deletes: a ``CleanupPlan`` of the points
+    (``(folder, name)``, sorted), their files (copy before sidecar, then a
+    stale ``.part`` copy; a sidecar or a stale ``.part`` without its copy
+    counts as a point too), the bytes they take and ``groups``: ``[(source
+    path or None, files)]``, the files per library (whose lock Clean Up
+    takes) for ``LIBRARIES``, one ``None`` group for the custom folder.
+    ``scope`` ``LIBRARIES``: both backup locations of every library of the
+    file (only ``source_path`` when given); ``CUSTOM_FOLDER``: every point
+    in the custom folder (only ``source_path``'s when given). Only names in
+    the point grammar are ever candidates. ``older_than_days`` > 0 keeps
+    points whose UTC stamp is not older than that; ``only_mine`` keeps
+    other users' points (``is_mine``); ``not_after`` (aware UTC) keeps
+    points stamped after it (taken after the dialog opened)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=older_than_days) if older_than_days > 0 else None
+
+    def wanted(folder, name):
+        when = point_stamp(name)
+        if when is None:
+            return False
+        if cutoff is not None and when >= cutoff:
+            return False
+        if not_after is not None and when > not_after:
+            return False
+        return not only_mine or is_mine(name, folder)
+
+    found = {}  # (folder, name) -> source path or None
+
+    def add(folder, names, source=None):
+        for name in names:
+            if (folder, name) not in found and wanted(folder, name):
+                found[(folder, name)] = source
+
+    exts = (BACKUP_EXT, BACKUP_SIDECAR_EXT, BACKUP_PART_EXT)
+    if scope == "CUSTOM_FOLDER":
+        folder = backup_dir(context, create=False)
+        listing = _listing(folder)
+        if source_path:
+            path = os.path.normpath(bpy.path.abspath(source_path))
+            stem, path_hash = _stem(path), source_hash(path)
+            for ext in exts:
+                add(folder, backup_points(listing, stem, path_hash, ext=ext))
+        else:
+            for entry in listing:
+                for ext in (BACKUP_SIDECAR_EXT, BACKUP_PART_EXT, BACKUP_EXT):
+                    if entry.lower().endswith(ext) and len(entry) > len(ext):
+                        base = entry[:-len(ext)]
+                        if parse_point(base) is not None:
+                            add(folder, [base])
+                        break
+    else:
+        if source_path:
+            sources = [os.path.normpath(bpy.path.abspath(source_path))]
+        else:
+            sources, keys = [], set()
+            for lib in bpy.data.libraries:
+                path = library_path(lib)
+                if _norm_path(path) not in keys:
+                    keys.add(_norm_path(path))
+                    sources.append(path)
+        listings = {}
+        for path in sources:
+            for ext in exts:
+                for point in source_points(context, path, ext=ext, listings=listings):
+                    add(point.folder, [point.name], path)
+    points, files, size, groups = [], [], 0, {}
+    for folder, name in sorted(found):
+        paths = list(point_files(folder, name))
+        if _stale_part(name, context, now):
+            paths.append(part_path(folder, name))
+        present = []
+        for path in paths:
+            try:
+                size += os.path.getsize(path)
+            except OSError:
+                continue  # missing part of the set
+            present.append(path)
+        if present:  # a fresh .part alone is a Commit at work, not a point
+            points.append((folder, name))
+            files += present
+            groups.setdefault(found[(folder, name)], []).extend(present)
+    return CleanupPlan(points, files, size, list(groups.items()))
+
+
+def run_cleanup(context, plan):
+    """Delete exactly ``plan.files``, library by library under that
+    library's lock (a library whose lock is held, or cannot be taken, is
+    skipped whole). Returns ``(deleted, freed bytes, failed, skipped,
+    refusals)``; a file that cannot be deleted is counted, never raised."""
+    deleted = freed = failed = skipped = 0
+    refusals = []
+    timeout = _worker_timeout(context)
+    for source, files in plan.groups:
+        lock = None
+        if source:
+            try:
+                lock = SourceLock(source, timeout).acquire()
+            except CommitRefused as exc:
+                skipped += len(files)
+                refusals.append(str(exc))
+                continue
+        try:
+            for path in files:
+                try:
+                    size = os.path.getsize(path)
+                    os.remove(path)
+                except OSError:
+                    failed += 1
+                    continue
+                deleted += 1
+                freed += size
+        finally:
+            if lock is not None:
+                lock.release()
+    invalidate_points_cache()
+    return deleted, freed, failed, skipped, refusals
 
 
 def _membership_extras(confirmed, planned):
@@ -1461,6 +1770,7 @@ def commit_linked(context, session, update_shared=(), expected_plan=None, dry_ru
                 # The source is untouched: this point is a copy of it and
                 # must not push a real one out of the backups per file.
                 _remove_point(backup, sidecar)
+                _drop_empty_subfolder(os.path.dirname(backup))
                 invalidate_points_cache()
                 out["backup"] = None
                 out["error"] = f"Merge failed, {name} not written: " + _error_line(written)
@@ -1473,7 +1783,7 @@ def commit_linked(context, session, update_shared=(), expected_plan=None, dry_ru
             )
         # Only after a successful write, and never the point just written
         # (a clock set back would sort it oldest).
-        prune_points(context, path, protect=os.path.splitext(os.path.basename(backup))[0])
+        prune_points(context, path, protect=os.path.basename(backup)[:-len(BACKUP_EXT)])
         if planned is not None and expected_plan is not None:
             extra = _membership_extras(expected_plan, out["plan"] or {})
             if extra:
@@ -1543,9 +1853,10 @@ def busy(context, text):
             workspace.status_text_set(None)
 
 
-# Header buttons and Rollback's poll run on every redraw: the folder listing
-# is cached for _POINTS_TTL seconds per (backup folder, library paths) and
-# dropped whenever Commit or Rollback changes the folder or the source.
+# Header buttons and Rollback's poll run on every redraw: the folder listings
+# are cached for _POINTS_TTL seconds per (location mode, custom folder,
+# library paths) and dropped whenever Commit, Rollback or Clean Up changes a
+# backup folder or a source.
 _POINTS_TTL = 2.0
 _points_cache = {"key": None, "time": float("-inf"), "value": {}}
 
@@ -1556,7 +1867,8 @@ def invalidate_points_cache():
 
 def cached_backup_points_for_libraries(context=None):
     """``backup_points_for_libraries`` through the throttled cache."""
-    key = (backup_dir(context, create=False), tuple(lib.filepath for lib in bpy.data.libraries))
+    key = (location_mode(context), backup_dir(context, create=False),
+           tuple(lib.filepath for lib in bpy.data.libraries))
     now = time.monotonic()
     if _points_cache["key"] != key or now - _points_cache["time"] >= _POINTS_TTL:
         _points_cache.update(key=key, time=now, value=backup_points_for_libraries(context))
@@ -1564,21 +1876,17 @@ def cached_backup_points_for_libraries(context=None):
 
 
 def backup_points_for_libraries(context=None):
-    """``{source path: [backup point, newest first]}`` for every library
-    of the file that has a backup point in the backup folder (one listing
-    of the folder)."""
-    folder = backup_dir(context, create=False)
-    listing = _listing(folder)
-    out, seen = {}, set()
-    if not listing:
-        return out
+    """``{source path: [BackupPoint, newest first]}`` for every library of
+    the file with a backup point in either location (each folder listed
+    once)."""
+    out, seen, listings = {}, set(), {}
     for lib in bpy.data.libraries:
         path = library_path(lib)
         key = _norm_path(path)
         if key in seen:
             continue
         seen.add(key)
-        points = backup_points(listing, path)
+        points = source_points(context, path, listings=listings)
         if points:
             out[path] = points
     return out
@@ -1787,27 +2095,34 @@ def replace_from_backup(backup, path):
 
 
 def point_time(point):
-    """Display time of a backup point, local time, from the UTC stamp its
-    name ends with (no sidecar read)."""
+    """Display time of a backup point (a name), local time, from the UTC
+    stamp its name ends with (no sidecar read)."""
     when = point_stamp(point)
     if when is None:
         return "an unknown time"
     return when.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def find_point(context, source_path, name):
+    """The ``BackupPoint`` of ``source_path`` named ``name`` (either
+    location), or None."""
+    return next((p for p in source_points(context, source_path) if p.name == name), None)
+
+
 def rollback_point_warning(context, source_path, point):
-    """The warning line for rolling ``source_path`` back to ``point``:
-    ``"<name> was modified after this backup"`` when the source's ``(mtime,
-    size)`` differs from the one the point's sidecar recorded after its
-    Commit wrote the source, ``"cannot tell whether <name> was modified
-    after this backup"`` when nothing usable was recorded (missing or
-    corrupt sidecar, a write that failed after the worker may have written),
-    else None."""
+    """The warning line for rolling ``source_path`` back to ``point`` (a
+    ``BackupPoint`` or a name): ``"<name> was modified after this backup"``
+    when the source's ``(mtime, size)`` differs from the one the point's
+    sidecar recorded after its Commit wrote the source, ``"cannot tell
+    whether <name> was modified after this backup"`` when nothing usable
+    was recorded (missing or corrupt sidecar, a write that failed after the
+    worker may have written), else None."""
     if not point:
         return None
     name = os.path.basename(source_path)
-    folder = backup_dir(context, create=False)
-    recorded = read_point(point_files(folder, point)[1]).get("source_stat")
+    if isinstance(point, str):
+        point = find_point(context, source_path, point)
+    recorded = read_point(point.sidecar).get("source_stat") if point is not None else None
     try:
         recorded = (float(recorded[0]), int(recorded[1]))
     except (TypeError, ValueError, IndexError, KeyError):
@@ -1829,22 +2144,76 @@ def _rollback_path(context, source_path):
     return os.path.normpath(bpy.path.abspath(path))
 
 
-def _point_item(point, label=None):
-    return (point, label or f"{point_time(point)}  \u2014  {point}", "Backup point taken by Commit",
-            point_number(point))
+def default_point(points, mine=None):
+    """The point Rollback preselects (and restores when none is named):
+    the newest of the current user's (``mine``: name -> bool, else
+    ``is_mine`` per point), else the newest."""
+    def own(p):
+        return mine[p.name] if mine is not None and p.name in mine else is_mine(p.name, p.folder)
+    return next((p for p in points if own(p)), points[0] if points else None)
+
+
+def point_numbers(names, fixed=None):
+    """``{name: enum number}`` for ``names``. ``fixed`` (name -> number,
+    the numbers the open dialog's snapshot handed out) is kept as is, so a
+    stored choice never maps to another point; every other point gets its
+    ``point_number`` (stamp seconds), moved on by one past any number in use
+    (two points of one second, from two users or locations)."""
+    wanted = set(names)
+    out = {n: v for n, v in (fixed or {}).items() if n in wanted}
+    used = set(out.values())
+    for name in sorted((n for n in names if n not in out), key=lambda n: (point_number(n), n)):
+        number = point_number(name)
+        while number in used:
+            number += 1
+        used.add(number)
+        out[name] = number
+    return out
+
+
+def point_label(point, who=None, mine=None):
+    """``"<local time>  <mine | user>  [<.iopsbackup | folder>]"``; ``who``
+    is the raw user the sidecar records, else the tag in the name."""
+    if mine is None:
+        mine = is_mine(point.name, point.folder)
+    if mine:
+        who = "mine"
+    elif not who:
+        side_user = point_owner(read_point(point.sidecar))
+        who = side_user or point.user or "?"
+    return f"{point_time(point.name)}  {who}  [{LOCATION_TAGS.get(point.kind, point.kind)}]"
+
+
+def _point_items_for(points, labels, fixed=None):
+    numbers = point_numbers([p.name for p in points], fixed)
+    items = [(p.name, labels.get(p.name) or point_label(p), p.blend, numbers[p.name]) for p in points]
+    items.sort(key=lambda it: it[3], reverse=True)
+    return items
 
 
 def rollback_snapshot(context, path):
     """What Rollback's dialog shows, taken once at invoke: ``{"key",
-    "items", "warnings"}`` with the enum items of the source's points
-    (newest first, each with its stable ``point_number``) and the warning
-    line per point. The dialog's draw and the enum's items read it instead
-    of the folder and the sidecars."""
-    _folder, points = source_points(context, path)
+    "points", "labels", "items", "warnings", "default"}`` with every point
+    of the source in both locations (newest first), their labels ("mine"
+    for the current user's by ``is_mine``, else the raw user the sidecar
+    records, else the tag in the name), the enum items (their numbers stay
+    fixed while the dialog is open), the warning line per point and the
+    preselected point (the newest own, else the newest). The dialog's draw
+    and the enum's items read it instead of the folders and the sidecars."""
+    points = source_points(context, path)
+    labels, mine = {}, {}
+    for p in points:
+        side = read_point(p.sidecar)
+        mine[p.name] = is_mine(p.name, side=side)
+        labels[p.name] = point_label(p, point_owner(side) or p.user, mine[p.name])
+    default = default_point(points, mine)
     return {
         "key": _norm_path(path),
-        "items": [_point_item(p) for p in points],
-        "warnings": {p: rollback_point_warning(context, path, p) for p in points},
+        "points": points,
+        "labels": labels,
+        "items": _point_items_for(points, labels),
+        "warnings": {p.name: rollback_point_warning(context, path, p) for p in points},
+        "default": default.name if default is not None else None,
     }
 
 
@@ -1855,18 +2224,21 @@ _rollback_dialog = {"snapshot": None, "items": []}
 
 
 def _point_items(self, context):
-    """Items of the point enum: the invoke snapshot when it is for this
-    source, plus any point that appeared since (so a script call after a
-    dismissed dialog still finds it); else the folder. Values are the
-    points' stable numbers, never list positions."""
+    """Items of the point enum: the invoke snapshot's items (their numbers
+    fixed) when it is for this source, plus any point that appeared since,
+    numbered around them (so a script call after a dismissed dialog still
+    finds it); else the folders. Values are the points' stable numbers,
+    never list positions."""
     path = _rollback_path(context, self.source_path)
     items = []
     if path is not None:
         snap = _rollback_dialog["snapshot"]
-        items = list(snap["items"]) if snap and snap["key"] == _norm_path(path) else []
-        known = {it[0] for it in items}
-        items += [_point_item(p) for p in source_points(context, path)[1] if p not in known]
-        items.sort(key=lambda it: it[3], reverse=True)
+        ours = snap is not None and snap["key"] == _norm_path(path)
+        points = list(snap["points"]) if ours else []
+        known = {p.name for p in points}
+        points += [p for p in source_points(context, path) if p.name not in known]
+        fixed = {it[0]: it[3] for it in snap["items"]} if ours else None
+        items = _point_items_for(points, snap["labels"] if ours else {}, fixed)
     _rollback_dialog["items"] = items
     return items
 
@@ -1875,8 +2247,8 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
     bl_idname = "iops.instance_edit_rollback_source"
     bl_label = "Rollback Source"
     bl_description = (
-        "Copy a backup point taken by Commit over the source file and "
-        "reload it (cannot be undone with Ctrl+Z)"
+        "Copy a backup point taken by Commit (yours or a colleague's) over the "
+        "source file and reload it (cannot be undone with Ctrl+Z)"
     )
     # Never replayed by undo/redo: it overwrites a file.
     bl_options = set()
@@ -1888,7 +2260,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
     )
     point: bpy.props.EnumProperty(
         name="Backup",
-        description="Backup point to restore (newest first); not set = the newest",
+        description="Backup point to restore (newest first); not set = your newest (else the newest)",
         items=_point_items,
         options={"SKIP_SAVE"},
     )
@@ -1913,8 +2285,8 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
 
     def prepare(self, context):
         """Invoke's work before the dialog: snapshot the points and preselect
-        the newest. Returns the source path, or None when there is nothing
-        to choose from."""
+        the newest own one (else the newest). Returns the source path, or
+        None when there is nothing to choose from."""
         _rollback_dialog["snapshot"] = None
         path = _rollback_path(context, self.source_path)
         if path is None:
@@ -1924,7 +2296,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
             return None
         self._snapshot = snap
         _rollback_dialog["snapshot"] = snap
-        self.point = snap["items"][0][0]
+        self.point = snap["default"]
         return path
 
     def invoke(self, context, event):
@@ -1932,7 +2304,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         if path is None:
             return self.execute(context)  # reports why
         return context.window_manager.invoke_props_dialog(
-            self, width=520, title=f"Rollback {os.path.basename(path)}", confirm_text="Rollback",
+            self, width=560, title=f"Rollback {os.path.basename(path)}", confirm_text="Rollback",
         )
 
     def cancel(self, context):
@@ -1951,6 +2323,10 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         if warning:
             layout.label(text=warning, icon="ERROR")
         layout.label(text=f"Everything saved to {name} since then is replaced.", icon="INFO")
+        op = layout.operator(IOPS_OT_instance_edit_backups_cleanup.bl_idname,
+                             text="Clean Up Backups\u2026", icon="TRASH")
+        op.scope = "LIBRARIES"
+        op.source_path = path
 
     def execute(self, context):
         try:
@@ -1963,17 +2339,19 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         if path is None:
             self.report({"ERROR"}, "Name the library file to roll back")
             return {"CANCELLED"}
-        folder, points = source_points(context, path)
+        points = source_points(context, path)
         if not points:
             self.report({"ERROR"}, f"No Commit backup for {os.path.basename(path)}")
             return {"CANCELLED"}
-        # Not set: the newest. Set: the identifier the stored number maps
-        # to, which survives points appearing or going while the dialog is open.
-        point = self.point if self.properties.is_property_set("point") else points[0]
-        if point not in points:
-            self.report({"ERROR"}, f"Backup point {point or '?'} of {os.path.basename(path)} no longer exists")
+        # Not set: the newest own point (else the newest). Set: the
+        # identifier the stored number maps to, which survives points
+        # appearing or going while the dialog is open.
+        name = self.point if self.properties.is_property_set("point") else default_point(points).name
+        by_name = {p.name: p for p in points}
+        if name not in by_name:
+            self.report({"ERROR"}, f"Backup point {name or '?'} of {os.path.basename(path)} no longer exists")
             return {"CANCELLED"}
-        backup, side = point_files(folder, point)
+        point = by_name[name]
         if os.path.isfile(path):
             writable, reason, p4_lines = ensure_writable(context, path)
             for line in p4_lines:
@@ -1984,7 +2362,7 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         try:
             with SourceLock(path, _worker_timeout(context)):
                 _sweep_leftovers(path)
-                replace_from_backup(backup, path)
+                replace_from_backup(point.blend, path)
         except CommitRefused as exc:
             self.report({"ERROR"}, f"Rollback refused: {exc}")
             return {"CANCELLED"}
@@ -1994,13 +2372,13 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
         finally:
             invalidate_points_cache()
         # The source is the one from before the Commit that took this point:
-        # that session, and those of every newer point, may commit anew.
-        # Caveat: rolling forward again (to a newer point) does not restore
-        # the uuids cleared here, so a session revived by undo after a
-        # roll-back-then-forward is not recognised as committed any more.
-        update_point(side, source_stat=file_stat(path), session_uuid=None)
+        # that session, and those of every newer point (anyone's), may commit
+        # anew. Caveat: rolling forward again (to a newer point) does not
+        # restore the uuids cleared here, so a session revived by undo after
+        # a roll-back-then-forward is not recognised as committed any more.
+        update_point(point.sidecar, source_stat=file_stat(path), session_uuid=None)
         for newer in points[:points.index(point)]:
-            update_point(point_files(folder, newer)[1], session_uuid=None)
+            update_point(newer.sidecar, session_uuid=None)
         libs = _source_libraries(path)
         failed = []
         for lib in libs:
@@ -2012,7 +2390,133 @@ class IOPS_OT_instance_edit_rollback_source(bpy.types.Operator):
             self.report({"WARNING"}, "Restored, but reloading failed (reload by hand): " + "; ".join(failed))
         self.report(
             {"INFO"},
-            f"Restored {os.path.basename(path)} from {backup} ({point_time(point)}); "
+            f"Restored {os.path.basename(path)} from {point.blend} ({point_time(point.name)}); "
             f"{len(libs) - len(failed)} library datablock(s) reloaded",
+        )
+        return {"FINISHED"}
+
+
+def _megabytes(size):
+    return size / (1024 * 1024)
+
+
+# The open Clean Up dialog: when it opened (UTC; later points are never
+# candidates) and the plan it shows for its current settings. Execute
+# deletes exactly that plan's files.
+_cleanup_dialog = {"open": False, "opened": None, "key": None, "plan": None}
+
+
+def _close_cleanup_dialog():
+    _cleanup_dialog.update(open=False, opened=None, key=None, plan=None)
+
+
+class IOPS_OT_instance_edit_backups_cleanup(bpy.types.Operator):
+    bl_idname = "iops.instance_edit_backups_cleanup"
+    bl_label = "Clean Up Backups"
+    bl_description = (
+        "Delete old Instance Edit Commit backup points (copy and sidecar) of this "
+        "file's libraries or of the whole custom backup folder (cannot be undone)"
+    )
+    # Never replayed by undo/redo: it deletes files.
+    bl_options = set()
+
+    scope: bpy.props.EnumProperty(
+        name="Scope",
+        items=[
+            ("LIBRARIES", "Libraries of this file", ""),
+            ("CUSTOM_FOLDER", "Whole custom folder", ""),
+        ],
+        default="LIBRARIES",
+    )
+    older_than_days: bpy.props.IntProperty(
+        name="Older Than (days)",
+        description="Only points older than this many days are deleted; 0 = all",
+        default=30,
+        min=0,
+    )
+    only_mine: bpy.props.BoolProperty(
+        name="Only My Backups",
+        description="Only your own points are deleted, never other users'; "
+                    "not set = the Prune Only My Backups preference",
+        default=True,
+        options={"SKIP_SAVE"},
+    )
+    source_path: bpy.props.StringProperty(
+        name="Source",
+        description="Only this library file's points (empty = every library / the whole folder)",
+        options={"SKIP_SAVE"},
+    )
+
+    def _defaults(self, context):
+        if not self.properties.is_property_set("only_mine"):
+            self.only_mine = _prune_only_mine(context)
+
+    def _key(self):
+        return (self.scope, self.older_than_days, self.only_mine, self.source_path)
+
+    def plan(self, context, not_after=None):
+        return cleanup_candidates(context, self.scope, self.older_than_days, self.only_mine,
+                                  self.source_path, not_after)
+
+    def _shown_plan(self, context):
+        """The open dialog's plan, recomputed only when its settings change
+        (never for points taken after the dialog opened)."""
+        key = self._key()
+        if _cleanup_dialog["key"] != key or _cleanup_dialog["plan"] is None:
+            _cleanup_dialog.update(key=key, plan=self.plan(context, _cleanup_dialog["opened"]))
+        return _cleanup_dialog["plan"]
+
+    def invoke(self, context, event):
+        self._defaults(context)
+        _close_cleanup_dialog()
+        _cleanup_dialog.update(open=True, opened=datetime.datetime.now(datetime.timezone.utc))
+        self._shown_plan(context)
+        return context.window_manager.invoke_props_dialog(
+            self, width=460, title="Clean Up Backups", confirm_text="Delete",
+        )
+
+    def cancel(self, context):
+        _close_cleanup_dialog()
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        if self.source_path:
+            col.label(text=f"Only backups of {os.path.basename(self.source_path)}", icon="FILE_BLEND")
+        col.prop(self, "scope")
+        col.prop(self, "older_than_days")
+        col.prop(self, "only_mine")
+        if not _cleanup_dialog["open"]:
+            return
+        plan = self._shown_plan(context)
+        layout.label(
+            text=f"{len(plan.points)} backup point(s), {len(plan.files)} file(s), "
+                 f"{_megabytes(plan.bytes):.1f} MB will be deleted",
+            icon="TRASH" if plan.points else "INFO",
+        )
+
+    def execute(self, context):
+        self._defaults(context)
+        try:
+            if _cleanup_dialog["open"]:
+                plan = self._shown_plan(context)  # exactly what the dialog showed
+            else:  # scripted: nothing taken from now on
+                plan = self.plan(context, datetime.datetime.now(datetime.timezone.utc))
+            deleted, freed, failed, skipped, refusals = run_cleanup(context, plan)
+        finally:
+            _close_cleanup_dialog()
+        for line in dict.fromkeys(refusals):
+            self.report({"WARNING"}, f"Skipped: {line}")
+        problems = []
+        if failed:
+            problems.append(f"{failed} file(s) could not be deleted")
+        if skipped:
+            problems.append(f"{skipped} file(s) skipped (library locked)")
+        self.report(
+            {"WARNING"} if problems else {"INFO"},
+            f"Deleted {deleted} file(s) of {len(plan.points)} backup point(s) ({_megabytes(freed):.1f} MB)"
+            + ("; " + "; ".join(problems) if problems else ""),
         )
         return {"FINISHED"}

@@ -23,6 +23,7 @@ for op_name in (
     "instance_edit_commit",
     "instance_edit_cancel",
     "instance_edit_rollback_source",
+    "instance_edit_backups_cleanup",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
     if op_name.startswith("instance_edit_"):

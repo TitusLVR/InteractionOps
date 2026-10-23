@@ -83,9 +83,11 @@ def test_is_similarity_zero_scale():
 
 
 from utils.instance_edit_core import (OwnedRow, merge_plan, plans_match,
-                                      source_changed, commit_temp_paths, backup_basename,
+                                      source_changed, commit_temp_paths, point_name,
+                                      parse_point, point_user, source_hash, user_tag,
                                       backup_points, prune_backups, point_number, point_stamp,
-                                      newer_blender)
+                                      newer_blender, BACKUP_EXT, BACKUP_SIDECAR_EXT,
+                                      BACKUP_SUBFOLDER)
 
 ROWS = [OwnedRow(0, "objects", "Cube", "Cube"), OwnedRow(1, "materials", "SharedMat", "SharedMat.001"),
         OwnedRow(2, "meshes", "NewMeshFromSrc", "NewMeshFromSrc")]
@@ -137,34 +139,74 @@ def test_commit_temp_paths():
 WHEN = datetime.datetime(2026, 10, 22, 9, 5, 7)
 
 
-def test_backup_basename():
+def test_backup_constants():
+    assert BACKUP_EXT == ".iopsbackup" and BACKUP_SUBFOLDER == ".iopsbackup"
+    assert BACKUP_SIDECAR_EXT == ".iopsbackup.json"
+
+
+def test_point_name_next_to_source_and_custom():
+    assert point_name("Props", "titus", WHEN) == "Props.titus.261022-090507"
     src = "D:/lib/Props.blend"
     digest = hashlib.sha1(os.path.normcase(os.path.normpath(os.path.abspath(src))).encode()).hexdigest()[:8]
-    assert backup_basename(src, WHEN) == f"Props-{digest}-20261022-090507"
-    # Same stem in another folder: another hash, so their points never mix.
-    other = backup_basename("D:/other/Props.blend", WHEN)
-    assert other.startswith("Props-") and other != backup_basename(src, WHEN)
-    # The same file spelled differently hashes the same.
-    assert backup_basename("D:/lib/sub/../Props.blend", WHEN) == backup_basename(src, WHEN)
+    assert source_hash(src) == digest
+    assert point_name("Props", "titus", WHEN, source_hash(src)) == f"Props.{digest}.titus.261022-090507"
+    # Same stem in another folder: another hash; the same file spelled
+    # differently hashes the same.
+    assert source_hash("D:/other/Props.blend") != digest
+    assert source_hash("D:/lib/sub/../Props.blend") == digest
+
+
+def test_user_cut_and_sanitised():
+    assert user_tag("averyveryverylongname") == "averyveryver"
+    assert user_tag("john.doe") == "john_doe" and user_tag("DOM\\me x") == "DOM_me_x"
+    assert user_tag("\u0442\u0438\u0442") == "___" and user_tag("") == "unknown"
+    assert point_name("a", "john.doe@corp", WHEN) == "a.john_doe_cor.261022-090507"
+
+
+def test_parse_point():
+    assert parse_point("Props.titus.261022-090507") == ("Props", None, "titus", "261022-090507")
+    assert parse_point("Props.v2.final.titus.261022-090507") == ("Props.v2.final", None, "titus", "261022-090507")
+    assert parse_point("Props.v2.0a1b2c3d.titus.261022-090507") == ("Props.v2", "0a1b2c3d", "titus", "261022-090507")
+    # Round trips with dotted stems and sanitised users.
+    for stem, user, h in (("a.b.c", "x.y", None), ("a.b", "me", "deadbeef"), ("p", "averyveryverylongname", None)):
+        parsed = parse_point(point_name(stem, user, WHEN, h))
+        assert parsed == (stem, h, user_tag(user), "261022-090507"), parsed
+    for bad in ("Props", "Props.titus", "Props.titus.20261022-090507", "titus.261022-090507",
+                "Props.ti tus.261022-090507", "Props.toolongusername1.261022-090507"):
+        assert parse_point(bad) is None, bad
+    assert point_user("Props.v2.titus.261022-090507") == "titus" and point_user("nope") is None
 
 
 def test_backup_points_newest_first_only_this_source():
-    src = "D:/lib/Props.blend"
     times = [WHEN + datetime.timedelta(seconds=s) for s in (0, 3600, 60)]
-    names = [backup_basename(src, t) for t in times]
-    stranger = backup_basename("D:/other/Props.blend", WHEN)
-    listing = ([n + ".blend" for n in names] + [n + ".json" for n in names]
-               + [stranger + ".blend", stranger + ".json", "Props.blend", "notes.txt",
-                  names[0] + "x.blend", backup_basename("D:/lib/Prop.blend", WHEN) + ".blend"])
-    assert backup_points(listing, src) == [names[1], names[2], names[0]]
-    assert backup_points([n + ".json" for n in names], src) == []
-    assert backup_points(listing, src, ext=".json") == [names[1], names[2], names[0]]
-    assert backup_points([], src) == []
+    names = [point_name("Props", u, t) for u, t in zip(("me", "bob", "me"), times)]
+    listing = ([n + BACKUP_EXT for n in names] + [n + BACKUP_SIDECAR_EXT for n in names]
+               + [point_name("Props.v2", "me", WHEN) + BACKUP_EXT,  # another source, dotted stem
+                  point_name("Prop", "me", WHEN) + BACKUP_EXT,
+                  point_name("Props_v2", "me", WHEN) + BACKUP_EXT,
+                  names[0] + ".iopsbackup.part",  # a copy being written
+                  point_name("Props", "me", WHEN, "0a1b2c3d") + BACKUP_EXT,  # custom-folder name
+                  "Props.blend", "notes.txt", names[0] + "x" + BACKUP_EXT, names[0] + ".blend"])
+    assert backup_points(listing, "Props") == [names[1], names[2], names[0]]
+    assert backup_points([n + BACKUP_SIDECAR_EXT for n in names], "Props") == []
+    assert backup_points(listing, "Props", ext=BACKUP_SIDECAR_EXT) == [names[1], names[2], names[0]]
+    assert backup_points(listing, "Props.v2") == [point_name("Props.v2", "me", WHEN)]
+    assert backup_points(listing, "Props_v2") == [point_name("Props_v2", "me", WHEN)]
+    assert backup_points(listing, "Props", ext=".iopsbackup.part") == [names[0]]
+    assert backup_points([], "Props") == []
+    # Custom folder: only names with this source's hash.
+    mine = [point_name("Props", "me", t, "0a1b2c3d") for t in times]
+    other = point_name("Props", "me", WHEN, "ffffffff")
+    custom = [n + BACKUP_EXT for n in mine + [other] + names]
+    assert backup_points(custom, "Props", "0a1b2c3d") == [mine[1], mine[2], mine[0]]
+    # A next-to-source stem ending in 8 hex is still found by its stem.
+    odd = point_name("Props.deadbeef", "me", WHEN)
+    assert backup_points([odd + BACKUP_EXT], "Props.deadbeef") == [odd]
+    assert backup_points([odd + BACKUP_EXT], "Props") == []
 
 
 def test_prune_backups_keeps_newest():
-    src = "D:/lib/Props.blend"
-    pts = [backup_basename(src, WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3, 2, 1)]
+    pts = [point_name("Props", "me", WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3, 2, 1)]
     assert prune_backups(pts, 3) == pts[3:]
     assert prune_backups(list(reversed(pts)), 2) == pts[2:]
     assert prune_backups(pts, 5) == [] and prune_backups(pts, 50) == []
@@ -173,10 +215,9 @@ def test_prune_backups_keeps_newest():
 
 
 def test_prune_backups_never_deletes_the_point_just_written():
-    src = "D:/lib/Props.blend"
-    pts = [backup_basename(src, WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3)]
+    pts = [point_name("Props", "me", WHEN + datetime.timedelta(minutes=m)) for m in (5, 4, 3)]
     # A clock set back: the point just written sorts oldest.
-    just = backup_basename(src, WHEN)
+    just = point_name("Props", "me", WHEN)
     assert prune_backups(pts + [just], 1, protect=just) == pts
     assert prune_backups(pts + [just], 2, protect=just) == pts[1:]
     assert prune_backups(pts + [just], 4, protect=just) == []
@@ -184,30 +225,50 @@ def test_prune_backups_never_deletes_the_point_just_written():
     assert prune_backups(pts, 1, protect="gone") == pts[1:]
 
 
+def test_prune_backups_only_mine():
+    t = [WHEN + datetime.timedelta(minutes=m) for m in range(6)]
+    mine = [point_name("Props", "me", t[i]) for i in (5, 3, 1)]
+    theirs = [point_name("Props", "bob", t[i]) for i in (4, 2, 0)]
+    everything = mine + theirs
+    # Counting only my points: keep 2 of mine, never touch bob's.
+    assert prune_backups(everything, 2, mine=set(mine)) == [mine[2]]
+    assert prune_backups(everything, 2, mine=lambda p: point_user(p) == "me") == [mine[2]]
+    assert prune_backups(everything, 3, mine=set(mine)) == []
+    # Counting all: the oldest of everyone go.
+    assert prune_backups(everything, 2) == [mine[1], theirs[1], mine[2], theirs[2]]
+    # protect counts as one of mine, even when it sorts oldest.
+    just = point_name("Props", "me", WHEN - datetime.timedelta(days=1))
+    assert prune_backups(everything + [just], 1, protect=just, mine=set(mine) | {just}) == mine
+    assert prune_backups(everything + [just], 2, protect=just, mine=lambda p: point_user(p) == "me") == mine[1:]
+
+
 def test_backup_names_are_utc():
-    src = "D:/lib/Props.blend"
     plus2 = datetime.timezone(datetime.timedelta(hours=2))
     local = datetime.datetime(2026, 3, 29, 3, 30, 0, tzinfo=plus2)
-    assert backup_basename(src, local).endswith("-20260329-013000")
-    assert backup_basename(src, local) == backup_basename(src, local.astimezone(datetime.timezone.utc))
+    assert point_name("P", "me", local).endswith(".260329-013000")
+    assert point_name("P", "me", local) == point_name("P", "me", local.astimezone(datetime.timezone.utc))
     # Naive datetimes are taken as UTC.
-    assert backup_basename(src, datetime.datetime(2026, 3, 29, 1, 30)) == backup_basename(src, local)
+    assert point_name("P", "me", datetime.datetime(2026, 3, 29, 1, 30)) == point_name("P", "me", local)
     # Across a DST change (CEST -> CET), a later moment never sorts earlier.
     before = datetime.datetime(2026, 10, 25, 2, 59, tzinfo=plus2)
     after = datetime.datetime(2026, 10, 25, 2, 1, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
-    assert after > before and backup_basename(src, after) > backup_basename(src, before)
+    assert after > before and point_name("P", "me", after) > point_name("P", "me", before)
 
 
 def test_point_number_stable_and_ordered():
-    src = "D:/lib/Props.blend"
     utc = datetime.timezone.utc
-    a = backup_basename(src, datetime.datetime(2020, 1, 1, 0, 0, 7, tzinfo=utc))
-    b = backup_basename(src, datetime.datetime(2026, 10, 22, 9, 5, 7, tzinfo=utc))
+    a = point_name("Props", "me", datetime.datetime(2020, 1, 1, 0, 0, 7, tzinfo=utc))
+    b = point_name("Props", "me", datetime.datetime(2026, 10, 22, 9, 5, 7, tzinfo=utc))
     assert point_number(a) == 7
     assert point_number(b) > point_number(a)
-    assert point_number(b) == point_number(backup_basename("D:/x/Props.blend", datetime.datetime(2026, 10, 22, 9, 5, 7)))
+    assert point_number(b) == point_number(point_name("Props", "bob", datetime.datetime(2026, 10, 22, 9, 5, 7), "0a1b2c3d"))
     assert point_stamp(b) == datetime.datetime(2026, 10, 22, 9, 5, 7, tzinfo=utc)
+    # The two-digit year is 20yy, also past 2068 (where %y would wrap).
+    late = point_name("P", "me", datetime.datetime(2075, 1, 1, tzinfo=utc))
+    assert point_stamp(late).year == 2075 and point_number(late) > point_number(b)
     assert point_number("Props-nostamp") == 0 and point_stamp("Props-nostamp") is None
+    assert point_stamp("P.me.261399-000000") is None
+
 
 @pytest.mark.parametrize("run_id", ["", None, "../x", "a.b"])
 def test_commit_temp_paths_rejects_bad_run_id(run_id):
