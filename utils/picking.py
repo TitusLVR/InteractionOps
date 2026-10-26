@@ -59,6 +59,36 @@ def px_world_at(region, rv3d, pos):
     return 2.0 * w / (region.width * abs(w00))
 
 
+def pull_toward_viewer(region, rv3d, points, px):
+    """Return copies of world `points` moved `px` screen pixels toward the
+    viewer (along the view ray in perspective, along the view axis in
+    ortho). Use it to lift overlay lines off the surface they lie on: a
+    fixed world offset z-fights on large meshes where one depth-buffer
+    step is metres, while a pixel offset scales with distance. Points
+    behind the camera are returned unchanged."""
+    out = []
+    if rv3d.is_perspective:
+        cam = rv3d.view_matrix.inverted().translation
+        for p in points:
+            p = Vector(p)
+            d = px * px_world_at(region, rv3d, p)
+            if d <= 0.0:
+                out.append(p)
+                continue
+            to_cam = cam - p
+            if to_cam.length_squared <= 1e-18:
+                out.append(p)
+                continue
+            out.append(p + to_cam.normalized() * d)
+    else:
+        toward = rv3d.view_matrix.to_3x3().inverted() @ Vector((0.0, 0.0, 1.0))
+        toward.normalize()
+        for p in points:
+            p = Vector(p)
+            out.append(p + toward * (px * px_world_at(region, rv3d, p)))
+    return out
+
+
 # --- Raycast ------------------------------------------------------------
 
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
