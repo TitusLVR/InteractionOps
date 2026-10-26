@@ -289,6 +289,7 @@ def load_iops_preferences():
                                 ("cursor_bisect_merge_distance", 0.005),
                                 ("cursor_bisect_rotation_step", 45.0),
                                 ("cursor_bisect_coplanar_angle", 5.0),
+                                ("cursor_bisect_delimit_angle", 30.0),
                                 ("cursor_bisect_snap_threshold", 30.0),
                                 ("cursor_bisect_snap_use_modifiers", True),
                             ):

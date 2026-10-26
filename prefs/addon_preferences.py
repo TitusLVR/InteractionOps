@@ -812,6 +812,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         step=100,  # 1 degree
         precision=1
     )
+    cursor_bisect_delimit_angle: bpy.props.FloatProperty(
+        name="Delimit Angle",
+        description="Normal-angle delimiter: faces meeting at more than this angle are on different islands",
+        default=30.0,
+        min=0.0,
+        max=180.0,
+        step=100,  # 1 degree
+        precision=1
+    )
     cursor_bisect_snap_threshold: bpy.props.FloatProperty(
     name="Snap Threshold (pixels)",
     description="Screen-space distance threshold for snapping in pixels",
@@ -1256,6 +1265,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_bisect_merge_distance")
                 row.prop(self, "cursor_bisect_rotation_step")
                 row.prop(self, "cursor_bisect_coplanar_angle")
+                row.prop(self, "cursor_bisect_delimit_angle")
 
             body = _section(column_main, self, "show_section_cursor_place", "Cursor Place", icon="PIVOT_CURSOR")
             if body is not None:
