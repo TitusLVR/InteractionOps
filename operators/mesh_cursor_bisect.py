@@ -9,6 +9,7 @@ import bpy_extras
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
+from ..utils.picking import px_world_at, pull_toward_viewer
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
                       handle_hud_toggle, handle_help_toggle, capture_event)
@@ -23,7 +24,8 @@ DEFAULT_SNAP_THRESHOLD = 30.0
 DEFAULT_FACE_DEPTH = 5
 DEFAULT_MAX_FACES = 1000
 DEFAULT_EDGE_SUBDIVISIONS = 1
-DEFAULT_LINE_ELEVATION = 0.001
+PREVIEW_PULL_PX = 2.0  # Preview lines are pulled this many px toward the viewer at draw time (see picking.pull_toward_viewer)
+PREVIEW_PLANE_HALF_PX = 120.0  # Half-size of the plane preview square, in screen px at cursor depth
 DEFAULT_DISTANCE_TEXT_SIZE = 16
 DEFAULT_DISTANCE_TEXT_OFFSET_X = 20
 DEFAULT_DISTANCE_TEXT_OFFSET_Y = -30
@@ -1534,9 +1536,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         else:
             face_depth = DEFAULT_FACE_DEPTH
         
-        # Line elevation is not a preference property, use default
-        line_elevation = DEFAULT_LINE_ELEVATION
-
         # In bevel mode there are two parallel cut planes offset along the
         # in-face perpendicular by ±d; otherwise a single plane through
         # the cursor.
@@ -1606,24 +1605,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                 t = d1 / (d1 - d2)
                                 intersection = v1.co.lerp(v2.co, t)
 
-                                # Calculate face normal for elevation (use the first valid face)
-                                face_normal = None
-                                for face_idx in edge_faces:
-                                    if face_idx < len(bm.faces):
-                                        face = bm.faces[face_idx]
-                                        if self.is_face_visible_and_valid(face):
-                                            face_normal = face.normal.normalized()
-                                            break
-
-                                # If we couldn't get a face normal, use the plane normal
-                                if face_normal is None:
-                                    face_normal = plane_no
-
-                                # Elevate intersection point slightly above surface for better visibility
-                                elevated_intersection = intersection + face_normal * line_elevation
-
-                                # Transform to world space
-                                world_intersection = obj_matrix @ elevated_intersection
+                                # Transform to world space. The line is lifted
+                                # off the surface at draw time, in pixels.
+                                world_intersection = obj_matrix @ intersection
 
                                 # Group intersections by faces that share this edge
                                 for face_idx in edge_faces:
@@ -1728,7 +1712,6 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         else:
             face_depth = DEFAULT_FACE_DEPTH
 
-        line_elevation = DEFAULT_LINE_ELEVATION
 
         edit_objects = [obj for obj in context.selected_objects
                        if obj.type == 'MESH' and obj.mode == 'EDIT']
@@ -1783,19 +1766,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                     t = d1 / (d1 - d2)
                                     intersection = v1.co.lerp(v2.co, t)
 
-                                    face_normal = None
-                                    for fi in edge_faces:
-                                        if fi < len(bm.faces):
-                                            f = bm.faces[fi]
-                                            if self.is_face_visible_and_valid(f):
-                                                face_normal = f.normal.normalized()
-                                                break
-
-                                    if face_normal is None:
-                                        face_normal = plane_no
-
-                                    elevated = intersection + face_normal * line_elevation
-                                    world_pt = obj_matrix @ elevated
+                                    world_pt = obj_matrix @ intersection
 
                                     for fi in edge_faces:
                                         if fi not in face_intersections:
@@ -2108,7 +2079,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 u = mat @ Vector((1, 0, 0))
                 v = mat @ Vector((0, 0, 1))
 
-            size = 2.0
+            rv3d = context.space_data.region_3d
+            size = PREVIEW_PLANE_HALF_PX * px_world_at(context.region, rv3d, origin) if rv3d else 2.0
             corners = [
                 origin + (u + v) * size,
                 origin + (u - v) * size,
@@ -2140,22 +2112,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                         preview_coords.extend([line_start, line_end])
 
                     if preview_coords:
-                        # Calculate viewport distance to determine depth test mode
+                        # Lift the lines a couple of pixels toward the viewer
+                        # so they win the depth test against the face they
+                        # lie on, at any mesh size or zoom; a world-unit
+                        # offset z-fights on big meshes.
                         rv3d = context.space_data.region_3d
-                        if rv3d and rv3d.view_perspective != 'ORTHO':
-                            view_matrix = rv3d.view_matrix
-                            camera_location = view_matrix.inverted().translation
-                            cursor_location = context.scene.cursor.location
-                            viewport_distance = (cursor_location - camera_location).length
-                        else:
-                            viewport_distance = rv3d.view_distance if rv3d else 10.0
-
-                        if viewport_distance < 0.5:
-                            depth_test_mode = 'ALWAYS'
-                        else:
-                            depth_test_mode = 'LESS_EQUAL'
-
-                        with draw_scope(blend="ALPHA", depth=depth_test_mode):
+                        if rv3d is not None:
+                            preview_coords = pull_toward_viewer(
+                                context.region, rv3d, preview_coords, PREVIEW_PULL_PX)
+                        with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
                             draw.edges_3d(preview_coords, role=Role.PREVIEW_LINE,
                                           context=context)
 

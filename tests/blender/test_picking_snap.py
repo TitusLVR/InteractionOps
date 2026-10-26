@@ -126,7 +126,50 @@ def test_world_fallback_scales_with_geometry():
     assert res is None, res
 
 
+def persp_context(fov_deg=90.0, near=1.0, far=1e5):
+    """Perspective camera at the origin looking down -Z, square region."""
+    import math
+    f = 1.0 / math.tan(math.radians(fov_deg) / 2.0)
+    window = Matrix(((f, 0, 0, 0), (0, f, 0, 0),
+                     (0, 0, (far + near) / (near - far), 2 * far * near / (near - far)),
+                     (0, 0, -1, 0)))
+    view = Matrix.Identity(4)
+    rv3d = SimpleNamespace(window_matrix=window, view_matrix=view,
+                           perspective_matrix=window @ view, is_perspective=True)
+    region = SimpleNamespace(width=REGION_PX, height=REGION_PX)
+    return SimpleNamespace(region=region, space_data=SimpleNamespace(region_3d=rv3d))
+
+
+def test_pull_toward_viewer_ortho():
+    ctx = ortho_context(2000.0)  # 2 m per px, viewer on +Z
+    pts = [Vector((0.0, 0.0, 0.0)), Vector((500.0, -300.0, 10.0))]
+    out = picking.pull_toward_viewer(ctx.region, ctx.space_data.region_3d, pts, 2.0)
+    assert len(out) == 2
+    for src, dst in zip(pts, out):
+        assert (dst - (src + Vector((0.0, 0.0, 4.0)))).length < 1e-4, (src, dst)
+
+
+def test_pull_toward_viewer_perspective_scales_with_depth():
+    ctx = persp_context()  # 90° fov: 2 m per px at 1000 m, 0.2 m per px at 100 m
+    near_pt = Vector((0.0, 0.0, -100.0))
+    far_pt = Vector((0.0, 0.0, -1000.0))
+    out = picking.pull_toward_viewer(ctx.region, ctx.space_data.region_3d,
+                                     [near_pt, far_pt], 2.0)
+    assert abs(out[0].z - (-99.6)) < 1e-3, out[0]
+    assert abs(out[1].z - (-996.0)) < 1e-2, out[1]
+
+
+def test_pull_toward_viewer_behind_camera_unchanged():
+    ctx = persp_context()
+    p = Vector((0.0, 0.0, 50.0))
+    out = picking.pull_toward_viewer(ctx.region, ctx.space_data.region_3d, [p], 2.0)
+    assert (out[0] - p).length < 1e-9
+
+
 TESTS = [
+    test_pull_toward_viewer_ortho,
+    test_pull_toward_viewer_perspective_scales_with_depth,
+    test_pull_toward_viewer_behind_camera_unchanged,
     test_pixel_size_is_exact,
     test_giant_mesh_snaps_within_pixel_threshold,
     test_tiny_mesh_snaps_within_pixel_threshold,
