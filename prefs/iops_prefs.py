@@ -300,6 +300,7 @@ def get_iops_prefs():
             "cursor_bisect_merge_distance": safe("cursor_bisect_merge_distance", 0.005),
             "cursor_bisect_rotation_step": safe("cursor_bisect_rotation_step", 45.0),
             "cursor_bisect_coplanar_angle": safe("cursor_bisect_coplanar_angle", 5.0),
+            "cursor_bisect_delimit_angle": safe("cursor_bisect_delimit_angle", 30.0),
             "cursor_bisect_snap_threshold": safe("cursor_bisect_snap_threshold", 30.0),
             "cursor_bisect_snap_use_modifiers": safe("cursor_bisect_snap_use_modifiers", True),
         },
