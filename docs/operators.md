@@ -34,6 +34,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Visual Origin](operators/op_object_visual_origin.md) — set the origin to a bounding-box point by clicking it.
 - [Object Color](operators/op_object_color.md) — viewport colour with a recent-colours row.
 - [Radial Array](operators/op_object_radial_array.md) — array copies around the 3D cursor.
+- [Negative Scale Overlay](operators/op_object_negative_scale_overlay.md) — highlight objects with negative (mirrored) scale.
 
 ## Mesh — Selection
 - [Z Ops (Loop/Ring, Connect, Delete, etc.)](operators/op_z_ops.md) — grow / shrink loops and rings, connect, line up, equalize, mirror, smart delete.

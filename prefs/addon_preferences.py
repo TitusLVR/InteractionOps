@@ -311,6 +311,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_bisect: BoolProperty(default=False)
     show_section_cursor_place: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
+    show_section_negative_scale: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
     show_section_io: BoolProperty(default=False)
@@ -812,6 +813,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=2,
     )
 
+    # Negative Scale Overlay (iops.object_negative_scale_overlay)
+    negative_scale_color: FloatVectorProperty(
+        name="Highlight Color",
+        description="Fill color the Negative Scale Overlay tints objects "
+                    "with negative scale",
+        subtype="COLOR", size=4, min=0.0, max=1.0,
+        default=(1.0, 0.0, 0.0, 0.35),
+    )
+
     # Window creation method
     modifier_window_method: EnumProperty(
         name="Window Creation Method",
@@ -1217,6 +1227,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             "Non-Planar Overlay", icon="MOD_TRIANGULATE")
             if body is not None:
                 body.prop(self, "nonplanar_angle")
+
+            # Negative Scale Overlay
+            body = _section(column_main, self, "show_section_negative_scale",
+                            "Negative Scale Overlay", icon="MOD_MIRROR")
+            if body is not None:
+                body.prop(self, "negative_scale_color")
 
             # Snap Combos
             body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")

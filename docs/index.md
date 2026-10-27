@@ -43,6 +43,7 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Visual Origin](operators/op_object_visual_origin.md)
         - [Object Color](operators/op_object_color.md)
         - [Radial Array](operators/op_object_radial_array.md)
+        - [Negative Scale Overlay](operators/op_object_negative_scale_overlay.md)
     - **Mesh — Selection**
         - [Z Ops (Loop/Ring, Connect, Delete, etc.)](operators/op_z_ops.md)
         - [Mouseover Fill Select](operators/op_mouseover_fill_select.md)
