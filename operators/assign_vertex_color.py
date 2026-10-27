@@ -77,6 +77,25 @@ def vc_preview_set(context, enable):
         area.tag_redraw()
 
 
+def _selected_loops(bm):
+    """Corners covered by the selection, following the mesh select mode
+    (enabled modes are unioned): FACE -> every corner of a selected face,
+    EDGE -> corners touching a selected edge of their own face, VERT ->
+    corners at a selected vertex. A vertex never spreads to the whole
+    faces around it."""
+    modes = bm.select_mode
+    vert, edge, face = "VERT" in modes, "EDGE" in modes, "FACE" in modes
+    for f in bm.faces:
+        if face and f.select:
+            yield from f.loops
+            continue
+        for loop in f.loops:
+            if ((vert and loop.vert.select)
+                    or (edge and (loop.edge.select
+                                  or loop.link_loop_prev.edge.select))):
+                yield loop
+
+
 class IOPS_OT_VertexColorAssign(bpy.types.Operator):
     """Assign Vertex color in edit mode to selected vertices"""
 
@@ -231,10 +250,8 @@ class IOPS_OT_VertexColorAssign(bpy.types.Operator):
                         else:
                             continue
                     
-                    for f in bm.faces:
-                        if any(v.select for v in f.verts):
-                            for loop in f.loops:
-                                loop[col_layer] = color
+                    for loop in _selected_loops(bm):
+                        loop[col_layer] = color
                     
                     bmesh.update_edit_mesh(obj.data)
 
@@ -531,10 +548,8 @@ class IOPS_OT_VertexColorChannel(bpy.types.Operator):
                     if attr_name not in layers:
                         continue
                     lyr = layers[attr_name]
-                    for f in bm.faces:
-                        if any(v.select for v in f.verts):
-                            for loop in f.loops:
-                                loop[lyr] = _channel_transform(tuple(loop[lyr]), ch, self.mode, self.amount)
+                    for loop in _selected_loops(bm):
+                        loop[lyr] = _channel_transform(tuple(loop[lyr]), ch, self.mode, self.amount)
                 bmesh.update_edit_mesh(obj.data)
         elif context.mode == "OBJECT":
             for obj in sel:
