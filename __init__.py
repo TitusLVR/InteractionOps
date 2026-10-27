@@ -379,6 +379,7 @@ from .ui.iops_selection_sets_panel import (
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
+from .operators.object_negative_scale_overlay import IOPS_OT_ObjectNegativeScaleOverlay
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
@@ -719,6 +720,7 @@ classes = (
     IOPS_OT_mesh_extrude_ex,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
+    IOPS_OT_ObjectNegativeScaleOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
     # IOPS_OT_polygon_bevel,  # WIP
     IOPS_MaterialOverrideSettings,
@@ -927,6 +929,12 @@ def unregister():
         disable_overlay()
     except Exception as e:
         print("IOPS: non-planar overlay cleanup failed:", e)
+    try:
+        from .operators.object_negative_scale_overlay import (
+            disable_overlay as disable_negative_scale_overlay)
+        disable_negative_scale_overlay()
+    except Exception as e:
+        print("IOPS: negative-scale overlay cleanup failed:", e)
     try:
         from .operators.library import library_popup as _library_popup
         from .operators.library import common as _library_common

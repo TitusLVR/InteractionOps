@@ -8,6 +8,8 @@ from ..operators.assets_management import (
     instance_source_is_active,
 )
 from ..operators.mesh_nonplanar_overlay import overlay_enabled
+from ..operators.object_negative_scale_overlay import (
+    overlay_enabled as negative_scale_overlay_enabled)
 from ..utils.op_call import parse_operator_call
 
 
@@ -33,6 +35,7 @@ edit_pie_content_list = [
     ("EMPTY", "Empty", "Hide this slot"),
     ("iops.mesh_visual_uv", "Visual UV", ""),
     ("iops.mesh_nonplanar_overlay", "Non-Planar Overlay", ""),
+    ("iops.object_negative_scale_overlay", "Negative Scale Overlay", ""),
     ("iops.mesh_quick_snap", "Quick Snap", ""),
     ("iops.mesh_quick_connect", "Quick Connect", ""),
     ("iops.mesh_straight_bevel", "Straight Bevel", ""),
@@ -74,6 +77,8 @@ def _draw_slot_operator(pie, idname, label, props=None):
         kwargs["text"] = label
     if idname == "iops.mesh_nonplanar_overlay":
         kwargs["depress"] = overlay_enabled()
+    elif idname == "iops.object_negative_scale_overlay":
+        kwargs["depress"] = negative_scale_overlay_enabled()
     btn = pie.operator(idname, **kwargs)
     if props:
         rna_props = btn.bl_rna.properties

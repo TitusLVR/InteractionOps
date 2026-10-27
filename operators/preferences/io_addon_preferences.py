@@ -304,6 +304,15 @@ def load_iops_preferences():
                                     value, "nonplanar_angle",
                                     defaults.get("nonplanar_angle", 0.5))
 
+                    case "NEGATIVE_SCALE_OVERLAY":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("NEGATIVE_SCALE_OVERLAY", {})
+                            if hasattr(prefs, "negative_scale_color"):
+                                prefs.negative_scale_color = safe_get(
+                                    value, "negative_scale_color",
+                                    defaults.get("negative_scale_color",
+                                                 (1.0, 0.0, 0.0, 0.35)))
+
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})

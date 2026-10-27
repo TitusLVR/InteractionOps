@@ -299,6 +299,9 @@ def get_iops_prefs():
         "NONPLANAR_OVERLAY": {
             "nonplanar_angle": safe("nonplanar_angle", 0.5),
         },
+        "NEGATIVE_SCALE_OVERLAY": {
+            "negative_scale_color": safelist("negative_scale_color", (1.0, 0.0, 0.0, 0.35)),
+        },
     }
 
     return iops_prefs
