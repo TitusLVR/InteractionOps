@@ -103,7 +103,11 @@ class IOPS_UL_WidgetDefs(UIList):
         # matches the header drawn in draw_widgets_tab.
         row = layout.row(align=False)
         name = row.row()
-        name.prop(item, "name", text="", emboss=False)
+        if item.builtin:
+            # Shipped with the add-on: read-only (Duplicate to customize).
+            name.label(text=item.name, icon="LOCKED")
+        else:
+            name.prop(item, "name", text="", emboss=False)
         row.separator(type="LINE")
         key = row.row()
         _km, kmi = events.find_user_toggle_kmi(item.name)
@@ -126,7 +130,7 @@ def item_to_def(item):
     None when the file is missing/unreadable."""
     from ..widgets import composed
     src = item.stored_name or item.name
-    wdef, _errors = composed.load_def(composed.widget_path(src))
+    wdef, _errors = composed.load_def(composed.source_path(src))
     if wdef is None:
         return None
     wdef["name"] = item.name
@@ -163,12 +167,12 @@ def sync_from_files(select=None):
     try:
         prefs.widget_defs.clear()
         for fn in composed.list_widget_files():
-            path = os.path.join(composed.widgets_folder(), fn)
-            wdef, _errors = composed.load_def(path)
+            fname = composed.file_name_of(fn)
+            wdef, _errors = composed.load_def(composed.source_path(fname))
             if wdef is None:
                 continue
             item = prefs.widget_defs.add()
-            def_to_item(item, wdef)
+            def_to_item(item, wdef, builtin=composed.is_builtin(fname))
         idx = next((i for i, it in enumerate(prefs.widget_defs)
                     if it.name == keep), 0)
         prefs.widget_defs_index = idx
@@ -215,6 +219,15 @@ def rename_item(item):
     if item is None:
         return
     from ..widgets import composed
+    if item.builtin:
+        # Built-ins can't be renamed (Duplicate to customize).
+        if item.stored_name and item.name != item.stored_name:
+            _SYNC = True
+            try:
+                item.name = item.stored_name
+            finally:
+                _SYNC = False
+        return
     prefs = get_prefs()
     taken = {it.name for it in prefs.widget_defs if it != item}
     new = composed.unique_name(
@@ -239,8 +252,8 @@ def rename_item(item):
             composed.save_def(wdef)
             composed.register_composed(wdef)
         state.hide_widget(old)
-        composed.unregister_composed(old)
         composed.delete_def(old)
+        composed.drop_or_restore(old)   # an overridden built-in returns
         # Re-point the toggle hotkey entry so the assigned key follows
         # the rename instead of resetting to unbound.
         events.rename_toggle_kmi(old, new)

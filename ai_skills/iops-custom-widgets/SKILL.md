@@ -27,6 +27,18 @@ The library folder is a preference (executor-parity), resolved by
 - **Widgets tab** (addon prefs) → "Widgets Folder": a "Use user script
   path" toggle + subfolder (default `presets/IOPS/widgets`), or an
   explicit path. Stored in prefs and round-tripped through the prefs JSON.
+- **Built-in widgets** ship in the add-on's `presets/widgets/`
+  (`composed.BUNDLED_FOLDER`, read-only). They are listed and loaded next to
+  the library folder; a same-named library file overrides one
+  (`composed.source_path` resolves user first), saving always writes the
+  library folder (`widget_path`), and deleting the override restores the
+  built-in (`drop_or_restore`). Prefs list rows for built-ins have
+  `builtin=True` (no rename/delete; Duplicate to customize).
+- Built-in widgets that need a helper script use `iops.executor` with a
+  **bare file name** (`"script": "view_clipping_actions.py"`); bare names
+  resolve to `presets/widgets/scripts/` (`executor.resolve_script`). Name
+  shipped scripts `<widget>_<purpose>.py`; never point a shipped widget at
+  a user's own script folder.
 - All `*.json` there auto-load and register at addon enable
   (`composed.load_all`); the Widgets-tab list mirrors them (name +
   toggle-hotkey field per row). Edit them by hand, with the **Visual Widget
@@ -59,10 +71,10 @@ Row types:
 | type | keys | binds |
 |---|---|---|
 | `SECTION` | `label` | — (non-interactive header) |
-| `SLIDER` | EXACTLY ONE of `target` (BEVEL/CREASE) or `prop` (dotted RNA path, + `value_type`, `min`, `max`, `fmt`); `snap` | edge float attribute, or arbitrary scalar RNA number/angle |
-| `PRESETS` | `target` (BEVEL/CREASE), `values` (list 0..1) | edge float attribute |
+| `SLIDER` | EXACTLY ONE of `prop` (dotted RNA path) or `attribute` (+ `domain`); `value_type`, `min`, `max`, `snap`, `fmt` | scalar RNA number/angle, or mesh attribute on the selection |
+| `PRESETS` | one of `prop` / `data` / `attribute` (+ `domain`); `values`, `value_type`, `fmt` | any numeric scalar or mesh attribute |
 | `SPACER` | `span` (1-12), `height` (px, top-level only) | — (empty cell / vertical gap; drawn only in edit mode) |
-| `FLIPBOX` | EXACTLY ONE of `target` (SHARP/SEAM/FREESTYLE), `prop` (dotted RNA path), or `switch` (local switch name); `label` | edge bool, arbitrary RNA bool, or local panel switch |
+| `FLIPBOX` | EXACTLY ONE of `prop` (dotted RNA path), `attribute` (+ `domain`), `switch` (local switch name) or `data`; `label` | RNA bool, bool mesh attribute (e.g. `sharp_edge`, `uv_seam`), local panel switch, or scene data |
 | `BUTTON` | `op` (operator idname), `op_kwargs`, `label`, `role` (default/error) | fires an operator |
 | `SWATCH` | EXACTLY ONE of `prop` (RNA color path) or `color` (literal RGBA list); `op` (operator idname), `op_kwargs`, `label`, `show_alpha` | shows a color (live or fixed), fires an operator on click |
 | `DROPDOWN` | `prop` (RNA enum path), `label`, `labels` (id→display map) | an enum prop, edited via an in-overlay item list |
@@ -80,20 +92,26 @@ Key capabilities:
 - **`FLIPBOX` `prop`** binds any scene/RNA boolean, e.g.
   `"prop": "scene.CCP.red_export_opaqueAreas"`. Resolved against `context`
   per call; absence-safe → renders **disabled** when the path is missing
-  (e.g. the owning addon isn't loaded). Edge `target` flipboxes still work.
+  (e.g. the owning addon isn't loaded). `attribute` flipboxes bind mesh
+  attributes (`sharp_edge`, `uv_seam`, `freestyle_edge`, custom bools).
 - **`FLIPBOX` `switch`** binds a *local panel switch* — lightweight boolean
   state stored per-widget in the .blend (`widgets_ui_state`, like position).
   The top-level `"switches"` map sets non-false defaults; any switch
   referenced but absent there defaults to `false`. A FLIPBOX needs EXACTLY
-  ONE of `target`/`prop`/`switch`.
+  ONE of `prop`/`attribute`/`switch`/`data`.
 - **`ROW`** puts a toggle next to its Export button (the 2-column look).
   A **single-cell ROW forces one-per-row** — needed because consecutive
   bare `FLIPBOX` rows implicitly merge into one multi-column row
   (`merge_flipbox_runs`), which you usually don't want for stacked toggles.
-- **Edit-mesh gating is automatic**: if any control binds an edge `target`,
-  the widget polls EDIT_MESH and its buttons/presets gray out with no edge
-  selection. A widget with no edge `target` (e.g. all `prop` flipboxes)
-  polls always-True and keeps its buttons enabled.
+- **Mesh attributes are generic**: `"attribute": "<name>", "domain":
+  "POINT"|"EDGE"|"FACE"` (default EDGE) binds any attribute on the selected
+  elements — `bevel_weight_edge`, `crease_edge`, `crease_vert`, custom
+  floats/ints/bools. Legacy `target` ids (BEVEL/CREASE/SHARP/SEAM/FREESTYLE)
+  still load and are converted.
+- **Edit-mesh gating is automatic**: if any control binds an `attribute`,
+  the widget polls EDIT_MESH and its buttons/presets gray out with nothing
+  selected in the bound domains. A widget with no `attribute` (e.g. all
+  `prop` flipboxes) polls always-True and keeps its buttons enabled.
 - **`DROPDOWN` / `INPUT` / `BUTTONS`** bind an **arbitrary scalar RNA prop**
   (any datablock, not just edge data), generalizing the `prop`-flipbox binding.
   The author **declares** the value type with `value_type` (`STRING` / `INT` /
@@ -282,9 +300,9 @@ stem must match `name`. Drop it next to the existing widgets.
 |---|---|
 | Static label / group heading | `SECTION` |
 | Run an operator | `BUTTON` (`op` + `op_kwargs`) |
-| A boolean the user flips | `FLIPBOX` — `target` (edge attr), `prop` (scene/RNA bool), or `switch` (local panel state) |
+| A boolean the user flips | `FLIPBOX` — `attribute` (mesh attr), `prop` (scene/RNA bool), or `switch` (local panel state) |
 | Reveal/hide other rows from a toggle | `FLIPBOX` `switch` + `show_if: {switch: …}` on the gated rows |
-| Edit a bevel/crease value | `SLIDER` / `PRESETS` (edge floats; auto edit-mesh gating) |
+| Edit a bevel/crease/custom mesh value | `SLIDER` / `PRESETS` with `attribute` (+ `domain`; auto edit-mesh gating) |
 | Drag a number/angle prop over a range | `SLIDER` with `prop` + `value_type` + `min`/`max` (e.g. HDRI rotation in degrees) |
 | Pick one of N named choices (enum) | `DROPDOWN` (in-overlay list), or `BUTTONS` with `value_type: ENUM` + `items` for a visible radio row |
 | Free text / number / angle entry | `INPUT` (`value_type` STRING/INT/FLOAT/DEGREES/RADIANS; in-overlay text caret) |
@@ -297,9 +315,9 @@ stem must match `name`. Drop it next to the existing widgets.
 `object_type` to tell mesh from curve; in edit mode the `mode` string already
 implies the type (`EDIT_MESH` vs `EDIT_CURVE`). Gate selection-dependent
 operators on `selection` (mesh-edit only — see the vocabulary in the
-reference). Enabled/disabled state is separate: edge-`target` widgets
-auto-gray buttons/presets with no selection; a widget with no edge target
-polls always-true and keeps buttons enabled.
+reference). Enabled/disabled state is separate: `attribute` widgets
+auto-gray buttons/presets with no selection; a widget with no attribute
+binding polls always-true and keeps buttons enabled.
 
 **4. Choose operators that fit the click + the context:**
 - Buttons fire `op("INVOKE_DEFAULT", **op_kwargs)`. **Avoid interactive modal
@@ -319,8 +337,8 @@ polls always-true and keeps buttons enabled.
   can actually run, or the click does nothing.
 
 **5. Mind the flipbox auto-merge.** Consecutive bare `FLIPBOX` rows merge into
-one multi-column row — this applies to **any** flipbox binding (`target`,
-`prop`, or `switch`) that has no `show_if`. To keep them stacked, give each a
+one multi-column row — this applies to **any** flipbox binding (`attribute`,
+`prop`, `switch` or `data`) that has no `show_if`. To keep them stacked, give each a
 `show_if` (merge skips those) or wrap each in a single-cell `ROW`.
 
 **6. Validate + verify before calling it done:**
@@ -334,7 +352,7 @@ Then `python -m pytest tests -q` stays green (`composed.py` is bpy-free).
 
 **Pre-flight checklist:**
 - [ ] `validate_def` returns no errors (every row survived).
-- [ ] Each `FLIPBOX` has exactly one of `target`/`prop`/`switch`.
+- [ ] Each `FLIPBOX` has exactly one of `prop`/`attribute`/`switch`/`data`.
 - [ ] Every `switch` referenced in `show_if` is defined (flipbox) or defaulted (`switches` map) — else it's stuck at `false`.
 - [ ] No modal operators on buttons; `op` idnames contain a `.`.
 - [ ] `show_if` contexts match where each operator can run.
@@ -367,11 +385,11 @@ Then `python -m pytest tests -q` stays green (`composed.py` is bpy-free).
 |---|---|
 | Spanned flipboxes won't merge | A top-level `FLIPBOX` with `span` (or `show_if`) always stands alone; the editor writes spans so stacked boxes stay stacked |
 | Stacked toggles merged into one row | Consecutive bare `FLIPBOX` rows auto-merge; wrap each in a single-cell `ROW` to force one-per-row |
-| `FLIPBOX` rejected on validate | Needs EXACTLY ONE of `target`, `prop`, or `switch` (none/multiple → dropped) |
+| `FLIPBOX` rejected on validate | Needs EXACTLY ONE of `prop`, `attribute`, `switch` or `data` (none/multiple → dropped) |
 | Scene-prop toggle always disabled | The RNA `prop` path doesn't resolve against `context` (owning addon absent, or wrong path) — that's the intended disabled state |
 | ActionButton op does nothing | Buttons fire `op("INVOKE_DEFAULT", **kwargs)`; invoke-only operators called EXEC_DEFAULT return `{'PASS_THROUGH'}` silently. INVOKE_DEFAULT is already used — if still silent, check the operator's own `poll` |
-| Button grays out unexpectedly | Edge-bound widgets gate buttons/presets on edge selection; a scene-prop widget (no edge `target`) keeps them enabled |
-| `poll() False` shows wrong hint | Edge widgets out of EDIT_MESH collapse to title + HARDCODED "Go back to Edit Mode" (`render.py OUT_OF_CONTEXT_TEXT`). For "addon missing", don't gate poll — let `prop` flipboxes go disabled via `(None, False)` |
+| Button grays out unexpectedly | Attribute-bound widgets gate buttons/presets on a selection in the bound domains; a scene-prop widget (no `attribute`) keeps them enabled |
+| `poll() False` shows wrong hint | Attribute widgets out of EDIT_MESH collapse to title + HARDCODED "Go back to Edit Mode" (`render.py OUT_OF_CONTEXT_TEXT`). For "addon missing", don't gate poll — let `prop` flipboxes go disabled via `(None, False)` |
 | Widget doesn't refresh after external change | Cache invalidates on depsgraph/undo/redo (`ui/widgets/state.py`); no depsgraph tick = stale until one |
 | Rename lost the file/binding | Rename moves the JSON on disk (load old → save new) and re-points the hotkey via `events.rename_toggle_kmi`; the prefs list mirrors only name/title, never row contents |
 | Toggle hotkey absent from Keymaps tab | Intentional — drawn only in the Widgets-tab list, excluded from hotkey save (`NEVER_SAVE`) |

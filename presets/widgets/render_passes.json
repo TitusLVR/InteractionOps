@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "name": "render_passes",
+  "title": "Render Passes",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Shading"},
+    {"type": "BUTTONS", "prop": "space_data.shading.type", "value_type": "ENUM",
+     "items": [["SOLID", "Solid"], ["MATERIAL", "Material"], ["RENDERED", "Rendered"]]},
+
+    {"type": "SECTION", "label": "Lighting",
+     "show_if": {"prop": "space_data.shading.type", "equals": "SOLID"}},
+    {"type": "BUTTONS", "prop": "space_data.shading.light", "value_type": "ENUM",
+     "show_if": {"prop": "space_data.shading.type", "equals": "SOLID"},
+     "items": [["STUDIO", "Studio"], ["MATCAP", "MatCap"], ["FLAT", "Flat"]]},
+
+    {"type": "SECTION", "label": "Color",
+     "show_if": {"prop": "space_data.shading.type", "equals": "SOLID"}},
+    {"type": "BUTTONS", "prop": "space_data.shading.color_type", "value_type": "ENUM",
+     "show_if": {"prop": "space_data.shading.type", "equals": "SOLID"},
+     "items": [["MATERIAL", "Material"], ["OBJECT", "Object"], ["RANDOM", "Random"]]},
+    {"type": "BUTTONS", "prop": "space_data.shading.color_type", "value_type": "ENUM",
+     "show_if": {"prop": "space_data.shading.type", "equals": "SOLID"},
+     "items": [["SINGLE", "Single"], ["VERTEX", "Attribute"], ["TEXTURE", "Texture"]]},
+    {"type": "SWATCH", "prop": "space_data.shading.single_color",
+     "show_if": {"prop": "space_data.shading.color_type", "equals": "SINGLE"},
+     "op": "iops.executor",
+     "op_kwargs": {"script": "render_passes_color_picker.py"}},
+
+    {"type": "SECTION", "label": "Sun Rotation"},
+    {"type": "SLIDER", "prop": "space_data.shading.studiolight_rotate_z", "value_type": "DEGREES",
+     "min": -180, "max": 180, "snap": 15, "fmt": "{:.0f}°"},
+
+    {"type": "SECTION", "label": "Pass"},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "items": [["COMBINED", "Combined"], ["EMISSION", "Emission"], ["ENVIRONMENT", "Environment"]]},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "items": [["AO", "AO"], ["SHADOW", "Shadow"], ["TRANSPARENT", "Transparent"]]},
+
+    {"type": "SECTION", "label": "Light"},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "items": [["DIFFUSE_LIGHT", "Diff Light"], ["DIFFUSE_COLOR", "Diff Color"]]},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "items": [["SPECULAR_LIGHT", "Spec Light"], ["SPECULAR_COLOR", "Spec Color"]]},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "items": [["VOLUME_LIGHT", "Volume Light"]]},
+
+    {"type": "FLIPBOX", "prop": "space_data.shading.use_scene_world", "label": "Scene World",
+     "show_if": {"prop": "space_data.shading.type", "equals": "MATERIAL"}},
+    {"type": "FLIPBOX", "prop": "space_data.shading.use_scene_world_render", "label": "Scene World",
+     "show_if": {"prop": "space_data.shading.type", "equals": "RENDERED"}},
+
+    {"type": "SECTION", "label": "Cryptomatte",
+     "show_if": {"prop": "scene.render.engine", "equals": "BLENDER_EEVEE"}},
+    {"type": "BUTTONS", "prop": "space_data.shading.render_pass", "value_type": "ENUM",
+     "show_if": {"prop": "scene.render.engine", "equals": "BLENDER_EEVEE"},
+     "items": [["CryptoObject", "Object"], ["CryptoAsset", "Asset"], ["CryptoMaterial", "Material"]]}
+  ]
+}

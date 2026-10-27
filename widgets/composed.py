@@ -2,8 +2,9 @@
 
 A composed widget is a JSON definition built from the known block palette
 (Section / Slider / Presets / FlipBox / Button / Swatch / Dropdown / Input /
-Buttons) with value rows bound to
-the adapter registry (adapters.ADAPTERS). One file per widget in
+Buttons) with value rows bound to RNA props, scene-store keys or mesh
+attributes (adapters.attribute_adapter; legacy `target` ids load as
+attributes, see LEGACY_TARGETS). One file per widget in
 `bpy.utils.script_path_user()/presets/IOPS/widgets/<name>.json`:
 
     {
@@ -14,9 +15,12 @@ the adapter registry (adapters.ADAPTERS). One file per widget in
       "width": 150,            (optional: min content width in px)
       "rows": [
         {"type": "SECTION", "label": "Bevel Weight"},
-        {"type": "SLIDER",  "target": "BEVEL", "snap": 0.125},
-        {"type": "PRESETS", "target": "BEVEL", "values": [0, 0.25, 0.5, 1.0]},
-        {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
+        {"type": "SLIDER",  "attribute": "bevel_weight_edge",
+         "domain": "EDGE", "snap": 0.125},
+        {"type": "PRESETS", "attribute": "bevel_weight_edge",
+         "domain": "EDGE", "values": [0, 0.25, 0.5, 1.0]},
+        {"type": "FLIPBOX", "attribute": "sharp_edge", "domain": "EDGE",
+         "label": "Sharp"},
         {"type": "BUTTON",  "label": "Clear", "op": "iops.executor",
          "op_kwargs": {"script": "..."}, "role": "error"},
         {"type": "SPACER", "height": 12},
@@ -47,8 +51,20 @@ ROW_TYPES = ("SECTION", "SLIDER", "PRESETS", "FLIPBOX", "BUTTON", "ROW",
 GRID = 12
 MIN_SPACER_HEIGHT = 2.0
 VALUE_TYPES = ("STRING", "INT", "FLOAT", "DEGREES", "RADIANS", "ENUM")
-FLOAT_TARGETS = ("BEVEL", "CREASE")
-BOOL_TARGETS = ("SHARP", "SEAM", "FREESTYLE")
+NUMBER_VALUE_TYPES = ("INT", "FLOAT", "DEGREES", "RADIANS")
+# Mesh attribute domains an `attribute` binding may target (Blender's
+# domain identifiers; values apply to the selected elements of the domain).
+ATTR_DOMAINS = ("POINT", "EDGE", "FACE")
+# Pre-attribute `target` ids -> (attribute, domain, kind). Converted on
+# load (Save writes the attribute form); legacy float targets keep their
+# old 0..1 range and slider snap/format.
+LEGACY_TARGETS = {
+    "BEVEL": ("bevel_weight_edge", "EDGE", "float"),
+    "CREASE": ("crease_edge", "EDGE", "float"),
+    "SHARP": ("sharp_edge", "EDGE", "bool"),
+    "SEAM": ("uv_seam", "EDGE", "bool"),
+    "FREESTYLE": ("freestyle_edge", "EDGE", "bool"),
+}
 SCHEMA_VERSION = 1
 MIN_WIDGET_WIDTH = 60.0
 
@@ -69,15 +85,22 @@ EDGE_DATA_DEF = {
     "space": "VIEW_3D",
     "rows": [
         {"type": "SECTION", "label": "Bevel Weight"},
-        {"type": "SLIDER", "target": "BEVEL", "snap": 0.125},
-        {"type": "PRESETS", "target": "BEVEL", "values": [0, 0.25, 0.5, 1.0]},
+        {"type": "SLIDER", "attribute": "bevel_weight_edge",
+         "domain": "EDGE", "snap": 0.125, "fmt": "{:.3f}"},
+        {"type": "PRESETS", "attribute": "bevel_weight_edge",
+         "domain": "EDGE", "values": [0, 0.25, 0.5, 1.0]},
         {"type": "SECTION", "label": "Crease"},
-        {"type": "SLIDER", "target": "CREASE", "snap": 0.125},
-        {"type": "PRESETS", "target": "CREASE", "values": [0, 0.5, 0.9, 1.0]},
+        {"type": "SLIDER", "attribute": "crease_edge", "domain": "EDGE",
+         "snap": 0.125, "fmt": "{:.3f}"},
+        {"type": "PRESETS", "attribute": "crease_edge", "domain": "EDGE",
+         "values": [0, 0.5, 0.9, 1.0]},
         {"type": "SECTION", "label": "Flags"},
-        {"type": "FLIPBOX", "target": "SHARP", "label": "Sharp"},
-        {"type": "FLIPBOX", "target": "SEAM", "label": "Seam"},
-        {"type": "FLIPBOX", "target": "FREESTYLE", "label": "Freestyle"},
+        {"type": "FLIPBOX", "attribute": "sharp_edge", "domain": "EDGE",
+         "label": "Sharp"},
+        {"type": "FLIPBOX", "attribute": "uv_seam", "domain": "EDGE",
+         "label": "Seam"},
+        {"type": "FLIPBOX", "attribute": "freestyle_edge", "domain": "EDGE",
+         "label": "Freestyle"},
         {"type": "BUTTON", "label": "Clear", "op": "iops.executor",
          "op_kwargs": {"script": "B:\\scripts\\iops_exec\\CLEAN_Edge_Data_Clear.py"},
          "role": "error"},
@@ -334,6 +357,53 @@ def unique_name(base, taken):
     return f"{base}_{i}"
 
 
+def _clean_attribute(row, out):
+    """Copy a valid `attribute` + `domain` pair from `row` into `out`.
+    Returns an error string, or None on success."""
+    name = str(row.get("attribute", "")).strip()
+    if not name or name.startswith(".") or name == "position":
+        return f"attribute '{name}' is reserved"
+    domain = str(row.get("domain", "EDGE")).strip().upper()
+    if domain not in ATTR_DOMAINS:
+        return f"attribute domain '{domain}' invalid"
+    out["attribute"] = name
+    out["domain"] = domain
+    return None
+
+
+def _from_legacy_target(row, rtype):
+    """(row copy with `target` rewritten as attribute keys, error)."""
+    row = dict(row)
+    target = str(row.pop("target", "")).strip().upper()
+    if not target:
+        return row, None
+    if row.get("attribute"):
+        return None, "legacy target and attribute both set"
+    if target not in LEGACY_TARGETS:
+        return None, f"{rtype.lower()} target '{target}' invalid"
+    name, domain, kind = LEGACY_TARGETS[target]
+    if (kind == "bool") != (rtype == "FLIPBOX"):
+        return None, f"{rtype.lower()} target '{target}' invalid"
+    row["attribute"], row["domain"] = name, domain
+    if rtype == "FLIPBOX":
+        row.setdefault("label", target.title())
+    elif rtype == "SLIDER":
+        try:
+            row["snap"] = float(row.get("snap", 0.125))
+        except (TypeError, ValueError):
+            row["snap"] = 0.125
+        row.setdefault("fmt", "{:.3f}")
+    elif isinstance(row.get("values"), list):
+        clamped = []
+        for v in row["values"]:
+            try:
+                clamped.append(max(0.0, min(1.0, float(v))))
+            except (TypeError, ValueError):
+                pass
+        row["values"] = clamped
+    return row, None
+
+
 def _clean_row_body(row):
     """Validate + normalize ONE row def. Returns (out_dict, error_or_None).
     out_dict is None when the row is unusable. Shared by validate_def's
@@ -356,66 +426,82 @@ def _clean_row_body(row):
             if h is not None and h >= MIN_SPACER_HEIGHT:
                 out["height"] = h
         return out, None
+    if rtype in ("SLIDER", "PRESETS", "FLIPBOX") and "target" in row:
+        row, err = _from_legacy_target(row, rtype)
+        if err:
+            return None, err
     if rtype == "SLIDER":
         prop = str(row.get("prop", "")).strip()
-        if prop and row.get("target"):
-            return None, "slider needs target OR prop, not both"
-        if prop:
-            # Prop mode: arbitrary scalar RNA path, author-declared range.
-            vt = str(row.get("value_type", "FLOAT")).upper()
-            if vt not in ("INT", "FLOAT", "DEGREES", "RADIANS"):
-                return None, f"slider value_type '{vt}' invalid"
+        attr = str(row.get("attribute", "")).strip()
+        if bool(prop) == bool(attr):
+            return None, "slider needs exactly one of prop/attribute"
+        if attr:
+            err = _clean_attribute(row, out)
+            if err:
+                return None, err
+        else:
             out["prop"] = prop
-            out["value_type"] = vt
-            try:
-                vmin = float(row.get("min", 0.0))
-                vmax = float(row.get("max", 1.0))
-            except (TypeError, ValueError):
-                return None, "slider min/max invalid"
-            if not vmax > vmin:
-                return None, "slider min/max invalid"
-            out["min"], out["max"] = vmin, vmax
-            out["fmt"] = str(row.get("fmt", "{:.2f}"))
-            try:
-                out["snap"] = max(0.0, float(row.get("snap", 0.0)))
-            except (TypeError, ValueError):
-                out["snap"] = 0.0
-            return out, None
-        target = str(row.get("target", "")).upper()
-        if target not in FLOAT_TARGETS:
-            return None, f"slider target '{target}' invalid"
-        out["target"] = target
+        # Arbitrary scalar, author-declared range.
+        vt = str(row.get("value_type", "FLOAT")).upper()
+        if vt not in NUMBER_VALUE_TYPES:
+            return None, f"slider value_type '{vt}' invalid"
+        out["value_type"] = vt
         try:
-            out["snap"] = max(0.0, float(row.get("snap", 0.125)))
+            vmin = float(row.get("min", 0.0))
+            vmax = float(row.get("max", 1.0))
         except (TypeError, ValueError):
-            out["snap"] = 0.125
+            return None, "slider min/max invalid"
+        if not vmax > vmin:
+            return None, "slider min/max invalid"
+        out["min"], out["max"] = vmin, vmax
+        out["fmt"] = str(row.get("fmt", "{:.2f}"))
+        try:
+            out["snap"] = max(0.0, float(row.get("snap", 0.0)))
+        except (TypeError, ValueError):
+            out["snap"] = 0.0
         return out, None
     if rtype == "PRESETS":
-        target = str(row.get("target", "")).upper()
-        if target not in FLOAT_TARGETS:
-            return None, f"presets target '{target}' invalid"
-        out["target"] = target
+        prop = str(row.get("prop", "")).strip()
+        data = str(row.get("data", "")).strip()
+        attr = str(row.get("attribute", "")).strip()
+        if len([b for b in (prop, data, attr) if b]) != 1:
+            return None, ("presets needs exactly one of"
+                          " prop/data/attribute")
+        if attr:
+            err = _clean_attribute(row, out)
+            if err:
+                return None, err
+        elif data:
+            out["data"] = data
+        else:
+            out["prop"] = prop
+        vt = str(row.get("value_type", "FLOAT")).strip().upper()
+        if vt not in NUMBER_VALUE_TYPES:
+            return None, f"presets value_type '{vt}' invalid"
+        out["value_type"] = vt
         vals = []
         values = row.get("values", [])
         if isinstance(values, list):
             for v in values:
                 try:
-                    vals.append(max(0.0, min(1.0, float(v))))
+                    vals.append(float(v))
                 except (TypeError, ValueError):
                     pass
         if not vals:
             return None, "presets without values"
         out["values"] = vals
+        if "fmt" in row:
+            out["fmt"] = str(row["fmt"])
         return out, None
     if rtype == "FLIPBOX":
         prop = str(row.get("prop", "")).strip()
-        target = str(row.get("target", "")).strip().upper()
+        attr = str(row.get("attribute", "")).strip()
         switch = str(row.get("switch", "")).strip()
         data = str(row.get("data", "")).strip()
-        bound = [b for b in (prop, target, switch, data) if b]
+        bound = [b for b in (prop, attr, switch, data) if b]
         if len(bound) != 1:
             return None, ("flipbox needs exactly one of"
-                          " prop/target/switch/data")
+                          " prop/attribute/switch/data")
         if data:
             out["data"] = data
             out["label"] = str(row.get("label", "")) or data
@@ -426,10 +512,10 @@ def _clean_row_body(row):
             out["prop"] = prop
             out["label"] = str(row.get("label", "")) or prop.rsplit(".", 1)[-1]
         else:
-            if target not in BOOL_TARGETS:
-                return None, f"flipbox target '{target}' invalid"
-            out["target"] = target
-            out["label"] = str(row.get("label", "")) or target.title()
+            err = _clean_attribute(row, out)
+            if err:
+                return None, err
+            out["label"] = str(row.get("label", "")) or attr
         return out, None
     if rtype == "ROW":
         cells_in = row.get("cells", [])
@@ -700,6 +786,8 @@ def _row_dropped_keys(row, out, where):
     for k in row:
         if k in out or k in _REPORTED_ROW_KEYS:
             continue
+        if k == "target" and "attribute" in out:
+            continue                    # legacy id, converted
         if k == "show_alpha" and not row[k]:
             continue                    # False is the default
         msgs.append(f"{where}: unknown or unused key '{k}' — dropped")
@@ -807,14 +895,23 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
 
     if switch_store is None:
         switch_store = {}
-    edge_bound = _binds_edges(row_defs)
-    # has_selected_edges gates presets/buttons for edge widgets; only edge
-    # widgets need it (and the bmesh-backed adapters module), so the import
-    # is deferred to here — keeps composed importable bpy-free for tests.
+    domains = attribute_domains(row_defs)
+    # Mesh-attribute widgets gate presets/buttons on a selection in the
+    # bound domains; only they need the bmesh-backed adapters module, so
+    # the import is deferred to here — keeps composed importable bpy-free
+    # for tests.
     gate = None
-    if edge_bound:
-        from .adapters import has_selected_edges
-        gate = has_selected_edges
+    if domains:
+        from .adapters import has_selected
+        sel_domains = tuple(sorted(domains))
+
+        def gate(context):
+            return has_selected(context, sel_domains)
+
+    def attr_adapter(row, kind):
+        from .adapters import attribute_adapter
+        return attribute_adapter(row["attribute"], row["domain"], kind,
+                                 row.get("value_type", "FLOAT"))
 
     def one(row):
         ctrl = _one(row)
@@ -831,25 +928,32 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
             return Spacer(span=row.get("span"), height=row.get("height"),
                           placeholder=row.get("_placeholder", ""))
         if rtype == "SLIDER":
-            if row.get("prop"):
-                # Scalar prop slider: value/range in author space (degrees
-                # when DEGREES), storage conversion inside the adapter. No
-                # snapshot/restore — cancel falls back to the pre-drag value.
+            # Value/range in author space (degrees when DEGREES), storage
+            # conversion inside the adapter. Prop sliders have no
+            # snapshot/restore — cancel falls back to the pre-drag value;
+            # attribute sliders restore every element exactly.
+            if row.get("attribute"):
+                ad = attr_adapter(row, "number")
+            else:
                 ad = rna_value_adapter(row["prop"], row["value_type"])
-                return Slider(get=ad["get"], set=ad["set"],
-                              vmin=row["min"], vmax=row["max"],
-                              snap=row.get("snap", 0.0),
-                              fmt=row.get("fmt", "{:.2f}"))
-            from .adapters import ADAPTERS
-            a = ADAPTERS[row["target"]]
-            return Slider(get=a["get"], set=a["set"],
-                          snap=row.get("snap", 0.125),
-                          snapshot=a.get("snapshot"),
-                          restore=a.get("restore"))
+            return Slider(get=ad["get"], set=ad["set"],
+                          vmin=row["min"], vmax=row["max"],
+                          snap=row.get("snap", 0.0),
+                          fmt=row.get("fmt", "{:.2f}"),
+                          snapshot=ad.get("snapshot"),
+                          restore=ad.get("restore"))
         if rtype == "PRESETS":
-            from .adapters import ADAPTERS
-            a = ADAPTERS[row["target"]]
-            return PresetRow(row["values"], set=a["set"], enabled_get=gate)
+            fmt = row.get("fmt", "{:g}")
+            if row.get("attribute"):
+                ad = attr_adapter(row, "number")
+            elif row.get("data"):
+                from . import scene_store
+                ad = scene_store.store_value_adapter(
+                    widget_name, row["data"], row["value_type"])
+            else:
+                ad = rna_value_adapter(row["prop"], row["value_type"])
+            return PresetRow(row["values"], set=ad["set"], fmt=fmt,
+                             enabled_get=gate)
         if rtype == "FLIPBOX":
             if row.get("data"):
                 from . import scene_store
@@ -861,9 +965,8 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
             if row.get("prop"):
                 ad = rna_bool_adapter(row["prop"])
                 return FlipBox(row["label"], get=ad["get"], set=ad["set"])
-            from .adapters import ADAPTERS
-            a = ADAPTERS[row["target"]]
-            return FlipBox(row["label"], get=a["get"], set=a["set"])
+            ad = attr_adapter(row, "bool")
+            return FlipBox(row["label"], get=ad["get"], set=ad["set"])
         if rtype == "SWATCH":
             if "color" in row:
                 const = tuple(row["color"])
@@ -944,14 +1047,21 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
     return controls
 
 
-def _binds_edges(row_defs):
-    """True if any control binds an EDGE adapter (target=). Recurses into
-    ROW cells. prop-bound flipboxes are NOT edge-bound."""
-    def row_binds(r):
+def attribute_domains(row_defs):
+    """Set of mesh domains bound by `attribute` rows (recurses into ROW
+    cells). Empty = the widget touches no mesh attribute."""
+    found = set()
+
+    def walk(r):
         if r.get("type") == "ROW":
-            return any(row_binds(c) for c in r.get("cells", []))
-        return bool(r.get("target"))
-    return any(row_binds(r) for r in row_defs)
+            for c in r.get("cells", []):
+                walk(c)
+        elif r.get("attribute"):
+            found.add(r.get("domain", "EDGE"))
+
+    for r in row_defs:
+        walk(r)
+    return found
 
 
 def make_widget(wdef):
@@ -976,8 +1086,8 @@ def make_widget(wdef):
         state.store_switches(inst.name, inst.switches)
         state.tag_redraw_all()
 
-    edge_bound = _binds_edges(wdef["rows"])
-    inst.poll = (lambda context: context.mode == "EDIT_MESH") if edge_bound \
+    mesh_bound = bool(attribute_domains(wdef["rows"]))
+    inst.poll = (lambda context: context.mode == "EDIT_MESH") if mesh_bound \
         else (lambda context: True)
     inst.controls = build_controls(wdef["rows"], switch_store=inst.switches,
                                    on_switch=on_switch,
@@ -1005,8 +1115,42 @@ def widgets_folder():
                                                 "widgets")
 
 
+# Widgets shipped with the add-on. Read-only: listed and loaded next to
+# the user's folder, where a same-named user file overrides the bundled
+# one (saving an edited built-in writes that override; deleting it brings
+# the built-in back).
+BUNDLED_FOLDER = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "presets", "widgets")
+
+
 def widget_path(name):
+    """Where `name` is (or would be) written: always the user folder."""
     return os.path.join(widgets_folder(), sanitize_name(name) + _EXT)
+
+
+def bundled_path(name):
+    return os.path.join(BUNDLED_FOLDER, sanitize_name(name) + _EXT)
+
+
+def source_path(name):
+    """The file `name` loads from: the user file, else the bundled one
+    (the user path when neither exists)."""
+    user = widget_path(name)
+    if os.path.isfile(user):
+        return user
+    bundled = bundled_path(name)
+    return bundled if os.path.isfile(bundled) else user
+
+
+def is_builtin(name):
+    """True when `name` comes from the add-on (no user override)."""
+    return (not os.path.isfile(widget_path(name))
+            and os.path.isfile(bundled_path(name)))
+
+
+def has_bundled(name):
+    return os.path.isfile(bundled_path(name))
 
 
 def draft_path(name):
@@ -1014,13 +1158,19 @@ def draft_path(name):
                         sanitize_name(name) + DRAFT_SUFFIX)
 
 
-def list_widget_files():
-    folder = widgets_folder()
+def _json_files(folder):
     if not os.path.isdir(folder):
-        return []
-    return sorted(f for f in os.listdir(folder)
-                  if f.endswith(_EXT) and not f.endswith(DRAFT_SUFFIX)
-                  and os.path.isfile(os.path.join(folder, f)))
+        return set()
+    return {f for f in os.listdir(folder)
+            if f.endswith(_EXT) and not f.endswith(DRAFT_SUFFIX)
+            and os.path.isfile(os.path.join(folder, f))}
+
+
+def list_widget_files():
+    """Definition file names from the user folder and the bundled
+    widgets (one entry per name; resolve with source_path)."""
+    return sorted(_json_files(widgets_folder())
+                  | _json_files(BUNDLED_FOLDER))
 
 
 def load_def(path):
@@ -1046,11 +1196,17 @@ def save_def(wdef):
 
 
 def delete_def(name):
+    """Delete the user file of `name` (bundled files are never touched)."""
     path = widget_path(name)
     if os.path.isfile(path):
         os.remove(path)
         return True
     return False
+
+
+def file_name_of(fn):
+    """Widget name of a definition file name."""
+    return fn[:-len(_EXT)]
 
 
 # ----------------------------------------------------------------------
@@ -1085,6 +1241,17 @@ def register_composed(wdef):
     return inst, None
 
 
+def drop_or_restore(name):
+    """After `name`'s user file was removed (delete / rename away): show
+    the bundled widget again when there is one, else unregister it."""
+    if has_bundled(name):
+        wdef, _errors = load_def(bundled_path(name))
+        if wdef is not None:
+            register_composed(wdef)
+            return
+    unregister_composed(name)
+
+
 def unregister_composed(name):
     from ..ui import widgets as framework
     from ..ui.widgets import editor
@@ -1101,7 +1268,7 @@ def load_all():
     problems = {}
     seen = set()
     for fn in list_widget_files():
-        path = os.path.join(widgets_folder(), fn)
+        path = source_path(file_name_of(fn))
         wdef, errors = load_def(path)
         if errors:
             problems[fn] = errors

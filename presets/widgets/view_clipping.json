@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "view_clipping",
+  "title": "View Clipping",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Clip Start"},
+    {"type": "INPUT", "prop": "space_data.clip_start", "value_type": "FLOAT",
+     "label": "Start", "fmt": "{:g}"},
+    {"type": "BUTTONS", "prop": "space_data.clip_start", "value_type": "FLOAT",
+     "values": [0.001, 0.01, 0.1, 1.0], "fmt": "{:g}"},
+    {"type": "ROW", "cells": [
+      {"type": "BUTTON", "label": "÷ 10", "op": "iops.executor",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "start_d10"}},
+      {"type": "BUTTON", "label": "× 10", "op": "iops.executor",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "start_x10"}}
+    ]},
+    {"type": "SECTION", "label": "Clip End"},
+    {"type": "INPUT", "prop": "space_data.clip_end", "value_type": "FLOAT",
+     "label": "End", "fmt": "{:g}"},
+    {"type": "BUTTONS", "prop": "space_data.clip_end", "value_type": "FLOAT",
+     "values": [100, 1000, 10000, 100000], "fmt": "{:g}"},
+    {"type": "ROW", "cells": [
+      {"type": "BUTTON", "label": "÷ 10", "op": "iops.executor",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "end_d10"}},
+      {"type": "BUTTON", "label": "× 10", "op": "iops.executor",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "end_x10"}}
+    ]},
+    {"type": "SECTION", "label": "Scene"},
+    {"type": "ROW", "cells": [
+      {"type": "BUTTON", "label": "Fit Scene", "op": "iops.executor",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "fit"}},
+      {"type": "BUTTON", "label": "Reset", "op": "iops.executor", "role": "error",
+       "op_kwargs": {"script": "view_clipping_actions.py", "args": "reset"}}
+    ]}
+  ]
+}

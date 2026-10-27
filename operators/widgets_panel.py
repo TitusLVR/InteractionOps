@@ -12,7 +12,6 @@ call_panel popup before it can show (it works only when run from a UI
 button, where no keymap event is in flight). Toggle hotkeys + prefs rows
 are synced at addon load and on Widgets-tab edits instead.
 """
-import os
 
 import bpy
 
@@ -20,7 +19,7 @@ from ..widgets import composed
 
 
 class IOPS_OT_Call_Widgets_Panel(bpy.types.Operator):
-    """Scan the widgets folder and open a list of all widgets"""
+    """Scan the widgets folder + built-in widgets and open a list of all widgets"""
 
     bl_idname = "iops.scripts_call_widgets_panel"
     is_bindable = True
@@ -31,23 +30,22 @@ class IOPS_OT_Call_Widgets_Panel(bpy.types.Operator):
         if iops is None:
             self.report({"ERROR"}, "IOPS scene data not available")
             return {"CANCELLED"}
-        folder = composed.widgets_folder()
         found = []
-        if os.path.isdir(folder):
-            for fn in composed.list_widget_files():
-                wdef, _err = composed.load_def(os.path.join(folder, fn))
-                if wdef is None:
-                    continue
-                # Always (re)register from disk so the popup doubles as a
-                # JSON hot-reload: editing a live widget's file and re-opening
-                # the panel rebuilds it with the new rows. Position and
-                # visibility survive the rebuild — both live in the module
-                # state dict (ui/widgets/state.py), not on the instance, and
-                # register_composed re-seeds the fresh panel from that state
-                # (composed.register_composed), so already-placed widgets do
-                # not jump to the default corner.
-                composed.register_composed(wdef)
-                found.append((wdef["name"], wdef.get("title") or wdef["name"]))
+        for fn in composed.list_widget_files():
+            wdef, _err = composed.load_def(
+                composed.source_path(composed.file_name_of(fn)))
+            if wdef is None:
+                continue
+            # Always (re)register from disk so the popup doubles as a
+            # JSON hot-reload: editing a live widget's file and re-opening
+            # the panel rebuilds it with the new rows. Position and
+            # visibility survive the rebuild — both live in the module
+            # state dict (ui/widgets/state.py), not on the instance, and
+            # register_composed re-seeds the fresh panel from that state
+            # (composed.register_composed), so already-placed widgets do
+            # not jump to the default corner.
+            composed.register_composed(wdef)
+            found.append((wdef["name"], wdef.get("title") or wdef["name"]))
         iops.widget_list.clear()
         for name, title in sorted(found, key=lambda t: t[1].lower()):
             item = iops.widget_list.add()
@@ -68,7 +66,7 @@ class IOPS_PT_WidgetList(bpy.types.Panel):
         iops = getattr(context.scene, "IOPS", None)
         items = list(iops.widget_list) if iops is not None else []
         if not items:
-            layout.label(text="No widgets in folder")
+            layout.label(text="No widgets found")
             return
         col = layout.column(align=True)
         letter = ""

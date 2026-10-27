@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "edge_data",
+  "title": "Edge Data",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Bevel Weight"},
+    {"type": "SLIDER", "attribute": "bevel_weight_edge", "domain": "EDGE",
+     "snap": 0.125, "fmt": "{:.3f}"},
+    {"type": "PRESETS", "attribute": "bevel_weight_edge", "domain": "EDGE",
+     "values": [0, 0.25, 0.5, 1.0]},
+    {"type": "SECTION", "label": "Crease"},
+    {"type": "SLIDER", "attribute": "crease_edge", "domain": "EDGE",
+     "snap": 0.125, "fmt": "{:.3f}"},
+    {"type": "PRESETS", "attribute": "crease_edge", "domain": "EDGE",
+     "values": [0, 0.5, 0.9, 1.0]},
+    {"type": "SECTION", "label": "Flags"},
+    {"type": "FLIPBOX", "attribute": "sharp_edge", "domain": "EDGE",
+     "label": "Sharp"},
+    {"type": "FLIPBOX", "attribute": "uv_seam", "domain": "EDGE",
+     "label": "Seam"},
+    {"type": "FLIPBOX", "attribute": "freestyle_edge", "domain": "EDGE",
+     "label": "Freestyle"}
+  ]
+}

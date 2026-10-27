@@ -33,6 +33,19 @@ def get_executor_column_width(scripts):
     return max(min_width, max_lenght)
 
 
+# Scripts shipped with the built-in widgets. A bare file name (no
+# folder) in `script` resolves here, so shipped widgets stay portable.
+WIDGET_SCRIPTS_FOLDER = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "presets", "widgets", "scripts")
+
+
+def resolve_script(path):
+    if path and not os.path.dirname(path):
+        return os.path.join(WIDGET_SCRIPTS_FOLDER, path)
+    return path
+
+
 class IOPS_OT_Executor(bpy.types.Operator):
     """Execute python scripts from folder"""
 
@@ -42,6 +55,8 @@ class IOPS_OT_Executor(bpy.types.Operator):
 
     script: StringProperty(
         name="Script path",
+        description="Script file; a bare file name runs one of the "
+                    "scripts shipped with the built-in widgets",
         default="",
     )
     args: StringProperty(
@@ -51,7 +66,7 @@ class IOPS_OT_Executor(bpy.types.Operator):
     )
 
     def execute(self, context):
-        filename = self.script
+        filename = resolve_script(self.script)
         exec(compile(open(filename).read(), filename, "exec"))
         return {"FINISHED"}
 

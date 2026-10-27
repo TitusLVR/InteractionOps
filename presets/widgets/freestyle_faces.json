@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "freestyle_faces",
+  "title": "Freestyle Faces",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Freestyle Face Mark"},
+    {"type": "ROW", "show_if": {"mode": "EDIT_MESH"}, "cells": [
+      {"type": "BUTTON", "label": "On", "op": "mesh.mark_freestyle_face",
+       "op_kwargs": {"clear": false}},
+      {"type": "BUTTON", "label": "Off", "op": "mesh.mark_freestyle_face",
+       "op_kwargs": {"clear": true}, "role": "error"}
+    ]}
+  ]
+}

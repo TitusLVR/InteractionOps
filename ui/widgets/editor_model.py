@@ -25,7 +25,8 @@ _NEW = {
     "BUTTON": {"label": "Button", "op": ""},
     "FLIPBOX": {"label": "Flip", "switch": ""},
     "SLIDER": {"prop": "", "value_type": "FLOAT", "min": 0.0, "max": 1.0},
-    "PRESETS": {"target": "BEVEL", "values": [0, 0.5, 1.0]},
+    "PRESETS": {"attribute": "bevel_weight_edge", "domain": "EDGE",
+                "values": [0, 0.5, 1.0]},
     "BUTTONS": {"prop": "", "value_type": "FLOAT", "values": [0, 1]},
     "DROPDOWN": {"label": "Dropdown", "prop": ""},
     "INPUT": {"label": "Input", "prop": "", "value_type": "STRING"},
@@ -376,6 +377,35 @@ class EditorDoc:
             return False
         self.selection = None
         return True
+
+    def duplicate(self, path):
+        """Copy the element at `path` right after itself: a top-level row
+        (ROW included) lands below, a cell lands to its right in the same
+        row (spans split like insert). Selects and returns the copy's
+        path, or None when refused."""
+        result = []
+
+        def fn(w):
+            rows = w.get("rows", [])
+            el = _resolve(rows, path)
+            if el is None:
+                return False
+            el = copy.deepcopy(el)
+            r, c = path
+            if c is None:
+                rows.insert(r + 1, el)
+                result.append((r + 1, None))
+                return True
+            idx = _insert_into(rows, r, c + 1, el)
+            if idx is None:
+                return False
+            result.append((r, idx))
+            return True
+
+        if not self.commit(fn):
+            return None
+        self.selection = result[0]
+        return self.selection
 
     # -- field edits ---------------------------------------------------
     # A no-op edit never lands in the undo history. set_span reports a

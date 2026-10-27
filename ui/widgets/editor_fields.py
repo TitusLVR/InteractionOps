@@ -21,16 +21,19 @@ except ImportError:
 
 # Binding choices per element type, first = default for a fresh switch.
 BINDINGS = {
-    "SLIDER": ("TARGET", "PROP"),
-    "PRESETS": ("TARGET",),
-    "FLIPBOX": ("TARGET", "PROP", "SWITCH", "DATA"),
+    "SLIDER": ("ATTRIBUTE", "PROP"),
+    "PRESETS": ("ATTRIBUTE", "PROP", "DATA"),
+    "FLIPBOX": ("ATTRIBUTE", "PROP", "SWITCH", "DATA"),
     "DROPDOWN": ("PROP", "DATA"),
     "INPUT": ("PROP", "DATA"),
     "BUTTONS": ("PROP", "DATA"),
     "SWATCH": ("COLOR", "PROP"),
 }
-BINDING_KEYS = {"TARGET": "target", "PROP": "prop", "SWITCH": "switch",
-                "DATA": "data", "COLOR": "color"}
+BINDING_KEYS = {"ATTRIBUTE": "attribute", "PROP": "prop",
+                "SWITCH": "switch", "DATA": "data", "COLOR": "color"}
+# Keys that only exist alongside a binding (dropped when switching away,
+# defaulted when switching to it).
+_BINDING_EXTRAS = {"ATTRIBUTE": {"domain": "EDGE"}}
 
 _SLIDER_VALUE_TYPES = ("INT", "FLOAT", "DEGREES", "RADIANS")
 _TRUE = ("1", "true", "on", "yes")
@@ -70,26 +73,27 @@ def apply_binding(el, binding, value):
     for b in choices:
         if b != binding:
             el.pop(BINDING_KEYS[b], None)
+            for extra in _BINDING_EXTRAS.get(b, ()):
+                el.pop(extra, None)
     el[BINDING_KEYS[binding]] = value
+    for extra, default in _BINDING_EXTRAS.get(binding, {}).items():
+        el.setdefault(extra, default)
     return json.dumps(el, sort_keys=True, default=str) != before
-
-
-def targets_for(rtype):
-    rtype = str(rtype).upper()
-    if rtype in ("SLIDER", "PRESETS"):
-        return composed.FLOAT_TARGETS
-    if rtype == "FLIPBOX":
-        return composed.BOOL_TARGETS
-    return ()
 
 
 def value_types_for(rtype):
     rtype = str(rtype).upper()
-    if rtype == "SLIDER":
+    if rtype in ("SLIDER", "PRESETS"):
         return _SLIDER_VALUE_TYPES
     if rtype in ("INPUT", "BUTTONS"):
         return composed.VALUE_TYPES
     return ()
+
+
+def _bound(binding):
+    """binding selector + its key field (+ domain for attributes)."""
+    out = ["binding", BINDING_KEYS.get(binding, "attribute")]
+    return out + ["domain"] if binding == "ATTRIBUTE" else out
 
 
 def fields_for(el):
@@ -106,15 +110,11 @@ def fields_for(el):
     elif rtype == "BUTTON":
         out = ["label", "op", "op_kwargs", "role"]
     elif rtype == "SLIDER":
-        out = ["binding"]
-        if binding == "PROP":
-            out += ["prop", "value_type", "min", "max", "snap", "fmt"]
-        else:
-            out += ["target", "snap"]
+        out = _bound(binding) + ["value_type", "min", "max", "snap", "fmt"]
     elif rtype == "PRESETS":
-        out = ["target", "values"]
+        out = _bound(binding) + ["value_type", "values", "fmt"]
     elif rtype == "FLIPBOX":
-        out = ["label", "binding", BINDING_KEYS.get(binding, "target")]
+        out = ["label"] + _bound(binding)
     elif rtype == "DROPDOWN":
         out = ["label", "binding", BINDING_KEYS.get(binding, "prop"),
                "labels", "items_from"]

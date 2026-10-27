@@ -30,49 +30,87 @@ upper). Unknown types are dropped + reported.
 |---|---|---|---|
 | `label` | str | no | `""` |
 
-### `SLIDER` — edge float attribute OR scalar RNA prop (drag)
+### Mesh attribute binding (`attribute` + `domain`)
 
-Two modes, EXACTLY ONE of `target`/`prop` (both → dropped).
+`SLIDER`, `PRESETS` and `FLIPBOX` can bind a **mesh attribute** instead of a
+`prop` / `data`:
 
-**Target mode** (edge attribute, auto edit-mesh gating):
 | key | type | required | default |
 |---|---|---|---|
-| `target` | `"BEVEL"` \| `"CREASE"` | **yes** | — (other targets rejected) |
-| `snap` | float ≥ 0 | no | `0.125` (0 disables snapping) |
+| `attribute` | attribute name, e.g. `bevel_weight_edge` | **yes** | — (`position` and `.`-prefixed internal names rejected) |
+| `domain` | `"POINT"` \| `"EDGE"` \| `"FACE"` | no | `"EDGE"` |
 
-**Prop mode** (arbitrary scalar RNA path, absence-safe → disabled; NOT
-edge-bound, author-declared range in author space — degrees for `DEGREES`):
+- Reads/writes the attribute on the **selected elements** of every mesh in
+  Edit Mode (multi-object aware). Mixed selection shows a mixed state; a
+  write applies to all selected elements.
+- A missing attribute reads as 0 / False and is created on the first
+  non-default write (float, or int for `value_type: INT`, bool for FLIPBOX).
+- `sharp_edge`, `uv_seam` and `sharp_face` work too (Blender keeps them as
+  edge/face flags in Edit Mode; handled transparently).
+- **Auto edit-mesh gating**: any attribute row makes the widget poll
+  EDIT_MESH; presets/buttons gray out while nothing is selected in the bound
+  domains.
+- Common names: `bevel_weight_edge`, `crease_edge`, `sharp_edge`, `uv_seam`,
+  `freestyle_edge` (EDGE); `bevel_weight_vert`, `crease_vert` (POINT);
+  `sharp_face`, `freestyle_face` (FACE).
+- **Legacy `target`** ids still load and are converted (Save writes the new
+  form): `BEVEL`→`bevel_weight_edge`, `CREASE`→`crease_edge` (values clamped
+  0..1, slider snap 0.125, fmt `{:.3f}`), `SHARP`→`sharp_edge`,
+  `SEAM`→`uv_seam`, `FREESTYLE`→`freestyle_edge` (all EDGE).
+
+### `SLIDER` — drag a number
+
+EXACTLY ONE of `prop` / `attribute` (none or both → dropped).
 | key | type | required | default |
 |---|---|---|---|
-| `prop` | dotted RNA path | **yes** | — |
+| `prop` | dotted RNA scalar path | one-of | — |
+| `attribute` (+ `domain`) | mesh attribute (see above) | one-of | — |
 | `value_type` | `INT` \| `FLOAT` \| `DEGREES` \| `RADIANS` | no | `FLOAT` (STRING/ENUM rejected) |
 | `min` / `max` | float, `max > min` | no | `0.0` / `1.0` (equal/inverted → dropped) |
 | `snap` | float ≥ 0 | no | `0.0` (free; Ctrl-drag is always smooth) |
 | `fmt` | format string | no | `"{:.2f}"` |
 
-Cancel (Esc/right-click mid-drag) restores the pre-drag value; no
-per-edge snapshot/restore in prop mode. Example:
+Range is in author space (degrees for `DEGREES`). `prop` is absence-safe
+(missing path → disabled). Cancel (Esc/right-click mid-drag) restores the
+pre-drag value; attribute sliders restore every element exactly. Example:
 
 ```json
 {"type": "SLIDER", "prop": "space_data.shading.studiolight_rotate_z",
  "value_type": "DEGREES", "min": -180, "max": 180, "snap": 15, "fmt": "{:.0f}°"}
+{"type": "SLIDER", "attribute": "bevel_weight_edge", "domain": "EDGE",
+ "snap": 0.125}
 ```
 
-### `PRESETS` — edge float attribute (preset buttons)
+### `PRESETS` — row of preset value buttons
+Needs **exactly one** of `prop` / `data` / `attribute` (zero or two+ → dropped).
 | key | type | required | default |
 |---|---|---|---|
-| `target` | `"BEVEL"` \| `"CREASE"` | **yes** | — |
-| `values` | list of float in `[0,1]` | **yes** | — (empty/none → row dropped) |
+| `prop` | dotted RNA scalar path | one-of | — |
+| `data` | scene-store key (string) | one-of | — |
+| `attribute` (+ `domain`) | mesh attribute (see above) | one-of | — |
+| `value_type` | `"INT"` \| `"FLOAT"` \| `"DEGREES"` \| `"RADIANS"` | no | `"FLOAT"` |
+| `values` | list of float (not clamped) | **yes** | — (empty/none → row dropped) |
+| `fmt` | Python format string for the button labels | no | `"{:g}"` |
+
+- `DEGREES` values are in degrees, written as radians.
+- A click writes the value; no button shows as active (use `BUTTONS` for a
+  radio group that highlights the current value).
+
+```json
+{"type": "PRESETS", "prop": "space_data.shading.studiolight_rotate_z",
+  "value_type": "DEGREES", "values": [-90, 0, 90, 180], "fmt": "{:g}°"}
+{"type": "PRESETS", "attribute": "crease_edge", "values": [0, 0.5, 1]}
+```
 
 ### `FLIPBOX` — checkbox bound to a boolean
-Needs **exactly one** of `target` / `prop` / `switch` / `data` (zero or two+ → dropped).
+Needs **exactly one** of `prop` / `attribute` / `switch` / `data` (zero or two+ → dropped).
 | key | type | required | default |
 |---|---|---|---|
-| `target` | `"SHARP"` \| `"SEAM"` \| `"FREESTYLE"` | one-of | — |
 | `prop` | dotted RNA bool path (e.g. `scene.foo.bar`) | one-of | — |
+| `attribute` (+ `domain`) | bool mesh attribute (see above) | one-of | — |
 | `switch` | local switch name | one-of | — |
 | `data` | scene-store key (string) | one-of | — |
-| `label` | str | no | derived from target/prop/switch/data |
+| `label` | str | no | derived from prop/attribute/switch/data |
 
 - `prop` is resolved against `context` per draw; **absence-safe** — a missing
   path renders the box **disabled**, never errors.
@@ -273,7 +311,7 @@ is scoped to the owning widget — two widgets using `"data": "slot_0"`
 never collide.
 
 - Exactly one binding per control: `data` is mutually exclusive with
-  `prop` (and `target`/`switch` on FLIPBOX).
+  `prop` / `attribute` (and `switch` on FLIPBOX).
 - Values are stored as strings; interpretation is DECLARED by
   `value_type`, same rules as `prop` bindings (DEGREES authors degrees,
   stores radians). FLIPBOX stores `"1"`/`"0"`.
