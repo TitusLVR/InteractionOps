@@ -70,16 +70,22 @@ def _redraw_sidebars():
 # ----------------------------------------------------------------------
 _ITEM_CACHE = {}
 _BINDING_LABELS = {
-    "TARGET": ("Edge Target", "Built-in mesh edge attribute / flag"),
+    "ATTRIBUTE": ("Mesh Attribute", "Attribute of the selected mesh "
+                  "elements (Edit Mode)"),
     "PROP": ("RNA Prop", "Dotted RNA path resolved against the context"),
     "SWITCH": ("Switch", "Local widget switch (on/off state)"),
     "DATA": ("Scene Data", "Key in the per-scene widget data store"),
     "COLOR": ("Literal Color", "A fixed RGBA color"),
 }
-_TARGET_LABELS = {
-    "BEVEL": "Bevel Weight", "CREASE": "Crease", "SHARP": "Sharp",
-    "SEAM": "Seam", "FREESTYLE": "Freestyle",
-}
+_DOMAIN_ITEMS = (
+    ("POINT", "Vertex", "Attribute on the selected vertices"),
+    ("EDGE", "Edge", "Attribute on the selected edges"),
+    ("FACE", "Face", "Attribute on the selected faces"),
+)
+# Offered by the attribute field search next to the active mesh's own.
+_COMMON_ATTRIBUTES = ("bevel_weight_edge", "crease_edge", "sharp_edge",
+                      "uv_seam", "freestyle_edge", "bevel_weight_vert",
+                      "crease_vert", "sharp_face", "freestyle_face")
 
 
 def _items(kind, ids, labels=None):
@@ -104,12 +110,17 @@ def _binding_items(self, context):
     return _items("binding", ids, _BINDING_LABELS)
 
 
-def _target_items(self, context):
-    composed = _composed()
-    ids = ef.targets_for(_sel_type()) or (composed.FLOAT_TARGETS
-                                          + composed.BOOL_TARGETS)
-    return _items("target", ids,
-                  {k: (v, "") for k, v in _TARGET_LABELS.items()})
+def _attribute_search(self, context, edit_text):
+    names = list(_COMMON_ATTRIBUTES)
+    ob = getattr(context, "active_object", None)
+    if ob is not None and ob.type == "MESH":
+        for a in ob.data.attributes:
+            if (a.domain in ("POINT", "EDGE", "FACE")
+                    and not a.name.startswith(".") and a.name != "position"
+                    and a.name not in names):
+                names.append(a.name)
+    text = (edit_text or "").lower()
+    return [n for n in names if text in n.lower()]
 
 
 def _value_type_items(self, context):
@@ -218,16 +229,14 @@ def _on_field(props, name):
 
     if name in ("label", "fmt", "items_from", "unit"):
         value = _text_or_none(getattr(props, name))
-    elif name in ("op", "prop", "data", "switch"):
+    elif name in ("op", "prop", "data", "switch", "attribute"):
         value = getattr(props, name).strip()
-    elif name in ("role", "value_type", "target"):
+    elif name in ("role", "value_type", "domain"):
         value = getattr(props, name)
     elif name in ("min", "max", "snap"):
         value = float(getattr(props, name))
     elif name == "values":
-        parse = (_composed().parse_values if rtype == "PRESETS"
-                 else ef.parse_numbers)
-        value = parse(props.values)
+        value = ef.parse_numbers(props.values)
     elif name == "items":
         value = ef.parse_items(props.items)
     elif name == "labels":
@@ -252,9 +261,6 @@ def _set_binding(s, path, rtype, props):
         return False
     if key == "color":
         value = [float(c) for c in props.color]
-    elif key == "target":
-        targets = ef.targets_for(rtype)
-        value = props.target if props.target in targets else targets[0]
     else:
         value = getattr(props, key).strip()
 
@@ -307,8 +313,8 @@ def _put(props, name, value):
         pass
 
 
-_DEFAULT_VALUE_TYPE = {"SLIDER": "FLOAT", "INPUT": "STRING",
-                       "BUTTONS": "FLOAT"}
+_DEFAULT_VALUE_TYPE = {"SLIDER": "FLOAT", "PRESETS": "FLOAT",
+                       "INPUT": "STRING", "BUTTONS": "FLOAT"}
 
 
 def _effective_span(s, path, el):
@@ -347,17 +353,14 @@ def sync_from_selection():
 def _sync_element(s, props, path, el):
     rtype = str(el.get("type", "")).upper()
     binding = ef.binding_of(el)
-    for key in ("label", "op", "prop", "data", "switch", "fmt",
+    for key in ("label", "op", "prop", "data", "switch", "attribute", "fmt",
                 "items_from", "unit"):
         _put(props, key, str(el.get(key, "") or ""))
     _put(props, "op_kwargs", ef.format_kwargs(el.get("op_kwargs")))
     _put(props, "role", el.get("role", "default"))
     if binding:
         _put(props, "binding", binding)
-    targets = ef.targets_for(rtype)
-    target = str(el.get("target", "")).upper()
-    if targets:
-        _put(props, "target", target if target in targets else targets[0])
+    _put(props, "domain", str(el.get("domain", "EDGE")).upper())
     vts = ef.value_types_for(rtype)
     vt = str(el.get("value_type", "")).upper()
     if vts:
@@ -368,12 +371,10 @@ def _sync_element(s, props, path, el):
             _put(props, key, float(el.get(key, default)))
         except (TypeError, ValueError):
             _put(props, key, default)
-    snap_default = 0.125 if (rtype == "SLIDER" and binding == "TARGET") \
-        else 0.0
     try:
-        _put(props, "snap", float(el.get("snap", snap_default)))
+        _put(props, "snap", float(el.get("snap", 0.0)))
     except (TypeError, ValueError):
-        _put(props, "snap", snap_default)
+        _put(props, "snap", 0.0)
     _put(props, "values", ef.format_numbers(el.get("values")))
     _put(props, "items", ef.format_items(el.get("items")))
     _put(props, "labels", ef.format_labels(el.get("labels")))
@@ -436,8 +437,14 @@ class IOPS_WidgetEditorProps(PropertyGroup):
                          update=_upd("data"))
     switch: StringProperty(name="Switch", description="Local switch name",
                            update=_upd("switch"))
-    target: EnumProperty(name="Target", items=_target_items,
-                         update=_upd("target"))
+    attribute: StringProperty(
+        name="Attribute",
+        description="Mesh attribute name, e.g. bevel_weight_edge "
+                    "(created on the first non-zero write)",
+        search=_attribute_search, search_options={"SUGGESTION"},
+        update=_upd("attribute"))
+    domain: EnumProperty(name="Domain", items=_DOMAIN_ITEMS, default="EDGE",
+                         update=_upd("domain"))
     value_type: EnumProperty(name="Value Type", items=_value_type_items,
                              update=_upd("value_type"))
     min: FloatProperty(name="Min", default=0.0, update=_upd("min"))
@@ -624,6 +631,25 @@ class IOPS_OT_widget_editor_delete(_SessionOp, Operator):
 
     def execute(self, context):
         _key_action("DELETE")
+        return {"FINISHED"}
+
+
+class IOPS_OT_widget_editor_duplicate(_SessionOp, Operator):
+    bl_idname = "iops.widget_editor_duplicate"
+    bl_label = "Duplicate Element"
+    bl_description = ("Duplicate the selected element (a cell to its "
+                      "right, a row below it)")
+
+    @classmethod
+    def poll(cls, context):
+        s = _session()
+        return (s is not None and s.doc.selection is not None
+                and _editor().can_edit())
+
+    def execute(self, context):
+        if not _key_action("DUPLICATE"):
+            self.report({"WARNING"}, "No room in the row for a copy")
+            return {"CANCELLED"}
         return {"FINISHED"}
 
 
@@ -829,6 +855,8 @@ def draw_editor(layout, context):
     row.operator("iops.widget_editor_undo", text="Undo", icon="LOOP_BACK")
     row.operator("iops.widget_editor_redo", text="Redo",
                  icon="LOOP_FORWARDS")
+    row.operator("iops.widget_editor_duplicate", text="Duplicate",
+                 icon="DUPLICATE")
     row.operator("iops.widget_editor_delete", text="Delete", icon="X")
 
     bad = s.incomplete
@@ -896,6 +924,7 @@ classes = (
     IOPS_OT_widget_editor_undo,
     IOPS_OT_widget_editor_redo,
     IOPS_OT_widget_editor_delete,
+    IOPS_OT_widget_editor_duplicate,
     IOPS_OT_widget_editor_resume_draft,
     IOPS_OT_widget_editor_discard_draft,
     IOPS_OT_widget_editor_pick_operator,

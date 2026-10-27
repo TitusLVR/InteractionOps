@@ -110,7 +110,7 @@ def test_validate_prop_slider():
 def test_prop_slider_is_not_edge_bound():
     rows = [{"type": "SLIDER", "prop": "scene.x", "value_type": "FLOAT",
              "min": 0, "max": 1}]
-    assert composed._binds_edges(rows) is False
+    assert composed.attribute_domains(rows) == set()
 
 
 def test_validate_normalizes_values_and_defaults():
@@ -123,7 +123,8 @@ def test_validate_normalizes_values_and_defaults():
             {"type": "BUTTON", "op": "iops.executor", "role": "fancy"},
         ],
     })
-    assert wdef["rows"][0]["target"] == "BEVEL"
+    assert wdef["rows"][0]["attribute"] == "bevel_weight_edge"
+    assert wdef["rows"][0]["domain"] == "EDGE"
     assert wdef["rows"][0]["snap"] == 0.125
     assert wdef["rows"][1]["values"] == [0.0, 0.5, 1.0]   # clamped, Nones out
     assert wdef["rows"][2]["role"] == "default"
@@ -787,7 +788,7 @@ def test_build_controls_input_kind_and_path_not_edge_bound():
     rows = [{"type": "INPUT", "prop": "scene.IOPS.rename.pattern",
              "value_type": "STRING", "label": "Pattern", "fmt": "{}"}]
     ctrls = composed.build_controls(rows)
-    assert composed._binds_edges(rows) is False
+    assert composed.attribute_domains(rows) == set()
     c = ctrls[0]
     assert c.kind == "input"
     assert c.path == "scene.IOPS.rename.pattern"
@@ -847,7 +848,7 @@ def test_build_controls_new_rows_not_edge_bound():
         {"type": "BUTTONS", "prop": "scene.IOPS.rename.counter_digits",
          "value_type": "INT", "values": [2.0, 3.0]},
     ]
-    assert composed._binds_edges(rows) is False
+    assert composed.attribute_domains(rows) == set()
 
 
 def test_build_swatch_literal_color_constant_getter():
@@ -1085,7 +1086,7 @@ def test_data_rows_do_not_bind_edges():
         "name": "demo_w",
         "rows": [{"type": "INPUT", "data": "note"}],
     })
-    assert composed._binds_edges(rows["rows"]) is False
+    assert composed.attribute_domains(rows["rows"]) == set()
 
 
 # ----------------------------------------------------------------------
@@ -1150,7 +1151,47 @@ def test_list_widget_files_skips_drafts(tmp_path, monkeypatch):
     for fn in ("a.json", "a.draft.json", "b.json.bak"):
         (tmp_path / fn).write_text("{}")
     monkeypatch.setattr(composed, "widgets_folder", lambda: str(tmp_path))
+    monkeypatch.setattr(composed, "BUNDLED_FOLDER", str(tmp_path / "none"))
     assert composed.list_widget_files() == ["a.json"]
+
+
+def test_bundled_widgets_listed_and_overridable(tmp_path, monkeypatch):
+    user, bundled = tmp_path / "user", tmp_path / "bundled"
+    user.mkdir()
+    bundled.mkdir()
+    for fn in ("shipped.json", "both.json"):
+        (bundled / fn).write_text("{}")
+    for fn in ("mine.json", "both.json"):
+        (user / fn).write_text("{}")
+    monkeypatch.setattr(composed, "widgets_folder", lambda: str(user))
+    monkeypatch.setattr(composed, "BUNDLED_FOLDER", str(bundled))
+    assert composed.list_widget_files() == ["both.json", "mine.json",
+                                            "shipped.json"]
+    assert composed.source_path("shipped") == str(bundled / "shipped.json")
+    assert composed.source_path("both") == str(user / "both.json")
+    assert composed.widget_path("shipped") == str(user / "shipped.json")
+    assert composed.is_builtin("shipped")
+    assert not composed.is_builtin("both") and composed.has_bundled("both")
+    assert not composed.is_builtin("mine")
+    assert not composed.delete_def("shipped")      # bundled never deleted
+    assert (bundled / "shipped.json").exists()
+
+
+def test_shipped_widgets_validate_cleanly():
+    import json
+    files = sorted(f for f in os.listdir(composed.BUNDLED_FOLDER)
+                   if f.endswith(".json"))
+    assert "edge_data.json" in files
+    for fn in files:
+        with open(os.path.join(composed.BUNDLED_FOLDER, fn),
+                  encoding="utf-8") as f:
+            data = json.load(f)
+        clean, errors = composed.validate_def(data)
+        assert clean is not None and errors == [], fn
+        assert composed.dropped_keys(data) == [], fn
+        cells = [c for r in data.get("rows", [])
+                 for c in [r] + list(r.get("cells", []))]
+        assert not any("target" in c for c in cells), fn  # no legacy ids
 
 
 def test_build_controls_spacer_and_span():
@@ -1226,3 +1267,120 @@ def test_dropped_keys_skips_values_validate_def_reports():
 def test_dropped_keys_not_a_def():
     assert composed.dropped_keys([]) == []
     assert composed.dropped_keys({"rows": []}) == []     # no name
+
+
+def test_validate_presets_prop_and_data_bindings():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "PRESETS", "prop": "object.data.angle",
+         "value_type": "DEGREES", "values": [0, 45, 90], "fmt": "{:g}°"},
+        {"type": "PRESETS", "data": "count", "value_type": "INT",
+         "values": [2, 4, 8]},
+        {"type": "PRESETS", "prop": "a.b", "values": [-1, 2.5]}]})
+    assert errors == []
+    p, d, f = wdef["rows"]
+    assert p["prop"] == "object.data.angle" and "target" not in p
+    assert p["value_type"] == "DEGREES" and p["fmt"] == "{:g}°"
+    assert p["values"] == [0.0, 45.0, 90.0]  # not clamped to [0, 1]
+    assert d["data"] == "count" and d["value_type"] == "INT"
+    assert f["value_type"] == "FLOAT" and f["values"] == [-1.0, 2.5]
+
+
+def test_validate_presets_binding_rules():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "PRESETS", "target": "BEVEL", "prop": "a.b",
+         "values": [0]},
+        {"type": "PRESETS", "values": [0]},
+        {"type": "PRESETS", "prop": "a.b", "value_type": "ENUM",
+         "values": [0]},
+        {"type": "PRESETS", "target": "BEVEL", "values": [-1, 2]}]})
+    assert len(errors) == 3
+    # legacy target converts to an attribute and still clamps to [0, 1]
+    assert wdef["rows"] == [{"type": "PRESETS",
+                             "attribute": "bevel_weight_edge",
+                             "domain": "EDGE", "value_type": "FLOAT",
+                             "values": [0.0, 1.0]}]
+
+
+def test_build_controls_presets_prop_writes_via_adapter():
+    rows = [{"type": "PRESETS", "prop": "scene.IOPS.rename.angle",
+             "value_type": "DEGREES", "values": [0.0, 90.0],
+             "fmt": "{:g}°"}]
+    c = composed.build_controls(rows)[0]
+    assert c.kind == "presets" and c.fmt == "{:g}°"
+    ctx = _fake_rename_ctx(angle=0.0)
+    c.write(ctx, c.values[1])
+    assert math.isclose(ctx.scene.IOPS.rename.angle, math.radians(90))
+
+
+def test_legacy_targets_convert_to_attributes():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "SLIDER", "target": "CREASE"},
+        {"type": "FLIPBOX", "target": "SEAM"},
+        {"type": "FLIPBOX", "target": "SHARP", "label": "S"},
+        {"type": "FLIPBOX", "target": "FREESTYLE"},
+        {"type": "FLIPBOX", "target": "BEVEL"},             # float: drop
+        {"type": "SLIDER", "target": "BEVEL",
+         "attribute": "x"}]})                               # both: drop
+    assert len(errors) == 2
+    sl, seam, sharp, fs = wdef["rows"]
+    assert sl == {"type": "SLIDER", "attribute": "crease_edge",
+                  "domain": "EDGE", "value_type": "FLOAT", "min": 0.0,
+                  "max": 1.0, "fmt": "{:.3f}", "snap": 0.125}
+    assert (seam["attribute"], seam["label"]) == ("uv_seam", "Seam")
+    assert (sharp["attribute"], sharp["label"]) == ("sharp_edge", "S")
+    assert fs["attribute"] == "freestyle_edge"
+    assert composed.dropped_keys({"name": "w", "rows": [
+        {"type": "FLIPBOX", "target": "SEAM"}]}) == []
+
+
+def test_validate_attribute_bindings():
+    wdef, errors = composed.validate_def({"name": "w", "rows": [
+        {"type": "SLIDER", "attribute": "my_w", "domain": "point",
+         "min": -2, "max": 2},
+        {"type": "PRESETS", "attribute": "lvl", "domain": "FACE",
+         "value_type": "INT", "values": [1, 2, 3]},
+        {"type": "FLIPBOX", "attribute": "flag_f", "domain": "FACE"},
+        {"type": "FLIPBOX", "attribute": "x", "domain": "CORNER"},  # drop
+        {"type": "SLIDER", "attribute": ".select_vert"},          # drop
+        {"type": "PRESETS", "attribute": "position", "values": [0]},  # drop
+        {"type": "SLIDER", "attribute": "a", "prop": "b.c"}]})    # drop
+    assert len(errors) == 4
+    sl, pr, fb = wdef["rows"]
+    assert (sl["attribute"], sl["domain"]) == ("my_w", "POINT")
+    assert (sl["min"], sl["max"], sl["snap"]) == (-2.0, 2.0, 0.0)
+    assert pr["value_type"] == "INT" and pr["values"] == [1.0, 2.0, 3.0]
+    assert (fb["domain"], fb["label"]) == ("FACE", "flag_f")
+    assert composed.attribute_domains(
+        wdef["rows"] + [{"type": "ROW", "cells": [
+            {"type": "FLIPBOX", "attribute": "q", "domain": "EDGE"}]}]) \
+        == {"POINT", "FACE", "EDGE"}
+
+
+def test_edge_data_def_is_attribute_bound():
+    wdef, errors = composed.validate_def(composed.EDGE_DATA_DEF)
+    assert errors == []
+    assert all("target" not in r for r in wdef["rows"])
+    assert composed.attribute_domains(wdef["rows"]) == {"EDGE"}
+
+
+def test_shipped_widget_scripts_exist():
+    import json
+    scripts = os.path.join(composed.BUNDLED_FOLDER, "scripts")
+    used = set()
+    for fn in os.listdir(composed.BUNDLED_FOLDER):
+        if not fn.endswith(".json"):
+            continue
+        with open(os.path.join(composed.BUNDLED_FOLDER, fn),
+                  encoding="utf-8") as f:
+            data = json.load(f)
+        for r in data.get("rows", []):
+            for c in [r] + list(r.get("cells", [])):
+                kw = c.get("op_kwargs") or {}
+                if c.get("op") == "iops.executor":
+                    # bare names only: shipped widgets never point at a
+                    # user's own script folder
+                    assert os.path.basename(kw["script"]) == kw["script"]
+                    used.add(kw["script"])
+    assert used and all(os.path.isfile(os.path.join(scripts, s))
+                        for s in used)
+    assert used == set(os.listdir(scripts)) - {"__pycache__"}

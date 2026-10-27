@@ -75,7 +75,8 @@ class IOPS_OT_WidgetDefDuplicate(bpy.types.Operator):
 class IOPS_OT_WidgetDefRemove(bpy.types.Operator):
     bl_idname = "iops.widget_def_remove"
     bl_label = "Delete Widget"
-    bl_description = "Delete the selected widget definition file"
+    bl_description = ("Delete the selected widget definition file (for a "
+                      "customized built-in: restore the built-in)")
     bl_options = {"REGISTER"}
 
     @classmethod
@@ -91,10 +92,14 @@ class IOPS_OT_WidgetDefRemove(bpy.types.Operator):
         name = item.name
         from ...ui.widgets import state
         state.hide_widget(name)
-        composed.unregister_composed(name)
         composed.delete_def(name)
+        composed.drop_or_restore(name)
         widget_composer.sync_from_files()
-        self.report({"INFO"}, f"Deleted widget '{name}'")
+        if composed.has_bundled(name):
+            self.report({"INFO"},
+                        f"Deleted your '{name}'; the built-in is back")
+        else:
+            self.report({"INFO"}, f"Deleted widget '{name}'")
         return {"FINISHED"}
 
 
@@ -203,7 +208,7 @@ class IOPS_OT_WidgetEdit(bpy.types.Operator):
         if not self.name:
             self.report({"ERROR"}, "No widget name given")
             return {"CANCELLED"}
-        path = composed.widget_path(self.name)
+        path = composed.source_path(self.name)
         if not os.path.isfile(path):
             self.report({"ERROR"},
                         f"Widget '{self.name}' has no JSON file at {path}")

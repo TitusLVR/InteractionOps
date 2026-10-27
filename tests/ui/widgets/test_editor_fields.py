@@ -130,7 +130,8 @@ def test_show_if_fields_inverse():
 
 # -- bindings / fields ---------------------------------------------------
 def test_binding_of():
-    assert ef.binding_of({"type": "SLIDER", "target": "BEVEL"}) == "TARGET"
+    assert ef.binding_of({"type": "SLIDER", "attribute": "a"}) == \
+        "ATTRIBUTE"
     assert ef.binding_of({"type": "SLIDER", "prop": "a.b"}) == "PROP"
     assert ef.binding_of({"type": "FLIPBOX", "switch": ""}) == "SWITCH"
     assert ef.binding_of({"type": "SWATCH", "color": [1, 1, 1, 1]}) == \
@@ -155,8 +156,9 @@ def test_apply_binding_swatch_color():
 def test_fields_for_types():
     assert ef.fields_for({"type": "BUTTON"}) == ["label", "op", "op_kwargs",
                                                  "role"]
-    assert ef.fields_for({"type": "SLIDER", "target": "BEVEL"}) == [
-        "binding", "target", "snap"]
+    assert ef.fields_for({"type": "SLIDER", "attribute": "a"}) == [
+        "binding", "attribute", "domain", "value_type", "min", "max",
+        "snap", "fmt"]
     assert "min" in ef.fields_for({"type": "SLIDER", "prop": "a.b"})
     assert ef.fields_for({"type": "BUTTONS", "prop": "a",
                           "value_type": "ENUM"})[-1] == "items"
@@ -167,9 +169,7 @@ def test_fields_for_types():
     assert ef.fields_for({"type": "ROW", "cells": []}) == []
 
 
-def test_targets_and_value_types():
-    assert ef.targets_for("SLIDER") == composed.FLOAT_TARGETS
-    assert ef.targets_for("FLIPBOX") == composed.BOOL_TARGETS
+def test_value_types():
     assert "STRING" not in ef.value_types_for("SLIDER")
     assert ef.value_types_for("INPUT") == composed.VALUE_TYPES
     assert ef.value_types_for("BUTTON") == ()
@@ -181,3 +181,21 @@ def test_span_rules():
     assert ef.span_min(False, "BUTTON") == 1
     assert not ef.has_span(True, "ROW")
     assert ef.has_span(False, "BUTTON")
+
+
+def test_presets_bindings_and_fields():
+    assert ef.bindings_for("PRESETS") == ("ATTRIBUTE", "PROP", "DATA")
+    assert ef.fields_for({"type": "PRESETS", "attribute": "a"}) == [
+        "binding", "attribute", "domain", "value_type", "values", "fmt"]
+    assert ef.fields_for({"type": "PRESETS", "prop": "a.b"}) == [
+        "binding", "prop", "value_type", "values", "fmt"]
+    assert ef.fields_for({"type": "PRESETS", "data": "k"}) == [
+        "binding", "data", "value_type", "values", "fmt"]
+    assert "ENUM" not in ef.value_types_for("PRESETS")
+    el = {"type": "PRESETS", "attribute": "a", "domain": "FACE",
+          "values": [0, 1]}
+    assert ef.apply_binding(el, "PROP", "a.b")
+    assert el == {"type": "PRESETS", "prop": "a.b", "values": [0, 1]}
+    assert ef.apply_binding(el, "ATTRIBUTE", "w")
+    assert el == {"type": "PRESETS", "attribute": "w", "domain": "EDGE",
+                  "values": [0, 1]}

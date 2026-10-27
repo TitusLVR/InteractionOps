@@ -468,3 +468,38 @@ def test_merge_key_on_set_span():
     assert doc.wdef["rows"][1]["span"] == 5
     assert doc.undo()
     assert "span" not in doc.wdef["rows"][1]
+
+
+def test_duplicate_top_level_row_and_row_container():
+    doc = em.EditorDoc(_wdef([_btn("a"), _row(2), _btn("z")]))
+    assert doc.duplicate((0, None)) == (1, None)
+    assert [r.get("label") for r in doc.wdef["rows"][:2]] == ["a", "a"]
+    assert doc.wdef["rows"][1] is not doc.wdef["rows"][0]
+    assert doc.selection == (1, None)
+    assert doc.duplicate((2, None)) == (3, None)  # whole ROW below
+    assert [r["type"] for r in doc.wdef["rows"]] == [
+        "BUTTON", "BUTTON", "ROW", "ROW", "BUTTON"]
+    doc.wdef["rows"][3]["cells"][0]["label"] = "changed"
+    assert doc.wdef["rows"][2]["cells"][0]["label"] == "0"  # deep copy
+    assert doc.undo()
+    assert len(doc.wdef["rows"]) == 4
+
+
+def test_duplicate_cell_splits_its_own_span():
+    doc = em.EditorDoc(_wdef([_row(2)]))
+    assert doc.duplicate((0, 0)) == (0, 1)
+    assert [c["label"] for c in doc.wdef["rows"][0]["cells"]] == [
+        "0", "0", "1"]
+    assert _spans(doc, 0) == [None, None, None]  # unspanned stays so
+
+    doc = em.EditorDoc(_wdef([_row(2, [8, 4])]))
+    assert doc.duplicate((0, 0)) == (0, 1)
+    assert _spans(doc, 0) == [4, 4, 4]
+    assert doc.selection == (0, 1)
+
+
+def test_duplicate_refused_when_row_full_or_bad_path():
+    doc = em.EditorDoc(_wdef([_row(12, [1] * 12)]))
+    assert doc.duplicate((0, 3)) is None
+    assert not doc.can_undo
+    assert doc.duplicate((7, None)) is None

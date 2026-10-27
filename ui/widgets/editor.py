@@ -216,7 +216,7 @@ def begin(context, name, is_new=False):
     s = Session(name, editor_model.EditorDoc(widget.composed_def),
                 widget, is_new=is_new)
     s.draft_file = composed.draft_path(name)
-    path = composed.widget_path(name)
+    path = composed.source_path(name)
     if os.path.isfile(path):
         s.load_problems = _load_problems(path)
     s.draft_available = os.path.isfile(s.draft_file)
@@ -551,8 +551,8 @@ def save():
         state.store_position(new, x, y)
         composed.register_composed(clean)
         state.hide_widget(old)
-        composed.unregister_composed(old)
         composed.delete_def(old)
+        composed.drop_or_restore(old)   # an overridden built-in returns
         events.rename_toggle_kmi(old, new)
         if visible:
             state.show_widget(new, area=area, x=x, y=y)

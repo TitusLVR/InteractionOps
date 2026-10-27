@@ -1,33 +1,42 @@
-"""Edge-data value adapters + the adapter registry for composed widgets.
+"""Mesh-attribute value adapters for composed widgets.
 
-Extracted from edge_data.py so Python widgets and JSON-composed widgets
-(prefs Widgets tab) share the exact same bmesh code.
-
-Attribute/layer names verified empirically on Blender 5.1.2:
-- Bevel weight / crease are generic float EDGE attributes named
-  "bevel_weight_edge" / "crease_edge". They do NOT exist on a fresh mesh;
-  bmesh access is `bm.edges.layers.float.get(name)` and creation is
-  `bm.edges.layers.float.new(name)`. A missing layer reads as 0.0.
-- Sharp is the inverse of `edge.smooth` on BMEdge.
-- Seam is `edge.seam` on BMEdge.
-- Freestyle mark is a bool EDGE attribute "freestyle_edge" accessed via
-  `bm.edges.layers.bool` (BMEdge has no `use_freestyle_mark` in 5.1; the
-  native mark_freestyle_edge operator creates this same bool layer).
+A composed row bound with `"attribute": <name>, "domain": POINT|EDGE|FACE`
+reads/writes that attribute on the SELECTED elements of every mesh in edit
+mode. Facts verified empirically on Blender 5.2.3:
+- Generic attributes (bevel_weight_edge, crease_edge, freestyle_edge,
+  custom ones) are BMesh layers: `bm.<seq>.layers.<float|int|bool>`. They
+  may not exist yet; a missing layer reads as 0 / False and is created on
+  the first non-default write.
+- sharp_edge / uv_seam / sharp_face are mesh attributes OUTSIDE edit mode
+  only: BMesh turns them into element flags (`not e.smooth`, `e.seam`,
+  `not f.smooth`) and exposes no layer — see _FLAG_ATTRS.
 
 Binding contract (ui/widgets/controls.py):
 - getters return (value, is_mixed); value None = nothing selected.
-- setters write uniformly to ALL selected edges.
+- setters write uniformly to ALL selected elements.
 - bmesh is re-acquired with bmesh.from_edit_mesh() on EVERY call; only
   plain floats/bools/indices are kept between events.
 """
 import bmesh
 
 from ..ui.widgets.controls import mixed_state
+from .composed import _coerce, _to_display
 
-# Attribute/layer names verified against Blender 5.1.2 (see module docstring)
-BEVEL_LAYER = "bevel_weight_edge"
-CREASE_LAYER = "crease_edge"
-FREESTYLE_LAYER = "freestyle_edge"
+_SEQ = {"POINT": "verts", "EDGE": "edges", "FACE": "faces"}
+
+# (domain, attribute) -> (read(elem), write(elem, bool)) for attributes
+# BMesh stores as element flags instead of layers.
+_FLAG_ATTRS = {
+    ("EDGE", "sharp_edge"): (lambda e: not e.smooth,
+                             lambda e, v: setattr(e, "smooth", not v)),
+    ("EDGE", "uv_seam"): (lambda e: e.seam,
+                          lambda e, v: setattr(e, "seam", v)),
+    ("FACE", "sharp_face"): (lambda f: not f.smooth,
+                             lambda f, v: setattr(f, "smooth", not v)),
+}
+_LAYER_KINDS = ("float", "int", "bool")
+_CAST = {"float": float, "int": lambda v: int(round(float(v))),
+         "bool": bool}
 
 
 # ----------------------------------------------------------------------
@@ -49,228 +58,135 @@ def _update(me):
     bmesh.update_edit_mesh(me, loop_triangles=False, destructive=False)
 
 
-def has_selected_edges(context):
-    """Cheap any-selected-edge check (early exit on the first hit) — the
-    enabled_get hook for presets/Clear, which the spec requires inert and
-    grayed when nothing is selected."""
+def _seq(bm, domain):
+    return getattr(bm, _SEQ[domain])
+
+
+def has_selected(context, domains):
+    """Cheap any-selected-element check over `domains` (early exit on the
+    first hit) — the enabled_get hook for presets/buttons, which go inert
+    and grayed when nothing is selected."""
     for me in _edit_meshes(context):
         bm = bmesh.from_edit_mesh(me)
-        for e in bm.edges:
-            if e.select:
-                return True
+        for domain in domains:
+            for el in _seq(bm, domain):
+                if el.select:
+                    return True
     return False
 
 
-# ----------------------------------------------------------------------
-# Float layer adapters (bevel weight, crease)
-# ----------------------------------------------------------------------
-def _selected_float_values(context, layer_name):
-    """Yield the layer value of every selected edge; missing layer = 0.0."""
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        lay = bm.edges.layers.float.get(layer_name)
-        for e in bm.edges:
-            if e.select:
-                yield e[lay] if lay is not None else 0.0
+def _find_layer(seq, name, prefer):
+    """(kind, layer) of the existing layer `name`, trying `prefer` first;
+    (None, None) when the attribute doesn't exist on this mesh yet."""
+    for kind in (prefer,) + tuple(k for k in _LAYER_KINDS if k != prefer):
+        lay = getattr(seq.layers, kind).get(name)
+        if lay is not None:
+            return kind, lay
+    return None, None
 
 
-def _get_edge_float(context, layer_name):
-    return mixed_state(_selected_float_values(context, layer_name))
+class _Access:
+    """Per-mesh read/write of one attribute on raw (storage) values."""
+
+    def __init__(self, seq, name, domain, prefer):
+        self.flag = _FLAG_ATTRS.get((domain, name))
+        self.seq, self.name, self.prefer = seq, name, prefer
+        self.kind, self.lay = (None, None) if self.flag else \
+            _find_layer(seq, name, prefer)
+
+    def read(self, el, default):
+        if self.flag:
+            return self.flag[0](el)
+        return el[self.lay] if self.lay is not None else default
+
+    def ensure(self):
+        """Create the layer (preferred kind) when missing."""
+        if self.flag is None and self.lay is None:
+            self.kind = self.prefer
+            self.lay = getattr(self.seq.layers, self.kind).new(self.name)
+
+    def write(self, el, value):
+        if self.flag:
+            self.flag[1](el, bool(value))
+        else:
+            el[self.lay] = _CAST[self.kind](value)
 
 
-def _set_edge_float(context, layer_name, value):
-    """Uniform write to all selected edges, creating the layer on demand."""
-    value = float(value)
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        lay = bm.edges.layers.float.get(layer_name)
-        if lay is None:
-            if value == 0.0:
-                # Missing layer already reads as 0.0 — nothing to store
-                continue
-            lay = bm.edges.layers.float.new(layer_name)
-        changed = False
-        for e in bm.edges:
-            if e.select:
-                e[lay] = value
-                changed = True
-        if changed:
-            _update(me)
+def attribute_adapter(name, domain, kind, value_type="FLOAT"):
+    """get/set/snapshot/restore bundle for mesh attribute `name` on
+    `domain`. kind "bool" (flipbox) or "number" (slider/presets, values in
+    author space: degrees when value_type is DEGREES)."""
+    is_bool = kind == "bool"
+    prefer = "bool" if is_bool else ("int" if value_type == "INT"
+                                     else "float")
+    default = False if is_bool else 0
 
+    def to_author(raw):
+        return bool(raw) if is_bool else _to_display(value_type, raw)
 
-def _snapshot_edge_float(context, layer_name):
-    """Capture (mesh name, [(edge index, value)]) of the selected edges.
-    Plain data only — used by the slider ESC/RMB exact restore."""
-    token = []
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        lay = bm.edges.layers.float.get(layer_name)
-        items = [(e.index, e[lay] if lay is not None else 0.0)
-                 for e in bm.edges if e.select]
-        if items:
-            token.append((me.name, items))
-    return token
+    def get(context):
+        def values():
+            for me in _edit_meshes(context):
+                bm = bmesh.from_edit_mesh(me)
+                seq = _seq(bm, domain)
+                acc = _Access(seq, name, domain, prefer)
+                for el in seq:
+                    if el.select:
+                        yield to_author(acc.read(el, default))
+        return mixed_state(values())
 
-
-def _restore_edge_float(context, layer_name, token):
-    """Put snapshot values back per edge index (drag gestures never change
-    topology, so indices captured at drag start stay valid)."""
-    if not token:
-        return
-    by_name = {me.name: me for me in _edit_meshes(context)}
-    for name, items in token:
-        me = by_name.get(name)
-        if me is None:
-            continue
-        bm = bmesh.from_edit_mesh(me)
-        lay = bm.edges.layers.float.get(layer_name)
-        if lay is None:
-            lay = bm.edges.layers.float.new(layer_name)
-        bm.edges.ensure_lookup_table()
-        count = len(bm.edges)
-        for idx, v in items:
-            if 0 <= idx < count:
-                bm.edges[idx][lay] = v
-        _update(me)
-
-
-def get_bevel(context):
-    return _get_edge_float(context, BEVEL_LAYER)
-
-
-def set_bevel(context, value):
-    _set_edge_float(context, BEVEL_LAYER, value)
-
-
-def snapshot_bevel(context):
-    return _snapshot_edge_float(context, BEVEL_LAYER)
-
-
-def restore_bevel(context, token):
-    _restore_edge_float(context, BEVEL_LAYER, token)
-
-
-def get_crease(context):
-    return _get_edge_float(context, CREASE_LAYER)
-
-
-def set_crease(context, value):
-    _set_edge_float(context, CREASE_LAYER, value)
-
-
-def snapshot_crease(context):
-    return _snapshot_edge_float(context, CREASE_LAYER)
-
-
-def restore_crease(context, token):
-    _restore_edge_float(context, CREASE_LAYER, token)
-
-
-# ----------------------------------------------------------------------
-# Flag adapters (sharp, seam, freestyle)
-# ----------------------------------------------------------------------
-def _selected_flag_values(context, read):
-    """Yield read(edge) for every selected edge in every edit mesh."""
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        for e in bm.edges:
-            if e.select:
-                yield read(e)
-
-
-def get_sharp(context):
-    # Sharp is the INVERSE of BMEdge.smooth
-    return mixed_state(_selected_flag_values(context, lambda e: not e.smooth))
-
-
-def set_sharp(context, value):
-    value = bool(value)
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        changed = False
-        for e in bm.edges:
-            if e.select:
-                e.smooth = not value
-                changed = True
-        if changed:
-            _update(me)
-
-
-def get_seam(context):
-    return mixed_state(_selected_flag_values(context, lambda e: e.seam))
-
-
-def set_seam(context, value):
-    value = bool(value)
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        changed = False
-        for e in bm.edges:
-            if e.select:
-                e.seam = value
-                changed = True
-        if changed:
-            _update(me)
-
-
-def get_freestyle(context):
-    """Freestyle mark lives in the "freestyle_edge" bool layer; a mesh that
-    was never marked has no layer at all — read that as False."""
-    def values():
+    def set(context, value):
+        raw = bool(value) if is_bool else _coerce(value_type, value)
         for me in _edit_meshes(context):
             bm = bmesh.from_edit_mesh(me)
-            lay = bm.edges.layers.bool.get(FREESTYLE_LAYER)
-            for e in bm.edges:
-                if e.select:
-                    yield bool(e[lay]) if lay is not None else False
-    return mixed_state(values())
+            seq = _seq(bm, domain)
+            acc = _Access(seq, name, domain, prefer)
+            if acc.flag is None and acc.lay is None and not raw:
+                continue        # missing layer already reads as default
+            acc.ensure()
+            changed = False
+            for el in seq:
+                if el.select:
+                    acc.write(el, raw)
+                    changed = True
+            if changed:
+                _update(me)
 
+    def snapshot(context):
+        """(mesh name, [(element index, raw value)]) of the selection —
+        plain data for the slider ESC/RMB exact restore."""
+        token = []
+        for me in _edit_meshes(context):
+            bm = bmesh.from_edit_mesh(me)
+            seq = _seq(bm, domain)
+            seq.index_update()
+            acc = _Access(seq, name, domain, prefer)
+            items = [(el.index, acc.read(el, default))
+                     for el in seq if el.select]
+            if items:
+                token.append((me.name, items))
+        return token
 
-def set_freestyle(context, value):
-    value = bool(value)
-    for me in _edit_meshes(context):
-        bm = bmesh.from_edit_mesh(me)
-        lay = bm.edges.layers.bool.get(FREESTYLE_LAYER)
-        if lay is None:
-            if not value:
-                # Missing layer already reads as False — nothing to clear
+    def restore(context, token):
+        """Put snapshot values back per element index (drag gestures never
+        change topology, so indices captured at drag start stay valid)."""
+        if not token:
+            return
+        by_name = {me.name: me for me in _edit_meshes(context)}
+        for mname, items in token:
+            me = by_name.get(mname)
+            if me is None:
                 continue
-            lay = bm.edges.layers.bool.new(FREESTYLE_LAYER)
-        changed = False
-        for e in bm.edges:
-            if e.select:
-                e[lay] = value
-                changed = True
-        if changed:
+            bm = bmesh.from_edit_mesh(me)
+            seq = _seq(bm, domain)
+            acc = _Access(seq, name, domain, prefer)
+            acc.ensure()
+            seq.ensure_lookup_table()
+            count = len(seq)
+            for idx, v in items:
+                if 0 <= idx < count:
+                    acc.write(seq[idx], v)
             _update(me)
 
-
-# ----------------------------------------------------------------------
-# Registry — target id -> adapter bundle. The composer (prefs Widgets
-# tab) binds Slider/Presets/FlipBox rows to these ids; "kind" gates which
-# row types accept which target (float -> slider/presets, bool -> flipbox).
-# ----------------------------------------------------------------------
-ADAPTERS = {
-    "BEVEL": {
-        "kind": "float", "label": "Bevel Weight",
-        "get": get_bevel, "set": set_bevel,
-        "snapshot": snapshot_bevel, "restore": restore_bevel,
-    },
-    "CREASE": {
-        "kind": "float", "label": "Crease",
-        "get": get_crease, "set": set_crease,
-        "snapshot": snapshot_crease, "restore": restore_crease,
-    },
-    "SHARP": {
-        "kind": "bool", "label": "Sharp",
-        "get": get_sharp, "set": set_sharp,
-    },
-    "SEAM": {
-        "kind": "bool", "label": "Seam",
-        "get": get_seam, "set": set_seam,
-    },
-    "FREESTYLE": {
-        "kind": "bool", "label": "Freestyle",
-        "get": get_freestyle, "set": set_freestyle,
-    },
-}
+    return {"get": get, "set": set, "snapshot": snapshot,
+            "restore": restore}

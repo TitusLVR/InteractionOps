@@ -991,7 +991,7 @@ def find_user_toggle_kmi(name):
 # Excluded from save_hotkeys (NEVER_SAVE).
 # ----------------------------------------------------------------------
 class IOPS_OT_widget_editor_key(bpy.types.Operator):
-    """Undo/redo/delete inside the visual widget editor"""
+    """Undo/redo/delete/duplicate inside the visual widget editor"""
 
     bl_idname = "iops.widget_editor_key"
     bl_label = "IOPS Widget Editor Key"
@@ -1001,7 +1001,9 @@ class IOPS_OT_widget_editor_key(bpy.types.Operator):
         name="Action",
         items=(("UNDO", "Undo", "Undo the last widget edit"),
                ("REDO", "Redo", "Redo the last undone widget edit"),
-               ("DELETE", "Delete", "Delete the selected element")),
+               ("DELETE", "Delete", "Delete the selected element"),
+               ("DUPLICATE", "Duplicate",
+                "Duplicate the selected element")),
         default="UNDO")
 
     @classmethod
@@ -1025,6 +1027,9 @@ class IOPS_OT_widget_editor_key(bpy.types.Operator):
         elif action == "DELETE":
             changed = (doc.selection is not None
                        and doc.delete(doc.selection))
+        elif action == "DUPLICATE":
+            changed = (doc.selection is not None
+                       and doc.duplicate(doc.selection) is not None)
         else:
             changed = False
         if changed:
@@ -1050,10 +1055,11 @@ class IOPS_OT_widget_editor_key(bpy.types.Operator):
 # (keymap name, space_type, key group) -> hosts the editor keys.
 # "3D View"/"Image" are the WINDOW region's own keymaps (all keys). The
 # mode / tool keymaps below come BEFORE them in the region handler list
-# and bind X/DEL to a destructive op, so DELETE is mirrored there or it
-# would never reach us and the scene data under the widget would be
-# deleted instead (names verified against the 5.x default keyconfig;
-# "Font" mirrors DEL only — X there is text input). The "* Generic"
+# and bind X/DEL/Shift+D to destructive ops, so DELETE (and DUPLICATE)
+# are mirrored there or they would never reach us and the scene data
+# under the widget would be deleted / duplicated instead (names verified
+# against the 5.x default keyconfig; "Font" mirrors DEL only — X and
+# Shift+D there are text input). The "* Generic"
 # keymaps also serve the sidebar (UI region): undo/redo there acts on
 # the widget doc while the mouse is over the Widget Editor sidebar.
 _EDITOR_KEYMAPS = (
@@ -1081,6 +1087,7 @@ _EDITOR_KEYS = (
     ("REDO", "Z", True, True, ("ALL", "UNDO")),
     ("DELETE", "X", False, False, ("ALL", "DELETE")),
     ("DELETE", "DEL", False, False, ("ALL", "DELETE", "DEL")),
+    ("DUPLICATE", "D", False, True, ("ALL", "DELETE")),
 )
 _editor_kmis = []
 

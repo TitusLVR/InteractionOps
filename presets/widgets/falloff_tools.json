@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "falloff_tools",
+  "title": "Falloff Tools",
+  "space": "VIEW_3D",
+  "rows": [
+    {"type": "SECTION", "label": "Falloff Tools"},
+    {"type": "ROW", "show_if": {"mode": "EDIT_MESH"}, "cells": [
+      {"type": "BUTTON", "label": "Move",   "op": "iops.mesh_falloff_move"},
+      {"type": "BUTTON", "label": "Rotate", "op": "iops.mesh_falloff_rotate"},
+      {"type": "BUTTON", "label": "Scale",  "op": "iops.mesh_falloff_scale"}
+    ]},
+    {"type": "SECTION", "label": "Go to Edit Mesh mode", "show_if": {"mode": "OBJECT"}},
+    {"type": "SECTION", "label": "Falloff"},
+    {"type": "DROPDOWN", "prop": "scene.IOPS.falloff_type", "label": "Type",
+     "labels": {"LINEAR": "Linear", "RADIAL": "Radial", "SCREEN": "Screen", "COPLANAR": "Coplanar"}},
+    {"type": "DROPDOWN", "prop": "scene.IOPS.falloff_shape", "label": "Shape",
+     "labels": {"LINEAR": "Linear", "SMOOTH": "Smooth", "SHARP": "Sharp", "ROOT": "Root",
+                "SPHERE": "Sphere", "INVERSE_SQUARE": "Inverse Square", "CONSTANT": "Constant"}},
+    {"type": "DROPDOWN", "prop": "scene.IOPS.falloff_basis", "label": "Basis",
+     "labels": {"LOCAL": "Local", "CURSOR": "Cursor", "WORLD": "World", "NORMAL": "Normal"}},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.falloff_invert",    "label": "Invert"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.falloff_connected", "label": "Element"},
+    {"type": "FLIPBOX", "prop": "scene.IOPS.falloff_preview",   "label": "Weights"},
+    {"type": "INPUT", "prop": "scene.IOPS.falloff_screen_radius_px", "value_type": "INT",
+     "label": "Screen px", "fmt": "{}"},
+    {"type": "INPUT", "prop": "scene.IOPS.falloff_coplanar_angle", "value_type": "DEGREES",
+     "label": "Coplanar", "fmt": "{:.1f}°"}
+  ]
+}
