@@ -460,6 +460,49 @@ def get_text_icon(context, operator):
                 case "esc":
                     return "Esc", "EVENT_ESC"
 
+    elif obj.type == "GREASEPENCIL":
+        gp = {
+            "OBJECT": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Draw Mode", "GREASEPENCIL"),
+                "f3": ("Sculpt Mode", "SCULPTMODE_HLT"),
+                "esc": ("Esc", "EVENT_ESC"),
+            },
+            "EDIT": {
+                "f1": ("Object Mode", "OBJECT_DATA"),
+                "f2": ("Draw Mode", "GREASEPENCIL"),
+                "f3": ("Sculpt Mode", "SCULPTMODE_HLT"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "PAINT_GREASE_PENCIL": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Object Mode", "OBJECT_DATA"),
+                "f3": ("Sculpt Mode", "SCULPTMODE_HLT"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "SCULPT_GREASE_PENCIL": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Draw Mode", "GREASEPENCIL"),
+                "f3": ("Object Mode", "OBJECT_DATA"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "WEIGHT_GREASE_PENCIL": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Draw Mode", "GREASEPENCIL"),
+                "f3": ("Sculpt Mode", "SCULPTMODE_HLT"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+            "VERTEX_GREASE_PENCIL": {
+                "f1": ("Edit Mode", "EDITMODE_HLT"),
+                "f2": ("Draw Mode", "GREASEPENCIL"),
+                "f3": ("Sculpt Mode", "SCULPTMODE_HLT"),
+                "esc": ("Object Mode", "OBJECT_DATA"),
+            },
+        }
+        row = gp.get(m, gp["OBJECT"])
+        if operator in row:
+            return row[operator]
+
     elif obj.type == "LIGHT_PROBE":
         match operator:
             case "f1":
@@ -502,15 +545,6 @@ def _pie_ext_block(obj, block_key):
         return getattr(d, "dof", None) if d else None
     return None
 
-
-_PIE_GREASEPENCIL_EXT = (
-    "Grease Pencil",
-    "GREASEPENCIL",
-    [
-        ("object", "use_grease_pencil_lights", {"text": "Lights"}),
-        ("object", "use_grease_pencil_on_back", {"text": "On Back"}),
-    ],
-)
 
 # Object mode only: (title, icon, list of (block_key, rna_prop, prop_kwargs))
 _PIE_OBJECT_MODE_DATA_SPECS = {
@@ -640,17 +674,117 @@ _PIE_OBJECT_MODE_DATA_SPECS = {
             ("data", "display_percentage", {"text": "Display %"}),
         ],
     ),
-    "GPENCIL": _PIE_GREASEPENCIL_EXT,
-    "GREASEPENCIL": _PIE_GREASEPENCIL_EXT,
 }
 
 
 _PIE_EXTENSION_TYPES = frozenset(_PIE_OBJECT_MODE_DATA_SPECS.keys())
 
 
-def draw_edit_pie_type_extensions(pie, context):
-    """Object mode: RNA props on object / object.data / camera dof (View3D)."""
+def _gp_drawings(obj):
+    """Current-frame drawings of every editable layer of a Grease Pencil
+    object (hidden / locked layers are skipped, like the edit tools do)."""
+    data = getattr(obj, "data", None)
+    if data is None:
+        return
+    for layer in data.layers:
+        if layer.hide or layer.lock:
+            continue
+        frame = layer.current_frame()
+        if frame is not None:
+            yield frame.drawing
+
+
+def _gp_width_points(obj):
+    """Points the stroke-width slider acts on: the selected ones in edit
+    mode, every point otherwise (object / draw / sculpt mode have no
+    point selection to speak of)."""
+    selected_only = obj.mode == "EDIT"
+    for drawing in _gp_drawings(obj):
+        for stroke in drawing.strokes:
+            for point in stroke.points:
+                if not selected_only or point.select:
+                    yield point
+
+
+def _gp_stroke_width_get(self):
+    obj = bpy.context.object
+    if obj and obj.type == "GREASEPENCIL":
+        for point in _gp_width_points(obj):
+            return point.radius
+    return 0.0
+
+
+def _gp_stroke_width_set(self, value):
+    obj = bpy.context.object
+    if not obj or obj.type != "GREASEPENCIL":
+        return
+    for point in _gp_width_points(obj):
+        point.radius = value
+    obj.data.update_tag()
+
+
+def register_gp_stroke_width_prop():
+    bpy.types.WindowManager.iops_gp_stroke_width = bpy.props.FloatProperty(
+        name="Stroke Width",
+        description=("Stroke radius: selected points in Edit Mode, "
+                     "every point of the active object otherwise"),
+        min=0.0,
+        soft_max=1.0,
+        step=0.1,
+        precision=4,
+        subtype="DISTANCE",
+        get=_gp_stroke_width_get,
+        set=_gp_stroke_width_set,
+    )
+
+
+def unregister_gp_stroke_width_prop():
+    if hasattr(bpy.types.WindowManager, "iops_gp_stroke_width"):
+        del bpy.types.WindowManager.iops_gp_stroke_width
+
+
+def draw_grease_pencil_pie_box(pie, context):
+    """Grease Pencil slot, every mode: brush size in Draw Mode, a live
+    stroke-width slider otherwise, plus the active layer's radius offset
+    and the Lights / On Back toggles."""
     obj = context.object
+    ts = context.tool_settings
+    box = pie.box()
+    col = box.column(align=True)
+    col.scale_y = 0.85
+    col.label(text="Grease Pencil", icon="GREASEPENCIL")
+    if obj.mode == "PAINT_GREASE_PENCIL":
+        paint = ts.gpencil_paint
+        ups = paint.unified_paint_settings
+        brush = paint.brush
+        if ups.use_unified_size:
+            col.prop(ups, "size", text="Brush Size", slider=True)
+        elif brush is not None:
+            col.prop(brush, "size", text="Brush Size", slider=True)
+        if ups.use_unified_strength:
+            col.prop(ups, "strength", text="Strength", slider=True)
+        elif brush is not None:
+            col.prop(brush, "strength", text="Strength", slider=True)
+    else:
+        col.prop(context.window_manager, "iops_gp_stroke_width", text="Stroke Width")
+        if obj.mode == "EDIT":
+            col.operator("grease_pencil.stroke_smooth", text="Smooth", icon="SMOOTHCURVE")
+            col.operator("grease_pencil.stroke_subdivide", text="Subdivide", icon="MOD_MULTIRES")
+    layer = obj.data.layers.active if obj.data is not None else None
+    if layer is not None:
+        col.prop(layer, "radius_offset", text="Layer Radius Offset")
+    row = col.row(align=True)
+    row.prop(obj, "use_grease_pencil_lights", text="Lights", toggle=True)
+    _pie_prop(row, ts, "use_gpencil_draw_onback", text="On Back", toggle=True)
+    return True
+
+
+def draw_edit_pie_type_extensions(pie, context):
+    """Object mode: RNA props on object / object.data / camera dof (View3D).
+    Grease Pencil gets its box in every mode."""
+    obj = context.object
+    if obj and obj.type == "GREASEPENCIL":
+        return draw_grease_pencil_pie_box(pie, context)
     if not obj or obj.mode != "OBJECT":
         return False
     spec = _PIE_OBJECT_MODE_DATA_SPECS.get(obj.type)
