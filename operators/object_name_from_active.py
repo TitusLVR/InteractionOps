@@ -7,7 +7,8 @@ from bpy.props import (
 )
 
 class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
-    """Rename Object as Active ObjectName"""
+    """Rename Object as Active ObjectName
+Shift: Search & Replace in the selected object names"""
 
     bl_idname = "iops.object_name_from_active"
     bl_label = "IOPS Object Name From Active"
@@ -106,6 +107,11 @@ class IOPS_OT_Object_Name_From_Active(bpy.types.Operator):
     )
 
     def invoke(self, context, event):
+        if event.shift:
+            # The dialog runs as its own operator (own undo step and redo
+            # panel); this one ends here without touching anything.
+            bpy.ops.iops.object_search_rename("INVOKE_DEFAULT")
+            return {"CANCELLED"}
         active = context.view_layer.objects.active
         if active is None:
             # No active object (e.g. collections picked in the outliner) -
