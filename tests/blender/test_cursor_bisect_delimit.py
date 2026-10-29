@@ -221,11 +221,54 @@ def test_merge_doubles_restricted_to_cut_faces_keeps_islands_apart():
     assert len(bm.verts) == 6, len(bm.verts)
 
 
+def _cut_once(bm, x, vis):
+    """One execute()-style cut: snapshot, stamp, bisect, restore, clean up."""
+    OP = mcb.IOPS_OT_Mesh_Cursor_Bisect
+    mcb.drop_scratch_layers(bm)
+    sel = OP._snapshot_face_selection(bm, vis)
+    cut = mcb.stamp_cut_layer(bm, {f.index for f in bm.faces})
+    assert sel.name == mcb.SEL_LAYER_NAME and cut.name == mcb.CUT_LAYER_NAME, (sel.name, cut.name)
+    geom = [f for f in bm.faces if f[cut] == 1]
+    geom = list({v for f in geom for v in f.verts} | {e for f in geom for e in f.edges} | set(geom))
+    bmesh.ops.bisect_plane(bm, geom=geom, plane_co=(x, 0.0, 0.0), plane_no=(1.0, 0.0, 0.0), dist=1e-4)
+    bm.faces.ensure_lookup_table()
+    OP._restore_face_selection(bm, sel, vis)
+    mcb.drop_scratch_layers(bm)
+
+
+def test_scratch_layers_cleared_and_selection_kept_across_cuts():
+    """Regression: the second scratch layer used to be removed through a handle
+    whose index had already shifted, so it stayed on the mesh and the next cut
+    aliased both handles onto it (RuntimeError 'layer has become invalid')."""
+    bm = _grid(3, 1)
+    vis = lambda f: not f.hide
+    bm.faces[0].select = True
+    for x in (0.5, 1.5, 2.5):
+        _cut_once(bm, x, vis)
+        assert bm.faces.layers.int.keys() == [], bm.faces.layers.int.keys()
+    selected = [f for f in bm.faces if f.select]
+    assert len(bm.faces) == 6, len(bm.faces)
+    assert len(selected) == 2 and all(max(v.co.x for v in f.verts) <= 1.0 + 1e-6 for f in selected)
+
+
+def test_stale_scratch_layer_does_not_alias_handles():
+    bm = _grid(2, 1)
+    vis = lambda f: not f.hide
+    bm.faces.layers.int.new(mcb.CUT_LAYER_NAME)  # left behind by a failed run
+    bm.faces[1].select = True
+    _cut_once(bm, 0.5, vis)
+    assert bm.faces.layers.int.keys() == []
+    selected = [f for f in bm.faces if f.select]
+    assert len(selected) == 1 and min(v.co.x for v in selected[0].verts) >= 1.0 - 1e-6
+
+
 TESTS = [
     test_face_straddles_plane,
     test_merge_doubles_restricted_to_cut_faces_keeps_islands_apart,
     test_world_align_rotations_for_z,
     test_stamp_cut_layer_survives_bisect,
+    test_scratch_layers_cleared_and_selection_kept_across_cuts,
+    test_stale_scratch_layer_does_not_alias_handles,
     test_island_reaches_connected_only,
     test_seam_stops_walk,
     test_sharp_stops_walk,

@@ -101,16 +101,31 @@ def delimited_faces(bm, start_index, candidates, delimit_type, angle_deg,
     return walk_island(start_index, in_candidates, neighbors, boundary)
 
 
+SEL_LAYER_NAME = "cursor_bisect_sel"
 CUT_LAYER_NAME = "cursor_bisect_cut"
+SCRATCH_LAYER_NAMES = (SEL_LAYER_NAME, CUT_LAYER_NAME)
+
+
+def drop_scratch_layers(bm):
+    """Remove the selection-snapshot and cut scratch layers by name.
+
+    Always by name, never through a BMLayerItem handle: a handle is just a
+    per-type index, so removing one int layer shifts every later handle onto
+    the wrong layer (or past the end, where reading it raises "layer has
+    become invalid"). Call this before creating either layer (a stale layer
+    removed after the other was created would alias the two handles) and
+    again once the cut is done."""
+    for name in SCRATCH_LAYER_NAMES:
+        layer = bm.faces.layers.int.get(name)
+        if layer is not None:
+            bm.faces.layers.int.remove(layer)
 
 
 def stamp_cut_layer(bm, face_indices):
     """Fresh int layer with 1 on the faces to cut. Like the selection
     snapshot layer it survives bisect_plane (split halves inherit it), so
-    every plane of a bevel / fill cut sees the same face set."""
-    existing = bm.faces.layers.int.get(CUT_LAYER_NAME)
-    if existing is not None:
-        bm.faces.layers.int.remove(existing)
+    every plane of a bevel / fill cut sees the same face set.
+    Caller runs drop_scratch_layers() first."""
     layer = bm.faces.layers.int.new(CUT_LAYER_NAME)
     bm.faces.ensure_lookup_table()
     for f in bm.faces:
@@ -399,12 +414,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Stamp each visible+selected face with 1 on a fresh int layer.
         The layer survives bisect_plane and remove_doubles (split / merged faces
         inherit the value), so it's the robust way to restore selection after ops
-        that re-create faces. Returns the layer handle."""
-        # Drop any stale layer from a previous run
-        existing = bm.faces.layers.int.get("cursor_bisect_sel")
-        if existing is not None:
-            bm.faces.layers.int.remove(existing)
-        layer = bm.faces.layers.int.new("cursor_bisect_sel")
+        that re-create faces. Returns the layer handle.
+        Caller runs drop_scratch_layers() first."""
+        layer = bm.faces.layers.int.new(SEL_LAYER_NAME)
         for f in bm.faces:
             f[layer] = 1 if (f.select and is_visible(f)) else 0
         return layer
@@ -423,18 +435,17 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 f.select = True
 
     @staticmethod
-    def _remove_layer_safe(bm, layer):
+    def _recover_after_failed_cut(obj):
+        """A cut that raised mid-way may have split faces already: drop the
+        scratch layers and push the edit mesh through update_edit_mesh so
+        the viewport rebuilds its triangulation instead of drawing stale
+        looptris over freed faces (hard crash in extract_tris)."""
         try:
-            if layer and layer.is_valid:
-                bm.faces.layers.int.remove(layer)
-        except (AttributeError, ValueError, ReferenceError):
-            name = getattr(layer, "name", None) or "cursor_bisect_sel"
-            stray = bm.faces.layers.int.get(name)
-            if stray is not None:
-                try:
-                    bm.faces.layers.int.remove(stray)
-                except (AttributeError, ValueError, ReferenceError):
-                    pass
+            bm_err = bmesh.from_edit_mesh(obj.data)
+            drop_scratch_layers(bm_err)
+            bmesh.update_edit_mesh(obj.data)
+        except (AttributeError, ValueError, ReferenceError, RuntimeError):
+            pass
 
     def _current_mark_type(self):
         return self.MARK_TYPES[self.mark_type_idx % len(self.MARK_TYPES)]
@@ -1186,6 +1197,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # (split halves inherit it) and remove_doubles (merged faces
                 # inherit it), so we can reselect exactly the right faces
                 # afterward without leaning on select-flush heuristics.
+                drop_scratch_layers(bm)
                 sel_layer = self._snapshot_face_selection(bm, is_vis)
                 cut_layer = stamp_cut_layer(bm, self._cut_face_set(context, bm, obj))
 
@@ -1233,8 +1245,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                 if not plane_origins_world or (self.delimit_active and not obj_cut):
                     # Nothing cut here: leave the object exactly as it was.
-                    self._remove_layer_safe(bm, sel_layer)
-                    self._remove_layer_safe(bm, cut_layer)
+                    drop_scratch_layers(bm)
                     continue
 
                 if self.mark_edges_active and all_cut_edges:
@@ -1256,8 +1267,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
                 # Restore face selection from the snapshot layer, then flush
                 self._restore_face_selection(bm, sel_layer, is_vis)
-                self._remove_layer_safe(bm, sel_layer)
-                self._remove_layer_safe(bm, cut_layer)
+                drop_scratch_layers(bm)
                 bm.select_flush_mode()
 
                 bmesh.update_edit_mesh(obj.data)
@@ -1265,14 +1275,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
             except Exception as e:
                 self.report({'WARNING'}, f"Bisect failed on {obj.name}: {e}")
-                try:
-                    bm_err = bmesh.from_edit_mesh(obj.data)
-                    for name in ("cursor_bisect_sel", CUT_LAYER_NAME):
-                        stray = bm_err.faces.layers.int.get(name)
-                        if stray is not None:
-                            bm_err.faces.layers.int.remove(stray)
-                except (AttributeError, ValueError, ReferenceError):
-                    pass
+                self._recover_after_failed_cut(obj)
                 continue
 
         self._refresh_hover(context)
@@ -2125,6 +2128,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Snapshot selection once. The int layer propagates through every
                 # subsequent bisect_plane (split faces inherit) and through the
                 # final remove_doubles, so we restore selection exactly at the end.
+                drop_scratch_layers(bm)
                 sel_layer = self._snapshot_face_selection(bm, is_vis)
                 had_selection = any(f[sel_layer] == 1 for f in bm.faces)
                 cut_layer = stamp_cut_layer(bm, self._cut_face_set(context, bm, obj))
@@ -2132,8 +2136,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     cut_objects += 1
                 elif self.delimit_active:
                     # Nothing to cut here: leave the object exactly as it was.
-                    self._remove_layer_safe(bm, sel_layer)
-                    self._remove_layer_safe(bm, cut_layer)
+                    drop_scratch_layers(bm)
                     continue
 
                 for cut_pos in positions:
@@ -2185,21 +2188,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 # Restore face selection from the snapshot, then flush
                 if had_selection:
                     self._restore_face_selection(bm, sel_layer, is_vis)
-                self._remove_layer_safe(bm, sel_layer)
-                self._remove_layer_safe(bm, cut_layer)
+                drop_scratch_layers(bm)
                 bm.select_flush_mode()
                 bmesh.update_edit_mesh(obj.data)
 
             except Exception as e:
                 self.report({'WARNING'}, f"Fill cut failed on {obj.name}: {e}")
-                try:
-                    bm_err = bmesh.from_edit_mesh(obj.data)
-                    for name in ("cursor_bisect_sel", CUT_LAYER_NAME):
-                        stray = bm_err.faces.layers.int.get(name)
-                        if stray is not None:
-                            bm_err.faces.layers.int.remove(stray)
-                except (AttributeError, ValueError, ReferenceError):
-                    pass
+                self._recover_after_failed_cut(obj)
                 continue
 
         self._refresh_hover(context)
