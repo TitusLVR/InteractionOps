@@ -267,6 +267,7 @@ from .operators.bevel_edge_data import (
     IOPS_OT_PinUnwrapBevel,
 )
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active, IOPS_OT_Object_Name_From_Active_Apply
+from .operators.object_search_rename import IOPS_OT_Object_Search_Rename
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
 from .operators.object_select_booleans import (
     classes as _select_booleans_classes,
@@ -638,6 +639,7 @@ classes = (
     IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
     IOPS_OT_Object_Name_From_Active_Apply,
+    IOPS_OT_Object_Search_Rename,
     IOPS_OT_SelectSimilarName,
     *_select_booleans_classes,
     IOPS_MouseoverFillSelect,
