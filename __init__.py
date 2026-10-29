@@ -844,6 +844,8 @@ def register():
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
+    from .ui.iops_pie_edit import register_gp_stroke_width_prop
+    register_gp_stroke_width_prop()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
@@ -1014,6 +1016,8 @@ def unregister():
     try:
         from .ui.iops_pie_edit import unregister_empty_size_prop
         unregister_empty_size_prop()
+        from .ui.iops_pie_edit import unregister_gp_stroke_width_prop
+        unregister_gp_stroke_width_prop()
     except Exception as e:
         print("IOPS: empty size prop unregister failed:", e)
     del bpy.types.WindowManager.IOPS_AddonProperties
