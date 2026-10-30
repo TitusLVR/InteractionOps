@@ -352,6 +352,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
         self._mark_frame = None    # (normal, edge_dir) of the last pick, for the average over empty space
         self._mesh_cache = {}
+        self._to_mesh_owners = []  # evaluated objects whose to_mesh() _cleanup frees
         self._owner_cache = {}
         self._exclude = _see_through_objects(context)
         self._pick = None
@@ -403,6 +404,12 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 pass
         self._handles = []
         self._mesh_cache = {}
+        for ob in self._to_mesh_owners:
+            try:
+                ob.to_mesh_clear()
+            except (ReferenceError, RuntimeError):
+                pass
+        self._to_mesh_owners = []
         self._owner_cache = {}
         self._ngon_cache = {}
         if context.area is not None:
@@ -566,7 +573,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             if not obj.is_evaluated:
                 obj = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
             mesh = obj.data if obj.type == "MESH" else None
-        except (ReferenceError, AttributeError):
+            # Edit mode: the evaluated `.data` is a bmesh-backed wrapper
+            # whose Mesh arrays are EMPTY (every pick would degrade to the
+            # raw hit, no snap); to_mesh() converts it, freed in _cleanup.
+            if mesh is not None and mesh.is_editmode:
+                mesh = obj.to_mesh()
+                self._to_mesh_owners.append(obj)
+        except (ReferenceError, AttributeError, RuntimeError):
             mesh = None
         if mesh is not None:
             self._mesh_cache[key] = mesh
@@ -587,7 +600,9 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             orig = obj.original.data if obj.is_evaluated else obj.data
         except (ReferenceError, AttributeError):
             return None
-        if orig is None or len(orig.vertices) != len(mesh.vertices):
+        # In edit mode the original Mesh is stale (edits live in the bmesh
+        # until mode exit): its polygons can't name the evaluated ones.
+        if orig is None or orig.is_editmode or len(orig.vertices) != len(mesh.vertices):
             return None
         if len(orig.polygons) >= len(mesh.polygons):
             return None     # nothing was triangulated
