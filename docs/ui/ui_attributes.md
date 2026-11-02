@@ -54,7 +54,7 @@ The **Show** checkboxes in Preview Settings combine: Labels can be on together w
 | Checkbox | What you see |
 | --- | --- |
 | **Labels** | The raw value as text on a dark box next to each vertex, edge midpoint, face centre or corner; floats use the **Decimals** setting, vectors print their components, **Text Size** is in pixels. Selected elements use the theme's Active colour |
-| **Heatmap** | Any numeric attribute through a blue → red ramp from the mesh's minimum to its maximum, with a `min … max` legend |
+| **Heatmap** | Any numeric attribute through a blue → red ramp from the mesh's minimum to its maximum; the `min … max` range is shown as **Range** in Preview Settings |
 | **Colour / Greyscale** | Colour attributes shaded onto the geometry as stored or as luminance; disabled for any other attribute type |
 
 Labels are skipped above the **Preview Label Limit** (*Preferences › iOps › Attributes Panel*, default 2000 elements); the colour modes still draw. The preview respects the viewport's overlay toggle and clipping region, keeps its last picture while a modal tool (G / R / S, loop cut) runs, and switches off when the active object is no longer a mesh.
