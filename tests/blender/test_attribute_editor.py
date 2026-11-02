@@ -931,6 +931,36 @@ def test_preview_modes_combine():
     _modes("LABELS")
 
 
+def test_preview_selected_only():
+    ap = _ap()
+    _reset()
+    obj = _track_mesh()
+    ap.rebuild_mirror(bpy.context, force=True)
+    st = bpy.context.window_manager.iops_attr
+    assert st.preview_selected_only is False            # default: all
+    _modes("LABELS", "HEATMAP")
+    _, bm = _edit()
+    _select(bm, "POINT", [1, 2])
+    bmesh.update_edit_mesh(obj.data)
+    _preview("tilt")
+    ap.preview_collect(bpy.context)
+    assert len(ap._PREVIEW["geom"]["pos"]) == 6
+    st.preview_selected_only = True                     # update → recollect
+    g = ap._PREVIEW["geom"]
+    assert len(g["pos"]) == 2 and len(g["labels"]) == 2
+    assert g["fill"] is not None and len(g["fill"][1]) == 2
+    assert ap._PREVIEW["range"] == (10.0, 20.0)         # range over selected
+    _select(bm, "POINT", [])
+    bmesh.update_edit_mesh(obj.data)
+    ap.preview_collect(bpy.context)
+    assert len(ap._PREVIEW["geom"]["pos"]) == 0
+    _object()                                           # Object Mode: all
+    ap.preview_collect(bpy.context)
+    assert len(ap._PREVIEW["geom"]["pos"]) == 6
+    st.preview_selected_only = False
+    _modes("LABELS")
+
+
 def test_preview_text_size_in_pixels():
     from InteractionOps.ui.hud import text as hud_text
     from InteractionOps.ui.draw import get_theme
@@ -946,6 +976,7 @@ def test_preview_text_size_in_pixels():
 TESTS_TASK7 = [
     test_preview_follows_active_row_and_toggle,
     test_preview_modes_combine,
+    test_preview_selected_only,
     test_preview_text_size_in_pixels,
     test_preview_collect_values_and_range,
     test_labels_skip_hidden,
