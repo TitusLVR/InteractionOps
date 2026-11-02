@@ -274,6 +274,10 @@ handlers registered, no redraw cost.
   min→max over the mesh through a fixed ramp (blue, cyan, green, yellow,
   red); the `min … max` range is a **Range** row in the Preview Settings
   sub-panel. Nothing is drawn in the viewport corners.
+- Modal selection (box / circle / lasso): the depsgraph event arrives while
+  the modal operator is still in `window.modal_operators`, so `sync_preview`
+  marks the preview dirty and registers a `bpy.app.timers` callback that
+  collects once the modal is gone.
 - `preview_selected_only` (Bool, default off): in Edit Mode the visible mask
   is `~hidden & selected`, so labels, fills and the heatmap range cover the
   selection only. Object Mode ignores it (checkbox disabled).

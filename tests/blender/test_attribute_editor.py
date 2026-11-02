@@ -961,6 +961,44 @@ def test_preview_selected_only():
     _modes("LABELS")
 
 
+def test_preview_recollects_after_modal_selection():
+    """Box / circle / lasso select: the depsgraph event arrives while the
+    modal operator is still listed, so the collect is deferred to a timer
+    that fires once the modal is gone."""
+    ap = _ap()
+    _reset()
+    obj = _track_mesh()
+    ap.rebuild_mirror(bpy.context, force=True)
+    st = bpy.context.window_manager.iops_attr
+    _modes("LABELS")
+    st.preview_selected_only = True
+    _, bm = _edit()
+    _select(bm, "POINT", [1])
+    bmesh.update_edit_mesh(obj.data)
+    _preview("tilt")
+    ap.preview_collect(bpy.context)
+    assert len(ap._PREVIEW["geom"]["pos"]) == 1
+    _select(bm, "POINT", [1, 2, 3])
+    bmesh.update_edit_mesh(obj.data)
+    saved = ap._modal_running
+    ap._modal_running = lambda ctx: True
+    try:
+        ap.sync_preview(bpy.context, collect=True)      # as _resync does
+        assert len(ap._PREVIEW["geom"]["pos"]) == 1     # not touched yet
+        assert ap._PREVIEW["dirty"] is True
+        assert bpy.app.timers.is_registered(ap._deferred_collect)
+        assert ap._deferred_collect() is not None       # modal still on
+    finally:
+        ap._modal_running = saved
+    assert ap._deferred_collect() is None               # done, unregister
+    assert len(ap._PREVIEW["geom"]["pos"]) == 3
+    assert ap._PREVIEW["dirty"] is False
+    if bpy.app.timers.is_registered(ap._deferred_collect):
+        bpy.app.timers.unregister(ap._deferred_collect)
+    st.preview_selected_only = False
+    _object()
+
+
 def test_preview_text_size_in_pixels():
     from InteractionOps.ui.hud import text as hud_text
     from InteractionOps.ui.draw import get_theme
@@ -977,6 +1015,7 @@ TESTS_TASK7 = [
     test_preview_follows_active_row_and_toggle,
     test_preview_modes_combine,
     test_preview_selected_only,
+    test_preview_recollects_after_modal_selection,
     test_preview_text_size_in_pixels,
     test_preview_collect_values_and_range,
     test_labels_skip_hidden,

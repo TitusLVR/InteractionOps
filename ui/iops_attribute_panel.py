@@ -575,9 +575,32 @@ def sync_preview(context, *, collect=False):
             return
         _PREVIEW["row"] = row
         _PREVIEW["dirty"] = True
-    if row is not None and (collect or _PREVIEW["dirty"]) \
-            and not _modal_running(context):
+    if row is not None and (collect or _PREVIEW["dirty"]):
+        if _modal_running(context):
+            # Box / circle / lasso select: the depsgraph event fires while
+            # the modal operator is still listed and no second event follows
+            # once it ends, so collect from a timer after the modal is gone.
+            _PREVIEW["dirty"] = True
+            if not bpy.app.timers.is_registered(_deferred_collect):
+                bpy.app.timers.register(_deferred_collect,
+                                        first_interval=0.05)
+            return
         preview_collect(context)
+
+
+def _deferred_collect():
+    """bpy.app.timers callback: collect once no modal operator runs."""
+    context = bpy.context
+    if _PREVIEW["row"] is None or not _PREVIEW["dirty"]:
+        return None
+    if _modal_running(context):
+        return 0.05
+    try:
+        preview_collect(context)
+    except Exception as exc:    # noqa: BLE001
+        print(f"IOPS attributes: deferred preview collect failed: {exc}")
+        _PREVIEW["dirty"] = False
+    return None
 
 
 def preview_row_name():
@@ -1301,7 +1324,7 @@ def _set_active_row(context, name):
 def unregister_attribute_ui():
     disable_preview()
     _remove_preview_handlers()
-    for fn in (_undo_push_now, _rebuild_timer):
+    for fn in (_undo_push_now, _rebuild_timer, _deferred_collect):
         if bpy.app.timers.is_registered(fn):
             bpy.app.timers.unregister(fn)
     for handler_list, fn in _HANDLERS:
