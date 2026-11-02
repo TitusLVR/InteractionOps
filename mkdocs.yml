@@ -86,6 +86,7 @@ nav:
       - Menus & Panels: ui/ui_menus.md
       - Pies: ui/ui_pies.md
       - HUD: ui/ui_hud.md
+      - Attributes Panel: ui/ui_attributes.md
   - Operators:
       - Overview: operators.md
       - Core System:

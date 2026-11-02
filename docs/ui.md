@@ -5,5 +5,6 @@ InteractionOps keeps most of its interface off-screen until you ask for it: popu
 - [Panels](ui/ui_menus.md) — Transform / Pivot / Snap, Transform, Data, Modifiers popups and the sidebar panels (Collection Append, Vertex Color, Object Color, Selection Sets, Material Override, Library, Executor, Widgets).
 - [Pie Menus](ui/ui_pies.md) — Main, Edit, Split, Assets and Shading pies, plus the floating Library popup.
 - [HUD](ui/ui_hud.md) — the on-screen readout, the <kbd>H</kbd> help legend and the statistics block.
+- [Attributes Panel](ui/ui_attributes.md) — list, edit, preview and manage a mesh's generic attributes and vertex groups from the sidebar.
 
 All hotkeys can be changed in *Preferences › iOps › Keymaps*.

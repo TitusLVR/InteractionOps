@@ -305,6 +305,14 @@ def load_iops_preferences():
                                     value, "nonplanar_angle",
                                     defaults.get("nonplanar_angle", 0.5))
 
+                    case "ATTRIBUTES":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("ATTRIBUTES", {})
+                            if hasattr(prefs, "attr_preview_max_labels"):
+                                prefs.attr_preview_max_labels = safe_get(
+                                    value, "attr_preview_max_labels",
+                                    defaults.get("attr_preview_max_labels", 2000))
+
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})

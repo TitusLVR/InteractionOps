@@ -72,5 +72,27 @@ assert any(
     for kmi in km.keymap_items
 ), "iops.cursor_place not bound to Shift+RMB in 3D View keymap"
 
+# iOps Attributes (Task 4 operators)
+for op_name in ("attr_set_value", "attr_fill", "attr_new", "attr_remove",
+                "attr_duplicate", "attr_convert", "attr_refresh"):
+    getattr(bpy.ops.iops, op_name).get_rna_type()
+
+# iOps Attributes panel (Task 5)
+assert hasattr(bpy.types, "IOPS_PT_attributes_panel"), "attributes panel not registered"
+assert hasattr(bpy.types, "IOPS_UL_Attributes"), "attributes UIList not registered"
+assert hasattr(bpy.types, "IOPS_MT_attr_specials"), "attributes specials menu not registered"
+assert hasattr(wm, "iops_attr"), "missing WM prop: iops_attr"
+
+# iOps Attributes tools (Task 6)
+for op_name in ("attr_gradient", "attr_math", "attr_smooth", "attr_randomize",
+                "attr_copy", "attr_from_vgroup", "attr_to_vgroup",
+                "attr_select_by_value"):
+    getattr(bpy.ops.iops, op_name).get_rna_type()
+
+# iOps Attributes preview (Task 7)
+assert "preview" in wm.iops_attr.bl_rna.properties, "missing preview toggle"
+assert hasattr(bpy.types, "IOPS_PT_attributes_preview"), "preview sub-panel not registered"
+assert hasattr(prefs, "attr_preview_max_labels"), "missing pref: attr_preview_max_labels"
+
 bpy.ops.preferences.addon_disable(module="InteractionOps")
 print("SMOKE_OK")

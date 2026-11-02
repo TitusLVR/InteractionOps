@@ -367,6 +367,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_cursor_place: BoolProperty(default=False)
     show_section_instance_edit: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
+    show_section_attributes: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
     show_section_io: BoolProperty(default=False)
@@ -877,6 +878,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=2,
     )
 
+    # iOps Attributes panel (ui/iops_attribute_panel.py)
+    attr_preview_max_labels: bpy.props.IntProperty(
+        name="Preview Label Limit",
+        description="The attribute preview skips its text labels when the "
+                    "mesh has more elements than this (the colour modes "
+                    "still draw)",
+        default=2000,
+        min=100,
+        max=100000,
+    )
+
     # Window creation method
     modifier_window_method: EnumProperty(
         name="Window Creation Method",
@@ -1303,6 +1315,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             "Non-Planar Overlay", icon="MOD_TRIANGULATE")
             if body is not None:
                 body.prop(self, "nonplanar_angle")
+
+            # iOps Attributes
+            body = _section(column_main, self, "show_section_attributes",
+                            "Attributes Panel", icon="SPREADSHEET")
+            if body is not None:
+                body.prop(self, "attr_preview_max_labels")
 
             # Snap Combos
             body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")
