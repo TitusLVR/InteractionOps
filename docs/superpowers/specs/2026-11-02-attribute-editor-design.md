@@ -274,6 +274,9 @@ handlers registered, no redraw cost.
   min→max over the mesh through a fixed ramp (blue, cyan, green, yellow,
   red); the `min … max` range is a **Range** row in the Preview Settings
   sub-panel. Nothing is drawn in the viewport corners.
+- `preview_selected_only` (Bool, default off): in Edit Mode the visible mask
+  is `~hidden & selected`, so labels, fills and the heatmap range cover the
+  selection only. Object Mode ignores it (checkbox disabled).
 - Respects `space_data.overlay.show_overlays` and the viewport clipping
   region (`region_3d.use_clip_planes`); the handler is disabled when the
   active object is no longer a mesh or the mode leaves OBJECT / EDIT_MESH.

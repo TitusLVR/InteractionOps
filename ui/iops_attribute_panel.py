@@ -747,6 +747,8 @@ def preview_collect(context):
     st = context.window_manager.iops_attr
     data_type = "FLOAT" if row.kind == "VGROUP" else row.data_type
     visible = ~hid
+    if st.preview_selected_only and context.mode == "EDIT_MESH":
+        visible &= sel
     scalar = _scalars(vals, data_type)
     if visible.any():
         lo, hi = float(scalar[visible].min()), float(scalar[visible].max())
@@ -959,6 +961,9 @@ class IOPS_PT_attributes_preview(bpy.types.Panel):
         sub.enabled = colour            # colour attributes only
         sub.prop(st, "preview_colour")
         sub.prop(st, "preview_greyscale")
+        sel_row = layout.row()
+        sel_row.enabled = context.mode == "EDIT_MESH"   # Object Mode: all
+        sel_row.prop(st, "preview_selected_only")
         layout.prop(st, "preview_decimals")
         layout.prop(st, "preview_text_size")
         geom = _PREVIEW["geom"]
@@ -1034,6 +1039,11 @@ class IOPS_AttrState(bpy.types.PropertyGroup):
     preview_greyscale: bpy.props.BoolProperty(
         name="Greyscale", description="Colour attribute as luminance. "
         "Colour attributes only",
+        default=False, update=_preview_settings_update)
+    preview_selected_only: bpy.props.BoolProperty(
+        name="Selected Only",
+        description="In Edit Mode preview only the selected elements; "
+        "the heatmap range is taken over the selection too",
         default=False, update=_preview_settings_update)
     preview_decimals: bpy.props.IntProperty(
         name="Decimals", default=2, min=0, max=6,

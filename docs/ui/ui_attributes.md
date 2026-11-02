@@ -57,6 +57,8 @@ The **Show** checkboxes in Preview Settings combine: Labels can be on together w
 | **Heatmap** | Any numeric attribute through a blue → red ramp from the mesh's minimum to its maximum; the `min … max` range is shown as **Range** in Preview Settings |
 | **Colour / Greyscale** | Colour attributes shaded onto the geometry as stored or as luminance; disabled for any other attribute type |
 
+**Selected Only** (Edit Mode) limits labels, fills and the heatmap range to the selected elements; in Object Mode the whole mesh is previewed and the checkbox is disabled.
+
 Labels are skipped above the **Preview Label Limit** (*Preferences › iOps › Attributes Panel*, default 2000 elements); the colour modes still draw. The preview respects the viewport's overlay toggle and clipping region, keeps its last picture while a modal tool (G / R / S, loop cut) runs, and switches off when the active object is no longer a mesh.
 
 ## Tips
