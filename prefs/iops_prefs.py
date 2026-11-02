@@ -307,6 +307,9 @@ def get_iops_prefs():
         "NONPLANAR_OVERLAY": {
             "nonplanar_angle": safe("nonplanar_angle", 0.5),
         },
+        "ATTRIBUTES": {
+            "attr_preview_max_labels": safe("attr_preview_max_labels", 2000),
+        },
     }
 
     return iops_prefs

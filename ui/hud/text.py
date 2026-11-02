@@ -62,10 +62,13 @@ def _resolve_font(theme: Theme) -> int:
 
 def configure(theme: Theme, size_token: str = "normal",
               font_id: int | None = None,
-              shadow_alpha_mul: float = 1.0) -> int:
+              shadow_alpha_mul: float = 1.0,
+              size_px: int | None = None) -> int:
+    """`size_px` overrides the theme slider the token would select."""
     if font_id is None:
         font_id = _resolve_font(theme)
-    blf.size(font_id, theme.text_size(size_token))
+    blf.size(font_id, size_px if size_px is not None
+             else theme.text_size(size_token))
     if theme.shadow.enabled and shadow_alpha_mul > 0.0:
         blf.enable(font_id, blf.SHADOW)
         sc = theme.shadow.color
@@ -80,7 +83,7 @@ def configure(theme: Theme, size_token: str = "normal",
 def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
          color: tuple[float, float, float, float] | None = None,
          size_token: str = "normal", font_id: int | None = None,
-         alpha_mul: float = 1.0):
+         alpha_mul: float = 1.0, size_px: int | None = None):
     """Draw text. Exactly one of `role` or `color` must be provided.
     `color` lets callers pass a fully-resolved RGBA (e.g. axis colors
     from Blender's user_interface theme) instead of routing through
@@ -91,7 +94,7 @@ def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
     # alpha_mul leaves an opaque dark shadow trailing behind, which is
     # visible as black ghosts during fade-out animations (shockwave etc).
     font_id = configure(theme, size_token, font_id,
-                        shadow_alpha_mul=alpha_mul)
+                        shadow_alpha_mul=alpha_mul, size_px=size_px)
     if color is not None:
         r, g, b, a = color
     else:
@@ -102,13 +105,15 @@ def draw(text: str, x: int, y: int, *, theme: Theme, role: Role | None = None,
 
 
 def measure(text: str, *, theme: Theme, size_token: str = "normal",
-            font_id: int | None = None) -> tuple[float, float]:
+            font_id: int | None = None,
+            size_px: int | None = None) -> tuple[float, float]:
     """Cached `blf.dimensions(text)`. Same (text, font, size_px) returns the
     same value across the operator's lifetime without re-rasterizing glyphs.
     """
     if font_id is None:
         font_id = _resolve_font(theme)
-    size_px = theme.text_size(size_token)
+    if size_px is None:
+        size_px = theme.text_size(size_token)
     key = (text, font_id, size_px)
     hit = _MEASURE_CACHE.get(key)
     if hit is not None:

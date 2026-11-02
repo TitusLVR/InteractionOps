@@ -393,6 +393,8 @@ from .ui.iops_selection_sets_panel import (
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
+from .operators import mesh_attribute_editor as _attr_editor
+from .ui import iops_attribute_panel as _attr_panel
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
@@ -728,6 +730,8 @@ classes = (
     IOPS_OT_SSPreviewAll,
     IOPS_UL_SelectionSets,
     IOPS_PT_SelectionSets_Panel,
+    *_attr_editor.OPERATOR_CLASSES,
+    *_attr_panel.UI_CLASSES,
     *instance_edit_state.CLASSES,
     IOPS_OT_instance_edit_start,
     IOPS_OT_instance_edit_restore,
@@ -843,6 +847,7 @@ def register():
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
     register_selection_sets_ui()
+    _attr_panel.register_attribute_ui()
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
@@ -922,6 +927,10 @@ def unregister():
         release_color_icons()
     except Exception:
         pass
+    try:
+        _attr_panel.unregister_attribute_ui()
+    except Exception as exc:
+        print(f"IOPS attributes: unregister failed: {exc}")
     unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its

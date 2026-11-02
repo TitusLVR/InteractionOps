@@ -21,6 +21,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not landed · 🗑 superseded
 | 2026-05-20 | [bevel-snap-mode-design](specs/2026-05-20-bevel-snap-mode-design.md) | ✅ | `9207e61 feat(bisect): add bevel mode for dual cuts`; ~85 bevel/snap_point refs in [`operators/mesh_cursor_bisect.py`](../../operators/mesh_cursor_bisect.py). |
 | 2026-09-07 | [modo-falloff-analysis](specs/2026-09-07-modo-falloff-analysis.md) | ✅ | Research-only doc feeding the falloff tools design. |
 | 2026-09-07 | [modo-falloff-tools-design](specs/2026-09-07-modo-falloff-tools-design.md) | ✅ | `operators/falloff/`, `utils/falloff_core.py`, `tests/test_falloff_core.py`. |
+| 2026-11-02 | [attribute-editor-design](specs/2026-11-02-attribute-editor-design.md) | ✅ | `ui/iops_attribute_panel.py`, `operators/mesh_attribute_editor.py`, `utils/attribute_editor_core.py`, `tests/test_attribute_editor_core.py`, `tests/blender/test_attribute_editor.py`. Follow-ups left open in the spec: transfer from object, bake from evaluated mesh, batch rename / delete. |
 
 ## Plans
 
@@ -32,6 +33,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not landed · 🗑 superseded
 | 2026-05-15 | [unified-ui-foundation](plans/2026-05-15-unified-ui-foundation.md) | ✅ executed (merged via `feat/unified-ui-foundation`) |
 | 2026-05-18 | [theme-palette-unification](plans/2026-05-18-theme-palette-unification.md) | ✅ executed |
 | 2026-09-07 | [modo-falloff-tools](plans/2026-09-07-modo-falloff-tools.md) | ✅ executed |
+| 2026-11-02 | [attribute-editor](plans/2026-11-02-attribute-editor.md) | ✅ executed |
 
 ## Notes
 
