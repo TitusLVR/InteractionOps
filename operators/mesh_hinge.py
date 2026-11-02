@@ -1104,7 +1104,7 @@ mouse, baking the sweep as segments"""
             if p0 is not None and p1 is not None:
                 rest_segs.extend([p0, p1])
         if rest_segs:
-            draw_prim.edges_3d(rest_segs, color=(0.6, 0.6, 0.6, 0.6), context=context)
+            draw_prim.edges_3d(rest_segs, role=Role.LINE, context=context)
         # Bbox mode: the box outline (theme BBOX role); the picked side
         # is the amber axis line below.
         if self._bbox_mode:
@@ -1127,7 +1127,7 @@ mouse, baking the sweep as segments"""
             pbc = s2d(self._axis_base_center)
             pcc = s2d(center)
             if pbc is not None and pcc is not None:
-                draw_prim.edges_3d([pbc, pcc], color=(0.6, 0.6, 0.6, 0.6), context=context)
+                draw_prim.edges_3d([pbc, pcc], role=Role.LINE, context=context)
         pc = s2d(center)
         if pc is not None:
             self._draw_dot(pc, radius=5.0,
@@ -1161,7 +1161,8 @@ mouse, baking the sweep as segments"""
             draw_prim.edges_3d([ph, leg1, ph, leg2],
                                role=Role.HANDLE_HOVER if active else Role.HANDLE, context=context)
             if active:
-                self._draw_dot(ph, radius=8.0, color=(1.0, 1.0, 1.0, 1.0), context=context)
+                self._draw_dot(ph, radius=8.0, color=theme.color_for(Role.HANDLE_HOVER),
+                               context=context)
             else:
                 self._draw_dot(ph, radius=6.0, color=theme.color_for(Role.HANDLE), context=context)
 

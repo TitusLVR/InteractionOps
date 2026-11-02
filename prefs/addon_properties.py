@@ -12,6 +12,7 @@ from bpy.props import (
 )
 
 from ..utils.falloff_core import FALLOFF_TYPES, SHAPES
+from ..utils.cursor_bisect_core import DELIMIT_TYPES, DELIMIT_LABELS
 
 def fuzzy_match(search_term, target):
     """
@@ -605,8 +606,14 @@ class IOPS_SceneProperties(PropertyGroup):
     cursor_bisect_snapping: BoolProperty(name="Snapping", default=True)
     cursor_bisect_normal_axis: EnumProperty(
         name="Normal Axis",
-        items=[('X', "X", ""), ('Y', "Y", "")],
+        items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")],
         default='X',
+    )
+    cursor_bisect_delimit: BoolProperty(name="Delimiter", default=False)
+    cursor_bisect_delimit_type: EnumProperty(
+        name="Delimiter Type",
+        items=[(t, DELIMIT_LABELS[t], "") for t in DELIMIT_TYPES],
+        default='ISLAND',
     )
     cursor_bisect_preview_mode: EnumProperty(
         name="Preview Mode",

@@ -9,7 +9,9 @@ While the button is held:
   polygon edge when within the snap threshold of one, otherwise free on
   the face at the raycast hit point.
 * **Snap** (Ctrl held, like Blender's snapping): nearest vertex / edge
-  midpoint / face centre of the hit polygon, in screen space.
+  midpoint / face centre of the hit polygon, in screen space. **A** marks
+  the snapped point (A again on it unmarks) and the cursor goes to the
+  centre of the marked points, like Blender's multi-point snapping.
 * **Aim** (Shift pressed again, toggle): the position is locked and the
   edge axis points at whatever is under the mouse.
 * **Alt** held: the position keeps following, the orientation is frozen.
@@ -27,6 +29,7 @@ from bpy_extras.view3d_utils import (
     region_2d_to_vector_3d,
 )
 from mathutils.geometry import intersect_line_plane
+import numpy as np
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -69,8 +72,9 @@ def _build_help(context):
         HUDItem("Snap to nearest vertex / edge mid / face centre", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Mark / unmark the snapped point, cursor at their centre (Ctrl held)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Ignore Triangulate modifiers", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Ignore triangulation (pick the source n-gon)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -84,16 +88,70 @@ def _build_help(context):
 
 # --- Draw callbacks ----------------------------------------------------------
 
+def _build_vert_poly_lookup(mesh):
+    """(sorted loop vertex ids, matching polygon ids, mesh) for `mesh`.
+    numpy foreach_get + one argsort: ~0.1 s per million loops, done once
+    per original mesh per modal."""
+    try:
+        n_loops = len(mesh.loops)
+        n_polys = len(mesh.polygons)
+        if n_loops == 0 or n_polys == 0:
+            return (None, None, mesh)
+        loop_verts = np.empty(n_loops, dtype=np.int32)
+        mesh.loops.foreach_get("vertex_index", loop_verts)
+        loop_total = np.empty(n_polys, dtype=np.int32)
+        mesh.polygons.foreach_get("loop_total", loop_total)
+        loop_polys = np.repeat(np.arange(n_polys, dtype=np.int32), loop_total)
+        order = np.argsort(loop_verts, kind="stable")
+        return (loop_verts[order], loop_polys[order], mesh)
+    except (ReferenceError, AttributeError, ValueError):
+        return (None, None, mesh)
+
+
+def _newell_normal(verts3d, fallback=None):
+    """Mean plane normal of a polygon (Newell), winding-consistent with
+    Blender's. A degenerate ring (bow-tie, collinear, zero area) has no
+    mean plane: return `fallback` (the ray hit normal) or world Z."""
+    n = Vector((0.0, 0.0, 0.0))
+    count = len(verts3d)
+    for i in range(count):
+        a = verts3d[i]
+        b = verts3d[(i + 1) % count]
+        n.x += (a.y - b.y) * (a.z + b.z)
+        n.y += (a.z - b.z) * (a.x + b.x)
+        n.z += (a.x - b.x) * (a.y + b.y)
+    if n.length_squared <= 1e-18:
+        if fallback is not None and fallback.length_squared > 0.0:
+            return fallback.normalized()
+        return Vector((0.0, 0.0, 1.0))
+    return n.normalized()
+
+
+def _snap_candidates(verts3d, chosen):
+    """Snap candidates of one polygon (vertices, edge midpoints, centre)
+    minus the chosen one, which is drawn separately as the Preview point."""
+    n = len(verts3d)
+    if n < 3:
+        return []
+    pts = list(verts3d)
+    pts += [(verts3d[i] + verts3d[(i + 1) % n]) * 0.5 for i in range(n)]
+    pts.append(sum(verts3d, Vector()) / n)
+    c = Vector(chosen)
+    tol = 1e-10 * max(1.0, c.length_squared)
+    return [p for p in pts if (p - c).length_squared > tol]
+
+
 def _draw_preview_3d(op, context):
     """POST_VIEW: element highlight + cursor axis ghost. Reads `op._pick`
     only — no scene queries in the draw handler."""
     data = getattr(op, "_pick", None)
     if data is None:
         return
-    pick, frame, verts3d, axis_len, tris, aim = data
+    pick, frame, verts3d, axis_len, tris, aim, snap_pts = data
     pos = Vector(pick.position)
 
     with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE"):
+        # Element under the mouse (or the frozen one in aim mode): Closest.
         if pick.kind == "FACE":
             if tris:
                 draw.tris(tris, role=Role.GHOST_CLOSEST, context=context)
@@ -105,6 +163,25 @@ def _draw_preview_3d(op, context):
                           role=Role.CLOSEST_LINE, width="closest", context=context)
         else:
             draw.points([pos], role=Role.CLOSEST_POINT, context=context)
+
+        # Snap (Ctrl): every candidate of the hit polygon as a plain theme
+        # point; the chosen one is drawn in Preview below, on top.
+        if snap_pts:
+            draw.points(snap_pts, role=Role.POINT, context=context)
+
+        # Multi-point snap (A): marked points in Locked, each tied to the
+        # averaged landing point.
+        marks = getattr(op, "_marks", None)
+        if marks and getattr(op, "_snap", False):
+            draw.points(marks, role=Role.LOCKED_POINT, context=context)
+            lines = []
+            for m in marks:
+                lines += [pos, m]
+            draw.edges_3d(lines, role=Role.LOCKED_LINE, width="preview", context=context)
+            # The snapped point under the mouse: the next candidate to mark.
+            hover = getattr(op, "_snap_pos", None)
+            if hover is not None and aim is None:
+                draw.points([hover], role=Role.ACTIVE_POINT, context=context)
 
         if aim is not None:
             tpick, tverts = aim
@@ -126,7 +203,9 @@ def _draw_preview_3d(op, context):
             r, g, b, _ = axis_color(letter)
             draw.edges_3d([pos, pos + Vector(frame[i]) * length],
                           color=(r, g, b, 1.0), width="axis_gizmo", context=context)
-        draw.points([pos], color=(1.0, 1.0, 1.0, 0.9), size=4.0, context=context)
+        # Where the cursor will land (slide point or snapped candidate):
+        # the Result Preview point of the theme.
+        draw.points([pos], role=Role.PREVIEW_POINT, context=context)
 
 
 def _draw_pixel(op, context):
@@ -136,7 +215,7 @@ def _draw_pixel(op, context):
     rv3d = context.region_data
     if (data is not None and region is not None and rv3d is not None
             and getattr(op, "_axis_letters", True)):
-        pick, frame, _verts3d, axis_len, _tris, _aim = data
+        pick, frame, _verts3d, axis_len, _tris, _aim, _snap_pts = data
         pos = Vector(pick.position)
         length = axis_len
         theme = get_theme(context)
@@ -217,7 +296,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
     """Hold Shift+RMB: place the 3D cursor on the surface under the mouse
     (modifiers and collection instances included) and orient it to the
     surface normal and nearest edge. Move: slide along the face or edge.
-    Ctrl: snap to the nearest vertex / edge midpoint / face centre. Shift
+    Ctrl: snap to the nearest vertex / edge midpoint / face centre; A marks
+    the snapped point, the cursor goes to their centre (A again unmarks). Shift
     again: lock the position and aim the edge axis. Alt: move with the
     orientation frozen. Release to place, Esc to cancel"""
 
@@ -262,13 +342,17 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._snap = bool(event.ctrl)
         self._aim = False          # Shift (toggle): aim mode on/off
         self._active_only = False  # A: raycast only the active object
-        self._ignore_tri = False   # T: Triangulate modifiers hidden while the modal runs
-        self._tri_mods = []        # [(modifier, original show_viewport)] to restore
+        self._ignore_tri = True    # T: pick the pre-triangulation polygon (see _ngon_for)
+        self._ngon_cache = {}      # original-mesh pointer -> (loop_verts_sorted, loop_poly_sorted, mesh)
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
+        self._marks = []           # A (with Ctrl): marked snap points, averaged with the current one
+        self._snap_pos = None      # the snapped point under the mouse before averaging
         # The key/button whose release confirms: whatever invoked us.
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
+        self._mark_frame = None    # (normal, edge_dir) of the last pick, for the average over empty space
         self._mesh_cache = {}
+        self._to_mesh_owners = []  # evaluated objects whose to_mesh() _cleanup frees
         self._owner_cache = {}
         self._exclude = _see_through_objects(context)
         self._pick = None
@@ -279,6 +363,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud = _build_hud(context)
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
+        self._hud.add_param(HUDParam("Marked points", lambda: len(self._marks), "int"))
         self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
         self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
@@ -311,47 +396,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return "—"
         return _KIND_LABELS.get(data[0].kind, "?")
 
-    def _set_ignore_triangulate(self, context, enabled):
-        """T: hide every Triangulate modifier in the view layer so the ray
-        hits the pre-triangulation polygons (n-gons stay n-gons); restore
-        the recorded viewport states when switched off or on exit."""
-        if enabled == self._ignore_tri:
-            return
-        self._ignore_tri = enabled
-        if enabled:
-            self._tri_mods = []
-            try:
-                objects = list(context.view_layer.objects)
-            except (ReferenceError, AttributeError):
-                objects = []
-            for ob in objects:
-                if ob.type != "MESH":
-                    continue
-                for mod in ob.modifiers:
-                    if mod.type != "TRIANGULATE" or not mod.show_viewport:
-                        continue
-                    try:
-                        mod.show_viewport = False  # linked data is read-only
-                    except (AttributeError, TypeError):
-                        continue
-                    self._tri_mods.append((mod, True))
-        else:
-            self._restore_triangulate()
-        # Evaluated meshes change shape: drop everything cached from them.
-        self._mesh_cache = {}
-        self._owner_cache = {}
-
-    def _restore_triangulate(self):
-        for mod, state in self._tri_mods:
-            try:
-                mod.show_viewport = state
-            except (ReferenceError, AttributeError, TypeError):
-                pass
-        self._tri_mods = []
-
     def _cleanup(self, context):
-        self._restore_triangulate()
-        self._ignore_tri = False
         for h in self._handles:
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
@@ -359,7 +404,14 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 pass
         self._handles = []
         self._mesh_cache = {}
+        for ob in self._to_mesh_owners:
+            try:
+                ob.to_mesh_clear()
+            except (ReferenceError, RuntimeError):
+                pass
+        self._to_mesh_owners = []
         self._owner_cache = {}
+        self._ngon_cache = {}
         if context.area is not None:
             context.area.tag_redraw()
 
@@ -424,6 +476,21 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                     pick = pick._replace(normal=self._orient_lock[0],
                                          edge_dir=self._orient_lock[1])
 
+        # Multi-point snap: with marked points the landing point is their
+        # centre; the snapped point under the mouse is only a candidate to
+        # mark next. Orientation stays that of the surface under the mouse.
+        self._snap_pos = Vector(pick.position) if pick is not None else None
+        if self._snap and self._marks and aim is None:
+            avg = sum(self._marks, Vector()) / len(self._marks)
+            if pick is not None:
+                pick = pick._replace(position=tuple(avg))
+            elif self._mark_frame is not None:
+                normal, edge_dir = self._mark_frame
+                pick = Pick("VERT", -1, tuple(avg), normal, edge_dir, None)
+                verts3d = []
+        if pick is not None:
+            self._mark_frame = (pick.normal, pick.edge_dir)
+
         new_pick = None
         sig = None
         if pick is not None:
@@ -433,8 +500,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             pos = Vector(pick.position)
             axis_len = _gizmo_length(context, region, rv3d, pos, self._axis_px)
             tris = _face_tris(verts3d) if pick.kind == "FACE" else []
-            new_pick = (pick, frame, verts3d, axis_len, tris, aim)
-            sig = (pick.kind, pick.index,
+            # Candidates belong to the polygon under the mouse: the aim
+            # target while aiming, the pick itself otherwise.
+            under = aim[1] if aim is not None else verts3d
+            snapped = aim[0].position if aim is not None else self._snap_pos
+            snap_pts = _snap_candidates(under, snapped) if self._snap else []
+            new_pick = (pick, frame, verts3d, axis_len, tris, aim, snap_pts)
+            sig = (pick.kind, pick.index, self._snap, len(self._marks),
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
                    round(axis_len, 9), len(verts3d),
@@ -455,12 +527,23 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         if (mesh is not None and face_index is not None
                 and 0 <= face_index < len(mesh.polygons)):
             poly = mesh.polygons[face_index]
-            nmat = matrix.inverted_safe().transposed().to_3x3()
-            poly_normal = (nmat @ poly.normal).normalized()
-            center = matrix @ poly.center
-            if abs((loc - center).dot(poly_normal)) <= _PLANE_TOLERANCE * max(1.0, center.length):
-                verts = mesh.vertices
-                verts3d = [matrix @ verts[i].co for i in poly.vertices]
+            verts = mesh.vertices
+            vert_ids = None
+            if self._ignore_tri:
+                vert_ids = self._ngon_for(obj, mesh, poly)
+            if vert_ids is None:
+                vert_ids = list(poly.vertices)
+            verts3d = [matrix @ verts[i].co for i in vert_ids]
+            poly_normal = _newell_normal(verts3d, nrm)
+            center = sum(verts3d, Vector()) / len(verts3d)
+            # Sanity guard against a stale face index: the hit must lie on
+            # the polygon. For a non-planar polygon the ray lands on one of
+            # its loop triangles, i.e. within the vertices' own spread
+            # about the mean plane, so allow that spread on top of the
+            # absolute tolerance.
+            spread = max(abs((v - center).dot(poly_normal)) for v in verts3d)
+            tol = _PLANE_TOLERANCE * max(1.0, center.length) + spread
+            if abs((loc - center).dot(poly_normal)) <= tol:
                 if not self._snap:
                     # Edge threshold is a pixel pref: convert at the hit depth.
                     threshold = self._slide_px * px_world_at(region, rv3d, loc)
@@ -490,11 +573,72 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             if not obj.is_evaluated:
                 obj = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
             mesh = obj.data if obj.type == "MESH" else None
-        except (ReferenceError, AttributeError):
+            # Edit mode: the evaluated `.data` is a bmesh-backed wrapper
+            # whose Mesh arrays are EMPTY (every pick would degrade to the
+            # raw hit, no snap); to_mesh() converts it, freed in _cleanup.
+            if mesh is not None and mesh.is_editmode:
+                mesh = obj.to_mesh()
+                self._to_mesh_owners.append(obj)
+        except (ReferenceError, AttributeError, RuntimeError):
             mesh = None
         if mesh is not None:
             self._mesh_cache[key] = mesh
         return mesh
+
+    def _ngon_for(self, obj, mesh, poly):
+        """Vertex indices of the *original* polygon the evaluated polygon
+        `poly` is a piece of, or None when the mapping is not safe.
+
+        Triangulate (and any topology-preserving stack around it) keeps the
+        vertex count and order of the original mesh, so the triangle's
+        vertex ids name the original polygon directly. No modifier is
+        touched, so nothing re-evaluates: in a multi-million-tri scene the
+        old show_viewport toggle cost a full depsgraph pass on entry and
+        again on release. Anything that changed the vertex count (Bevel,
+        Mirror, Subdivision...) falls back to the evaluated polygon."""
+        try:
+            orig = obj.original.data if obj.is_evaluated else obj.data
+        except (ReferenceError, AttributeError):
+            return None
+        # In edit mode the original Mesh is stale (edits live in the bmesh
+        # until mode exit): its polygons can't name the evaluated ones.
+        if orig is None or orig.is_editmode or len(orig.vertices) != len(mesh.vertices):
+            return None
+        if len(orig.polygons) >= len(mesh.polygons):
+            return None     # nothing was triangulated
+        key = orig.as_pointer()
+        entry = self._ngon_cache.get(key)
+        if entry is None:
+            entry = _build_vert_poly_lookup(orig)
+            self._ngon_cache[key] = entry
+        loop_verts, loop_polys, _keep = entry
+        if loop_verts is None:
+            return None
+        ids = list(poly.vertices)
+        if len(ids) < 3:
+            return None
+        cands = None
+        for v in ids[:3]:
+            lo = np.searchsorted(loop_verts, v, side="left")
+            hi = np.searchsorted(loop_verts, v, side="right")
+            ps = set(loop_polys[lo:hi].tolist())
+            cands = ps if cands is None else (cands & ps)
+            if not cands:
+                return None
+        if len(cands) != 1:
+            return None
+        return list(orig.polygons[cands.pop()].vertices)
+
+    def _toggle_mark(self):
+        pos = self._snap_pos
+        if pos is None:
+            return
+        tol = 1e-10 * max(1.0, pos.length_squared)
+        for i, m in enumerate(self._marks):
+            if (m - pos).length_squared <= tol:
+                del self._marks[i]
+                return
+        self._marks.append(pos.copy())
 
     # --- commit -------------------------------------------------------------
 
@@ -502,7 +646,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         scene = context.scene
         data = self._pick
         if data is not None:
-            pick, frame, _verts3d, _px, _tris, _aim = data
+            pick, frame, _verts3d, _px, _tris, _aim, _snap_pts = data
             rot = Matrix((frame[0], frame[1], frame[2])).transposed()
             scene.cursor.matrix = Matrix.Translation(Vector(pick.position)) @ rot.to_4x4()
         else:
@@ -581,11 +725,16 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et == "A":
-                self._active_only = not self._active_only
+                if self._snap:
+                    # Blender's multi-point snap: A marks the snapped point;
+                    # A on a point already marked unmarks it.
+                    self._toggle_mark()
+                else:
+                    self._active_only = not self._active_only
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et == "T":
-                self._set_ignore_triangulate(context, not self._ignore_tri)
+                self._ignore_tri = not self._ignore_tri
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:

@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - 'ai_skills/**'
+      - 'tests/**'
+      - '.github/workflows/docs.yml'
+      - '.github/dependabot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: '3.11'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build native extensions
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: cargo build --release --manifest-path rust/Cargo.toml
+
+      - name: Build addon zip
+        id: build
+        shell: bash
+        run: >-
+          python tools/build_release.py --out dist
+          --native rust/target/release/mesh_uv_shortest_mark_lib.dll=operators/mesh_uv_shortest_mark_lib.pyd
+          >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+          ZIP: ${{ steps.build.outputs.zip }}
+        run: |
+          tag="v$VERSION"
+          # One release per bl_info version: a push that keeps the version
+          # replaces the previous build so the release always matches master.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
+          git push origin ":refs/tags/$tag" 2>/dev/null || true
+          gh release create "$tag" "$ZIP" \
+            --target "$GITHUB_SHA" \
+            --title "iOps $VERSION" \
+            --notes "Built from ${GITHUB_SHA::7}. Install the zip via Edit > Preferences > Add-ons > Install." \
+            --generate-notes

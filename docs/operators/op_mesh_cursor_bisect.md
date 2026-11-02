@@ -18,7 +18,9 @@ Cuts the mesh with a plane anchored to the 3D cursor and aligned to the face and
 | <kbd>S</kbd> | Snapping on / off |
 | <kbd>D</kbd> | Hold the current snap points |
 | <kbd>A</kbd> | Lock the current orientation |
-| <kbd>X</kbd> | Swap which cursor axis is the cut normal |
+| <kbd>X</kbd> | Cycle which cursor axis is the cut normal: X → Y → Z (Z cuts in the plane of the face under the cursor; Inset, Bevel and Fill Cut are unavailable in Z) |
+| <kbd>L</kbd> | Delimiter on / off: cut only the piece of mesh under the cursor |
+| <kbd>Shift</kbd>+<kbd>L</kbd> | Cycle delimiter type: Mesh Island → Seam → Sharp → UV Island → Material → Normal |
 | <kbd>W</kbd> | Cycle world-axis alignment (X → Y → Z) |
 | <kbd>P</kbd> | Preview as a line or as a plane |
 | <kbd>F</kbd> | Fill cut: cut at every snap point on the highlighted edge |
@@ -37,6 +39,9 @@ Cuts the mesh with a plane anchored to the 3D cursor and aligned to the face and
 
 ## Options
 - **Merge Doubles** — merge vertices left close together after the cut, using the merge distance from the preferences.
+
+## Delimiter
+With the delimiter on (<kbd>L</kbd>) the cut is confined to the piece of mesh under the mouse: starting from the hovered face, the tool walks across shared edges and stops at every edge that counts as a boundary for the chosen type. A face selection is still the ceiling: if faces are selected, the walk only runs inside the selection, and a hovered face outside it gives no cut. Only the object under the mouse is cut; other selected objects are left alone. The preview lines show exactly the faces the click will cut. Types: *Mesh Island* stops only where the mesh is disconnected, *Seam* / *Sharp* stop at edges marked seam or sharp, *UV Island* stops where the UVs tear across an edge, *Material* stops at a material change, and *Normal* stops where neighbouring faces meet at more than the *Delimit Angle* preference.
 
 ## Tips
 - Deforming modifiers (Subdivision, Solidify, Array…) are switched off while the tool runs so you cut the base mesh; they come back on exit.
