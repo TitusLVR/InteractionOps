@@ -86,6 +86,7 @@ nav:
       - Menus & Panels: ui/ui_menus.md
       - Pies: ui/ui_pies.md
       - HUD: ui/ui_hud.md
+      - Attributes Panel: ui/ui_attributes.md
   - Operators:
       - Overview: operators.md
       - Core System:
@@ -112,6 +113,7 @@ nav:
           - Name from Active: operators/op_object_name_from_active.md
           - Select Similar Name: operators/op_object_select_similar_name.md
           - Select Boolean Operands / Targets: operators/op_object_select_booleans.md
+          - Edit Instance: operators/op_instance_edit.md
           - Replace: operators/op_object_replace.md
           - UVMaps Add/Remove: operators/op_object_uvmaps_add_remove.md
           - UVMaps Cleaner: operators/op_object_uvmaps_cleaner.md

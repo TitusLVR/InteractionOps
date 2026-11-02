@@ -228,6 +228,61 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    iops_instance_edit_header: BoolProperty(
+        name="Instance Edit in 3D View Header",
+        description="Show the Edit Instance button in the 3D View header (the red icon of an open session is always shown)",
+        default=True,
+    )
+
+    iops_instance_edit_p4: BoolProperty(
+        name="Instance Edit: Perforce checkout",
+        description="A read-only source file is checked out in Perforce (p4 edit) automatically before Commit and Rollback, and you are told about it",
+        default=True,
+    )
+
+    iops_instance_edit_worker_timeout: IntProperty(
+        name="Instance Edit: worker timeout (s)",
+        description=(
+            "How long one run of the Instance Edit merge worker (a background Blender "
+            "loading the source file) may take before Commit gives up; Blender is "
+            "blocked while it runs. A Commit lock older than this is treated as stale"
+        ),
+        default=300,
+        min=30,
+        max=3600,
+    )
+
+    iops_instance_edit_backup_location: EnumProperty(
+        name="Instance Edit: backup location",
+        description="Where Commit keeps backups of library files it writes",
+        items=[
+            ("NEXT_TO_SOURCE", "Next to source", ".iopsbackup subfolder beside the library file; colleagues on a shared drive see each other's points"),
+            ("CUSTOM_FOLDER", "Custom folder", "A per-user folder (Backup Folder below); nothing lands in the workspace"),
+        ],
+        default="NEXT_TO_SOURCE",
+    )
+
+    iops_instance_edit_backup_dir: StringProperty(
+        name="Instance Edit: backup folder",
+        subtype="DIR_PATH",
+        default="",
+        description="Custom backup location only: where Commit keeps backups of library files it writes; empty = <Blender user config>/iops/instance_edit_backups",
+    )
+
+    iops_instance_edit_backup_count: IntProperty(
+        name="Instance Edit: backups per file",
+        default=3,
+        min=1,
+        max=50,
+        description="How many backup points Commit keeps per library file (oldest removed)",
+    )
+
+    iops_instance_edit_prune_only_mine: BoolProperty(
+        name="Prune Only My Backups",
+        default=True,
+        description="The backups-per-file limit counts only your own points; other users' points are never deleted",
+    )
+
     show_filename_full_path: BoolProperty(
         name="Full Path",
         description="Show the full .blend file path instead of just the filename",
@@ -310,8 +365,10 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_textures: BoolProperty(default=False)
     show_section_bisect: BoolProperty(default=False)
     show_section_cursor_place: BoolProperty(default=False)
+    show_section_instance_edit: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
     show_section_negative_scale: BoolProperty(default=False)
+    show_section_attributes: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
     show_section_modifier_window: BoolProperty(default=False)
     show_section_io: BoolProperty(default=False)
@@ -757,6 +814,15 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         step=100,  # 1 degree
         precision=1
     )
+    cursor_bisect_delimit_angle: bpy.props.FloatProperty(
+        name="Delimit Angle",
+        description="Normal-angle delimiter: faces meeting at more than this angle are on different islands",
+        default=30.0,
+        min=0.0,
+        max=180.0,
+        step=100,  # 1 degree
+        precision=1
+    )
     cursor_bisect_snap_threshold: bpy.props.FloatProperty(
     name="Snap Threshold (pixels)",
     description="Screen-space distance threshold for snapping in pixels",
@@ -820,6 +886,17 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "with negative scale",
         subtype="COLOR", size=4, min=0.0, max=1.0,
         default=(1.0, 0.0, 0.0, 0.35),
+    )
+
+    # iOps Attributes panel (ui/iops_attribute_panel.py)
+    attr_preview_max_labels: bpy.props.IntProperty(
+        name="Preview Label Limit",
+        description="The attribute preview skips its text labels when the "
+                    "mesh has more elements than this (the colour modes "
+                    "still draw)",
+        default=2000,
+        min=100,
+        max=100000,
     )
 
     # Window creation method
@@ -1210,6 +1287,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 row.prop(self, "cursor_bisect_merge_distance")
                 row.prop(self, "cursor_bisect_rotation_step")
                 row.prop(self, "cursor_bisect_coplanar_angle")
+                row.prop(self, "cursor_bisect_delimit_angle")
 
             body = _section(column_main, self, "show_section_cursor_place", "Cursor Place", icon="PIVOT_CURSOR")
             if body is not None:
@@ -1222,6 +1300,26 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.prop(self, "cursor_place_axis_size")
                 col.prop(self, "cursor_place_axis_letters")
 
+            body = _section(column_main, self, "show_section_instance_edit", "Instance Edit", icon="OUTLINER_COLLECTION")
+            if body is not None:
+                col = body.column()
+                col.use_property_split = True
+                col.use_property_decorate = False
+                col.prop(self, "iops_instance_edit_header", text="Button in 3D View Header")
+                col.separator()
+                col.label(text="Linked collections (Commit):")
+                col.prop(self, "iops_instance_edit_p4", text="Perforce Checkout")
+                col.prop(self, "iops_instance_edit_worker_timeout", text="Worker Timeout (s)")
+                col.separator()
+                col.label(text="Rollback:")
+                col.prop(self, "iops_instance_edit_backup_location", text="Backup Location")
+                sub = col.column()
+                sub.active = self.iops_instance_edit_backup_location == "CUSTOM_FOLDER"
+                sub.prop(self, "iops_instance_edit_backup_dir", text="Backup Folder")
+                col.prop(self, "iops_instance_edit_backup_count", text="Backups per File")
+                col.prop(self, "iops_instance_edit_prune_only_mine", text="Prune Only My Backups")
+                col.operator("iops.instance_edit_backups_cleanup", text="Clean Up Backups\u2026", icon="TRASH")
+
             # Non-Planar Faces Overlay
             body = _section(column_main, self, "show_section_nonplanar",
                             "Non-Planar Overlay", icon="MOD_TRIANGULATE")
@@ -1233,6 +1331,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             "Negative Scale Overlay", icon="MOD_MIRROR")
             if body is not None:
                 body.prop(self, "negative_scale_color")
+            # iOps Attributes
+            body = _section(column_main, self, "show_section_attributes",
+                            "Attributes Panel", icon="SPREADSHEET")
+            if body is not None:
+                body.prop(self, "attr_preview_max_labels")
 
             # Snap Combos
             body = _section(column_main, self, "show_section_snap_combo", "Snap Combo", icon="SNAP_ON")

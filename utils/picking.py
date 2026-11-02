@@ -59,6 +59,36 @@ def px_world_at(region, rv3d, pos):
     return 2.0 * w / (region.width * abs(w00))
 
 
+def pull_toward_viewer(region, rv3d, points, px):
+    """Return copies of world `points` moved `px` screen pixels toward the
+    viewer (along the view ray in perspective, along the view axis in
+    ortho). Use it to lift overlay lines off the surface they lie on: a
+    fixed world offset z-fights on large meshes where one depth-buffer
+    step is metres, while a pixel offset scales with distance. Points
+    behind the camera are returned unchanged."""
+    out = []
+    if rv3d.is_perspective:
+        cam = rv3d.view_matrix.inverted().translation
+        for p in points:
+            p = Vector(p)
+            d = px * px_world_at(region, rv3d, p)
+            if d <= 0.0:
+                out.append(p)
+                continue
+            to_cam = cam - p
+            if to_cam.length_squared <= 1e-18:
+                out.append(p)
+                continue
+            out.append(p + to_cam.normalized() * d)
+    else:
+        toward = rv3d.view_matrix.to_3x3().inverted() @ Vector((0.0, 0.0, 1.0))
+        toward.normalize()
+        for p in points:
+            p = Vector(p)
+            out.append(p + toward * (px * px_world_at(region, rv3d, p)))
+    return out
+
+
 # --- Raycast ------------------------------------------------------------
 
 def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
@@ -271,6 +301,39 @@ def face_snap_points(face, *, subdivisions: int = 0):
 
 # --- Closest snap point (weighted screen + world) ----------------------
 
+def _snap_points_extent(snap_points):
+    """Largest axis span of the snap points in local space: a scale-free
+    measure of how big the picked face is."""
+    if not snap_points:
+        return 0.0
+    lo = Vector((float("inf"),) * 3)
+    hi = Vector((float("-inf"),) * 3)
+    for _kind, p in snap_points:
+        for i in range(3):
+            lo[i] = min(lo[i], p[i])
+            hi[i] = max(hi[i], p[i])
+    return max(hi - lo)
+
+
+def _world_tolerance(snap_points, obj_matrix, mouse_pos_world, region, rv3d,
+                     screen_threshold_px):
+    """World-space snap tolerance: the screen threshold converted to metres
+    at the depth of the hit, so it follows zoom and mesh size alike.
+
+    Never derive this from the object's scale: a scale-1 object holding a
+    10 km mesh and a scale-100 object holding a 100 m mesh are the same
+    thing on screen. When the hit is behind the camera (pixel size 0) or
+    there is no viewport, fall back to a fraction of the face's own extent.
+    """
+    tol = 0.0
+    if region is not None and rv3d is not None:
+        tol = screen_threshold_px * px_world_at(region, rv3d, mouse_pos_world)
+    if tol <= 0.0:
+        extent = _snap_points_extent(snap_points) * max(obj_matrix.to_scale())
+        tol = extent * 0.25
+    return max(tol, 1e-9)
+
+
 def closest_snap_point(context, snap_points, obj_matrix, mouse_coord,
                        mouse_pos_world, *,
                        screen_threshold_px: float = SNAP_THRESHOLD_PX,
@@ -278,6 +341,12 @@ def closest_snap_point(context, snap_points, obj_matrix, mouse_coord,
     """Find the snap point closest to mouse using weighted screen + world
     distance. View-frustum aware: points off-screen fall back to pure world
     scoring.
+
+    Both distances are normalised by the same tolerance expressed in their
+    own units: `screen_threshold_px` pixels on screen, and that many pixels
+    converted to metres at the hit depth in world space (see
+    `_world_tolerance`). So the result is independent of mesh size, object
+    scale and zoom level.
 
     Args:
         snap_points: list of `(kind, co_local)` from `face_snap_points()`.
@@ -294,13 +363,12 @@ def closest_snap_point(context, snap_points, obj_matrix, mouse_coord,
         return None
 
     region = context.region
-    rv3d = context.space_data.region_3d
-    if rv3d is None:
+    rv3d = getattr(context.space_data, "region_3d", None)
+    if rv3d is None or region is None:
         return _closest_snap_point_world(snap_points, obj_matrix, mouse_pos_world)
 
-    obj_scale = obj_matrix.to_scale()
-    max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-    world_threshold = max(0.1, min(max_scale * 0.02, 10.0))
+    world_threshold = _world_tolerance(snap_points, obj_matrix, mouse_pos_world,
+                                       region, rv3d, screen_threshold_px)
 
     mouse_v = Vector(mouse_coord)
     world_weight = 1.0 - screen_weight
@@ -328,12 +396,12 @@ def closest_snap_point(context, snap_points, obj_matrix, mouse_coord,
 
 
 def _closest_snap_point_world(snap_points, obj_matrix, mouse_pos_world):
-    """Pure-world fallback when screen projection is unavailable."""
+    """Pure-world fallback when screen projection is unavailable. The
+    tolerance is a fraction of the face's own extent, not the object scale."""
     if not snap_points:
         return None
-    obj_scale = obj_matrix.to_scale()
-    max_scale = max(obj_scale.x, obj_scale.y, obj_scale.z)
-    threshold = max(0.1, min(0.5 * max_scale, 50.0))
+    threshold = _world_tolerance(snap_points, obj_matrix, mouse_pos_world,
+                                 None, None, 0.0)
 
     closest = None
     closest_dist = float("inf")

@@ -1407,11 +1407,11 @@ class ExtrudeMixin:
         draw_prim.edges_3d([p_h, leg1, p_h, leg2], role=Role.ACTIVE_LINE, context=context)
         self._draw_dot(p_t, radius=4.0,
                        color=theme.color_for(Role.ACTIVE_POINT), context=context)
-        # Grab handle at the head: hollow-ish dot normally, bright and
-        # bigger while hovered / dragged (same look as the shear
-        # hotspot hover).
+        # Grab handle at the head: Active point normally, the theme's
+        # handle-hover colour and bigger while hovered / dragged (same
+        # look as the shear hotspot hover).
         if self._extrude_grab or self._extrude_hover:
-            self._draw_dot(p_h, radius=8.0, color=(1.0, 1.0, 1.0, 1.0),
+            self._draw_dot(p_h, radius=8.0, color=theme.color_for(Role.HANDLE_HOVER),
                            context=context)
         else:
             self._draw_dot(p_h, radius=6.0,
@@ -2181,9 +2181,8 @@ cancels. LMB clicks only pick widget handles."""
         if self._hover_idx is not None and self._hover_idx < len(self._hotspots):
             rp = self._hotspots[self._hover_idx].get("region_pt")
             if rp is not None:
-                # White dot — hover highlight has no specific role; draw as active point.
                 self._draw_dot(rp, radius=8.0,
-                               color=(1.0, 1.0, 1.0, 1.0), context=context)
+                               color=theme.color_for(Role.HANDLE_HOVER), context=context)
 
         if self._extrude_active:
             self._draw_extrude_arrows(region, rv3d, mw, context=context, theme=theme)
@@ -2247,8 +2246,7 @@ cancels. LMB clicks only pick widget handles."""
             segs = []
             for i in range(n_segs):
                 segs.extend([ghost[i], ghost[(i + 1) % n]])
-            # Muted ghost — no clean role match; keep as explicit color.
-            draw_prim.edges_3d(segs, color=(0.45, 0.45, 0.45, 0.55), context=context)
+            draw_prim.edges_3d(segs, role=Role.GHOST_EDGE, context=context)
 
         # ----- Sheared face outline -----------------------------------
         curr = []
@@ -2285,7 +2283,7 @@ cancels. LMB clicks only pick widget handles."""
             if normal_segs:
                 draw_prim.edges_3d(normal_segs, role=Role.ACTIVE_LINE, context=context)
             if virtual_segs:
-                draw_prim.edges_3d(virtual_segs, color=(0.6, 0.6, 0.6, 0.6), context=context)
+                draw_prim.edges_3d(virtual_segs, role=Role.LINE, context=context)
             if pivot_segs:
                 # Pivot edges (on-pivot boundary) — brighter amber via LOCKED_POINT role.
                 draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_LINE, context=context)

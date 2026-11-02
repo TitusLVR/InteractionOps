@@ -472,82 +472,122 @@ class IOPS_Dict:
                     "NONE": lambda: no_operator(),
                 },
             },
-            "GPENCIL": {
-                "EDIT_GPENCIL": {
+            "GREASEPENCIL": {
+                "OBJECT": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("PAINT_GREASE_PENCIL"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("SCULPT_GREASE_PENCIL"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("WEIGHT_GREASE_PENCIL"),
+                    },
+                    "F5": {
+                        "NONE": lambda: object_mode_switch("VERTEX_GREASE_PENCIL"),
+                    },
+                    "ESC": {
+                        "NONE": lambda: no_operator(),
+                    },
+                },
+                "EDIT": {
                     "F1": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                     "F2": {
-                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("PAINT_GREASE_PENCIL"),
                     },
                     "F3": {
-                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("SCULPT_GREASE_PENCIL"),
                     },
                     "F4": {
-                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("WEIGHT_GREASE_PENCIL"),
                     },
                     "F5": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: object_mode_switch("VERTEX_GREASE_PENCIL"),
                     },
                     "ESC": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                 },
-                "SCULPT_GPENCIL": {
+                "PAINT_GREASE_PENCIL": {
                     "F1": {
-                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("EDIT"),
                     },
                     "F2": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                     "F3": {
-                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("SCULPT_GREASE_PENCIL"),
                     },
                     "F4": {
-                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("WEIGHT_GREASE_PENCIL"),
                     },
                     "F5": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: object_mode_switch("VERTEX_GREASE_PENCIL"),
                     },
                     "ESC": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                 },
-                "PAINT_GPENCIL": {
+                "SCULPT_GREASE_PENCIL": {
                     "F1": {
-                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("EDIT"),
                     },
                     "F2": {
-                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("PAINT_GREASE_PENCIL"),
                     },
                     "F3": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                     "F4": {
-                        "NONE": lambda: object_mode_switch("WEIGHT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("WEIGHT_GREASE_PENCIL"),
                     },
                     "F5": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: object_mode_switch("VERTEX_GREASE_PENCIL"),
                     },
                     "ESC": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                 },
-                "WEIGHT_GPENCIL": {
+                "WEIGHT_GREASE_PENCIL": {
                     "F1": {
-                        "NONE": lambda: object_mode_switch("EDIT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("EDIT"),
                     },
                     "F2": {
-                        "NONE": lambda: object_mode_switch("SCULPT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("PAINT_GREASE_PENCIL"),
                     },
                     "F3": {
-                        "NONE": lambda: object_mode_switch("PAINT_GPENCIL"),
+                        "NONE": lambda: object_mode_switch("SCULPT_GREASE_PENCIL"),
                     },
                     "F4": {
                         "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                     "F5": {
-                        "NONE": lambda: no_operator(),
+                        "NONE": lambda: object_mode_switch("VERTEX_GREASE_PENCIL"),
+                    },
+                    "ESC": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
+                    },
+                },
+                "VERTEX_GREASE_PENCIL": {
+                    "F1": {
+                        "NONE": lambda: object_mode_switch("EDIT"),
+                    },
+                    "F2": {
+                        "NONE": lambda: object_mode_switch("PAINT_GREASE_PENCIL"),
+                    },
+                    "F3": {
+                        "NONE": lambda: object_mode_switch("SCULPT_GREASE_PENCIL"),
+                    },
+                    "F4": {
+                        "NONE": lambda: object_mode_switch("WEIGHT_GREASE_PENCIL"),
+                    },
+                    "F5": {
+                        "NONE": lambda: object_mode_switch("OBJECT"),
                     },
                     "ESC": {
                         "NONE": lambda: object_mode_switch("OBJECT"),

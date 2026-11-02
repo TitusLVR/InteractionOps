@@ -23,3 +23,8 @@ def pytest_collect_directory(path, parent):
     if str(path) == _REPO_ROOT:
         return Dir.from_parent(parent, path=path)
     return None
+
+
+# tests/blender/ holds scripts run inside Blender (`blender --background
+# --python ...`); they import bpy and are not pytest tests.
+collect_ignore = ["blender"]

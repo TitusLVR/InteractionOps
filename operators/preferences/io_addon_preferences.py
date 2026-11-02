@@ -289,6 +289,7 @@ def load_iops_preferences():
                                 ("cursor_bisect_merge_distance", 0.005),
                                 ("cursor_bisect_rotation_step", 45.0),
                                 ("cursor_bisect_coplanar_angle", 5.0),
+                                ("cursor_bisect_delimit_angle", 30.0),
                                 ("cursor_bisect_snap_threshold", 30.0),
                                 ("cursor_bisect_snap_use_modifiers", True),
                             ):
@@ -313,6 +314,14 @@ def load_iops_preferences():
                                     defaults.get("negative_scale_color",
                                                  (1.0, 0.0, 0.0, 0.35)))
 
+                    case "ATTRIBUTES":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("ATTRIBUTES", {})
+                            if hasattr(prefs, "attr_preview_max_labels"):
+                                prefs.attr_preview_max_labels = safe_get(
+                                    value, "attr_preview_max_labels",
+                                    defaults.get("attr_preview_max_labels", 2000))
+
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})
@@ -320,6 +329,13 @@ def load_iops_preferences():
                             prefs.show_filename_stat = safe_get(value, "show_filename_stat", defaults.get("show_filename_stat", True))
                             for key_, default_ in (
                                 ("iops_ss_header", True),
+                                ("iops_instance_edit_header", True),
+                                ("iops_instance_edit_p4", True),
+                                ("iops_instance_edit_worker_timeout", 300),
+                                ("iops_instance_edit_backup_location", "NEXT_TO_SOURCE"),
+                                ("iops_instance_edit_backup_dir", ""),
+                                ("iops_instance_edit_backup_count", 3),
+                                ("iops_instance_edit_prune_only_mine", True),
                                 ("show_filename_full_path", False),
                                 ("show_dimensions_stat", True),
                                 ("show_instances_stat", False),

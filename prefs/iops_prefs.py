@@ -244,6 +244,13 @@ def get_iops_prefs():
             "iops_stat": safe("iops_stat", True),
             "show_filename_stat": safe("show_filename_stat", True),
             "iops_ss_header": safe("iops_ss_header", True),
+            "iops_instance_edit_header": safe("iops_instance_edit_header", True),
+            "iops_instance_edit_p4": safe("iops_instance_edit_p4", True),
+            "iops_instance_edit_worker_timeout": safe("iops_instance_edit_worker_timeout", 300),
+            "iops_instance_edit_backup_location": safe("iops_instance_edit_backup_location", "NEXT_TO_SOURCE"),
+            "iops_instance_edit_backup_dir": safe("iops_instance_edit_backup_dir", ""),
+            "iops_instance_edit_backup_count": safe("iops_instance_edit_backup_count", 3),
+            "iops_instance_edit_prune_only_mine": safe("iops_instance_edit_prune_only_mine", True),
             "show_filename_full_path": safe("show_filename_full_path", False),
             "show_dimensions_stat": safe("show_dimensions_stat", True),
             "show_instances_stat": safe("show_instances_stat", False),
@@ -293,6 +300,7 @@ def get_iops_prefs():
             "cursor_bisect_merge_distance": safe("cursor_bisect_merge_distance", 0.005),
             "cursor_bisect_rotation_step": safe("cursor_bisect_rotation_step", 45.0),
             "cursor_bisect_coplanar_angle": safe("cursor_bisect_coplanar_angle", 5.0),
+            "cursor_bisect_delimit_angle": safe("cursor_bisect_delimit_angle", 30.0),
             "cursor_bisect_snap_threshold": safe("cursor_bisect_snap_threshold", 30.0),
             "cursor_bisect_snap_use_modifiers": safe("cursor_bisect_snap_use_modifiers", True),
         },
@@ -301,6 +309,9 @@ def get_iops_prefs():
         },
         "NEGATIVE_SCALE_OVERLAY": {
             "negative_scale_color": safelist("negative_scale_color", (1.0, 0.0, 0.0, 0.35)),
+        },
+        "ATTRIBUTES": {
+            "attr_preview_max_labels": safe("attr_preview_max_labels", 2000),
         },
     }
 

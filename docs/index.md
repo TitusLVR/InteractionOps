@@ -32,6 +32,7 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Match Transform Active](operators/op_object_match_transform_active.md)
         - [Change Scale](operators/op_object_change_scale.md)
     - **Object — Utilities**
+        - [Edit Instance](operators/op_instance_edit.md)
         - [Auto Smooth](operators/op_object_auto_smooth.md)
         - [KitBash Grid](operators/op_object_kitbash_grid.md)
         - [Name from Active](operators/op_object_name_from_active.md)

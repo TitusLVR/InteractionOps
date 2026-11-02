@@ -267,6 +267,7 @@ from .operators.bevel_edge_data import (
     IOPS_OT_PinUnwrapBevel,
 )
 from .operators.object_name_from_active import IOPS_OT_Object_Name_From_Active, IOPS_OT_Object_Name_From_Active_Apply
+from .operators.object_search_rename import IOPS_OT_Object_Search_Rename
 from .operators.object_select_similar_name import IOPS_OT_SelectSimilarName
 from .operators.object_select_booleans import (
     classes as _select_booleans_classes,
@@ -365,6 +366,19 @@ from .operators.mesh_selection_sets import (
     IOPS_OT_SSRename,
     IOPS_OT_SSBool,
 )
+from .operators import instance_edit_state
+from .operators.instance_edit import (
+    IOPS_OT_instance_edit_start,
+    IOPS_OT_instance_edit_restore,
+    IOPS_OT_instance_edit_stop,
+)
+from .operators.instance_edit_linked import (
+    IOPS_OT_instance_edit_commit,
+    IOPS_OT_instance_edit_cancel,
+    IOPS_OT_instance_edit_rollback_source,
+    IOPS_OT_instance_edit_backups_cleanup,
+)
+from .ui.iops_instance_edit_header import draw_iops_instance_edit_header
 from .ui.iops_selection_sets_panel import (
     IOPS_SS_MirrorItem,
     IOPS_OT_SSRefresh,
@@ -380,6 +394,8 @@ from .ui.iops_selection_sets_panel import (
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
 from .operators.object_negative_scale_overlay import IOPS_OT_ObjectNegativeScaleOverlay
+from .operators import mesh_attribute_editor as _attr_editor
+from .ui import iops_attribute_panel as _attr_panel
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
@@ -411,6 +427,7 @@ from .operators.assets_management import (
     IOPS_OT_Call_Pie_Assets,
     IOPS_OT_ClearAssetBrowserFilter,
     IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_MakeInstancesReal,
     IOPS_OT_SelectInstanceSourceCollection,
     IOPS_OT_SelectCollectionInstances,
     IOPS_OT_RefreshAssetBrowser,
@@ -625,6 +642,7 @@ classes = (
     IOPS_OT_Mesh_UV_Channel_Hop,
     IOPS_OT_Object_Name_From_Active,
     IOPS_OT_Object_Name_From_Active_Apply,
+    IOPS_OT_Object_Search_Rename,
     IOPS_OT_SelectSimilarName,
     *_select_booleans_classes,
     IOPS_MouseoverFillSelect,
@@ -668,6 +686,7 @@ classes = (
     IOPS_OT_ClearAssetBrowserFilter,
     IOPS_OT_RefreshAssetBrowser,
     IOPS_OT_ExpandInstanceCollection,
+    IOPS_OT_MakeInstancesReal,
     IOPS_OT_SelectInstanceSourceCollection,
     IOPS_OT_SelectCollectionInstances,
     IOPS_OT_Call_Pie_Assets,
@@ -712,6 +731,16 @@ classes = (
     IOPS_OT_SSPreviewAll,
     IOPS_UL_SelectionSets,
     IOPS_PT_SelectionSets_Panel,
+    *_attr_editor.OPERATOR_CLASSES,
+    *_attr_panel.UI_CLASSES,
+    *instance_edit_state.CLASSES,
+    IOPS_OT_instance_edit_start,
+    IOPS_OT_instance_edit_restore,
+    IOPS_OT_instance_edit_stop,
+    IOPS_OT_instance_edit_commit,
+    IOPS_OT_instance_edit_cancel,
+    IOPS_OT_instance_edit_rollback_source,
+    IOPS_OT_instance_edit_backups_cleanup,
     IOPS_OT_extrude_attr_fix,
     IOPS_OT_extrude_attr_fix_post,
     IOPS_OT_mesh_extrude_ex_macro,
@@ -820,15 +849,19 @@ def register():
     from .operators.uv_image_slots import register_slot_props
     register_slot_props()
     register_selection_sets_ui()
+    _attr_panel.register_attribute_ui()
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
+    from .ui.iops_pie_edit import register_gp_stroke_width_prop
+    register_gp_stroke_width_prop()
 
     bpy.types.Scene.IOPS = bpy.props.PointerProperty(type=IOPS_SceneProperties)
     bpy.types.Scene.iops_material_override_settings = bpy.props.PointerProperty(type=IOPS_MaterialOverrideSettings)
     bpy.types.Scene.iops_selection_sets = bpy.props.CollectionProperty(
         type=IOPS_SS_SceneSet
     )
+    instance_edit_state.register_props()
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
@@ -841,6 +874,7 @@ def register():
     bpy.types.ASSETBROWSER_MT_context_menu.append(open_asset_in_current_blender)
     bpy.types.VIEW3D_MT_object_apply.append(object_apply_change_scale)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_ss_header)
+    bpy.types.VIEW3D_MT_editor_menus.append(draw_iops_instance_edit_header)
     bpy.types.VIEW3D_MT_edit_mesh_extrude.append(draw_extrude_menu)
     bpy.types.VIEW3D_MT_vertex_group.append(vertex_group_rename_active)
     register_select_similar_name_menu()
@@ -895,6 +929,10 @@ def unregister():
         release_color_icons()
     except Exception:
         pass
+    try:
+        _attr_panel.unregister_attribute_ui()
+    except Exception as exc:
+        print(f"IOPS attributes: unregister failed: {exc}")
     unregister_selection_sets_ui()
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its
@@ -968,6 +1006,10 @@ def unregister():
     except Exception:
         pass
     try:
+        bpy.types.VIEW3D_MT_editor_menus.remove(draw_iops_instance_edit_header)
+    except Exception:
+        pass
+    try:
         bpy.types.VIEW3D_MT_edit_mesh_extrude.remove(draw_extrude_menu)
     except Exception:
         pass
@@ -984,6 +1026,7 @@ def unregister():
         del bpy.types.Scene.iops_selection_sets
     except AttributeError:
         pass
+    instance_edit_state.unregister_props()
     try:
         from .operators.uv_image_slots import unregister_slot_props
         unregister_slot_props()
@@ -992,6 +1035,8 @@ def unregister():
     try:
         from .ui.iops_pie_edit import unregister_empty_size_prop
         unregister_empty_size_prop()
+        from .ui.iops_pie_edit import unregister_gp_stroke_width_prop
+        unregister_gp_stroke_width_prop()
     except Exception as e:
         print("IOPS: empty size prop unregister failed:", e)
     del bpy.types.WindowManager.IOPS_AddonProperties

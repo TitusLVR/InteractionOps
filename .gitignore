@@ -27,3 +27,6 @@ config/recent-files.txt
 rust/target/
 
 .superpowers/
+
+# Release build output
+/dist/
