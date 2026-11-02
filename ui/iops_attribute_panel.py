@@ -510,7 +510,9 @@ def _schedule_undo_push(delay=0.3):
 # Viewport preview — follows the active UIList row while the `preview`
 # toggle is on (default). Handlers collect CPU arrays (never from a draw
 # callback, never while a modal runs); the POST_VIEW callback draws the
-# fill batch, the POST_PIXEL callback the labels and the heatmap legend.
+# fill batch, the POST_PIXEL callback the labels.  Nothing is drawn in the
+# viewport corners: the heatmap range and the too-many note live in the
+# Preview Settings sub-panel.
 # The draw handlers live from register to unregister and return at once
 # while there is nothing to show.
 # ---------------------------------------------------------------------------
@@ -867,22 +869,6 @@ def _draw_pixel():
         for text, x, y, active in placed:
             role = Role.ACTIVE_POINT if active else Role.HUD_LABEL
             hud_text.draw(text, x, y, theme=theme, role=role, size_px=size)
-    lines = []
-    if geom["fill_mode"] == "HEATMAP":
-        lines.append(_PREVIEW["legend"])
-    if _PREVIEW["too_many"] and geom["labels_on"]:
-        lines.append(f"{preview_row_name()}: too many elements for labels")
-    if lines:
-        x = 20
-        for reg in context.area.regions:
-            if reg.type == "TOOLS":
-                x += reg.width
-                break
-        y = region.height - 60
-        for text in lines:
-            hud_text.draw(text, x, y, theme=theme, role=Role.HUD_HEADER,
-                          size_px=size)
-            y -= size + 8
 
 
 def _draw_label_backgrounds(rects):
@@ -975,6 +961,12 @@ class IOPS_PT_attributes_preview(bpy.types.Panel):
         sub.prop(st, "preview_greyscale")
         layout.prop(st, "preview_decimals")
         layout.prop(st, "preview_text_size")
+        geom = _PREVIEW["geom"]
+        if geom is not None and geom["fill_mode"] == "HEATMAP":
+            lo, hi = _PREVIEW["range"]
+            _split_row(layout, "Range").label(
+                text=f"{format_value(lo, 'FLOAT', st.preview_decimals)} … "
+                     f"{format_value(hi, 'FLOAT', st.preview_decimals)}")
         if _PREVIEW["too_many"]:
             layout.label(text=f"Too many elements for labels "
                               f"(> {_max_labels()})", icon="ERROR")

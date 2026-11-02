@@ -272,7 +272,8 @@ handlers registered, no redraw cost.
   POST_VIEW SMOOTH_COLOR fill with the nonplanar overlay's clip-space depth
   shrink. POINT → points, EDGE → lines, FACE / CORNER → tris; heatmap maps
   min→max over the mesh through a fixed ramp (blue, cyan, green, yellow,
-  red) and draws a legend `min … max` in HUD text.
+  red); the `min … max` range is a **Range** row in the Preview Settings
+  sub-panel. Nothing is drawn in the viewport corners.
 - Respects `space_data.overlay.show_overlays` and the viewport clipping
   region (`region_3d.use_clip_planes`); the handler is disabled when the
   active object is no longer a mesh or the mode leaves OBJECT / EDIT_MESH.
