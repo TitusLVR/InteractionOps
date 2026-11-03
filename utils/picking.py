@@ -16,6 +16,7 @@ from typing import Sequence
 import bpy
 import bmesh
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 from mathutils.geometry import intersect_point_line
 from mathutils.kdtree import KDTree
 from bpy_extras.view3d_utils import (
@@ -608,3 +609,120 @@ def build_uv_kdtree(bm, uv_layer, *, only_selected: bool = False, extras=()):
         kd.insert(c, i)
     kd.balance()
     return kd
+
+
+# --- Edit-mode BMesh raycast ---------------------------------------------
+
+def _edit_mesh_bvh(obj, cache, version):
+    """BVH over the visible faces of `obj`'s edit BMesh plus the map from
+    tree polygon index to `bm.faces` index. Memoised in `cache` (a dict the
+    caller keeps for the duration of a modal) under (object name, `version`);
+    bump `version` or call `invalidate_edit_mesh_cache` after a cut / undo.
+    Returns `(None, [])` for a mesh with no visible faces."""
+    key = (obj.name, version)
+    if cache is not None:
+        entry = cache.get(key)
+        if entry is not None:
+            return entry
+        # A new version supersedes every older tree of the same object.
+        for stale in [k for k in cache if k[0] == obj.name]:
+            del cache[stale]
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    vert_index = {v: i for i, v in enumerate(bm.verts)}
+    verts = [v.co.copy() for v in bm.verts]
+    polys = []
+    face_map = []
+    for f in bm.faces:
+        if f.hide:
+            continue
+        polys.append([vert_index[v] for v in f.verts])
+        face_map.append(f.index)
+    tree = BVHTree.FromPolygons(verts, polys) if polys else None
+    entry = (tree, face_map)
+    if cache is not None:
+        cache[key] = entry
+    return entry
+
+
+def invalidate_edit_mesh_cache(cache, obj=None):
+    """Drop the cached BVH of `obj` (or of every object when `obj` is None)."""
+    if not cache:
+        return
+    if obj is None:
+        cache.clear()
+        return
+    for key in [k for k in cache if k[0] == obj.name]:
+        del cache[key]
+
+
+def raycast_edit_meshes(context, mouse_coord, objects, *, cache=None, version=0,
+                        region=None, rv3d=None, ray=None):
+    """Raycast the edit-mode BMesh of each object in `objects` and return the
+    nearest hit as `(result, location, normal, face_index, obj, matrix)` in
+    world space, `(False, None, None, None, None, None)` on a miss.
+
+    Unlike `scene.ray_cast`, which hits the *evaluated* mesh, this casts at
+    the cage the user is editing: `face_index` is always a valid `bm.faces`
+    index no matter which modifiers (Triangulate, Mirror, Bevel, Subdivision
+    ...) are enabled in the viewport, modifier-only geometry (a mirrored
+    half) is not hit, and faces hidden with H are pierced.
+
+    `ray=(origin, direction)` casts that world-space ray instead of the one
+    under `mouse_coord`; `cache` / `version` are forwarded to
+    `_edit_mesh_bvh`."""
+    if ray is not None:
+        ray_origin, view_vector = Vector(ray[0]), Vector(ray[1])
+    else:
+        if region is None:
+            region = context.region
+        if rv3d is None:
+            rv3d = context.space_data.region_3d
+        if region is None or rv3d is None:
+            return (False, None, None, None, None, None)
+        view_vector = region_2d_to_vector_3d(region, rv3d, mouse_coord)
+        ray_origin = region_2d_to_origin_3d(region, rv3d, mouse_coord)
+
+    best = None
+    best_dist = None
+    for obj in objects:
+        if obj is None or obj.type != 'MESH' or obj.mode != 'EDIT':
+            continue
+        tree, face_map = _edit_mesh_bvh(obj, cache, version)
+        if tree is None:
+            continue
+        matrix = obj.matrix_world
+        inv = matrix.inverted_safe()
+        local_origin = inv @ ray_origin
+        local_dir = inv.to_3x3() @ view_vector
+        if local_dir.length_squared == 0.0:
+            continue
+        hit = tree.ray_cast(local_origin, local_dir)
+        if hit[0] is None:
+            continue
+        loc_world = matrix @ hit[0]
+        dist = (loc_world - ray_origin).length
+        if best is None or dist < best_dist:
+            normal_world = (inv.to_3x3().transposed() @ hit[1]).normalized()
+            best = (True, loc_world, normal_world, face_map[hit[2]], obj, matrix.copy())
+            best_dist = dist
+    return best if best is not None else (False, None, None, None, None, None)
+
+
+def raycast_edit_meshes_with_corner_fallback(context, mouse_coord, objects, **kwargs):
+    """`raycast_edit_meshes` plus the 8-corner viewport fallback of
+    `raycast_with_corner_fallback`, for commit actions over a hole in a
+    large face."""
+    hit = raycast_edit_meshes(context, mouse_coord, objects, **kwargs)
+    if hit[0]:
+        return hit
+    region = kwargs.get("region") or context.region
+    if region is None:
+        return hit
+    for fx, fy in CORNER_FALLBACK_COORDS:
+        coord = (int(region.width * fx), int(region.height * fy))
+        hit = raycast_edit_meshes(context, coord, objects, **kwargs)
+        if hit[0]:
+            return hit
+    return (False, None, None, None, None, None)
