@@ -15,6 +15,14 @@ While the button is held:
 * **Aim** (Shift pressed again, toggle): the position is locked and the
   edge axis points at whatever is under the mouse.
 * **Alt** held: the position keeps following, the orientation is frozen.
+* **Grid** (G, with Ctrl): the snap candidates become a planar grid built
+  on the polygon under the mouse (origin at its first vertex, along its
+  first edge); Alt+wheel halves / doubles the step, which is a scene
+  property so the same grid comes back on the next polygon.
+* **Floor** (Ctrl over empty space): the cursor snaps to the viewport
+  floor grid (or the ortho grid in a side view) when that grid is shown,
+  keeping its rotation; with the grid hidden it is placed freely, as
+  Blender does.
 
 Hot path per mouse move: one `scene.ray_cast`, then only the hit polygon's
 vertices are read from the evaluated mesh and projected. No bmesh.
@@ -40,11 +48,15 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
 from ..utils.picking import raycast_from_mouse, px_world_at, SNAP_THRESHOLD_PX
 from ..utils.cursor_place_core import (
     AXES, Pick, pick_element, slide_element, build_frame, set_normal_axis,
-    cycle_edge_axis, aim_edge_dir,
+    cycle_edge_axis, aim_edge_dir, grid_nodes, grid_lines, nearest_grid_node,
+    auto_grid_step, floor_level, snap_to_step, dist2, _nearest_edge,
+    _oriented_edge_dir,
 )
 from ..utils.three_point_core import _any_perpendicular
 
-_KIND_LABELS = {"VERT": "Vertex", "EDGE": "Edge", "FACE": "Face"}
+_KIND_LABELS = {"VERT": "Vertex", "EDGE": "Edge", "FACE": "Face",
+                "GRID": "Grid node", "FLOOR": "Floor grid"}
+_GRID_STEP_MIN = 1e-4
 _LETTER_GAP_PX = 9.0
 # Objects drawn without a surface are see-through for the ray, like for the
 # eye: wire / bounds display of a geometry object shows no face to land on.
@@ -73,6 +85,9 @@ def _build_help(context):
         HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Mark / unmark the snapped point, cursor at their centre (Ctrl held)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Adaptive grid on the polygon under the mouse (Ctrl held)", "G", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Grid step: half / double (grid on)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem("Over empty space: snap to the floor grid when it is shown", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Ignore triangulation (pick the source n-gon)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -161,9 +176,21 @@ def _draw_preview_3d(op, context):
         elif pick.kind == "EDGE":
             draw.edges_3d([Vector(pick.edge[0]), Vector(pick.edge[1])],
                           role=Role.CLOSEST_LINE, width="closest", context=context)
-        else:
+        elif pick.kind == "GRID":
+            # the grid's polygon: outline only, the grid itself is the fill
+            if len(verts3d) >= 2:
+                draw.polyline(list(verts3d) + [verts3d[0]], role=Role.CLOSEST_LINE,
+                              width="closest", context=context)
+        elif pick.kind != "FLOOR":
             draw.points([pos], role=Role.CLOSEST_POINT, context=context)
 
+        # Grid (G with Ctrl): the polygon grid as plain theme lines; its
+        # nodes are the snap candidates below.
+        gv = getattr(op, "_grid_view", None)
+        if gv is not None and aim is None:
+            flat = [c for a, b in gv[1] for c in (a, b)]
+            if flat:
+                draw.edges_3d(flat, role=Role.LINE, width="default", context=context)
         # Snap (Ctrl): every candidate of the hit polygon as a plain theme
         # point; the chosen one is drawn in Preview below, on top.
         if snap_pts:
@@ -332,10 +359,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             self._axis_letters = bool(prefs.cursor_place_axis_letters)
             self._slide_px = float(getattr(prefs, "cursor_bisect_snap_threshold",
                                            SNAP_THRESHOLD_PX))
+            self._floor_snap = bool(prefs.cursor_place_floor_snap)
+            self._floor_px = float(prefs.cursor_place_floor_grid_px)
         except (KeyError, AttributeError):
             self._normal_axis, self._edge_axis, self._axis_px = "Z", "Y", 42.0
             self._axis_letters = True
             self._slide_px = SNAP_THRESHOLD_PX
+            self._floor_snap, self._floor_px = True, 16.0
         if self._normal_axis == self._edge_axis:
             self._edge_axis = cycle_edge_axis(self._normal_axis, self._normal_axis)
         self._flip = False
@@ -347,6 +377,11 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._aim_lock = None      # aim mode: (pick, verts3d) frozen when it was switched on
         self._orient_lock = None   # Alt: (normal, edge_dir) frozen at the first Alt move
         self._marks = []           # A (with Ctrl): marked snap points, averaged with the current one
+        self._grid = False         # G: adaptive grid on the polygon under the mouse
+        self._grid_step = 0.0      # scene.iops_cursor_grid_step (0 = auto), read per update
+        self._grid_view = None     # (nodes, lines, step) of the grid under the mouse, for the preview
+        self._grid_cache = {}      # (obj pointer, face, step, ignore_tri) -> (nodes, step, lines)
+        self._floor_frame = None   # cursor rotation rows while snapping to the floor grid
         self._snap_pos = None      # the snapped point under the mouse before averaging
         # The key/button whose release confirms: whatever invoked us.
         self._trigger = event.type if event.value == "PRESS" else "RIGHTMOUSE"
@@ -364,6 +399,10 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
         self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
         self._hud.add_param(HUDParam("Marked points", lambda: len(self._marks), "int"))
+        self._hud.add_param(HUDParam("Grid", lambda: self._grid, "bool",
+                                     active_getter=lambda: self._snap))
+        self._hud.add_param(HUDParam("Grid step", lambda: self._grid_step_label(), "str",
+                                     visible_getter=lambda: self._grid))
         self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
         self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
         self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
@@ -396,6 +435,29 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             return "—"
         return _KIND_LABELS.get(data[0].kind, "?")
 
+    def _grid_step_label(self):
+        gv = self._grid_view
+        if self._grid_step > 0.0:
+            return f"{self._grid_step:.4g}"
+        if gv is not None:
+            return f"{gv[2]:.4g} (auto)"
+        return "auto"
+
+    def _grid_step_change(self, context, *, finer):
+        """Alt+wheel: halve / double the stored step; an auto step starts
+        from the grid under the mouse (or the polygon's quarter edge)."""
+        step = self._grid_step
+        if step <= 0.0:
+            if self._grid_view is not None:
+                step = self._grid_view[2]
+            elif self._pick is not None and len(self._pick[2]) >= 3:
+                step = auto_grid_step([tuple(v) for v in self._pick[2]])
+            else:
+                return
+        step = step * 0.5 if finer else step * 2.0
+        context.scene.iops_cursor_grid_step = max(_GRID_STEP_MIN, step)
+        self._grid_cache = {}
+
     def _cleanup(self, context):
         for h in self._handles:
             try:
@@ -426,6 +488,9 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._mouse = (mx, my)
         self._snap = bool(event.ctrl)
         alt = bool(event.alt)
+        self._grid_step = float(getattr(context.scene, "iops_cursor_grid_step", 0.0))
+        self._grid_view = None
+        self._floor_frame = None
         if not self._aim:
             self._aim_lock = None
         if not alt or self._aim:
@@ -475,6 +540,10 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                         self._orient_lock = (pick.normal, pick.edge_dir)
                     pick = pick._replace(normal=self._orient_lock[0],
                                          edge_dir=self._orient_lock[1])
+            elif self._snap and self._floor_snap:
+                # Ctrl over empty space: the floor grid, if it is shown.
+                pick = self._floor_pick(context, region, rv3d, (mx, my))
+                verts3d = [] if pick is not None else None
 
         # Multi-point snap: with marked points the landing point is their
         # centre; the snapped point under the mouse is only a candidate to
@@ -494,9 +563,12 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         new_pick = None
         sig = None
         if pick is not None:
-            frame = build_frame(pick.normal, pick.edge_dir,
-                                self._normal_axis, self._edge_axis,
-                                flip=self._flip)
+            if pick.kind == "FLOOR" and self._floor_frame is not None:
+                frame = self._floor_frame      # the cursor keeps its rotation
+            else:
+                frame = build_frame(pick.normal, pick.edge_dir,
+                                    self._normal_axis, self._edge_axis,
+                                    flip=self._flip)
             pos = Vector(pick.position)
             axis_len = _gizmo_length(context, region, rv3d, pos, self._axis_px)
             tris = _face_tris(verts3d) if pick.kind == "FACE" else []
@@ -505,8 +577,13 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
             under = aim[1] if aim is not None else verts3d
             snapped = aim[0].position if aim is not None else self._snap_pos
             snap_pts = _snap_candidates(under, snapped) if self._snap else []
+            if self._grid_view is not None and aim is None:
+                nodes = self._grid_view[0]
+                tol = 1e-10 * max(1.0, Vector(snapped).length_squared)
+                snap_pts = [p for p in nodes if dist2(p, snapped) > tol]
             new_pick = (pick, frame, verts3d, axis_len, tris, aim, snap_pts)
             sig = (pick.kind, pick.index, self._snap, len(self._marks),
+                   self._grid, round(self._grid_step, 9),
                    tuple(round(c, 6) for c in pick.position),
                    tuple(round(c, 5) for row in frame for c in row),
                    round(axis_len, 9), len(verts3d),
@@ -549,6 +626,8 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                     threshold = self._slide_px * px_world_at(region, rv3d, loc)
                     pick = slide_element(verts3d, loc, poly_normal=poly_normal,
                                          threshold=threshold)
+                elif self._grid:
+                    pick = self._grid_pick(obj, face_index, verts3d, poly_normal, center, loc)
                 else:
                     pick = pick_element(verts3d, loc, poly_normal=poly_normal,
                                         poly_center=center)
@@ -558,6 +637,67 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         edge_dir = _any_perpendicular(tuple(Vector(n).normalized()))
         pick = Pick("FACE", None, tuple(loc), n, edge_dir, (tuple(loc), tuple(loc)))
         return pick, []
+
+    def _grid_pick(self, obj, face_index, verts3d, poly_normal, center, loc):
+        """Snap to the nearest node of the polygon's grid (G); the grid is
+        cached per polygon and step for the whole drag."""
+        key = (obj.as_pointer(), face_index, round(self._grid_step, 9), self._ignore_tri)
+        entry = self._grid_cache.get(key)
+        if entry is None:
+            nodes, step, frame, bounds = grid_nodes(
+                [tuple(v) for v in verts3d], tuple(poly_normal), self._grid_step)
+            entry = (nodes, step, grid_lines(frame, step, bounds))
+            self._grid_cache[key] = entry
+        nodes, step, lines = entry
+        self._grid_view = (nodes, lines, step)
+        node = nearest_grid_node(nodes, tuple(loc))
+        if node is None:
+            return pick_element(verts3d, loc, poly_normal=poly_normal, poly_center=center)
+        i, _d = _nearest_edge(verts3d, loc)
+        a, b = verts3d[i], verts3d[(i + 1) % len(verts3d)]
+        return Pick("GRID", None, node, tuple(poly_normal),
+                    tuple(_oriented_edge_dir(a, b, loc)), (tuple(a), tuple(b)))
+
+    def _floor_pick(self, context, region, rv3d, mouse):
+        """Ctrl with nothing under the mouse: the nearest node of the
+        viewport floor grid (XY plane) or, in an axis-aligned ortho view,
+        of the ortho grid, at the finest level that is at least
+        `cursor_place_floor_grid_px` pixels wide. None when that grid is
+        hidden in the overlays, so the release places the cursor freely."""
+        space = context.space_data
+        overlay = getattr(space, "overlay", None)
+        if overlay is None:
+            return None
+        if rv3d.view_perspective == "ORTHO" and getattr(rv3d, "is_orthographic_side_view", False):
+            if not overlay.show_ortho_grid:
+                return None
+            pos = region_2d_to_location_3d(region, rv3d, mouse, Vector((0.0, 0.0, 0.0)))
+            if pos is None:
+                return None
+            view_dir = rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))
+            axes = tuple(i for i in range(3) if abs(view_dir[i]) < 0.5)
+        else:
+            if not overlay.show_floor:
+                return None
+            origin = region_2d_to_origin_3d(region, rv3d, mouse)
+            direction = region_2d_to_vector_3d(region, rv3d, mouse)
+            if abs(direction.z) < 1e-9:
+                return None
+            t = -origin.z / direction.z
+            if t <= 0.0:
+                return None
+            pos = origin + direction * t
+            axes = (0, 1)
+        px_world = px_world_at(region, rv3d, pos)
+        if px_world <= 0.0:
+            return None
+        step = floor_level(float(overlay.grid_scale), 1.0 / px_world, self._floor_px,
+                           int(overlay.grid_subdivisions))
+        snapped = snap_to_step(tuple(pos), step, axes)
+        rot = context.scene.cursor.matrix.to_3x3()
+        frame = tuple(tuple(rot.col[i]) for i in range(3))   # world dirs of local X/Y/Z
+        self._floor_frame = frame
+        return Pick("FLOOR", None, snapped, frame[2], frame[0], None)
 
     def _mesh_for(self, obj):
         """Evaluated mesh of a ray_cast hit object, cached per object."""
@@ -737,12 +877,34 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
                 self._ignore_tri = not self._ignore_tri
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
+            if et == "G":
+                self._grid = not self._grid
+                self._update(context, event)
+                return {"RUNNING_MODAL"}
             if et in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
-                self._edge_axis = cycle_edge_axis(self._normal_axis, self._edge_axis)
+                if event.alt and self._grid:
+                    self._grid_step_change(context, finer=(et == "WHEELDOWNMOUSE"))
+                else:
+                    self._edge_axis = cycle_edge_axis(self._normal_axis, self._edge_axis)
                 self._update(context, event)
                 return {"RUNNING_MODAL"}
 
         return {"RUNNING_MODAL"}
+
+
+def register_props():
+    bpy.types.Scene.iops_cursor_grid_step = bpy.props.FloatProperty(
+        name="Cursor Grid Step",
+        description="Step of the Cursor Place adaptive grid (G while snapping); "
+                    "0 = a quarter of the polygon's shortest edge",
+        default=0.0, min=0.0, soft_max=10.0, unit="LENGTH", precision=4)
+
+
+def unregister_props():
+    try:
+        del bpy.types.Scene.iops_cursor_grid_step
+    except AttributeError:
+        pass
 
 
 def _see_through_objects(context):

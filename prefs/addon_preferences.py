@@ -865,6 +865,21 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         description="Draw X / Y / Z letters at the tips of the cursor preview axes",
         default=True,
     )
+    cursor_place_floor_snap: bpy.props.BoolProperty(
+        name="Snap to Floor Grid",
+        description="With Ctrl held over empty space, snap the cursor to the viewport "
+                    "floor grid (or the ortho grid in a side view) when that grid is shown",
+        default=True,
+    )
+    cursor_place_floor_grid_px: bpy.props.IntProperty(
+        name="Floor Grid Min Spacing",
+        description="Snap to the finest floor-grid level whose cells are at least this "
+                    "many pixels wide on screen",
+        default=16,
+        min=4,
+        max=200,
+        subtype="PIXEL",
+    )
 
     # Non-Planar Faces Overlay (iops.mesh_nonplanar_overlay)
     nonplanar_angle: bpy.props.FloatProperty(
@@ -1299,6 +1314,11 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.separator()
                 col.prop(self, "cursor_place_axis_size")
                 col.prop(self, "cursor_place_axis_letters")
+                col.separator()
+                col.prop(self, "cursor_place_floor_snap")
+                sub = col.column()
+                sub.enabled = self.cursor_place_floor_snap
+                sub.prop(self, "cursor_place_floor_grid_px")
 
             body = _section(column_main, self, "show_section_instance_edit", "Instance Edit", icon="OUTLINER_COLLECTION")
             if body is not None:

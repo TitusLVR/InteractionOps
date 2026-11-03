@@ -46,6 +46,7 @@ for prop_name in ("iops_library_status", "iops_library_busy", "iops_library_plac
 assert hasattr(bpy.types, "IOPS_PT_Library"), "panel not registered"
 assert hasattr(bpy.types, "IOPS_MT_LibraryPublishSub"), "publish submenu not registered"
 
+assert "iops_cursor_grid_step" in bpy.types.Scene.bl_rna.properties, "missing scene prop iops_cursor_grid_step"
 km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
 assert km is not None, "addon '3D View' keymap missing"
 assert km.space_type == "VIEW_3D", "3D View keymap has wrong space_type"
@@ -64,7 +65,8 @@ assert any(
 # hasattr(bpy.ops.iops, ...) is always True (lazy wrapper) -- resolve the RNA type.
 bpy.ops.iops.cursor_place.get_rna_type()
 for prop_name in ("cursor_place_normal_axis", "cursor_place_edge_axis",
-                  "cursor_place_axis_size", "cursor_place_axis_letters"):
+                  "cursor_place_axis_size", "cursor_place_axis_letters",
+                  "cursor_place_floor_snap", "cursor_place_floor_grid_px"):
     assert hasattr(prefs, prop_name), "missing pref: %s" % prop_name
 km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
 assert any(

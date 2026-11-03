@@ -84,6 +84,7 @@ from .operators.uv_info import IOPS_OT_UVInfoRect
 from .operators.uv_visual_cursor import IOPS_OT_VisualCursorUV
 from .operators.drag_snap_cursor import IOPS_OT_DragSnapCursor
 from .operators.iops_cursor import IOPS_OT_CursorPlace
+from .operators import iops_cursor as _iops_cursor
 from .operators.object_normalize import IOPS_OT_object_normalize
 from .operators.object_replace import IOPS_OT_Object_Replace
 from .operators.object_rotate import (
@@ -862,6 +863,7 @@ def register():
         type=IOPS_SS_SceneSet
     )
     instance_edit_state.register_props()
+    _iops_cursor.register_props()
     try:
         bpy.types.MESH_MT_CopyFaceSettings.append(add_copy_edge_length_item)
         bpy.types.VIEW3D_MT_copypopup.append(object_copy_match_dimensions)
@@ -1027,6 +1029,7 @@ def unregister():
     except AttributeError:
         pass
     instance_edit_state.unregister_props()
+    _iops_cursor.unregister_props()
     try:
         from .operators.uv_image_slots import unregister_slot_props
         unregister_slot_props()
