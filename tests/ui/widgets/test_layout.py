@@ -134,6 +134,20 @@ def test_clamp_right_and_top():
     assert panel.y == pytest.approx(800.0 - 2.0)  # top edge at region top
 
 
+def test_clamp_respects_overlapping_regions():
+    # Region overlap: the sidebar (N-panel) covers the right 250 px of the
+    # window region, the toolbar the left 60 px, the header the top 26 px.
+    # The panel must stay out from under all three.
+    panel = make_panel([(20.0, 1)], content_width=100.0, x=5000.0, y=5000.0)
+    panel.clamp_to_region(1000.0, 800.0, margin=2.0, insets=(60.0, 250.0, 26.0, 0.0))
+    assert panel.x == pytest.approx(1000.0 - 250.0 - panel.width - 2.0)
+    assert panel.y == pytest.approx(800.0 - 26.0 - 2.0)
+    panel.x, panel.y = -50.0, 10.0
+    panel.clamp_to_region(1000.0, 800.0, margin=2.0, insets=(60.0, 250.0, 26.0, 0.0))
+    assert panel.x == pytest.approx(60.0 + 2.0)
+    assert panel.y == pytest.approx(panel.title_h + 2.0)
+
+
 def test_clamp_noop_when_inside():
     panel = make_panel([(20.0, 1)], content_width=100.0, x=300.0, y=400.0)
     panel.clamp_to_region(1000.0, 800.0)

@@ -447,8 +447,10 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         if mode == "ed_pal_drag":
             session.palette.end_drag()
             if context.region is not None:
+                from . import render
                 session.palette.clamp_to_region(context.region.width,
-                                                context.region.height)
+                                                context.region.height,
+                                                insets=render.region_insets(context))
         elif mode == "ed_add" and drag and drag.get("target") is not None:
             changed = session.doc.insert(
                 drag["target"], new_element(drag["rtype"])) is not None
@@ -607,8 +609,10 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
         if mode == "drag":
             panel.end_drag()
             if context.region is not None:
+                from . import render
                 panel.clamp_to_region(context.region.width,
-                                      context.region.height)
+                                      context.region.height,
+                                      insets=render.region_insets(context))
             state.store_position(self._widget.name, panel.x, panel.y)
         elif mode == "slider":
             self._undo_push()

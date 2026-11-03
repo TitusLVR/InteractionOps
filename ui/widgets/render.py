@@ -375,10 +375,52 @@ def compute_layout(context, widget, theme=None):
     widget.panel.layout(rows, content_w, **layout_kw)
     region = context.region
     if region is not None:
-        widget.panel.clamp_to_region(region.width, region.height)
+        widget.panel.clamp_to_region(region.width, region.height,
+                                     insets=region_insets(context))
         # Re-layout at the clamped anchor so rects match the final spot.
         widget.panel.layout(rows, content_w, **layout_kw)
     return th
+
+
+def region_insets(context):
+    """(left, right, top, bottom) pixels of the WINDOW region hidden under
+    overlapping regions: with Region Overlap on, the sidebar (N-panel),
+    the toolbar and the headers are drawn over the window region, so a
+    panel clamped to the bare region size can sit under them."""
+    area = getattr(context, "area", None)
+    region = getattr(context, "region", None)
+    if area is None or region is None or region.type != "WINDOW":
+        return (0.0, 0.0, 0.0, 0.0)
+    try:
+        if not context.preferences.system.use_region_overlap:
+            return (0.0, 0.0, 0.0, 0.0)
+        space = area.spaces.active
+    except (AttributeError, ReferenceError):
+        return (0.0, 0.0, 0.0, 0.0)
+    left = right = top = bottom = 0.0
+    for reg in area.regions:
+        try:
+            if reg.type == "UI" and getattr(space, "show_region_ui", False):
+                right = max(right, float(reg.width))
+            elif reg.type == "TOOLS" and getattr(space, "show_region_toolbar", False):
+                left = max(left, float(reg.width))
+            elif reg.type == "HEADER" and getattr(space, "show_region_header", True):
+                if reg.alignment == "BOTTOM":
+                    bottom += float(reg.height)
+                else:
+                    top += float(reg.height)
+            elif reg.type == "TOOL_HEADER" and getattr(space, "show_region_tool_header", True):
+                if reg.alignment == "BOTTOM":
+                    bottom += float(reg.height)
+                else:
+                    top += float(reg.height)
+        except (AttributeError, ReferenceError):
+            continue
+    # Headers only overlap the window region when the region spans the
+    # whole area; a window region shorter than the area already excludes them.
+    if region.height + 1 < area.height:
+        top = bottom = 0.0
+    return (left, right, top, bottom)
 
 
 def is_editable(widget):
@@ -1101,7 +1143,8 @@ def compute_palette_layout(context, session, theme=None):
     pal.layout(rows, content_w, **layout_kw)
     region = context.region
     if region is not None:
-        pal.clamp_to_region(region.width, region.height)
+        pal.clamp_to_region(region.width, region.height,
+                            insets=region_insets(context))
         pal.layout(rows, content_w, **layout_kw)
     pal.close_rect = Rect()   # no close glyph: never hit-testable
     return th
