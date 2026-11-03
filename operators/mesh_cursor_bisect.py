@@ -268,6 +268,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     hover_valid = False      # True after a MOUSEMOVE hit, False after a miss
     _mesh_version = 0        # Bumped on every cut / selection change; keys the island cache
     _island_cache = None     # (key, frozenset) of the last delimited face set
+    _bvh_cache = None        # {(obj name, _mesh_version): (BVHTree, face map)} for hover picking
 
     # Distance text system
     show_distance_info = True  # Toggle for showing distance info (I key)
@@ -339,12 +340,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def store_modifier_states(self, context):
         """Store the current show_viewport state of all modifiers for selected objects"""
         self._modifier_states.clear()
-        
-        # Get all selected mesh objects
-        selected_objects = [obj for obj in context.selected_objects 
-                          if obj.type == 'MESH']
-        
-        for obj in selected_objects:
+
+        for obj in self._edit_mesh_objects(context):
             if obj.modifiers:
                 obj_states = {}
                 for modifier in obj.modifiers:
@@ -357,12 +354,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def disable_modifiers_for_bisect(self, context):
         """Disable specified modifier types for better bisect operation"""
         disabled_count = 0
-        
-        # Get all selected mesh objects
-        selected_objects = [obj for obj in context.selected_objects 
-                          if obj.type == 'MESH']
-        
-        for obj in selected_objects:
+
+        for obj in self._edit_mesh_objects(context):
             if obj.modifiers:
                 for modifier in obj.modifiers:
                     # Only disable modifiers that are currently visible and should be disabled
@@ -1724,14 +1717,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     def _refresh_hover(self, context):
         """Re-pick the face under the mouse after a cut: remove_doubles can
         renumber faces, so the remembered index may now name another face."""
-        from ..utils.picking import raycast_from_mouse
+        from ..utils.picking import raycast_edit_meshes
         self._island_cache = None
-        selected = {o for o in context.selected_objects if o.type == 'MESH'}
-        if not selected or context.region is None:
+        objects = self._edit_mesh_objects(context)
+        if not objects or context.region is None:
             self.hover_valid = False
             return
-        result, loc, normal, face_index, obj, _ = raycast_from_mouse(
-            context, self._current_mouse_coord, restrict_to=selected)
+        result, loc, normal, face_index, obj, _ = raycast_edit_meshes(
+            context, self._current_mouse_coord, objects,
+            cache=self._bvh_cache, version=self._mesh_version)
         if result and obj and obj.mode == 'EDIT':
             self.hit_obj = obj
             self.hit_face_index = face_index
@@ -2531,8 +2525,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # no separate cursor-anchored text drawing.
         return
 
+    @staticmethod
+    def _edit_mesh_objects(context):
+        """Every mesh object currently in Edit Mode (multi-object editing)."""
+        return [o for o in context.objects_in_mode if o.type == 'MESH']
+
     def mouse_raycast(self, context, event, *, full=False):
-        """Raycast filtered to selected mesh objects.
+        """Raycast the edit-mode BMesh of every mesh in Edit Mode.
+
+        The cast goes at the cage, not at the evaluated mesh: `scene.ray_cast`
+        indexes the modifier output, so with Triangulate / Mirror / Bevel on
+        its face index names the wrong `bm.faces` entry or falls outside the
+        range and the hover looks like it shoots straight through the mesh.
 
         `full=False` (default, used for MOUSEMOVE hover tracking): one ray
         from the cursor; if it misses, return miss immediately. Keeps the
@@ -2543,17 +2547,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         8-corner viewport fallback so a click on a very large face whose
         center is occluded still resolves."""
         from ..utils.picking import (
-            raycast_from_mouse, raycast_with_corner_fallback,
+            raycast_edit_meshes, raycast_edit_meshes_with_corner_fallback,
         )
-        selected_mesh_objects = {o for o in context.selected_objects if o.type == 'MESH'}
-        if not selected_mesh_objects:
+        objects = self._edit_mesh_objects(context)
+        if not objects:
             return False, None, None, None, None, None
         coord = (event.mouse_region_x, event.mouse_region_y)
-        if full:
-            return raycast_with_corner_fallback(
-                context, coord, restrict_to=selected_mesh_objects)
-        return raycast_from_mouse(
-            context, coord, restrict_to=selected_mesh_objects)
+        cast = raycast_edit_meshes_with_corner_fallback if full else raycast_edit_meshes
+        return cast(context, coord, objects,
+                    cache=self._bvh_cache, version=self._mesh_version)
 
     def align_cursor_orientation(self):
         """Align cursor to selected edge and face normal"""
@@ -2654,6 +2656,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self._enforce_z_restrictions()
 
         # Reset runtime/raycast state
+        self._bvh_cache = {}
+        self._mesh_version += 1
         self.hit_location = None
         self.hit_normal = None
         self.hit_obj = None
