@@ -227,24 +227,38 @@ class HelpOverlay:
                 theme_prefs.help_free_y = int(self._last_origin[1])
             except AttributeError:
                 pass
+            region.tag_redraw()
             return True
         if self._drag.active:
-            if event.type == 'MOUSEMOVE':
+            if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
                 new = self._drag.update(mxy)
                 try:
                     theme_prefs.help_free_x = int(new[0])
                     theme_prefs.help_free_y = int(new[1])
                 except AttributeError:
                     pass
+                region.tag_redraw()
                 return True
-            if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-                self._drag.end()
-                try:
-                    theme_prefs.help_corner = "free"
-                    theme_prefs.help_free_x = int(self._last_origin[0])
-                    theme_prefs.help_free_y = int(self._last_origin[1])
-                except AttributeError:
-                    pass
+            if event.type == 'LEFTMOUSE':
+                if event.value == 'RELEASE':
+                    # Store where the mouse let go (clamped like draw()
+                    # does), not `_last_origin`, which only a draw refreshes.
+                    self._drag.end()
+                    new = self._drag.update(mxy)
+                    bg_pad = (int(getattr(theme_prefs, "panel_bg_padding", 0))
+                              if getattr(theme_prefs, "panel_bg_enabled", False) else 0)
+                    new = clamp_to_region(new[0], new[1], self._last_size,
+                                          region, bg_pad)
+                    self._last_origin = new
+                    try:
+                        theme_prefs.help_corner = "free"
+                        theme_prefs.help_free_x = int(new[0])
+                        theme_prefs.help_free_y = int(new[1])
+                    except AttributeError:
+                        pass
+                    region.tag_redraw()
+                # Swallow CLICK_DRAG / CLICK re-sends of the press so the
+                # host operator never sees an LMB mid-drag (see HUDOverlay).
                 return True
         return False
 

@@ -54,7 +54,7 @@ from ..draw.state import draw_scope
 from . import text as hud_text
 from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
                     ItemState)
-from .layout import (compute_origin, DragState, is_inside,
+from .layout import (compute_origin, clamp_to_region, DragState, is_inside,
                      area_for_region, region_side_insets)
 
 
@@ -564,24 +564,41 @@ class HUDOverlay:
                 theme_prefs.hud_free_y = int(target_origin[1])
             except AttributeError:
                 pass
+            region.tag_redraw()
             return True
         if self._drag.active:
-            if event.type == 'MOUSEMOVE':
+            if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
                 new = self._drag.update(mxy)
                 try:
                     theme_prefs.hud_free_x = int(new[0])
                     theme_prefs.hud_free_y = int(new[1])
                 except AttributeError:
                     pass
+                region.tag_redraw()
                 return True
-            if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-                self._drag.end()
-                try:
-                    theme_prefs.hud_mode = "free"
-                    theme_prefs.hud_free_x = int(self._last_origin[0])
-                    theme_prefs.hud_free_y = int(self._last_origin[1])
-                except AttributeError:
-                    pass
+            if event.type == 'LEFTMOUSE':
+                if event.value == 'RELEASE':
+                    # Store where the mouse let go (clamped like draw()
+                    # does), not `_last_origin`: that is only refreshed by
+                    # a draw and may lag the final moves.
+                    self._drag.end()
+                    new = self._drag.update(mxy)
+                    padding = int(getattr(theme_prefs, "hud_padding", 0))
+                    new = clamp_to_region(new[0], new[1], self._last_size,
+                                          region, padding)
+                    self._last_origin = new
+                    try:
+                        theme_prefs.hud_mode = "free"
+                        theme_prefs.hud_free_x = int(new[0])
+                        theme_prefs.hud_free_y = int(new[1])
+                    except AttributeError:
+                        pass
+                    region.tag_redraw()
+                # Blender re-sends the press as CLICK_DRAG once the drag
+                # threshold is passed (and CLICK / DOUBLE_CLICK variants).
+                # Swallow them all: operators that act on LEFTMOUSE
+                # without checking the value would otherwise confirm
+                # mid-drag and the drag would break off.
                 return True
         return False
 
