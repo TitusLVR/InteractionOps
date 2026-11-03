@@ -197,6 +197,22 @@ Highlight colours / widths come from the theme; no new theme fields.
   clipping plane, and the axis letters keep a gap no larger than the
   on-screen stub of their axis. Side effect: zero per-vertex projections
   on the hot path.
+- **Adaptive grid + floor grid (user request, 2026-11-03):** with Ctrl
+  held, **G** toggles a planar grid on the polygon under the mouse
+  (`cursor_place_core.grid_nodes`: origin = first vertex, U = first edge,
+  V = normal × U, nodes inside the polygon only, the step doubled until
+  the bounding box holds ≤ 4096 nodes); the nearest node is the pick
+  (`kind="GRID"`), the nodes are the snap candidates and the grid lines
+  are drawn in `Role.LINE`. **Alt+wheel** halves / doubles the step, stored
+  in `scene.iops_cursor_grid_step` (0 = auto: a quarter of the shortest
+  edge) so the same grid is reused on another polygon. **Ctrl over empty
+  space** snaps to the viewport floor grid (XY plane) or, in an
+  axis-aligned ortho view, to the ortho grid, at the finest level
+  (`grid_scale · grid_subdivisions^k`) that is at least
+  `cursor_place_floor_grid_px` pixels wide; the cursor keeps its rotation
+  (`kind="FLOOR"`). When that grid is hidden in the overlays, or the pref
+  `cursor_place_floor_snap` is off, the release places the cursor freely
+  as before.
 - **Visible only (user request):** on top of `visible_only=True` (H,
   monitor icon, collection eye / exclude, local view, object-type
   visibility — all verified), geometry objects displayed as Wire or

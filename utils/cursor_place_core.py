@@ -12,6 +12,7 @@ directions of the cursor's local X / Y / Z.
 """
 from __future__ import annotations
 
+import math
 from collections import namedtuple
 
 from .three_point_core import (
@@ -209,3 +210,147 @@ def build_frame(normal, edge_dir, normal_axis, edge_axis, *, flip=False):
     # Right-handed: row[(k+1)%3] x row[(k+2)%3] == row[k] for every k.
     rows[ti] = _cross(rows[(ti + 1) % 3], rows[(ti + 2) % 3])
     return (tuple(rows[0]), tuple(rows[1]), tuple(rows[2]))
+
+
+# --- adaptive grid (G with Ctrl) --------------------------------------------
+#
+# A planar grid on the polygon under the mouse: origin at its first vertex,
+# U along its first edge, V = normal × U. Only the nodes inside the polygon
+# (boundary included) are snap candidates; the step is a scene property,
+# 0 meaning "a quarter of the polygon's shortest edge".
+
+GRID_MAX_NODES = 4096
+
+
+def auto_grid_step(verts):
+    """Default step: a quarter of the polygon's shortest edge (1.0 for a
+    degenerate polygon)."""
+    n = len(verts)
+    shortest = min(_length(_sub(verts[(i + 1) % n], verts[i])) for i in range(n))
+    return shortest / 4.0 if shortest > EPS else 1.0
+
+
+def _grid_frame(verts, poly_normal):
+    try:
+        nrm = _normalized(poly_normal)
+    except DegenerateFrame:
+        nrm = (0.0, 0.0, 1.0)
+    e = _sub(verts[1], verts[0])
+    u = _sub(e, _scale(nrm, _dot(e, nrm)))
+    try:
+        u = _normalized(u)
+    except DegenerateFrame:
+        u = _any_perpendicular(nrm)
+    v = _cross(nrm, u)
+    return _tuple3(verts[0]), _tuple3(u), _tuple3(v)
+
+
+def _inside_2d(p, poly, tol):
+    """Even-odd test with a tolerance band so boundary nodes count."""
+    x, y = p
+    n = len(poly)
+    inside = False
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % n]
+        # distance to the edge
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 <= 0.0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+        ex, ey = ax + dx * t - x, ay + dy * t - y
+        if ex * ex + ey * ey <= tol * tol:
+            return True
+        if (ay > y) != (by > y):
+            xi = ax + (y - ay) * dx / dy
+            if x < xi:
+                inside = not inside
+    return inside
+
+
+def grid_nodes(verts, poly_normal, step, *, max_nodes=GRID_MAX_NODES):
+    """Nodes of the polygon grid. Returns (nodes, step, frame, bounds):
+    the 3D nodes inside the polygon, the effective step (doubled until the
+    polygon's bounding box holds at most `max_nodes` nodes), the frame
+    (origin, u, v) and the uv bounds (umin, umax, vmin, vmax)."""
+    origin, u, v = _grid_frame(verts, poly_normal)
+    uv = [(_dot(_sub(p, origin), u), _dot(_sub(p, origin), v)) for p in verts]
+    umin, umax = min(q[0] for q in uv), max(q[0] for q in uv)
+    vmin, vmax = min(q[1] for q in uv), max(q[1] for q in uv)
+    if step <= EPS:
+        step = auto_grid_step(verts)
+    extent = max(umax - umin, vmax - vmin, EPS)
+    tol = 1e-6 * max(1.0, extent)
+
+    def _range(lo, hi, st):
+        i0 = math.ceil(lo / st - 1e-9)
+        i1 = math.floor(hi / st + 1e-9)
+        return i0, i1
+
+    while True:
+        iu0, iu1 = _range(umin, umax, step)
+        iv0, iv1 = _range(vmin, vmax, step)
+        if (iu1 - iu0 + 1) * (iv1 - iv0 + 1) <= max_nodes:
+            break
+        step *= 2.0
+    nodes = []
+    for i in range(iu0, iu1 + 1):
+        for j in range(iv0, iv1 + 1):
+            pu, pv = i * step, j * step
+            if _inside_2d((pu, pv), uv, tol):
+                nodes.append(_tuple3(_add(origin, _add(_scale(u, pu), _scale(v, pv)))))
+    return nodes, step, (origin, u, v), (umin, umax, vmin, vmax)
+
+
+def nearest_grid_node(nodes, hit):
+    best, best_d = None, None
+    for p in nodes:
+        d = dist2(hit, p)
+        if best_d is None or d < best_d:
+            best, best_d = p, d
+    return best
+
+
+def grid_lines(frame, step, bounds):
+    """Segments (a, b) of the grid across the polygon's uv bounds, for the
+    preview: one line per step along u and along v."""
+    origin, u, v = frame
+    umin, umax, vmin, vmax = bounds
+    iu0, iu1 = math.ceil(umin / step - 1e-9), math.floor(umax / step + 1e-9)
+    iv0, iv1 = math.ceil(vmin / step - 1e-9), math.floor(vmax / step + 1e-9)
+
+    def at(pu, pv):
+        return _tuple3(_add(origin, _add(_scale(u, pu), _scale(v, pv))))
+
+    lines = []
+    for i in range(iu0, iu1 + 1):
+        lines.append((at(i * step, vmin), at(i * step, vmax)))
+    for j in range(iv0, iv1 + 1):
+        lines.append((at(umin, j * step), at(umax, j * step)))
+    return lines
+
+
+# --- floor grid snap (Ctrl over empty space) --------------------------------
+
+def floor_level(base, px_per_unit, min_px, subdivisions=10):
+    """Step of the finest floor-grid level (base · subdivisions^k) whose
+    on-screen spacing is at least `min_px` pixels."""
+    sub = float(subdivisions) if subdivisions and subdivisions > 1 else 10.0
+    step = float(base) if base > 0.0 else 1.0
+    if px_per_unit <= 0.0:
+        return step
+    for _ in range(12):                 # coarser until it is readable
+        if step * px_per_unit >= min_px:
+            break
+        step *= sub
+    for _ in range(12):                 # finer while it stays readable
+        if step / sub * px_per_unit < min_px:
+            break
+        step /= sub
+    return step
+
+
+def snap_to_step(point, step, axes=(0, 1, 2)):
+    out = list(point)
+    for i in axes:
+        out[i] = round(point[i] / step) * step
+    return _tuple3(out)
