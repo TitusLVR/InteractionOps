@@ -196,7 +196,7 @@ class WidgetPanel:
         return self.bounds().contains(mx, my)
 
     def clamp_to_region(self, region_w: float, region_h: float,
-                        margin: float = 0.0) -> None:
+                        margin: float = 0.0, insets=None) -> None:
         """Keep the panel reachable inside the region.
 
         Horizontally the whole panel is kept on-screen. Vertically only
@@ -204,14 +204,20 @@ class WidgetPanel:
         [title_h + margin, region_h - margin]); a tall body is allowed to
         overflow below the region. Forcing the entire body on-screen
         would pin tall panels (e.g. CCP Data OPS) to a fixed band and
-        fight the user's drag placement."""
+        fight the user's drag placement.
+
+        `insets` = (left, right, top, bottom) pixels of the region covered
+        by overlapping regions (sidebar, toolbar, headers with Region
+        Overlap on); the panel is kept out from under them."""
         if self.width <= 0.0 or region_w <= 0.0 or region_h <= 0.0:
             return
-        max_x = region_w - self.width - margin
-        self.x = min(max(self.x, margin), max(margin, max_x))
+        left, right, top, bottom = insets if insets is not None else (0.0, 0.0, 0.0, 0.0)
+        lo_x = left + margin
+        max_x = region_w - right - self.width - margin
+        self.x = min(max(self.x, lo_x), max(lo_x, max_x))
         # y is the TOP edge; the title bar spans [y - title_h, y].
-        top_max = region_h - margin           # title top <= region top
-        top_min = min(self.title_h + margin, top_max)   # title stays on-screen
+        top_max = region_h - top - margin     # title top <= visible top
+        top_min = min(bottom + self.title_h + margin, top_max)   # title stays on-screen
         self.y = min(max(self.y, top_min), top_max)
 
     # ------------------------------------------------------------------
