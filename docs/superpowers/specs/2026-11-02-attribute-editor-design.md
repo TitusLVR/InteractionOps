@@ -88,7 +88,8 @@ Source of truth: the mesh. Nothing is persisted by the addon.
   `N vertices / edges / faces selected` (user feedback 2026-11-02).
   Same day, second round: the type column of the list is dimmed like
   Blender's own attribute list; the filter toggles show their names; the
-  per-row eye is gone — the preview is one `preview` toggle (default on)
+  per-row eye is gone — the preview is one `preview` toggle (default off
+  since 2026-11-03, and reset to off by the `load_post` handler)
   that always shows the active UIList row (`sync_preview`); labels draw on
   translucent boxes and `preview_text_size` is a pixel IntProperty (the
   Enum tokens all mapped to the theme's Label slider, so the setting had

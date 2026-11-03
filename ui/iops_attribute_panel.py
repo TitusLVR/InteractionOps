@@ -1046,7 +1046,7 @@ class IOPS_AttrState(bpy.types.PropertyGroup):
     preview: bpy.props.BoolProperty(
         name="Preview", description="Draw the active attribute in the "
         "viewport (labels, greyscale, colour or heatmap, see the Preview "
-        "sub-panel)", default=True, update=_preview_toggle_update)
+        "sub-panel)", default=False, update=_preview_toggle_update)
     preview_labels: bpy.props.BoolProperty(
         name="Labels", description="Value as text next to each element",
         default=True, update=_preview_settings_update)
@@ -1282,11 +1282,23 @@ def _force_resync(*_args):
     _resync()
 
 
+@persistent
+def _on_load(*_args):
+    """A file opens with the preview off. The toggle lives on the
+    WindowManager, which Blender saves in the .blend (and keeps across
+    loads without Load UI), so a file saved with it on would otherwise
+    open lit up; the preview is a session overlay, not file data."""
+    st = getattr(bpy.context.window_manager, "iops_attr", None)
+    if st is not None and st.preview:
+        st.preview = False      # update → sync_preview → disable_preview
+    _force_resync()
+
+
 _HANDLERS = (
     (bpy.app.handlers.depsgraph_update_post, _resync),
     (bpy.app.handlers.undo_post, _force_resync),
     (bpy.app.handlers.redo_post, _force_resync),
-    (bpy.app.handlers.load_post, _force_resync),
+    (bpy.app.handlers.load_post, _on_load),
 )
 
 UI_CLASSES = (

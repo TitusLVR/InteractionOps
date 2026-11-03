@@ -887,9 +887,12 @@ def test_preview_follows_active_row_and_toggle():
     _track_mesh()
     ap.rebuild_mirror(bpy.context, force=True)
     st = bpy.context.window_manager.iops_attr
-    assert st.preview is True                   # on by default
+    st.property_unset("preview")
+    assert st.preview is False                  # off by default
     assert not hasattr(bpy.types, "IOPS_OT_attr_preview")
-    _set_active_row("tilt")                     # index update → preview
+    _set_active_row("tilt")                     # off: nothing previewed
+    assert not ap.preview_on()
+    st.preview = True                           # on: follows the active row
     assert ap.preview_row_name() == "tilt"
     assert ap._PREVIEW["geom"] is not None
     _set_active_row("marks")
@@ -902,6 +905,23 @@ def test_preview_follows_active_row_and_toggle():
     assert ap.preview_row_name() == "tilt"
     ap.sync_preview(bpy.context)                # no change → still tilt
     assert ap.preview_row_name() == "tilt"
+
+
+def test_preview_off_after_file_load():
+    """A file saved with the preview on (WindowManager state travels with
+    the .blend) opens with the preview off: it is a session overlay."""
+    ap = _ap()
+    _reset()
+    _track_mesh()
+    ap.rebuild_mirror(bpy.context, force=True)
+    st = bpy.context.window_manager.iops_attr
+    st.preview = True
+    _set_active_row("tilt")
+    assert ap.preview_on()
+    ap._on_load(None)                           # the load_post handler
+    assert st.preview is False and not ap.preview_on()
+    assert ap._on_load in bpy.app.handlers.load_post
+    assert ap._force_resync not in bpy.app.handlers.load_post
 
 
 def test_preview_modes_combine():
@@ -1013,6 +1033,7 @@ def test_preview_text_size_in_pixels():
 
 TESTS_TASK7 = [
     test_preview_follows_active_row_and_toggle,
+    test_preview_off_after_file_load,
     test_preview_modes_combine,
     test_preview_selected_only,
     test_preview_recollects_after_modal_selection,
