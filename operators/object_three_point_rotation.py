@@ -5,10 +5,12 @@ changes, one undo step.
 
   1 Move   hover your object → point A (sticky), hover the target → A′,
            LMB: the ghost moves A onto A′. No rotation.
-  2 Align  hover your object → point B (shown on the ghost), hover the
-           target → B′, LMB: rotate about A′ so the ray A′→B lies on A′→B′.
-           R instead turns by the face normals of A / A′ (F flips facing).
-  3 Roll   third pair C → C′: turn about the axis A′→B′. LMB finishes.
+  2 Align  default (normals + edge): hover the target face, LMB: the face
+           of A turns onto it about A′ and the picked edges line up. R
+           switches to points: hover your object → point B (on the ghost),
+           hover the target → B′, LMB: rotate about A′ so A′→B lies on
+           A′→B′; or to normals only (F flips facing).
+  3 Roll   by points only: third pair C → C′, turn about the axis A′→B′.
 
 Space / Enter applies at any step, Backspace steps back, Esc cancels.
 """
@@ -21,7 +23,7 @@ from bpy_extras.view3d_utils import (
 
 from ..ui.draw import primitives as iops_draw
 from ..ui.draw import draw_scope, safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme, Role
+from ..ui.draw.theme import Role
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
 from ..utils.picking import raycast_from_mouse, hit_owner, SNAP_THRESHOLD_PX
@@ -197,51 +199,50 @@ def _face_edge(face, shift=0):
 
 # --- drawing -------------------------------------------------------------
 #
-# Restraint: only what the decision needs. The ghost is a soft tinted volume,
-# faces are a faint wash with a hairline outline, the picked points and the
-# committed axis are the only strong marks, and one hairline ties the moving
-# point to its target so the eye follows the step.
+# Every mark is a theme role, as in Cursor Place: the face under the cursor
+# and its snap point are Closest, a pick you have made (the sticky source,
+# A′, the A′→B′ axis) is Locked, where a pick is going to land is Preview,
+# the selection on its way is the Ghost Preview tint. Nothing carries its
+# own alpha or size; the theme decides.
 
-def _fade(theme, role, alpha):
-    r, g, b, _a = theme.color_for(role)
-    return (r, g, b, alpha)
-
-
-def _draw_face_wash(context, face, *, fill, outline, roll=None, roll_shift=0):
-    with draw_scope(blend="ALPHA", depth="LESS_EQUAL", face_culling="NONE", depth_mask=False):
-        iops_draw.tris(face["tris"], color=fill, context=context)
+def _draw_face(context, face, *, fill, line, width, roll_role=None, roll_shift=0):
+    """Face wash (optional) + outline, always on top; `roll_role` also
+    marks the roll edge."""
+    if fill is not None:
+        with draw_scope(blend="ALPHA", depth="NONE", face_culling="NONE"):
+            iops_draw.tris(face["tris"], role=fill, context=context)
     with draw_scope(blend="ALPHA", depth="NONE"):
-        iops_draw.edges_3d(face["edges"], color=outline, width="default", context=context)
-        if roll is not None:
+        iops_draw.edges_3d(face["edges"], role=line, width=width, context=context)
+        if roll_role is not None:
             a, b, _ = _face_edge(face, roll_shift)
-            iops_draw.edges_3d([a, b], color=roll, width="locked", context=context)
+            iops_draw.edges_3d([a, b], role=roll_role, width="locked", context=context)
 
 
-def _draw_ghost(op, context, theme):
-    """The selection carried by the current delta as one translucent shell.
+def _draw_ghost(op, context):
+    """The selection carried by the current delta: a translucent shell plus
+    a wire that reads through the target, so you always see where the
+    selection is going, even inside geometry.
 
     Depth pre-pass: the front faces are first written to the depth buffer
-    with the color masked off, then tinted with an EQUAL depth test. Only
-    the nearest surface takes color, so inner walls and overlapping shells
+    with the colour masked off, then tinted with an EQUAL depth test. Only
+    the nearest surface takes colour, so inner walls and overlapping shells
     never stack up and the ghost reads as a solid, however complex."""
     total = op._total()
     if _is_identity(total):
         return
     tris, edges = op._ghost
-    fill = _fade(theme, Role.GHOST_PREVIEW, 0.22)
-    wire = _fade(theme, Role.GHOST_PREVIEW, 0.30)
     gpu.matrix.push()
     try:
         gpu.matrix.multiply_matrix(total)
         if tris and len(tris) <= GHOST_FILL_TRI_CAP:
             with draw_scope(blend="NONE", depth="LESS_EQUAL", face_culling="BACK",
                             depth_mask=True, color_mask=(False, False, False, False)):
-                iops_draw.tris(tris, color=fill, context=context)
+                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
             with draw_scope(blend="ALPHA", depth="EQUAL", face_culling="BACK", depth_mask=False):
-                iops_draw.tris(tris, color=fill, context=context)
+                iops_draw.tris(tris, role=Role.GHOST_PREVIEW, context=context)
         if edges:
-            with draw_scope(blend="ALPHA", depth="LESS_EQUAL"):
-                iops_draw.edges_3d(edges, color=wire, width="default", context=context)
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                iops_draw.edges_3d(edges, role=Role.GHOST_EDGE, width="default", context=context)
     finally:
         gpu.matrix.pop()
 
@@ -250,81 +251,136 @@ def _is_identity(m):
     return all(abs(m[i][j] - (1.0 if i == j else 0.0)) < 1e-9 for i in range(4) for j in range(4))
 
 
+def _pick_of(op, face):
+    return face["closest"] if op.snap else face["hit"]
+
+
 def _draw_preview_3d(op, context):
     try:
         length = op._gizmo_len
     except AttributeError:
         return
-    theme = get_theme(context)
-    _draw_ghost(op, context, theme)
+    _draw_ghost(op, context)
     base = op._base
     hv = op._hover
     auto = op.step == STEP_ALIGN and op.rot_mode != ROT_POINTS
+    edge_mode = auto and op.rot_mode == ROT_EDGE
 
-    # committed marks: A′ and the A′→B′ axis
+    # committed: A′ and the A′→B′ roll axis
     with draw_scope(blend="ALPHA", depth="NONE"):
+        if op.a_dst is not None and op.b_dst is not None:
+            iops_draw.edges_3d([op.a_dst, op.b_dst], role=Role.LOCKED_LINE, width="locked",
+                               context=context)
+            iops_draw.points([op.b_dst], role=Role.LOCKED_POINT, context=context)
         if op.a_dst is not None:
-            if op.b_dst is not None:
-                iops_draw.edges_3d([op.a_dst, op.b_dst], color=_fade(theme, Role.LOCKED_LINE, 0.7),
-                                   width="default", context=context)
-                iops_draw.points([op.b_dst], color=_fade(theme, Role.LOCKED_POINT, 0.8),
-                                 size="default", context=context)
             iops_draw.points([op.a_dst], role=Role.LOCKED_POINT, context=context)
+    if op.step == STEP_DONE:
+        return
 
-    # sticky source: face wash + point, carried by the committed delta so
-    # it sits on the ghost
-    if op._src_face is not None and op.step != STEP_DONE:
+    if auto:
+        # the face of A turns onto the target: outline, normal and roll edge
+        # ride on the ghost (total), pivoting about A′
+        af = op._a_face
+        if af is not None:
+            total = op._total()
+            gpu.matrix.push()
+            try:
+                gpu.matrix.multiply_matrix(total)
+                _draw_face(context, af, fill=None, line=Role.LOCKED_LINE, width="locked",
+                           roll_role=Role.LOCKED_LINE if edge_mode else None)
+            finally:
+                gpu.matrix.pop()
+            n = (total.to_3x3() @ af["normal"]).normalized()
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                iops_draw.edges_3d([op.a_dst, op.a_dst + n * length], role=Role.LOCKED_LINE,
+                                   width="locked", context=context)
+    elif op._src_face is not None:
+        # your pick: Closest while the cursor is on it, Locked once it is
+        # sticky or clicked; it sits on the ghost (carried by base)
+        sf = op._src_face
+        hovering = op._hover_is_source and not op._src_locked
         gpu.matrix.push()
         try:
             gpu.matrix.multiply_matrix(base)
-            _draw_face_wash(context, op._src_face,
-                            fill=_fade(theme, Role.LOCKED_LINE, 0.10),
-                            outline=_fade(theme, Role.LOCKED_LINE, 0.55),
-                            roll=_fade(theme, Role.LOCKED_LINE, 0.9) if (auto and op.rot_mode == ROT_EDGE) else None)
+            _draw_face(context, sf,
+                       fill=Role.GHOST_CLOSEST if hovering else None,
+                       line=Role.CLOSEST_LINE if hovering else Role.LOCKED_LINE,
+                       width="closest" if hovering else "locked")
         finally:
             gpu.matrix.pop()
-        src_pt = base @ op._src_face["closest"]
+        pick = base @ _pick_of(op, sf)
         with draw_scope(blend="ALPHA", depth="NONE"):
-            if op._src_locked:
-                iops_draw.points([src_pt], color=_fade(theme, Role.LOCKED_POINT, 0.35),
-                                 size=theme.point_size("locked") + 8.0, context=context)
-            if auto:
-                n = base.to_3x3() @ op._src_face["normal"]
-                iops_draw.edges_3d([src_pt, src_pt + n * length * 0.6],
-                                   color=_fade(theme, Role.LOCKED_LINE, 0.9), width="default", context=context)
-            iops_draw.points([src_pt], role=Role.LOCKED_POINT, context=context)
+            if hovering and op.snap:
+                others = [base @ q for q in sf["snaps"] if (q - sf["closest"]).length > 1e-9]
+                if others:
+                    iops_draw.points(others, role=Role.POINT, context=context)
+            iops_draw.points([pick], role=Role.CLOSEST_POINT if hovering else Role.LOCKED_POINT,
+                             context=context)
 
-    # target hover
-    if hv is not None and not op._hover_is_source and op.step != STEP_DONE:
-        anchor = op._hover_point()
-        _draw_face_wash(context, hv,
-                        fill=_fade(theme, Role.GHOST_DEFAULT, 0.10),
-                        outline=_fade(theme, Role.ACTIVE_LINE, 0.55),
-                        roll=_fade(theme, Role.CLOSEST_LINE, 0.95) if (auto and op.rot_mode == ROT_EDGE) else None,
-                        roll_shift=op.roll_shift)
+    # the target under the cursor
+    if hv is not None and not op._hover_is_source:
+        anchor = Vector(op._hover_point())
+        _draw_face(context, hv, fill=Role.GHOST_CLOSEST, line=Role.CLOSEST_LINE, width="closest",
+                   roll_role=Role.CLOSEST_LINE if edge_mode else None, roll_shift=op.roll_shift)
         with draw_scope(blend="ALPHA", depth="NONE"):
             if op.snap:
-                others = [p for p in hv["snaps"] if (p - anchor).length > 1e-9]
+                others = [q for q in hv["snaps"] if (q - anchor).length > 1e-9]
                 if others:
-                    iops_draw.points(others, color=_fade(theme, Role.POINT, 0.35), size=4.0, context=context)
+                    iops_draw.points(others, role=Role.POINT, context=context)
             if auto:
-                iops_draw.edges_3d([anchor, anchor + hv["normal"] * length * 0.6],
-                                   color=_fade(theme, Role.ACTIVE_LINE, 0.9), width="default", context=context)
+                iops_draw.edges_3d([anchor, anchor + hv["normal"] * length], role=Role.CLOSEST_LINE,
+                                   width="closest", context=context)
             iops_draw.points([anchor], role=Role.CLOSEST_POINT, context=context)
             if op._preview is not None and op._src_face is not None and not auto:
-                # flight line: the moving point (after the preview) → its target
-                moved = op._preview @ base @ op._src_face["closest"]
-                start = base @ op._src_face["closest"]
-                iops_draw.edges_3d([start, anchor], color=_fade(theme, Role.PREVIEW_LINE, 0.45),
-                                   width="default", context=context)
-                iops_draw.points([moved], color=_fade(theme, Role.PREVIEW_POINT, 0.9),
-                                 size="preview", context=context)
+                # flight line: your pick → its target, and where it lands
+                start = base @ _pick_of(op, op._src_face)
+                iops_draw.edges_3d([start, anchor], role=Role.PREVIEW_LINE, width="preview",
+                                   context=context)
+                iops_draw.points([op._preview @ start], role=Role.PREVIEW_POINT, context=context)
 
 
 def _draw_pixel(op, context):
     for ov in (op._help, op._hud):
         if ov is not None:
             ov.draw(context, op._last_event)
+
+
+# --- HUD checklist ---------------------------------------------------------
+
+_STEP_STATE = {"now": ItemState.ON, "done": ItemState.DISABLED, "todo": ItemState.OFF}
+_STEP_MARK = {"now": "\u25b8 ", "done": "\u2713 ", "todo": "   "}
+
+
+def checklist(step, rot_mode, *, src_picked):
+    """Rows (key, label, state) of the HUD step list; state is "done", "now"
+    or "todo". By points the list is three pairs (A→A′, B→B′, C→C′); by
+    normals the second step is one click on the target face and there is
+    no roll."""
+    rows = [("Pick point A on your object", STEP_MOVE, True),
+            ("Pick A′ on the target, click to move", STEP_MOVE, False)]
+    if rot_mode == ROT_POINTS:
+        rows += [("Pick point B on the ghost", STEP_ALIGN, True),
+                 ("Pick B′ on the target, click to align", STEP_ALIGN, False),
+                 ("Pick point C on the ghost", STEP_ROLL, True),
+                 ("Pick C′ on the target, click to roll", STEP_ROLL, False)]
+    elif rot_mode == ROT_NORMAL:
+        rows.append(("Hover the target face, click to align by normals", STEP_ALIGN, False))
+    else:
+        rows.append(("Hover the target face, click to align by normals + edge", STEP_ALIGN, False))
+    rows.append(("Space / Enter to apply", STEP_DONE, False))
+    needs_source = {st for _l, st, is_src in rows if is_src}
+    out = []
+    for i, (label, row_step, is_src) in enumerate(rows, 1):
+        if row_step < step:
+            state = "done"
+        elif row_step > step:
+            state = "todo"
+        elif is_src:
+            state = "done" if src_picked else "now"
+        else:
+            state = "now" if (src_picked or row_step not in needs_source) else "todo"
+        out.append((str(i), label, state))
+    return out
 
 
 # --- operator -------------------------------------------------------------
@@ -364,7 +420,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._hover = None
         self._hover_is_source = False
         self._error = ""
-        self.rot_mode = ROT_POINTS
+        self.rot_mode = ROT_EDGE
         self.roll_shift = 0
 
     def _total(self):
@@ -375,17 +431,6 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         if hv is None:
             return None
         return hv["closest"] if self.snap else hv["hit"]
-
-    def _step_label(self):
-        if self.step == STEP_DONE:
-            return "Space to apply"
-        what = {STEP_MOVE: "A", STEP_ALIGN: "B", STEP_ROLL: "C"}[self.step]
-        if self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS:
-            return "click the target to turn by normals"
-        if self._src_face is None:
-            return f"hover your object: point {what} (click to lock)"
-        state = "locked" if self._src_locked else "sticky"
-        return f"{what} {state} — hover the target: {what}′, click"
 
     # --- preview math ---
 
@@ -428,6 +473,18 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         except DegenerateFrame as exc:
             self._error = str(exc)
             self._preview = None
+        finally:
+            self._sync_hud()
+
+    def _sync_hud(self):
+        hud = getattr(self, "_hud", None)
+        if hud is None:
+            return
+        self._steps.items = [
+            HUDItem(_STEP_MARK[state] + label, key, _STEP_STATE[state],
+                    default_state=ItemState.OFF, always_show=True)
+            for key, label, state in checklist(self.step, self.rot_mode,
+                                               src_picked=self._src_face is not None)]
 
     def _auto_align(self, hv):
         """Align step by the faces of A (source, carried by the base) and the
@@ -541,10 +598,10 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         hud = HUDOverlay("three_point_rotation")
         hud.title = "3 Point Rotation"
         hud.bind_region(context.region)
-        hud.add_param(HUDParam("Step", lambda: STEP_NAMES[self.step], "str"))
-        hud.add_param(HUDParam("Do", lambda: self._step_label(), "str"))
+        self._steps = HUDSection("", [])
+        hud.add_section(self._steps)
         hud.add_param(HUDParam("Align", lambda: ROT_LABELS[self.rot_mode], "str",
-                               visible_getter=lambda: self.step == STEP_ALIGN))
+                               active_getter=lambda: self.step == STEP_ALIGN))
         hud.add_param(HUDParam("Facing", lambda: "face to face" if self.face_to_face else "same side", "str",
                                visible_getter=lambda: self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS))
         hud.add_param(HUDParam("Roll edge", lambda: "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}", "str",
@@ -559,7 +616,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         helpo = HelpOverlay("three_point_rotation")
         helpo.add_section(HUDSection("3 Point Rotation", [
             HUDItem("On your object: lock the point. On the target: commit the step", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align by: points / normals / normals + edge", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Align by: normals + edge / points / normals", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Facing: meet / same side (normals)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Roll edge: next / previous (normals + edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap to verts / edge mids / center", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -596,6 +653,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._reset()
 
         self._hud = self._build_hud(context)
+        self._sync_hud()
         self._help = self._build_help(context)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
