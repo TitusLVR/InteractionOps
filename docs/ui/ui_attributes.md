@@ -47,7 +47,7 @@ Each tool is one undo step and works on the selected elements of the attribute's
 
 ## Preview
 
-The preview draws the **active row** on every element of its domain, selected or not, in the iOps theme colours. It is on by default and follows the list: click another row and the viewport shows that attribute. The full-width **Preview** button under the frame turns it off; off, it costs nothing.
+The preview draws the **active row** on every element of its domain, selected or not, in the iOps theme colours. The full-width **Preview** button under the frame turns it on; it is off by default and off again whenever a file is opened (the toggle is a session overlay, not file data). On, it follows the list: click another row and the viewport shows that attribute. Off, it costs nothing.
 
 The **Show** checkboxes in Preview Settings combine: Labels can be on together with a fill. The three fills are exclusive on the geometry, so when several are ticked Heatmap wins, then Colour, then Greyscale.
 
