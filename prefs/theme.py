@@ -37,7 +37,7 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     line_width_default:    FloatProperty(name="Default",        default=1.5, min=0.5, max=12.0)
     line_width_closest:    FloatProperty(name="Closest",        default=2.5, min=0.5, max=12.0)
     line_width_active:     FloatProperty(name="Active",         default=3.0, min=0.5, max=12.0)
-    line_width_locked:     FloatProperty(name="Locked",         default=6.0, min=0.5, max=12.0)
+    line_width_locked:     FloatProperty(name="Locked",         default=3.0, min=0.5, max=12.0)
     line_width_preview:    FloatProperty(name="Result Preview", default=2.0, min=0.5, max=12.0)
     line_width_error:      FloatProperty(name="Error",          default=2.5, min=0.5, max=12.0)
 
