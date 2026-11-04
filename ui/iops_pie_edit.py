@@ -69,6 +69,7 @@ edit_pie_content_list = [
     ("iops.mesh_vert_fuse", "Vert Fuse", ""),
     ("iops.mesh_snapshot", "Mesh Snapshot", ""),
     ("iops.mesh_smart_inset", "Smart Inset", ""),
+    ("iops.mesh_smart_edge_slide", "Smart Edge Slide", ""),
     ("iops.mesh_to_tris_to_quads", "Tris to Quads", ""),
     ("iops.object_drop_it", "Drop It!", ""),
     ("iops.object_replace", "Object Replace", ""),

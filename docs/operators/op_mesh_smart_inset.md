@@ -16,6 +16,7 @@ Insets the selected faces without the flipped or overlapping geometry the regula
 | <kbd>I</kbd> | Region / Individual faces |
 | <kbd>C</kbd> | Allow collapse on / off |
 | <kbd>B</kbd> | Inset from open borders on / off |
+| <kbd>U</kbd> | UV Stripe on / off |
 | <kbd>MMB</kbd> / <kbd>Wheel</kbd> | Navigate the viewport |
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> | Confirm |
@@ -27,6 +28,8 @@ Insets the selected faces without the flipped or overlapping geometry the regula
 - **Mode** — one inset per connected group of faces (Region) or one per face (Individual).
 - **Allow Collapse** — let the inset run past the point where sides meet. Off keeps it clamped like a normal inset; the preview turns to the warning colour when clamped.
 - **Boundary** — also inset from open mesh borders.
+- **UV Stripe** — unwrap the new walls between the original boundary and the new contour as one straight, even strip per boundary loop in the active UV map (a UV map is created when the mesh has none); for a negative thickness the new outer ring is unwrapped. U runs along the loop and V across it, from the original boundary (V = 0) to the new contour, at one shared scale; the triangles where the inset collapsed are straightened into the strip, and each loop is cut open at its sharpest corner. A region with a hole gives one strip for its outer loop and one for the hole. Off by default.
+- **UV Stripe Mode** — *Fit 0–1* stretches each strip across U 0–1 with V in proportion, and stacks several strips (several loops, regions or faces) upward in V with a small gap. *In Place* puts each strip back where its own faces' old UVs were, scaled to the texel density of the faces around it; a strip whose surrounding faces have no UVs fits 0–1 instead. Set in the redo panel.
 
 ## Tips
 - Interior faces the inset has not reached yet are kept as they are.

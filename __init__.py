@@ -334,6 +334,7 @@ from .operators.mesh_quick_connect import IOPS_OT_Mesh_Quick_Connect
 from .operators.mesh_to_tris_to_quad import IOPS_OT_MeshToTrisToQuads
 from .operators.mesh_straight_bevel import IOPS_OT_straight_bevel
 from .operators.mesh_smart_inset import IOPS_OT_smart_inset
+from .operators.mesh_smart_edge_slide import IOPS_OT_smart_edge_slide
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_hinge import IOPS_OT_mesh_hinge
 from .operators.falloff.ops import (IOPS_OT_mesh_falloff_move,
@@ -705,6 +706,7 @@ classes = (
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
     IOPS_OT_smart_inset,
+    IOPS_OT_smart_edge_slide,
     IOPS_OT_mesh_shear,
     IOPS_OT_mesh_hinge,
     IOPS_OT_mesh_falloff_move,

@@ -24,9 +24,10 @@ for op_name in (
     "instance_edit_cancel",
     "instance_edit_rollback_source",
     "instance_edit_backups_cleanup",
+    "mesh_smart_edge_slide",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
-    if op_name.startswith("instance_edit_"):
+    if op_name.startswith("instance_edit_") or op_name == "mesh_smart_edge_slide":
         # hasattr is always True (lazy wrapper): resolve the RNA type.
         getattr(bpy.ops.iops, op_name).get_rna_type()
 

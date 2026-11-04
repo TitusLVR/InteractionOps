@@ -17,7 +17,14 @@ bridge:
 
 Curved regions are handled approximately by design: new verts are pulled back
 onto the original surface with a BVH nearest-point query.
+
+UV Stripe (``uv_stripe_bridge``) can unwrap the walls of each boundary loop
+(the new ring for an outset) as one straight, even UV strip.
 """
+import math
+from collections import Counter
+from dataclasses import dataclass
+
 import bpy
 import bmesh
 from mathutils import Vector
@@ -27,6 +34,8 @@ from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, BoolProperty, EnumProperty
 
 from ..utils import smart_inset_core as core
+from ..utils import uv_stripe_core
+from . import uv_stripe_bridge
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
@@ -944,12 +953,15 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     watertight the whole region degrades to the plain ngon fill and
     ``report`` is warned.
 
-    Returns ``(faces_created, mutated)``. ``mutated`` is False only when the
-    effective thickness degenerated to zero and ``bm`` was left untouched.
+    Returns ``(faces_created, mutated, loops)``. ``mutated`` is False only when
+    the effective thickness degenerated to zero and ``bm`` was left untouched.
+    ``loops`` holds one ``StripeLoop`` per boundary loop, its walls for UV
+    Stripe (``stripe_for``); its height is the slanted wall's,
+    ``hypot(t_eff, depth)``.
     """
     t_eff = effective_t(tl, t, use_collapse)
     if t_eff <= EPS:
-        return 0, False
+        return 0, False, []
 
     def key_of(p2d):
         return (round(p2d[0], WELD_DIGITS), round(p2d[1], WELD_DIGITS))
@@ -1010,12 +1022,15 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
             chains = plan.chains
 
     made_faces = 0
+    walls_built = []  # per edge: (its wall top from a3's side to b3's, its wall face or None)
     for j in range(tl.edge_count):
         a3, b3 = region.edge_orig_verts[j]
         chain = [bmvert(p) for p in chains.get(j, ())]
         src = region.edge_orig_faces[j]
-        if new_face([a3, b3] + chain, src, wall_faces) is not None:
+        face = new_face([a3, b3] + chain, src, wall_faces)
+        if face is not None:
             made_faces += 1
+        walls_built.append((chain[::-1], face))   # a chain runs from b3's side
 
     if plan is None:
         front = [[tl.pos_at(vid, t_eff) for vid in loop]
@@ -1082,7 +1097,7 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
         inner_faces.extend(plan.kept)
     _apply_selection(inner_faces, wall_faces)
     bm.normal_update()
-    return made_faces, True
+    return made_faces, True, _stripe_loops(region, walls_built, math.hypot(t_eff, depth))
 
 
 def _outset_positions(region, weights, t_abs):
@@ -1131,10 +1146,12 @@ def _apply_outset(bm, region, weights, t_abs, depth):
     original boundary. This only matters for curved regions -- on a planar
     region lift_to_3d is exact either way.
 
-    Returns ``(faces_created, mutated)``, same convention as ``apply_inset``.
+    Returns ``(faces_created, mutated, loops)``, same convention as
+    ``apply_inset``; a loop's walls are its ring faces, its height
+    ``hypot(t_abs, depth)``.
     """
     if t_abs <= EPS:
-        return 0, False
+        return 0, False, []
 
     def key_of(p2d):
         return (round(p2d[0], WELD_DIGITS), round(p2d[1], WELD_DIGITS))
@@ -1174,6 +1191,7 @@ def _apply_outset(bm, region, weights, t_abs, depth):
         return f
 
     made_faces = 0
+    walls_built = []  # per edge: (its ring top from a3's side to b3's, its ring face or None)
     outer_loops = _outset_positions(region, weights, t_abs)
     base = 0   # core edge id of loop3d[0] -- ids run loop-major, in order
     for loop3d, outer2d in zip(region.loops3d, outer_loops):
@@ -1185,8 +1203,10 @@ def _apply_outset(bm, region, weights, t_abs, depth):
             src = region.edge_orig_faces[base + i]
             # a -> oa -> ob -> b keeps the wall's winding consistent with
             # the (untouched) region faces it borders -- see task-10 report.
-            if new_face([a3, oa, ob, b3], src) is not None:
+            face = new_face([a3, oa, ob, b3], src)
+            if face is not None:
                 made_faces += 1
+            walls_built.append(([oa, ob], face))
         base += n
 
     if abs(depth) > 1e-9:
@@ -1201,7 +1221,112 @@ def _apply_outset(bm, region, weights, t_abs, depth):
     # the new ring is what stays selected, the untouched region drops out.
     _apply_selection(ring_faces, region.faces)
     bm.normal_update()
-    return made_faces, True
+    return made_faces, True, _stripe_loops(region, walls_built, math.hypot(t_abs, depth))
+
+
+# --------------------------------------------------------------------------
+# UV Stripe
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class StripeLoop:
+    """One boundary loop's new walls (an outset's ring), held as BMesh elements for UV Stripe.
+
+    ``near`` is the loop's original verts in loop order. ``walls`` holds, per
+    loop edge ``near[i] -> near[i + 1]``, the wall top's verts from ``near[i]``'s
+    side to ``near[i + 1]``'s and the wall face (None when it was dropped as
+    degenerate). ``height`` is the strip's height in world units.
+
+    Kept as elements, not ids: a later region's inset deletes and adds elements,
+    so indices are only made current once every region is done (``stripe_for``).
+    """
+
+    near: list
+    walls: list
+    height: float
+
+
+def _stripe_loops(region, walls, height):
+    """Split the walls built per core edge id into one ``StripeLoop`` per boundary loop.
+
+    Edge ids run loop-major, in loop order (see ``_build_region``).
+    """
+    out, base = [], 0
+    for loop3d in region.loops3d:
+        out.append(StripeLoop(list(loop3d), walls[base:base + len(loop3d)], height))
+        base += len(loop3d)
+    return out
+
+
+def stripe_for(loop):
+    """The UV Stripe strip of one boundary loop's walls, with its faces by id.
+
+    The loop's original verts are the near boundary (v = 0), closed. The wall
+    tops concatenated in loop order are the far one (v = ``loop.height``):
+    neighbouring walls share their meeting vertex, which is kept once, and the
+    last wall's end closes the loop on the first one's start. Each wall's first
+    top vertex makes a rung with the wall's first original vertex.
+
+    A collapsed seam brings a vertex back onto the far boundary further round
+    (the two sides of a ridge); each wall face's corner on such a vertex takes
+    its own wall's occurrence (``corner_far``). A wall dropped as degenerate has
+    no face here, and a top vertex no face kept is left out. The near and far
+    loops are rotated so the rungs ascend along both
+    (``uv_stripe_core.ascending_rungs``).
+
+    Ids are ``BMVert.index`` and ``BMFace.index``, which must be current. Raises
+    ``ValueError`` when the strip cannot be laid out; the layout is tried here,
+    so ``uv_stripe_bridge.apply_stripes`` does not raise for it later.
+    """
+    if not all(v.is_valid for v in loop.near):
+        raise ValueError("a boundary vertex of the walls was removed")
+    far, rungs, corners = [], [], []   # corners: (wall face, [(top vertex, far index)])
+    for i, (top, face) in enumerate(loop.walls):
+        at = []
+        for vt in top:
+            if not vt.is_valid:   # held only by a wall dropped as degenerate
+                continue
+            if not far or far[-1] is not vt:
+                far.append(vt)
+            at.append((vt, len(far) - 1))
+        if at:
+            rungs.append((i, at[0][1]))
+        if face is not None:
+            corners.append((face, at))
+    if len(far) > 1 and far[-1] is far[0]:
+        far.pop()
+        rungs = [(i, k % len(far)) for i, k in rungs]
+        corners = [(face, [(vt, k % len(far)) for vt, k in at]) for face, at in corners]
+    if not corners:
+        raise ValueError("no wall faces")
+    if not rungs:
+        raise ValueError("the walls have no top")
+
+    repeats = {vt for vt, n in Counter(far).items() if n > 1}
+    corner_far = {}
+    for face, at in corners:
+        for vt, k in at:
+            if vt in repeats:
+                corner_far.setdefault((face.index, vt.index), k)
+    faces = {face.index: face for face, _at in corners}
+    verts = {v.index: tuple(v.co) for v in (*loop.near, *far)}
+    verts.update((v.index, tuple(v.co)) for f in faces.values() for v in f.verts)
+    strip = uv_stripe_core.Strip(
+        verts=verts,
+        faces={i: tuple(v.index for v in f.verts) for i, f in faces.items()},
+        near=[v.index for v in loop.near],
+        far=[v.index for v in far],
+        rungs=rungs,
+        closed=True,
+        height=loop.height,
+        corner_far=corner_far,
+    )
+    strip = uv_stripe_core.ascending_rungs(strip)
+    if uv_stripe_core.strip_length(strip) <= EPS:  # raises ValueError for rungs out of order
+        raise ValueError("the walls have no length")
+    uv_stripe_core.stripe_uvs(strip)
+    return strip, faces
 
 
 # --------------------------------------------------------------------------
@@ -1273,6 +1398,23 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         ),
         default=True,
     )
+    use_uv_stripe: BoolProperty(
+        name="UV Stripe",
+        description=(
+            "Unwrap the new walls between the original boundary and the new "
+            "contour (the new ring for an outset) as one straight, even strip "
+            "per boundary loop in the active UV map"
+        ),
+        default=False,
+    )
+    uv_stripe_mode: EnumProperty(
+        name="UV Stripe Mode",
+        items=[
+            ("FIT", "Fit 0–1", "Stretch the strip across U 0–1, V in proportion"),
+            ("IN_PLACE", "In Place", "Keep the old UV location and the neighbours' texel density"),
+        ],
+        default="FIT",
+    )
 
     @classmethod
     def poll(cls, context):
@@ -1333,6 +1475,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._cancel_mode = self.mode
         self._cancel_use_collapse = self.use_collapse
         self._cancel_use_boundary = self.use_boundary
+        self._cancel_use_uv_stripe = self.use_uv_stripe
         # Shift-precision works off a second anchor captured at Shift-press,
         # so entering/leaving precise mode never jumps the value.
         self._shift_anchor_x = None
@@ -1359,31 +1502,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._preview_key = None
         self._rebuild_preview()
 
-        self._hud = HUDOverlay("smart_inset")
-        self._hud.title = "Smart Inset"
-        self._hud.bind_region(context.region)
-        self._hud.add_param(HUDParam(
-            "Thickness", self._hud_thickness, "float", fmt="{:.4f}"))
-        self._hud.add_param(HUDParam(
-            "Depth", lambda: self.depth, "float", fmt="{:.4f}"))
-        self._hud.add_param(HUDParam("Mode (I)", lambda: self.mode, "enum"))
-        self._hud.add_param(HUDParam(
-            "Collapse (C)", lambda: self.use_collapse, "bool"))
-        self._hud.add_param(HUDParam(
-            "Boundary (B)", lambda: self.use_boundary, "bool"))
-
-        self._help = HelpOverlay("smart_inset")
-        self._help.add_section(HUDSection("Smart Inset", [
-            HUDItem("Adjust thickness", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Depth",            "Ctrl + Mouse", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mode",             "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Collapse",         "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Boundary",         "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",          "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",           "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle = safe_handler_add(
@@ -1396,6 +1515,36 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if context.area:
             context.area.tag_redraw()
         return {'RUNNING_MODAL'}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("smart_inset")
+        self._hud.title = "Smart Inset"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam(
+            "Thickness", self._hud_thickness, "float", fmt="{:.4f}"))
+        self._hud.add_param(HUDParam(
+            "Depth", lambda: self.depth, "float", fmt="{:.4f}"))
+        self._hud.add_param(HUDParam("Mode (I)", lambda: self.mode, "enum"))
+        self._hud.add_param(HUDParam(
+            "Collapse (C)", lambda: self.use_collapse, "bool"))
+        self._hud.add_param(HUDParam(
+            "Boundary (B)", lambda: self.use_boundary, "bool"))
+        self._hud.add_param(HUDParam(
+            "UV Stripe (U)", lambda: self.use_uv_stripe, "bool"))
+
+        self._help = HelpOverlay("smart_inset")
+        self._help.add_section(HUDSection("Smart Inset", [
+            HUDItem("Adjust thickness", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Depth",            "Ctrl + Mouse", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Mode",             "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Collapse",         "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Boundary",         "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("UV Stripe",        "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Confirm",          "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel",           "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Help / Toggle HUD", "H",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        ]))
+        self._help.bind_region(region)
 
     def _build_timelines(self, regions):
         """Pair every usable region with its wavefront timeline.
@@ -1537,6 +1686,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 context.workspace.status_text_set(self._status_text())
                 return {'RUNNING_MODAL'}
 
+            if event.type == "U":  # applied on confirm; the preview does not change
+                self.use_uv_stripe = not self.use_uv_stripe
+                context.workspace.status_text_set(self._status_text())
+                return {'RUNNING_MODAL'}
+
             if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"}:
                 self._finish(context)
                 return self._run(context)
@@ -1549,6 +1703,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                 self.mode = self._cancel_mode
                 self.use_collapse = self._cancel_use_collapse
                 self.use_boundary = self._cancel_use_boundary
+                self.use_uv_stripe = self._cancel_use_uv_stripe
                 self._finish(context)
                 return {'CANCELLED'}
 
@@ -1715,6 +1870,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             f"mode = {self.mode} (I) | "
             f"collapse = {'on' if self.use_collapse else 'off'} (C) | "
             f"boundary = {'on' if self.use_boundary else 'off'} (B) | "
+            f"UV stripe = {'on' if self.use_uv_stripe else 'off'} (U) | "
             "[Mouse] drag | [Ctrl+Mouse] depth | [Shift] precise | "
             "[Enter/LMB] confirm | [Esc/RMB] cancel"
         )
@@ -1947,20 +2103,23 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
 
         changed = 0
         mutated = False
+        stripes = []  # each region's StripeLoops, for UV Stripe
         if t < 0.0:
             # Naive outset, no skeleton/timeline needed -- see _apply_outset.
             for region in regions:
                 weights = resolve_weights(region, self.use_boundary)
-                n_faces, did = _apply_outset(bm, region, weights, -t,
-                                             self.depth)
+                n_faces, did, loops = _apply_outset(bm, region, weights, -t,
+                                                    self.depth)
                 changed += n_faces
                 mutated = mutated or did
+                stripes.append(loops)
         else:
             for region, tl in self._build_timelines(regions):
-                n_faces, did = apply_inset(bm, region, tl, t, self.depth,
-                                           self.use_collapse, self.report)
+                n_faces, did, loops = apply_inset(bm, region, tl, t, self.depth,
+                                                  self.use_collapse, self.report)
                 changed += n_faces
                 mutated = mutated or did
+                stripes.append(loops)
 
         if not mutated:
             # Every region's effective thickness degenerated to zero, so bm was
@@ -1979,8 +2138,38 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if not changed:
             self.report({'WARNING'},
                         "Smart Inset: no faces produced for this thickness")
+        if self.use_uv_stripe:
+            self._uv_stripe(bm, stripes)
         # apply_inset/_apply_outset set the face-level selection; propagate it
         # to whatever the mesh's actual select mode needs.
         bm.select_flush_mode()
         bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
         return {'FINISHED'}
+
+    def _uv_stripe(self, bm, stripes):
+        """Unwrap every boundary loop's walls as one strip, in the mode the props set.
+
+        ``stripes`` holds each region's ``StripeLoop``s. A loop without a
+        single wall face (a frozen open border) has nothing to unwrap and is
+        passed over. A region with a loop that cannot be laid out is skipped
+        whole, with a warning. Each strip's old UV placement is read from its
+        own faces before any UV is written, while they still hold the UVs
+        ``_copy_face_attrs`` interpolated onto them: In Place puts every strip
+        back where its own faces were.
+        """
+        bm.verts.index_update()  # stripe_for's ids
+        bm.faces.index_update()
+        strips, faces, contexts = [], {}, []
+        for loops in stripes:
+            loops = [loop for loop in loops if any(face is not None for _top, face in loop.walls)]
+            try:
+                built = [stripe_for(loop) for loop in loops]
+            except ValueError as exc:
+                self.report({'WARNING'}, f"Smart Inset: UV Stripe skipped ({exc})")
+                continue
+            for strip, strip_faces in built:
+                strips.append(strip)
+                faces.update(strip_faces)
+                contexts.append(uv_stripe_bridge.uv_context(bm, list(strip_faces.values())))
+        if strips:
+            uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts)
