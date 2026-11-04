@@ -1619,6 +1619,16 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._handle_3d = self._handle_pixel = None
         self._handle_shortcuts = self._timer = None
 
+    @staticmethod
+    def _random_range(context):
+        """Tiles Randomize (N) may place an island in, from the add-on's
+        preferences (Visual UV > Randomize Range)."""
+        try:
+            prefs = context.preferences.addons["InteractionOps"].preferences
+            return max(1, int(prefs.visual_uv_random_range))
+        except (KeyError, AttributeError):
+            return 2
+
     def _transform_targets(self):
         """Islands G/R/S/F/N act on: all session islands, or just the
         active one when the scope is switched with I."""
@@ -2646,12 +2656,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     mode = 'U'
                 else:
                     mode = 'UV'
+                tiles = self._random_range(context)
                 for si in self._transform_targets():
                     if 0 <= si < len(self.islands_data):
                         sid = self.islands_data[si]
                         randomize_island_uv(
                             sid['loops'], self.uv_layer,
-                            sid['bbox_min'], sid['bbox_max'], mode)
+                            sid['bbox_min'], sid['bbox_max'], mode,
+                            tiles=tiles)
                 self._update_mesh(context)
                 self.report({'INFO'}, f"Randomize {mode}")
             return {'RUNNING_MODAL'}

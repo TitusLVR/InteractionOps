@@ -574,19 +574,20 @@ def match_island_dimensions(target_loops, uv_layer, target_bbox_min,
     move_island_uv(target_loops, uv_layer, rc - tc)
 
 
-def randomize_island_uv(loops, uv_layer, bbox_min, bbox_max, mode='UV'):
-    """Randomize island position so it stays within the 0-1 tile.
-    mode: 'UV' = both axes, 'U' = U only, 'V' = V only."""
-    w = bbox_max.x - bbox_min.x
-    h = bbox_max.y - bbox_min.y
-    if mode in ('UV', 'U'):
-        du = random.uniform(0, max(1.0 - w, 0)) - bbox_min.x
-    else:
-        du = 0.0
-    if mode in ('UV', 'V'):
-        dv = random.uniform(0, max(1.0 - h, 0)) - bbox_min.y
-    else:
-        dv = 0.0
+def randomize_island_uv(loops, uv_layer, bbox_min, bbox_max, mode='UV', tiles=1):
+    """Randomize island position so it stays within the first `tiles`
+    tiles from the UV origin (0..tiles on each randomized axis).
+    mode: 'UV' = both axes, 'U' = U only, 'V' = V only.
+    An axis on which the island does not fit inside the range is left as
+    it is."""
+    def offset(lo, size):
+        room = tiles - size
+        if room <= 0.0:
+            return 0.0
+        return random.uniform(0.0, room) - lo
+
+    du = offset(bbox_min.x, bbox_max.x - bbox_min.x) if mode in ('UV', 'U') else 0.0
+    dv = offset(bbox_min.y, bbox_max.y - bbox_min.y) if mode in ('UV', 'V') else 0.0
     move_island_uv(loops, uv_layer, Vector((du, dv)))
 
 
