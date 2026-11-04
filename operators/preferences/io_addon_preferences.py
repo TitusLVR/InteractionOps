@@ -380,6 +380,10 @@ def load_iops_preferences():
                                 prefs.visual_uv_normal_offset = safe_get(
                                     value, "visual_uv_normal_offset",
                                     defaults.get("visual_uv_normal_offset", 0.002))
+                            if hasattr(prefs, "visual_uv_random_range"):
+                                prefs.visual_uv_random_range = safe_get(
+                                    value, "visual_uv_random_range",
+                                    defaults.get("visual_uv_random_range", 2))
                             for i in range(8):
                                 key_ = f"island_palette_{i}"
                                 if not hasattr(prefs, key_):

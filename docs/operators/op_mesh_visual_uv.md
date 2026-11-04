@@ -23,7 +23,7 @@ Edit UV islands directly on the model in the 3D Viewport. Islands on the selecte
 | <kbd>I</kbd> | Transform scope: All islands ↔ Active only (affects G / R / S / F / N) |
 | <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> | Flip horizontal / vertical |
 | <kbd>D</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>D</kbd> | Fit selected islands onto the active one: islands transposed against it (landscape vs portrait) are turned 90° first, then their bounding box is scaled to the active island's box (both axes / width only / height only) and centred on it |
-| <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only |
+| <kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> / <kbd>Ctrl</kbd>+<kbd>N</kbd> | Randomise offset: both axes / U only / V only, anywhere within the Randomize Range set in the add-on preferences (2 tiles from the UV origin by default) |
 | <kbd>U</kbd> | Unwrap the selection |
 | <kbd>T</kbd> | Straighten the UV edge chain under the cursor |
 | <kbd>E</kbd> | Stitch: click a source edge, then move the mouse; the island is scaled, rotated and moved live onto the nearest edge of any other UV island (selected or not). <kbd>LMB</kbd> confirms, <kbd>RMB</kbd> cancels, hold <kbd>Shift</kbd> to land on the same side (overlap) |

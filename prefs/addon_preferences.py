@@ -755,6 +755,13 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         max=0.1,
         precision=4,
     )
+    visual_uv_random_range: IntProperty(
+        name="Randomize Range",
+        description="How many tiles from the UV origin Randomize (N / Shift+N / Ctrl+N) may place an island in. 1 keeps islands inside the 0-1 tile",
+        default=2,
+        min=1,
+        soft_max=8,
+    )
 
     # Cursor Bisect Drawing Properties — colors and sizes moved to IOPS_Theme.
     # Only operational params (face depth, subdivisions, snap threshold,
@@ -1275,6 +1282,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.label(text="Point size, edge width and fill opacity live in the Theme tab.", icon="INFO")
                 body.prop(self, "visual_uv_normal_offset")
+                body.prop(self, "visual_uv_random_range")
                 body.separator()
                 body.label(text="Island palette (per-island, indexed by island_id % 8):")
                 row = body.row(align=True)

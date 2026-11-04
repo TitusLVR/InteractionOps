@@ -277,6 +277,7 @@ def get_iops_prefs():
         "MODIFIERS_PANEL": _get_modifiers_panel_section(prefs),
         "VISUAL_UV": {
             "visual_uv_normal_offset": safe("visual_uv_normal_offset", 0.002),
+            "visual_uv_random_range": safe("visual_uv_random_range", 2),
             **{
                 f"island_palette_{i}": safelist(
                     f"island_palette_{i}", (0.5, 0.5, 0.5, 0.1))
