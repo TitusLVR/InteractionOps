@@ -12,11 +12,14 @@ repo root:
         --python tests/blender/check_reference_mesh.py -- <reference_mesh.json>
 
 Each run rebuilds the mesh, selects the chain and cuts it with
-``bpy.ops.iops.mesh_smart_edge_slide`` on one side: the wall side at width 0.4
-and the slanted panel side at width 0.2, both in the default mode. The mesh keeps
-being edited, so the check asserts properties, not vertex or face counts:
+``bpy.ops.iops.mesh_smart_edge_slide`` on one side: the wall side at widths 0.2,
+0.4 and 1.0, and the slanted panel side at width 0.2, all in the default mode. 1.0
+runs well past 0.377, where the first build's slide stopped. The mesh keeps
+being edited, so the check asserts properties, not vertex or face counts, which
+it prints:
 
-- the operator returns FINISHED;
+- the operator returns FINISHED, and the width fits: the side's limit (the
+  operator's own solve on the mesh as rebuilt) is not below it;
 - every new vertex lies within 1e-6 of the original surface, and no original
   vertex moves;
 - no new degenerate face or zero-length edge;
@@ -45,7 +48,7 @@ from mathutils.bvhtree import BVHTree
 
 ADDON = "InteractionOps"
 
-WALL_WIDTH = 0.4
+WALL_WIDTHS = (0.2, 0.4, 1.0)  # 1.0 runs well past 0.377, where the first build's slide stopped
 PANEL_WIDTH = 0.2
 SURFACE_TOL = 1e-6        # new vertex to the original surface
 WIDTH_TOL = 1e-6          # panel-side new vertex to the chain, against the width
@@ -276,6 +279,14 @@ def panel_anchors(obj, side, width):
     return anchors, [v.index for v in chains[0].verts]
 
 
+def side_limit(obj, side):
+    """The widest width the operator's own solve fits on ``side`` in the default mode, or None without a band."""
+    bm = _bm(obj)
+    chains, _warnings = bridge.collect_chains(bm)
+    build, _err = bridge.build_band(bm, chains[0], side)
+    return None if build is None else core.Slider(build.band).limit()
+
+
 def _state(bm):
     return {
         "n_verts": len(bm.verts),
@@ -293,6 +304,7 @@ def run(snap, sign, kind, width):
     before["bvh"] = BVHTree.FromBMesh(bm)
     before["triangles"] = [tuple(tuple(lp.vert.co) for lp in tri) for tri in bm.calc_loop_triangles()]
     side = 1 if sign == "+" else -1
+    before["limit"] = side_limit(obj, side)
     anchors, chain_ids = panel_anchors(obj, side, width) if kind == "panel" else ([], None)
     result = bpy.ops.iops.mesh_smart_edge_slide('EXEC_DEFAULT', width=width, chain_sides=sign)
     bm = _bm(obj)
@@ -312,12 +324,15 @@ def check(ok, what):
         FAILURES.append(what)
 
 
-def common_checks(label, result, before, after):
+def common_checks(label, result, before, after, width):
     new = after["coords"][before["n_verts"]:]
+    limit = before["limit"]
     print(f"{label}: operator returned {sorted(result)}")
     print(f"  vertices {before['n_verts']} -> {after['n_verts']} ({len(new)} new), "
           f"faces {before['n_faces']} -> {after['n_faces']}, {after['selected_edges']} loop edges selected")
+    print(f"  limit on this side: {'none' if limit is None else f'{limit:.6f}'}")
     check(result == {'FINISHED'}, f"{label}: operator returns FINISHED")
+    check(limit is not None and limit >= width, f"{label}: the width fits (limit {limit})")
     check(len(new) > 0, f"{label}: the cut adds vertices ({len(new)})")
     moved = max((_length(_sub(a, b)) for a, b in zip(before["coords"], after["coords"])), default=0.0)
     check(moved <= MOVED_TOL, f"{label}: no original vertex moves (largest move {moved:.3g})")
@@ -400,13 +415,13 @@ def main():
     kinds, normals = classify_sides(rebuild(snap))
     print(f"chain_sides: {kinds}")
     for sign, kind in sorted(kinds.items()):
-        width = WALL_WIDTH if kind == "wall" else PANEL_WIDTH
-        result, before, after, anchors, chain_ids = run(snap, sign, kind, width)
-        new = common_checks(f"{kind} side ({sign}), width {width}", result, before, after)
-        if kind == "wall":
-            wall_checks(snap, new, width)
-        else:
-            panel_checks(snap, new, anchors, chain_ids, normals[sign], width)
+        for width in WALL_WIDTHS if kind == "wall" else (PANEL_WIDTH,):
+            result, before, after, anchors, chain_ids = run(snap, sign, kind, width)
+            new = common_checks(f"{kind} side ({sign}), width {width}", result, before, after, width)
+            if kind == "wall":
+                wall_checks(snap, new, width)
+            else:
+                panel_checks(snap, new, anchors, chain_ids, normals[sign], width)
     print("REFERENCE CHECK " + (f"FAILED: {len(FAILURES)}" if FAILURES else "OK"))
     if FAILURES:
         sys.exit(1)

@@ -14,6 +14,7 @@ rectangle once the loops are cut.
 
 import bmesh
 import bpy
+import numpy as np
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, StringProperty
 from bpy_extras import view3d_utils
 from mathutils import Vector
@@ -250,7 +251,8 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         for src, found in zip(self._chains, self._sides):
             centroids = {1: None, -1: None}
             for side, (build, _slider) in found.items():
-                faces = list(build.faces.values())
+                # The side faces: the band runs on round an open chain's ends, often onto the other side.
+                faces = [build.faces[f] for f in dict.fromkeys(build.band.side_faces) if f in build.faces]
                 if faces:
                     centroid = sum((f.calc_center_median() for f in faces), Vector()) / len(faces)
                     centroids[side] = self._to_region(context, centroid)
@@ -494,6 +496,8 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         self._snap_verts = list(owners)
         self._snap_owners = list(owners.values())
         self._snap_points = [("vertex", v.co.copy()) for v in self._snap_verts]
+        # Object coordinates, for ``picking.snap_points_in_reach`` on every Ctrl move.
+        self._snap_cos = np.array([tuple(co) for _kind, co in self._snap_points], dtype=float).reshape(-1, 3)
         self._snap_reach = {}
         self._snap_co = None
         self._bvh_cache = {}
@@ -509,16 +513,24 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
             context.region, context.region_data, mouse, self._obj.matrix_world @ self._snap_depth)
 
     def _update_snap(self, context, event):
-        """Ctrl held: snap the width to the candidate vertex nearest the cursor, when the loop reaches it."""
+        """Ctrl held: snap the width to the candidate vertex nearest the cursor, when the loop reaches it.
+
+        Every band vertex is a candidate, so only those ``closest_snap_point``
+        can pick are ranked (``snap_points_in_reach``): the pick is the same.
+        """
         self._snap_co = None
         if not self._snap_points:
             return
         mouse = (event.mouse_region_x, event.mouse_region_y)
-        hit = picking.closest_snap_point(
-            context, self._snap_points, self._obj.matrix_world, mouse, self._mouse_world(context, mouse))
+        at = self._mouse_world(context, mouse)
+        mw = self._obj.matrix_world
+        keep = picking.snap_points_in_reach(context, self._snap_cos, mw, mouse, at)
+        shortlist = range(len(self._snap_points)) if keep is None else keep
+        points = [self._snap_points[k] for k in shortlist]
+        hit = picking.closest_snap_point(context, points, mw, mouse, at)
         if hit is None:
             return
-        k = next(k for k, (_kind, co) in enumerate(self._snap_points) if co is hit[1])
+        k = shortlist[next(j for j, (_kind, co) in enumerate(points) if co is hit[1])]
         width = self._snap_width(k, self._owners_by_distance(context, k))
         if width is None:
             return
@@ -604,6 +616,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         self._snap_verts = []
         self._snap_owners = []
         self._snap_points = []
+        self._snap_cos = None
         self._snap_reach = {}
         self._snap_co = None
         self._bvh_cache = {}
@@ -748,12 +761,13 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
                     continue
                 cutting = False
                 try:
-                    cut = core.Slider(build.band).solve(width, exact=self.use_exact, collapse=self.use_collapse)
+                    slider = core.Slider(build.band)
+                    cut = slider.solve(width, exact=self.use_exact, collapse=self.use_collapse)
                     if not cut.points:
                         continue
                     # apply_cut raises ValueError only before it edits; past that it returns its failures.
                     cutting = True
-                    applied = bridge.apply_cut(bm, build, cut)
+                    applied = bridge.apply_cut(bm, build, cut, slider)
                 except _CHAIN_SKIPS as exc:
                     # Any other error out of apply_cut may come after it began editing.
                     if cutting and not isinstance(exc, ValueError):

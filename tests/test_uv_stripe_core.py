@@ -42,6 +42,17 @@ def test_quad_strip_maps_to_itself():
     assert strip_length(quad_strip()) == pytest.approx(3.0)
 
 
+def test_open_strip_without_a_rung_at_its_first_vertex():
+    # the first chain vertex has no anchor (a lid span at the chain start): both rows still run from
+    # their first vertex, which no rung pins any more
+    s = quad_strip()
+    s.rungs = [(1, 1), (2, 2), (3, 3)]
+    uv = stripe_uvs(s)
+    assert strip_length(s) == pytest.approx(3.0)
+    assert uv[(0, 0)] == pytest.approx((0.0, 0.0)) and uv[(0, 4)] == pytest.approx((0.0, 0.25))
+    assert uv[(0, 1)] == pytest.approx((1.0, 0.0)) and uv[(2, 7)] == pytest.approx((3.0, 0.25))
+
+
 def test_ring_unrolls_with_seam_at_first_corner():
     s = square_ring()
     assert sharpest_rung(s) == 0 and strip_length(s) == pytest.approx(7.2)
@@ -104,13 +115,13 @@ def test_repeated_far_id_needs_a_hint():
     assert uv[(0, 3)][0] != uv[(1, 3)][0]
 
 
-def test_collapsed_far_segment_shares_the_mean_u():
+def test_collapsed_far_segment_is_one_point_on_the_far_row():
     v = {i: (float(i), 0.0, 0.0) for i in range(4)} | {4: (0.0, 1.0, 0.0), 5: (1.5, 1.0, 0.0), 6: (3.0, 1.0, 0.0)}
     f = {0: (0, 1, 5, 4), 1: (1, 2, 5), 2: (2, 3, 6, 5)}
     s = Strip(verts=v, faces=f, near=[0, 1, 2, 3], far=[4, 5, 6], rungs=[(0, 0), (1, 1), (2, 1), (3, 2)],
               closed=False, height=1.0)
     uv = stripe_uvs(s)
-    # rung u values are 0, 1.25, 1.75, 3.0: the shared far vertex takes the mean of rungs 1 and 2
+    # L = (near 3 + far 3) / 2 = 3: the far vertex shared by rungs 1 and 2 sits at its own arc length 1.5
     assert strip_length(s) == pytest.approx(3.0)
     assert all(uv[(fi, 5)][0] == pytest.approx(1.5) for fi in f)
 
@@ -142,9 +153,11 @@ def test_closed_collapsed_inset_with_repeated_far_ids():
     vs = [v_ for _u, v_ in uv.values()]
     assert (min(us), max(us)) == pytest.approx((0.0, 8.0))
     assert (min(vs), max(vs)) == pytest.approx((0.0, 0.5))
+    # L = (near 4 + 1 + 4 + 1 = 10, far 3 + 0 + 3 + 0 = 6) / 2 = 8, seam at rung 0: near u = s * 0.8
+    # (0, 3.2, 4.0, 7.2) and each far occurrence u = s * 8 / 6 (0, 4, 4, 8)
     assert uv[(0, 4)] == pytest.approx((0.0, 0.5)) and uv[(3, 0)] == pytest.approx((8.0, 0.0))
-    assert uv[(3, 4)] == pytest.approx((7.5, 0.5)) and uv[(2, 5)] == pytest.approx((4.0, 0.5))
-    assert uv[(1, 5)] == pytest.approx((3.5, 0.5))
+    assert uv[(3, 4)] == pytest.approx((8.0, 0.5)) and uv[(2, 5)] == pytest.approx((4.0, 0.5))
+    assert uv[(1, 5)] == pytest.approx((4.0, 0.5)) and uv[(0, 1)] == pytest.approx((3.2, 0.0))
 
 
 def test_strip_wound_the_other_way_is_not_mirrored():
@@ -222,3 +235,45 @@ def test_closed_collapsed_inset_seam_on_a_collapse_node():
             assert uv[(fid, near_seam)][0] == pytest.approx(uv[(fid, far_seam)][0]), fid
     seam_us = {round(uv[(fid, far_seam)][0], 9) for fid, face in f.items() if far_seam in face}
     assert seam_us == {0.0, round(length, 9)}
+
+
+def test_uneven_edges_spread_uniformly():
+    # L-corner strip: near is the outer corner (arms 2 + 2), far is the inner corner (arms 1.8 + 1.6)
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (2.0, 2.0, 0.0),
+         3: (0.0, 0.2, 0.0), 4: (1.8, 0.2, 0.0), 5: (1.8, 1.8, 0.0)}
+    f = {0: (0, 1, 4, 3), 1: (1, 2, 5, 4)}
+    s = Strip(verts=v, faces=f, near=[0, 1, 2], far=[3, 4, 5], rungs=[(0, 0), (1, 1), (2, 2)],
+              closed=False, height=0.2)
+    uv = stripe_uvs(s)
+    L = (4.0 + 3.4) / 2                                           # 3.7
+    assert uv[(0, 1)] == pytest.approx((2.0 * L / 4.0, 0.0))     # near row by its own arc length: 1.85
+    assert uv[(0, 4)] == pytest.approx((1.8 * L / 3.4, 0.2))     # far row by its own arc length: 1.9588
+    assert uv[(0, 1)][0] != pytest.approx(uv[(0, 4)][0])         # the column leans
+    assert uv[(1, 2)][0] == pytest.approx(L) and uv[(1, 5)][0] == pytest.approx(L)
+
+
+def test_interior_relax_keeps_faces_unflipped():
+    # pocket-like strip: a raised interior pair between near and far
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (0.0, 1.0, 0.0), 3: (2.0, 1.0, 0.0),
+         4: (0.5, 0.3, 0.2), 5: (1.5, 0.3, 0.2)}
+    f = {0: (0, 1, 5, 4), 1: (1, 3, 5), 2: (3, 2, 4, 5), 3: (2, 0, 4)}
+    s = Strip(verts=v, faces=f, near=[0, 1], far=[2, 3], rungs=[(0, 0), (1, 1)], closed=False, height=1.0)
+    uv = stripe_uvs(s)
+    for fid, ids in f.items():
+        pts = [uv[(fid, i)] for i in ids]
+        area = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                   for i in range(len(pts)))
+        assert area > 0.0
+    assert 0.0 < uv[(0, 4)][0] < uv[(0, 5)][0] < 2.0
+
+
+def test_flat_interior_keeps_its_place():
+    # the pocket strip above laid flat: its boundary maps to its own (x, y), and mean-value weights
+    # reproduce a flat fan exactly, so the interior pair keeps its (x, y) (uniform weights give v = 0.5)
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (0.0, 1.0, 0.0), 3: (2.0, 1.0, 0.0),
+         4: (0.5, 0.3, 0.0), 5: (1.5, 0.3, 0.0)}
+    f = {0: (0, 1, 5, 4), 1: (1, 3, 5), 2: (3, 2, 4, 5), 3: (2, 0, 4)}
+    s = Strip(verts=v, faces=f, near=[0, 1], far=[2, 3], rungs=[(0, 0), (1, 1)], closed=False, height=1.0)
+    uv = stripe_uvs(s)
+    assert all(uv[(fid, 4)] == pytest.approx((0.5, 0.3)) for fid in (0, 2, 3))
+    assert all(uv[(fid, 5)] == pytest.approx((1.5, 0.3)) for fid in (0, 1, 2))
