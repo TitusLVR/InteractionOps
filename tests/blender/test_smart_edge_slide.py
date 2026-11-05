@@ -9,6 +9,7 @@ tests put each mesh in an object of its own and run the operator in Edit Mode.
 
 Not collected by pytest (tests/conftest.py ignores tests/blender).
 """
+import dataclasses
 import math
 import os
 import sys
@@ -124,10 +125,11 @@ def _box_corner():
     return _mesh(points, [(0, 1, 4, 3), (1, 2, 5, 4)])
 
 
-def _pocket():
+def _pocket(points_after=(), faces_after=()):
     """Chain 0-1-2-3 along y = 0: ceiling quads at z = 0 on x in [0, 1] and [2, 3],
     a 0.15-tall pocket on x in [1, 2] (lip, sides, top, far wall), and slanted
-    faces down to y = -1, z = -1 on the other side."""
+    faces down to y = -1, z = -1 on the other side. ``points_after`` (ids from 16)
+    and ``faces_after`` extend it."""
     points = [
         (0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0),                    # 0-3 chain
         (0, 2, 0), (1, 2, 0), (2, 2, 0), (3, 2, 0),                    # 4-7 ceiling far corners
@@ -139,7 +141,26 @@ def _pocket():
         (1, 8, 10, 5), (2, 6, 11, 9), (8, 9, 11, 10), (5, 10, 11, 6),  # pocket sides, top, far wall
         (1, 0, 12, 13), (2, 1, 13, 14), (3, 2, 14, 15),                # slanted side
     ]
-    return _mesh(points, faces)
+    return _mesh(points + list(points_after), faces + list(faces_after))
+
+
+def _pocket_with_fold():
+    """The pocket with quads hanging down from y = 2 to 16-19 at (x, 2, -1), x = 0 .. 3: one of
+    them past the lid's far edge 5-6, whose other face is the pocket's far wall."""
+    return _pocket([(x, 2, -1) for x in range(4)], [(4, 5, 17, 16), (5, 6, 18, 17), (6, 7, 19, 18)])
+
+
+def _pocket_with_tilted_run_on():
+    """The pocket with faces past y = 2 at 5: edge 5-16 runs on 16.7 degrees off straight but drops out
+    of the ceiling plane to 16 (1, 3, -.3); edge 5-17 stays in it but turns 21.8 degrees, to 17 (1.4, 3, 0)."""
+    return _pocket([(1, 3, -0.3), (1.4, 3, 0)], [(5, 6, 17), (5, 17, 16), (4, 5, 16)])
+
+
+def _pocket_with_meeting_paths():
+    """The pocket with ceiling triangles past its far edge 5-6, in the ceiling plane: 16 (1.5, 3, 0),
+    17 (2, 4, 0), 18 (2.5, 5, 0), 19 (3, 4, 0). The flank path from 1 runs 1-5-16-17-18 straight on
+    (26.6 degrees at 5), the one from 2 runs 2-6-17-18: the two meet at 17."""
+    return _pocket([(1.5, 3, 0), (2, 4, 0), (2.5, 5, 0), (3, 4, 0)], [(5, 6, 16), (16, 6, 17), (17, 19, 18)])
 
 
 def _pocket_mid_row():
@@ -229,6 +250,63 @@ def _flipped_half():
     points = [(0, 0, 0), (1, 0, 0), (2, 0, 0),                        # 0-2 chain
               (0, 1, 0), (1, 1, 0), (2, 1, 0), (0, -1, 0), (1, -1, 0), (2, -1, 0)]
     return _mesh(points, [(1, 2, 5, 4), (7, 8, 2, 1), (0, 3, 4, 1), (0, 1, 7, 6)])
+
+
+def _fold_box():
+    """The core's fold_box(): a floor y in [0, 1] at z = 0 and a wall at y = 1 up to z = 1, over x
+    columns 0, 1, 2. Chain 0-1-2 runs along the floor's front edge, the floor on its +1 side."""
+    points = [(0, 0, 0), (1, 0, 0), (2, 0, 0), (0, 1, 0), (1, 1, 0), (2, 1, 0), (0, 1, 1), (1, 1, 1), (2, 1, 1)]
+    return _mesh(points, [(0, 1, 4, 3), (1, 2, 5, 4), (3, 4, 7, 6), (4, 5, 8, 7)])
+
+
+def _grid(nx, ny):
+    """Flat grid of unit quads in XY with ``nx`` x ``ny`` vertices, built as the cursor-bisect tests build
+    theirs. Vertex y * nx + x, face y * (nx - 1) + x: ``_grid(5, 4)`` is the core's grid_open()."""
+    points = [(x, y, 0) for y in range(ny) for x in range(nx)]
+    faces = [(y * nx + x, y * nx + x + 1, (y + 1) * nx + x + 1, (y + 1) * nx + x)
+             for y in range(ny - 1) for x in range(nx - 1)]
+    return _mesh(points, faces)
+
+
+def _cube_top_chain():
+    """``bmesh.ops.create_cube(size=1.0)`` with its top front edge (y = -0.5, z = 0.5) selected; the top
+    face lies on the chain's +1 side."""
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.normal_update()
+    for seq in (bm.verts, bm.edges, bm.faces):
+        for elem in seq:
+            elem.select = False
+    edge = next(e for e in bm.edges if all(abs(v.co.y + 0.5) < 1e-6 and abs(v.co.z - 0.5) < 1e-6 for v in e.verts))
+    edge.select_set(True)
+    (src,), _warnings = bridge.collect_chains(bm)
+    top = next(f for f in bm.faces if f.normal.z > 0.5)
+    a, b = src.verts
+    assert any(lp.vert is a and lp.link_loop_next.vert is b for lp in top.loops), "the top face is not on +1"
+    return bm
+
+
+def _strip_with_fin():
+    """The core's strip2() with its quad 5-6-10-9 split at x = 1.5 (12 (1.5, .5, 0), 13 (1.5, 1, 0)) and a fin
+    12-13-15-14 standing up to z = 1 on the split edge, which three faces then hold."""
+    points = [(x, r / 2, 0.0) for r in range(3) for x in range(4)]
+    points += [(1.5, .5, 0), (1.5, 1, 0), (1.5, .5, 1), (1.5, 1, 1)]
+    faces = [(0, 1, 5, 4), (1, 2, 6, 12, 5), (2, 3, 7, 6),
+             (4, 5, 9, 8), (5, 12, 13, 9), (12, 6, 10, 13), (6, 7, 11, 10), (12, 13, 15, 14)]
+    return _mesh(points, faces)
+
+
+def _walls_meet():
+    """The core's walls_meet() with a row of quads below y = 0 (7-10 at y = -1), so the band runs on past
+    the end walls along y = 0. Chain 0-1-2-3 is (0, .3), (1, 1), (2, 1), (2.5, 0); its end edges 0-4 and
+    3-6 leave it at 158.6 and 63.4 degrees, and the end wall 3-6-5-4 meets the start wall 0-4 at 4."""
+    points = [(0, .3, 0), (1, 1, 0), (2, 1, 0), (2.5, 0, 0), (-.2, 0, 0), (1, 0, 0), (1.5, 0, 0),
+              (-.2, -1, 0), (1, -1, 0), (1.5, -1, 0), (2.5, -1, 0)]
+    faces = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 6), (4, 5, 8, 7), (5, 6, 9, 8), (6, 3, 10, 9)]
+    return _mesh(points, faces)
 
 
 def _select_chain(bm, ids):
@@ -657,7 +735,8 @@ def test_hidden_corner_quad_interrupts_wedge():                                 
     bm = _corner_grid()
     bm.faces[3].hide = True
     build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2]), +1)
-    assert build is None and err == "chain vertex wedge interrupted by a hidden, border or non-manifold face"
+    assert build is None and err == bridge.WEDGE_INTERRUPTED == (
+        "the faces round a chain vertex stop at an edge without exactly two visible faces, or an end wall cannot leave them")
     build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2]), -1)  # the inner side is whole
     assert err is None and sorted(build.band.faces) == [0]
 
@@ -665,7 +744,8 @@ def test_hidden_corner_quad_interrupts_wedge():                                 
 def test_border_gap_at_chain_vertex_interrupts_wedge():
     bm = _corner_grid(corner=False)
     build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2]), +1)
-    assert build is None and err == "chain vertex wedge interrupted by a hidden, border or non-manifold face"
+    assert build is None and err == bridge.WEDGE_INTERRUPTED == (
+        "the faces round a chain vertex stop at an edge without exactly two visible faces, or an end wall cannot leave them")
 
 
 def test_side_faces_in_different_sectors_skip_chain():
@@ -691,10 +771,91 @@ def test_sliver_end_wedges_cross_the_shallow_chord():
     assert sorted(build.band.faces) == [0, 1]
 
 
-def test_chain_end_inside_the_mesh_stops_at_its_rail():
+def test_chain_end_inside_the_mesh_stops_at_its_end_walls():
     bm = _strip(rows=2)
     build, err = bridge.build_band(bm, _chain(bm, [5, 6]), +1)
-    assert err is None and sorted(build.band.faces) == [4]       # not the quads around 5 and 6
+    assert err is None and sorted(build.band.faces) == list(range(6))   # the flood runs round the chain's ends
+    assert build.band.end_edges == (9, 10)                               # the walls up from 5 and 6 bound the cut
+    cut = core.Slider(build.band).solve(0.25)
+    assert _round_set(pt.co for pt in cut.points) == _round_set([(1, .75, 0), (2, .75, 0)])
+
+
+def test_build_band_floods_the_side_and_names_its_end_edges():
+    bm = _grid(5, 4)
+    build, err = bridge.build_band(bm, _chain(bm, [6, 7, 8]), +1)
+    assert err is None, err
+    assert sorted(build.band.faces) == list(range(12)) and build.band.end_edges == (11, 13)   # the core's grid_open()
+    for k in (0, 2):                     # each end edge leaves the chain into the side, by END_SHALLOW at least
+        assert core.wedge(build.band, k).theta >= bridge.END_SHALLOW
+    bm = _ring()
+    build, err = bridge.build_band(bm, bridge.ChainSrc(verts=[bm.verts[i] for i in range(4)], closed=True, index=0), +1)
+    assert err is None and build.band.end_edges == (None, None) and sorted(build.band.faces) == [0, 1, 2, 3]
+
+
+def test_pocket_lid_follows_the_flank_rail_paths():
+    bm = _pocket_uneven_flanks()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    assert build.band.faces[-1] == (1, 2, 6, 5, 17)               # (P_a, P_b, path_b, path_a reversed): 1-17-5
+    assert sorted(f.index for f in build.faces.values()) == [0, 2, 10]       # the three ceiling quads
+    assert not {f.index for f in build.steps[0].region} & {0, 2, 10}         # none of them under the lid
+
+
+def test_strip_faces_stop_at_the_end_walls():   # the band runs on round the chain's ends, the strip must not
+    bm = _grid(5, 4)
+    build, err = bridge.build_band(bm, _chain(bm, [6, 7, 8]), +1)
+    assert err is None, err
+    applied = bridge.apply_cut(bm, build, core.Slider(build.band).solve(1.5))
+    assert not applied.failures, applied.failures
+    assert len(applied.strip_faces) == 4, len(applied.strip_faces)
+    assert all(1 <= v.co.x <= 3 and 1 <= v.co.y <= 2.5 for f in applied.strip_faces for v in f.verts)
+    bm.free()
+
+
+def test_strip_faces_need_bounded_ends():   # an open end with no end path, off the band border: no strip
+    bm = _grid(5, 4)
+    build, err = bridge.build_band(bm, _chain(bm, [6, 7, 8]), +1)
+    assert err is None, err
+    cut = core.Slider(build.band).solve(1.5)
+    # As if the start had no end edge: its loop end (1, 2.5) lies inside the band, so nothing bounds the strip there.
+    build.band = dataclasses.replace(build.band, end_edges=(None, 13))
+    applied = bridge.apply_cut(bm, build, cut)
+    assert not applied.failures and applied.strip_faces == [], len(applied.strip_faces)
+    bm.free()
+
+
+def test_step_region_stops_at_the_lids_far_side():   # a far side that is no mesh edge bounds the region
+    bm = _pocket_uneven_flanks()
+    bm.verts[5].co.z = 0.05                 # the path from 1 now ends at 17: the lid's far side 17-6 is no edge
+    bm.normal_update()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    assert build.band.faces[-1] == (1, 2, 6, 17)
+    # The region keeps the lip, the lower side wall at x = 1, the side wall at x = 2 and the top: what reaches
+    # short of 17-6. The ceiling quad past 17 (10) and the pocket faces wholly past 17-6 stay real faces.
+    assert [f.index for f in build.steps[0].region] == [1, 3, 4, 5]
+    assert {0, 2, 10} <= set(build.faces)
+
+
+def test_lid_path_stops_where_the_straightest_edge_leaves_the_plane():
+    bm = _pocket_with_tilted_run_on()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    assert build.band.faces[-1] == (1, 2, 6, 5)       # not on along the in-plane edge 5-17, which turns more
+
+
+def test_lid_paths_stop_where_they_meet():
+    bm = _pocket_with_meeting_paths()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    assert build.band.faces[-1] == (1, 2, 6, 17, 16, 5)   # 1-5-16 ends on 17, a vertex of the path 2-6-17-18
+
+
+def test_lid_tolerance_takes_the_first_corners():   # the lid's run-on along its flank paths does not widen it
+    bm = _pocket_with_meeting_paths()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    _close(build.steps[0].extent, math.sqrt(5.0))         # the corners 1, 2, 6, 5: from (1, 0) to (2, 2)
 
 
 def test_ngon_band_keeps_the_wedge_face():
@@ -821,12 +982,124 @@ def test_execute_pocket_with_uneven_flank_rails():   # a skewed lid must not dro
     bm = _pocket_uneven_flanks()
     build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
     assert err is None, err
-    _close(core.Slider(build.band).limit(), 0.4, 1e-6)          # the shorter rail
+    _close(core.Slider(build.band).limit(), 2.0, 1e-6)          # the lid runs on along the short flank's path
     obj = _edit_object(bm, chain=[0, 1, 2, 3])
     op = _OperatorStandIn(width=0.3, chain_sides="+")
     assert op.execute(bpy.context) == {'FINISHED'}, op.reports
     assert not op.reports, op.reports
     assert _new_coords(obj) >= _round_set([(1, .3, .15), (2, .3, .15)]), _new_coords(obj)
+
+
+def test_execute_strip_passes_existing_mid_loop():
+    obj = _edit_object(_strip(rows=2), chain=[0, 1, 2, 3])
+    assert _run(obj, width=0.75, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 0.75, 0.0) for x in range(4)])
+
+
+def test_execute_pocket_beyond_the_short_flank():
+    obj = _edit_object(_pocket_uneven_flanks(), chain=[0, 1, 2, 3])
+    assert _run(obj, width=1.0, chain_sides="+") == {'FINISHED'}
+    assert {(1.0, 1.0, 0.15), (2.0, 1.0, 0.15), (0.0, 1.0, 0.0), (3.0, 1.0, 0.0)} <= _new_coords(obj)
+
+
+def test_execute_crosses_a_fold():
+    obj = _edit_object(_fold_box(), chain=[0, 1, 2])
+    assert _run(obj, width=1.4, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 1.0, 0.4) for x in range(3)])
+
+
+def test_execute_open_chain_keeps_inside_its_end_walls():
+    obj = _edit_object(_grid(5, 4), chain=[6, 7, 8])
+    assert _run(obj, width=1.5, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 2.5, 0.0) for x in (1, 2, 3)])
+
+
+def test_execute_wraps_onto_the_far_side_of_a_cube():
+    obj = _edit_object(_cube_top_chain(), chain=None)   # 1×1×1 cube, top front edge selected
+    assert _run(obj, width=1.5, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(-0.5, 0.5, 0.0), (0.5, 0.5, 0.0)])
+
+
+def test_execute_connects_past_the_rail_path_end():
+    # Vertex 9 moved sideways: edge 5 -> 9 leans 58 degrees off straight on, so the rail path of chain
+    # vertex 1 ends at 5 and its new vertex goes on along the bisector to (1, .7), inside face 4-5-9-8.
+    # A connecting edge from 5 keeps the strip in quads past the existing loop.
+    bm = _strip(rows=2)
+    bm.verts[9].co = (1.8, 1.0, 0.0)
+    bm.normal_update()
+    obj = _edit_object(bm, chain=[0, 1, 2, 3])
+    assert _run(obj, width=0.7, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(0, .7, 0), (1, .7, 0), (1.32, .7, 0), (2, .7, 0), (3, .7, 0)])
+    assert _edge_between(obj, (1, .5, 0), (1, .7, 0))
+
+
+def test_execute_pocket_runs_on_past_the_lids_far_edge():   # the trace goes on over the far edge 5-6
+    bm = _pocket_with_fold()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    _close(core.Slider(build.band).limit(), 3.0, 1e-6)     # 2 across the ceiling and the lid, 1 down the fold
+    obj = _edit_object(bm, chain=[0, 1, 2, 3])
+    assert _run(obj, width=2.5, chain_sides="+") == {'FINISHED'}
+    assert _round_set([(x, 2, -0.5) for x in range(4)]) <= _new_coords(obj), _new_coords(obj)
+
+
+def test_slide_stops_at_a_fin():   # an edge three band faces hold is a border, as before the band ran on
+    bm = _strip_with_fin()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    # Past 0.5 the loop would cross the fin's edge 12-13; up to 2e-6 past it the anchors still snap onto 5 and 6.
+    _close(core.Slider(build.band).limit(), 0.5, 1e-5)
+
+
+def test_hidden_fin_is_no_border():   # hidden faces count as absent: the end fans cross the edge a hidden fin stands on
+    bm = _sliver()
+    v0, v2 = bm.verts[0], bm.verts[2]
+    fin = [bm.verts.new((0, 0, 1)), bm.verts.new((2, 0, 1))]
+    bm.faces.new((v0, v2, fin[1], fin[0])).hide = True
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2]), +1)
+    assert err is None, err
+    assert sorted(build.band.faces) == [0, 1] and build.band.end_edges == (4, 3)
+
+
+def test_strip_faces_skip_a_fin_inside_the_strip():   # the loop passes over the fin's edge 5-6; the fin is no strip face
+    bm = _strip(rows=2)
+    v5, v6 = bm.verts[5], bm.verts[6]
+    fin = [bm.verts.new((1, .5, 1)), bm.verts.new((2, .5, 1))]
+    bm.faces.new((v5, v6, fin[1], fin[0]))
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.normal_update()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None, err
+    applied = bridge.apply_cut(bm, build, core.Slider(build.band).solve(0.75))
+    assert not applied.failures, applied.failures
+    assert len(applied.strip_faces) == 6 and all(v.co.z == 0.0 for f in applied.strip_faces for v in f.verts)
+    bm.free()
+
+
+def test_execute_end_turns_onto_the_other_wall():   # the bridge twin of the core's walls_meet()
+    obj = _edit_object(_walls_meet(), chain=[0, 1, 2, 3])
+    assert _run(obj, width=0.5, chain_sides="+") == {'FINISHED'}
+    h1 = (1.0 + 1.0 / math.sqrt(1.49)) / 2.0         # balanced width at 5, down the rail of 1
+    h2 = (1.0 + 1.0 / math.sqrt(1.25)) / 2.0         # balanced width at 6, down the rail of 2
+    expected = [
+        ((0.5 * math.sqrt(1.49) - 0.3) / 0.7, 0.0, 0.0),   # the start, on 4-5: past the meeting vertex 4
+        (1.0, 1.0 - 0.5 / h1, 0.0),
+        (2.0 - 0.25 / h2, 1.0 - 0.5 / h2, 0.0),
+        (2.5 - 0.5 * math.sqrt(1.25), 0.0, 0.0),           # the end, on 3-6
+    ]
+    found = sorted(_new_coords(obj))
+    assert len(found) == 4 and all(math.dist(p, q) < 1e-5 for p, q in zip(expected, found)), found
+    bm = _walls_meet()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None and build.band.end_edges == (4, 6), err
+    applied = bridge.apply_cut(bm, build, core.Slider(build.band).solve(0.5))
+    assert not applied.failures, applied.failures
+    assert len(applied.strip_faces) == 3                  # above the walls along y = 0, not the row below
+    assert all(v.co.y >= -1e-6 for f in applied.strip_faces for v in f.verts)
+    bm.free()
 
 
 def test_execute_reports_an_incomplete_cut():   # a failure once editing began still finishes the edit
@@ -1091,6 +1364,56 @@ def test_modal_ctrl_snap_measures_against_the_nearest_chain():
     op._finish(ctx)
 
 
+def _top_view(lo=-2.0, hi=22.0, size=1200):
+    """A stand-in top-down orthographic view: object x and y in [lo, hi] fill a ``size`` pixel square region.
+
+    Returns (context for invoke() and the modal, object point -> region pixel).
+    """
+    s = 2.0 / (hi - lo)
+    pm = Matrix(((s, 0, 0, -1.0 - s * lo), (0, s, 0, -1.0 - s * lo), (0, 0, -0.01, 0), (0, 0, 0, 1)))
+    rv3d = SimpleNamespace(perspective_matrix=pm, window_matrix=pm, is_perspective=False, view_matrix=Matrix())
+    region = SimpleNamespace(width=size, height=size, x=0, y=0, as_pointer=lambda: 0)
+    ctx = _modal_context()
+    ctx.region, ctx.region_data, ctx.space_data = region, rv3d, SimpleNamespace(region_3d=rv3d)
+
+    def to_px(co):
+        return round(size * (co[0] - lo) / (hi - lo)), round(size * (co[1] - lo) / (hi - lo))
+
+    return ctx, to_px
+
+
+def test_modal_ctrl_snap_ranks_only_the_vertices_near_the_cursor():
+    # Every band vertex is a snap candidate. With a view, the screen ranking runs over the few in its reach,
+    # and picks what the ranking over all of them picks.
+    from InteractionOps.utils import picking
+    obj = _edit_object(_grid(21, 21), chain=[10 * 21 + x for x in range(5, 16)])
+    ctx, to_px = _top_view()
+    op = _OperatorStandIn(width=0.05)
+    assert op.invoke(ctx, _move(0)) == {'RUNNING_MODAL'}
+    assert len(op._snap_points) == 21 * 21 - 11                     # both bands flood the whole grid
+    ranked, rank = [], picking.closest_snap_point
+    picking.closest_snap_point = lambda c, points, *a, **kw: (ranked.append(len(points)), rank(c, points, *a, **kw))[1]
+    try:
+        # 50 pixels a unit: (14.5, 11.1) lies halfway between (14, 11) and (15, 11); (3.5, 3.5) is out of every
+        # vertex's reach.
+        for at, width in (((7.3, 13.2), 3.0), ((12.0, 16.0), 6.0), ((9.8, 4.3), -6.0), ((14.5, 11.1), 1.0),
+                          ((3.5, 3.5), None)):
+            hit = Vector((*at, 0.0))
+            op._mouse_world = lambda _ctx, _mouse, hit=hit: hit
+            mouse = to_px(at)
+            op._modal(ctx, _move(*mouse, ctrl=True))
+            want = rank(ctx, op._snap_points, obj.matrix_world, mouse, hit)
+            if width is None:
+                assert want is None and op._snap_co is None, at
+            else:
+                assert want is not None and op._snap_co is want[1], at
+                _close(op.width, width, 1e-6)
+    finally:
+        picking.closest_snap_point = rank
+        op._finish(ctx)
+    assert len(ranked) == 5 and max(ranked) < 20, ranked
+
+
 def test_modal_f_flips_the_nearest_chain():   # chain indices skip the chain without a band
     _edit_object(_wire_and_two_strips(), chain=None)
     op, ctx = _invoke(x=0, width=0.25)
@@ -1280,7 +1603,15 @@ TESTS = [
     test_side_faces_in_different_sectors_skip_chain,
     test_two_faces_on_one_side_skip_chain,
     test_sliver_end_wedges_cross_the_shallow_chord,
-    test_chain_end_inside_the_mesh_stops_at_its_rail,
+    test_chain_end_inside_the_mesh_stops_at_its_end_walls,
+    test_build_band_floods_the_side_and_names_its_end_edges,
+    test_pocket_lid_follows_the_flank_rail_paths,
+    test_strip_faces_stop_at_the_end_walls,
+    test_strip_faces_need_bounded_ends,
+    test_step_region_stops_at_the_lids_far_side,
+    test_lid_path_stops_where_the_straightest_edge_leaves_the_plane,
+    test_lid_paths_stop_where_they_meet,
+    test_lid_tolerance_takes_the_first_corners,
     test_ngon_band_keeps_the_wedge_face,
     test_execute_strip,
     test_execute_reuses_existing_mid_loop,
@@ -1297,6 +1628,17 @@ TESTS = [
     test_execute_pocket_wraps_with_a_jittered_lip_corner,
     test_execute_tilted_small_pocket_far_from_origin,
     test_execute_pocket_with_uneven_flank_rails,
+    test_execute_strip_passes_existing_mid_loop,
+    test_execute_pocket_beyond_the_short_flank,
+    test_execute_crosses_a_fold,
+    test_execute_open_chain_keeps_inside_its_end_walls,
+    test_execute_wraps_onto_the_far_side_of_a_cube,
+    test_execute_connects_past_the_rail_path_end,
+    test_execute_pocket_runs_on_past_the_lids_far_edge,
+    test_slide_stops_at_a_fin,
+    test_hidden_fin_is_no_border,
+    test_strip_faces_skip_a_fin_inside_the_strip,
+    test_execute_end_turns_onto_the_other_wall,
     test_execute_reports_an_incomplete_cut,
     test_execute_keeps_the_first_cut_when_a_later_chain_raises,
     test_preview_skips_a_chain_whose_solve_raises,
@@ -1311,6 +1653,7 @@ TESTS = [
     test_modal_shift_precision_hands_over_without_jumps,
     test_modal_ctrl_snap_and_release_reanchors,
     test_modal_ctrl_snap_measures_against_the_nearest_chain,
+    test_modal_ctrl_snap_ranks_only_the_vertices_near_the_cursor,
     test_modal_f_flips_the_nearest_chain,
     test_modal_f_keeps_a_one_sided_chain,
     test_modal_esc_restores_every_prop,

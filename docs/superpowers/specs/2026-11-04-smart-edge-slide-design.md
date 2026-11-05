@@ -62,11 +62,10 @@ the original surface, and every new edge lies inside an original face.
   width is measured on the projected side surface, not along the step face.
 - Any new bevel or chamfer geometry. Per chain we add one new loop and its
   connecting edges, nothing else.
-- Walking the cut across the mesh beyond the band of faces next to the
-  chain. Two things go further and nothing else: step projection and the
-  ends sliding along the border. A general walk would need a different core
-  data model, and the user never asked for one; the user's examples are all
-  about stopping exactly at a vertex.
+
+*(Revised 2026-11-04 after the first live test: the earlier non-goal "do not
+walk the cut beyond the faces next to the chain" is dropped. See* Unbounded
+slide*.)*
 
 ## Anti-goals (fails even if it technically works)
 
@@ -229,15 +228,53 @@ wall prism extruded along −X.
 - Ctrl near such a border vertex snaps the end exactly into it. Agreed with
   the user.
 
+### Unbounded slide (revised 2026-11-04)
+
+The user tested the first build and found the slide stopping at a loop they
+had cut earlier next to the chain (a rail only 0.377 long). Their decision:
+"it must not be limited anywhere; move it as far as it can go."
+
+- **The band is everything reachable on the chosen side.** It covers every
+  visible face that a flood fill reaches from the side faces without
+  crossing a chain edge. Faces under a step lid are the exception: the lid
+  stands for them.
+- **Rails continue through rows.**
+  - A rail is the edge that runs from a chain vertex into the side. When the
+    new vertex would pass the rail's far vertex, the rail continues with the
+    next edge at that vertex whose developed direction stays closest to
+    straight on, within `RAIL_MAX_DEV`. This is an edge ring continued
+    across rows: through existing parallel loops, and across folds that run
+    along the chain, because the development unfolds them.
+  - The new vertex sits where the rail path gives balanced width: the
+    in-surface distances to the two neighbouring chain edges average to the
+    width. On a straight rail this is exactly the existing rail formula.
+  - Where the rail path ends or bends away, the vertex does not clamp and
+    does not jump. In both modes it goes on from the path's last point along
+    the corner's bisector, so the slide stays continuous and the width error
+    stays at its value there. Exact mode follows the path only while that
+    error stays within its tolerance, so past the path it stays within it
+    too. The vertex keeps going as long as its trace stays on the band.
+- **Open-chain ends get end walls.**
+  - The end edge chosen at each end of an open chain continues as a rail
+    path across rows. This is the *end wall*.
+  - The end of the new loop slides along the end wall.
+  - Traces never cross an end wall, so the band cannot leak around the end
+    of the chain.
+- **Step lids extend.** A lid runs along each flank's rail path for as long
+  as the path stays in the lid's plane. Past that, the trace continues on
+  real faces wherever the lid's far edge is a real mesh edge.
+- **What still stops the slide.** It runs until one of these, and only these:
+  - the edge of the mesh or of the visible faces;
+  - an end wall;
+  - the new loop running into the chain itself;
+  - a place where the surface cannot be developed flat without tearing: a
+    vertex with angle defect, such as a box corner, inside the strip
+    (`inconsistent development`).
+
 ### Width past the available room
 
-- **Hard limits, always.** The width cannot go past:
-  - the point where a new vertex reaches the far end of its rail;
-  - the point where the cut reaches the far border of the band.
-
-  The band is the faces next to the chain, plus what a step projects onto.
-  Open-chain ends sliding along the border are the one exception (see
-  *Ends*).
+- **Hard limits** are the ones listed under *Unbounded slide*. There is no
+  limit at the end of the first row of faces any more.
 - **Shrinking segments.** At a convex corner, a segment of the new loop can
   shrink to zero length. By default (C off) the width **clamps** there, and
   the preview turns the warning colour, as in Smart Inset's clamp mode. With
@@ -331,9 +368,19 @@ operation, without a separate unwrap step.
 - **Edges of the rectangle.**
   - Every vertex on the original edge lies on the bottom, and every vertex
     on the new edge lies on the top.
-  - The columns at the source vertices are straight verticals.
-  - Faces inside a step (the lip and the pocket pieces) are squeezed into
-    the rectangle, so the strip stays a perfect rectangle. *(Our call.)*
+  - **Relaxed, still straight (revised 2026-11-04 after the live test).**
+    The user saw stretching where vertical columns were forced at every
+    source vertex. Approved replacement:
+    - each edge of the strip is laid out by its own arc length, scaled to
+      the strip length L, which is the mean of the two edge lengths. Density
+      is uniform along each edge, and a longer edge is compressed evenly
+      along its whole length, never inside one face;
+    - columns may lean at bends; only the two ends of an open strip are
+      vertical;
+    - interior vertices (the lip and pocket pieces of a step) are placed by
+      an angle-preserving relax: Tutte with mean-value weights taken from
+      the 3D faces. The faces keep their shape as far as the straight
+      rectangle allows, and no face flips.
 - **Closed loops** (inset rings, closed edge loops) are cut at the sharpest
   corner of the original loop. On a tie, the first vertex in loop order wins.
   *(Our call.)*
@@ -410,9 +457,13 @@ Follow the Smart Inset split.
   the left of the chain walked counter-clockwise on screen. The sign flips
   every chain, and F flips the chain nearest the cursor. The assignment is
   stored for redo.
-- **Scope.** The cut stays in the band of faces next to the chain. Only step
-  projection and the end-slide go further; there is no general walk across
-  the mesh.
+- **Scope (revised).** The slide is unbounded, as the user decided. These
+  details are our call:
+  - rails continue straight-on within `RAIL_MAX_DEV`;
+  - past its rail path's end a vertex continues along the bisector from the
+    path's last point, with no jump, in both modes;
+  - open-chain ends become end walls;
+  - lids extend while they stay in their own plane.
 - **Clamp.** Clamp is the default and C allows collapse. Collapse only drops
   shrinking segments. Clamping is per chain.
 - **Steps.** A step is detected by the away directions of the faces, with
@@ -423,7 +474,9 @@ Follow the Smart Inset split.
   for now.
 - **UV Stripe:**
   - closed loops are cut at the sharpest corner;
-  - step faces are squeezed into the rectangle;
+  - edges laid out by their own arc length, columns may lean, interior
+    vertices by a mean-value relax (revised after the user's live test,
+    approved by the user);
   - Fit 0–1 stacks strips with a 0.01 gap;
   - a missing UV channel is created;
   - U is the toggle key.

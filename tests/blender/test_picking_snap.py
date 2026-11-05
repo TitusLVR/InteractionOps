@@ -166,7 +166,38 @@ def test_pull_toward_viewer_behind_camera_unchanged():
     assert (out[0] - p).length < 1e-9
 
 
+def test_snap_points_in_reach_keeps_every_winner():
+    # The prefilter keeps every point closest_snap_point could pick, in order: ranking what it keeps picks
+    # what ranking them all picks, in an orthographic and a perspective view, for a moved and scaled object.
+    import random
+
+    import numpy as np
+    rnd = random.Random(7)  # noqa: S311 - a seeded fixture, not security
+    views = ((ortho_context(200.0), 0.0), (persp_context(), -120.0))    # (context, depth of the points)
+    mw = Matrix.Translation((5.0, -3.0, 0.0)) @ Matrix.Diagonal((2.0, 2.0, 2.0, 1.0))
+    for ctx, depth in views:
+        pts = [("vertex", Vector((rnd.uniform(-40, 40), rnd.uniform(-40, 40), depth / 2.0 + rnd.uniform(-2, 2))))
+               for _ in range(2000)]
+        cos = np.array([tuple(co) for _kind, co in pts])
+        picked = 0
+        for i in range(300):
+            near = mw @ pts[rnd.randrange(len(pts))][1]
+            hit = near + Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0.0)) * (0.3 if i % 2 else 3.0)
+            mouse = screen_of(ctx, hit)
+            keep = picking.snap_points_in_reach(ctx, cos, mw, (mouse[0], mouse[1]), hit)
+            want = picking.closest_snap_point(ctx, pts, mw, (mouse[0], mouse[1]), hit)
+            got = picking.closest_snap_point(ctx, [pts[k] for k in keep], mw, (mouse[0], mouse[1]), hit)
+            assert keep == sorted(keep) and len(keep) < len(pts) // 10, len(keep)
+            assert (want is None) == (got is None) and (want is None or want[1] is got[1]), (i, want, got)
+            picked += want is not None
+        assert picked > 100, picked
+    # No view: closest_snap_point scores by world distance against the points' own extent, so all of them.
+    flat = SimpleNamespace(region=None, space_data=SimpleNamespace(region_3d=None))
+    assert picking.snap_points_in_reach(flat, cos, mw, (0, 0), Vector()) is None
+
+
 TESTS = [
+    test_snap_points_in_reach_keeps_every_winner,
     test_pull_toward_viewer_ortho,
     test_pull_toward_viewer_perspective_scales_with_depth,
     test_pull_toward_viewer_behind_camera_unchanged,

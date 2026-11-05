@@ -5,14 +5,17 @@ selection into chains and one side of one chain into a core ``Band``:
 
 1. chains are the connected runs of selected, visible edges, in an order that
    stays the same across redo;
-2. a band holds the faces next to the chain on one side: the side face of every
-   chain edge, the wedge faces around each chain vertex, and at an open chain's
-   ends the faces past edges too shallow to end the new loop on;
+2. a band holds every visible face a flood fill reaches on one side, from the
+   side face of every chain edge and the wedge faces around each chain vertex,
+   without crossing a chain edge. At an open chain's ends the wedge runs on past
+   edges too shallow to end the new loop on; the edge it stops at is the end
+   edge, which the core continues as the end wall;
 3. a side face that turns away while the chain runs straight across it and its
    two neighbours agree (a pocket lip) is a *step*. The band swaps it for a
-   virtual *lid* polygon that continues the neighbours' surface, and the step
-   keeps the real faces under it, between its flank rails, as its region, for
-   the cut to be projected onto.
+   virtual *lid* polygon that continues the neighbours' surface along both flank
+   rail paths, and the step keeps the real faces under it, between those paths,
+   as its region, for the cut to be projected onto. The flood leaves the region
+   out: the lid stands for it.
 
 Real faces keep their ``BMFace.index`` as band ids; lids get negative ids.
 
@@ -29,6 +32,7 @@ For the modal, ``preview_layers`` draws what ``apply_cut`` would build, and
 import math
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import NamedTuple
 
 import bmesh
@@ -42,7 +46,9 @@ BRANCHING = "branching selection"
 NO_SIDE_FACE = "chain edge without a visible face on that side"
 SEVERAL_SIDE_FACES = "chain edge with several faces on that side"
 NO_FLANK_RAIL = "step without a flank rail"
-WEDGE_INTERRUPTED = "chain vertex wedge interrupted by a hidden, border or non-manifold face"
+WEDGE_INTERRUPTED = (
+    "the faces round a chain vertex stop at an edge without exactly two visible faces, or an end wall cannot leave them"
+)
 MIXED_SECTORS = "chain vertex side faces with inconsistent normals"
 STEP_GAP = "the cut across a step leaves a gap in the faces under it"
 LOOSE_LOOP = "new loop does not run between two separate vertices or edges"
@@ -99,7 +105,8 @@ class StepSpan:
 
     ``normal`` is the projection direction, the mean normal of the two flank
     faces. ``region`` is the real faces under the step (``_step_region``), sorted by index.
-    ``extent`` is the largest distance between the lid's corners.
+    ``extent`` is the largest distance between the lid's first corners (P_a .. P_b and
+    the two flank rails' far vertices), which scales its tolerances.
     """
 
     lid: int
@@ -112,7 +119,12 @@ class StepSpan:
 
 @dataclass
 class BandBuild:
-    """The band of one chain on one side: ``chain_index`` is the chain's ``ChainSrc.index``, ``side`` +1 or -1."""
+    """The band of one chain on one side: ``chain_index`` is the chain's ``ChainSrc.index``, ``side`` +1 or -1.
+
+    ``faces`` are the band's real faces by index, ``verts`` every band vertex
+    (chain, real faces and lid corners) by index. The band may span the whole
+    mesh, so its lookups are worked out once per build, for every preview.
+    """
 
     band: core.Band
     chain: list[BMVert]
@@ -120,6 +132,26 @@ class BandBuild:
     steps: list[StepSpan]
     chain_index: int
     side: int
+    verts: dict[int, BMVert]
+
+    @cached_property
+    def edge_faces(self) -> dict[tuple[int, int], set[int]]:
+        """Band faces on each edge, keyed by sorted vertex ids."""
+        return _band_edge_faces(self.band)
+
+    @cached_property
+    def vert_faces(self) -> dict[int, list[int]]:
+        """Band faces at each vertex id, in band order."""
+        out: dict[int, list[int]] = {}
+        for f, loop in self.band.faces.items():
+            for v in loop:
+                out.setdefault(v, []).append(f)
+        return out
+
+    @cached_property
+    def weld(self) -> float:
+        """The weld tolerance at the size of the band's coordinates (see ``WELD_TOL``)."""
+        return _tolerance(WELD_TOL, WELD_STEPS, self.band.verts.values())
 
 
 @dataclass
@@ -227,39 +259,70 @@ def _corner(face: BMFace, v: BMVert) -> float:
 
 
 def _across(edge: BMEdge, face: BMFace) -> BMFace | None:
-    """The visible face on the other side of a manifold ``edge``, else None."""
-    if len(edge.link_faces) != 2:
+    """The other face of an ``edge`` that exactly two visible faces hold, ``face`` one of them; else None.
+
+    Hidden faces count as absent, so a hidden fin leaves its edge crossable.
+    """
+    visible = [f for f in edge.link_faces if not f.hide]
+    if len(visible) != 2 or face not in visible:
         return None
-    other = edge.link_faces[0] if edge.link_faces[1] is face else edge.link_faces[1]
-    return None if other.hide else other
+    return visible[0] if visible[1] is face else visible[1]
 
 
-def _fan(v: BMVert, face: BMFace, came: BMVert, stop: BMVert | None, chain_edges: set) -> tuple[list[BMFace], bool]:
+def _fan(
+    v: BMVert, face: BMFace, came: BMVert, stop: BMVert | None, chain_edges: set
+) -> tuple[list[BMFace], bool, BMVert | None]:
     """Faces around ``v`` from ``face`` (which holds edge (v, came)), unfolding away from ``came``.
 
     With ``stop`` (a middle chain vertex) the fan ends at the face whose far edge
     reaches ``stop``. Without (an open chain's end) it crosses an edge only while
-    the unfolded angle from the chain edge stays under ``END_SHALLOW``. Chain
-    edges, borders, non-manifold edges and hidden faces end it early.
+    the unfolded angle from the chain edge stays under ``END_SHALLOW``. A chain
+    edge ends it early, and so does every edge not held by exactly two visible
+    faces (``_across``): the mesh border, a fin, or the edge of a hidden face.
 
-    Returns (faces, reached): ``reached`` is True when a middle fan got round to
-    ``stop``, False when it ended early (and always for an end fan).
+    Returns (faces, reached, end): ``reached`` is True when a middle fan got round
+    to ``stop``, False when it ended early (and always for an end fan). ``end`` is
+    the far vertex of the edge an end fan stopped at once the angle reached
+    ``END_SHALLOW``: that end edge leaves the chain by ``END_SHALLOW`` at least,
+    so the end wall it starts never runs along the new loop. None when the fan
+    ended any other way.
     """
     faces, angle = [face], 0.0
     while True:
         far, edge = _other_edge(face, v, came)
         if stop is not None:
             if far is stop:
-                return faces, True
+                return faces, True, None
         else:
             angle += _corner(face, v)
             if angle >= END_SHALLOW:
-                return faces, False
+                return faces, False, far
         nxt = None if edge in chain_edges else _across(edge, face)
         if nxt is None or nxt in faces:
-            return faces, False
+            return faces, False, None
         faces.append(nxt)
         face, came = nxt, far
+
+
+def _flood(seeds: list[BMFace], walls: set, skip: set) -> list[BMFace]:
+    """``seeds`` and every visible face reached from them across edges, never across ``walls`` or into ``skip``.
+
+    It also enters every face of an edge that more than two visible faces hold,
+    so the core sees them all on that edge and makes it a border (a fin standing
+    on the surface stops the slide there). Each face is visited once and each of
+    its edges looked at once: linear in the faces reached.
+    """
+    out = list(dict.fromkeys(seeds))
+    seen = skip | set(out)
+    for face in out:  # grows while it is walked
+        for e in face.edges:
+            if e in walls:
+                continue
+            for nxt in e.link_faces:
+                if not nxt.hide and nxt not in seen:
+                    seen.add(nxt)
+                    out.append(nxt)
+    return out
 
 
 # --- steps -----------------------------------------------------------------------
@@ -327,9 +390,44 @@ def _inside(p: tuple[float, float], poly: list[tuple[float, float]], tol: float)
     return inside
 
 
+def _lid_path(
+    start: BMVert, rail: BMEdge, center: Vector, normal: Vector, tol: float, chain: set, meets: set, chain_edges: set
+) -> list[BMVert]:
+    """A flank rail continued edge by edge while it stays in the lid's plane.
+
+    The path leaves chain vertex ``start`` along ``rail``. At each vertex it takes
+    the visible edge that turns least from the edge it came along, never a chain
+    edge, an edge back onto the path or one to a ``chain`` vertex. It goes on along
+    that edge while the turn stays within ``core.RAIL_MAX_DEV`` and the edge's far
+    vertex lies within ``tol`` of the plane through ``center`` with ``normal``;
+    otherwise it ends. Inside one plane the 3D turn is the developed one. It ends
+    on the first vertex of ``meets`` it reaches (the other flank's path).
+    """
+    path = [start, rail.other_vert(start)]
+    on_path = set(path)
+    while path[-1] not in meets:
+        x = path[-1]
+        heading = x.co - path[-2].co
+        best = None
+        for e in x.link_edges:
+            if e.hide or e in chain_edges or all(f.hide for f in e.link_faces):
+                continue
+            y = e.other_vert(x)
+            if y in on_path or y in chain:
+                continue
+            turn = heading.angle(y.co - x.co, None)
+            if turn is not None and (best is None or turn < best[0]):
+                best = (turn, y)
+        if best is None or best[0] > core.RAIL_MAX_DEV or abs((best[1].co - center).dot(normal)) > tol:
+            break
+        path.append(best[1])
+        on_path.add(best[1])
+    return path
+
+
 def _step_region(
     seeds: list[BMFace], walls: set, tops: list[BMVert], corners: list[BMVert], away: Vector, normal: Vector,
-    depth: float, tol: float,
+    depth: float, tol: float, far: tuple[BMVert, BMVert] | None = None,
 ) -> list[BMFace]:
     """Visible faces flooded from ``seeds`` without crossing ``walls`` that lie under the step.
 
@@ -339,9 +437,15 @@ def _step_region(
     face spans it), no vertex lies further back across the chord, against
     ``away``, than the furthest-back chain point by more than ``tol``, and every
     vertex lies within ``depth`` of the lid plane (through the corners' mean).
-    The lid's far side bounds nothing: where the flank rails differ in length it
-    cuts across the faces under the step, and ``project_step`` keeps only the
-    pieces between the cut's own ends. The flood only spreads from kept faces.
+    The flood only spreads from kept faces. ``walls`` hold the chain and every
+    lid side that is a mesh edge: both flank paths and, where it is one, the
+    lid's far edge, so the faces behind it stay real faces of the band.
+
+    ``far`` is the lid's far side, from the end of the path at P_b to the end of
+    the path at P_a, where no mesh edge joins them. A face then also needs a
+    vertex short of that side, by more than ``tol``. Where the flank paths
+    differ in length the far side cuts across the faces under the step, and
+    ``project_step`` keeps only the pieces between the cut's own ends.
     Positions are taken relative to the corners' mean, so float32 coordinates
     far from the origin keep the lid's own precision.
     """
@@ -354,6 +458,20 @@ def _step_region(
     lo, hi = (tops[0].co - center).dot(u), (tops[-1].co - center).dot(u)
     back = min((p.co - center).dot(w) for p in tops) - tol
 
+    def flat(co: Vector) -> Vector:  # seen along the normal, in the lid's (u, w) frame
+        d = co - center
+        return Vector((d.dot(u), d.dot(w)))
+
+    # The far side as (a point on it, its unit normal away from the chain), seen along the normal.
+    far_side = None
+    if far is not None:
+        fb, fa = flat(far[0].co), flat(far[1].co)
+        if (fa - fb).length > tol:
+            out = (fa - fb).orthogonal().normalized()
+            if out.dot(sum((flat(p.co) for p in tops), Vector((0.0, 0.0))) / len(tops) - fb) > 0.0:
+                out.negate()
+            far_side = (fb, out)
+
     def under_step(face: BMFace) -> bool:
         along = []
         for v in face.verts:
@@ -361,6 +479,8 @@ def _step_region(
             if abs(d.dot(normal)) > depth or d.dot(w) < back:
                 return False
             along.append(d.dot(u))
+        if far_side is not None and min(far_side[1].dot(flat(v.co) - far_side[0]) for v in face.verts) >= -tol:
+            return False  # nothing of the face lies short of the lid's far side
         return max(along) >= lo - tol and min(along) <= hi + tol
 
     region, seen, queue = [], set(seeds), deque(seeds)
@@ -405,7 +525,14 @@ def build_band(
     ``side=+1`` takes the faces that run each chain edge in chain order
     (``loop.vert is a and loop.link_loop_next.vert is b``), ``side=-1`` the
     others. Hidden faces never join the band. ``tris`` is ``face_triangles(bm)``
-    for the mesh as it is now; without it the band computes its own. The reasons are:
+    for the mesh as it is now; without it the band computes its own.
+
+    The band is a flood from the side and wedge faces across every edge but the
+    chain's, once per call and linear in the faces reached. It leaves out the
+    faces a lid stands for. Round an open chain's end it may reach the other
+    side: the end walls keep the traces off it. The end edges are where the end
+    wedges stop (see ``_fan``); an end whose wedge ends at the border first, or
+    a closed chain, has none. The reasons are:
 
     - ``NO_SIDE_FACE`` and ``SEVERAL_SIDE_FACES`` for a chain edge;
     - ``MIXED_SECTORS`` when a chain vertex's two side faces lie on different
@@ -413,7 +540,8 @@ def build_band(
     - ``NO_FLANK_RAIL`` when a flank rail ends on the chain, or both rails end on
       one vertex, so there is no lid polygon;
     - ``WEDGE_INTERRUPTED`` when the finished band cannot develop a chain
-      vertex's wedge (``core.wedge`` fails).
+      vertex's wedge, or an end wall cannot leave its end vertex's wedge
+      (``core.wedges`` raises).
     """
     bm.verts.index_update()
     bm.faces.index_update()
@@ -440,16 +568,16 @@ def build_band(
     # side face round to the incoming one (an open chain's ends: to the band border).
     # A middle fan that gets round must end on the incoming side face; a fan that
     # ends early is judged once the lids are in, since a lid may bridge the gap.
-    wedges = []
+    wedges, end_edges = [], [None, None]
     for k in range(n):
         if closed or 0 < k < n - 1:
-            fan, reached = _fan(chain[k], side_faces[k], chain[(k + 1) % n], chain[k - 1], walls)
+            fan, reached, _end = _fan(chain[k], side_faces[k], chain[(k + 1) % n], chain[k - 1], walls)
             if reached and fan[-1] is not side_faces[k - 1]:
                 return None, MIXED_SECTORS
         elif k == 0:
-            fan, _ = _fan(chain[0], side_faces[0], chain[1], None, walls)
+            fan, _reached, end_edges[0] = _fan(chain[0], side_faces[0], chain[1], None, walls)
         else:
-            fan, _ = _fan(chain[k], side_faces[k - 1], chain[k - 1], None, walls)
+            fan, _reached, end_edges[1] = _fan(chain[k], side_faces[k - 1], chain[k - 1], None, walls)
         wedges.append(fan)
 
     away = [
@@ -459,6 +587,7 @@ def build_band(
     chain_set = set(chain)
     side_ids = [f.index for f in side_faces]
     lids: dict[int, tuple[int, ...]] = {}
+    lid_verts: list[BMVert] = []
     replaced: set[BMFace] = set()
     steps = []
     for a, b in _step_runs(away, [v.co for v in chain], closed):
@@ -469,8 +598,24 @@ def build_band(
         r_b, rail_b = _other_edge(flank_b, chain[b], chain[(b + 1) % n])
         if r_a in chain_set or r_b in chain_set or r_a is r_b:
             return None, NO_FLANK_RAIL
+
+        n_a, n_b = _normal(flank_a), _normal(flank_b)
+        # A projection direction has no sign: never let opposed flank normals cancel.
+        normal = (n_a + n_b if n_a.dot(n_b) >= 0.0 else n_a - n_b).normalized()
+        # The lid runs on along both flank rail paths while they stay in the plane of its first
+        # corners. Its tolerances keep to those corners: the run-on makes the lid longer, not coarser.
+        first = tops + [r_b, r_a]
+        center = sum((p.co for p in first), Vector()) / len(first)
+        extent = max((p.co - q.co).length for p in first for q in first)
+        tol = max(_tolerance(LID_TOL, PROJECT_STEPS, [p.co for p in first]), STEP_REL_TOL * extent)
+        path_b = _lid_path(chain[b], rail_b, center, normal, tol, chain_set, set(), walls)
+        path_a = _lid_path(chain[a], rail_a, center, normal, tol, chain_set, set(path_b), walls)
+        if path_a[-1] in path_b:  # the paths meet: the lid closes on that vertex, held by path a
+            path_b = path_b[: path_b.index(path_a[-1])]
+        corners = tops + path_b[1:] + path_a[:0:-1]              # (P_a .. P_b, path_b .., .. path_a)
         lid = -(len(steps) + 1)
-        lids[lid] = tuple(v.index for v in tops) + (r_b.index, r_a.index)
+        lids[lid] = tuple(v.index for v in corners)
+        lid_verts += corners
         for x in span:
             side_ids[x % n] = lid
 
@@ -482,37 +627,38 @@ def build_band(
         seeds = list(dict.fromkeys(seeds))
         replaced.update(seeds)
 
-        n_a, n_b = _normal(flank_a), _normal(flank_b)
-        # A projection direction has no sign: never let opposed flank normals cancel.
-        normal = (n_a + n_b if n_a.dot(n_b) >= 0.0 else n_a - n_b).normalized()
-        depth = 2.0 * max((r_a.co - chain[a].co).length, (r_b.co - chain[b].co).length)
-        corners = tops + [r_b, r_a]
-        extent = max((p.co - q.co).length for p in corners for q in corners)
+        # The step may reach as deep under the lid as the lid reaches along its flanks.
+        depth = 2.0 * max((path_a[-1].co - chain[a].co).length, (path_b[-1].co - chain[b].co).length)
         tol = max(_tolerance(LID_TOL, PROJECT_STEPS, [p.co for p in corners]), STEP_REL_TOL * extent)
-        region = _step_region(
-            seeds, walls | {rail_a, rail_b}, tops, corners, away[a - 1] + away[b], normal, depth, tol)
+        sides = {_edge(p, q) for p, q in zip(corners, corners[1:] + corners[:1])} - {None}
+        far = None if _edge(path_b[-1], path_a[-1]) is not None else (path_b[-1], path_a[-1])
+        region = _step_region(seeds, walls | sides, tops, corners, away[a - 1] + away[b], normal, depth, tol, far)
         steps.append(StepSpan(lid, a, b, normal, region, extent))
 
-    real: dict[int, BMFace] = {}
-    for face in side_faces + [f for fan in wedges for f in fan]:
-        if face not in replaced:
-            real.setdefault(face.index, face)
-    verts = {v.index: tuple(v.co) for v in chain}
-    verts.update((v.index, tuple(v.co)) for f in real.values() for v in f.verts)
+    # Every face reachable on the side, but the ones a lid stands for. The side and
+    # wedge faces seed it, so a flank face the region's overlap test also caught stays.
+    skip = replaced.union(*(step.region for step in steps))
+    seeds = [f for f in side_faces + [f for fan in wedges for f in fan] if f not in replaced]
+    real = {f.index: f for f in _flood(seeds, walls, skip)}
+    bm_verts = {v.index: v for v in chain}
+    bm_verts.update((v.index, v) for f in real.values() for v in f.verts)
+    bm_verts.update((v.index, v) for v in lid_verts)
     faces = {i: tuple(v.index for v in f.verts) for i, f in real.items()}
     faces.update(lids)
     # Real faces keep the triangles the mesh shows (Review Focus 5); lids fall back to the core's own.
     if tris is None:
         tris = face_triangles(bm)
     band = core.Band(
-        verts=verts, faces=faces, chain=[v.index for v in chain], closed=closed, side_faces=side_ids,
-        tris={f: tris[f] for f in real if f in tris})
+        verts={i: tuple(v.co) for i, v in bm_verts.items()}, faces=faces, chain=[v.index for v in chain],
+        closed=closed, side_faces=side_ids, tris={f: tris[f] for f in real if f in tris},
+        end_edges=(None, None) if closed else tuple(None if v is None else v.index for v in end_edges))
     try:
-        for k in range(n):
-            core.wedge(band, k)
+        core.wedges(band)
     except ValueError:
         return None, WEDGE_INTERRUPTED
-    return BandBuild(band=band, chain=list(chain), faces=real, steps=steps, chain_index=src.index, side=side), None
+    return BandBuild(
+        band=band, chain=list(chain), faces=real, steps=steps, chain_index=src.index, side=side, verts=bm_verts
+    ), None
 
 
 # --- step projection -------------------------------------------------------------
@@ -791,16 +937,14 @@ def _plan_loop(build: BandBuild, cut: core.Cut, weld: float) -> _LoopPlan:
     Raises ``ValueError`` when the cut cannot be built (see ``apply_cut``).
     """
     band = build.band
-    verts = {v.index: v for v in build.chain}
-    verts.update((v.index, v) for f in build.faces.values() for v in f.verts)
-    edge_faces = _band_edge_faces(band)
+    verts = build.verts
     steps = {s.lid: s for s in build.steps}
 
     def holders(pt: core.SurfacePoint) -> set[int]:
         if pt.kind == "vert":
-            return {f for f, loop in band.faces.items() if pt.vert in loop}
+            return set(build.vert_faces.get(pt.vert, ()))
         if pt.kind == "edge":
-            return edge_faces.get(pt.edge, set())
+            return build.edge_faces.get(pt.edge, set())
         return {pt.face}
 
     slots: list[_Slot] = []
@@ -869,8 +1013,11 @@ def _plan_loop(build: BandBuild, cut: core.Cut, weld: float) -> _LoopPlan:
     return _LoopPlan(slots, point_slot, nodes, runs)
 
 
-def apply_cut(bm, build: BandBuild, cut: core.Cut) -> Applied:
+def apply_cut(bm, build: BandBuild, cut: core.Cut, slider: core.Slider | None = None) -> Applied:
     """Build ``cut`` into the mesh; the band must be unchanged since ``build_band``.
+
+    ``slider`` is the ``core.Slider`` over ``build.band`` that solved ``cut``, when
+    there is one: the end paths come from its surface instead of a new one.
 
     Vertex points reuse their vertex. Edge points split their edge, several on one
     edge far-to-near. Each run of the loop from one vertex or edge point to the
@@ -878,9 +1025,11 @@ def apply_cut(bm, build: BandBuild, cut: core.Cut) -> Applied:
     coordinates; where the run's ends are already joined by an edge, that edge
     is the run. Points inside a lid are dropped, and a run whose ends share only a
     lid becomes its projection onto the step's region (``project_step``), one face
-    split per projected piece. Connectors split the face holding both of their
-    vertices once the loop is in. A complete cut also gets its strip faces
-    (``_strip_faces``).
+    split per projected piece. Connectors (from a chain vertex, or from where a
+    rail path ends) split the face holding both of their vertices once the loop
+    is in. A complete cut also gets its strip faces (``_strip_faces``), none when
+    an open end has nothing to bound the strip: no end path, and its loop end not
+    on the band border (UV Stripe then skips the strip).
 
     Raises ``ValueError`` before touching the mesh when the cut cannot be built,
     among others when the loop does not run between two separate vertices or
@@ -890,10 +1039,14 @@ def apply_cut(bm, build: BandBuild, cut: core.Cut) -> Applied:
     band = build.band
     if not cut.points:
         return Applied([], [], [None] * len(cut.anchors))
-    weld = _tolerance(WELD_TOL, WELD_STEPS, band.verts.values())
+    weld = build.weld
     slots, point_slot, nodes, runs = _plan_loop(build, cut, weld)
-    chain = {v.index: v for v in build.chain}
-    connectors = [(chain[vid], point_slot[idx]) for vid, idx in cut.connectors if point_slot[idx] is not None]
+    connectors = [
+        (build.verts[vid], point_slot[idx])
+        for vid, idx in cut.connectors
+        if vid in build.verts and point_slot[idx] is not None
+    ]
+    end_paths = _end_paths(build, slider)
 
     # Edit the mesh. From here on nothing raises: a part that cannot be built is
     # left out and named in ``failures``, and every edit already made is whole.
@@ -943,8 +1096,32 @@ def apply_cut(bm, build: BandBuild, cut: core.Cut) -> Applied:
     for i, v in enumerate(loop_verts):
         index.setdefault(v, i)
     anchors = [None if a is None or point_slot[a] is None else index.get(made[point_slot[a]]) for a in cut.anchors]
-    strip_faces = [] if failures else _strip_faces(build, loop_edges, halves)
+    strip_faces = []
+    if not failures:
+        # An open end bounds the strip with its end path up to the loop's end, or with
+        # the band border its loop end lies on; otherwise the strip is not bounded there.
+        barrier, bounded = list(loop_edges), True
+        for k, path in zip((0, -1), [] if band.closed else end_paths):
+            if path and anchors[k] is not None:
+                barrier += _wall_edges(path, loop_verts[anchors[k]])
+            elif anchors[k] is None or not _on_band_border(build, cut.points[cut.anchors[k]]):
+                bounded = False
+        strip_faces = _strip_faces(build, barrier, halves) if bounded else []
     return Applied(loop_edges, loop_verts, anchors, strip_faces=strip_faces, failures=failures)
+
+
+def _on_band_border(build: BandBuild, pt: core.SurfacePoint) -> bool:
+    """Whether ``pt`` lies on the band's border: on an edge that one band face holds, or more than two."""
+    if pt.kind == "edge":
+        return len(build.edge_faces.get(pt.edge, ())) != 2
+    if pt.kind == "vert":
+        for f in build.vert_faces.get(pt.vert, ()):
+            loop = build.band.faces[f]
+            i = loop.index(pt.vert)
+            for w in (loop[i - 1], loop[(i + 1) % len(loop)]):
+                if len(build.edge_faces.get((min(pt.vert, w), max(pt.vert, w)), ())) != 2:
+                    return True
+    return False
 
 
 def _faces_of_edge(va: BMVert, vb: BMVert) -> list[BMFace]:
@@ -953,17 +1130,53 @@ def _faces_of_edge(va: BMVert, vb: BMVert) -> list[BMFace]:
     return [] if edge is None else list(edge.link_faces)
 
 
-def _strip_faces(build: BandBuild, loop_edges: list[BMEdge], halves: list[BMFace]) -> list[BMFace]:
+def _end_paths(build: BandBuild, slider: core.Slider | None = None) -> list[list[BMVert]]:
+    """The vertices of the paths an open chain's start and end slide along (``core.end_paths``).
+
+    Each runs from its chain end out along the end wall; empty without one. Taken
+    before the cut is built, while the band's vertex ids still name the mesh's
+    vertices; from ``slider``'s surface when given.
+    """
+    if build.band.closed or build.band.end_edges == (None, None):
+        return [[], []]
+    paths = core.end_paths(build.band) if slider is None else slider.end_paths()
+    return [[build.verts[i] for i in path] for path in paths]
+
+
+def _wall_edges(wall: list[BMVert], end: BMVert) -> list[BMEdge]:
+    """The edges along ``wall``, an end path, from the chain end to the new loop's ``end``, once the cut is in.
+
+    The loop's end lies on the path: on a path vertex, or where it split a path
+    edge, which then leads on to ``end`` instead of to the next path vertex.
+    """
+    out, here = [], wall[0]
+    for nxt in wall[1:]:
+        if here is end:
+            break
+        edge = _edge(here, nxt)
+        if edge is None:
+            edge = _edge(here, end)
+            if edge is not None:
+                out.append(edge)
+            break
+        out.append(edge)
+        here = nxt
+    return out
+
+
+def _strip_faces(build: BandBuild, barrier: list[BMEdge], halves: list[BMFace]) -> list[BMFace]:
     """The faces between the chain and its new loop, once the cut is in.
 
     A flood fill from the side faces of the chain edges, which crosses no chain
-    edge and no new-loop edge. It only enters faces the cut could reach: the
-    band's real faces, the faces under its lids and both faces of every split.
-    So where an open chain's end lies inside the mesh, the fill stops at the
-    strip's end edges instead of leaking into the faces beyond them.
+    edge and no ``barrier`` edge: the new loop's, and at an open chain's ends the
+    end paths' up to the loop's ends. It only enters faces the cut could reach:
+    the band's real faces, the faces under its lids and both faces of every
+    split. The band runs on round an open chain's end, the end paths keep the
+    fill from leaking into the faces beyond the strip's ends. Nor does it cross an
+    edge that more than two visible faces hold: a fin is no strip face.
     """
     chain, n = build.chain, len(build.chain)
-    walls, seeds = set(loop_edges), []
+    walls, seeds = set(barrier), []
     for i in range(n if build.band.closed else n - 1):
         a, b = chain[i], chain[(i + 1) % n]
         edge = _edge(a, b)
@@ -979,7 +1192,7 @@ def _strip_faces(build: BandBuild, loop_edges: list[BMEdge], halves: list[BMFace
         face = queue.popleft()
         out.append(face)
         for e in face.edges:
-            if e in walls:
+            if e in walls or sum(not f.hide for f in e.link_faces) > 2:
                 continue
             for nxt in e.link_faces:
                 if nxt in reach and nxt not in seen:
@@ -1080,7 +1293,7 @@ def preview_layers(builds: list[BandBuild], cuts: list[core.Cut]) -> tuple[list[
     for build, cut in zip(builds, cuts):
         if not cut.points:
             continue
-        weld = _tolerance(WELD_TOL, WELD_STEPS, build.band.verts.values())
+        weld = build.weld
         try:
             plan = _plan_loop(build, cut, weld)
         except ValueError:
@@ -1099,7 +1312,7 @@ def snap_candidates(builds: list[BandBuild]) -> list[tuple[BMVert, int, int]]:
     """The vertices the new loop can be snapped to, as (vertex, chain index, side), once per build.
 
     These are the vertices of the band's real faces, whose edges also make up the
-    border paths an open chain's ends slide along, and of the faces under its lids.
+    end walls an open chain's ends slide along, and of the faces under its lids.
     Chain vertices are left out: the loop reaches them only at width 0.
     """
     out = []
@@ -1121,7 +1334,7 @@ def snap_target(build: BandBuild, v: BMVert) -> core.SurfacePoint | None:
     projected onto the step's faces through ``v``. None for any other vertex.
     """
     band = build.band
-    holder = next((f for f, loop in band.faces.items() if v.index in loop), None)
+    holder = next(iter(build.vert_faces.get(v.index, ())), None)
     if holder is not None:
         return core.SurfacePoint(kind="vert", face=holder, co=tuple(v.co), vert=v.index)
     for step in build.steps:

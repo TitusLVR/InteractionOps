@@ -5,8 +5,13 @@ Stdlib only (no bpy), so it runs under plain pytest.
 Angle convention (used by every consumer): in the wedge of ``chain[k]`` angle 0
 is the direction to ``chain[k+1]``. Angles grow through the side faces up to
 ``theta``, the direction to ``chain[k-1]``. At the first vertex of an open chain
-``theta`` is the end-border edge; at the last vertex angle 0 is the end-border
-edge.
+``theta`` is the end edge (``Band.end_edges``, else the band border); at the
+last vertex angle 0 is the end edge.
+
+Rails continue through rows: ``rail_path`` follows a rail on, edge by edge, as
+far as the next edge stays near straight on. The new vertex sits where that
+path gives the balanced width. An open chain's end edges continue the same way
+as end walls, which the new loop's ends slide along and no trace crosses.
 
 Traces run straight in a development: band faces unfolded into the plane
 across shared edges. Each face is laid out intrinsically (its triangles keep
@@ -14,6 +19,8 @@ their 3D edge lengths), so a development never stretches a face, and 3D points
 come from barycentric coordinates on the face's own triangles.
 """
 
+import bisect
+import heapq
 import math
 from dataclasses import dataclass, field
 from functools import partial
@@ -59,6 +66,14 @@ class Band:
     face listed there is laid out and mapped back to 3D on those triangles, so a
     non-planar face keeps the surface its mesh shows; any other face falls back
     to a triangulation of its own (a fan from its first vertex when convex).
+
+    ``end_edges`` names, for an open chain, the far vertex of the end edge at
+    ``chain[0]`` and at ``chain[-1]``. An end edge bounds that end's wedge and
+    continues as the end wall (see ``rail_path``). None, and every closed
+    chain, keeps the band border as the end of the wedge.
+
+    An edge that more than two band faces hold (a fin standing on the surface)
+    is band border: nothing unfolds or traces across it.
     """
 
     verts: dict[int, Vec3]
@@ -67,6 +82,7 @@ class Band:
     closed: bool
     side_faces: list[int]
     tris: dict[int, list[tuple[int, int, int]]] = field(default_factory=dict)
+    end_edges: tuple[int | None, int | None] = (None, None)
 
     def __post_init__(self):
         n = len(self.chain)
@@ -80,6 +96,10 @@ class Band:
             loop = self.faces.get(f)
             if loop is None or not _has_edge(loop, a, b):
                 raise ValueError(f"side face {f} does not contain chain edge ({a}, {b})")
+        if not self.closed:
+            for v, far in zip((self.chain[0], self.chain[-1]), self.end_edges):
+                if far is not None and not any(_has_edge(loop, v, far) for loop in self.faces.values()):
+                    raise ValueError(f"end edge ({v}, {far}) is not an edge of the band")
 
 
 @dataclass(frozen=True)
@@ -98,11 +118,13 @@ class Wedge:
     rails: list[Rail]
 
 
-def _sweep(band: Band, v: int, start_face: int, start_far: int, stop_far, layout):
+def _sweep(band: Band, v: int, start_face: int, start_far: int, stop_far, layout, edge_faces):
     """Walk face to face around ``v`` starting along edge (v, start_far); ``layout(f)`` lays faces out.
 
     Stops once a face's exit neighbour equals ``stop_far`` (when not None) or the
-    band border is reached. Returns (faces, rails, theta, border_far) where
+    band border is reached: an edge without a second band face, or one that more
+    than two band faces hold (``edge_faces``, see ``_edge_faces``). Returns
+    (faces, rails, theta, border_far) where
     ``rails`` are (far, cumulative_angle) of the interior edges and ``border_far``
     is the exit neighbour of the last face when the sweep ended at the border
     (else None).
@@ -131,11 +153,8 @@ def _sweep(band: Band, v: int, start_face: int, start_far: int, stop_far, layout
         angle += _layout_corner(layout(face), v)
         if stop_far is not None and far1 == stop_far:
             return faces, rails, angle, None
-        nxt = None
-        for f, lp in band.faces.items():
-            if f != face and v in lp and _has_edge(lp, v, far1):
-                nxt = f
-                break
+        holders = edge_faces.get(_ekey(v, far1), ())
+        nxt = next((f for f in holders if f != face), None) if len(holders) == 2 else None
         if nxt is None:
             if stop_far is not None:
                 raise ValueError(f"wedge sweep hit the band border at vertex {v}")
@@ -145,29 +164,38 @@ def _sweep(band: Band, v: int, start_face: int, start_far: int, stop_far, layout
 
 
 def wedge(band: Band, k: int, *, _surface: "_Surface | None" = None) -> Wedge:
+    """The faces around ``chain[k]`` on the band side and the rails between them.
+
+    At an open chain's end the sweep stops at the end edge when ``band.end_edges``
+    names one, else at the band border; that edge is the wedge's border rail.
+    """
     chain, n = band.chain, len(band.chain)
     v = chain[k]
     pv = band.verts
     has_out = band.closed or k < n - 1
     has_in = band.closed or k > 0
     layout = partial(_face_layout, band) if _surface is None else _surface.layout
+    edge_faces = _edge_faces(band) if _surface is None else _surface.edge_faces
 
     def length(far: int) -> float:
         return _length(_sub(pv[far], pv[v]))
 
     if has_out:
-        faces, rails, theta, border = _sweep(
-            band, v, band.side_faces[k], chain[(k + 1) % n],
-            chain[(k - 1) % n] if has_in else None, layout,
-        )
+        stop = chain[(k - 1) % n] if has_in else band.end_edges[0]
+        faces, rails, theta, border = _sweep(band, v, band.side_faces[k], chain[(k + 1) % n], stop, layout, edge_faces)
+        if not has_in and border is None:  # stopped at the end edge
+            border = stop
         out = [Rail(f, a, length(f), False) for f, a in rails]
         if border is not None:
             out.append(Rail(border, theta, length(border), True))
         return Wedge(k, theta, faces, out)
 
-    # Last vertex of an open chain: sweep from chain[k-1] to the border, then flip
-    # so that angle 0 is the border edge.
-    faces, rails, theta, border = _sweep(band, v, band.side_faces[k - 1], chain[k - 1], None, layout)
+    # Last vertex of an open chain: sweep from chain[k-1] to the end edge or the
+    # border, then flip so that angle 0 is that edge.
+    end = band.end_edges[1]
+    faces, rails, theta, border = _sweep(band, v, band.side_faces[k - 1], chain[k - 1], end, layout, edge_faces)
+    if border is None:
+        border = end
     out = [Rail(border, 0.0, length(border), True)]
     out += [Rail(f, theta - a, length(f), False) for f, a in reversed(rails)]
     return Wedge(k, theta, faces[::-1], out)
@@ -436,6 +464,13 @@ def _xf_mirrored(xf: _Xform) -> bool:
     return xf[2] * xf[5] - xf[3] * xf[4] < 0.0
 
 
+def _xf_moved(xf: _Xform, move) -> _Xform:
+    """``xf`` followed by ``move``, a rigid map of the development (no mirror) given as a point function."""
+    ox, oy, ax, ay, bx, by = xf
+    o, a, b = move((ox, oy)), move((ox + ax, oy + ay)), move((ox + bx, oy + by))
+    return (o[0], o[1], a[0] - o[0], a[1] - o[1], b[0] - o[0], b[1] - o[1])
+
+
 def _xf_fit(la: Vec2, lb: Vec2, pa: Vec2, pb: Vec2, mirror: bool) -> _Xform:
     """The rigid map (mirrored when asked) taking ``la`` to ``pa`` and ``lb`` toward ``pb``."""
     s = -1.0 if mirror else 1.0
@@ -475,11 +510,36 @@ def _band_scale(band: Band) -> float:
     return _length(_sub(hi, lo)) or 1.0
 
 
+@dataclass
+class _Spread:
+    """``_Surface.nearest_frame``'s shortest-path walk out from the frame faces, as far as it has gone.
+
+    ``near`` holds each settled face's (k, (face it was reached from, edge a, b)),
+    None for a frame face itself, in the order the walk settled them; ``rank`` each
+    settled face's place in that order; ``best`` the best (distance, k, way) found
+    so far for the faces on the frontier ``heap``; ``placed`` each face laid out in
+    its frame, which starts with the frame faces.
+    """
+
+    near: dict[int, tuple[int, tuple[int, int, int] | None]] = field(default_factory=dict)
+    rank: dict[int, int] = field(default_factory=dict)
+    best: dict[int, tuple[float, int, tuple[int, int, int] | None]] = field(default_factory=dict)
+    heap: list[tuple[float, int, int]] = field(default_factory=list)
+    placed: dict[int, _Xform] = field(default_factory=dict)
+    count: int = 0  # pushes so far: equal distances settle in the order they were found
+
+
+# A developed rail path: its vertex ids, their positions in the wedge frame of
+# its chain vertex, and for each path edge a face holding it, placed there.
+_Path = tuple[list[int], list[Vec2], list[tuple[int, _Xform]]]
+
+
 class _Surface:
-    """Adjacency, face layouts, wedges and tolerances for the traces over one band.
+    """Adjacency, face layouts, wedges, end walls and tolerances for the traces over one band.
 
     Built once per trace call, or once per ``Slider`` and handed to the traces
-    through their private ``_surface`` argument.
+    through their private ``_surface`` argument. ``blocked`` holds the edges no
+    trace or unfolding crosses: the chain edges and the end-wall edges.
     """
 
     def __init__(self, band: Band):
@@ -495,7 +555,72 @@ class _Surface:
         self._wedges: dict[int, Wedge] = {}
         self._frames: dict[int, tuple[int, int, _Xform]] = {}
         self._hops: dict[int, tuple[float, float, float]] = {}
-        self._unfolded: tuple[int, dict[int, _Xform]] | None = None
+        self._spread: _Spread | None = None
+        self._centres: dict[int, Vec3] = {}
+        self._vert_faces: dict[int, list[int]] | None = None
+        self._paths: dict[tuple[int, int], _Path] = {}
+        self._end_paths: dict[bool, _Path | None] = {}
+        # The end walls develop past chain edges only: they are what the other paths stop at.
+        walls: set[tuple[int, int]] = set()
+        for at_start in (True, False):
+            end = self.end_index(at_start)
+            if end is not None:
+                verts = self._paths.setdefault(end, self._develop(*end, self.chain_edges))[0]
+                walls.update(_ekey(a, b) for a, b in zip(verts, verts[1:]))
+        self.blocked = self.chain_edges | walls
+
+    def end_path(self, at_start: bool) -> _Path | None:
+        """The path an open chain's end slides along, in its end vertex's wedge frame; None without an end edge.
+
+        It is the end wall, up to where the wall meets the other end's wall at a
+        vertex both hold. There the end turns onto the other wall and runs along
+        it, away from that vertex, to the other chain end. The two walls close the
+        side off there, so past that vertex the end's own wall runs out of it.
+        Walls that run on together keep the end's own. The other wall's points and
+        faces come over through the chain's wedge frames (``to_frame``), as the
+        segments map their partner points. A meeting vertex that the two walls
+        develop to different places (the surface between them does not lie flat)
+        turns nothing. Worked out once.
+        """
+        if at_start not in self._end_paths:
+            end, other = self.end_index(at_start), self.end_index(not at_start)
+            path = None if end is None else self.rail_path(*end)
+            if path is not None and other is not None:
+                verts, pts, holders = path
+                o_verts, o_pts, o_holders = self.rail_path(*other)
+                where = {v: j for j, v in enumerate(o_verts)}
+                move = partial(self.to_frame, src=other[0], dst=end[0])
+                for i in range(1, len(verts)):
+                    j = where.get(verts[i], 0)  # 0: not on the other wall, or the other chain end
+                    if j == 0 or (i + 1 < len(verts) and verts[i + 1] == o_verts[j - 1]):
+                        continue
+                    if _len2(_sub2(move(o_pts[j]), pts[i])) <= _SEGMENT_MEET_TOL:
+                        path = (
+                            verts[: i + 1] + o_verts[j - 1 :: -1],
+                            pts[: i + 1] + [move(p) for p in o_pts[j - 1 :: -1]],
+                            holders[:i] + [(g, _xf_moved(xg, move)) for g, xg in o_holders[j - 1 :: -1]],
+                        )
+                    break
+            self._end_paths[at_start] = path
+        return self._end_paths[at_start]
+
+    def to_frame(self, p: Vec2, src: int, dst: int) -> Vec2:
+        """Point ``p`` of ``chain[src]``'s wedge frame in ``chain[dst]``'s, hopping along the chain edges between."""
+        while src > dst:
+            src -= 1
+            p = self.from_next(src, p)
+        while src < dst:
+            p = self.to_next(src, p)
+            src += 1
+        return p
+
+    def end_index(self, at_start: bool) -> tuple[int, int] | None:
+        """(chain index, far vertex) of an open chain's end edge at its start or end; None without one."""
+        band = self.band
+        far = band.end_edges[0 if at_start else 1]
+        if band.closed or far is None:
+            return None
+        return (0 if at_start else len(band.chain) - 1), far
 
     def layout(self, f: int) -> _Layout:
         lay = self._layouts.get(f)
@@ -554,40 +679,121 @@ class _Surface:
         x = p[0] - shift
         return (x * c + p[1] * s, p[1] * c - x * s)
 
-    def unfold(self, f0: int) -> dict[int, _Xform]:
-        """Every band face reachable from ``f0`` across non-chain edges, placed in ``f0``'s layout frame.
+    def _centre(self, f: int) -> Vec3:
+        """The mean of face ``f``'s corners."""
+        c = self._centres.get(f)
+        if c is None:
+            pts = [self.band.verts[v] for v in self.band.faces[f]]
+            c = self._centres[f] = tuple(sum(p[i] for p in pts) / len(pts) for i in range(3))
+        return c
 
-        Keeps the last result, so repeated calls for one face cost nothing.
+    def nearest_frame(self, f: int) -> tuple[int, _Xform] | None:
+        """(k, placement) of band face ``f`` in the frame of its nearest frame face; None off every frame face.
+
+        One shortest-path walk spreads from all the frame faces (``frame_face``)
+        at once, by the distance between face centres, across the edges
+        ``across`` crosses. Each face it settles belongs to the frame face it was
+        reached from, so ``f`` is developed from its nearest frame face along the
+        surface: locally, never round the band. k is the first chain vertex that
+        face frames, and the placement maps ``f``'s layout into chain[k]'s wedge
+        frame. The walk goes by distance, not by face count: across a
+        triangulated band many frame faces lie the same number of faces away,
+        some of them chain vertices off to the side.
+
+        The walk runs only until ``f`` is settled and is kept, so the faces near
+        the chain are walked once and a target further out only extends it. Each
+        face is laid out once, from the face it was reached from. ``f`` is on no
+        frame face's piece of the band when the walk runs out without it.
         """
-        if self._unfolded is None or self._unfolded[0] != f0:
-            placed = {f0: (0.0, 0.0, 1.0, 0.0, 0.0, 1.0)}
-            todo = [f0]
-            for f in todo:
-                loop = self.layout(f).loop
-                for i in range(len(loop)):
-                    nxt = self.across(f, placed[f], loop[i - 1], loop[i])
-                    if nxt is not None and nxt[0] not in placed:
-                        placed[nxt[0]] = nxt[1]
-                        todo.append(nxt[0])
-            self._unfolded = (f0, placed)
-        return self._unfolded[1]
+        walk = self._settle({f})
+        near, placed = walk.near, walk.placed
+        if f not in near:
+            return None
+        if f not in placed:  # lay out the faces back to the first one placed, then forward again
+            way, g = [], f
+            while g not in placed:
+                way.append(g)
+                g = near[g][1][0]
+            for g in reversed(way):
+                h, a, b = near[g][1]
+                placed[g] = self._beyond(h, placed[h], a, b)[1]
+        return near[f][0], placed[f]
 
-    def layout_point(self, sp: SurfacePoint) -> tuple[int, Vec2] | None:
-        """A band face holding ``sp`` and ``sp``'s position in that face's layout; None off the band.
+    def _settle(self, targets: set[int]) -> _Spread:
+        """``nearest_frame``'s walk, run on until one of ``targets`` is settled or it runs out."""
+        walk = self._spread
+        if walk is None:
+            walk = self._spread = _Spread()
+            for k in range(len(self.band.chain)):
+                g, _, xg = self.frame_face(k)
+                if g not in walk.best:
+                    walk.best[g] = (0.0, k, None)
+                    walk.placed[g] = xg
+                    walk.count += 1
+                    walk.heap.append((0.0, walk.count, g))
+        near, best, heap = walk.near, walk.best, walk.heap
+        if any(t in near for t in targets):
+            return walk
+        faces, edge_faces, blocked = self.band.faces, self.edge_faces, self.blocked
+        while heap:
+            d, _, h = heapq.heappop(heap)
+            if h in near:
+                continue
+            _, k, came = best[h]
+            walk.rank[h] = len(near)
+            near[h] = (k, came)
+            here = self._centre(h)
+            loop = faces[h]
+            for i in range(len(loop)):
+                a, b = loop[i - 1], loop[i]
+                key = _ekey(a, b)
+                holders = edge_faces.get(key, ())
+                if key in blocked or len(holders) != 2:
+                    continue
+                g = holders[1] if holders[0] == h else holders[0]
+                if g == h or g in near:
+                    continue
+                dg = d + _length(_sub(self._centre(g), here))
+                if g not in best or dg < best[g][0]:
+                    best[g] = (dg, k, (h, a, b))
+                    walk.count += 1
+                    heapq.heappush(heap, (dg, walk.count, g))
+            if h in targets:
+                break
+        return walk
 
-        A vertex or edge point on another face (or on a face outside the band) uses a
-        band face that holds its vertex or edge.
+    def holders(self, sp: SurfacePoint) -> list[int]:
+        """The band faces holding ``sp``, ``sp.face`` first when it is one; empty off the band.
+
+        A vertex or edge point on another face (or on a face outside the band) is
+        held by the band faces that hold its vertex or edge.
         """
         faces = self.band.faces
         if sp.kind == "vert":
-            holders = [f for f, loop in faces.items() if sp.vert in loop]
+            if self._vert_faces is None:  # band faces at each vertex, in band order
+                self._vert_faces = {}
+                for f, loop in faces.items():
+                    for v in loop:
+                        at = self._vert_faces.setdefault(v, [])
+                        if not at or at[-1] != f:
+                            at.append(f)
+            out = list(self._vert_faces.get(sp.vert, []))
         elif sp.kind == "edge":
-            holders = self.edge_faces.get(_ekey(*sp.edge), [])
+            out = list(self.edge_faces.get(_ekey(*sp.edge), []))
         else:
-            holders = [sp.face] if sp.face in faces else []
-        if not holders:
-            return None
-        f = sp.face if sp.face in holders else holders[0]
+            out = [sp.face] if sp.face in faces else []
+        return sorted(out, key=lambda f: f != sp.face)
+
+    def layout_point(self, sp: SurfacePoint, f: int | None = None) -> tuple[int, Vec2] | None:
+        """A band face holding ``sp`` and ``sp``'s position in that face's layout; None off the band.
+
+        The face is ``f`` when given, else the first of ``holders``.
+        """
+        if f is None:
+            holders = self.holders(sp)
+            if not holders:
+                return None
+            f = holders[0]
         lay = self.layout(f)
         if sp.kind == "vert":
             return f, lay.pts[sp.vert]
@@ -609,19 +815,41 @@ class _Surface:
     def in_frames(self, sp: SurfacePoint) -> list[Vec2 | None] | None:
         """``sp`` developed into each chain vertex's wedge frame; None off the band.
 
-        The band unfolds from ``sp``'s face; an entry is None where that unfolding does
-        not reach the vertex's frame face.
+        ``sp`` is taken in the face holding it that the nearest-frame walk
+        (``nearest_frame``) settles first: the one nearest a frame face. A point on
+        an end wall is also held by faces beyond it, and on a closed mesh those can
+        be reached the long way round. It is developed from that face into the frame
+        of its nearest frame face, and on from there along the chain by the hops
+        between neighbouring frames that the loop's segments take (``to_next`` and
+        ``from_next``), the shorter way round a closed chain. So it stays local even
+        where the band, going round, does not develop back onto itself, as on a
+        cone or a cylinder. Every entry is None when no face holding ``sp`` reaches
+        a frame face.
         """
-        found = self.layout_point(sp)
+        holders = self.holders(sp)
+        if not holders:
+            return None
+        walk = self._settle(set(holders))
+        f = min((g for g in holders if g in walk.near), key=walk.rank.__getitem__, default=holders[0])
+        found = self.layout_point(sp, f)
         if found is None:
             return None
         f, q = found
-        placed = self.unfold(f)
-        out: list[Vec2 | None] = []
-        for k in range(len(self.band.chain)):
-            g, _, xg = self.frame_face(k)
-            xp = placed.get(g)
-            out.append(None if xp is None else _xf_apply(xg, _xf_invert(xp, q)))
+        n = len(self.band.chain)
+        near = self.nearest_frame(f)
+        if near is None:
+            return [None] * n
+        k0, xf = near
+        out: list[Vec2 | None] = [None] * n
+        out[k0] = p = _xf_apply(xf, q)
+        ahead = n // 2 if self.band.closed else n - 1 - k0
+        for k in range(k0, k0 + ahead):
+            p = self.to_next(k % n, p)
+            out[(k + 1) % n] = p
+        p = out[k0]
+        for k in range(k0 - 1, k0 - n + ahead if self.band.closed else -1, -1):
+            p = self.from_next(k % n, p)
+            out[k % n] = p
         return out
 
     def _forward(self, f: int, a: int, b: int) -> bool:
@@ -634,16 +862,96 @@ class _Surface:
         return _xf_fit(lay.pts[a], lay.pts[b], pa, pb, mirror=self._forward(f, a, b) != left)
 
     def across(self, f: int, xf: _Xform, a: int, b: int) -> tuple[int, _Xform] | None:
-        """Unfold the band face beyond edge (a, b) of face ``f``; None where the band ends."""
-        key = _ekey(a, b)
-        if key in self.chain_edges:
+        """Unfold the band face beyond edge (a, b) of face ``f``; None where the band ends or the edge is blocked."""
+        if _ekey(a, b) in self.blocked:
             return None
-        g = next((g for g in self.edge_faces.get(key, ()) if g != f), None)
+        return self._beyond(f, xf, a, b)
+
+    def _beyond(self, f: int, xf: _Xform, a: int, b: int) -> tuple[int, _Xform] | None:
+        """Unfold the band face beyond edge (a, b) of face ``f``, blocked or not; None where the band ends.
+
+        The band ends at an edge that no second band face holds, and at one that
+        more than two band faces hold (a fin standing on the surface).
+        """
+        holders = self.edge_faces.get(_ekey(a, b), ())
+        g = next((g for g in holders if g != f), None) if len(holders) == 2 else None
         if g is None:
             return None
         pts = self.layout(f).pts
         left = self._forward(f, a, b) != _xf_mirrored(xf)
         return g, self.place(g, a, b, _xf_apply(xf, pts[a]), _xf_apply(xf, pts[b]), not left)
+
+    def fan(self, f: int, xf: _Xform, v: int, came: int, blocked: set) -> list[tuple[int, _Xform]]:
+        """The faces around ``v``, unfolded from face ``f`` (placed by ``xf``), which holds edge (v, came).
+
+        Walks away from (v, came) first, then across it, each way until the band
+        border, an edge in ``blocked`` or a face already placed. So the faces on
+        ``f``'s side of (v, came) come first.
+        """
+        out, seen = [(f, xf)], {f}
+        loop = self.layout(f).loop
+        i = loop.index(v)
+        other = loop[(i + 1) % len(loop)] if loop[i - 1] == came else loop[i - 1]
+        for far in (other, came):
+            g, xg = f, xf
+            while _ekey(v, far) not in blocked:
+                nxt = self._beyond(g, xg, v, far)
+                if nxt is None or nxt[0] in seen:
+                    break
+                g, xg = nxt
+                seen.add(g)
+                out.append((g, xg))
+                gl = self.layout(g).loop
+                j = gl.index(v)
+                far = gl[(j + 1) % len(gl)] if gl[j - 1] == far else gl[j - 1]
+        return out
+
+    def rail_path(self, k: int, far: int) -> _Path:
+        """The rail path of chain[k] that starts on edge (chain[k], far), developed once and kept."""
+        path = self._paths.get((k, far))
+        if path is None:
+            path = self._paths[(k, far)] = self._develop(k, far, self.blocked)
+        return path
+
+    def _develop(self, k: int, far: int, blocked: set) -> _Path:
+        """Follow edge (chain[k], far) on through rows, unfolding the faces around each vertex reached.
+
+        At each vertex the path goes on along the edge whose developed direction
+        turns least from the edge it came along, within ``RAIL_MAX_DEV``; never
+        back to a vertex of the path. A chain vertex ends the path: the chain
+        bounds the band. Unfolding stops at ``blocked`` edges. A path edge's
+        holder is the first face of the walk around its start that holds it; for
+        an end wall that face lies on the wedge's side of the wall.
+        """
+        chain = self.band.chain
+        v = chain[k]
+        f, came, xf = self.frame_face(k)
+        hold = next((fx for fx in self.fan(f, xf, v, came, blocked) if _has_edge(self.layout(fx[0]).loop, v, far)), None)
+        if hold is None:
+            raise ValueError(f"edge ({v}, {far}) does not leave the wedge of chain vertex {v}")
+        verts, pts, holders = [v, far], [(0.0, 0.0), self.dev(*hold)[far]], [hold]
+        while verts[-1] not in chain:
+            p, x = verts[-2], verts[-1]
+            heading = _sub2(pts[-1], pts[-2])
+            best, tried = None, set()
+            for g, xg in self.fan(*holders[-1], x, p, blocked):
+                loop = self.layout(g).loop
+                i = loop.index(x)
+                dev = self.dev(g, xg)
+                for y in (loop[i - 1], loop[(i + 1) % len(loop)]):
+                    if y in tried or y in verts:
+                        continue
+                    tried.add(y)
+                    d = _sub2(dev[y], dev[x])
+                    turn = abs(math.atan2(_cross2(heading, d), _dot2(heading, d)))
+                    if turn <= RAIL_MAX_DEV and (best is None or turn < best[0]):
+                        best = (turn, y, dev[y], (g, xg))
+            if best is None:
+                break
+            verts.append(best[1])
+            pts.append(best[2])
+            holders.append(best[3])
+        return verts, pts, holders
 
     def corner_holds(self, f: int, xf: _Xform, v: int, d: Vec2) -> bool:
         """Whether direction ``d`` leaves vertex ``v`` into face ``f``'s corner."""
@@ -852,6 +1160,43 @@ def trace_from_vertex(
     return surf.trace(f, xf, start, (0.0, 0.0), (length * math.cos(angle), length * math.sin(angle)))
 
 
+def rail_path(band: Band, k: int, rail: Rail, *, _surface: _Surface | None = None) -> list[tuple[int, Vec2]]:
+    """The rail continued through rows: vertex ids from ``chain[k]``, each at its position in ``chain[k]``'s wedge frame.
+
+    The first entry is ``chain[k]`` at (0, 0), the second ``rail.far``. At each
+    vertex reached the path goes on along the band edge whose developed
+    direction turns least from straight on, within ``RAIL_MAX_DEV``; never along
+    a chain edge or back to a vertex of the path. It stops at the band border,
+    on a chain vertex (the chain bounds the band), or where no edge qualifies.
+    The faces unfold as the traces unfold them, and neither chain edges nor end
+    walls are unfolded across.
+    """
+    surf = _Surface(band) if _surface is None else _surface
+    verts, pts, _ = surf.rail_path(k, rail.far)
+    return list(zip(verts, pts))
+
+
+def end_paths(band: Band, *, _surface: _Surface | None = None) -> tuple[list[int], list[int]]:
+    """The vertex ids of the paths an open chain's ends slide along, at ``chain[0]`` and ``chain[-1]``.
+
+    Each runs from its chain end out along the end wall (see ``_Surface.end_path``).
+    Empty at an end without an end edge, and for a closed chain.
+    """
+    surf = _Surface(band) if _surface is None else _surface
+    start, stop = ([] if path is None else list(path[0]) for path in (surf.end_path(True), surf.end_path(False)))
+    return start, stop
+
+
+def wedges(band: Band) -> list[Wedge]:
+    """Every chain vertex's wedge (see ``wedge``), over one adjacency of the band.
+
+    Raises ``ValueError`` where a wedge cannot be swept, or an end wall cannot
+    leave its end vertex's wedge.
+    """
+    surf = _Surface(band)
+    return [surf.wedge(k) for k in range(len(band.chain))]
+
+
 class _InconsistentDevelopmentError(ValueError):
     """A segment trace missed its partner point: the development is not flat between them."""
 
@@ -890,7 +1235,7 @@ class OutOfRoom(Exception):  # noqa: N818 - public name fixed by the plan
 @dataclass
 class Placement:
     trace: Trace
-    rail: Rail | None  # None for a miter
+    rail: Rail | None  # the rail followed, also past its path's end; None for a miter
     width_error: float
 
 
@@ -901,9 +1246,10 @@ class Cut:
     ``points`` run in chain order (a closed loop wraps); between consecutive
     anchors they hold that segment's crossings. ``anchors[k]`` indexes
     ``chain[k]``'s new vertex in ``points``; the chain vertices of a collapsed
-    segment share one index. ``connectors`` are ``(chain vertex id, points
-    index)`` edges to add. ``width`` is the width solved; ``clamped`` tells
-    whether it is below the width asked for.
+    segment share one index. ``connectors`` are ``(vertex id, points index)``
+    edges to add: from a chain vertex to its miter, or from the last vertex of a
+    rail path to the new vertex placed past it. ``width`` is the width solved;
+    ``clamped`` tells whether it is below the width asked for.
     """
 
     points: list[SurfacePoint]
@@ -911,6 +1257,43 @@ class Cut:
     connectors: list[tuple[int, int]]
     width: float
     clamped: bool
+
+
+@dataclass(frozen=True)
+class _Route:
+    """How one chain vertex's new vertex moves with width, in that vertex's wedge frame.
+
+    With a ``rail`` it runs along the developed rail path ``pts`` (from (0, 0)),
+    ``hs`` holding the balanced width at each point, strictly increasing. Past
+    ``hs[-1]`` it runs out along the bisector (angle ``half``, theta / 2) on a ray
+    from ``pts[ray]``, the path's last point. ``ray`` is 0, the chain vertex
+    itself, for a miter: without a rail. ``lean . Q`` is (d_out - d_in) / 2 at a
+    point Q, so its size is the width error there. It is constant along the ray,
+    since ``lean`` is normal to the bisector.
+    """
+
+    rail: Rail | None
+    pts: tuple[Vec2, ...]
+    hs: tuple[float, ...]
+    lean: Vec2
+    half: float
+    ray: int
+
+    def leg(self, width: float) -> int:
+        """The rail path edge the new vertex lies on at ``width``, or -1 past the path, on the ray."""
+        hs = self.hs
+        if self.rail is None or width > hs[-1]:
+            return -1
+        return bisect.bisect_left(hs, width, 1) - 1  # the first edge whose far end reaches ``width``
+
+    def run(self, width: float) -> float:
+        """How far along the ray the new vertex lies at ``width``: the balanced width grows by sin(half) per unit."""
+        return (width - self.hs[self.ray]) / math.sin(self.half)
+
+    def along(self, s: float) -> Vec2:
+        """The point ``s`` along the ray."""
+        x, y = self.pts[self.ray]
+        return (x + s * math.cos(self.half), y + s * math.sin(self.half))
 
 
 def _coincide(p: SurfacePoint, q: SurfacePoint) -> bool:
@@ -951,9 +1334,10 @@ def _bisect(hi: float, attempt) -> float:
 class Slider:
     """Places the new loop of one band at a given width.
 
-    Keeps one surface (adjacency, face layouts, wedges) for every trace it runs,
-    and caches the placement rule per vertex and the limits, so the band must not
-    change while the Slider is in use.
+    Keeps one surface (adjacency, face layouts, wedges, each face's way to its
+    nearest frame face) for every trace it runs, and caches the placement rule
+    per vertex, the traces along each rail path and the limits, so the band must
+    not change while the Slider is in use.
 
     Positions before tracing are worked out in development frames: each chain
     vertex's wedge frame (``chain[k]`` at the origin, angle 0 toward ``chain[k+1]``,
@@ -963,9 +1347,15 @@ class Slider:
     def __init__(self, band: Band):
         self.band = band
         self._surf = _Surface(band)
-        self._aims: dict[tuple[int, bool], tuple[Rail | None, float, float, float]] = {}
+        self._aims: dict[tuple[int, bool], _Route] = {}
+        self._legs: dict[int, list[Trace]] = {}
+        self._rays: dict[tuple[int, int], tuple[float, float]] = {}
         self._limits: dict[tuple[bool, bool], float] = {}
         self._schedules: dict[bool, list[tuple[float, list[int] | None]]] = {}
+
+    def end_paths(self) -> tuple[list[int], list[int]]:
+        """``end_paths`` of the band, over this Slider's surface: the paths its open ends slid along."""
+        return end_paths(self.band, _surface=self._surf)
 
     def _trace(self, k: int, angle: float, length: float) -> Trace:
         """An anchor trace from ``chain[k]``, its end snapped onto nearby mesh elements."""
@@ -983,54 +1373,172 @@ class Slider:
             raise OutOfRoom(f"segment {k} leaves the band")
         return seg
 
-    def _aim(self, k: int, exact: bool) -> tuple[Rail | None, float, float, float]:
-        """How ``chain[k]``'s new vertex moves with width: on the rail nearest the bisector, else the miter.
+    def _aim(self, k: int, exact: bool) -> _Route:
+        """How ``chain[k]``'s new vertex moves with width: along the rail nearest the bisector, else the miter.
 
-        Returns (rail, or None for the miter; angle; distance and width error per
-        unit width). Both grow linearly with width, so the choice holds at every
-        width.
+        The rail path is developed once per Slider. A point Q of it lies at the
+        balanced width ``(d_out + d_in) / 2``, d_out and d_in being Q's distances to
+        the outgoing and incoming chain edge lines. That is linear in Q, so each
+        path edge covers a range of widths. The path is used while that width
+        grows along it, and with ``exact`` only up to its last point whose width
+        error stays within ``EXACT_TOL``.
+
+        Past the path the vertex goes on along the bisector from the path's last
+        point, in both modes, so it never jumps. The width error stays at its
+        value there, which exact mode keeps within ``EXACT_TOL``. Without a usable
+        rail edge the vertex is a miter at every width.
         """
-        aim = self._aims.get((k, exact))
-        if aim is None:
-            wd = self._surf.wedge(k)
+        route = self._aims.get((k, exact))
+        if route is None:
+            surf = self._surf
+            wd = surf.wedge(k)
             theta = wd.theta
             rail = min(
                 (r for r in wd.rails if not r.border and abs(r.angle - theta / 2.0) <= RAIL_MAX_DEV),
                 key=lambda r: abs(r.angle - theta / 2.0),
                 default=None,
             )
+            # d_out = Q.y and d_in = Q.x sin(theta) - Q.y cos(theta), so both are linear in Q.
+            gain = (0.5 * math.sin(theta), 0.5 * (1.0 - math.cos(theta)))  # (d_out + d_in) / 2 = gain . Q
+            lean = (-0.5 * math.sin(theta), 0.5 * (1.0 + math.cos(theta)))  # (d_out - d_in) / 2 = lean . Q
+            pts, hs = [(0.0, 0.0)], [0.0]
             if rail is not None:
-                beta = rail.angle
-                scale = 2.0 / (math.sin(beta) + math.sin(theta - beta))
-                error = max(abs(scale * math.sin(beta) - 1.0), abs(scale * math.sin(theta - beta) - 1.0))
-                if not (exact and error > EXACT_TOL):
-                    aim = (rail, beta, scale, error)
-            if aim is None:
-                aim = (None, theta / 2.0, 1.0 / math.sin(theta / 2.0), 0.0)
-            self._aims[(k, exact)] = aim
-        return aim
+                for q in surf.rail_path(k, rail.far)[1][1:]:
+                    h = _dot2(gain, q)
+                    if h <= hs[-1] + surf.tol or (exact and abs(_dot2(lean, q)) > EXACT_TOL * h):
+                        break
+                    pts.append(q)
+                    hs.append(h)
+            ray = len(pts) - 1
+            route = _Route(rail if len(pts) > 1 else None, tuple(pts), tuple(hs), lean, theta / 2.0, ray)
+            self._aims[(k, exact)] = route
+        return route
 
-    def _reach(self, k: int, width: float, exact: bool) -> tuple[Rail | None, float, float, float]:
-        """(rail or None, angle, distance, width error) of ``chain[k]``'s new vertex at ``width``."""
-        rail, angle, scale, error = self._aim(k, exact)
-        t = scale * width
-        if rail is not None and t > rail.length + EPS:
-            raise OutOfRoom(f"vertex {self.band.chain[k]} runs past rail {rail.far}")
-        return rail, angle, t, error * width
+    def _at(self, k: int, width: float, exact: bool) -> tuple[_Route, int, Vec2]:
+        """``chain[k]``'s new vertex at ``width``: (route, rail path edge it lies on or -1 on the ray, position).
+
+        A point on the ray must fit on the band (see ``_ray_fits``), else ``OutOfRoom``.
+        """
+        route = self._aim(k, exact)
+        i = route.leg(width)
+        if i >= 0:
+            hs = route.hs
+            (ax, ay), (bx, by) = route.pts[i], route.pts[i + 1]
+            s = (width - hs[i]) / (hs[i + 1] - hs[i])
+            return route, i, (ax + (bx - ax) * s, ay + (by - ay) * s)
+        s = route.run(width)
+        if not self._ray_fits(k, route, s):
+            raise OutOfRoom(f"vertex {self.band.chain[k]} has no room {s:.6f} along its bisector")
+        return route, -1, route.along(s)
+
+    def _ray_fits(self, k: int, route: _Route, s: float) -> bool:
+        """Whether the point ``s`` along ``chain[k]``'s ray (see ``_Route``) can be traced on the band.
+
+        The ray is traced once per Slider, 4 x band diagonal / sin(half) out:
+        past where the widest width ``limit`` tries puts the vertex. When the ray
+        starts at the path's end, the trace runs along the path first. A trace to any point
+        short of where that one is blocked runs the same way and stays clear.
+        So the plan needs no further trace for this ray, and the bound it
+        accepts holds for the solve's own traces without a tolerance.
+        """
+        key = (k, route.ray)
+        reach, stop = self._rays.get(key, (-math.inf, math.inf))
+        if s > reach and stop == math.inf:  # not traced this far out yet
+            reach = max(s, 4.0 * _band_scale(self.band) / math.sin(route.half))
+            if route.ray == 0:
+                tr, leg = trace_from_vertex(self.band, k, route.half, reach, _surface=self._surf), 0
+            else:
+                tr, _, leg = self._walk(k, route, route.ray, route.along(reach))
+            if tr.blocked:  # on the ray, or (-inf) already on the path that leads to it
+                stop = _len2(_sub2(tr.end_xy, route.pts[route.ray])) if leg == route.ray else -math.inf
+            self._rays[key] = (reach, stop)
+        return s <= stop
 
     def place(self, k: int, width: float, *, exact: bool = False) -> Placement:
-        """Place ``chain[k]``'s new vertex: on the rail nearest the bisector, else on the miter."""
-        rail, angle, t, error = self._reach(k, width, exact)
-        return Placement(self._trace(k, angle, t), rail, error)
+        """Place ``chain[k]``'s new vertex: on the rail path nearest the bisector, else on the miter.
+
+        On a rail the anchor is where the path gives the balanced width, traced
+        along the path. Past the path's end it goes on along the bisector from
+        there, keeping the width error it had at the path's end.
+        """
+        route, i, q = self._at(k, width, exact)
+        if i >= 0:
+            return Placement(self._follow(k, route, i, q), route.rail, abs(_dot2(route.lean, q)))
+        if route.ray == 0:  # the miter
+            return Placement(self._trace(k, route.half, route.run(width)), None, 0.0)
+        error = abs(_dot2(route.lean, route.pts[route.ray]))
+        return Placement(self._follow(k, route, route.ray, q), route.rail, error)
+
+    def _path_legs(self, k: int, route: _Route, m: int) -> list[Trace]:
+        """The traces from ``chain[k]`` along its rail path, leg i ending at ``route.pts[i + 1]``.
+
+        Holds the first ``m`` legs at least, unless one of them is blocked: the
+        legs stop after a blocked one. Each leg runs on from where the one before
+        ended, as ``_walk`` traces it. Every width past a path point walks the
+        same legs up to it, so each is traced once per Slider and kept. Both modes
+        share them: exact mode's path points are the first of the default mode's
+        (see ``_aim``).
+        """
+        legs = self._legs.setdefault(k, [])
+        surf = self._surf
+        while len(legs) < m and not (legs and legs[-1].blocked):
+            x, y = route.pts[len(legs) + 1]
+            if legs:
+                tr = legs[-1]
+                legs.append(surf.trace(tr._face, tr._xf, tr.end, tr.end_xy, (x, y)))
+            else:
+                legs.append(trace_from_vertex(self.band, k, math.atan2(y, x), math.hypot(x, y), _surface=surf))
+        return legs
+
+    def _walk(self, k: int, route: _Route, m: int, last: Vec2) -> tuple[Trace, list[SurfacePoint], int]:
+        """Trace from ``chain[k]`` along its rail path to ``route.pts[m]``, then on to ``last`` (wedge frame).
+
+        Stops at a blocked leg. The legs along the path come from ``_path_legs``.
+        Returns (the last leg traced, the crossings so far with each path point
+        reached, that leg's index: ``m`` for the leg to ``last``).
+        """
+        if m == 0:
+            x, y = last
+            tr = trace_from_vertex(self.band, k, math.atan2(y, x), math.hypot(x, y), _surface=self._surf)
+            return tr, list(tr.crossings), 0
+        legs = self._path_legs(k, route, m)
+        crossings = list(legs[0].crossings)
+        for i in range(1, m + 1):
+            tr = legs[i - 1]
+            if tr.blocked:
+                return tr, crossings, i - 1
+            crossings.append(tr.end)
+            if i < m:
+                crossings += legs[i].crossings
+        tr = self._surf.trace(tr._face, tr._xf, tr.end, tr.end_xy, last)
+        crossings += tr.crossings
+        return tr, crossings, m
+
+    def _follow(self, k: int, route: _Route, m: int, last: Vec2) -> Trace:
+        """An anchor trace from ``chain[k]`` along its rail path to ``route.pts[m]`` and on to ``last``.
+
+        Snapped as ``_trace`` snaps; straight to ``last`` when ``m`` is 0.
+        """
+        if m == 0:
+            x, y = last
+            return self._trace(k, math.atan2(y, x), math.hypot(x, y))
+        tr, crossings, _ = self._walk(k, route, m, last)
+        if tr.blocked:
+            raise OutOfRoom(f"vertex {self.band.chain[k]} has no room along its rail path")
+        return self._surf.snap_end(Trace(crossings, tr.end, False, tr.end_xy, tr._face, tr._xf))
 
     def _border_hit(self, at_start: bool, width: float) -> tuple[int, _Xform, int, int, float, float]:
-        """Where the end chain edge's offset line at ``width`` meets the end vertex's border path.
+        """Where the end chain edge's offset line at ``width`` meets the end vertex's end path or border path.
 
-        The border path is the wedge's border rail, then the band-border edges
-        after it, developed into the end vertex's wedge frame; the first edge hit
-        wins. Returns (face, placement, u, far, s, gq): the line crosses border
-        edge (u, far) of that face at parameter ``s`` from ``u``, and ``far`` lies
-        ``gq >= -_ANCHOR_SNAP_TOL`` past the line (so ``s`` may run a hair past 1).
+        The end path is the rail path of the band's end edge, turned onto the
+        other end's wall where the two walls meet (``_Surface.end_path``), so
+        ``limit`` bounds the same path the solve slides along. Without an end
+        edge the border path stands in: the wedge's border rail, then the
+        band-border edges after it. Either is developed into the end vertex's
+        wedge frame and the first edge hit wins. Returns (face, placement, u,
+        far, s, gq): the line crosses edge (u, far) of that face at parameter
+        ``s`` from ``u``, and ``far`` lies ``gq >= -_ANCHOR_SNAP_TOL`` past the line
+        (so ``s`` may run a hair past 1).
         """
         surf = self._surf
         k = 0 if at_start else len(self.band.chain) - 1
@@ -1043,6 +1551,16 @@ class Slider:
         else:  # the chain edge runs at theta, the side clockwise of it
             theta = surf.wedge(k).theta
             nx, ny = math.sin(theta), -math.cos(theta)
+        path = surf.end_path(at_start)
+        if path is not None:
+            verts, pts, holders = path
+            for i in range(len(verts) - 1):
+                p, q = pts[i], pts[i + 1]
+                gq = nx * q[0] + ny * q[1] - width
+                if gq >= -_ANCHOR_SNAP_TOL:
+                    gp = nx * p[0] + ny * p[1] - width
+                    return *holders[i], verts[i], verts[i + 1], (gp / (gp - gq) if gp != gq else 0.0), gq
+            raise OutOfRoom(f"the end wall at vertex {u} ends before width {width:.6f}")
         for _ in range(len(surf.edge_faces)):
             step = surf.border_step(f, xf, u, came)
             if step is None:
@@ -1113,24 +1631,33 @@ class Slider:
         samples still positive and the first that is not. The loop never comes
         back over a target it passed, but a loop collapsing to a point near the
         limit has segments too short to give the offset a sign, so the first
-        change counts, not the one at the limit. None when the offset does not
-        change sign: ``target`` is off the band, behind the chain or out of reach.
-        ``collapse`` reaches past folds as ``solve`` does.
+        change counts, not the one at the limit. An offset within the surface
+        tolerance counts as reached: a target exactly where the limit stops the
+        loop is off it by float noise of either sign. None when the offset does
+        not get there: ``target`` is off the band, behind the chain or out of
+        reach. ``collapse`` reaches past folds as ``solve`` does. At width 0 the
+        loop is the chain itself, so the offset there needs no plan: a target
+        behind the chain costs no rail path, and the limit is only looked for once
+        ``target`` lies beyond the chain.
         """
         spots = self._surf.in_frames(target)
         if spots is None:
             return None
-        lo, top = 0.0, self.limit(exact=exact, collapse=collapse)
 
         def offset(width: float) -> float:
-            return self._offset(spots, width, exact, collapse)
+            return self._offset(spots, *self._plan(width, exact, collapse))
 
+        n = len(self.band.chain)
+        lo = 0.0
         try:
-            if top <= 0.0 or offset(lo) <= 0.0:
+            if self._offset(spots, [(0.0, 0.0)] * n, [False] * (n if self.band.closed else n - 1)) <= 0.0:
+                return None
+            top = self.limit(exact=exact, collapse=collapse)
+            if top <= 0.0:
                 return None
             for i in range(1, _SNAP_SCAN + 1):
                 hi = top * i / _SNAP_SCAN
-                if offset(hi) <= 0.0:
+                if offset(hi) <= self._surf.tol:
                     break
                 lo = hi
             else:
@@ -1145,15 +1672,14 @@ class Slider:
             return None
         return 0.5 * (lo + hi)
 
-    def _offset(self, spots: list[Vec2 | None], width: float, exact: bool, collapse: bool) -> float:
-        """Signed offset of a target from the loop at ``width``, positive beyond it.
+    def _offset(self, spots: list[Vec2 | None], xy: list[Vec2], dropped: list[bool]) -> float:
+        """Signed offset of a target from the loop planned as ``xy`` and ``dropped`` (``_plan``), positive beyond it.
 
         ``spots`` holds the target in each chain vertex's wedge frame. The offset is
         taken from the loop segment nearest the target, in its chain edge's frame,
         from the vertex positions before tracing; dropped segments have no length
         and are skipped. -inf when no segment's frame reaches the target.
         """
-        xy, dropped = self._plan(width, exact, collapse)
         n = len(xy)
         best = None
         for k in range(len(dropped)):
@@ -1174,10 +1700,11 @@ class Slider:
     def _plan(self, width: float, exact: bool, collapse: bool) -> tuple[list[Vec2], list[bool]]:
         """The new vertices at ``width``, each in its chain vertex's wedge frame, and the dropped segments.
 
-        Works without traces. With ``collapse`` the segments the fold schedule drops
-        by ``width`` are dropped. Raises ``OutOfRoom`` when a rail is too short, a
-        border path ends, the schedule stops, or a segment still folds back (its
-        length along its chain edge reaches 0).
+        Works without traces, but for one per vertex ray, made once per Slider
+        (``_ray_fits``). With ``collapse`` the segments the fold schedule drops by
+        ``width`` are dropped. Raises ``OutOfRoom`` when a vertex's ray leaves the
+        band, an end wall or border path ends, the schedule stops, or a segment
+        still folds back (its length along its chain edge reaches 0).
         """
         dropped = [False] * (len(self.band.chain) if self.band.closed else len(self.band.chain) - 1)
         if collapse:
@@ -1197,19 +1724,18 @@ class Slider:
     def _positions(self, width: float, exact: bool, dropped: list[bool]) -> list[Vec2]:
         """Each new vertex at ``width`` in its chain vertex's wedge frame, merged groups on their shared point.
 
-        Raises ``OutOfRoom`` when a rail of a vertex that is not merged is too short
-        or a border path ends.
+        Raises ``OutOfRoom`` when the ray of a vertex that is not merged leaves the
+        band, or an end wall or border path ends.
         """
         n, closed = len(self.band.chain), self.band.closed
         base: list[Vec2] = []
         for k in range(n):
-            if not closed and k in (0, n - 1):  # the end points slide along the band border
+            if not closed and k in (0, n - 1):  # the end points slide along the end walls
                 base.append(self._end_xy(k == 0, width))
             elif dropped[k - 1] or dropped[k]:  # replaced by its group's shared point
                 base.append((0.0, 0.0))
             else:
-                _, angle, t, _ = self._reach(k, width, exact)
-                base.append((t * math.cos(angle), t * math.sin(angle)))
+                base.append(self._at(k, width, exact)[2])
         return self._merge(base, dropped, width)
 
     def _schedule(self, exact: bool) -> list[tuple[float, list[int] | None]]:
@@ -1222,38 +1748,53 @@ class Slider:
         """The collapse events in width order: (width, segments dropped there).
 
         A segment folds back when its length along its chain edge reaches 0. For
-        one set of drops every droppable segment's length is linear in width (its
-        ends are interior or merged vertices), so each fold width is exact. The
-        first segment to fold is dropped, with any folding at that same width, and
-        the rest are worked out again. Segments None stop the schedule: past that
-        width the collapse has no room. That happens when fewer than three
-        segments of a closed loop are left, or when before the next drop an open
-        chain's end segment folds (collapse never drops it), a rail runs out or a
-        border path ends.
+        one set of drops every droppable segment's length is linear in width
+        between the widths where a rail path bends or ends (its ends are interior
+        or merged vertices), so each fold width is exact. The first segment to
+        fold is dropped, with any folding at that same width, and the rest are
+        worked out again. Segments None stop the schedule: past that width the
+        collapse has no room. That happens when fewer than three segments of a
+        closed loop are left, or when before the next drop an open chain's end
+        segment folds (collapse never drops it), a vertex's ray leaves the band or
+        an end wall or border path ends. A segment already folded where a stretch
+        starts is dropped there.
         """
         band, surf = self.band, self._surf
         n, closed = len(band.chain), band.closed
         m = n if closed else n - 1
-        unit: list[Vec2] = [(0.0, 0.0)] * n  # each vertex at width 1; the open ends never merge
-        for k in range(n) if closed else range(1, n - 1):
-            _, angle, scale, _ = self._aim(k, exact)
-            unit[k] = (scale * math.cos(angle), scale * math.sin(angle))
+        inner = range(n) if closed else range(1, n - 1)  # the open ends never merge
+        bends = sorted({h for k in inner for h in self._aim(k, exact).hs[1:]})
         cap = 4.0 * _band_scale(band)
         events: list[tuple[float, list[int] | None]] = []
         dropped, now = [False] * m, 0.0
         while True:
-            xy0 = self._merge([(0.0, 0.0)] * n, dropped, 0.0)
-            xy1 = self._merge(unit, dropped, 1.0)
+            nxt = next((h for h in bends if h > now + surf.tol), math.inf)
+            lines = [((0.0, 0.0), (0.0, 0.0))] * n
+            for k in inner:
+                lines[k] = self._line(k, exact, now + 1.0 if nxt == math.inf else 0.5 * (now + nxt))
+            w1 = now + 1.0
+            try:
+                xy0 = self._merge([(a[0] + now * d[0], a[1] + now * d[1]) for a, d in lines], dropped, now)
+                xy1 = self._merge([(a[0] + w1 * d[0], a[1] + w1 * d[1]) for a, d in lines], dropped, w1)
+            except OutOfRoom:  # a merged group's outer chain edges run parallel: it has no shared point
+                events.append((now, None))
+                return events
             folds = []
             for k in range(m) if closed else range(1, m - 1):
                 if not dropped[k]:
                     l0 = self._seg_length(k, xy0)
                     rate = self._seg_length(k, xy1) - l0
                     if rate < 0.0:
-                        folds.append((max(now, -l0 / rate), k))
-            if not folds or min(folds)[0] > cap:
-                return events
-            now = min(folds)[0]
+                        folds.append((max(now, now - l0 / rate), k))
+                    elif l0 < -surf.tol:  # already folded where this stretch starts
+                        folds.append((now, k))
+            at = min(folds)[0] if folds else math.inf
+            if at > min(nxt, cap):  # nothing folds before the next bend
+                if nxt > cap:
+                    return events
+                now = nxt
+                continue
+            now = at
             try:
                 xy = self._positions(now, exact, dropped)
                 if not closed and min(self._seg_length(0, xy), self._seg_length(m - 1, xy)) <= 0.0:
@@ -1268,6 +1809,25 @@ class Slider:
                 events.append((now, None))
                 return events
             events.append((now, segs))
+
+    def _line(self, k: int, exact: bool, width: float) -> tuple[Vec2, Vec2]:
+        """(a, d): ``chain[k]``'s new vertex lies at a + w * d for w on the stretch of widths around ``width``.
+
+        The stretch runs between the widths where the vertex's rail path bends or
+        ends; past its end the ray's line holds.
+        """
+        route = self._aim(k, exact)
+        hs, pts = route.hs, route.pts
+        i = route.leg(width)
+        if i >= 0:
+            (px, py), (qx, qy) = pts[i], pts[i + 1]
+            dh = hs[i + 1] - hs[i]
+            dx, dy = (qx - px) / dh, (qy - py) / dh
+            return (px - hs[i] * dx, py - hs[i] * dy), (dx, dy)
+        s = 1.0 / math.sin(route.half)
+        dx, dy = s * math.cos(route.half), s * math.sin(route.half)
+        (px, py), h = pts[route.ray], hs[route.ray]
+        return (px - h * dx, py - h * dy), (dx, dy)
 
     def _seg_length(self, k: int, xy: list[Vec2]) -> float:
         """Length of segment ``k`` along chain edge ``k``, in that edge's frame (<= 0 once it folds)."""
@@ -1366,12 +1926,33 @@ class Slider:
             points.pop()
             anchors = [0 if i == last else i for i in anchors]
 
-        connectors = [
-            (band.chain[k], anchors[k])
-            for k, p in enumerate(places)
-            if p is not None and p.rail is None and not p.trace.crossings and not p.trace.blocked
-        ]
-        return Cut(points, anchors, connectors, width, False)
+        return Cut(points, anchors, self._connectors(places, anchors, width, exact), width, False)
+
+    def _connectors(
+        self, places: list[Placement | None], anchors: list[int | None], width: float, exact: bool
+    ) -> list[tuple[int, int]]:
+        """The connecting edges of a cut: each straight last leg of a placement that crosses nothing.
+
+        A miter runs straight from its chain vertex. A vertex placed past its rail
+        path's end runs straight on from the path's last vertex; its trace passed
+        that vertex just before the last leg, so the leg crossed nothing when that
+        vertex is the trace's last crossing.
+        """
+        out = []
+        for k, p in enumerate(places):
+            if p is None or p.trace.blocked:
+                continue
+            if p.rail is None:
+                if not p.trace.crossings:
+                    out.append((self.band.chain[k], anchors[k]))
+                continue
+            route = self._aim(k, exact)
+            if route.ray > 0 and route.leg(width) < 0:
+                last = self._surf.rail_path(k, route.rail.far)[0][route.ray]
+                x = p.trace.crossings[-1] if p.trace.crossings else None
+                if x is not None and x.kind == "vert" and x.vert == last:
+                    out.append((last, anchors[k]))
+        return out
 
 
 # --- Screen-side helpers --------------------------------------------------------

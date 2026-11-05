@@ -1179,6 +1179,214 @@ git commit -m "feat(smart-inset): UV Stripe unwraps the inset walls"
 
 ---
 
+## Revision: unbounded slide (Tasks 13–15)
+
+Spec: *Unbounded slide (revised 2026-11-04)*. Tasks 1–12 are merged on master (97d466f, 206445e). These tasks change the core and the bridge so the slide runs across rows of faces until a physical stop.
+
+Shared fixtures for Task 13, added to `tests/test_smart_edge_slide_core.py`:
+
+- **`grid_open()`**: a 4×3 grid of unit quads in z = 0, x 0..4, y 0..3.
+  - Vertex id is `y*5 + x`; face id is `y*4 + x` for the cell `[x, x+1] × [y, y+1]`, with verts `(y*5+x, y*5+x+1, (y+1)*5+x+1, (y+1)*5+x)`.
+  - `chain=[6, 7, 8]` (the points (1,1), (2,1), (3,1)), open, `side_faces=[5, 6]`.
+  - `end_edges=(11, 13)`: the far vertices of the end edges (1,1)→(1,2) and (3,1)→(3,2).
+  - The band holds all 12 faces.
+- **`fold_box()`**: a floor y∈[0,1] at z=0 and a wall at y=1, z∈[0,1], with x columns 0, 1, 2.
+  - Verts: 0:(0,0,0) 1:(1,0,0) 2:(2,0,0) 3:(0,1,0) 4:(1,1,0) 5:(2,1,0) 6:(0,1,1) 7:(1,1,1) 8:(2,1,1).
+  - Faces: 0:(0,1,4,3) 1:(1,2,5,4) 2:(3,4,7,6) 3:(4,5,8,7).
+  - `chain=[0,1,2]`, open, `side_faces=[0,1]`, `end_edges=(3,5)`.
+- **`strip2()`**: the existing fixture, with `end_edges=(4,7)`.
+
+### Task 13: Core — rail paths, balanced placement along them, end walls
+
+**Files:** Modify `utils/smart_edge_slide_core.py`, `tests/test_smart_edge_slide_core.py`.
+
+**Interfaces:**
+- **`Band.end_edges`.** `Band` gains `end_edges: tuple[int | None, int | None] = (None, None)`: the far vertex of the end edge at `chain[0]` and at `chain[-1]` for open chains. Closed chains and `None` entries keep today's behaviour.
+- **End wedges.** An end wedge's sweep stops at its end edge, which becomes the border rail of that wedge. It does not run on to the band border.
+- **`rail_path(band, k, rail) -> list[tuple[int, Vec2]]`.** Returns the vertex ids along the rail path from `chain[k]`, each with its position in the wedge frame of `chain[k]`. The first entry is `chain[k]` at (0, 0).
+  - **Continuation.** At each far vertex X, the next edge is the edge at X (in band faces, excluding the arrival edge) whose developed direction deviates least from the incoming direction. It must be within `RAIL_MAX_DEV`, must not be a chain edge, and must not revisit a vertex.
+  - **Stop.** The path stops at the band border or when no edge qualifies.
+  - **Development.** Use the same face layouts as `wedge()` and the traces, unfolding face by face across the edges the path follows.
+- **Balanced placement.** On an accepted rail, the anchor is the point Q on the developed rail path where `(d_out(Q) + d_in(Q)) / 2 == w`:
+  - `d_out(Q) = |Q|·sin(angle(Q))` is the distance to the outgoing chain edge line;
+  - `d_in(Q) = |Q|·sin(θ − angle(Q))` is the distance to the incoming one.
+
+  `width_error = max(|d_out − w|, |d_in − w|)`. On a straight rail this equals today's `t = 2w/(sin β + sin(θ−β))`, so every existing test must keep passing unchanged. Solve segment by segment; the condition is monotone along a path that heads away from the chain.
+- **Miter fallback.** If the path ends before the width is reached, the vertex becomes a miter, as in exact mode, instead of raising `OutOfRoom`. It raises `OutOfRoom` only when the miter trace itself is blocked.
+- **End walls.**
+  - The end wall of an open chain is `rail_path` of the end edge at each end.
+  - `Slider._end` intersects the end edge's offset line with the developed end wall. It no longer uses the band-border path; that remains only when `end_edges` is `None`.
+  - A trace that would cross an end-wall edge is blocked, the same way a chain edge blocks it.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+def test_rail_path_continues_through_rows():
+    path = rail_path(strip2(), 1, wedge(strip2(), 1).rails[0])
+    assert [v for v, _xy in path] == [1, 5, 9]
+    # wedge frame of chain[1]: angle 0 = outgoing chain edge (+x), the side at +y
+    assert path[1][1] == pytest.approx((0.0, 0.5)) and path[2][1] == pytest.approx((0.0, 1.0))
+
+def test_solve_passes_the_existing_mid_loop():
+    s = Slider(strip2())
+    assert s.limit() == pytest.approx(1.0, abs=1e-6)
+    cut = s.solve(0.7)
+    assert [pt.co for pt in cut.points] == [pytest.approx((x, 0.7, 0.0)) for x in (0.0, 1.0, 2.0, 3.0)]
+    assert cut.points[1].edge == (5, 9) and cut.points[1].t == pytest.approx(0.4)
+
+def test_open_chain_in_a_grid_stays_between_its_end_walls():
+    s = Slider(grid_open())
+    assert s.limit() == pytest.approx(2.0, abs=1e-6)
+    cut = s.solve(1.5)
+    assert [pt.co for pt in cut.points] == [pytest.approx((x, 2.5, 0.0)) for x in (1.0, 2.0, 3.0)]
+    assert [pt.edge for pt in cut.points] == [(11, 16), (12, 17), (13, 18)]
+
+def test_trace_is_blocked_by_an_end_wall():
+    tr = trace_from_vertex(grid_open(), 1, math.atan2(1.0, -1.5), math.hypot(1.5, 1.0))
+    assert tr.blocked and tr.end.edge == (6, 11)
+    assert tr.end.co == pytest.approx((1.0, 1.0 + 2.0 / 3.0, 0.0), abs=1e-6)
+
+def test_slide_crosses_a_fold_onto_the_wall():
+    s = Slider(fold_box())
+    assert s.limit() == pytest.approx(2.0, abs=1e-6)
+    cut = s.solve(1.4)
+    assert [pt.co for pt in cut.points] == [pytest.approx((x, 1.0, 0.4)) for x in (0.0, 1.0, 2.0)]
+
+def test_rail_path_bend_falls_back_to_a_miter():
+    b = strip2()
+    verts = dict(b.verts)
+    verts[9] = (1.8, 1.0, 0.0)          # edge 5→9 now leans 58° off straight-on: the path stops at 5
+    b = Band(verts=verts, faces=b.faces, chain=b.chain, closed=False,
+             side_faces=b.side_faces, end_edges=(4, 7))
+    cut = Slider(b).solve(0.7)
+    assert [pt.co for pt in cut.points] == [pytest.approx(c, abs=1e-6) for c in
+        [(0.0, 0.7, 0.0), (1.0, 0.7, 0.0), (1.32, 0.7, 0.0), (2.0, 0.7, 0.0), (3.0, 0.7, 0.0)]]
+    assert cut.points[1].kind == "face"                          # miter inside face 3
+    assert cut.points[2].edge == (5, 9) and cut.points[2].t == pytest.approx(0.4)
+```
+
+- [ ] **Step 2: Run them and see them fail** (`python -m pytest tests/test_smart_edge_slide_core.py -q`). Expected: an `ImportError` for `rail_path`, or the limit staying at 0.5.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run the full core file and ruff.** All the old tests must pass unchanged.
+- [ ] **Step 5: Commit** `feat(smart-edge-slide): rails continue through rows, end walls, no first-row limit`.
+
+### Task 14: Bridge — flood band, end edges, region exclusion, lids along flank rail paths
+
+**Files:** Modify `operators/mesh_smart_edge_slide_bridge.py`, `tests/blender/test_smart_edge_slide.py`.
+
+**Interfaces:**
+- **Band faces.** `build_band` floods from the side faces (and the end-wedge faces) across non-chain edges through visible faces. Faces in a step region are excluded, because the lid stands for them. `build.band.end_edges` comes from today's `END_SHALLOW` end-wedge rule: the edge where the end fan stops.
+- **Lids along the flanks.** A lid's flank sides follow `core.rail_path` of the flank rail for as long as the path's faces are coplanar with the lid plane, within the existing tolerance. The lid polygon then becomes `(P_a … P_b, path_b…, path_a… reversed)`.
+- **Speed.** The flood runs once per side per chain. Its cost is linear in the mesh. Keep `face_triangles` shared across the run.
+
+- [ ] **Step 1: Write the failing headless tests**
+
+```python
+def test_execute_strip_passes_existing_mid_loop():
+    obj = _edit_object(_strip(rows=2), chain=[0, 1, 2, 3])
+    assert _run(obj, width=0.75, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 0.75, 0.0) for x in range(4)])
+
+def test_execute_pocket_beyond_the_short_flank():
+    obj = _edit_object(_pocket_uneven_flanks(), chain=[0, 1, 2, 3])
+    assert _run(obj, width=1.0, chain_sides="+") == {'FINISHED'}
+    assert {(1.0, 1.0, 0.15), (2.0, 1.0, 0.15), (0.0, 1.0, 0.0), (3.0, 1.0, 0.0)} <= _new_coords(obj)
+
+def test_execute_crosses_a_fold():
+    obj = _edit_object(_fold_box(), chain=[0, 1, 2])
+    assert _run(obj, width=1.4, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 1.0, 0.4) for x in range(3)])
+
+def test_execute_open_chain_keeps_inside_its_end_walls():
+    obj = _edit_object(_grid(5, 4), chain=[6, 7, 8])
+    assert _run(obj, width=1.5, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(x, 2.5, 0.0) for x in (1, 2, 3)])
+
+def test_execute_wraps_onto_the_far_side_of_a_cube():
+    obj = _edit_object(_cube_top_chain(), chain=None)   # 1×1×1 cube, top front edge selected
+    assert _run(obj, width=1.5, chain_sides="+") == {'FINISHED'}
+    assert _new_coords(obj) == _round_set([(-0.5, 0.5, 0.0), (0.5, 0.5, 0.0)])
+```
+
+Builders:
+- **`_fold_box()`**: the core fixture as a bmesh.
+- **`_grid(nx, ny)`**: the cursor-bisect builder.
+- **`_cube_top_chain()`**: `bmesh.ops.create_cube(size=1.0)`, with the top front edge (y = −0.5, z = +0.5) selected. Wind it so `+` is the top face, or pick the sign that is.
+
+Pin the sign with an assertion in the builder.
+
+- [ ] **Step 2: See them fail.** Expected: the limit is held at the first row, the cuts are CANCELLED or clamped, and coordinates are missing.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run both headless files, pytest and ruff.** Every existing test passes, including the Review Focus pins and the far-from-origin pockets.
+- [ ] **Step 5: Commit** `feat(smart-edge-slide): band floods the side, lids follow the flank rails`.
+
+### Task 15: Modal and docs follow-through, reference re-check
+
+**Files:** Modify `operators/mesh_smart_edge_slide.py` only if needed, `docs/operators/op_mesh_smart_edge_slide.md`, `tests/blender/check_reference_mesh.py`.
+
+- **Modal.**
+  - Snap candidates are now every band vertex. They must still be ranked by screen distance, and stay quick: no per-move rebuild.
+  - The preview must not slow down. Measure a 100×100 grid with a 50-edge chain: invoke and 20 width changes, then report the times.
+  - If a single solve takes over 30 ms there, cache the per-vertex rail paths per Slider.
+- **Docs.** The page says the slide runs until the mesh edge, an end wall or a corner it cannot unfold. It does not stop at existing loops.
+- **Reference check.** Add a width of 1.0 on the wall side, beyond the old 0.377 limit. It must FINISHED and pass the surface checks. Print the counts.
+- **Verify, then commit** `docs(smart-edge-slide): unbounded slide in docs and reference check`.
+
+### Task 16: UV Stripe relax — each edge by its own arc length, mean-value interior
+
+Spec: UV Stripe → *Edges of the rectangle → Relaxed, still straight (revised 2026-11-04)*.
+
+**Files:** Modify `utils/uv_stripe_core.py`, `tests/test_uv_stripe_core.py`. Bridges are untouched unless a test proves otherwise.
+
+**Interfaces:** `stripe_uvs(strip)` keeps its signature. What changes:
+- **Strip length.** `L = (near_len + far_len) / 2` over the whole strip. For closed strips, the walks start at the seam rung (`sharpest_rung`) and wrap.
+- **Near row.** Each near vertex gets `u = s_near · L / near_len` and `v = 0`, where `s_near` is the arc length from the start.
+- **Far row.** Each far occurrence gets `u = s_far · L / far_len` and `v = height`. A repeated far id keeps one u per occurrence, resolved by `corner_far`.
+- **Rungs.** They no longer pin u. They only set the walk start (the seam) and the ascending-order validation.
+- **Open-strip ends.** The side vertices sit on the vertical ends at u = 0 and u = L, with v by arc length (unchanged).
+- **Interior vertices.** Place them with Tutte, using mean-value weights computed from 3D. For neighbour j of vertex i: `w_ij = (tan(α_ij/2) + tan(β_ij/2)) / |p_j − p_i|`, where α_ij and β_ij are the angles at i of the two triangles sharing edge ij, in the fan of the faces around i. Use Gauss–Seidel until the move is below `1e-12·L` or 1000 iterations.
+- **Kept as is:** the mirror fix, `ascending_rungs`, `place_fit` and `place_in_place`.
+
+- [ ] **Step 1: Write the failing tests and update the ones whose expectation was "vertical columns".**
+  - Unchanged: `quad_strip`, `square_ring` and the end-side test. They are symmetric, and per-edge arc length gives the same numbers there.
+  - Re-derive and update the collapsed-anchor and collapsed-inset tests. Note each change in the report.
+  - New tests:
+
+```python
+def test_uneven_edges_spread_uniformly():
+    # L-corner strip: near is the outer corner (arms 2 + 2), far is the inner corner (arms 1.8 + 1.6)
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (2.0, 2.0, 0.0),
+         3: (0.0, 0.2, 0.0), 4: (1.8, 0.2, 0.0), 5: (1.8, 1.8, 0.0)}
+    f = {0: (0, 1, 4, 3), 1: (1, 2, 5, 4)}
+    s = Strip(verts=v, faces=f, near=[0, 1, 2], far=[3, 4, 5], rungs=[(0, 0), (1, 1), (2, 2)],
+              closed=False, height=0.2)
+    uv = stripe_uvs(s)
+    L = (4.0 + 3.4) / 2                                           # 3.7
+    assert uv[(0, 1)] == pytest.approx((2.0 * L / 4.0, 0.0))     # near row by its own arc length: 1.85
+    assert uv[(0, 4)] == pytest.approx((1.8 * L / 3.4, 0.2))     # far row by its own arc length: 1.9588
+    assert uv[(0, 1)][0] != pytest.approx(uv[(0, 4)][0])         # the column leans
+    assert uv[(1, 2)][0] == pytest.approx(L) and uv[(1, 5)][0] == pytest.approx(L)
+
+def test_interior_relax_keeps_faces_unflipped():
+    # pocket-like strip: a raised interior pair between near and far
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (0.0, 1.0, 0.0), 3: (2.0, 1.0, 0.0),
+         4: (0.5, 0.3, 0.2), 5: (1.5, 0.3, 0.2)}
+    f = {0: (0, 1, 5, 4), 1: (1, 3, 5), 2: (3, 2, 4, 5), 3: (2, 0, 4)}
+    s = Strip(verts=v, faces=f, near=[0, 1], far=[2, 3], rungs=[(0, 0), (1, 1)], closed=False, height=1.0)
+    uv = stripe_uvs(s)
+    for fid, ids in f.items():
+        pts = [uv[(fid, i)] for i in ids]
+        area = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                   for i in range(len(pts)))
+        assert area > 0.0
+    assert 0.0 < uv[(0, 4)][0] < uv[(0, 5)][0] < 2.0
+```
+
+- [ ] **Step 2: Run them and see them fail.** The new tests should fail on the old vertical-column layout.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run all tests.** That means `python -m pytest tests -q` and both headless files (`tests/blender/test_smart_edge_slide.py` and `tests/blender/test_smart_inset_uv_stripe.py`) via PowerShell with the scratch env. Headless expectations that relied on vertical columns may need re-deriving; note each one. Then run ruff.
+- [ ] **Step 5: Commit** `feat(uv-stripe): edges by their own arc length, mean-value relax inside`.
+
 ## Self-Review Notes
 
 **Spec coverage**

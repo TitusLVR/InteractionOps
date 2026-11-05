@@ -15,6 +15,7 @@ from typing import Sequence
 
 import bpy
 import bmesh
+import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import intersect_point_line
@@ -29,6 +30,7 @@ from bpy_extras.view3d_utils import (
 # --- Defaults -----------------------------------------------------------
 
 SNAP_THRESHOLD_PX = 30.0
+SNAP_SCREEN_WEIGHT = 0.7  # closest_snap_point: the screen share of a score, the rest is world
 RAYCAST_OFFSET_DISTANCE = 0.0001
 MAX_RAYCAST_ITERATIONS = 100
 CORNER_FALLBACK_COORDS = (
@@ -338,7 +340,7 @@ def _world_tolerance(snap_points, obj_matrix, mouse_pos_world, region, rv3d,
 def closest_snap_point(context, snap_points, obj_matrix, mouse_coord,
                        mouse_pos_world, *,
                        screen_threshold_px: float = SNAP_THRESHOLD_PX,
-                       screen_weight: float = 0.7):
+                       screen_weight: float = SNAP_SCREEN_WEIGHT):
     """Find the snap point closest to mouse using weighted screen + world
     distance. View-frustum aware: points off-screen fall back to pure world
     scoring.
@@ -414,6 +416,48 @@ def _closest_snap_point_world(snap_points, obj_matrix, mouse_pos_world):
             closest = (kind, point_local, point_world)
 
     return closest if closest_dist < threshold else None
+
+
+def snap_points_in_reach(context, cos, obj_matrix, mouse_coord,
+                         mouse_pos_world, *,
+                         screen_threshold_px: float = SNAP_THRESHOLD_PX,
+                         screen_weight: float = SNAP_SCREEN_WEIGHT):
+    """Indices, in order, of the snap points `closest_snap_point` can pick
+    with the same arguments; None where it scores them all against their
+    own extent (no view, or the hit behind it), so rank them all there.
+
+    For many candidates, such as every vertex of a large mesh, rank only
+    these: the pick is the same. `cos` holds the points' local coordinates,
+    an (N, 3) array. A point on screen scores at least `screen_weight` x
+    its pixel distance over `screen_threshold_px`, one off screen its world
+    distance over the world tolerance, and only a score under 1 is picked,
+    so the rest never are. Pixel and world margins cover the float32
+    rounding of `closest_snap_point`'s own projection.
+    """
+    region = context.region
+    rv3d = getattr(context.space_data, "region_3d", None)
+    if region is None or rv3d is None:
+        return None
+    tol = screen_threshold_px * px_world_at(region, rv3d, mouse_pos_world)
+    if tol <= 0.0:
+        return None
+    cos = np.asarray(cos, dtype=float).reshape(-1, 3)
+    mw = np.array(obj_matrix, dtype=float)
+    at = np.array(mouse_pos_world, dtype=float)
+    to_clip = np.array(rv3d.perspective_matrix, dtype=float) @ mw
+    clip = cos @ to_clip[:, :3].T + to_clip[:, 3]
+    gap = cos @ mw[:3, :3].T + mw[:3, 3] - at
+    reach_world = max(tol, 1e-9) * 1.001 + 1e-6 * (1.0 + float(np.abs(at).max()))
+    near = (gap * gap).sum(axis=1) <= reach_world * reach_world
+    if screen_weight > 0.0:
+        w = clip[:, 3]
+        with np.errstate(all="ignore"):
+            dx = region.width / 2.0 * (1.0 + clip[:, 0] / w) - mouse_coord[0]
+            dy = region.height / 2.0 * (1.0 + clip[:, 1] / w) - mouse_coord[1]
+            screen = np.where(w > 0.0, dx * dx + dy * dy, np.inf)
+        reach_px = screen_threshold_px / screen_weight + 2.0
+        near |= screen <= reach_px * reach_px
+    return np.flatnonzero(near).tolist()
 
 
 # --- Closest edge in a face --------------------------------------------

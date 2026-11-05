@@ -3,8 +3,11 @@
 Pure Python (stdlib only), no bpy and no mathutils, so it runs under plain pytest.
 
 A Strip has a near boundary (the original edge, v = 0) and a far boundary (the new
-edge, v = height), joined by rungs where the columns line up. U runs along the loop
-and V across it, both in world units, so the aspect is kept (no stretching).
+edge, v = height). Each is laid out by its own arc length, scaled to the strip length
+L (the mean of the two), so columns may lean; the rungs pick a closed strip's seam
+and check that the new edge runs in the order of the original one. Vertices on
+neither boundary are relaxed inside with mean-value weights taken from 3D. U runs
+along the loop and V across it, both in world units, so the aspect is kept.
 """
 
 import math
@@ -16,6 +19,7 @@ Vec2 = tuple[float, float]
 TUTTE_ITERS = 1000
 TUTTE_TOL = 1e-12
 TIE_TOL = 1e-9
+MAX_CORNER = math.pi - 1e-6  # corner angles are capped here, so a straight corner's tan(angle / 2) stays finite
 
 
 @dataclass
@@ -81,10 +85,35 @@ def ascending_rungs(strip: Strip) -> Strip:
     return strip
 
 
-def _path_len(strip: Strip, ids: list[int], a: int, b: int) -> float:
-    """Length of the path ids[a] .. ids[b] (indices may run past the end of a closed loop)."""
+def _row_steps(strip: Strip, ids: list[int], start: int) -> list[float]:
+    """Lengths of one row's edges, walked from position ``start``.
+
+    A closed row is a loop: it is walked from ``start`` round to ``start`` again, wrapping.
+    An open row is the path from its first position to its last (``start`` is 0).
+    """
     n = len(ids)
-    return sum(math.dist(strip.verts[ids[j % n]], strip.verts[ids[(j + 1) % n]]) for j in range(a, b))
+    count = n if strip.closed else n - 1
+    return [math.dist(strip.verts[ids[(start + j) % n]], strip.verts[ids[(start + j + 1) % n]]) for j in range(count)]
+
+
+def _row_u(strip: Strip, ids: list[int], start: int, length: float) -> list[float]:
+    """U of every position of one row, by the row's own arc length from ``start``, scaled to ``length``.
+
+    The walk runs as in ``_row_steps``; an open row's last position gets ``length`` exactly.
+    A repeated id keeps one u per position. A row with no length (collapsed to a point)
+    spreads its positions evenly instead.
+    """
+    n = len(ids)
+    steps = _row_steps(strip, ids, start)
+    run = [0.0]
+    for step in steps:
+        run.append(run[-1] + step)
+    total = run[-1]
+    out = [0.0] * n
+    for k in range(n):
+        t = run[k] / total if total > 1e-12 else k / max(len(steps), 1)
+        out[(start + k) % n] = length * t
+    return out
 
 
 def _unwrapped(strip: Strip, start: int) -> tuple[list[int], list[int]]:
@@ -92,8 +121,9 @@ def _unwrapped(strip: Strip, start: int) -> tuple[list[int], list[int]]:
 
     Open strips use the rungs as given. Closed strips start at rung `start`, wrap around and
     end with the start rung again, one full loop later. Raises ValueError when either index
-    list runs backward: the layout measures every path between rungs forward
-    (``ascending_rungs`` rotates a closed strip whose rungs start mid-way round).
+    list runs backward: the new edge then runs against the original one, and both rows are
+    walked forward from the seam (``ascending_rungs`` rotates a closed strip whose rungs
+    start mid-way round).
     """
     rn = [r[0] for r in strip.rungs]
     rf = [r[1] for r in strip.rungs]
@@ -109,49 +139,13 @@ def _unwrapped(strip: Strip, start: int) -> tuple[list[int], list[int]]:
     return un, uf
 
 
-def _rung_u(strip: Strip, un: list[int], uf: list[int]) -> list[float]:
-    """Cumulative mid-line length at each rung."""
-    out = [0.0]
-    for k in range(len(un) - 1):
-        ln = _path_len(strip, strip.near, un[k], un[k + 1])
-        lf = _path_len(strip, strip.far, uf[k], uf[k + 1])
-        out.append(out[-1] + (ln + lf) / 2.0)
-    return out
-
-
 def strip_length(strip: Strip) -> float:
-    un, uf = _unwrapped(strip, 0)
-    return _rung_u(strip, un, uf)[-1]
+    """The strip length L: the mean of the near and far rows' lengths (whole loops when closed).
 
-
-def _side_u(strip: Strip, ids: list[int], ridx: list[int], ru: list[float]) -> list[float]:
-    """U of every vertex of one boundary, by arc length between the rung values.
-
-    Indices before the first rung or after the last one (open strips) take the end rung's u.
+    Raises ValueError when the rungs run backward (``_unwrapped``).
     """
-    n = len(ids)
-    out = [ru[0]] * n
-    for i in range(ridx[-1] + 1, n):
-        out[i] = ru[-1]
-    for k in range(len(ridx) - 1):
-        a, b = ridx[k], ridx[k + 1]
-        total = _path_len(strip, ids, a, b)
-        run = 0.0
-        # a closed loop's final rung is the seam copy of the first one: it stays out of the table
-        top = b if strip.closed and k == len(ridx) - 2 else b + 1
-        for j in range(a, top):
-            if j > a:
-                run += math.dist(strip.verts[ids[(j - 1) % n]], strip.verts[ids[j % n]])
-            t = run / total if total > 1e-12 else 0.0
-            out[j % n] = ru[k] + (ru[k + 1] - ru[k]) * t
-    # a vertex shared by consecutive rungs (collapsed segment) sits at the mean of their u
-    shared: dict[int, list[float]] = {}
-    for k in range(len(ridx) - 1 if strip.closed else len(ridx)):
-        shared.setdefault(ridx[k] % n, []).append(ru[k])
-    for i, us in shared.items():
-        if len(us) > 1:
-            out[i] = sum(us) / len(us)
-    return out
+    _unwrapped(strip, 0)
+    return (sum(_row_steps(strip, strip.near, 0)) + sum(_row_steps(strip, strip.far, 0))) / 2.0
 
 
 def _side_v(strip: Strip, end_ids: tuple[int, int], side: list[int]) -> dict[int, float]:
@@ -165,16 +159,23 @@ def _side_v(strip: Strip, end_ids: tuple[int, int], side: list[int]) -> dict[int
 
 
 def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
-    """Map every (face id, vertex id) corner of the strip to (u, v) in world units."""
+    """Map every (face id, vertex id) corner of the strip to (u, v) in world units.
+
+    The near row lies on v = 0 and the far row on v = height, each by its own arc length
+    scaled to L (``strip_length``); a closed strip's rows are walked from its seam rung
+    (``sharpest_rung``). An open strip's end sides stand at u = 0 and u = L. Every other
+    vertex is relaxed inside (``_tutte``). Raises ValueError for rungs that run backward,
+    and for a repeated far id without a ``corner_far`` entry for one of its corners.
+    """
     near, far = strip.near, strip.far
     start = sharpest_rung(strip) if strip.closed else 0
     un, uf = _unwrapped(strip, start)
-    ru = _rung_u(strip, un, uf)
-    length = ru[-1]
-    u_near = _side_u(strip, near, un, ru)
-    u_far = _side_u(strip, far, uf, ru)
-    seam_near = un[0] % len(near)
-    seam_far = uf[0] % len(far)
+    length = strip_length(strip)
+    # an open strip's rows run from their first vertex, which need not be on a rung
+    seam_near = un[0] % len(near) if strip.closed else 0
+    seam_far = uf[0] % len(far) if strip.closed else 0
+    u_near = _row_u(strip, near, seam_near, length)
+    u_far = _row_u(strip, far, seam_far, length)
 
     near_at = {vid: i for i, vid in enumerate(near)}
     far_at: dict[int, list[int]] = {}
@@ -216,8 +217,9 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
                 interior.add(vid)
 
     # The seam rung sits at u = 0 on one side of the cut and u = L on the other: per face, the
-    # end that keeps the face's other boundary corners closest (smallest span). Both ends are
-    # set outright: a seam vertex shared by two rungs (a collapse node) holds their mean u.
+    # end that keeps the face's other boundary corners closest (smallest span). Both rows start
+    # their walk at the seam rung, so the seam column is vertical on either side, also when its
+    # far vertex is shared by two rungs (a collapse node).
     for fid, vid in seam_corners:
         others = [uv[(fid, w)][0] for w in strip.faces[fid] if (fid, w) in uv and (fid, w) not in seam_corners]
         u = length if (others and max(length - o for o in others) < max(others)) else 0.0
@@ -241,17 +243,43 @@ def _signed_area(pts: list[Vec2]) -> float:
     return 0.5 * sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))
 
 
+def _mean_value_terms(strip: Strip, interior: set[int]) -> dict[int, list[tuple[float, int, int]]]:
+    """Each interior vertex's (weight, neighbour, face) terms, with mean-value weights from 3D.
+
+    Every face round an interior vertex i gives each of its two edges at i the term
+    tan(a / 2) / |p_j - p_i|, a being the face's corner angle at i. Summed over the two
+    faces of edge ij this is the mean-value weight (tan(alpha / 2) + tan(beta / 2)) / |p_j - p_i|.
+    The terms stay per face, because a boundary neighbour (a seam or repeated far vertex)
+    can have a different UV in each face. A straight corner is capped at ``MAX_CORNER``
+    and a zero-length edge at ``TIE_TOL``; a vertex whose terms all weigh nothing (only
+    zero-angle corners) takes uniform weights.
+    """
+    verts = strip.verts
+    terms: dict[int, list[tuple[float, int, int]]] = {p: [] for p in interior}
+    for fid, face in strip.faces.items():
+        n = len(face)
+        for k, p in enumerate(face):
+            if p not in interior:
+                continue
+            prev, nxt = face[k - 1], face[(k + 1) % n]
+            half = math.tan(min(_angle(verts[prev], verts[p], verts[nxt]), MAX_CORNER) / 2.0)
+            for q in (prev, nxt):
+                terms[p].append((half / max(math.dist(verts[p], verts[q]), TIE_TOL), q, fid))
+    for p, ts in terms.items():
+        if sum(w for w, _q, _fid in ts) <= 0.0:
+            terms[p] = [(1.0, q, fid) for _w, q, fid in ts]
+    return terms
+
+
 def _tutte(strip: Strip, interior: set[int], uv: dict[tuple[int, int], Vec2], length: float) -> dict[int, Vec2]:
-    """Uniform-weight Tutte embedding of the interior vertices inside the fixed boundary."""
+    """Mean-value Tutte embedding of the interior vertices inside the fixed boundary.
+
+    Gauss-Seidel with the weights of ``_mean_value_terms``, until no vertex moves by
+    ``TUTTE_TOL * length`` or more, or ``TUTTE_ITERS`` sweeps.
+    """
     if not interior:
         return {}
-    nbrs: dict[int, dict[int, int]] = {p: {} for p in interior}  # vertex -> neighbour -> face
-    for fid, face in strip.faces.items():
-        for a, b in zip(face, face[1:] + face[:1]):
-            if a in interior:
-                nbrs[a].setdefault(b, fid)
-            if b in interior:
-                nbrs[b].setdefault(a, fid)
+    terms = _mean_value_terms(strip, interior)
     cu = sum(p[0] for p in uv.values()) / len(uv)
     cv = sum(p[1] for p in uv.values()) / len(uv)
     pos = dict.fromkeys(interior, (cu, cv))
@@ -259,12 +287,13 @@ def _tutte(strip: Strip, interior: set[int], uv: dict[tuple[int, int], Vec2], le
     for _ in range(TUTTE_ITERS):
         biggest = 0.0
         for p in order:
-            su = sv = 0.0
-            for q, fid in nbrs[p].items():
+            su = sv = sw = 0.0
+            for w, q, fid in terms[p]:
                 qu, qv = pos[q] if q in interior else uv[(fid, q)]
-                su += qu
-                sv += qv
-            new = (su / len(nbrs[p]), sv / len(nbrs[p]))
+                su += w * qu
+                sv += w * qv
+                sw += w
+            new = (su / sw, sv / sw)
             biggest = max(biggest, abs(new[0] - pos[p][0]), abs(new[1] - pos[p][1]))
             pos[p] = new
         if biggest < TUTTE_TOL * length:
