@@ -35,6 +35,25 @@ reference: on long thin triangles it is off by a few 1e-6.
 
 The numbers are printed, and operator warnings appear in the log above them.
 Exits 1 when a property fails.
+
+``--u-loop`` runs a second check instead, on a snapshot of an open U-shaped chain
+(same format): the loop on each side in the destructive mode (D), at that side's
+own D limit:
+
+    blender ... --python tests/blender/check_reference_mesh.py -- --u-loop <u_loop_mesh.json>
+
+- inward (side -1) the D limit is greater than 0.24 (the default mode stops at 0.23977);
+- outward (side +1) the D limit is greater than 0.10: the default mode stops at 0.09987,
+  where each end wall ends, and the ends shooting on take the destructive mode past it;
+- at both limits the operator returns FINISHED, every new vertex lies within 1e-5 of the
+  original surface, no original vertex moves, and no new face or edge is degenerate.
+
+The limits and the counts are printed.
+
+Both checks also confirm, on each side in each exact mode, a cut with D on at the
+side's D limit plus 1: the operator returns FINISHED and its new vertices are the
+points the modal's preview draws there (``bridge.built_limit``, then
+``bridge.preview_layers``), within ``ANCHOR_MATCH_TOL``.
 """
 import json
 import math
@@ -71,12 +90,17 @@ POCKET_TOP_Z = 5.0
 POCKET_SIDES_Y = (-3.5, -2.5)
 POCKET_TOL = 1e-4
 
+U_LOOP_INWARD_MIN = 0.24  # the default mode's inward limit is 0.23977
+U_LOOP_OUTWARD_MIN = 0.10  # the default mode's outward limit is 0.09987, where the end walls end
+U_LOOP_SURFACE_TOL = 1e-5
+
 bridge = None
 core = None
+wave = None
 
 
 def enable_addon():
-    global bridge, core
+    global bridge, core, wave
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     repo_parent = os.path.dirname(repo_root)
     if repo_parent not in sys.path:
@@ -88,15 +112,18 @@ def enable_addon():
     assert os.path.samefile(loaded, repo_root), f"addon loaded from {loaded}"
     from InteractionOps.operators import mesh_smart_edge_slide_bridge as _bridge
     from InteractionOps.utils import smart_edge_slide_core as _core
+    from InteractionOps.utils import smart_edge_slide_wave as _wave
     bridge = _bridge
     core = _core
+    wave = _wave
 
 
 def load_snapshot():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    if not argv:
-        raise SystemExit("usage: ... --python tests/blender/check_reference_mesh.py -- <reference_mesh.json>")
-    with open(argv[0], encoding="utf-8") as f:
+    paths = [a for a in argv if a != "--u-loop"]
+    if not paths:
+        raise SystemExit("usage: ... --python tests/blender/check_reference_mesh.py -- [--u-loop] <snapshot.json>")
+    with open(paths[0], encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -279,12 +306,15 @@ def panel_anchors(obj, side, width):
     return anchors, [v.index for v in chains[0].verts]
 
 
-def side_limit(obj, side):
-    """The widest width the operator's own solve fits on ``side`` in the default mode, or None without a band."""
+def side_limit(obj, side, destructive=False):
+    """The widest width the operator's own solve fits on ``side`` (in the destructive mode, or by default), or None
+    without a band."""
     bm = _bm(obj)
     chains, _warnings = bridge.collect_chains(bm)
     build, _err = bridge.build_band(bm, chains[0], side)
-    return None if build is None else core.Slider(build.band).limit()
+    if build is None:
+        return None
+    return wave.WaveSlider(build.band).limit(destructive=True) if destructive else core.Slider(build.band).limit()
 
 
 def _state(bm):
@@ -296,17 +326,19 @@ def _state(bm):
     }
 
 
-def run(snap, sign, kind, width):
-    """Rebuild, cut on ``sign`` at ``width``; the before and after state for the checks."""
+def run(snap, sign, kind, width, destructive=False, limit=None, exact=False):
+    """Rebuild, cut on ``sign`` at ``width`` (in the destructive mode, or by default; ``exact`` for Exact Width); the
+    before and after state for the checks. ``limit`` is the side's limit when the caller has it already."""
     obj = rebuild(snap)
     bm = _bm(obj)
     before = _state(bm)
     before["bvh"] = BVHTree.FromBMesh(bm)
     before["triangles"] = [tuple(tuple(lp.vert.co) for lp in tri) for tri in bm.calc_loop_triangles()]
     side = 1 if sign == "+" else -1
-    before["limit"] = side_limit(obj, side)
+    before["limit"] = side_limit(obj, side, destructive) if limit is None else limit
     anchors, chain_ids = panel_anchors(obj, side, width) if kind == "panel" else ([], None)
-    result = bpy.ops.iops.mesh_smart_edge_slide('EXEC_DEFAULT', width=width, chain_sides=sign)
+    result = bpy.ops.iops.mesh_smart_edge_slide(
+        'EXEC_DEFAULT', width=width, chain_sides=sign, use_destructive=destructive, use_exact=exact)
     bm = _bm(obj)
     after = _state(bm)
     after["selected_edges"] = sum(e.select for e in bm.edges)
@@ -324,7 +356,7 @@ def check(ok, what):
         FAILURES.append(what)
 
 
-def common_checks(label, result, before, after, width):
+def common_checks(label, result, before, after, width, surface_tol=SURFACE_TOL):
     new = after["coords"][before["n_verts"]:]
     limit = before["limit"]
     print(f"{label}: operator returned {sorted(result)}")
@@ -341,8 +373,8 @@ def common_checks(label, result, before, after, width):
     nearest = [before["bvh"].find_nearest(co) for co in new]
     worst = max(off, default=0.0)
     worst_bvh = max((hit[3] for hit in nearest), default=0.0)
-    check(worst <= SURFACE_TOL, f"{label}: every new vertex on the original surface "
-          f"(largest distance {worst:.3g}, tolerance {SURFACE_TOL:g}; single-precision BVH: {worst_bvh:.3g})")
+    check(worst <= surface_tol, f"{label}: every new vertex on the original surface "
+          f"(largest distance {worst:.3g}, tolerance {surface_tol:g}; single-precision BVH: {worst_bvh:.3g})")
 
     faces_before, edges_before = before["degenerate"]
     faces_after, edges_after = after["degenerate"]
@@ -407,9 +439,73 @@ def panel_checks(snap, new, anchors, chain_ids, normal, width):
     print(f"  largest error against the lines of each anchor's two chain edges: {worst_lines:.3g}")
 
 
+def preview_past_limit(obj, side, exact):
+    """(the side's D limit, the points the modal's preview draws at that limit plus 1) on ``obj`` as it stands."""
+    bm = _bm(obj)
+    chains, _warnings = bridge.collect_chains(bm)
+    build, err = bridge.build_band(bm, chains[0], side)
+    assert build is not None, f"no band on side {side}: {err}"
+    slider = wave.WaveSlider(build.band)
+    limit = slider.limit(exact=exact, destructive=True)
+    bridge.built_limit(bm, build, slider, exact, 0.0)
+    cut = slider.solve(limit + 1.0, exact=exact, destructive=True)
+    _segs, points, _clamped = bridge.preview_layers([build], [cut], destructive=True)
+    return limit, [tuple(p) for p in points]
+
+
+def past_limit_checks(snap, signs):
+    """D at each side's D limit plus 1, in each exact mode: confirm builds what the preview draws."""
+    for sign in signs:
+        side = 1 if sign == "+" else -1
+        for exact in (False, True):
+            limit, drawn = preview_past_limit(rebuild(snap), side, exact)
+            label = f"D past the limit, side {sign}, exact {'on' if exact else 'off'}"
+            result, before, after, _anchors, _ids = run(snap, sign, "d", limit + 1.0, destructive=True, limit=limit,
+                                                        exact=exact)
+            new = after["coords"][before["n_verts"]:]
+            print(f"{label}: limit {limit:.6f}, operator returned {sorted(result)}, {len(drawn)} points drawn, "
+                  f"{len(new)} new vertices")
+            check(result == {'FINISHED'}, f"{label}: operator returns FINISHED")
+            far = max((min((_length(_sub(p, q)) for q in new), default=math.inf) for p in drawn), default=0.0)
+            check(len(new) == len(drawn) and far <= ANCHOR_MATCH_TOL,
+                  f"{label}: the new vertices are the points the preview draws (largest distance {far:.3g})")
+
+
+def u_loop_main(snap):
+    """The U loop in the destructive mode: each side at its own D limit (see the module docstring)."""
+    print(f"U loop: {len(snap['verts'])} vertices, {len(snap['faces'])} faces, chain of {len(snap['chain'])}")
+    limits = {}
+    for sign, name in (("-", "inward"), ("+", "outward")):
+        side = 1 if sign == "+" else -1
+        obj = rebuild(snap)
+        by_default = side_limit(obj, side)
+        limits[sign] = side_limit(obj, side, destructive=True)
+        print(f"{name} (side {side:+d}): limit in the default mode {by_default:.6f}, "
+              f"limit with D on {limits[sign]:.6f}")
+    check(limits["-"] > U_LOOP_INWARD_MIN,
+          f"inward limit with D on is greater than {U_LOOP_INWARD_MIN} ({limits['-']:.6f})")
+    check(limits["+"] > U_LOOP_OUTWARD_MIN,
+          f"outward limit with D on is greater than {U_LOOP_OUTWARD_MIN} ({limits['+']:.6f})")
+    for sign, name in (("-", "inward"), ("+", "outward")):
+        # The operator's width property is single precision: a limit rounded up is still held at the limit.
+        width = limits[sign]
+        result, before, after, _anchors, _ids = run(snap, sign, "u", width, destructive=True, limit=limits[sign])
+        new = common_checks(f"U loop {name} (D), width {width:.6f}", result, before, after, width,
+                            surface_tol=U_LOOP_SURFACE_TOL)
+        print(f"{name}: {len(new)} new vertices, faces {before['n_faces']} -> {after['n_faces']}, "
+              f"{after['selected_edges']} loop edges selected")
+    past_limit_checks(snap, ("-", "+"))
+    print("U LOOP CHECK " + (f"FAILED: {len(FAILURES)}" if FAILURES else "OK"))
+    if FAILURES:
+        sys.exit(1)
+
+
 def main():
     enable_addon()
     snap = load_snapshot()
+    if "--u-loop" in sys.argv:
+        u_loop_main(snap)
+        return
     print(f"reference mesh: {len(snap['verts'])} vertices, {len(snap['faces'])} faces, "
           f"{len(snap['hidden_faces'])} hidden, chain {snap['chain']}")
     kinds, normals = classify_sides(rebuild(snap))
@@ -422,6 +518,7 @@ def main():
                 wall_checks(snap, new, width)
             else:
                 panel_checks(snap, new, anchors, chain_ids, normals[sign], width)
+    past_limit_checks(snap, sorted(kinds))
     print("REFERENCE CHECK " + (f"FAILED: {len(FAILURES)}" if FAILURES else "OK"))
     if FAILURES:
         sys.exit(1)

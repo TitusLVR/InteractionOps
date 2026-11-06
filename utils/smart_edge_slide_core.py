@@ -58,6 +58,24 @@ def _has_edge(loop: tuple[int, ...], a: int, b: int) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class Angles:
+    """The angle tolerances of the slide, in radians; the defaults are the long-standing constants.
+
+    ``rail_bend`` is how far a rail path may turn at a vertex and how far a
+    rail may lean from the wedge's bisector. ``end_edge`` is the angle from an
+    open chain's end edge at which an end fan stops. ``step_agree`` and
+    ``step_differ`` bound the step-run tests of the bridge; ``shoot`` is for the
+    destructive mode's shooting rays.
+    """
+
+    rail_bend: float = RAIL_MAX_DEV
+    end_edge: float = math.pi / 2.0 - RAIL_MAX_DEV
+    step_agree: float = math.acos(STEP_AGREE_COS)
+    step_differ: float = math.acos(STEP_DIFFER_COS)
+    shoot: float = math.radians(30.0)
+
+
 @dataclass
 class Band:
     """The faces on one side of a chain.
@@ -83,6 +101,7 @@ class Band:
     side_faces: list[int]
     tris: dict[int, list[tuple[int, int, int]]] = field(default_factory=dict)
     end_edges: tuple[int | None, int | None] = (None, None)
+    angles: Angles = field(default_factory=Angles)
 
     def __post_init__(self):
         n = len(self.chain)
@@ -917,7 +936,7 @@ class _Surface:
         """Follow edge (chain[k], far) on through rows, unfolding the faces around each vertex reached.
 
         At each vertex the path goes on along the edge whose developed direction
-        turns least from the edge it came along, within ``RAIL_MAX_DEV``; never
+        turns least from the edge it came along, within ``band.angles.rail_bend``; never
         back to a vertex of the path. A chain vertex ends the path: the chain
         bounds the band. Unfolding stops at ``blocked`` edges. A path edge's
         holder is the first face of the walk around its start that holds it; for
@@ -931,27 +950,42 @@ class _Surface:
             raise ValueError(f"edge ({v}, {far}) does not leave the wedge of chain vertex {v}")
         verts, pts, holders = [v, far], [(0.0, 0.0), self.dev(*hold)[far]], [hold]
         while verts[-1] not in chain:
-            p, x = verts[-2], verts[-1]
-            heading = _sub2(pts[-1], pts[-2])
-            best, tried = None, set()
-            for g, xg in self.fan(*holders[-1], x, p, blocked):
-                loop = self.layout(g).loop
-                i = loop.index(x)
-                dev = self.dev(g, xg)
-                for y in (loop[i - 1], loop[(i + 1) % len(loop)]):
-                    if y in tried or y in verts:
-                        continue
-                    tried.add(y)
-                    d = _sub2(dev[y], dev[x])
-                    turn = abs(math.atan2(_cross2(heading, d), _dot2(heading, d)))
-                    if turn <= RAIL_MAX_DEV and (best is None or turn < best[0]):
-                        best = (turn, y, dev[y], (g, xg))
-            if best is None:
+            best = self._way_on((verts, pts, holders), blocked)
+            if best is None or best[0] > self.band.angles.rail_bend:
                 break
             verts.append(best[1])
             pts.append(best[2])
             holders.append(best[3])
         return verts, pts, holders
+
+    def _way_on(self, path: _Path, blocked: set) -> tuple[float, int, Vec2, tuple[int, _Xform]] | None:
+        """The edge on from ``path``'s last vertex that turns least from its last edge, whatever Rail Bend says:
+        (turn, far vertex, its developed position, holder); None without one. Never back to a vertex of the path."""
+        verts, pts, holders = path
+        p, x = verts[-2], verts[-1]
+        heading = _sub2(pts[-1], pts[-2])
+        best, tried = None, set()
+        for g, xg in self.fan(*holders[-1], x, p, blocked):
+            loop = self.layout(g).loop
+            i = loop.index(x)
+            dev = self.dev(g, xg)
+            for y in (loop[i - 1], loop[(i + 1) % len(loop)]):
+                if y in tried or y in verts:
+                    continue
+                tried.add(y)
+                d = _sub2(dev[y], dev[x])
+                turn = abs(math.atan2(_cross2(heading, d), _dot2(heading, d)))
+                if best is None or turn < best[0]:
+                    best = (turn, y, dev[y], (g, xg))
+        return best
+
+    def path_turn(self, path: _Path, blocked: set) -> float | None:
+        """How far a path that stopped would turn to go on from its last vertex: what Rail Bend must exceed for it
+        to go on. None where nothing would let it: it ends on a chain vertex, or no edge leads on."""
+        if path[0][-1] in self.band.chain:
+            return None
+        best = self._way_on(path, blocked)
+        return None if best is None else best[0]
 
     def corner_holds(self, f: int, xf: _Xform, v: int, d: Vec2) -> bool:
         """Whether direction ``d`` leaves vertex ``v`` into face ``f``'s corner."""
@@ -1165,7 +1199,7 @@ def rail_path(band: Band, k: int, rail: Rail, *, _surface: _Surface | None = Non
 
     The first entry is ``chain[k]`` at (0, 0), the second ``rail.far``. At each
     vertex reached the path goes on along the band edge whose developed
-    direction turns least from straight on, within ``RAIL_MAX_DEV``; never along
+    direction turns least from straight on, within ``band.angles.rail_bend``; never along
     a chain edge or back to a vertex of the path. It stops at the band border,
     on a chain vertex (the chain bounds the band), or where no edge qualifies.
     The faces unfold as the traces unfold them, and neither chain edges nor end
@@ -1201,7 +1235,9 @@ class _InconsistentDevelopmentError(ValueError):
     """A segment trace missed its partner point: the development is not flat between them."""
 
 
-def trace_segment(band: Band, k: int, a: Trace, b: Trace, *, _surface: _Surface | None = None) -> Trace:
+def trace_segment(
+    band: Band, k: int, a: Trace, b: Trace, *, _surface: _Surface | None = None, meet_tol: float = _SEGMENT_MEET_TOL
+) -> Trace:
     """Trace from ``a.end`` to ``b.end`` in chain edge ``k``'s frame.
 
     ``a`` was traced from ``chain[k]`` and ``b`` from ``chain[k + 1]`` (wrapping on
@@ -1210,13 +1246,13 @@ def trace_segment(band: Band, k: int, a: Trace, b: Trace, *, _surface: _Surface 
     length along +x, which puts the direction to ``chain[k]`` at angle pi.
 
     Raises ``ValueError("inconsistent development")`` when the segment misses
-    ``b.end``; a blocked segment is returned without that check. Crossings
+    ``b.end`` by more than ``meet_tol``; a blocked segment is returned without that check. Crossings
     within that same tolerance of ``a.end`` or ``b.end`` are dropped: the end
     points stand for them.
     """
     surf = _Surface(band) if _surface is None else _surface
     seg = surf.trace(a._face, a._xf, a.end, a.end_xy, surf.from_next(k, b.end_xy))
-    if not seg.blocked and _length(_sub(seg.end.co, b.end.co)) > _SEGMENT_MEET_TOL:
+    if not seg.blocked and _length(_sub(seg.end.co, b.end.co)) > meet_tol:
         raise _InconsistentDevelopmentError("inconsistent development")
     seg.crossings = [
         x for x in seg.crossings
@@ -1249,7 +1285,14 @@ class Cut:
     segment share one index. ``connectors`` are ``(vertex id, points index)``
     edges to add: from a chain vertex to its miter, or from the last vertex of a
     rail path to the new vertex placed past it. ``width`` is the width solved;
-    ``clamped`` tells whether it is below the width asked for.
+    ``clamped`` tells whether it is below the width asked for. ``breaks`` holds
+    each index ``i`` where no new edge runs from ``points[i-1]`` to ``points[i]``;
+    on a closed loop 0 is the wrap edge. Only the destructive mode
+    (``smart_edge_slide_wave``) sets it, and ``inner``: the breaks that lie
+    inside one piece of the loop (a piece pressed onto its walls, its points
+    there apart), not between two pieces, and ``rings``: the breaks that start a
+    piece which closes on itself (a ring the loop split into where it touched
+    itself), its last point joined to its first.
     """
 
     points: list[SurfacePoint]
@@ -1257,6 +1300,9 @@ class Cut:
     connectors: list[tuple[int, int]]
     width: float
     clamped: bool
+    breaks: tuple[int, ...] = ()
+    inner: tuple[int, ...] = ()
+    rings: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1357,6 +1403,33 @@ class Slider:
         """``end_paths`` of the band, over this Slider's surface: the paths its open ends slid along."""
         return end_paths(self.band, _surface=self._surf)
 
+    def end_wall_stop(self, at_start: bool) -> tuple[int | None, float | None]:
+        """(the vertex the end wall at the start or end ends at, how far it would turn to go on past it:
+        ``_Surface.path_turn``). (None, None) without an end wall of its own; the turn None where nothing would let it
+        go on."""
+        surf = self._surf
+        end = surf.end_index(at_start)
+        path = None if end is None else surf.end_path(at_start)
+        if path is None or path[0] != surf.rail_path(*end)[0]:  # turned onto the other wall: it ends on the chain
+            return None, None
+        return path[0][-1], surf.path_turn(path, surf.chain_edges)
+
+    def rail_stop(self, k: int) -> tuple[int | None, float | None]:
+        """(the vertex ``chain[k]``'s rail path ends at, what Rail Bend must exceed for its new vertex to follow a
+        rail further): without a rail, the chain vertex itself and the smallest lean of a rail from the bisector; with
+        one, how far its path would turn to go on past its end. The turn is None where no rail would do, or the vertex
+        leaves its rail path before that end."""
+        surf = self._surf
+        route = self._aim(k, False)
+        wd = surf.wedge(k)
+        if route.rail is None:
+            leans = [abs(r.angle - wd.theta / 2.0) for r in wd.rails if not r.border]
+            return self.band.chain[k], min(leans, default=None)
+        path = surf.rail_path(k, route.rail.far)
+        if len(route.pts) < len(path[1]):
+            return path[0][len(route.pts) - 1], None
+        return path[0][-1], surf.path_turn(path, surf.blocked)
+
     def _trace(self, k: int, angle: float, length: float) -> Trace:
         """An anchor trace from ``chain[k]``, its end snapped onto nearby mesh elements."""
         tr = trace_from_vertex(self.band, k, angle, length, _surface=self._surf)
@@ -1394,7 +1467,7 @@ class Slider:
             wd = surf.wedge(k)
             theta = wd.theta
             rail = min(
-                (r for r in wd.rails if not r.border and abs(r.angle - theta / 2.0) <= RAIL_MAX_DEV),
+                (r for r in wd.rails if not r.border and abs(r.angle - theta / 2.0) <= surf.band.angles.rail_bend),
                 key=lambda r: abs(r.angle - theta / 2.0),
                 default=None,
             )

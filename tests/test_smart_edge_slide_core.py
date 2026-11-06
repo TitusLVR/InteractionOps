@@ -2,8 +2,13 @@ import math
 import random
 
 import pytest
+from smart_edge_slide_fixtures import _band, chamfer_ring, jittered_grid, ring, u_in_grid
 
 from utils.smart_edge_slide_core import (
+    RAIL_MAX_DEV,
+    STEP_AGREE_COS,
+    STEP_DIFFER_COS,
+    Angles,
     Band,
     OutOfRoom,
     Slider,
@@ -16,11 +21,6 @@ from utils.smart_edge_slide_core import (
     trace_segment,
     wedge,
 )
-
-
-def _band(pts, faces, chain, side_faces, closed=False, end_edges=(None, None)):
-    verts = {i: (float(p[0]), float(p[1]), float(p[2])) for i, p in enumerate(pts)}
-    return Band(verts=verts, faces=faces, chain=chain, closed=closed, side_faces=side_faces, end_edges=end_edges)
 
 
 def strip():
@@ -36,6 +36,15 @@ def strip2():
         3: (4, 5, 9, 8), 4: (5, 6, 10, 9), 5: (6, 7, 11, 10),
     }
     return _band(pts, faces, [0, 1, 2, 3], [0, 1, 2], end_edges=(4, 7))
+
+
+def strip2_bent(deg):
+    """strip2() with vertex 9 placed so that edge 5->9 turns ``deg`` degrees from edge 1->5."""
+    b = strip2()
+    verts = dict(b.verts)
+    verts[9] = (1.0 + 0.5 * math.tan(math.radians(deg)), 1.0, 0.0)
+    return Band(verts=verts, faces=b.faces, chain=b.chain, closed=False,
+                side_faces=b.side_faces, end_edges=(4, 7))
 
 
 def box_corner():
@@ -62,12 +71,6 @@ def ngon_diag():
 def sliver():
     pts = [(0, 0, 0), (1, -0.1, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)]
     return _band(pts, {0: (0, 1, 2), 1: (0, 2, 3, 4)}, [0, 1, 2], [0, 0])
-
-
-def ring():
-    pts = [(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0), (-2, -2, 0), (2, -2, 0), (2, 2, 0), (-2, 2, 0)]
-    faces = {0: (0, 1, 5, 4), 1: (1, 2, 6, 5), 2: (2, 3, 7, 6), 3: (3, 0, 4, 7)}
-    return _band(pts, faces, [0, 1, 2, 3], [0, 1, 2, 3], closed=True)
 
 
 def end_slide():
@@ -105,19 +108,6 @@ def tall_grid(rows=30):
     faces = {y * 8 + x: (y * 9 + x, y * 9 + x + 1, (y + 1) * 9 + x + 1, (y + 1) * 9 + x)
              for y in range(rows) for x in range(8)}
     return _band(pts, faces, [2, 3, 4, 5, 6], [2, 3, 4, 5], end_edges=(11, 15))
-
-
-def u_in_grid():
-    # A U-shaped open chain in a 7x6 grid of unit quads (vertex y*8+x, face y*7+x), the side
-    # inside the U; the end edges (1,4)->(2,4) and (6,4)->(5,4) run across its mouth.
-    pts = [(x, y, 0) for y in range(7) for x in range(8)]
-    faces = {
-        y * 7 + x: (y * 8 + x, y * 8 + x + 1, (y + 1) * 8 + x + 1, (y + 1) * 8 + x)
-        for y in range(6) for x in range(7)
-    }
-    corners = [(1, 4), (1, 3), (1, 2), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (6, 2), (6, 3), (6, 4)]
-    side = [(1, 3), (1, 2), (1, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (5, 1), (5, 2), (5, 3)]
-    return _band(pts, faces, [y * 8 + x for x, y in corners], [y * 7 + x for x, y in side], end_edges=(34, 37))
 
 
 def walls_meet():
@@ -177,20 +167,6 @@ def pole_wall():
              ((2, 2), (3, 2), (2.75, 3)), ((3, 2), (4, 2), (4, 3), (2.75, 3)),
              ((4, 2), (5, 2), (5, 3), (4, 3)), ((5, 2), (6, 2), (6, 3), (5, 3))]
     return wall_grid(top, joins)
-
-
-def jittered_grid(seed, jitter=0.3):
-    # A 10 x 8 grid of unit quads (vertex y*11+x), each inner vertex moved by up to ``jitter`` along x and along y,
-    # seeded; the open chain runs along the bottom border from (2,0) to (8,0), the end edges up from its ends.
-    rnd = random.Random(seed)  # noqa: S311 - a seeded fixture, not security
-    pts = []
-    for y in range(9):
-        for x in range(11):
-            inner = 0 < y < 8 and 0 < x < 10
-            pts.append((x + rnd.uniform(-jitter, jitter), y + rnd.uniform(-jitter, jitter), 0) if inner else (x, y, 0))
-    faces = {y * 10 + x: (y * 11 + x, y * 11 + x + 1, (y + 1) * 11 + x + 1, (y + 1) * 11 + x)
-             for y in range(8) for x in range(10)}
-    return _band(pts, faces, list(range(2, 9)), list(range(2, 8)), end_edges=(13, 19))
 
 
 def strip_fin():
@@ -617,14 +593,6 @@ def test_snap_on_rail_default_and_exact():
     s = Slider(bent())
     assert s.snap_width(sp) == pytest.approx(0.2841641, abs=1e-6)
     assert s.snap_width(sp, exact=True) == pytest.approx(0.2683282, abs=1e-6)
-
-
-def chamfer_ring():
-    # A square with chamfered corners, the band inside; segments 1, 3, 5 and the closing 7 are chamfers.
-    h, c = 2.0, 0.2
-    pts = [(-h + c, -h, 0), (h - c, -h, 0), (h, -h + c, 0), (h, h - c, 0),
-           (h - c, h, 0), (-h + c, h, 0), (-h, h - c, 0), (-h, -h + c, 0)]
-    return _band(pts, {0: tuple(range(8))}, list(range(8)), [0] * 8, closed=True)
 
 
 def test_closed_collapse_group_wraps_past_chain_start():
@@ -1091,3 +1059,21 @@ def test_solves_trace_each_rail_path_leg_once(monkeypatch):
     monkeypatch.setattr(s._surf, "trace", lambda *a: (traced.append(a), trace(*a))[1])
     assert [pt.co for pt in s.solve(20.25).points] == [pytest.approx((x, 20.25, 0.0)) for x in range(2, 7)]
     assert len(traced) == 3 + 4    # the last leg of each of the 3 interior vertices, and the 4 segments
+
+
+def test_angles_default_to_the_old_constants():
+    a = Angles()
+    assert a.rail_bend == RAIL_MAX_DEV
+    assert a.end_edge == math.pi / 2.0 - RAIL_MAX_DEV    # the bridge's END_SHALLOW, to the last bit
+    # the old cosines are written to 16 digits, so the round trip through acos is 1 ULP off
+    assert abs(math.cos(a.step_agree) - STEP_AGREE_COS) < 1e-15
+    assert abs(math.cos(a.step_differ) - STEP_DIFFER_COS) < 1e-15
+    assert a.shoot == pytest.approx(math.radians(30))
+
+
+def test_rail_bend_bounds_how_far_a_rail_path_turns():
+    # strip2 with vertex 9 moved so the rail path at vertex 1 bends 20 degrees at vertex 5.
+    band = strip2_bent(20.0)
+    assert rail_path(band, 1, wedge(band, 1).rails[0])[-1][0] == 9    # 20 deg is within the default 30
+    band.angles = Angles(rail_bend=math.radians(10))
+    assert rail_path(band, 1, wedge(band, 1).rails[0])[-1][0] == 5    # 20 deg is past 10: the path ends at 5
