@@ -115,6 +115,20 @@ def test_repeated_far_id_needs_a_hint():
     assert uv[(0, 3)][0] != uv[(1, 3)][0]
 
 
+def test_open_strip_with_a_seam_on_its_near_row():
+    # A closed chain 0-1-2 opened at 0 (Smart Edge Slide's destructive mode: one cut, one open piece): the near row
+    # starts and ends on vertex 0. Each of its corners takes the row position its face names, so the UV splits there.
+    v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (1.0, 2.0, 0.0),
+         3: (0.0, -1.0, 0.0), 4: (3.0, -1.0, 0.0), 5: (1.0, 3.0, 0.0), 6: (-1.0, 0.0, 0.0)}
+    f = {0: (0, 1, 4, 3), 1: (1, 2, 5, 4), 2: (2, 0, 6, 5)}
+    s = Strip(verts=v, faces=f, near=[0, 1, 2, 0], far=[3, 4, 5, 6], rungs=[(k, k) for k in range(4)],
+              closed=False, height=1.0, corner_near={(0, 0): 0, (2, 0): 3})
+    length = strip_length(s)
+    uv = stripe_uvs(s)
+    assert uv[(0, 0)] == pytest.approx((0.0, 0.0)) and uv[(2, 0)] == pytest.approx((length, 0.0))
+    assert uv[(0, 3)] == pytest.approx((0.0, 1.0)) and uv[(2, 6)] == pytest.approx((length, 1.0))
+
+
 def test_collapsed_far_segment_is_one_point_on_the_far_row():
     v = {i: (float(i), 0.0, 0.0) for i in range(4)} | {4: (0.0, 1.0, 0.0), 5: (1.5, 1.0, 0.0), 6: (3.0, 1.0, 0.0)}
     f = {0: (0, 1, 5, 4), 1: (1, 2, 5), 2: (2, 3, 6, 5)}

@@ -33,6 +33,9 @@ class Strip:
     height: float
     sides: tuple[list[int], list[int]] = field(default_factory=lambda: ([], []))
     corner_far: dict[tuple[int, int], int] = field(default_factory=dict)
+    # A near id that occurs twice (an open strip whose near row starts and ends on one
+    # vertex, a seam) takes, at each (face id, vertex id) corner listed here, that position.
+    corner_near: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
@@ -81,6 +84,7 @@ def ascending_rungs(strip: Strip) -> Strip:
                 far=strip.far[f0:] + strip.far[:f0],
                 rungs=moved,
                 corner_far={key: (i - f0) % nf for key, i in strip.corner_far.items()},
+                corner_near={key: (i - n0) % nn for key, i in strip.corner_near.items()},
             )
     return strip
 
@@ -164,7 +168,8 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
     The near row lies on v = 0 and the far row on v = height, each by its own arc length
     scaled to L (``strip_length``); a closed strip's rows are walked from its seam rung
     (``sharpest_rung``). An open strip's end sides stand at u = 0 and u = L. Every other
-    vertex is relaxed inside (``_tutte``). Raises ValueError for rungs that run backward,
+    vertex is relaxed inside (``_tutte``). A repeated near id takes its ``corner_near``
+    position at each corner listed there. Raises ValueError for rungs that run backward,
     and for a repeated far id without a ``corner_far`` entry for one of its corners.
     """
     near, far = strip.near, strip.far
@@ -193,7 +198,7 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
         for vid in face:
             key = (fid, vid)
             if vid in near_at:
-                i = near_at[vid]
+                i = strip.corner_near.get(key, near_at[vid])
                 uv[key] = (u_near[i], 0.0)
                 if strip.closed and i == seam_near:
                     seam_corners.append(key)

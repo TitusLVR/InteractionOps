@@ -4,7 +4,8 @@ Two content layers coexist:
 
 - `title` (str) + `_header_lines` (list[str]) — always rendered when the
   overlay is visible, regardless of `params_visible`. The operator name /
-  live distance info / etc. lives here.
+  live distance info / etc. lives here. `set_notes` adds whole lines under
+  them, an error note in the HUD's error colour.
 - Sections of `HUDItem` (legacy hotkey list) AND `HUDParamSection` of
   `HUDParam` (live operator-parameter rows). Both are hidden by `/` (the
   HUD-param toggle key) but the title stays.
@@ -104,6 +105,7 @@ class HUDOverlay:
         self._last_size = (0, 0)
         self._bound_region = None
         self._header_lines: list[str] = []
+        self._notes: list[tuple[str, bool]] = []
         self._pin_until: float = 0.0
         # Last frame's view-matrix fingerprint — when this frame's
         # fingerprint differs the viewport is navigating and the HUD
@@ -229,6 +231,11 @@ class HUDOverlay:
         at title size. Falsy entries are skipped."""
         self._header_lines = [ln for ln in lines if ln]
 
+    def set_notes(self, *notes: tuple[str, bool]) -> None:
+        """Set 0+ note lines rendered under the header lines: each (text, error). An error note reads in the HUD's
+        error colour, any other as plain label text. Empty texts are skipped."""
+        self._notes = [(text, bool(error)) for text, error in notes if text]
+
     def pin_for(self, seconds: float) -> None:
         """Freeze the HUD origin for at least `seconds` more from now.
         Calls are rolling: each call extends the pin window if it lands
@@ -282,7 +289,7 @@ class HUDOverlay:
             max_w = max(max_w, int(tw))
             h += title_h + theme.hud.row_spacing
 
-        for line in self._header_lines:
+        for line in [*self._header_lines, *(text for text, _error in self._notes)]:
             hw, _ = hud_text.measure(line, theme=theme, size_token="hud_label")
             max_w = max(max_w, int(hw))
             h += row_h + theme.hud.row_spacing
@@ -488,6 +495,14 @@ class HUDOverlay:
             else:
                 hud_text.draw(line, x0, y, theme=theme,
                               role=Role.HUD_LABEL, size_token="hud_label")
+            y -= theme.hud.row_spacing
+
+        # Notes: whole lines, an error one in the error colour.
+        for text, error in self._notes:
+            y -= row_h
+            hud_text.draw(text, x0, y, theme=theme,
+                          role=Role.HUD_STATS_ERROR if error else Role.HUD_LABEL,
+                          size_token="hud_label")
             y -= theme.hud.row_spacing
 
         col_w = key_col_w
