@@ -46,6 +46,11 @@ from .operators.outliner_collection_ops import (
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
     IOPS_OT_Collections_Group_Duplicates,
+    IOPS_OT_Object_Move_To_Active_Collection,
+    IOPS_OT_Object_Move_To_Scene_Collection,
+    IOPS_OT_Collection_Activate_By_Object,
+    IOPS_OT_Collection_Select_Objects,
+    IOPS_OT_Collections_Cleanup_Empty,
 )
 
 if bpy.app.version[0] < 3:
@@ -95,7 +100,12 @@ from .operators.object_rotate import (
     IOPS_OT_object_rotate_Y,
     IOPS_OT_object_rotate_Z,
 )
-from .operators.object_auto_smooth import IOPS_OT_AutoSmooth, IOPS_OT_ClearCustomNormals
+from .operators.object_auto_smooth import (
+    IOPS_OT_AutoSmooth,
+    IOPS_OT_ClearCustomNormals,
+    IOPS_OT_Object_Shade,
+    IOPS_OT_Object_Auto_Smooth_Toggle,
+)
 from .operators.object_change_scale import IOPS_OT_ChangeScale
 
 from .operators.object_three_point_rotation import IOPS_OT_ThreePointRotation
@@ -497,6 +507,11 @@ classes = (
     IOPS_OT_Collections_Exclude,
     IOPS_OT_Collections_Remove_Keep_Objects,
     IOPS_OT_Collections_Group_Duplicates,
+    IOPS_OT_Object_Move_To_Active_Collection,
+    IOPS_OT_Object_Move_To_Scene_Collection,
+    IOPS_OT_Collection_Activate_By_Object,
+    IOPS_OT_Collection_Select_Objects,
+    IOPS_OT_Collections_Cleanup_Empty,
     IOPS_OT_Main,
     IOPS_OT_F1,
     IOPS_OT_F2,
@@ -517,6 +532,8 @@ classes = (
     IOPS_OT_VisualOrigin,
     IOPS_OT_AutoSmooth,
     IOPS_OT_ClearCustomNormals,
+    IOPS_OT_Object_Shade,
+    IOPS_OT_Object_Auto_Smooth_Toggle,
     IOPS_OT_ChangeScale,
     IOPS_OT_object_rotate_Z,
     IOPS_OT_object_rotate_MZ,
