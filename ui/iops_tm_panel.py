@@ -1,5 +1,5 @@
 import bpy
-from ..utils.functions import get_addon
+from ..operators.object_auto_smooth import get_auto_smooth_modifiers
 
 
 class IOPS_OT_transform_orientation_create(bpy.types.Operator):
@@ -254,9 +254,6 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
         # snap_elements = scene.tool_settings.snap_elements
         snap_elements = scene.tool_settings.snap_elements_base
 
-        ueops, _, _, _ = get_addon("Unreal OPS")
-        machinetools, _, _, _ = get_addon("MACHIN3tools")
-        batchops, _, _, _ = get_addon("Batch Operations™")
 
         layout = self.layout
         layout.ui_units_x = 27.5
@@ -292,83 +289,34 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 row.operator("iops.homonize_uvmaps_names", text="", icon="UV_DATA")
                 row.operator("iops.uvmaps_cleanup", text="", icon="BRUSH_DATA")
                 row.operator("iops.object_name_from_active", text="", icon="OUTLINER_DATA_FONT")
+                row.operator("iops.object_search_rename", text="", icon="SORTALPHA")
 
-                if batchops:
-                    row.separator()
-                    row.operator(
-                        "batch_ops_objects.rename", text="", icon="OUTLINER_DATA_FONT"
-                    ).use_pattern = False
+                row.separator()
+                row.operator("iops.object_move_to_active_collection", icon="ADD", text="")
+                row.operator("iops.object_move_to_scene_collection", icon="REMOVE", text="")
+                row.operator("iops.collection_activate_by_object", text="", icon="LAYER_ACTIVE")
+                row.operator(
+                    "iops.collection_select_objects", text="", icon="RESTRICT_SELECT_OFF"
+                )
+                row.operator("iops.collections_cleanup_empty", text="", icon="PANEL_CLOSE")
 
-                if ueops:
-                    row.separator()
+                row.separator()
+                active = context.active_object
+                row.operator("iops.object_shade", text="", icon="NODE_MATERIAL").shade_type = "SMOOTH"
+                row.operator("iops.object_shade", text="", icon="MATCUBE").shade_type = "FLAT"
+                if active and active.type == "MESH":
                     row.operator(
-                        "ueops.add_object_to_active_object_collection", icon="ADD", text=""
-                    )
-                    row.operator("ueops.remove_object_from_collection", icon="REMOVE", text="")
-                    row.operator(
-                        "ueops.outliner_make_collection_active_by_active_object",
+                        "iops.object_auto_smooth_toggle",
                         text="",
-                        icon="LAYER_ACTIVE",
+                        icon="AUTO",
+                        depress=bool(get_auto_smooth_modifiers(active)),
                     )
-                    row.operator(
-                        "ueops.select_collection_objects", text="", icon="RESTRICT_SELECT_OFF"
-                    )
-                    row.operator("ueops.cleanup_empty_collections", text="", icon="PANEL_CLOSE")
-
-                if (
-                    machinetools
-                    and context.preferences.addons[
-                        "MACHIN3tools"
-                    ].preferences.activate_shading_pie
-                ):
-                    row.separator()
-                    active = context.active_object
-                    if active:
-                        if active.type == "MESH":
-                            mesh = active.data
-                            row.operator(
-                                "machin3.shade", text="", icon="NODE_MATERIAL"
-                            ).shade_type = "SMOOTH"
-                            row.operator(
-                                "machin3.shade", text="", icon="MATCUBE"
-                            ).shade_type = "FLAT"
-                            try:
-                                state = mesh.use_auto_smooth
-                            except AttributeError:
-                                state = False
-                            row.operator(
-                                "machin3.toggle_auto_smooth",
-                                text="",
-                                icon="AUTO",
-                                depress=state,
-                            )
-
-                        if bpy.app.version < (4, 1, 0):
-                            if mesh.use_auto_smooth:
-                                if mesh.has_custom_normals:
-                                    row.operator(
-                                        "iops.object_clear_normals",
-                                        text="",
-                                        icon="COLORSET_06_VEC",
-                                    )
-                                else:
-                                    row.prop(mesh, "auto_smooth_angle", text="")
-                            row.scale_x = 0.25
-                            row.operator("machin3.toggle_auto_smooth", text="30").angle = 30
-                            row.operator("machin3.toggle_auto_smooth", text="60").angle = 60
-                            row.operator("machin3.toggle_auto_smooth", text="90").angle = 90
-                            row.operator("machin3.toggle_auto_smooth", text="180").angle = 180
-                        else:
-                            if bpy.types.IOPS_OT_object_clear_normals.poll(context):
-                                row.operator(
-                                    "iops.object_clear_normals", text="", icon="COLORSET_06_VEC"
-                                )
-                            row.scale_x = 0.25
-                            row.operator("iops.object_auto_smooth", text="30").angle = 30
-                            row.operator("iops.object_auto_smooth", text="60").angle = 60
-                            row.operator("iops.object_auto_smooth", text="90").angle = 90
-                            row.operator("iops.object_auto_smooth", text="180").angle = 180
-                        row.scale_x = 1
+                    if bpy.types.IOPS_OT_object_clear_normals.poll(context):
+                        row.operator("iops.object_clear_normals", text="", icon="COLORSET_06_VEC")
+                    row.scale_x = 0.25
+                    for angle in (30, 60, 90, 180):
+                        row.operator("iops.object_auto_smooth", text=str(angle)).angle = angle
+                    row.scale_x = 1
                 col = layout.column(align=True)
                 col.separator()
                 row = layout.row(align=True)
