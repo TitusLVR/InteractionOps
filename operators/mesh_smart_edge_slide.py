@@ -93,6 +93,10 @@ def _tolerance_text(tolerance: float) -> str:
 
 def _setting_text(setting: str, value: float) -> str:
     """The value of ``setting`` (an angle prop or "tolerance") as the HUD shows it."""
+    if setting == "chain_sides":
+        return "flipped"
+    if setting == "use_collapse":
+        return "on" if value else "off"
     return _tolerance_text(value) if setting == "tolerance" else _degrees_text(value)
 
 
@@ -189,9 +193,9 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         description=(
             "Let the width run past the point where a segment of the new loop "
             "shrinks to nothing, dropping that segment. When off, the width "
-            "stops there"
+            "stops there (Clamped)"
         ),
-        default=False,
+        default=True,
     )
     use_destructive: BoolProperty(
         name="Destructive",
@@ -550,7 +554,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         self._hud.add_param(HUDParam("Exact Width (E)", lambda: self.use_exact, "bool"))
         # D implies collapse: C reads as on and greyed while D is on, and its own value comes back with D off.
         self._hud.add_param(HUDParam(
-            "Allow Collapse (C)", lambda: self.use_collapse or self.use_destructive, "bool",
+            "Allow Collapse / Unclamp (C)", lambda: self.use_collapse or self.use_destructive, "bool",
             active_getter=lambda: not self.use_destructive))
         self._hud.add_param(HUDParam("Destructive (D)", lambda: self.use_destructive, "bool"))
         self._hud.add_param(HUDParam("Auto Adjust (Q)", lambda: self.use_auto_adjust, "bool"))
@@ -1013,6 +1017,10 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         """``setting`` (an angle prop or "tolerance") as the redo panel names it."""
         if setting == "tolerance":
             return "Tolerance"
+        if setting == "use_collapse":
+            return "Allow Collapse"
+        if setting == "chain_sides":
+            return "Slide side"
         return next(label for name, label, _limits in ANGLE_SETTINGS if name == setting)
 
     def _auto_tolerance(self) -> float:
@@ -1107,6 +1115,12 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
                     return f"{prefix}: {reason}: {advice}", True
             return f"{prefix}: {reason}", False
 
+        if reach is not None and reach <= 1e-4 * scale:  # no width fits at all: look for a vertex the side wraps round
+            wedge = self._wide_wedge(build.band)
+            if wedge is not None:
+                return fix(f"vertex {wedge[0]} has {_degrees(wedge[1])}° of faces on this side",
+                           self._flip_candidates(i, side))
+
         def tolerance_candidates(refused: bool):
             base = max(self.tolerance, self._auto_tolerance())
             for factor in (4.0, 16.0, 64.0):
@@ -1172,8 +1186,55 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
             return fix(reason, tolerance_candidates(False))
         if _FOLDS.search(message) and not mode["collapse"]:
             return fix("a segment of the loop folds back",
-                       [("turn on Allow Collapse (C)", None, lambda: self._reach_with(stop, {**mode, "collapse": True}))])
+                       [("turn on Allow Collapse (C)", {"use_collapse": True}, lambda: self._reach_with(stop, {**mode, "collapse": True}))])
         return f"{prefix}: {_WIDTH_AT.sub('', message)}", False
+
+    def _wide_wedge(self, band) -> tuple[int, float] | None:
+        """(vertex, angle) of the chain vertex whose faces on the band's side add up to a full turn or more, the widest
+        one; None when there is none. There the chain doubles back once the faces are laid flat, so the loop's edges
+        run parallel and the slide cannot start."""
+        bm = self._bm
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        chain, n = band.chain, len(band.chain)
+        best = None
+        for k in (range(n) if band.closed else range(1, n - 1)):
+            v = bm.verts[chain[k]]
+            ea = bm.edges.get((v, bm.verts[chain[k - 1]]))
+            eb = bm.edges.get((v, bm.verts[chain[(k + 1) % n]]))
+            if ea is None or eb is None:
+                continue
+            face, cur, total = bm.faces[band.side_faces[k - 1]], ea, 0.0
+            for _ in range(64):
+                loop = next((lp for lp in face.loops if lp.vert == v), None)
+                if loop is None:
+                    total = None
+                    break
+                total += loop.calc_angle()
+                nxt = loop.link_loop_prev.edge if loop.edge == cur else loop.edge
+                if nxt == eb:
+                    break
+                others = [g for g in nxt.link_faces if g != face]
+                if len(others) != 1:
+                    total = None
+                    break
+                face, cur = others[0], nxt
+            else:
+                total = None
+            if total is not None and total >= 2.0 * math.pi - 1e-3 and (best is None or total > best[1]):
+                best = (chain[k], total)
+        return best
+
+    def _flip_candidates(self, i: int, side: int) -> list:
+        """The candidate of ``fix`` that slides chain ``i`` on its other side (F), if it has one."""
+        other = self._sides[i].get(-side)
+        if other is None:
+            return []
+        build, slider = other
+        sides = list(self.chain_sides)
+        sides[i] = "+" if sides[i] == "-" else "-"
+        return [("press F to slide the other side", {"chain_sides": "".join(sides)},
+                 lambda: self._reach_with((i, -side, build, slider), self._mode(build)))]
 
     def _end_edge_fix(self, fix, v: int, lean: float, stop: tuple, mode: dict) -> tuple[str, bool]:
         """``fix`` with the End Edge Angle lowered to take the edge at end vertex ``v`` that leans ``lean``."""
@@ -1268,8 +1329,9 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
             self._status_hint = "auto adjust: " + ", ".join(
                 f"{self._setting_label(name)} {_setting_text(name, value)}" for name, value in values.items())
             self._auto_note = ("Auto Adjust: " + ", ".join(
-                f"{'raised' if value > before[name] else 'lowered'} {self._setting_label(name)} to "
-                f"{_setting_text(name, value)}" for name, value in values.items() if value != before[name]),
+                ("flipped the slide side" if name == "chain_sides" else
+                 f"{'raised' if value > before[name] else 'lowered'} {self._setting_label(name)} to "
+                 f"{_setting_text(name, value)}") for name, value in values.items() if value != before[name]),
                 time.perf_counter() + AUTO_NOTE_SECONDS)
         return bool(made)
 
@@ -1289,6 +1351,14 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         ``size``), equals the value now set, or leaves no chain a band."""
         ((name, value),) = change.items()
         old = getattr(self, name)
+        if name in ("use_collapse", "chain_sides"):
+            if old == value:
+                return False
+            setattr(self, name, value)
+            self._hint_key = None
+            self._preview_key = None
+            self._rebuild_preview()
+            return True
         if name == "tolerance":
             if value <= old or value > AUTO_TOLERANCE_MAX * size:
                 return False
