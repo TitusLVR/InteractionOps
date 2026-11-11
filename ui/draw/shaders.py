@@ -4,10 +4,11 @@ Four shaders:
 - UNIFORM_COLOR — builtin, used for filled tris and simple lines
 - POLYLINE_UNIFORM_COLOR — builtin, antialiased lines independent of MSAA
 - POINT_DISC — custom: antialiased filled disc with 1px contrasting ring.
-  Point size is driven by `gpu.state.point_size_set(px)` from the caller —
-  we do NOT write gl_PointSize from VS because that path requires
-  GL_PROGRAM_POINT_SIZE which Blender does not enable by default for
-  custom shaders.
+  The VS writes gl_PointSize from the `pointSize` push constant. The Vulkan
+  backend has no fixed-function point size, so
+  `gpu.state.point_size_set` is ignored for custom shaders there and points
+  collapse to 1px. OpenGL honours gl_PointSize too; callers still set
+  point_size_set as a harmless fallback.
 - POINT_FLAT_COLOR — builtin, per-vertex colour points (weight previews).
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ import gpu
 _POINT_DISC_VS = """
 void main() {
     gl_Position = ModelViewProjectionMatrix * vec4(pos, 1.0);
+    gl_PointSize = pointSize;
 }
 """
 

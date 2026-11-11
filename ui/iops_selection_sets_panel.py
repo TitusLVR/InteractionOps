@@ -289,6 +289,9 @@ def _preview_draw():
         active_name = mirror[wm.iops_ss_index].name
     theme = get_theme(ctx)
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    # UNIFORM_COLOR ignores point_size_set on Vulkan (1px points); the
+    # point builtin takes its size as a uniform.
+    point_shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
     with draw_scope(blend='ALPHA', depth='NONE', line_width=2.0,
                     point_size=6.0):
         # background sets first so the active one draws on top
@@ -298,8 +301,12 @@ def _preview_draw():
             point, line, fill = _theme_colors(theme, name == active_name)
             colors = {"TRIS": fill, "LINES": line, "POINTS": point}
             for kind, batch in batches:
-                shader.uniform_float("color", colors[kind])
-                batch.draw(shader)
+                sh = point_shader if kind == "POINTS" else shader
+                sh.bind()
+                sh.uniform_float("color", colors[kind])
+                if kind == "POINTS":
+                    sh.uniform_float("size", 6.0)
+                batch.draw(sh)
 
 
 def _preview_disable():
