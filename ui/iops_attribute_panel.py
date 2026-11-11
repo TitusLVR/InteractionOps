@@ -541,11 +541,15 @@ def _get_fill_shader():
         info.push_constant("MAT4", "viewMat")
         info.push_constant("MAT4", "projMat")
         info.push_constant("FLOAT", "depthShrink")
+        # Vulkan ignores gpu.state.point_size_set for custom shaders;
+        # without gl_PointSize POINT-domain previews draw 1px.
+        info.push_constant("FLOAT", "pointSize")
         info.vertex_source(
             "void main() {\n"
             "  vec4 vp = viewMat * vec4(pos, 1.0);\n"
             "  vp.xyz *= (1.0 - depthShrink);\n"
             "  gl_Position = projMat * vp;\n"
+            "  gl_PointSize = pointSize;\n"
             "  fcol = color;\n"
             "}\n")
         info.fragment_source("void main() { fragColor = fcol; }\n")
@@ -846,6 +850,7 @@ def _draw_view():
     shader.uniform_float("viewMat", rv3d.view_matrix)
     shader.uniform_float("projMat", rv3d.window_matrix)
     shader.uniform_float("depthShrink", _DEPTH_SHRINK)
+    shader.uniform_float("pointSize", 8.0)
     with draw_scope(blend="ALPHA", depth="LESS_EQUAL", line_width=2.0,
                     point_size=8.0):
         _PREVIEW["batch"].draw(shader)
