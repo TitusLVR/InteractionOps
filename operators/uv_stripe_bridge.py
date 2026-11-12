@@ -60,16 +60,39 @@ MODE_ITEMS = [
 ]
 ACTIVE_MODE_ITEM = (
     "ACTIVE", "Active",
-    "Keep the active face where it is in UV: the strip takes its place, size and direction from the active "
-    "face's current UVs",
+    "Lay the strip holding the active face out In Place, and fit every other piece onto its UV bounding box",
 )
-ACTIVE_FALLBACK = "UV Stripe: Active needs an active face in the selection with UVs; laid out In Place"
+ACTIVE_FIT_ITEMS = [
+    ("BOTH", "Width and Height", "Match the reference strip's bounding box on both axes"),
+    ("WIDTH", "Width", "Match the reference's width only; the other axis keeps its size"),
+    ("HEIGHT", "Height", "Match the reference's height only; the other axis keeps its size"),
+]
+ACTIVE_FALLBACK = "UV Stripe: no active face to fit to; laid out In Place"
+OFFSET_ITEMS = [
+    ("NONE", "None", "Leave the pieces where the mode put them"),
+    ("ALONG", "Along Strip", "Shift each piece along the strip's length by a random amount; follows Orientation"),
+    ("ACROSS", "Across Strip", "Shift each piece across the strip by a random amount"),
+    ("BOTH", "Both", "Shift each piece along and across the strip by random amounts"),
+]
+
+
+def offset_axis(axis: str, vertical: bool) -> str:
+    """The UV axis ("NONE", "HORIZONTAL", "VERTICAL" or "BOTH") of a Random Offset item: along the strip is
+    U when the strip runs horizontally, V when it runs vertically; across is the other."""
+    if axis == "ALONG":
+        return "VERTICAL" if vertical else "HORIZONTAL"
+    if axis == "ACROSS":
+        return "HORIZONTAL" if vertical else "VERTICAL"
+    return axis
 LAYOUT_ITEMS = [
     ("TRUE", "No Stretch",
      "Keep every row at its true length; the ends of the strip and of its pieces keep their real slant"),
     ("STRAIGHT", "Rectangles",
      "Stand every cross edge vertical so each quad becomes a rectangle; stretches where the strip bends"),
     ("EVEN", "Even Rows", "Lay each row out by its own length, scaled to the strip's mean length"),
+    ("SHAPE", "True Shape",
+     "Keep the strip's real width as well: one row stays straight, the other follows the real shape, "
+     "for a one-to-one mapping"),
 ]
 ORIENTATION_ITEMS = [
     ("HORIZONTAL", "Horizontal", "The strip runs along U"),
@@ -85,7 +108,9 @@ def apply_stripes(
     contexts: list[StripeContext | None] | None = None,
     fit_groups: list[int] | None = None,
     vertical: bool = False,
-    active: tuple[int, int] | None = None,
+    active: int | None = None,
+    active_fit: str = "BOTH",
+    offset: tuple[str, float, int] = ("NONE", 0.0, 0),
 ) -> bool:
     """Lay every strip out and write its UVs onto its faces' corners in the active UV layer.
 
@@ -102,13 +127,15 @@ def apply_stripes(
     own. ``vertical`` turns every strip 90 degrees counter-clockwise: Fit spans V
     0-1 and stacks to the right, In Place turns each strip about its own centre.
 
-    ``mode`` "ACTIVE" with ``active`` (strip index, face id): the active face's old
-    UVs, read before anything is written, give one scale and one quarter turn
-    (``uv_stripe_core.active_anchor``); its strip keeps that face on its old corners
-    and every other strip takes the same scale and turn, centred on its own old UV
-    centre (``place_active``); ``vertical`` does not apply. Without a usable anchor
-    (no ``active``, no UV layer, a face with no size in UV) it lays out "IN_PLACE".
-    Returns whether the strips were anchored on the active face.
+    ``mode`` "ACTIVE" with ``active`` (the index of the strip holding the active
+    face): every strip is placed as "IN_PLACE" would place it; then every other strip
+    is fitted onto the active strip's UV bounding box (``uv_stripe_core.
+    fit_to_reference`` with ``active_fit``: "BOTH", "WIDTH" or "HEIGHT"). Without
+    ``active``, or without a UV layer to place the active strip by, it lays out
+    "IN_PLACE". Returns whether the strips were fitted to an active strip.
+
+    ``offset`` (axis, limit, seed) then shifts every strip but the active one by a
+    random amount (``uv_stripe_core.random_offsets``), the same for the same seed.
 
     Raises ``ValueError`` before writing anything when ``contexts`` does not hold
     one entry per strip, or when the core cannot lay a strip out.
@@ -123,30 +150,29 @@ def apply_stripes(
         raise ValueError(f"{len(fit_groups)} fit groups for {len(strips)} strips")
     maps = [core.stripe_uvs(s) for s in strips]
     lengths = [core.strip_extent(s) for s in strips]
+    heights = [core.strip_v_extent(s) for s in strips]
     placed: list[dict | None] = [None] * len(strips)
-    anchor = None
+    fitted = mode == "ACTIVE" and active is not None and bm.loops.layers.uv.active is not None
     if mode == "ACTIVE":
-        anchor = _active_anchor(bm, strips, faces, maps, active)
-        mode = "IN_PLACE" if anchor is None else mode
+        mode = "IN_PLACE"
     fit = []
     for i, (strip, ctx) in enumerate(zip(strips, contexts)):
-        if anchor is not None:
-            if i == active[0]:
-                placed[i] = core.place_active(maps[i], anchor)
-                continue
-            center = _uv_center(bm, [faces[fid] for fid in strip.faces])
-            if center is not None:
-                placed[i] = core.place_active(maps[i], anchor, (lengths[i] / 2.0, strip.height / 2.0), center)
-                continue
-            fit.append(i)
-        elif mode == "IN_PLACE" and ctx is not None:
-            placed[i] = core.place_in_place(maps[i], lengths[i], strip.height, ctx.center, ctx.density, vertical)
+        if mode == "IN_PLACE" and ctx is not None:
+            placed[i] = core.place_in_place(maps[i], lengths[i], heights[i], ctx.center, ctx.density, vertical)
         else:
             fit.append(i)
-    stacked = core.place_fit([maps[i] for i in fit], [strips[i].height for i in fit], [lengths[i] for i in fit],
+    stacked = core.place_fit([maps[i] for i in fit], [heights[i] for i in fit], [lengths[i] for i in fit],
                              groups=[fit_groups[i] for i in fit], vertical=vertical)
     for i, uv in zip(fit, stacked):
         placed[i] = uv
+    if fitted:
+        reference = core.bbox(placed[active])
+        placed = [uv if i == active else core.fit_to_reference(uv, reference, active_fit)
+                  for i, uv in enumerate(placed)]
+    axis, limit, seed = offset
+    if axis != "NONE":
+        shifts = core.random_offsets(len(placed), axis, limit, seed, active if fitted else None)
+        placed = [core.shifted(uv, d) for uv, d in zip(placed, shifts)]
 
     layer = bm.loops.layers.uv.active
     if layer is None:
@@ -157,33 +183,7 @@ def apply_stripes(
                 co = uv.get((fid, lp.vert.index))
                 if co is not None:
                     lp[layer].uv = co
-    return anchor is not None
-
-
-def _uv_center(bm, faces: list[BMFace]) -> tuple[float, float] | None:
-    """The centre of the active UV layer's bounding box over ``faces``; None without a layer."""
-    layer = bm.loops.layers.uv.active
-    if layer is None or not faces:
-        return None
-    uvs = [lp[layer].uv for f in faces for lp in f.loops]
-    us = [uv.x for uv in uvs]
-    vs = [uv.y for uv in uvs]
-    return (min(us) + max(us)) / 2.0, (min(vs) + max(vs)) / 2.0
-
-
-def _active_anchor(bm, strips, faces, maps, active):
-    """The active face's ``uv_stripe_core.active_anchor`` from its old UVs; None when it has none to give."""
-    layer = bm.loops.layers.uv.active
-    if active is None or layer is None:
-        return None
-    index, fid = active
-    loops = list(faces[fid].loops)
-    new = [maps[index][(fid, lp.vert.index)] for lp in loops]
-    old = [tuple(lp[layer].uv) for lp in loops]
-    try:
-        return core.active_anchor(new, old)
-    except ValueError:
-        return None
+    return fitted
 
 
 def prepare_strip(
@@ -194,12 +194,12 @@ def prepare_strip(
     ``split_angle`` (None: no split) tears the strip at its bends, and ``extra_cuts``
     (rung indices) at those rungs too (``uv_stripe_select_core.split_strip``): when
     there are cuts but the strip cannot be torn there, it stays whole and the reason
-    is returned for a warning. ``layout`` ("TRUE", "STRAIGHT" or "EVEN", see
+    is returned for a warning. ``layout`` ("TRUE", "STRAIGHT", "EVEN" or "SHAPE", see
     ``LAYOUT_ITEMS``) is set on every piece; "STRAIGHT" goes through
     ``uv_stripe_core.straighten``, which keeps "EVEN" for a piece where it would fold
     a face. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does.
     """
-    strip.layout = "TRUE" if layout == "TRUE" else "EVEN"
+    strip.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
     if split_angle is None and not extra_cuts:
         pieces, reason = [strip], None
     else:
@@ -240,3 +240,65 @@ def match_piece_seams(pieces) -> None:
         e.seam = False
     for e in marked:
         e.seam = True
+
+
+@dataclass
+class StripeSettings:
+    """UV Stripe's settings: one set for UV Stripe, Smart Inset and Smart Edge Slide.
+
+    ``from_operator`` reads a UV Stripe operator (or anything with its properties);
+    ``from_last`` reads UV Stripe's last-used properties, its defaults when it never ran.
+    """
+
+    mode: str
+    active_fit: str
+    orientation: str
+    layout: str
+    split_at_bends: bool
+    split_angle: float
+    split_at_seams: bool
+    mark_seams: bool
+    offset_axis: str
+    offset_limit: float
+    offset_seed: int
+    merge_doubles: bool
+
+    @classmethod
+    def from_operator(cls, op) -> "StripeSettings":
+        return cls(**{name: getattr(op, name) for name in cls.__dataclass_fields__})
+
+    @classmethod
+    def from_last(cls, context) -> "StripeSettings":
+        return cls.from_operator(context.window_manager.operator_properties_last("iops.mesh_uv_stripe"))
+
+    @property
+    def split(self) -> float | None:
+        """The bend angle to tear at, None without Split at Bends."""
+        return self.split_angle if self.split_at_bends else None
+
+
+def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bool:
+    """Place the prepared (strip, faces by id) pieces and set their seams, as ``settings`` say; the one
+    placement step of UV Stripe, Smart Inset and Smart Edge Slide.
+
+    ``contexts`` holds each piece's ``uv_context`` and ``groups`` its Fit group. In
+    Active mode the reference is the piece holding the mesh's active face (In Place
+    without one; the caller decides whether to say so). The placement is
+    ``apply_stripes`` (mode, Fit to Active, Orientation, Random Offset along or across
+    the strip), the seams ``match_piece_seams`` with Mark Seams. Returns whether the
+    pieces were fitted to an active one. Raises ValueError as ``apply_stripes`` does.
+    """
+    faces = {}
+    for _strip, piece_faces in pieces:
+        faces.update(piece_faces)
+    active_face = bm.faces.active if settings.mode == "ACTIVE" else None
+    active = next((i for i, (_s, piece_faces) in enumerate(pieces)
+                   if active_face is not None and piece_faces.get(active_face.index) is active_face), None)
+    vertical = settings.orientation == "VERTICAL"
+    fitted = apply_stripes(
+        bm, [strip for strip, _faces in pieces], faces, settings.mode, contexts, fit_groups=groups,
+        vertical=vertical, active=active, active_fit=settings.active_fit,
+        offset=(offset_axis(settings.offset_axis, vertical), settings.offset_limit, settings.offset_seed))
+    if settings.mark_seams:
+        match_piece_seams(pieces)
+    return fitted

@@ -11,7 +11,10 @@ along the loop and V across it, both in world units, so the aspect is kept.
 """
 
 import math
+import random
 from dataclasses import dataclass, field, replace
+
+from .uv_match_core import dimension_fit
 
 Vec3 = tuple[float, float, float]
 Vec2 = tuple[float, float]
@@ -19,6 +22,7 @@ Vec2 = tuple[float, float]
 TUTTE_ITERS = 1000
 TUTTE_TOL = 1e-12
 TIE_TOL = 1e-9
+WELD = 0.01  # points closer than this fraction of the strip height count as one point (``weld_tolerance``)
 MAX_CORNER = math.pi - 1e-6  # corner angles are capped here, so a straight corner's tan(angle / 2) stays finite
 
 
@@ -36,9 +40,10 @@ class Strip:
     # A near id that occurs twice (an open strip whose near row starts and ends on one
     # vertex, a seam) takes, at each (face id, vertex id) corner listed here, that position.
     corner_near: dict[tuple[int, int], int] = field(default_factory=dict)
-    # How U is laid out along the rows: "EVEN" (each row by its own arc length, scaled to L),
-    # "STRAIGHT" (between vertical posts, ``_post_u``) or "TRUE" (true lengths, ``_true_u``;
-    # an open strip only, a closed one uses "EVEN").
+    # How the rows are laid out: "EVEN" (each row by its own arc length, scaled to L),
+    # "STRAIGHT" (between vertical posts, ``_post_u``), "TRUE" (true lengths, ``_true_u``) or
+    # "SHAPE" (true lengths and true width, ``_shape_uv``); the last two for an open strip
+    # only, a closed one uses "EVEN".
     layout: str = "EVEN"
     # A closed strip's seam: the index into ``rungs`` it is cut at; None picks ``sharpest_rung``.
     seam: int | None = None
@@ -56,12 +61,43 @@ def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
     return math.acos(max(-1.0, min(1.0, cos)))
 
 
+def weld_tolerance(strip: Strip) -> float:
+    """How close two points are to count as one: ``WELD`` of the strip height (an unmerged double)."""
+    return max(WELD * strip.height, TIE_TOL)
+
+
+def welded_neighbour(verts: dict[int, Vec3], ring: list[int], k: int, step: int, tol: float,
+                     closed: bool = True) -> int | None:
+    """The first position from ``k`` going ``step`` (+1 or -1) whose point is farther than ``tol`` from
+    position ``k``'s; None when there is none (an open ring's end)."""
+    n, p = len(ring), verts[ring[k]]
+    j = k
+    for _ in range(n - 1):
+        j += step
+        if not closed and not 0 <= j < n:
+            return None
+        if math.dist(verts[ring[j % n]], p) > tol:
+            return j % n
+    return None
+
+
+def welded_angle(verts: dict[int, Vec3], ring: list[int], k: int, tol: float, closed: bool = True) -> float:
+    """The corner angle at position ``k`` of a vertex ring, its neighbours closer than ``tol`` skipped, so an
+    unmerged double has the corner of the one point it stands for; straight (pi) without two neighbours."""
+    i = welded_neighbour(verts, ring, k, -1, tol, closed)
+    j = welded_neighbour(verts, ring, k, 1, tol, closed)
+    if i is None or j is None:
+        return math.pi
+    return _angle(verts[ring[i]], verts[ring[k]], verts[ring[j]])
+
+
 def sharpest_rung(strip: Strip) -> int:
-    """Rung whose near vertex has the smallest corner angle; the lowest rung wins a tie."""
-    near, verts, n = strip.near, strip.verts, len(strip.near)
+    """Rung whose near vertex has the smallest corner angle (``welded_angle``); the lowest rung wins a tie."""
+    near, verts = strip.near, strip.verts
+    tol = weld_tolerance(strip)
     best, best_angle = 0, math.inf
     for k, (ni, _fi) in enumerate(strip.rungs):
-        ang = _angle(verts[near[(ni - 1) % n]], verts[near[ni]], verts[near[(ni + 1) % n]])
+        ang = welded_angle(verts, near, ni % len(near), tol)
         if ang < best_angle - TIE_TOL:
             best, best_angle = k, ang
     return best
@@ -158,17 +194,16 @@ def strip_length(strip: Strip) -> float:
     return (sum(_row_steps(strip, strip.near, 0)) + sum(_row_steps(strip, strip.far, 0))) / 2.0
 
 
-def _post_u(strip: Strip, un: list[int], uf: list[int]) -> tuple[list[float], list[float]]:
-    """U of every near and far position, laid out between vertical posts.
+def _posts(strip: Strip, un: list[int], uf: list[int], tol: float):
+    """The posts of a strip and its rows' arc lengths: (posts, near arcs, far arcs).
 
     Posts, in unwrapped order: the rows' start, every rung that strictly advances both
-    the near and the far index over the last post, by some length on both rows, and
-    lies strictly before the end on both, then the rows' end (an open strip's last
-    positions; a closed strip's seam rung one loop later). A post the end does not
-    advance from by some length on both rows is dropped, so the positions of a
-    collapsed run (one point listed more than once) always share one u. Each span between two posts is as long as the mean of the
-    two rows' arcs over it; a row position inside a span takes its share by its own
-    arc length, evenly over a zero-length span. The last post is at ``strip_length``.
+    the near and the far index over the last post, by more than ``tol`` of length on
+    both rows, and lies strictly before the end on both, then the rows' end (an open
+    strip's last positions; a closed strip's seam rung one loop later). A post the end
+    does not advance from by more than ``tol`` on both rows is dropped, so a collapsed
+    run or an unmerged double never makes a span of its own. The arcs map unwrapped
+    positions to the arc length from the start.
     """
     near, far = strip.near, strip.far
     nn, nf = len(near), len(far)
@@ -178,6 +213,7 @@ def _post_u(strip: Strip, un: list[int], uf: list[int]) -> tuple[list[float], li
     else:
         start, end = (0, 0), (nn - 1, nf - 1)
         cands = list(zip(un, uf))
+
     def arcs(ids: list[int], first: int, last: int) -> dict[int, float]:
         n = len(ids)
         out, run = {first: 0.0}, 0.0
@@ -190,7 +226,7 @@ def _post_u(strip: Strip, un: list[int], uf: list[int]) -> tuple[list[float], li
     arc_f = arcs(far, start[1], end[1])
 
     def advances(p: tuple[int, int], q: tuple[int, int]) -> bool:
-        return arc_n[q[0]] - arc_n[p[0]] > TIE_TOL and arc_f[q[1]] - arc_f[p[1]] > TIE_TOL
+        return arc_n[q[0]] - arc_n[p[0]] > tol and arc_f[q[1]] - arc_f[p[1]] > tol
 
     posts = [start]
     for a, b in cands:
@@ -199,68 +235,184 @@ def _post_u(strip: Strip, un: list[int], uf: list[int]) -> tuple[list[float], li
     while len(posts) > 1 and not advances(posts[-1], end):
         posts.pop()
     posts.append(end)
+    return posts, arc_n, arc_f
+
+
+def _fill_spans(strip: Strip, posts, arc_n, arc_f, u_posts) -> tuple[list[float], list[float]]:
+    """U of every row position: each post's (near u, far u) from ``u_posts``, a position inside a span by its
+    own arc-length fraction between its row's two post positions (evenly over a span with no length)."""
+    nn, nf = len(strip.near), len(strip.far)
     u_near, u_far = [0.0] * nn, [0.0] * nf
-    u = 0.0
-    for (a0, b0), (a1, b1) in zip(posts, posts[1:]):
-        dn, df = arc_n[a1] - arc_n[a0], arc_f[b1] - arc_f[b0]
-        nxt = u + (dn + df) / 2.0
-        for out, arc, i0, i1, d, n in ((u_near, arc_n, a0, a1, dn, nn), (u_far, arc_f, b0, b1, df, nf)):
+    for (a0, b0), (a1, b1), (n0, f0), (n1, f1) in zip(posts, posts[1:], u_posts, u_posts[1:]):
+        for out, arc, i0, i1, u0, u1, n in ((u_near, arc_n, a0, a1, n0, n1, nn), (u_far, arc_f, b0, b1, f0, f1, nf)):
+            d = arc[i1] - arc[i0]
             for j in range(i0, i1):
                 t = (arc[j] - arc[i0]) / d if d > 1e-12 else (j - i0) / (i1 - i0)
-                out[j % n] = u + (nxt - u) * t
-        u = nxt
+                out[j % n] = u0 + (u1 - u0) * t
     if not strip.closed:
-        u_near[nn - 1] = u
-        u_far[nf - 1] = u
+        u_near[nn - 1], u_far[nf - 1] = u_posts[-1]
     return u_near, u_far
 
 
-def _true_u(strip: Strip) -> tuple[list[float], list[float], float]:
-    """U of every near and far position at the rows' true lengths, and the u extent.
+def _post_u(strip: Strip, un: list[int], uf: list[int]) -> tuple[list[float], list[float]]:
+    """U of every near and far position, laid out between vertical posts (``_posts``).
 
-    The near row runs from u = 0 by its arc length; the far row by its own, from the real
-    lead of its start over the near row's start along the strip: ``far[0] - near[0]``
-    projected on the start direction (the mean of the unit directions of the first near
-    and the first far edge; one of them alone when the other has no length, no lead when
-    neither has). The result is shifted so the smallest u is 0. A flat piece between
-    straight rails is laid out without any stretch, its ends at their real slant.
+    Each span between two posts is as long as the mean of the two rows' arcs over it;
+    a row position inside a span takes its share by its own arc length. The last post
+    is at ``strip_length``.
     """
-    verts = strip.verts
+    posts, arc_n, arc_f = _posts(strip, un, uf, weld_tolerance(strip))
+    u_posts, u = [(0.0, 0.0)], 0.0
+    for (a0, b0), (a1, b1) in zip(posts, posts[1:]):
+        u += (arc_n[a1] - arc_n[a0] + arc_f[b1] - arc_f[b0]) / 2.0
+        u_posts.append((u, u))
+    return _fill_spans(strip, posts, arc_n, arc_f, u_posts)
 
-    def run(ids: list[int]) -> list[float]:
-        out = [0.0]
-        for a, b in zip(ids, ids[1:]):
-            out.append(out[-1] + math.dist(verts[a], verts[b]))
-        return out
 
-    def unit(ids: list[int]) -> list[float]:
-        for a, b in zip(ids, ids[1:]):
-            d = [verts[b][i] - verts[a][i] for i in range(3)]
-            n = math.sqrt(sum(c * c for c in d))
-            if n > TIE_TOL:
-                return [c / n for c in d]
-        return [0.0, 0.0, 0.0]
+def _row_direction(verts: dict[int, Vec3], row: list[int], i: int, tol: float) -> list[list[float]]:
+    """The unit directions of the row edges meeting position ``i`` (incoming, outgoing), each to the first
+    point farther than ``tol``; one at a row end, none along a row with no length."""
+    out = []
+    for step in (-1, 1):
+        j = welded_neighbour(verts, row, i, step, tol, closed=False)
+        if j is None:
+            continue
+        a, b = (verts[row[j]], verts[row[i]]) if step < 0 else (verts[row[i]], verts[row[j]])
+        d = [b[c] - a[c] for c in range(3)]
+        n = math.sqrt(sum(x * x for x in d))
+        out.append([x / n for x in d])
+    return out
 
-    u_near, u_far = run(strip.near), run(strip.far)
-    dn, df = unit(strip.near), unit(strip.far)
-    d = [dn[i] + df[i] for i in range(3)]
-    n = math.sqrt(sum(c * c for c in d))
-    lead = 0.0
-    if n > TIE_TOL:
-        lead = sum((verts[strip.far[0]][i] - verts[strip.near[0]][i]) * d[i] / n for i in range(3))
-    u_far = [lead + u for u in u_far]
+
+def _true_u(strip: Strip) -> tuple[list[float], list[float], float]:
+    """U of every near and far position at the rows' true lengths, and the u extent (an open strip).
+
+    The rows are resynchronised at every post (``_posts``; the start and the end are
+    posts): a post's far point leads its near point by the rung's own projection on the
+    strip direction there, the mean of the unit directions of the row edges meeting the
+    post on both rows (points closer than ``weld_tolerance`` count as one, so an
+    unmerged double does not turn the direction; one-sided at the ends; no lead when
+    there is none). Post centres advance by the mean of the two rows' span lengths;
+    the near post sits half the lead behind its centre, the far post half ahead, and a
+    position inside a span takes its own arc-length fraction between its row's two
+    posts. Across a flat span between straight rails every edge keeps its length, and
+    where a span bends the error stays in that span. The result is shifted so the
+    smallest u is 0.
+    """
+    verts, near, far = strip.verts, strip.near, strip.far
+    tol = weld_tolerance(strip)
+    un, uf = _unwrapped(strip, 0)
+    posts, arc_n, arc_f = _posts(strip, un, uf, tol)
+    u_posts, centre = [], 0.0
+    for k, (a, b) in enumerate(posts):
+        if k:
+            a0, b0 = posts[k - 1]
+            centre += (arc_n[a] - arc_n[a0] + arc_f[b] - arc_f[b0]) / 2.0
+        dirs = _row_direction(verts, near, a, tol) + _row_direction(verts, far, b, tol)
+        d = [sum(x[c] for x in dirs) for c in range(3)]
+        n = math.sqrt(sum(x * x for x in d))
+        lead = 0.0
+        if n > TIE_TOL:
+            lead = sum((verts[far[b]][c] - verts[near[a]][c]) * d[c] / n for c in range(3))
+        u_posts.append((centre - lead / 2.0, centre + lead / 2.0))
+    u_near, u_far = _fill_spans(strip, posts, arc_n, arc_f, u_posts)
     low = min(min(u_near), min(u_far))
     u_near = [u - low for u in u_near]
     u_far = [u - low for u in u_far]
     return u_near, u_far, max(max(u_near), max(u_far))
 
 
+def _row_turn(verts, row: list[int], tol: float) -> float:
+    """How much an open row turns in all: the sum of pi minus its welded corner angles."""
+    return sum(math.pi - welded_angle(verts, row, k, tol, closed=False) for k in range(1, len(row) - 1))
+
+
+def _shape_uv(strip: Strip):
+    """The true-shape layout of an open strip: (near (u, v), far (u, v), sides' (u, v), u extent, v extent).
+
+    One row, the straighter of the two (the near row on a tie), is the straight line
+    of its true arc length (an unmerged double, closer than ``weld_tolerance``, sits on
+    its partner's point). Every vertex of the other row and of the end sides is placed
+    by its own real offset from that row: on the base edge it is nearest to, u = that
+    edge's start u plus the offset along the edge, the offset across it is its distance
+    from the base row. The near row lies at v = distance below the far row's base when
+    the far row is the base, else the far row at v = distance above the near row; v
+    runs from 0. A flat strip with one straight rail is mapped one to one, its width
+    followed wherever it changes; a bend of the base rail only affects the vertices
+    placed against the edges meeting at it. Shifted so the smallest u is 0. None when
+    the base row has no length.
+    """
+    verts = strip.verts
+    tol = weld_tolerance(strip)
+    on_far = _row_turn(verts, strip.far, tol) < _row_turn(verts, strip.near, tol) - 1e-9
+    base, other = (strip.far, strip.near) if on_far else (strip.near, strip.far)
+    u_base = [0.0]
+    for a, b in zip(base, base[1:]):
+        u_base.append(u_base[-1] + math.dist(verts[a], verts[b]))
+    edges = []                              # (start position, unit direction, end point) of the welded base edges
+    i = 0
+    while i < len(base) - 1:
+        j = welded_neighbour(verts, base, i, 1, tol, closed=False)
+        if j is None:
+            break
+        a, b = verts[base[i]], verts[base[j]]
+        d = [b[c] - a[c] for c in range(3)]
+        n = math.sqrt(sum(x * x for x in d))
+        edges.append((i, [x / n for x in d], b))
+        i = j
+    if not edges:
+        return None
+
+    def place(p):
+        best = None
+        for i, e, b in edges:
+            a = verts[base[i]]
+            w = [p[c] - a[c] for c in range(3)]
+            along = sum(w[c] * e[c] for c in range(3))
+            t = min(max(along, 0.0), math.dist(a, b))
+            gap = math.dist(p, [a[c] + e[c] * t for c in range(3)])
+            across = math.sqrt(max(sum(x * x for x in w) - along * along, 0.0))
+            if best is None or gap < best[0] - TIE_TOL:
+                best = (gap, u_base[i] + along, across)
+        return best[1], best[2]
+
+    base_uv = [(u, 0.0) for u in u_base]
+    other_uv = [place(verts[v]) for v in other]
+    sides = {v: place(verts[v]) for side in strip.sides for v in side}
+    top = max([v for _u, v in other_uv] + [v for _u, v in sides.values()])
+    if on_far:                              # the far row is the straight one: it lies on top, the near row below
+        base_uv = [(u, top) for u, _v in base_uv]
+        other_uv = [(u, top - v) for u, v in other_uv]
+        sides = {k: (u, top - v) for k, (u, v) in sides.items()}
+    near_uv, far_uv = (other_uv, base_uv) if on_far else (base_uv, other_uv)
+    low = min(u for u, _v in near_uv + far_uv + list(sides.values()))
+    near_uv = [(u - low, v) for u, v in near_uv]
+    far_uv = [(u - low, v) for u, v in far_uv]
+    sides = {k: (u - low, v) for k, (u, v) in sides.items()}
+    extent = max(u for u, _v in near_uv + far_uv + list(sides.values()))
+    return near_uv, far_uv, sides, extent, top
+
+
 def strip_extent(strip: Strip) -> float:
-    """The u extent ``stripe_uvs`` lays the strip out over: its true length span under "TRUE"
+    """The u extent ``stripe_uvs`` lays the strip out over: its true length span under "TRUE" or "SHAPE"
     (an open strip), else ``strip_length``."""
-    if strip.layout == "TRUE" and not strip.closed:
+    if not strip.closed and strip.layout == "SHAPE":
+        shape = _shape_uv(strip)
+        if shape is not None:
+            return shape[3]
+    if not strip.closed and strip.layout in ("TRUE", "SHAPE"):
         return _true_u(strip)[2]
     return strip_length(strip)
+
+
+def strip_v_extent(strip: Strip) -> float:
+    """The v extent ``stripe_uvs`` lays the strip out over: under "SHAPE" (an open strip) the largest real
+    distance of the far row from the near row, else ``strip.height``."""
+    if not strip.closed and strip.layout == "SHAPE":
+        shape = _shape_uv(strip)
+        if shape is not None:
+            return shape[4]
+    return strip.height
 
 
 def _side_v(strip: Strip, end_ids: tuple[int, int], side: list[int]) -> dict[int, float]:
@@ -298,8 +450,14 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
     # an open strip's rows run from their first vertex, which need not be on a rung
     seam_near = un[0] % len(near) if strip.closed else 0
     seam_far = uf[0] % len(far) if strip.closed else 0
-    true = strip.layout == "TRUE" and not strip.closed
-    if true:
+    shape = _shape_uv(strip) if strip.layout == "SHAPE" and not strip.closed else None
+    true = strip.layout in ("TRUE", "SHAPE") and not strip.closed and shape is None
+    v_near, v_far = [0.0] * len(near), [strip.height] * len(far)
+    if shape is not None:
+        near_uv, far_uv, shape_sides, length, _top = shape
+        u_near, v_near = [u for u, _v in near_uv], [v for _u, v in near_uv]
+        u_far, v_far = [u for u, _v in far_uv], [v for _u, v in far_uv]
+    elif true:
         u_near, u_far, length = _true_u(strip)
     elif strip.layout == "STRAIGHT":
         u_near, u_far = _post_u(strip, un, uf)
@@ -312,7 +470,9 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
     for i, vid in enumerate(far):
         far_at.setdefault(vid, []).append(i)
     side_v: dict[int, tuple[float, float]] = {}  # vertex id -> (u, v) on an open end
-    if true:
+    if shape is not None:
+        side_v.update(shape_sides)
+    elif true:
         for side, ends, (u0, u1) in ((strip.sides[0], (near[0], far[0]), (u_near[0], u_far[0])),
                                      (strip.sides[1], (near[-1], far[-1]), (u_near[-1], u_far[-1]))):
             side_v.update({
@@ -331,7 +491,7 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
             key = (fid, vid)
             if vid in near_at:
                 i = strip.corner_near.get(key, near_at[vid])
-                uv[key] = (u_near[i], 0.0)
+                uv[key] = (u_near[i], v_near[i])
                 if strip.closed and i == seam_near:
                     seam_corners.append(key)
             elif vid in far_at:
@@ -345,7 +505,7 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
                     i = strip.corner_far[key]
                 else:
                     i = idx[0]
-                uv[key] = (u_far[i], strip.height)
+                uv[key] = (u_far[i], v_far[i])
                 if strip.closed and i == seam_far:
                     seam_corners.append(key)
             elif vid in side_v:
@@ -502,60 +662,56 @@ def place_in_place(
     return out
 
 
-def _quarter_turn(p: Vec2, k: int) -> Vec2:
-    """``p`` turned by k times 90 degrees counter-clockwise."""
-    x, y = p
-    for _ in range(k % 4):
-        x, y = -y, x
-    return (x, y)
+def bbox(uv: dict) -> tuple[Vec2, Vec2]:
+    """(min corner, max corner) of a placed strip's UVs."""
+    us = [p[0] for p in uv.values()]
+    vs = [p[1] for p in uv.values()]
+    return (min(us), min(vs)), (max(us), max(vs))
 
 
-def active_anchor(new: list[Vec2], old: list[Vec2]) -> tuple[float, int, Vec2, Vec2]:
-    """How a laid-out face maps onto its old UVs: (scale, quarter turns, new centroid, old centroid).
+def fit_to_reference(uv: dict, reference: tuple[Vec2, Vec2], mode: str = "BOTH") -> dict:
+    """A placed strip fitted onto a reference bounding box, as Visual UV's Fit to Active does.
 
-    ``new`` and ``old`` are the face's corners in its own order, laid out and as they
-    were. The scale is the old perimeter over the new one; the turn is the multiple of
-    90 degrees (counter-clockwise, never a mirror) that puts the scaled corners, centroid
-    on centroid, nearest the old ones (least squares; a tie takes the smaller turn).
-    Raises ValueError when either perimeter is zero.
+    ``uv_match_core.dimension_fit`` decides: when the strip and the reference are
+    transposed (one landscape, the other portrait) the strip turns 90 degrees counter-
+    clockwise about its bounding-box centre (a rotation, never a mirror); then it is
+    scaled about that centre, "BOTH" so its box equals the reference's, "WIDTH" or
+    "HEIGHT" on that axis only (the other is kept), measured after the turn; then its
+    box centre is moved onto the reference's.
     """
-    def perimeter(pts):
-        return sum(math.dist(a, b) for a, b in zip(pts, pts[1:] + pts[:1]))
-
-    p_new, p_old = perimeter(new), perimeter(old)
-    if p_new <= TIE_TOL or p_old <= TIE_TOL:
-        raise ValueError("the active face has no size in UV")
-    scale = p_old / p_new
-    cn = (sum(p[0] for p in new) / len(new), sum(p[1] for p in new) / len(new))
-    co = (sum(p[0] for p in old) / len(old), sum(p[1] for p in old) / len(old))
-
-    def error(k):
-        total = 0.0
-        for a, b in zip(new, old):
-            t = _quarter_turn((a[0] - cn[0], a[1] - cn[1]), k)
-            total += (co[0] + scale * t[0] - b[0]) ** 2 + (co[1] + scale * t[1] - b[1]) ** 2
-        return total
-
-    errors = [error(k) for k in range(4)]
-    best = min(errors)
-    turn = next(k for k in range(4) if errors[k] <= best + 1e-12 * max(1.0, best))
-    return scale, turn, cn, co
-
-
-def place_active(
-    uv: dict, anchor: tuple[float, int, Vec2, Vec2], pivot: Vec2 | None = None, center: Vec2 | None = None
-) -> dict:
-    """Scale and turn a strip's layout by ``anchor`` (``active_anchor``).
-
-    Without ``pivot``/``center`` the anchor's own centroids are matched, so the active
-    face lands on its old corners. With them, ``pivot`` (a layout point, such as the
-    strip rectangle's centre) is put on ``center`` (such as the strip's old UV centre).
-    """
-    scale, turn, cn, co = anchor
-    if pivot is not None and center is not None:
-        cn, co = pivot, center
+    (u0, v0), (u1, v1) = bbox(uv)
+    (r0, s0), (r1, s1) = reference
+    rotate, sx, sy = dimension_fit(u1 - u0, v1 - v0, r1 - r0, s1 - s0, mode)
+    cu, cv = (u0 + u1) / 2.0, (v0 + v1) / 2.0
+    ru, rv = (r0 + r1) / 2.0, (s0 + s1) / 2.0
     out = {}
     for key, (u, v) in uv.items():
-        t = _quarter_turn((u - cn[0], v - cn[1]), turn)
-        out[key] = (co[0] + scale * t[0], co[1] + scale * t[1])
+        du, dv = u - cu, v - cv
+        if rotate:
+            du, dv = -dv, du
+        out[key] = (ru + du * sx, rv + dv * sy)
     return out
+
+
+def random_offsets(count: int, axis: str, limit: float, seed: int, keep: int | None = None) -> list[Vec2]:
+    """One random (du, dv) shift per placed piece, in the pieces' order; the same seed gives the same shifts.
+
+    ``axis`` "NONE", "HORIZONTAL" (u only), "VERTICAL" (v only) or "BOTH". Each shift is
+    uniform in [-limit, +limit] on each chosen axis. Every piece draws its pair whatever
+    the axis and ``keep``, so a piece's shift does not depend on those; the piece
+    ``keep`` (the Active reference) is not moved.
+    """
+    rng = random.Random(seed)  # noqa: S311 - a seeded layout offset, not security
+    out = []
+    for i in range(count):
+        du, dv = rng.uniform(-limit, limit), rng.uniform(-limit, limit)
+        if i == keep or axis == "NONE":
+            du = dv = 0.0
+        out.append((du if axis in ("HORIZONTAL", "BOTH") else 0.0, dv if axis in ("VERTICAL", "BOTH") else 0.0))
+    return out
+
+
+def shifted(uv: dict, offset: Vec2) -> dict:
+    """A placed strip moved by ``offset``."""
+    du, dv = offset
+    return {k: (u + du, v + dv) for k, (u, v) in uv.items()}

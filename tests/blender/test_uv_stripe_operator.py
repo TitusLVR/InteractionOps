@@ -17,7 +17,7 @@ from mathutils import Vector
 ADDON = "InteractionOps"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/: shared fixtures
-from uv_stripe_fixtures import NGON_FACES, NGON_VERTS, exact_ngon_verts  # noqa: E402
+from uv_stripe_fixtures import DOUBLE_FACES, DOUBLE_VERTS, NGON_FACES, NGON_VERTS, exact_ngon_verts  # noqa: E402
 
 operator = None
 
@@ -117,8 +117,13 @@ def _close(a, b, tol=1e-5):
     return abs(a - b) <= tol
 
 
+# The defaults most tests here were written for; the operator's own defaults have their own tests.
+OLD_DEFAULTS = {"active_fit": "BOTH", "split_at_seams": False, "split_angle": math.radians(15),
+                "merge_doubles": False, "offset_axis": "NONE"}
+
+
 def _run(**props):
-    return bpy.ops.iops.mesh_uv_stripe(**props)
+    return bpy.ops.iops.mesh_uv_stripe(**{**OLD_DEFAULTS, **props})
 
 
 # --- tests -----------------------------------------------------------------------
@@ -301,7 +306,7 @@ def test_ngon_strip_splits_into_stretch_free_pieces():
     # pieces, every UV edge its 3D length times one common scale, every corner angle kept.
     obj = _ngon_object(exact_ngon_verts())
     _edit(obj)
-    stand = _OperatorStandIn()
+    stand = _OperatorStandIn(mode="FIT")
     assert stand.execute(bpy.context) == {"FINISHED"}, stand.reports
     assert stand.reports == ["UV Stripe: 3 strip(s)"], stand.reports
     ratios, errors = _uv_metrics(obj)
@@ -314,7 +319,7 @@ def test_ngon_strip_splits_into_stretch_free_pieces():
 def test_ngon_strip_with_the_captured_coordinates_is_split_too():
     obj = _ngon_object(NGON_VERTS)
     _edit(obj)
-    stand = _OperatorStandIn()
+    stand = _OperatorStandIn(mode="FIT")
     assert stand.execute(bpy.context) == {"FINISHED"} and stand.reports == ["UV Stripe: 3 strip(s)"], stand.reports
     ratios, errors = _uv_metrics(obj)
     assert max(ratios) / min(ratios) < 1.005 and max(errors) < 0.15     # the coordinates' 0.001 rounding
@@ -329,7 +334,7 @@ def test_a_requested_split_that_cannot_be_made_is_reported():
 
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    stand = _OperatorStandIn()
+    stand = _OperatorStandIn(mode="FIT")
     select_core.slice_strip = refuse
     try:
         assert stand.execute(bpy.context) == {"FINISHED"}
@@ -374,9 +379,10 @@ class _OperatorStandIn:
     """Stands in for an operator instance: the operator's methods run on these props and keep its reports."""
 
     def __init__(self, **props):
-        self.mode, self.orientation, self.layout = "FIT", "HORIZONTAL", "TRUE"
-        self.split_at_seams, self.split_at_bends, self.split_angle = False, True, math.radians(15)
-        self.mark_seams = True
+        self.mode, self.orientation, self.layout = "ACTIVE", "HORIZONTAL", "TRUE"
+        self.split_at_bends, self.mark_seams = True, True
+        self.offset_limit, self.offset_seed = 0.25, 0
+        self.__dict__.update(OLD_DEFAULTS)
         self.__dict__.update(props)
         self.reports = []
 
@@ -414,19 +420,19 @@ def _modal_on(obj, **props):
 def test_modal_keys_toggle_their_options_and_the_uvs_follow():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    op = _modal_on(obj)
-    steps = [("R", "orientation", "VERTICAL"), ("M", "mode", "IN_PLACE"), ("S", "layout", "STRAIGHT"),
-             ("S", "layout", "EVEN"), ("S", "layout", "TRUE"), ("M", "mode", "ACTIVE"), ("M", "mode", "FIT"),
-             ("B", "split_at_bends", False), ("E", "split_at_seams", True), ("X", "mark_seams", False),
-             ("R", "orientation", "HORIZONTAL")]
+    op = _modal_on(obj, mode="FIT")
+    steps = [("W", "orientation", "VERTICAL"), ("Q", "mode", "IN_PLACE"), ("E", "layout", "STRAIGHT"),
+             ("E", "layout", "EVEN"), ("E", "layout", "SHAPE"), ("E", "layout", "TRUE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"),
+             ("A", "split_at_bends", False), ("S", "split_at_seams", True), ("X", "mark_seams", False),
+             ("W", "orientation", "HORIZONTAL")]
     for key, name, value in steps:
         before = _uv_state(obj)
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
         assert getattr(op, name) == value, (key, name, getattr(op, name))
-        if key in "RB":
+        if key in "WA":
             assert _uv_state(obj)[0] != before[0], key          # the UVs follow at once
     assert len(_vertex_us(obj, 4)) == 1                        # Split at Bends off: one strip
-    op._modal(bpy.context, _KeyPress("B"))
+    op._modal(bpy.context, _KeyPress("A"))
     assert len(_vertex_us(obj, 4)) == 2
     op._finish(bpy.context)
 
@@ -445,7 +451,7 @@ def test_modal_wheel_changes_the_bend_angle_while_splitting():
     assert round(math.degrees(op.split_angle)) == 23 and len(_vertex_us(obj, 4)) == 1     # 22 no longer
     op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE"))
     assert round(math.degrees(op.split_angle)) == 18
-    op._modal(bpy.context, _KeyPress("B"))
+    op._modal(bpy.context, _KeyPress("A"))
     assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"PASS_THROUGH"}    # zooms the view instead
     assert round(math.degrees(op.split_angle)) == 18
     op._finish(bpy.context)
@@ -456,9 +462,9 @@ def test_modal_cancel_restores_uvs_seams_and_options():
     _edit(obj, _middle)
     _set_seams(obj, {(0, 1), (10, 17)})
     before = _uv_state(obj)
-    op = _modal_on(obj)
+    op = _modal_on(obj, mode="FIT")
     assert _uv_state(obj) != before                            # laid out live
-    for key in ("R", "M", "S", "E", "X", "B"):
+    for key in ("W", "Q", "E", "S", "X", "A"):
         op._modal(bpy.context, _KeyPress(key))
     op._modal(bpy.context, _KeyPress("X"))
     assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
@@ -483,7 +489,7 @@ def test_modal_confirm_equals_execute():
         _set_seams(obj, {(6, 7)})
         if confirm:
             op = _modal_on(obj)
-            for key in ("R", "E", "WHEELUPMOUSE"):
+            for key in ("W", "S", "WHEELUPMOUSE"):
                 op._modal(bpy.context, _KeyPress(key))
             assert op._modal(bpy.context, _KeyPress("SPACE")) == {"FINISHED"}
             return _uv_state(obj), op.reports
@@ -504,7 +510,14 @@ def test_modal_nothing_to_lay_out_cancels_and_restores():
     assert _uv_state(obj) == before
 
 
-# --- Active mode -------------------------------------------------------------------
+# --- Active mode and random offsets ---------------------------------------------------
+
+def _set_active(obj, center):
+    """Make the face whose centre is ``center`` (x, y) the active face."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.active = min(bm.faces, key=lambda f: (f.calc_center_median().xy - Vector(center)).length)
+    bmesh.update_edit_mesh(obj.data)
+
 
 def _set_uvs(obj, fn):
     """Give every loop the UV ``fn(world position)``."""
@@ -516,95 +529,136 @@ def _set_uvs(obj, fn):
     bmesh.update_edit_mesh(obj.data)
 
 
-def _set_active(obj, center):
-    """Make the face whose centre is ``center`` (x, y) the active face."""
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.faces.active = min(bm.faces, key=lambda f: (f.calc_center_median().xy - Vector(center)).length)
-    bmesh.update_edit_mesh(obj.data)
+def _uv_box(obj, keep):
+    """((min u, min v), (max u, max v)) over the corners of the faces whose centre passes ``keep``."""
+    corners = _corners(obj, keep)
+    us = [uv.x for _c, uv in corners]
+    vs = [uv.y for _c, uv in corners]
+    return Vector((min(us), min(vs))), Vector((max(us), max(vs)))
 
 
-def _loop_uvs(obj):
-    bm = bmesh.from_edit_mesh(obj.data)
-    layer = bm.loops.layers.uv.active
-    return {(round(lp.vert.co.x, 4), round(lp.vert.co.y, 4), f.index): lp[layer].uv.copy()
-            for f in bm.faces if f.select for lp in f.loops}
+def _size(box):
+    return box[1] - box[0]
 
 
-def test_active_keeps_the_active_face_and_continues_from_it():
-    # UVs turned a quarter from the mesh and scaled by 0.1: (u, v) = (-y, x) / 10. The strip follows the active face.
-    for rotate in (False, True):
-        obj = _grid(4, 1)
-        _edit(obj)
-        uv_of = (lambda co: Vector((-co.y / 10.0, co.x / 10.0))) if rotate else (lambda co: co.xy / 10.0 + Vector((0.5, 0.5)))
-        _set_uvs(obj, uv_of)
-        _set_active(obj, (1.5, 0.5))
-        assert _run(mode="ACTIVE", orientation="VERTICAL") == {"FINISHED"}     # orientation does not apply
-        for co, uv in _corners(obj):
-            assert (uv - uv_of(co)).length < 1e-5, (rotate, co, uv, uv_of(co))
+def _low(c):
+    return c.y < 1.0
 
 
-def test_active_gives_every_piece_one_scale_and_turn_at_its_old_centre():
-    obj = _polyline([0, 40])                               # torn at the bend: two pieces
+def _high(c):
+    return c.y > 2.0 and c.x < 3.0
+
+
+def _two_strips():
+    """In a 4 x 4 grid with UVs at xy / 10 + 0.5: a 4 x 1 strip (row 0) and a 3 x 2 patch (rows 2-3) selected,
+    the other cells round them, the active face in the strip."""
+    obj = _grid(4, 4, uv_size=10.0)
+    _edit(obj, lambda c: _low(c) or _high(c))
+    _set_active(obj, (1.5, 0.5))
+    return obj
+
+
+def test_active_fits_the_other_strip_onto_the_reference():
+    obj = _two_strips()
+    assert _run(mode="IN_PLACE") == {"FINISHED"}
+    in_place = _corners(obj, _low)
+    patch_in_place = _size(_uv_box(obj, _high))              # 0.3 x 0.2
+    assert _close(patch_in_place.x, 0.3) and _close(patch_in_place.y, 0.2)
+    for fit, expected in (("BOTH", (0.4, 0.1)), ("WIDTH", (0.4, 0.2)), ("HEIGHT", (0.3, 0.1))):
+        obj = _two_strips()
+        assert _run(mode="ACTIVE", active_fit=fit) == {"FINISHED"}
+        assert all((a[1] - b[1]).length < 1e-6 for a, b in zip(_corners(obj, _low), in_place))   # the reference
+        reference = _uv_box(obj, _low)
+        box = _uv_box(obj, _high)
+        assert _close(_size(box).x, expected[0]) and _close(_size(box).y, expected[1]), (fit, _size(box))
+        assert ((box[0] + box[1]) / 2 - (reference[0] + reference[1]) / 2).length < 1e-6
+        assert all(a > 0 for a in _face_areas(obj))
+
+
+def test_active_follows_the_orientation():
+    obj = _two_strips()
+    assert _run(mode="ACTIVE", orientation="VERTICAL") == {"FINISHED"}
+    reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
+    assert _close(_size(reference).x, 0.1) and _close(_size(reference).y, 0.4)      # the reference turned
+    assert (box[0] - reference[0]).length < 1e-6 and (box[1] - reference[1]).length < 1e-6
+    assert all(a > 0 for a in _face_areas(obj))
+
+
+def test_active_puts_the_other_pieces_of_a_torn_strip_on_the_active_piece():
+    obj = _polyline([0, 40])                                 # torn at the bend: faces 0-1 and face 2
     _edit(obj)
     _set_uvs(obj, lambda co: co.xy * 0.1)
-    bm = bmesh.from_edit_mesh(obj.data)
-    layer = bm.loops.layers.uv.active
-    pieces = {"first": [f for f in bm.faces if f.index < 2], "last": [f for f in bm.faces if f.index == 2]}
-
-    def bbox_centre(faces):
-        us = [lp[layer].uv.x for f in faces for lp in f.loops]
-        vs = [lp[layer].uv.y for f in faces for lp in f.loops]
-        return Vector(((min(us) + max(us)) / 2.0, (min(vs) + max(vs)) / 2.0))
-
-    old_centre = bbox_centre(pieces["last"])
-    bm.faces.active = pieces["first"][0]
-    bmesh.update_edit_mesh(obj.data)
+    _set_active(obj, (0.5, 0.0))
     assert _run(mode="ACTIVE") == {"FINISHED"}
-    bm = bmesh.from_edit_mesh(obj.data)
-    layer = bm.loops.layers.uv.active
-    ratios, errors = _uv_metrics(obj)
-    assert all(abs(r - 0.1) < 1e-5 for r in ratios) and max(errors) < 1e-3, (ratios, errors)
-    last = [f for f in bm.faces if f.index == 2]
-    assert (bbox_centre(last) - old_centre).length < 1e-6
-    bm.faces.ensure_lookup_table()
-    first = bm.faces[0]
-    for lp in first.loops:                                  # the active face stays on its old corners
-        assert (lp[layer].uv - (obj.matrix_world @ lp.vert.co).xy * 0.1).length < 1e-5
+    first = _uv_box(obj, lambda c: c.x < 1.9)
+    last = _uv_box(obj, lambda c: c.x > 2.1)
+    assert (first[0] - last[0]).length < 1e-6 and (first[1] - last[1]).length < 1e-6
 
 
-def test_active_without_an_active_face_falls_back_to_in_place():
+def test_active_without_an_active_face_lays_out_in_place_and_says_so():
     obj = _grid(6, 3, uv_size=10.0)
     _edit(obj, _middle)
     bm = bmesh.from_edit_mesh(obj.data)
     bm.faces.active = None
     bmesh.update_edit_mesh(obj.data)
-    stand = _OperatorStandIn(mode="ACTIVE")
+    stand = _OperatorStandIn()                               # Active is the default
+    assert stand.mode == "ACTIVE"
     assert stand.execute(bpy.context) == {"FINISHED"}
-    assert stand.reports == ["UV Stripe: Active needs an active face in the selection with UVs; laid out In Place",
-                             "UV Stripe: 1 strip(s)"], stand.reports
+    assert stand.reports == ["UV Stripe: no active face to fit to; laid out In Place", "UV Stripe: 1 strip(s)"]
     for co, uv in _corners(obj):                             # as In Place lays it out
         assert _close(uv.x, co.x / 10.0 + 0.5) and _close(uv.y, co.y / 10.0 + 0.5), (co, uv)
 
 
-def test_modal_mode_cycles_and_active_anchors_to_the_original_uvs():
-    obj = _grid(4, 1)
-    _edit(obj)
-    _set_uvs(obj, lambda co: Vector((-co.y / 10.0, co.x / 10.0)))
-    _set_active(obj, (1.5, 0.5))
-    before = _loop_uvs(obj)
+def test_random_offset_moves_the_other_strip_along_u_only():
+    obj = _two_strips()
+    assert _run(mode="ACTIVE") == {"FINISHED"}
+    still_reference, still = _uv_box(obj, _low), _uv_box(obj, _high)
+    states = []
+    for _ in range(2):
+        obj = _two_strips()
+        assert _run(mode="ACTIVE", offset_axis="ALONG", offset_limit=0.2, offset_seed=7) == {"FINISHED"}
+        reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
+        assert (reference[0] - still_reference[0]).length < 1e-6         # the reference does not move
+        assert (_size(box) - _size(still)).length < 1e-6                 # the fit is kept
+        shift = box[0] - still[0]
+        assert abs(shift.y) < 1e-6 and 1e-4 < abs(shift.x) <= 0.2 + 1e-6, shift
+        states.append(_uv_state(obj)[0])
+    assert states[0] == states[1]                            # the same seed gives the same UVs
+    obj = _two_strips()
+    assert _run(mode="ACTIVE", offset_axis="ALONG", offset_limit=0.2, offset_seed=8) == {"FINISHED"}
+    assert _uv_state(obj)[0] != states[0]
+
+
+def test_modal_fit_to_active_and_random_offset_keys():
+    obj = _two_strips()
     op = _modal_on(obj)
-    assert op.mode == "FIT"
-    op._modal(bpy.context, _KeyPress("M"))
-    assert op.mode == "IN_PLACE"
-    op._modal(bpy.context, _KeyPress("M"))
-    assert op.mode == "ACTIVE"
-    for key in ("S", "R", "S", "S"):                         # several layouts in between: still the snapshot's UVs
-        op._modal(bpy.context, _KeyPress(key))
-    after = _loop_uvs(obj)
-    assert all((after[k] - before[k]).length < 1e-5 for k in before)
-    op._modal(bpy.context, _KeyPress("M"))
-    assert op.mode == "FIT"
-    op._modal(bpy.context, _KeyPress("ESC"))
+    sizes = []
+    for expected in ("WIDTH", "HEIGHT", "BOTH"):
+        assert op._modal(bpy.context, _KeyPress("D")) == {"RUNNING_MODAL"} and op.active_fit == expected
+        sizes.append(tuple(round(c, 6) for c in _size(_uv_box(obj, _high))))
+    assert sizes == [(0.4, 0.2), (0.3, 0.1), (0.4, 0.1)]
+    before = _uv_box(obj, _high)
+    shift_wheel = _KeyPress("WHEELUPMOUSE")
+    shift_wheel.shift = True
+    assert op._modal(bpy.context, shift_wheel) == {"PASS_THROUGH"}       # no random offset: the view pans
+    for expected in ("ALONG", "ACROSS", "BOTH"):
+        op._modal(bpy.context, _KeyPress("Z"))
+        assert op.offset_axis == expected
+    moved = _uv_box(obj, _high)
+    assert (moved[0] - before[0]).length > 1e-4
+    op._modal(bpy.context, _KeyPress("C"))
+    assert op.offset_seed == 1 and (_uv_box(obj, _high)[0] - moved[0]).length > 1e-6
+    assert op._modal(bpy.context, shift_wheel) == {"RUNNING_MODAL"} and _close(op.offset_limit, 0.30)
+    shift_wheel.ctrl = True
+    shift_wheel.type = "WHEELDOWNMOUSE"
+    op._modal(bpy.context, shift_wheel)
+    assert _close(op.offset_limit, 0.29)
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+    confirmed = _uv_state(obj)
+    obj = _two_strips()
+    stand = _OperatorStandIn(offset_axis="BOTH", offset_seed=1, offset_limit=0.29)
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _uv_state(obj) == confirmed
 
 
 def test_modal_hud_and_help_list_every_key():
@@ -612,19 +666,166 @@ def test_modal_hud_and_help_list_every_key():
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Orientation (R)", "Mode (M)", "Layout (S)", "Split at Seams (E)", "Split at Bends (B)",
-        "Bend Angle (Wheel)", "Mark Seams (X)"]
-    assert [p.value_text() for p in params] == ["Horizontal", "Fit 0–1", "No Stretch", "✗", "✓", "15°", "✓"]
-    assert params[0].is_active()
-    op.mode = "ACTIVE"                                      # the direction then comes from the active face
-    assert params[1].value_text() == "Active" and not params[0].is_active()
-    assert "orientation = from the active face (R)" in op._status_text()
-    op.mode = "FIT"
+        "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Split at Bends (A)",
+        "Split at Seams (S)", "Bend Angle (Wheel)", "Mark Seams (X)", "Random Offset (Z)",
+        "Offset Limit (Shift + Wheel)", "Offset Seed (C)", "Merge Doubles (F)", "Doubled Vertices"]
+    assert [p.value_text() for p in params] == [
+        "Active", "Horizontal", "Width and Height", "No Stretch", "✓", "✗", "15°", "✓", "None", "0.25", "0", "✗",
+        "0"]
+    active = {p.name: p.is_active() for p in params}
+    assert active["Fit to Active (D)"] and not active["Offset Limit (Shift + Wheel)"]
+    assert not active["Offset Seed (C)"]
+    op.mode, op.offset_axis = "FIT", "BOTH"
+    active = {p.name: p.is_active() for p in params}
+    assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (C)"]
     assert [(it.label, it.key) for it in op._help.sections[0].items] == [
-        ("Orientation", "R"), ("Mode", "M"), ("Layout", "S"), ("Split at seams", "E"), ("Split at bends", "B"),
-        ("Bend angle", "Wheel / Ctrl + Wheel"), ("Mark seams", "X"), ("Confirm", "LMB / Enter / Space"),
+        ("Mode", "Q"), ("Orientation", "W"), ("Layout", "E"), ("Split at bends", "A"), ("Split at seams", "S"),
+        ("Fit to active", "D"), ("Random offset", "Z"), ("Mark seams", "X"), ("New offset seed", "C"),
+        ("Merge doubles", "F"), ("Bend angle", "Wheel / Ctrl + Wheel"),
+        ("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"), ("Confirm", "LMB / Enter / Space"),
         ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
-    assert "layout = no stretch (S)" in op._status_text()
+    status = op._status_text()
+    assert "layout = no stretch (E)" in status and "fit to active = width and height (D)" in status
+    assert "random offset = both (Z)" in status and "merge doubles = off (F)" in status
+
+
+def test_modal_old_letters_are_free():
+    obj = _grid(4, 1)
+    _edit(obj)
+    op = _modal_on(obj)
+    before = _uv_state(obj)
+    for key in ("R", "M", "B", "O"):
+        assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
+    assert op._modal(bpy.context, _KeyPress("N")) == {"PASS_THROUGH"}       # the sidebar opens again
+    assert _uv_state(obj) == before
+    assert (op.mode, op.orientation, op.split_at_bends, op.offset_axis, op.offset_seed) == (
+        "ACTIVE", "HORIZONTAL", True, "NONE", 0)
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+# --- doubled vertices ---------------------------------------------------------------
+
+def _double_object(merged=False):
+    """The strip with an unmerged double (28, 21) as a mesh; ``merged``: the same strip modelled without it."""
+    verts = dict(DOUBLE_VERTS)
+    faces = dict(DOUBLE_FACES)
+    if merged:
+        del verts[28]
+        faces = {fid: tuple(dict.fromkeys(21 if v == 28 else v for v in face)) for fid, face in faces.items()}
+    ids = sorted(verts)
+    at = {v: i for i, v in enumerate(ids)}
+    obj = _object([verts[v] for v in ids], [tuple(at[v] for v in face) for face in faces.values()])
+    _edit(obj)
+    return obj
+
+
+def _layout_by_position(obj):
+    """Every selected corner's (rounded position, rounded UV), sorted: compares layouts across topologies."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    return sorted((tuple(round(c, 4) for c in lp.vert.co), tuple(round(c, 5) for c in lp[layer].uv))
+                  for f in bm.faces if f.select for lp in f.loops)
+
+
+def test_doubled_vertices_are_reported():
+    obj = _double_object()
+    stand = _OperatorStandIn(mode="FIT")
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert ("UV Stripe: 1 doubled vertices in the strip; turn on Merge Doubles or use Merge by Distance"
+            in stand.reports), stand.reports
+    assert len(obj.data.vertices) == 14
+
+
+def test_merge_doubles_merges_exactly_the_double():
+    clean = _double_object(merged=True)
+    stand = _OperatorStandIn(mode="FIT")
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    expected = _layout_by_position(clean)
+    obj = _double_object()
+    stand = _OperatorStandIn(mode="FIT", merge_doubles=True)
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert "UV Stripe: merged 1 doubled vertices" in stand.reports, stand.reports
+    assert not any("doubled vertices in the strip" in r for r in stand.reports), stand.reports
+    assert len(bmesh.from_edit_mesh(obj.data).verts) == 13
+    assert _layout_by_position(obj) == expected
+
+
+def test_modal_merge_doubles():
+    obj = _double_object()
+    op = _modal_on(obj, mode="FIT")
+    assert op._result.doubles == 1
+    assert any("1 doubled vertices" in r for r in op.reports), op.reports
+    params = {p.name: p for section in op._hud.param_sections for p in section.params}
+    assert params["Doubled Vertices"].value_text() == "1"
+    preview = _uv_state(obj)
+    assert op._modal(bpy.context, _KeyPress("F")) == {"RUNNING_MODAL"} and op.merge_doubles
+    assert _uv_state(obj) == preview                         # the preview does not change the mesh
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
+    assert len(bmesh.from_edit_mesh(obj.data).verts) == 14 and not op.merge_doubles
+    obj = _double_object()
+    op = _modal_on(obj, mode="FIT")
+    op._modal(bpy.context, _KeyPress("F"))
+    op.reports.clear()
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+    assert "UV Stripe: merged 1 doubled vertices" in op.reports, op.reports
+    assert len(bmesh.from_edit_mesh(obj.data).verts) == 13
+    confirmed = _layout_by_position(obj)
+    obj = _double_object()
+    stand = _OperatorStandIn(mode="FIT", merge_doubles=True)
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _layout_by_position(obj) == confirmed
+
+
+def test_operator_defaults():
+    rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
+    assert rna["mode"].default == "ACTIVE" and rna["active_fit"].default == "WIDTH"
+    assert rna["layout"].default == "TRUE" and rna["orientation"].default == "HORIZONTAL"
+    assert rna["split_at_seams"].default and rna["split_at_bends"].default and rna["mark_seams"].default
+    assert round(math.degrees(rna["split_angle"].default), 6) == 5.0
+    assert rna["merge_doubles"].default and rna["offset_axis"].default == "ALONG"
+    assert [item.identifier for item in rna["layout"].enum_items] == ["TRUE", "STRAIGHT", "EVEN", "SHAPE"]
+    assert [item.identifier for item in rna["offset_axis"].enum_items] == ["NONE", "ALONG", "ACROSS", "BOTH"]
+
+
+def test_default_active_fit_matches_the_width_only_and_leaves_a_clean_mesh_alone():
+    obj = _two_strips()
+    bm = bmesh.from_edit_mesh(obj.data)
+    before = (len(bm.verts), len(bm.edges), len(bm.faces), sorted(f.index for f in bm.faces if f.select))
+    assert bpy.ops.iops.mesh_uv_stripe(offset_axis="NONE") == {"FINISHED"}     # every other option at its default
+    bm = bmesh.from_edit_mesh(obj.data)
+    assert (len(bm.verts), len(bm.edges), len(bm.faces), sorted(f.index for f in bm.faces if f.select)) == before
+    reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
+    assert _close(_size(box).x, _size(reference).x) and _close(_size(box).y, 0.2), _size(box)
+
+
+def test_default_offset_runs_along_the_strip_in_both_orientations():
+    for orientation, along in (("HORIZONTAL", 0), ("VERTICAL", 1)):
+        obj = _two_strips()
+        assert bpy.ops.iops.mesh_uv_stripe(orientation=orientation, offset_axis="NONE") == {"FINISHED"}
+        still_reference, still = _uv_box(obj, _low), _uv_box(obj, _high)
+        obj = _two_strips()
+        assert bpy.ops.iops.mesh_uv_stripe(orientation=orientation) == {"FINISHED"}         # Along Strip
+        reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
+        assert (reference[0] - still_reference[0]).length < 1e-6
+        shift = box[0] - still[0]
+        assert abs(shift[1 - along]) < 1e-6 and 1e-4 < abs(shift[along]) <= 0.25 + 1e-6, (orientation, shift)
+        obj = _two_strips()
+        assert bpy.ops.iops.mesh_uv_stripe(orientation=orientation, offset_axis="ACROSS") == {"FINISHED"}
+        shift = _uv_box(obj, _high)[0] - still[0]
+        assert abs(shift[along]) < 1e-6 and abs(shift[1 - along]) > 1e-4, (orientation, shift)
+
+
+def test_true_shape_follows_a_tapering_strip():
+    # A 3 x 1 strip whose far rail closes in to 0.7: No Stretch keeps one height, True Shape the real width.
+    points = [(float(x), 0.0, 0.0) for x in range(4)] + [(float(x), 1.0 - 0.1 * x, 0.0) for x in range(4)]
+    obj = _object(points, [(i, i + 1, i + 5, i + 4) for i in range(3)])
+    _edit(obj)
+    assert _run(mode="FIT", layout="SHAPE") == {"FINISHED"}
+    ratios, errors = _uv_metrics(obj)
+    assert max(ratios) / min(ratios) < 1 + 1e-6 and max(errors) < 1e-4, (ratios, errors)
+    assert _run(mode="FIT", layout="TRUE") == {"FINISHED"}
+    ratios, _errors = _uv_metrics(obj)
+    assert max(ratios) / min(ratios) > 1.01
 
 
 def test_triangulated_strip_is_its_quads_rectangle():
@@ -726,10 +927,20 @@ TESTS = [
     test_modal_confirm_equals_execute,
     test_modal_nothing_to_lay_out_cancels_and_restores,
     test_modal_hud_and_help_list_every_key,
-    test_active_keeps_the_active_face_and_continues_from_it,
-    test_active_gives_every_piece_one_scale_and_turn_at_its_old_centre,
-    test_active_without_an_active_face_falls_back_to_in_place,
-    test_modal_mode_cycles_and_active_anchors_to_the_original_uvs,
+    test_modal_old_letters_are_free,
+    test_doubled_vertices_are_reported,
+    test_merge_doubles_merges_exactly_the_double,
+    test_modal_merge_doubles,
+    test_operator_defaults,
+    test_default_active_fit_matches_the_width_only_and_leaves_a_clean_mesh_alone,
+    test_default_offset_runs_along_the_strip_in_both_orientations,
+    test_true_shape_follows_a_tapering_strip,
+    test_active_fits_the_other_strip_onto_the_reference,
+    test_active_follows_the_orientation,
+    test_active_puts_the_other_pieces_of_a_torn_strip_on_the_active_piece,
+    test_active_without_an_active_face_lays_out_in_place_and_says_so,
+    test_random_offset_moves_the_other_strip_along_u_only,
+    test_modal_fit_to_active_and_random_offset_keys,
 ]
 
 

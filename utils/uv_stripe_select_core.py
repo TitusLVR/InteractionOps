@@ -23,6 +23,9 @@ must be one of three shapes (``strip_from_faces``), tried in this order:
   face only are the corners; the pair of opposite sides with the larger summed
   length are the rows, the other two the ends.
 
+Points closer than ``uv_stripe_core.WELD`` of the strip's size (an unmerged double)
+count as one point wherever a direction or an angle is measured: end caps, bends.
+
 A chain's shared edges are its rungs. ``bend_cut_rungs`` picks the rungs where a
 built strip turns within its own surface, and ``slice_strip`` tears a built strip
 at given rungs by slicing its rows, so the pieces need no rebuilding and may be of
@@ -44,7 +47,9 @@ core turns the strip so that they stay counter-clockwise in UV.
 import math
 from collections import Counter, defaultdict
 
-from .uv_stripe_core import Strip, Vec3, _angle, ascending_rungs, strip_length, stripe_uvs
+from .uv_stripe_core import (
+    WELD, Strip, Vec3, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
+)
 
 TOL = 1e-9
 CAP_ANGLE = math.radians(15.0)
@@ -251,7 +256,7 @@ def _shared_edge(faces, a: int, b: int) -> tuple[int, int]:
     return e
 
 
-def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ...]) -> tuple[int, int]:
+def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ...], tol: float) -> tuple[int, int]:
     """Loop positions of the ends of an end face's cap, in loop order: one edge, a run, or a vertex (twice).
 
     ``owner[i]`` is the face of the loop edge from position i to i + 1. The end face's
@@ -260,7 +265,9 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     when both are below ``CORNER_ANGLE``. Otherwise an odd run's cap is its middle edge,
     and an even run's cap is the middle edge at the run's middle-adjacent vertex with
     the smaller boundary angle (the sharper turn), when the two angles differ by more
-    than ``CAP_ANGLE``; else it is the middle vertex.
+    than ``CAP_ANGLE``; else it is the middle vertex. Angles are taken with points
+    closer than ``tol`` as one (``uv_stripe_core.welded_angle``), and two inner vertices
+    that are one point count once.
     """
     n = len(loop)
     starts = [i for i in range(n) if owner[i] == fid and owner[i - 1] != fid]
@@ -273,12 +280,18 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     if len(face) > 4 and k >= 3:
         m = len(face)
 
-        def corner(v: int) -> float:
-            i = face.index(v)
-            return _angle(verts[face[i - 1]], verts[v], verts[face[(i + 1) % m]])
+        ring = list(face)
 
-        inner = sorted(range(1, k), key=lambda t: (corner(loop[(s + t) % n]), t))[:2]
-        if all(corner(loop[(s + t) % n]) < CORNER_ANGLE for t in inner):
+        def corner(t: int) -> float:
+            return welded_angle(verts, ring, ring.index(loop[(s + t) % n]), tol)
+
+        ranked = sorted(range(1, k), key=lambda t: (corner(t), t))
+        inner = ranked[:1]
+        for t in ranked[1:]:
+            if math.dist(verts[loop[(s + t) % n]], verts[loop[(s + inner[0]) % n]]) > tol:
+                inner.append(t)
+                break
+        if len(inner) == 2 and m > 4 and all(corner(t) < CORNER_ANGLE for t in inner):
             t0, t1 = sorted(inner)
             return (s + t0) % n, (s + t1) % n
     if k % 2:
@@ -286,7 +299,7 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     mid = s + k // 2
 
     def turn(q: int) -> float:
-        return _angle(verts[loop[(q - 1) % n]], verts[loop[q % n]], verts[loop[(q + 1) % n]])
+        return welded_angle(verts, loop, q % n, tol)
 
     before, after = turn(mid - 1), turn(mid + 1)
     if abs(before - after) <= CAP_ANGLE:
@@ -311,8 +324,9 @@ def _open_chain(verts, faces, edge_faces, nbrs, loop, near_ids=None) -> Strip:
     order = _chain_order(nbrs, ends[0])
     n = len(loop)
     owner = [edge_faces[_edge(loop[i], loop[(i + 1) % n])][0] for i in range(n)]
-    a0, a1 = _cap(verts, loop, owner, order[0], faces[order[0]])
-    b0, b1 = _cap(verts, loop, owner, order[-1], faces[order[-1]])
+    tol = island_tolerance(verts, faces)       # the island's median edge stands in for its height
+    a0, a1 = _cap(verts, loop, owner, order[0], faces[order[0]], tol)
+    b0, b1 = _cap(verts, loop, owner, order[-1], faces[order[-1]], tol)
     near = _walk(loop, a1, b0)
     far = _walk(loop, b1, a0)[::-1]
     sides = (_walk(loop, a0, a1)[1:-1][::-1], _walk(loop, b0, b1)[1:-1]) if a0 != a1 or b0 != b1 else ([], [])
@@ -506,14 +520,39 @@ def _closed_chain(verts, faces, edge_faces, nbrs, loops, seam_edge=None, near_id
     return strip
 
 
-def _deficits(strip: Strip) -> dict[int, float]:
-    """Each vertex's sum of the strip faces' corner angles at it, minus pi."""
+def _weld_points(strip: Strip, tol: float) -> dict[int, int]:
+    """Each vertex's point: the lowest id among the vertices joined to it by face edges shorter than ``tol``."""
+    parent = {v: v for face in strip.faces.values() for v in face}
+
+    def root(v: int) -> int:
+        while parent[v] != v:
+            parent[v] = parent[parent[v]]
+            v = parent[v]
+        return v
+
+    for face in strip.faces.values():
+        for a, b in _face_edges(face):
+            if math.dist(strip.verts[a], strip.verts[b]) <= tol:
+                ra, rb = root(a), root(b)
+                parent[max(ra, rb)] = min(ra, rb)
+    return {v: root(v) for v in parent}
+
+
+def _deficits(strip: Strip, point: dict[int, int], tol: float) -> dict[int, float]:
+    """Each welded point's sum of the strip faces' corner angles at it, minus pi.
+
+    A face that runs through a point on several of its vertices (an unmerged double)
+    gives it one corner, taken with the double as one point (``welded_angle``).
+    """
     sums: dict[int, float] = defaultdict(float)
     for face in strip.faces.values():
-        n = len(face)
-        for k, v in enumerate(face):
-            sums[v] += _angle(strip.verts[face[k - 1]], strip.verts[v], strip.verts[face[(k + 1) % n]])
-    return {v: a - math.pi for v, a in sums.items()}
+        ring = list(face)
+        n = len(ring)
+        for k, v in enumerate(ring):
+            if n > 1 and point[ring[k - 1]] == point[v] and any(point[w] != point[v] for w in ring):
+                continue                                  # the point's corner is counted at its first vertex
+            sums[point[v]] += welded_angle(strip.verts, ring, k, tol)
+    return {p: a - math.pi for p, a in sums.items()}
 
 
 def _row_cycle(row: list[int]) -> int:
@@ -527,7 +566,9 @@ def bend_cut_rungs(strip: Strip, angle: float) -> list[int]:
     The turn is measured in the surface: a rail vertex's deficit is the sum of the
     strip faces' corner angles at it minus pi, so a fold across the cross edges (a
     strip wrapped round a cylinder) turns 0 and a strip bending in its own plane
-    turns by its bend. Walking the rungs in order, each end not yet counted adds
+    turns by its bend. Points closer than ``weld_tolerance`` are one point, so an
+    unmerged double turns as the one vertex it stands for. Walking the rungs in order,
+    each end not yet counted adds
     (far deficit - near deficit) / 2 (an open strip's end corners never count). A rung
     that advances both rows over the last such rung, an open strip's start being the
     first (a post: a cross edge, not a fan or a triangulation's diagonal), is cut
@@ -536,20 +577,26 @@ def bend_cut_rungs(strip: Strip, angle: float) -> list[int]:
     """
     if not strip.rungs:
         return []
-    deficit = _deficits(strip)
+    tol = weld_tolerance(strip)
+    point = _weld_points(strip, tol)
+    deficit = _deficits(strip, point, tol)
     near, far = strip.near, strip.far
     # an open strip's row ends are its end corners, not bends; its start is the first post
-    counted: set[int] = set() if strip.closed else {near[0], near[-1], far[0], far[-1]}
+    counted: set[int] = set() if strip.closed else {point.get(v, v) for v in (near[0], near[-1], far[0], far[-1])}
     turn = 0.0
     last = (-1, -1) if strip.closed else (0, 0)
     cuts = []
     for k, (i, j) in enumerate(strip.rungs):
         a, b = near[i % len(near)], far[j % len(far)]
         for v, sign in ((b, 1.0), (a, -1.0)):
-            if v not in counted:
-                counted.add(v)
-                turn += sign * deficit.get(v, 0.0) / 2.0
-        if i > last[0] and j > last[1]:
+            p = point.get(v, v)
+            if p not in counted:
+                counted.add(p)
+                turn += sign * deficit.get(p, 0.0) / 2.0
+        moved = last[0] < 0 or (
+            math.dist(strip.verts[a], strip.verts[near[last[0] % len(near)]]) > tol
+            and math.dist(strip.verts[b], strip.verts[far[last[1] % len(far)]]) > tol)
+        if i > last[0] and j > last[1] and moved:
             last = (i, j)
             if abs(turn) > angle:
                 cuts.append(k)
@@ -589,8 +636,8 @@ def slice_strip(strip: Strip, cuts: list[int]) -> list[Strip]:
 
     The rows are sliced between consecutive cut rungs; each piece is an open strip with
     those slices as its rows, the rungs between them re-indexed, the same orientation
-    and ``layout``, and the strip's height ("TRUE": its own area over its length, the
-    true width). Every face goes to the piece whose row slices hold all its row corners
+    and ``layout``, and the strip's height ("TRUE" / "SHAPE": its own area over its
+    length, the true width). Every face goes to the piece whose row slices hold all its row corners
     (faces joined by an edge that is no cut stay together). An open strip's end sides
     stay with its first and last piece. A closed strip with one cut is that strip cut
     open there (``Strip.seam``); with more, the pieces run between consecutive cuts,
@@ -679,7 +726,7 @@ def slice_strip(strip: Strip, cuts: list[int]) -> list[Strip]:
         piece = Strip(verts=strip.verts, faces=faces, near=piece_near, far=piece_far, rungs=piece_rungs,
                       closed=False, height=strip.height, sides=sides, corner_far=corner_far,
                       corner_near=corner_near, layout=strip.layout)
-        if strip.layout == "TRUE":
+        if strip.layout in ("TRUE", "SHAPE"):
             width = _mean_width(piece)
             if width > TOL:
                 piece.height = width
@@ -716,3 +763,28 @@ def split_strip(strip: Strip, angle: float, extra_cuts=()) -> tuple[list[Strip],
         return slice_strip(strip, sorted(cuts)), None
     except ValueError as exc:
         return [strip], str(exc)
+
+
+def island_tolerance(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]]) -> float:
+    """How close two points of an island are to count as one before it is built: ``WELD`` of its median edge."""
+    lengths = sorted(math.dist(verts[a], verts[b]) for face in faces.values() for a, b in _face_edges(face))
+    return max(WELD * lengths[len(lengths) // 2], TOL) if lengths else TOL
+
+
+def doubled_vertices(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]], tol: float) -> dict[int, int]:
+    """The unmerged doubles of an island: each vertex joined to a lower-id one by face edges no longer than
+    ``tol``, mapped to that point's lowest id (the vertex it would merge into)."""
+    parent = {v: v for face in faces.values() for v in face}
+
+    def root(v: int) -> int:
+        while parent[v] != v:
+            parent[v] = parent[parent[v]]
+            v = parent[v]
+        return v
+
+    for face in faces.values():
+        for a, b in _face_edges(face):
+            if math.dist(verts[a], verts[b]) <= tol:
+                ra, rb = root(a), root(b)
+                parent[max(ra, rb)] = min(ra, rb)
+    return {v: root(v) for v in parent if root(v) != v}

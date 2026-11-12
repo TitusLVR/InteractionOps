@@ -172,6 +172,33 @@ def _uv_bbox(obj):
     return (min(us), max(us)), (min(vs), max(vs))
 
 
+# --- UV Stripe's settings, which Smart Inset and Smart Edge Slide follow -----------------
+
+# The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
+# before every test, and a test changes what it needs with _stripe_settings.
+STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL", "split_at_bends": True,
+                   "split_angle": math.radians(15), "mark_seams": True, "offset_axis": "NONE",
+                   "split_at_seams": False, "merge_doubles": False, "active_fit": "BOTH"}
+
+
+def _stripe_settings(**values):
+    """Set UV Stripe's last-used properties, the settings Smart Inset and Smart Edge Slide read."""
+    props = bpy.context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
+    for name, value in values.items():
+        setattr(props, name, value)
+
+
+def _take_stripe_settings(props):
+    """Move ``uv_stripe_<name>`` keys (the operators' former properties) out of ``props`` into UV Stripe's settings."""
+    moved = {k[len("uv_stripe_"):]: props.pop(k) for k in list(props) if k.startswith("uv_stripe_")}
+    _stripe_settings(**moved)
+    return props
+
+
+def _inset(**props):
+    return bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', **_take_stripe_settings(props))
+
+
 # --- modal stand-ins ---------------------------------------------------------------
 
 class _OperatorStandIn:
@@ -180,9 +207,8 @@ class _OperatorStandIn:
     def __init__(self, **props):
         self.thickness, self.depth, self.mode = 0.05, 0.0, "REGION"
         self.use_collapse, self.use_boundary = True, True
-        self.use_uv_stripe, self.uv_stripe_mode = False, "FIT"
-        self.uv_stripe_layout, self.uv_stripe_orientation, self.uv_stripe_mark_seams = "TRUE", "HORIZONTAL", True
-        self.uv_stripe_split_at_bends, self.uv_stripe_split_angle = True, math.radians(15)
+        self.use_uv_stripe = False
+        props = _take_stripe_settings(props)
         self.__dict__.update(props)
         self.reports = []
 
@@ -207,7 +233,7 @@ class _KeyPress:
 def test_inset_square_fit():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     us, vs = _wall_uv_ranges(obj)
     assert us == (0.0, 1.0) and vs == (0.0, 0.027778)
     assert _seam_vertex_has_u0_and_u1(obj)
@@ -216,14 +242,14 @@ def test_inset_square_fit():
 def test_outset_square_fit():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=-0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=-0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj)[1] == (0.0, 0.022727)
 
 
 def test_collapsed_rectangle_still_a_rectangle():
     obj = _plane_rect(1.0, 4.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=99.0, use_collapse=True, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=99.0, use_collapse=True, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.0625))
 
 
@@ -231,14 +257,14 @@ def test_uv_stripe_off_keeps_old_behaviour():
     obj = _plane(2.0, uv=True)
     _select_all_faces(obj)
     before = _uv_bbox(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2)
+    _inset(thickness=0.2)
     assert _uv_bbox(obj) == before
 
 
 def test_depth_strip_height_is_the_slanted_wall():   # height hypot(0.2, 0.2) over length 7.2
     obj = _plane(2.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, depth=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.2, depth=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.039284))
 
 
@@ -247,7 +273,7 @@ def test_hole_gives_two_stacked_strips():
     # region's first loop, so at the bottom. Hole strip: length 4.4, stacked 0.01 above.
     obj = _grid(3, 3, skip={(1, 1)})
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.1, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.1, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj, inside=(0.85, 2.15)) == ((0.0, 1.0), (0.018621, 0.041348))
     outer = [uv for co, uv in _wall_corners(obj) if not all(0.85 <= c <= 2.15 for c in co[:2])]
     us, vs = [u for u, _v in outer], [v for _u, v in outer]
@@ -273,7 +299,7 @@ def test_frozen_loop_without_walls_leaves_the_others():
 def test_individual_mode_stacks_one_strip_per_face():   # each face: length 3.6, height 0.1
     obj = _grid(2, 1)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.1, mode="INDIVIDUAL", use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.1, mode="INDIVIDUAL", use_uv_stripe=True, uv_stripe_split_at_bends=False)
     vs = sorted({uv[1] for _co, uv in _wall_corners(obj)})
     assert vs == [0.0, 0.027778, 0.037778, 0.065556]
     assert _wall_uv_ranges(obj)[0] == (0.0, 1.0)
@@ -284,7 +310,7 @@ def test_in_place_keeps_the_old_uvs_and_density():
     # The 7.2 x 0.2 strip is 3.6 x 0.1 in UV.
     obj = _plane(2.0, uv=True)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_mode="IN_PLACE", uv_stripe_split_at_bends=False)
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="IN_PLACE", uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj) == ((-1.3, 2.3), (0.45, 0.55))
 
 
@@ -331,13 +357,13 @@ def test_straighten_stands_the_walls_cross_edges_vertical():
     # at different fractions of their lengths, so even rows lean; Rectangles stands every corner's wall edge vertical.
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_layout="EVEN",
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_layout="EVEN",
                                   uv_stripe_split_at_bends=False)
     near, far = _corner_us(obj, 4.0, 1.0)
     assert near != far
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_layout="STRAIGHT",
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_layout="STRAIGHT",
                                   uv_stripe_split_at_bends=False)
     near, far = _corner_us(obj, 4.0, 1.0)
     assert near == far and len(near) == 5, (near, far)      # 4 corners, the seam corner at 0 and 1
@@ -350,7 +376,7 @@ def test_defaults_give_four_stretch_free_pieces():
     # length over 4 and every corner keeps its angle; the border lies on each piece's v = 0.
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True)
+    _inset(thickness=0.2, use_uv_stripe=True)
     metrics = _wall_metrics(obj)
     assert len(metrics) == 4
     for ratios, errors in metrics:
@@ -369,12 +395,12 @@ def test_defaults_give_four_stretch_free_pieces():
 def test_mark_seams_match_the_walls():
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_mark_seams=False)
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_mark_seams=False)
     assert not any(e.seam for e in bmesh.from_edit_mesh(obj.data).edges)
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True,
-                                  uv_stripe_split_at_bends=False)
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False,
+           uv_stripe_mark_seams=True)            # the settings persist: set back what the first run turned off
     bm = bmesh.from_edit_mesh(obj.data)
     walls = set(_wall_faces(bm, obj.name))
     outline = {e for f in walls for e in f.edges if sum(g in walls for g in e.link_faces) == 1}
@@ -410,9 +436,63 @@ def test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole():
 def test_vertical_orientation():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False,
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False,
                                   uv_stripe_orientation="VERTICAL")
     assert _wall_uv_ranges(obj) == ((0.0, 0.027778), (0.0, 1.0))
+
+
+def test_never_run_uv_stripe_gives_its_defaults():
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
+    expected = StripeSettings(**{name: rna[name].default for name in StripeSettings.__dataclass_fields__})
+    assert FRESH_SETTINGS == expected, (FRESH_SETTINGS, expected)
+
+
+def test_uv_stripe_settings_drive_the_inset():
+    # Layout and split angle come from UV Stripe: Even Rows whole gives the even ring; True Shape at 15 degrees
+    # tears the four corners; Mark Seams off leaves the seams alone.
+    obj = _plane_rect(4.0, 1.0)
+    _select_all_faces(obj)
+    _stripe_settings(layout="EVEN", split_at_bends=False)
+    _inset(thickness=0.2, use_uv_stripe=True)
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.021739))
+    obj = _plane_rect(4.0, 1.0)
+    _select_all_faces(obj)
+    _stripe_settings(layout="SHAPE", split_at_bends=True, split_angle=math.radians(15))
+    _inset(thickness=0.2, use_uv_stripe=True)
+    for ratios, errors in _wall_metrics(obj):
+        assert all(abs(r - 0.25) < 1e-6 for r in ratios) and max(errors) < 1e-4, (ratios, errors)
+    obj = _plane_rect(4.0, 1.0)
+    _select_all_faces(obj)
+    _stripe_settings(split_angle=math.radians(179))           # no corner turns that much: one ring
+    _inset(thickness=0.2, use_uv_stripe=True)
+    assert _seam_vertex_has_u0_and_u1(obj)
+    obj = _plane_rect(4.0, 1.0)
+    _select_all_faces(obj)
+    _stripe_settings(mark_seams=False)
+    _inset(thickness=0.2, use_uv_stripe=True)
+    assert not any(e.seam for e in bmesh.from_edit_mesh(obj.data).edges)
+
+
+def test_merge_doubles_never_touches_the_inset():
+    counts = []
+    for merge in (False, True):
+        obj = _plane_rect(4.0, 1.0)
+        _select_all_faces(obj)
+        _stripe_settings(merge_doubles=merge)
+        _inset(thickness=0.2, use_uv_stripe=True)
+        bm = bmesh.from_edit_mesh(obj.data)
+        counts.append((len(bm.verts), len(bm.edges), len(bm.faces)))
+    assert counts[0] == counts[1]
+
+
+def test_active_mode_lays_the_walls_out_in_place_without_a_report():
+    obj = _plane(2.0, uv=True)
+    _select_all_faces(obj)
+    op = _OperatorStandIn(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="ACTIVE", uv_stripe_split_at_bends=False)
+    assert op._run(bpy.context) == {'FINISHED'}
+    assert op.reports == [], op.reports
+    assert _wall_uv_ranges(obj) == ((-1.3, 2.3), (0.45, 0.55))          # the In Place result
 
 
 def test_modal_hud_and_help_list_uv_stripe():
@@ -454,16 +534,27 @@ TESTS = [
     test_mark_seams_match_the_walls,
     test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole,
     test_vertical_orientation,
+    test_never_run_uv_stripe_gives_its_defaults,
+    test_uv_stripe_settings_drive_the_inset,
+    test_merge_doubles_never_touches_the_inset,
+    test_active_mode_lays_the_walls_out_in_place_without_a_report,
     test_modal_hud_and_help_list_uv_stripe,
     test_modal_u_toggles_uv_stripe_and_cancel_restores,
 ]
 
 
+FRESH_SETTINGS = None
+
+
 def main():
+    global FRESH_SETTINGS
     enable_addon()
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    FRESH_SETTINGS = StripeSettings.from_last(bpy.context)       # UV Stripe has not run in this session
     failed = 0
     for test in TESTS:
         try:
+            _stripe_settings(**STRIPE_BASELINE)
             test()
             print("PASS", test.__name__)
         except Exception:

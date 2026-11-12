@@ -44,3 +44,21 @@ def exact_ngon_verts():
           140: at(left[1], left[2], 0.6), 141: at(left[1], left[2], 0.86), 80: at(right[1], right[2], 0.5),
           142: at(left[2], left[3], 0.6)}
     return {v: (x, y, 4.3) for v, (x, y) in xy.items()}
+
+
+# A flat strip of five faces whose far rail carries an unmerged double (28 and 21, 0.0002 apart, the strip about
+# 0.22 wide), turning about 30 degrees at the double and again at 92 / 24. Coordinates rounded to 1e-4.
+DOUBLE_VERTS = {
+    167: (1.5193, 1.4862), 168: (1.7251, 1.4862), 90: (1.7145, 3.3180), 26: (1.5191, 3.3177),
+    89: (1.7123, 4.8160), 28: (1.5191, 4.9276), 21: (1.5189, 4.9277), 92: (1.9831, 5.2904),
+    24: (1.7923, 5.4007), 88: (2.1399, 5.3809), 91: (3.2097, 5.9984), 86: (3.1118, 6.1623),
+    108: (4.2526, 6.6003), 107: (4.0757, 6.7186),
+}
+DOUBLE_VERTS = {v: (x, y, 6.217) for v, (x, y) in DOUBLE_VERTS.items()}
+DOUBLE_FACES = {
+    67: (167, 168, 90, 26),
+    144: (26, 90, 89, 28),
+    65: (21, 28, 89, 92, 24),
+    64: (24, 92, 88, 91, 86),
+    77: (86, 91, 108, 107),
+}
