@@ -257,7 +257,8 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
         layout = self.layout
         layout.ui_units_x = 27.5
-        row = layout.row(align=True)
+        main_col = layout.column()
+        row = main_col.row(align=True)
         try:
             if context.area.type == "VIEW_3D":
                 row.prop(view, "lock_cursor", text="", icon="ORIENTATION_CURSOR")
@@ -317,9 +318,9 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                     for angle in (30, 60, 90, 180):
                         row.operator("iops.object_auto_smooth", text=str(angle)).angle = angle
                     row.scale_x = 1
-                col = layout.column(align=True)
+                col = main_col.column(align=True)
                 col.separator()
-                row = layout.row(align=True)
+                row = main_col.row(align=True)
                 grid_flow = row.grid_flow(
                     row_major=False,
                     columns=4,
@@ -346,32 +347,36 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
                 col = grid_flow.column(align=True)
                 # col.label(text="PivotPoint:")
                 col.alignment = "CENTER"
-                col.prop(tool_settings, "transform_pivot_point", expand=True)
-                col.separator()
                 if bpy.app.version > (2, 80, 0):
-                    row = col.row(align=True)
+                    row = col.row(align=False)
+                    row.alignment = "CENTER"
                     # row.prop(tool_settings, "use_transform_data_origin", text="", icon='OBJECT_ORIGIN')
                     o_state = True if tool_settings.use_transform_data_origin else False
                     row.operator(
                         "iops.edit_origin", text="", icon="OBJECT_ORIGIN", depress=o_state
                     )
-                    row.separator()
                     row.prop(
                         tool_settings,
                         "use_transform_pivot_point_align",
                         text="",
                         icon="CENTER_ONLY",
                     )
-                    row.separator()
                     row.prop(
                         tool_settings,
                         "use_transform_skip_children",
                         text="",
                         icon="TRANSFORM_ORIGINS",
                     )
+                    col.separator()
+                    col.prop(tool_settings, "transform_pivot_point", expand=True)
+                    row = col.row(align=True)
+                    row.alignment = "LEFT"
                     row.separator()
-                    row.alignment="LEFT"
+                    row.separator()
+                    row.separator()
                 else:
+                    col.prop(tool_settings, "transform_pivot_point", expand=True)
+                    col.separator()
                     col.prop(tool_settings, "use_transform_pivot_point_align", text="")
                     col.alignment = "CENTER"
                 # Column 3
@@ -440,8 +445,10 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
                 # Column 4
                 col = grid_flow.column(align=True)
-                col.label(text=" ")
                 row = col.row(align=True)
+                row.alignment = "CENTER"
+                row.scale_x = 1.0
+                row.scale_y = 1.01
                 col = row.column(align=True)
                 col.operator("iops.set_snap_combo", text="", icon="EVENT_A").idx = 1
                 col.operator("iops.set_snap_combo", text="", icon="EVENT_B").idx = 2
