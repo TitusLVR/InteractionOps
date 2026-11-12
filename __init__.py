@@ -227,6 +227,8 @@ from .ui.iops_pie_snap_combos import (
 
 from .ui.iops_pie_menu import IOPS_MT_Pie_Menu, IOPS_OT_Call_Pie_Menu
 from .ui.iops_pie_node import IOPS_MT_Pie_Node, IOPS_OT_Call_Pie_Node
+from .ui.iops_pie_uv_align import IOPS_MT_Pie_UV_Align, IOPS_OT_UV_Call_Pie_Align
+from .operators.uv_align_contextual import IOPS_OT_UV_Align_Contextual
 from .operators.open_asset_in_current_blender import IOPS_OT_OpenAssetInCurrentBlender
 
 # IOPS Library (ported asset-library workflow)
@@ -564,6 +566,9 @@ classes = (
     IOPS_OT_Call_Pie_Menu,
     IOPS_MT_Pie_Node,
     IOPS_OT_Call_Pie_Node,
+    IOPS_MT_Pie_UV_Align,
+    IOPS_OT_UV_Call_Pie_Align,
+    IOPS_OT_UV_Align_Contextual,
     IOPS_MT_Pie_Edit,
     IOPS_MT_Pie_Edit_Modes,
     IOPS_OT_Set_Empty_Size,

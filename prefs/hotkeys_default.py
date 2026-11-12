@@ -64,6 +64,7 @@ keys_default = [
     ("iops.call_pie_split", "S", "PRESS", True, True, True, False),
     ("iops.call_pie_assets", "A", "PRESS", True, True, True, False),
     ("iops.call_pie_node", "Q", "PRESS", True, True, True, False),
+    ("iops.uv_call_pie_align", "A", "PRESS", False, True, False, False),
 
     # IOPS UI Panels
     ("iops.call_panel_tps", "BUTTON4MOUSE", "PRESS", False, False, True, False),
