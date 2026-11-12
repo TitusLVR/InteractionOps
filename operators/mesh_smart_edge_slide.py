@@ -237,11 +237,41 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
     )
     uv_stripe_mode: EnumProperty(
         name="UV Stripe Mode",
-        items=[
-            ("FIT", "Fit 0–1", "Stretch the strip across U 0–1, V in proportion"),
-            ("IN_PLACE", "In Place", "Keep the old UV location and the neighbours' texel density"),
-        ],
+        items=uv_stripe_bridge.MODE_ITEMS,
         default="FIT",
+    )
+    uv_stripe_layout: EnumProperty(
+        name="Layout",
+        description="How the strip's rows are laid out along its length",
+        items=uv_stripe_bridge.LAYOUT_ITEMS,
+        default="TRUE",
+    )
+    uv_stripe_orientation: EnumProperty(
+        name="Orientation",
+        description="Whether the strip runs along U or along V",
+        items=uv_stripe_bridge.ORIENTATION_ITEMS,
+        default="HORIZONTAL",
+    )
+    uv_stripe_split_at_bends: BoolProperty(
+        name="Split at Bends",
+        description="Tear the strip at cross edges where it bends within its own surface by more than the bend angle",
+        default=True,
+    )
+    uv_stripe_split_angle: FloatProperty(
+        name="Bend Angle",
+        description="Turn of the strip, summed since the last tear, beyond which it is torn",
+        subtype="ANGLE",
+        default=math.radians(15.0),
+        min=math.radians(1.0),
+        max=math.pi,
+    )
+    uv_stripe_mark_seams: BoolProperty(
+        name="Mark Seams",
+        description=(
+            "Make the seams match the laid-out UV pieces: mark every piece's outline and clear the seams "
+            "inside a piece"
+        ),
+        default=True,
     )
     rail_bend: FloatProperty(
         name="Rail Bend",
@@ -332,8 +362,15 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         row = layout.row()
         row.active = self.use_destructive  # greyed out: only the destructive mode uses it
         row.prop(self, "tolerance")
-        for name in ("use_uv_stripe", "uv_stripe_mode"):
-            layout.prop(self, name)
+        layout.prop(self, "use_uv_stripe")
+        col = layout.column()
+        col.active = self.use_uv_stripe  # greyed out: only UV Stripe uses them
+        for name in ("uv_stripe_mode", "uv_stripe_layout", "uv_stripe_orientation", "uv_stripe_split_at_bends"):
+            col.prop(self, name)
+        row = col.row()
+        row.active = self.use_uv_stripe and self.uv_stripe_split_at_bends
+        row.prop(self, "uv_stripe_split_angle")
+        col.prop(self, "uv_stripe_mark_seams")
         header, body = layout.panel("IOPS_PT_smart_edge_slide_angles", default_closed=True)
         header.label(text="Angles")
         if body is not None:
@@ -1611,35 +1648,51 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         Each strip's old UV placement is read from its own faces before any UV is
         written, while they still hold the UVs the cut interpolated: In Place puts
         every strip back where its own faces were. A strip that cannot be laid out
-        is skipped with a warning.
+        is skipped with a warning. The UV Stripe options (layout, orientation,
+        split at bends, mark seams) go through ``uv_stripe_bridge.prepare_strip``,
+        ``apply_stripes`` and ``match_piece_seams``, as in UV Stripe and Smart Inset; the pieces one
+        strip is split into share its Fit scale.
         """
         bm.verts.index_update()  # stripe_for's ids
         bm.faces.index_update()
         # In the destructive mode an unexpected error skips the strip (or, writing them, the UV Stripe) with a
         # warning naming its type, as a refusal does: it never escapes with the cut made and its UVs half written.
         unexpected = Exception if self.use_destructive else ()
-        strips, faces, contexts = [], {}, []
+        split = self.uv_stripe_split_angle if self.uv_stripe_split_at_bends else None
+        strips, faces, contexts, groups, outlines = [], {}, [], [], []
+        group = 0
         for build, applied, width in stripes:
             for piece in range(len(applied.pieces)):
                 try:
                     strip, strip_faces = bridge.stripe_for(build, applied, width, piece)
+                    pieces, reason = uv_stripe_bridge.prepare_strip(strip, strip_faces, self.uv_stripe_layout,
+                                                                    split)
                 except ValueError as exc:
                     self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe skipped ({exc})")
                     continue
                 except unexpected as exc:
                     self._stripe_error(exc)
                     continue
+                if reason:
+                    self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe not split ({reason})")
                 try:
-                    context = uv_stripe_bridge.uv_context(bm, list(strip_faces.values()))
+                    contexts_here = [uv_stripe_bridge.uv_context(bm, list(f.values())) for _s, f in pieces]
                 except unexpected as exc:
                     self._stripe_error(exc)
                     continue
-                strips.append(strip)
-                faces.update(strip_faces)
-                contexts.append(context)
+                for (strip, strip_faces), context in zip(pieces, contexts_here):   # one Fit scale per strip
+                    strips.append(strip)
+                    faces.update(strip_faces)
+                    contexts.append(context)
+                    groups.append(group)
+                    outlines.append((strip, strip_faces))
+                group += 1
         if strips:
             try:
-                uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts)
+                uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts, fit_groups=groups,
+                                               vertical=self.uv_stripe_orientation == "VERTICAL")
+                if self.uv_stripe_mark_seams:
+                    uv_stripe_bridge.match_piece_seams(outlines)
             except unexpected as exc:
                 self._stripe_error(exc)
 
