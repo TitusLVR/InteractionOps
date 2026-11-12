@@ -19,11 +19,15 @@ screen space (same pick as cursor_bisect) and it is re-picked live on
 mouse move, so aiming is the whole interaction. Typed digits, Alt+Wheel
 (±5°) and A (flush to the face under the cursor) set the angle;
 Ctrl+Wheel sets the segment count; D flips the sign. The preview is a
-draw-only ghost — the mesh does not move until confirm (LMB / Enter /
-Space). Angle and segments persist in Scene.IOPS.
+draw-only ghost — the mesh does not move until the hinge is applied.
+Angle and segments persist in Scene.IOPS.
 
-Confirm bakes and STAYS in the modal on the new cap, so hinges chain
-(Esc/RMB ends the run). E extrudes the current selection straight along
+Aiming is two clicks: the first LMB locks the axis edge under the mouse
+(so it stops re-picking while you set the angle); a second LMB — or
+Space / Enter — bakes the spin and STAYS in the modal on the new cap,
+back in live axis-picking so hinges chain. Esc/RMB is a two-level
+cancel: it releases the axis lock first, then ends the run. E extrudes
+the current selection straight along
 its normal with Shear's arrow handle; confirm resyncs the hinge onto the
 extruded geometry.
 """
@@ -159,7 +163,8 @@ mouse, baking the sweep as segments"""
     bl_label = "Hinge"
     bl_description = (
         "Hinge the selection around the edge under the mouse. Type the "
-        "angle, Ctrl+Wheel segments, A flush to a face, LMB/Enter confirm"
+        "angle, Ctrl+Wheel segments, A flush to a face, LMB to lock the "
+        "axis then LMB/Space to apply"
     )
     bl_options = {"REGISTER"}
     is_bindable = True
@@ -208,9 +213,9 @@ mouse, baking the sweep as segments"""
         # follows it live; the axis edge stops re-picking meanwhile.
         self._flush_active = False
         self._flush_face = None
-        # Q: lock the picked axis edge so mouse moves stop re-picking
-        # (the lock survives bakes; the axis is re-synced once on the
-        # new cap and then stays put again).
+        # Lock the picked axis edge so mouse moves stop re-picking. Set
+        # by the first LMB click (and toggled by Q); cleared after each
+        # bake so the new cap starts back in live axis-picking.
         self._axis_locked = False
         self._hud = HUDOverlay("mesh_hinge")
         self._hud.title = "Hinge"
@@ -229,8 +234,9 @@ mouse, baking the sweep as segments"""
             HUDItem("Move hinge line (drag handle)", "LMB drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Reset hinge line offset", "X",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bake + continue", "LMB / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Finish",          "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Lock axis under mouse", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Apply hinge, stay in modal", "LMB / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel lock / Finish", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         self._help.bind_region(context.region)
@@ -660,7 +666,7 @@ mouse, baking the sweep as segments"""
             f"[S] bbox space: {BBOX_SPACE_LABELS[self._bbox_space]} | "
             "[0-9 . -] type | [Alt+Wheel] ±5° | [Ctrl+Wheel] steps | "
             "[D] flip | [A] flush to face | [E] extrude | "
-            "[LMB/Enter] bake (stay) | [Esc/RMB] finish"
+            "[LMB] lock axis | [LMB/Space] apply (stay) | [Esc/RMB] cancel"
         )
 
     def modal(self, context, event):
@@ -788,8 +794,21 @@ mouse, baking the sweep as segments"""
                 if not self.records or not self._enter_extrude(event):
                     self.records = []
                     self.report({"INFO"}, "hinge: nothing to extrude")
-            elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
-                return self._confirm(context)
+            elif event.type == "LEFTMOUSE":
+                if self._axis_locked:
+                    # Second click: bake the locked hinge (stays in modal).
+                    return self._confirm(context)
+                # First click: lock the axis edge under the cursor so it
+                # stops re-picking while the angle is set.
+                self._mouse_xy = (event.mouse_region_x, event.mouse_region_y)
+                edge = self._pick_edge(context)
+                if edge is not None:
+                    self._set_axis(edge)
+                self._axis_locked = True
+            elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
+                if self._axis_locked:
+                    return self._confirm(context)
+                self.report({"INFO"}, "hinge: click an edge to lock the axis first")
             elif event.type in {"RIGHTMOUSE", "ESC"}:
                 if self._pivot_grab is not None:
                     # Cancel the handle drag only (offset restored).
@@ -799,6 +818,11 @@ mouse, baking the sweep as segments"""
                 elif self._flush_active:
                     # First Esc only leaves flush mode (angle kept).
                     self._flush_toggle(context)
+                elif self._axis_locked:
+                    # First Esc/RMB only releases the axis lock → back to
+                    # live picking; it does not end the run.
+                    self._axis_locked = False
+                    self._repick(context)
                 else:
                     self._finish(context)
                     return {"FINISHED"} if self._baked else {"CANCELLED"}
@@ -936,6 +960,9 @@ mouse, baking the sweep as segments"""
         if not self._sync_selection(context):
             self._finish(context)
             return {"FINISHED"}
+        # Back to live axis-picking on the new cap so the next edge can
+        # be aimed (the two-click lock is per-hinge, it does not persist).
+        self._axis_locked = False
         context.workspace.status_text_set(self._status_text())
         if context.area:
             context.area.tag_redraw()
