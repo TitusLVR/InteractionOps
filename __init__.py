@@ -409,6 +409,7 @@ from .operators.object_negative_scale_overlay import IOPS_OT_ObjectNegativeScale
 from .operators import mesh_attribute_editor as _attr_editor
 from .ui import iops_attribute_panel as _attr_panel
 from .operators.mesh_uv_shortest_mark import IOPS_OT_Mesh_UV_Shortest_Mark
+from .operators.mesh_uv_stripe import IOPS_OT_Mesh_UV_Stripe
 from .operators.open_asset_in_new_blender import IOPS_OT_OpenAssetInNewBlender
 from .operators.draw_theme_preview import (IOPS_OT_DrawThemePreview,
                                             IOPS_OT_StopThemePreview)
@@ -771,6 +772,7 @@ classes = (
     IOPS_OT_MeshNonPlanarOverlay,
     IOPS_OT_ObjectNegativeScaleOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
+    IOPS_OT_Mesh_UV_Stripe,
     # IOPS_OT_polygon_bevel,  # WIP
     IOPS_MaterialOverrideSettings,
     IOPS_OT_Material_Override_Clear_Rendering_Flag,
