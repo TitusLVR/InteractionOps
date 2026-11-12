@@ -152,6 +152,7 @@ nav:
           - UV Visual Cursor: operators/op_uv_visual_cursor.md
           - Non-Planar Overlay: operators/op_mesh_nonplanar_overlay.md
           - UV Shortest Mark: operators/op_mesh_uv_shortest_mark.md
+          - UV Stripe: operators/op_mesh_uv_stripe.md
           - Bevel Edge Data Fix: operators/op_bevel_edge_data_fix.md
           - Rename Active Group: operators/op_mesh_vertex_group_rename.md
       - Snap & Transform:
