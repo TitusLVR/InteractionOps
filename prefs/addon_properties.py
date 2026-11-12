@@ -12,7 +12,8 @@ from bpy.props import (
 )
 
 from ..utils.falloff_core import FALLOFF_TYPES, SHAPES
-from ..utils.cursor_bisect_core import DELIMIT_TYPES, DELIMIT_LABELS
+from ..utils.cursor_bisect_core import (DELIMIT_TYPES, DELIMIT_LABELS,
+                                        SNAP_SOURCES, SNAP_SOURCE_LABELS)
 
 def fuzzy_match(search_term, target):
     """
@@ -604,6 +605,11 @@ class IOPS_SceneProperties(PropertyGroup):
 
     # Cursor Bisect persistent properties
     cursor_bisect_snapping: BoolProperty(name="Snapping", default=True)
+    cursor_bisect_snap_source: EnumProperty(
+        name="Snap Source",
+        items=[(s, SNAP_SOURCE_LABELS[s], "") for s in SNAP_SOURCES],
+        default='EDGE',
+    )
     cursor_bisect_normal_axis: EnumProperty(
         name="Normal Axis",
         items=[('X', "X", ""), ('Y', "Y", ""), ('Z', "Z", "")],
