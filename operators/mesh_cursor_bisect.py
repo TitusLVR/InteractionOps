@@ -5,6 +5,10 @@ import bmesh
 import math
 from mathutils import Vector, Matrix
 import bpy_extras
+try:
+    import numpy as _np
+except ImportError:  # Blender bundles NumPy; fall back to pure Python without it
+    _np = None
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
@@ -12,7 +16,10 @@ from ..ui.draw.theme import get_theme
 from ..utils.picking import px_world_at, pull_toward_viewer
 from ..utils.cursor_bisect_core import (walk_island, normals_split, DELIMIT_LABELS,
                                         next_delimit_type, next_axis, axis_vector,
-                                        cut_set_for_axis, cached_island)
+                                        cut_set_for_axis, cached_island,
+                                        SNAP_SOURCE_LABELS, next_snap_source,
+                                        oriented_extents, bounds_layout,
+                                        bounds_split, AXES)
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
                       handle_hud_toggle, handle_help_toggle, capture_event)
@@ -178,6 +185,52 @@ def merge_cut_doubles(bm, cut_layer, dist, *, restrict):
         bmesh.ops.remove_doubles(bm, verts=verts, dist=dist)
 
 
+# --- Selection Bounds snap source (BMesh side) ----------------------------------
+
+def cut_set_world_points(bm, matrix_world, face_indices):
+    """World-space coordinates (plain 3-tuples) of the unique vertices of
+    the faces `face_indices` of `bm`. Out-of-range indices are skipped."""
+    bm.faces.ensure_lookup_table()
+    faces = bm.faces
+    n = len(faces)
+    verts = {v for i in face_indices if 0 <= i < n for v in faces[i].verts}
+    return [tuple(matrix_world @ v.co) for v in verts]
+
+
+def rotation_axes(rotation):
+    """The three world-space unit axes (columns) of a cut rotation
+    (Quaternion or 3x3 Matrix), as plain tuples."""
+    m = rotation.to_matrix() if hasattr(rotation, "to_matrix") else rotation
+    return tuple(tuple(m.col[i].normalized()) for i in range(3))
+
+
+def points_extents(points, axes):
+    """`oriented_extents` for the cached cut-set points. A NumPy array
+    (the operator's cache) is projected in one matrix product; any other
+    iterable goes through the pure-Python core function."""
+    if _np is not None and isinstance(points, _np.ndarray):
+        if points.size == 0:
+            return None
+        proj = points @ _np.asarray(axes, dtype=_np.float64).T
+        return (tuple(float(x) for x in proj.min(axis=0)),
+                tuple(float(x) for x in proj.max(axis=0)))
+    return oriented_extents(points, axes)
+
+
+def selection_bounds_layout(points, rotation, normal_axis, subdivisions,
+                            inset_distance, inset_on):
+    """Oriented box of `points` (world) in the frame of `rotation`, with its
+    divisions / inset points / cut positions along `normal_axis`; None when
+    there are no points. See utils.cursor_bisect_core.bounds_layout."""
+    axes = rotation_axes(rotation)
+    ext = points_extents(points, axes)
+    if ext is None:
+        return None
+    lo, hi = ext
+    return bounds_layout(lo, hi, axes, AXES.index(normal_axis), subdivisions,
+                         inset_distance, inset_on)
+
+
 # Set of (post_kind, handle) tuples for SpaceView3D draw handlers owned by
 # this operator. Survives addon reloads and orphaned exits so a fresh invoke
 # can clean up after dead instances.
@@ -205,7 +258,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_idname = "iops.mesh_cursor_bisect"
     is_bindable = True
     bl_label = "Cursor Bisect"
-    bl_description = "Bisect mesh. S-snap, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, X-toggle normal axis, W-world align, P-toggle preview mode, I-toggle distance info"
+    bl_description = "Bisect mesh. S-snap, Shift+S-snap source, D-hold points, F-fill cut, Z-deselect all, Ctrl+Z-undo, A-lock orientation, X-toggle normal axis, W-world align, P-toggle preview mode, I-toggle distance info"
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
@@ -236,6 +289,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     edge_subdivisions = 0  # 0 subdivisions by default (only vertices and center)
     hold_snap_points = False  # Hold snap points without recalculating
     last_face_index = -1  # Track last face to avoid unnecessary recalculations
+
+    # Snap source (Shift+S): 'EDGE' = points of the hovered face, 'BOUNDS' =
+    # divisions of the cut set's oriented box along the cut axis.
+    snap_source = 'EDGE'
+    _bounds_layout = None        # dict from selection_bounds_layout, or None
+    _bounds_layout_key = None    # inputs the layout was built from
+    _bounds_points_cache = None  # (key, world points of the cut set)
 
     # Cut preview system
     cut_preview_mode = 'LINES'  # 'LINES' or 'PLANE' - default to lines
@@ -491,7 +551,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         delimit_status = f"ON:{DELIMIT_LABELS[self.delimit_type]}" if self.delimit_active else "OFF"
 
         # Create status text with simple letter prefixes in brackets for visual clarity
+        snap_source = SNAP_SOURCE_LABELS.get(self.snap_source, self.snap_source)
         status_text = (f"Cursor Bisect: [LMB] Execute | [A] Lock{lock_status} | [S] Snap({snap_status}{hold_status}) | "
+                      f"[Shift+S] Snap Source({snap_source}) | "
                       f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [B] Bevel({bevel_info}) | [M] Mark({mark_status}) | [N] Mark Type | [L] Delimit({delimit_status}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis({self.normal_axis}) | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
                       f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
@@ -551,7 +613,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return None
 
     def get_edge_split_distances(self, context):
-        """Calculate the edge length and split distance (cursor to nearest vertex)"""
+        """Calculate the edge length and split distance (cursor to nearest vertex).
+        With the Selection Bounds snap source: the box side along the cut
+        axis and the cursor's distance to its nearer end."""
+        if self.snap_source == 'BOUNDS':
+            return self._bounds_split_distances(context)
         if not (self.hit_obj and self.face_edges and 0 <= self.edge_index < len(self.face_edges)):
             return None
 
@@ -595,6 +661,22 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             pass
 
         return None
+
+    def _bounds_split_distances(self, context):
+        """Distance info for the Selection Bounds snap source, read from the
+        last built layout (never rebuilt here: the HUD calls this per frame)."""
+        lay = self._bounds_layout
+        if not lay:
+            return None
+        try:
+            length, split = bounds_split(lay['lo'], lay['hi'], lay['axes'],
+                                         lay['axis_index'],
+                                         tuple(context.scene.cursor.location))
+            scale, suffix = self._bu_to_display_units(context)
+        except (AttributeError, KeyError, ValueError, TypeError):
+            return None
+        return {'total': length * scale, 'split': split * scale, 'unit': suffix,
+                'label': 'Bounds'}
 
     # Part 3: Coplanar Face Selection Method
 
@@ -806,6 +888,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             # Update cut preview if in lines mode
             if self.cut_preview_mode == 'LINES':
                 self.calculate_cut_preview(context)
+            self._refresh_bounds(context)
 
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -854,6 +937,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 except (IndexError, AttributeError):
                     pass
 
+                # Selection Bounds are built in the cut frame, so the frame
+                # must be this event's: align before snapping (Face Edge mode
+                # keeps its original order, alignment after the snap).
+                bounds_source = self.snap_source == 'BOUNDS'
+                if bounds_source and not self.lock_orientation and not self.hold_snap_points:
+                    self.align_cursor_orientation()
+
                 # Update snapping (now with screen-space support)
                 self.update_snapping(context, loc)
 
@@ -868,7 +958,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     context.scene.cursor.location = loc
 
                 # Only update orientation if face changed or if not locked/holding
-                if (face_changed or not self.lock_orientation) and not self.hold_snap_points:
+                if (not bounds_source and (face_changed or not self.lock_orientation)
+                        and not self.hold_snap_points):
                     if not self.lock_orientation:
                         self.align_cursor_orientation()
 
@@ -881,6 +972,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     if self.delimit_active:
                         self.cut_preview_lines = []
                         self.fill_cut_preview_lines = []
+                        if self.snap_source == 'BOUNDS' and not self.hold_snap_points:
+                            # The delimited cut set is empty off the mesh.
+                            self._bounds_layout = None
+                            self._bounds_layout_key = None
+                            self.snap_points = []
+                            self.inset_points = []
+                            self.closest_snap_point = None
                         context.area.tag_redraw()
 
         # Toggle distance info display
@@ -901,6 +999,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.locked_edge_world = self._snapshot_active_edge_world()
             else:
                 self.locked_edge_world = None
+            self._refresh_bounds(context)
 
             self.update_status_bar(context)
             context.area.tag_redraw()
@@ -914,6 +1013,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             # Update cut preview immediately when changing axis (needed for LINES mode)
             if self.cut_preview_mode == 'LINES':
                 self.calculate_cut_preview(context)
+            self._refresh_bounds(context)
 
             self.update_status_bar(context)
             self._sync_hud_state()
@@ -931,6 +1031,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.world_axis = 'X'
             
             self.align_cursor_to_world(context, self.world_axis)
+            self._refresh_bounds(context)
             self.update_status_bar(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -940,6 +1041,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             if event.shift:
                 # Shift+RMB: Select coplanar faces
                 self.select_coplanar_faces(context, event)
+                self._refresh_bounds(context)
             else:
                 # Regular RMB: Toggle face selection
                 result, loc, normal, face_index, obj, _ = self.mouse_raycast(context, event, full=True)
@@ -957,6 +1059,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                             self.calculate_cut_preview(context)
                     except (IndexError, AttributeError):
                         pass
+                self._refresh_bounds(context)
             return {'RUNNING_MODAL'}
 
         # Toggle cut preview mode
@@ -1052,6 +1155,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             self.calculate_cut_preview(context)
             if self.fill_cut_mode:
                 self.calculate_fill_cut_preview(context)
+            self._refresh_bounds(context)
             self.update_status_bar(context)
             self._sync_hud_state()
             context.area.tag_redraw()
@@ -1063,6 +1167,28 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 self.execute_fill_cut(context)
             else:
                 self.execute(context)
+            return {'RUNNING_MODAL'}
+
+        # Cycle snap source: Face Edge <-> Selection Bounds
+        elif event.type == 'S' and event.value == 'PRESS' and event.shift and not event.ctrl and not event.alt:
+            self.snap_source = next_snap_source(self.snap_source)
+            # Held points belong to the previous source.
+            self.hold_snap_points = False
+            self._bounds_layout = None
+            self._bounds_layout_key = None
+            if self.snap_source == 'BOUNDS':
+                # Bounds points are the whole point of this source.
+                self.snapping_enabled = True
+            if self.hit_obj and self.hit_face_index != -1:
+                self.update_snapping(context, context.scene.cursor.location)
+            else:
+                self.snap_points = []
+                self.closest_snap_point = None
+            if self.fill_cut_mode:
+                self.calculate_fill_cut_preview(context)
+            self.update_status_bar(context)
+            self._sync_hud_state()
+            context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
         # Toggle snapping
@@ -1108,6 +1234,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 if not self.hold_snap_points:
                     self.snap_points = []
                     self.closest_snap_point = None
+            self._refresh_bounds(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
@@ -1132,6 +1259,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                     pass
 
             self._mesh_version += 1
+            self._refresh_bounds(context)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
@@ -1291,6 +1419,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Save persistent operator state to scene properties."""
         props = context.scene.IOPS
         props.cursor_bisect_snapping = self.snapping_enabled
+        props.cursor_bisect_snap_source = self.snap_source
         props.cursor_bisect_normal_axis = self.normal_axis
         props.cursor_bisect_preview_mode = self.cut_preview_mode
         props.cursor_bisect_fill_cut = self.fill_cut_mode
@@ -1309,6 +1438,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         """Load persistent operator state from scene properties."""
         props = context.scene.IOPS
         self.snapping_enabled = props.cursor_bisect_snapping
+        self.snap_source = props.cursor_bisect_snap_source
         self.normal_axis = props.cursor_bisect_normal_axis
         self.cut_preview_mode = props.cursor_bisect_preview_mode
         self.fill_cut_mode = props.cursor_bisect_fill_cut
@@ -1385,11 +1515,15 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         threshold_px = (prefs.cursor_bisect_snap_threshold
                         if prefs and hasattr(prefs, "cursor_bisect_snap_threshold")
                         else DEFAULT_SNAP_THRESHOLD)
+        # Selection Bounds points sit on the box, which can float well off
+        # the surface under the mouse (non-planar cut set); score them on
+        # screen only, or the depth gap to the ray hit makes them unreachable.
+        extra = {'screen_weight': 1.0} if self.snap_source == 'BOUNDS' else {}
         try:
             return closest_snap_point(context, self.snap_points,
                                       self.hit_obj.matrix_world,
                                       mouse_coord, mouse_pos_world,
-                                      screen_threshold_px=threshold_px)
+                                      screen_threshold_px=threshold_px, **extra)
         except Exception:
             return None
 
@@ -1402,6 +1536,10 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def update_snapping(self, context, mouse_pos_world):
         """Update snap points and find closest snap point"""
+        if self.snap_source == 'BOUNDS':
+            self._update_bounds_snapping(context, mouse_pos_world)
+            return
+
         if not self.snapping_enabled:
             self.snap_points = []
             self.closest_snap_point = None
@@ -1447,6 +1585,130 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         except (IndexError, AttributeError, ValueError):
             self.snap_points = []
             self.closest_snap_point = None
+
+    # Selection Bounds snap source
+
+    def _cut_rotation(self, context):
+        cursor = context.scene.cursor
+        return self.locked_rotation if self.lock_orientation else cursor.matrix.to_quaternion()
+
+    def _bounds_points_key(self, context, objects):
+        """Everything the cut set of every edit object depends on, or None
+        when the delimiter island under the mouse is not cached yet (the
+        caller then rebuilds). The rotation is not part of it: the cached
+        world points are re-projected on a frame change."""
+        try:
+            objs_key = tuple((o.name, tuple(tuple(r) for r in o.matrix_world))
+                             for o in objects)
+            hover = None
+            if self.delimit_active:
+                if not self.hover_valid or self.hit_obj is None:
+                    hover = ('none',)
+                else:
+                    ikey = (self.hit_obj.name, self.delimit_type,
+                            self._delimit_angle(context), self._mesh_version)
+                    cache = self._island_cache
+                    if cache is None or cache[0] != ikey or self.hit_face_index not in cache[1]:
+                        return None
+                    hover = (self.hit_obj.name, cache[1])
+            z_hover = None
+            if self.normal_axis == 'Z':
+                # In Z the hovered face is dropped from the cut set.
+                z_hover = (self.hover_valid,
+                           self.hit_obj.name if self.hit_obj else None,
+                           self.hit_face_index)
+            return (self._mesh_version, self.delimit_active, self.delimit_type,
+                    objs_key, hover, z_hover)
+        except ReferenceError:
+            return None
+
+    def _bounds_cut_points(self, context):
+        """`(key, points)`: world-space vertices of the cut set across every
+        mesh in Edit Mode, rebuilt only when the cut set can have changed."""
+        objects = self._edit_mesh_objects(context)
+        key = self._bounds_points_key(context, objects)
+        cache = self._bounds_points_cache
+        if key is not None and cache is not None and cache[0] == key:
+            return cache
+        points = []
+        for obj in objects:
+            try:
+                bm = bmesh.from_edit_mesh(obj.data)
+                faces = self._cut_face_set(context, bm, obj)
+                points.extend(cut_set_world_points(bm, obj.matrix_world, faces))
+            except (IndexError, AttributeError, ValueError, ReferenceError):
+                continue
+        key = self._bounds_points_key(context, objects)  # island cache is filled now
+        if key is None:
+            key = object()  # unknown inputs: never matches, rebuild next time
+        if _np is not None:
+            points = _np.asarray(points, dtype=_np.float64).reshape(-1, 3)
+        self._bounds_points_cache = (key, points)
+        return self._bounds_points_cache
+
+    def _bounds_layout_for(self, context):
+        """The Selection Bounds layout for the current cut frame, axis,
+        subdivisions and inset; the frozen one while points are held."""
+        if self.hold_snap_points and self._bounds_layout is not None:
+            return self._bounds_layout
+        try:
+            rotation = self._cut_rotation(context)
+            if rotation is None:
+                return None
+            points_key, points = self._bounds_cut_points(context)
+            key = (points_key, tuple(rotation), self.normal_axis,
+                   self.edge_subdivisions, self.inset_active, self.inset_distance_bu)
+            if key != self._bounds_layout_key:
+                self._bounds_layout = selection_bounds_layout(
+                    points, rotation, self.normal_axis, self.edge_subdivisions,
+                    self.inset_distance_bu, self.inset_active)
+                self._bounds_layout_key = key
+        except (AttributeError, ValueError, ReferenceError):
+            self._bounds_layout = None
+            self._bounds_layout_key = None
+        return self._bounds_layout
+
+    def _update_bounds_snapping(self, context, mouse_pos_world):
+        """Selection Bounds: the box divisions (and inset points) replace the
+        hovered face's points. Stored local to `hit_obj` like face points, so
+        the closest-point search, cursor placement and drawing are shared;
+        re-localised on every call so held points stay put when the hover
+        moves to another object."""
+        lay = self._bounds_layout_for(context)
+        self.snap_points = []
+        self.inset_points = []
+        self.closest_snap_point = None
+        if not lay or not self.snapping_enabled or self.hit_obj is None:
+            return
+        try:
+            if self.hit_obj.mode != 'EDIT':
+                return
+            inv = self.hit_obj.matrix_world.inverted_safe()
+        except (AttributeError, ReferenceError):
+            return
+        self.snap_points = [('bounds', inv @ Vector(p)) for p in lay['divisions']]
+        self.inset_points = [('inset', inv @ Vector(p)) for p in lay['insets']]
+        self.snap_points.extend(self.inset_points)
+        mouse_coord = getattr(self, '_current_mouse_coord', (0, 0))
+        self.closest_snap_point = self.find_closest_snap_point(context, mouse_coord, mouse_pos_world)
+
+    def _refresh_bounds(self, context):
+        """Selection Bounds: rebuild box and snap points after a change of
+        rotation, cut axis, selection or delimiter. No-op for the Face Edge
+        source (its behaviour is unchanged) and while points are held."""
+        if self.snap_source != 'BOUNDS' or self.hold_snap_points:
+            return
+        try:
+            if self.hit_obj and self.hit_face_index != -1:
+                self.update_snapping(context, context.scene.cursor.location)
+            else:
+                self._bounds_layout_for(context)
+            if self.cut_preview_mode == 'LINES':
+                self.calculate_cut_preview(context)
+            elif self.fill_cut_mode:
+                self.calculate_fill_cut_preview(context)
+        except ReferenceError:
+            pass
 
     # Inset points methods
 
@@ -1930,8 +2192,13 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if self.fill_cut_mode:
             self.calculate_fill_cut_preview(context)
 
-    def get_fill_cut_positions(self):
-        """Get world-space cut positions along the highlighted edge based on subdivision count"""
+    def get_fill_cut_positions(self, context=None):
+        """Get world-space cut positions along the highlighted edge based on subdivision count.
+        With the Selection Bounds snap source: one position per division /
+        inset offset along the cut axis of the cut set's oriented box."""
+        if self.snap_source == 'BOUNDS':
+            lay = self._bounds_layout_for(context if context is not None else bpy.context)
+            return [Vector(p) for p in lay['positions']] if lay else []
         if not self.hit_obj or not self.face_edges or self.edge_index >= len(self.face_edges):
             return []
 
@@ -1981,7 +2248,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         if not self.fill_cut_mode:
             return
 
-        positions = self.get_fill_cut_positions()
+        positions = self.get_fill_cut_positions(context)
         if not positions:
             return
 
@@ -2086,7 +2353,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
 
     def execute_fill_cut(self, context):
         """Execute bisect at each snap position along the highlighted edge"""
-        positions = self.get_fill_cut_positions()
+        positions = self.get_fill_cut_positions(context)
         if not positions:
             self.report({'WARNING'}, "No fill cut positions available")
             return {'CANCELLED'}
@@ -2229,6 +2496,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             return
         s = self.help.set_state
         s("S", ItemState.ON if self.snapping_enabled else ItemState.OFF)
+        s("Shift+S", ItemState.ON if self.snap_source == 'BOUNDS' else ItemState.OFF)
         s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
         if self.normal_axis == 'Z':
             s("F", ItemState.DISABLED)
@@ -2259,8 +2527,11 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                 unit = info.get("unit", "")
                 total = self._fmt(info["total"])
                 split = self._fmt(info["split"])
-                lines.append(f"Edge: {total}{unit}")
+                lines.append(f"{info.get('label', 'Edge')}: {total}{unit}")
                 lines.append(f"Split: {split}{unit}")
+
+        if self.snap_source == 'BOUNDS':
+            lines.append(f"Snap Source: {SNAP_SOURCE_LABELS['BOUNDS']}")
 
         if self.mark_edges_active:
             lines.append(f"Mark: {self._current_mark_type()}")
@@ -2289,6 +2560,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         helpo = HelpOverlay("cursor_bisect")
         helpo.add_section(HUDSection("Bisect", [
             HUDItem("Snap",             "S",          ItemState.ON if self.snapping_enabled else ItemState.OFF, default_state=ItemState.OFF),
+            HUDItem("Snap Source",      "Shift+S",    ItemState.ON if self.snap_source == 'BOUNDS' else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
             HUDItem("Fill Cut",         "F",          ItemState.ON if self.fill_cut_mode else ItemState.OFF, default_state=ItemState.OFF),
@@ -2332,7 +2604,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             total = distance_info['total']
             split = distance_info['split']
             unit = distance_info['unit']
-            distance_text = f"Edge: {self._fmt(total)}{unit} | Split: {self._fmt(split)}{unit}"
+            label = distance_info.get('label', 'Edge')
+            distance_text = f"{label}: {self._fmt(total)}{unit} | Split: {self._fmt(split)}{unit}"
 
             # Get current mouse position and offsets
             mouse_x, mouse_y = self._current_mouse_coord
@@ -2479,6 +2752,16 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                                               role=Role.ACTIVE_LINE,
                                               context=context)
                 except (IndexError, AttributeError, ValueError, ReferenceError, TypeError):
+                    pass
+
+            # Selection Bounds box wire (guide), under the snap points.
+            if self.snap_source == 'BOUNDS' and self._bounds_layout:
+                try:
+                    wire = [p for edge in self._bounds_layout['wire'] for p in edge]
+                    if wire:
+                        with draw_scope(blend="ALPHA", depth="ALWAYS"):
+                            draw.edges_3d(wire, role=Role.BBOX, context=context)
+                except (KeyError, AttributeError, ReferenceError, ValueError, TypeError):
                     pass
 
             # Snap / inset points are drawn LAST so they sit on top of edges.
@@ -2673,6 +2956,9 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         self.cut_preview_lines = []
         self.fill_cut_preview_lines = []
         self.inset_points = []
+        self._bounds_layout = None
+        self._bounds_layout_key = None
+        self._bounds_points_cache = None
         self._current_mouse_coord = (0, 0)
 
         # Build unified HUD overlay
