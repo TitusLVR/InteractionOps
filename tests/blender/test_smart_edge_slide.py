@@ -543,9 +543,8 @@ class _OperatorStandIn:
 
     def __init__(self, **props):
         self.width, self.use_exact, self.use_collapse, self.chain_sides = 0.05, False, False, ""
-        self.use_uv_stripe, self.uv_stripe_mode, self.use_destructive = False, "FIT", False
-        self.uv_stripe_layout, self.uv_stripe_orientation, self.uv_stripe_mark_seams = "TRUE", "HORIZONTAL", True
-        self.uv_stripe_split_at_bends, self.uv_stripe_split_angle = True, math.radians(15)
+        self.use_uv_stripe, self.use_destructive = False, False
+        props = _take_stripe_settings(props)
         self.use_auto_adjust = False
         self.rail_bend, self.end_edge_angle = math.radians(30), math.radians(60)
         self.step_agreement, self.step_difference, self.shoot_angle = math.radians(30), math.radians(60), math.radians(30)
@@ -654,8 +653,31 @@ class _KeyPress:
         self.mouse_x = self.mouse_y = self.mouse_region_x = self.mouse_region_y = 0
 
 
+# --- UV Stripe's settings, which Smart Inset and Smart Edge Slide follow -----------------
+
+# The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
+# before every test, and a test changes what it needs with _stripe_settings.
+STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL", "split_at_bends": True,
+                   "split_angle": math.radians(15), "mark_seams": True, "offset_axis": "NONE",
+                   "split_at_seams": False, "merge_doubles": False, "active_fit": "BOTH"}
+
+
+def _stripe_settings(**values):
+    """Set UV Stripe's last-used properties, the settings Smart Inset and Smart Edge Slide read."""
+    props = bpy.context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
+    for name, value in values.items():
+        setattr(props, name, value)
+
+
+def _take_stripe_settings(props):
+    """Move ``uv_stripe_<name>`` keys (the operators' former properties) out of ``props`` into UV Stripe's settings."""
+    moved = {k[len("uv_stripe_"):]: props.pop(k) for k in list(props) if k.startswith("uv_stripe_")}
+    _stripe_settings(**moved)
+    return props
+
+
 def _run(bm_obj, **props):
-    return bpy.ops.iops.mesh_smart_edge_slide('EXEC_DEFAULT', **props)
+    return bpy.ops.iops.mesh_smart_edge_slide('EXEC_DEFAULT', **_take_stripe_settings(props))
 
 
 # --- the modal, driven by stand-in events -----------------------------------------
@@ -1664,8 +1686,7 @@ def test_a_new_launch_starts_at_width_zero():
     # their defaults; that is what the second invoke gets here. Redo still re-runs from the operator's own props.
     rna = bpy.ops.iops.mesh_smart_edge_slide.get_rna_type().properties
     assert rna["width"].default == 0.0 and rna["width"].is_skip_save
-    kept = ("use_exact", "use_collapse", "use_destructive", "use_uv_stripe", "uv_stripe_mode", "uv_stripe_layout",
-            "uv_stripe_orientation", "uv_stripe_split_at_bends", "uv_stripe_split_angle", "uv_stripe_mark_seams", "rail_bend",
+    kept = ("use_exact", "use_collapse", "use_destructive", "use_uv_stripe", "rail_bend",
             "end_edge_angle", "step_agreement", "step_difference", "shoot_angle", "tolerance")
     assert not any(rna[name].is_skip_save for name in kept)
     obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
@@ -1680,6 +1701,20 @@ def test_a_new_launch_starts_at_width_zero():
     assert (second.width, second._initial_width) == (0.0, 0.0)
     assert (second.use_exact, second.tolerance) == (True, 1e-3)
     assert second._modal(ctx, _event("ESC")) == {'CANCELLED'} and second.width == 0.0
+
+
+def test_uv_stripe_settings_drive_the_slide():
+    # Orientation comes from UV Stripe: Vertical turns the strip, its length along V.
+    obj = _edit_object(_strip(uv=True), chain=[0, 1, 2, 3])
+    _stripe_settings(orientation="VERTICAL")
+    _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True)
+    assert _strip_uv_ranges(obj) == ((0.0, 0.083333), (0.0, 1.0))
+    # Active without the active face among the new faces: the In Place result, and nothing reported.
+    obj = _edit_object(_strip(uv="half"), chain=[0, 1, 2, 3])
+    _stripe_settings(orientation="HORIZONTAL", mode="ACTIVE")
+    op = _OperatorStandIn(width=0.25, chain_sides="+", use_uv_stripe=True)
+    assert op.execute(bpy.context) == {'FINISHED'} and op.reports == [], op.reports
+    assert _strip_uv_ranges(obj) == ((0.0, 1.5), (0.0, 0.125))
 
 
 def test_uv_stripe_fit_strip():
@@ -1859,7 +1894,7 @@ def test_uv_stripe_marks_the_strip_outline_as_seams():
     _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True, uv_stripe_mark_seams=False)
     assert not _read(obj, lambda bm: any(e.seam for e in bm.edges))
     obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
-    _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True)
+    _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True, uv_stripe_mark_seams=True)   # the settings persist
 
     def check(bm):
         strip = {f for f in bm.faces if all(v.co.y <= 0.25 + 1e-6 for v in f.verts)}
@@ -3436,7 +3471,7 @@ class _PanelLayout:
         return _PanelLayout(self.drawn)
 
     def label(self, text):
-        pass
+        self.drawn["label: " + text] = self.active
 
     def panel(self, _idname, default_closed=False):
         return _PanelLayout(self.drawn), _PanelLayout(self.drawn)
@@ -3456,22 +3491,16 @@ def test_redo_panel_greys_what_the_mode_does_not_use():
         assert names.index("use_auto_adjust") == names.index("use_destructive") + 1, names   # next to Destructive
 
 
-def test_redo_panel_greys_the_uv_stripe_options():
-    # The UV Stripe options are greyed while UV Stripe is off; Bend Angle also while Split at Bends is off.
-    options = ("uv_stripe_mode", "uv_stripe_layout", "uv_stripe_orientation", "uv_stripe_split_at_bends",
-               "uv_stripe_mark_seams")
-    for stripe, split in ((False, False), (False, True), (True, False), (True, True)):
-        drawn = {}
-        op = _OperatorStandIn(use_uv_stripe=stripe, uv_stripe_split_at_bends=split)
-        op.layout = _PanelLayout(drawn)
-        op.draw(bpy.context)
-        assert drawn["use_uv_stripe"] is True
-        assert all(drawn[name] is stripe for name in options), drawn
-        assert drawn["uv_stripe_split_angle"] is (stripe and split), drawn
-        names = list(drawn)
-        assert names[names.index("use_uv_stripe"):names.index("use_uv_stripe") + 7] == [
-            "use_uv_stripe", "uv_stripe_mode", "uv_stripe_layout", "uv_stripe_orientation",
-            "uv_stripe_split_at_bends", "uv_stripe_split_angle", "uv_stripe_mark_seams"], names
+def test_redo_panel_shows_only_the_uv_stripe_checkbox():
+    # The UV Stripe settings come from UV Stripe: the panel keeps the checkbox and a muted note under it.
+    drawn = {}
+    op = _OperatorStandIn(use_uv_stripe=True)
+    op.layout = _PanelLayout(drawn)
+    op.draw(bpy.context)
+    names = list(drawn)
+    assert names[names.index("use_uv_stripe") + 1] == "label: Settings from UV Stripe", names
+    assert drawn["label: Settings from UV Stripe"] is False                    # muted
+    assert not any(name.startswith("uv_stripe_") for name in names), names
 
 
 # --- why a slide stops ------------------------------------------------------------------
@@ -3774,6 +3803,7 @@ TESTS = [
     test_modal_esc_restores_every_prop,
     test_modal_enter_confirms_through_execute,
     test_uv_stripe_fit_strip,
+    test_uv_stripe_settings_drive_the_slide,
     test_uv_stripe_fit_pocket_is_a_rectangle,
     test_uv_stripe_in_place,
     test_uv_stripe_creates_missing_layer,
@@ -3838,7 +3868,7 @@ TESTS = [
     test_execute_destructive_selects_a_lone_points_vertex,
     test_destructive_turns_an_unexpected_error_into_a_skip,
     test_redo_panel_greys_what_the_mode_does_not_use,
-    test_redo_panel_greys_the_uv_stripe_options,
+    test_redo_panel_shows_only_the_uv_stripe_checkbox,
     test_relay_passes_the_rows_of_a_zigzag_ladder,
     test_relay_leaves_a_slide_that_goes_on_by_itself,
     test_execute_destructive_cuts_past_the_relays,
@@ -3863,6 +3893,7 @@ def main():
     failed = 0
     for test in TESTS:
         try:
+            _stripe_settings(**STRIPE_BASELINE)
             test()
             print("PASS", test.__name__)
         except Exception:

@@ -1407,44 +1407,6 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         ),
         default=False,
     )
-    uv_stripe_mode: EnumProperty(
-        name="UV Stripe Mode",
-        items=uv_stripe_bridge.MODE_ITEMS,
-        default="FIT",
-    )
-    uv_stripe_layout: EnumProperty(
-        name="Layout",
-        description="How the strip's rows are laid out along its length",
-        items=uv_stripe_bridge.LAYOUT_ITEMS,
-        default="TRUE",
-    )
-    uv_stripe_orientation: EnumProperty(
-        name="Orientation",
-        description="Whether the strip runs along U or along V",
-        items=uv_stripe_bridge.ORIENTATION_ITEMS,
-        default="HORIZONTAL",
-    )
-    uv_stripe_split_at_bends: BoolProperty(
-        name="Split at Bends",
-        description="Tear the strip at cross edges where it bends within its own surface by more than the bend angle",
-        default=True,
-    )
-    uv_stripe_split_angle: FloatProperty(
-        name="Bend Angle",
-        description="Turn of the strip, summed since the last tear, beyond which it is torn",
-        subtype="ANGLE",
-        default=math.radians(15.0),
-        min=math.radians(1.0),
-        max=math.pi,
-    )
-    uv_stripe_mark_seams: BoolProperty(
-        name="Mark Seams",
-        description=(
-            "Make the seams match the laid-out UV pieces: mark every piece's outline and clear the seams "
-            "inside a piece"
-        ),
-        default=True,
-    )
 
     @classmethod
     def poll(cls, context):
@@ -2169,15 +2131,15 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             self.report({'WARNING'},
                         "Smart Inset: no faces produced for this thickness")
         if self.use_uv_stripe:
-            self._uv_stripe(bm, stripes)
+            self._uv_stripe(context, bm, stripes)
         # apply_inset/_apply_outset set the face-level selection; propagate it
         # to whatever the mesh's actual select mode needs.
         bm.select_flush_mode()
         bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
         return {'FINISHED'}
 
-    def _uv_stripe(self, bm, stripes):
-        """Unwrap every boundary loop's walls as one strip, in the mode the props set.
+    def _uv_stripe(self, context, bm, stripes):
+        """Unwrap every boundary loop's walls as one strip, with UV Stripe's settings.
 
         ``stripes`` holds each region's ``StripeLoop``s. A loop without a
         single wall face (a frozen open border) has nothing to unwrap and is
@@ -2185,19 +2147,21 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         whole, with a warning. Each strip's old UV placement is read from its
         own faces before any UV is written, while they still hold the UVs
         ``_copy_face_attrs`` interpolated onto them: In Place puts every strip
-        back where its own faces were. The UV Stripe options (layout, orientation,
-        split at bends, mark seams) go through ``uv_stripe_bridge.prepare_strip``,
-        ``apply_stripes`` and ``match_piece_seams``, as in UV Stripe and Smart Edge Slide.
+        back where its own faces were. The settings are UV Stripe's last-used ones
+        (``uv_stripe_bridge.StripeSettings.from_last``): the pieces go through
+        ``prepare_strip`` and ``finish_stripes``, as in UV Stripe and Smart Edge Slide.
+        Split at Seams and Merge Doubles do not apply to new wall faces; Active without
+        the active face among the walls lays out In Place, silently.
         """
         bm.verts.index_update()  # stripe_for's ids
         bm.faces.index_update()
-        split = self.uv_stripe_split_angle if self.uv_stripe_split_at_bends else None
-        strips, faces, contexts, groups, outlines = [], {}, [], [], []
+        settings = uv_stripe_bridge.StripeSettings.from_last(context)
+        contexts, groups, pieces_all = [], [], []
         for loops in stripes:
             loops = [loop for loop in loops if any(face is not None for _top, face in loop.walls)]
             try:
                 built = [
-                    uv_stripe_bridge.prepare_strip(*stripe_for(loop), self.uv_stripe_layout, split)
+                    uv_stripe_bridge.prepare_strip(*stripe_for(loop), settings.layout, settings.split)
                     for loop in loops
                 ]
             except ValueError as exc:
@@ -2208,13 +2172,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                     self.report({'WARNING'}, f"Smart Inset: UV Stripe not split ({reason})")
                 group = len(set(groups))
                 for strip, strip_faces in pieces:
-                    strips.append(strip)
-                    faces.update(strip_faces)
                     contexts.append(uv_stripe_bridge.uv_context(bm, list(strip_faces.values())))
                     groups.append(group)
-                    outlines.append((strip, strip_faces))
-        if strips:
-            uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts, fit_groups=groups,
-                                           vertical=self.uv_stripe_orientation == "VERTICAL")
-            if self.uv_stripe_mark_seams:
-                uv_stripe_bridge.match_piece_seams(outlines)
+                    pieces_all.append((strip, strip_faces))
+        if pieces_all:
+            uv_stripe_bridge.finish_stripes(bm, pieces_all, contexts, groups, settings)

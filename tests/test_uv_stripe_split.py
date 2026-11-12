@@ -5,7 +5,8 @@ import math
 import pytest
 
 from utils.uv_stripe_core import (
-    Strip, active_anchor, place_active, place_fit, place_in_place, strip_extent, strip_length, stripe_uvs,
+    Strip, bbox, fit_to_reference, place_fit, place_in_place, random_offsets, shifted, strip_extent, strip_length,
+    stripe_uvs,
 )
 from utils.uv_stripe_select_core import (
     bend_cut_rungs, rung_edge, rungs_at, slice_strip, split_strip, strip_from_faces,
@@ -318,71 +319,64 @@ def test_vertical_in_place_turns_about_the_centre():
     assert signed_area([up[(0, v)] for v in face]) == pytest.approx(signed_area([flat[(0, v)] for v in face]))
 
 
-# --- Active: anchoring on the active face's old UVs ------------------------------
+# --- Active: fitting the other pieces to the reference's bounding box ---------------
 
-def _turned(pts, k, scale, center):
-    cx = sum(p[0] for p in pts) / len(pts)
-    cy = sum(p[1] for p in pts) / len(pts)
-    out = []
-    for x, y in pts:
-        x, y = x - cx, y - cy
-        for _ in range(k):
-            x, y = -y, x
-        out.append((center[0] + scale * x, center[1] + scale * y))
-    return out
+def _rect_piece(w, h, at=(0.0, 0.0)):
+    """A placed piece: one quad face 0 with corners (0..3) spanning w x h from ``at``, counter-clockwise."""
+    x, y = at
+    return {(0, 0): (x, y), (0, 1): (x + w, y), (0, 2): (x + w, y + h), (0, 3): (x, y + h)}
 
 
-@pytest.mark.parametrize("turn", [0, 1, 2, 3])
-def test_active_anchor_finds_each_right_angle(turn):
-    strip = mitred_quad()
-    uv = stripe_uvs(strip)
-    face = strip.faces[0]
-    new = [uv[(0, v)] for v in face]
-    old = _turned(new, turn, 0.3, (0.7, 0.2))
-    anchor = active_anchor(new, old)
-    assert anchor[0] == pytest.approx(0.3) and anchor[1] == turn
-    placed = place_active(uv, anchor)
-    for v, o in zip(face, old):
-        assert placed[(0, v)] == pytest.approx(o)
-    assert signed_area([placed[(0, v)] for v in face]) > 0          # turned, never mirrored
+def _area(uv):
+    return signed_area([uv[(0, k)] for k in range(4)])
 
 
-def test_active_anchor_snaps_a_slightly_turned_face():
-    strip = mitred_quad()
-    uv = stripe_uvs(strip)
-    face = strip.faces[0]
-    new = [uv[(0, v)] for v in face]
-    a = math.radians(97.0)                                            # 90 degrees and 7 more
-    cx = sum(p[0] for p in new) / 4
-    cy = sum(p[1] for p in new) / 4
-    old = [(2.0 + 0.5 * ((x - cx) * math.cos(a) - (y - cy) * math.sin(a)),
-            1.0 + 0.5 * ((x - cx) * math.sin(a) + (y - cy) * math.cos(a))) for x, y in new]
-    anchor = active_anchor(new, old)
-    assert anchor[1] == 1
-    placed = [place_active(uv, anchor)[(0, v)] for v in face]
-    assert (sum(p[0] for p in placed) / 4, sum(p[1] for p in placed) / 4) == pytest.approx((2.0, 1.0))
-
-    def perimeter(pts):
-        return sum(math.dist(p, q) for p, q in zip(pts, pts[1:] + pts[:1]))
-
-    assert perimeter(placed) == pytest.approx(perimeter(old))
-    assert placed[1][0] == pytest.approx(placed[0][0])               # snapped: the face's first edge is vertical
+@pytest.mark.parametrize("mode, size", [("BOTH", (2.0, 0.5)), ("WIDTH", (2.0, 0.25)), ("HEIGHT", (1.0, 0.5))])
+def test_fit_to_reference_without_a_turn(mode, size):
+    piece = _rect_piece(1.0, 0.25, at=(5.0, 5.0))           # landscape, as the reference
+    reference = ((0.0, 0.0), (2.0, 0.5))
+    out = fit_to_reference(piece, reference, mode)
+    (u0, v0), (u1, v1) = bbox(out)
+    assert (u1 - u0, v1 - v0) == pytest.approx(size)
+    assert ((u0 + u1) / 2, (v0 + v1) / 2) == pytest.approx((1.0, 0.25))     # centred on the reference
+    assert _area(out) > 0
 
 
-def test_active_anchor_rejects_a_face_without_size():
-    with pytest.raises(ValueError):
-        active_anchor([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)], [(0.5, 0.5)] * 3)
-    with pytest.raises(ValueError):
-        active_anchor([(0.0, 0.0)] * 3, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])
+@pytest.mark.parametrize("mode, size", [("BOTH", (2.0, 0.5)), ("WIDTH", (2.0, 0.25)), ("HEIGHT", (1.0, 0.5))])
+def test_fit_to_reference_turns_a_transposed_piece(mode, size):
+    piece = _rect_piece(0.25, 1.0, at=(3.0, 3.0))           # portrait against a landscape reference: turned
+    reference = ((1.0, 1.0), (3.0, 1.5))
+    out = fit_to_reference(piece, reference, mode)
+    (u0, v0), (u1, v1) = bbox(out)
+    assert (u1 - u0, v1 - v0) == pytest.approx(size)        # width / height measured after the turn
+    assert ((u0 + u1) / 2, (v0 + v1) / 2) == pytest.approx((2.0, 1.25))
+    assert _area(out) > 0                                    # a rotation, never a mirror
+    # turned a quarter counter-clockwise: the first edge, along +u before, now runs along +v
+    assert out[(0, 1)][0] == pytest.approx(out[(0, 0)][0]) and out[(0, 1)][1] > out[(0, 0)][1]
 
 
-def test_place_active_centres_another_piece_on_its_own_centre():
-    strip = mitred_quad()
-    uv = stripe_uvs(strip)
-    anchor = (0.5, 1, (0.0, 0.0), (9.0, 9.0))
-    extent = strip_extent(strip)
-    out = place_active(uv, anchor, (extent / 2.0, strip.height / 2.0), (3.0, 4.0))
-    us = [p[0] for p in out.values()]
-    vs = [p[1] for p in out.values()]
-    assert ((min(us) + max(us)) / 2, (min(vs) + max(vs)) / 2) == pytest.approx((3.0, 4.0))
-    assert max(vs) - min(vs) == pytest.approx(0.5 * extent)         # turned a quarter: the length runs along v
+def test_fit_to_reference_keeps_the_reference():
+    reference_piece = _rect_piece(2.0, 0.5)
+    assert fit_to_reference(reference_piece, bbox(reference_piece)) == pytest.approx(reference_piece)
+
+
+# --- random offsets -----------------------------------------------------------------
+
+def test_random_offsets_are_deterministic_and_bounded():
+    a = random_offsets(20, "BOTH", 0.25, seed=3)
+    assert a == random_offsets(20, "BOTH", 0.25, seed=3)
+    assert a != random_offsets(20, "BOTH", 0.25, seed=4)
+    assert all(abs(du) <= 0.25 and abs(dv) <= 0.25 for du, dv in a)
+    assert any(abs(du) > 0.1 for du, _dv in a)
+
+
+def test_random_offsets_move_only_the_chosen_axis_and_keep_the_reference():
+    both = random_offsets(6, "BOTH", 0.5, seed=1)
+    horizontal = random_offsets(6, "HORIZONTAL", 0.5, seed=1)
+    vertical = random_offsets(6, "VERTICAL", 0.5, seed=1)
+    assert horizontal == [(du, 0.0) for du, _dv in both]
+    assert vertical == [(0.0, dv) for _du, dv in both]
+    kept = random_offsets(6, "BOTH", 0.5, seed=1, keep=2)
+    assert kept[2] == (0.0, 0.0) and kept[:2] + kept[3:] == both[:2] + both[3:]
+    assert random_offsets(3, "NONE", 0.5, seed=1) == [(0.0, 0.0)] * 3
+    assert shifted(_rect_piece(1.0, 1.0), (0.5, -0.25))[(0, 2)] == pytest.approx((1.5, 0.75))
