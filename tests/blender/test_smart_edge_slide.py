@@ -544,6 +544,8 @@ class _OperatorStandIn:
     def __init__(self, **props):
         self.width, self.use_exact, self.use_collapse, self.chain_sides = 0.05, False, False, ""
         self.use_uv_stripe, self.uv_stripe_mode, self.use_destructive = False, "FIT", False
+        self.uv_stripe_layout, self.uv_stripe_orientation, self.uv_stripe_mark_seams = "TRUE", "HORIZONTAL", True
+        self.uv_stripe_split_at_bends, self.uv_stripe_split_angle = True, math.radians(15)
         self.use_auto_adjust = False
         self.rail_bend, self.end_edge_angle = math.radians(30), math.radians(60)
         self.step_agreement, self.step_difference, self.shoot_angle = math.radians(30), math.radians(60), math.radians(30)
@@ -1416,8 +1418,8 @@ def test_modal_invoke_path_smoke():
     assert op._hud.title == "Smart Edge Slide"
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Width", "Exact Width (E)", "Allow Collapse (C)", "Destructive (D)", "Auto Adjust (Q)", "UV Stripe (U)",
-        "Clamped"]                                                  # the angles and Tolerance: redo panel only
+        "Width", "Exact Width (E)", "Allow Collapse / Unclamp (C)", "Destructive (D)", "Auto Adjust (Q)",
+        "UV Stripe (U)", "Clamped"]                                                  # the angles and Tolerance: redo panel only
     assert all(p.value_text() != "?" for p in params)              # every getter runs
     assert [(it.label, it.key) for it in op._help.sections[0].items] == [
         ("Adjust width", "Mouse / Type"), ("Snap to vertex", "Ctrl"), ("Exact width", "E"),
@@ -1662,7 +1664,8 @@ def test_a_new_launch_starts_at_width_zero():
     # their defaults; that is what the second invoke gets here. Redo still re-runs from the operator's own props.
     rna = bpy.ops.iops.mesh_smart_edge_slide.get_rna_type().properties
     assert rna["width"].default == 0.0 and rna["width"].is_skip_save
-    kept = ("use_exact", "use_collapse", "use_destructive", "use_uv_stripe", "uv_stripe_mode", "rail_bend",
+    kept = ("use_exact", "use_collapse", "use_destructive", "use_uv_stripe", "uv_stripe_mode", "uv_stripe_layout",
+            "uv_stripe_orientation", "uv_stripe_split_at_bends", "uv_stripe_split_angle", "uv_stripe_mark_seams", "rail_bend",
             "end_edge_angle", "step_agreement", "step_difference", "shoot_angle", "tolerance")
     assert not any(rna[name].is_skip_save for name in kept)
     obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
@@ -1688,7 +1691,7 @@ def test_uv_stripe_fit_strip():
 
 def test_uv_stripe_fit_pocket_is_a_rectangle():
     obj = _edit_object(_pocket(), chain=[0, 1, 2, 3])
-    _run(obj, width=0.5, chain_sides="+", use_uv_stripe=True)
+    _run(obj, width=0.5, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="EVEN", uv_stripe_split_at_bends=False)
     us, vs = _strip_uv_ranges(obj)
     assert us == (0.0, 1.0) and vs == (0.0, 0.15873)
 
@@ -1777,6 +1780,114 @@ def test_uv_stripe_skips_a_strip_its_layout_rejects():   # stripe_for tries the 
     assert result == {'FINISHED'}
     assert "Smart Edge Slide: UV Stripe skipped (layout rejected)" in op.reports, op.reports
     assert _strip_uv_ranges(obj, 5.0, 5.25) == ((0.0, 1.0), (0.0, 0.083333))   # the other strip, fitted alone
+
+
+def _bent_strip(turns, width=0.6):
+    """A flat quad strip along unit segments turning by ``turns`` (degrees): chain vertex 2i on the polyline,
+    its rail edge to 2i + 1 mitred ``width`` away on the faces' side. Returns (bm, chain ids, rail ends)."""
+    heading, pts, dirs = 0.0, [(0.0, 0.0)], []
+    for k in range(len(turns) + 1):
+        if k:
+            heading += math.radians(turns[k - 1])
+        dirs.append((math.cos(heading), math.sin(heading)))
+        pts.append((pts[-1][0] + dirs[-1][0], pts[-1][1] + dirs[-1][1]))
+    points = []
+    for i, (x, y) in enumerate(pts):
+        da, db = dirs[max(i - 1, 0)], dirs[min(i, len(dirs) - 1)]
+        t = math.hypot(da[0] + db[0], da[1] + db[1])
+        nx, ny = -(da[1] + db[1]) / t, (da[0] + db[0]) / t
+        scale = width / (nx * -da[1] + ny * da[0])
+        points += [(x, y, 0.0), (x + nx * scale, y + ny * scale, 0.0)]
+    faces = [(2 * i, 2 * i + 2, 2 * i + 3, 2 * i + 1) for i in range(len(pts) - 1)]
+    return _mesh(points, faces), [2 * i for i in range(len(pts))], points
+
+
+def _slide_strip_faces(obj, points):
+    """Per strip face (between the chain and its new loop): [(chain index or None, new vertex's rail index or None,
+    rounded uv)] for its corners. A new vertex belongs to the rail it lies on."""
+    chain = {_key(points[2 * i]): i for i in range(len(points) // 2)}
+
+    def rail_of(co):
+        for i in range(len(points) // 2):
+            a, b = Vector(points[2 * i]), Vector(points[2 * i + 1])
+            d = b - a
+            t = (co - a).dot(d) / d.length_squared
+            if 1e-6 < t < 1 - 1e-6 and (a + d * t - co).length < 1e-6:
+                return i
+        return None
+
+    def read(bm):
+        layer = bm.loops.layers.uv.active
+        out = []
+        for f in bm.faces:
+            corners = [(chain.get(_key(v.co)), None if _key(v.co) in chain else rail_of(v.co)) for v in f.verts]
+            if all(c is not None or r is not None for c, r in corners):
+                out.append([(c, r, _key(lp[layer].uv)) for (c, r), lp in zip(corners, f.loops)])
+        return out
+
+    found = _read(obj, read)
+    assert found, "no strip faces"
+    return found
+
+
+def _rung_lean(obj, points):
+    """The largest u difference between a chain vertex and the new vertex on its rail, within one strip face."""
+    lean = 0.0
+    for face in _slide_strip_faces(obj, points):
+        chain = {c: uv for c, _r, uv in face if c is not None}
+        for _c, r, uv in face:
+            if r is not None and r in chain:
+                lean = max(lean, abs(uv[0] - chain[r][0]))
+    return lean
+
+
+def test_uv_stripe_straightens_a_bent_slide():
+    bm, chain, points = _bent_strip([0, 40, 0])
+    obj = _edit_object(bm, chain=chain)
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="EVEN",
+                uv_stripe_split_at_bends=False) == {'FINISHED'}
+    assert _rung_lean(obj, points) > 0.005                  # arc-length rows lean at the bend
+    bm, chain, points = _bent_strip([0, 40, 0])
+    obj = _edit_object(bm, chain=chain)
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="STRAIGHT",
+                uv_stripe_split_at_bends=False) == {'FINISHED'}
+    assert _rung_lean(obj, points) < 1e-5
+
+
+def test_uv_stripe_marks_the_strip_outline_as_seams():
+    obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
+    _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True, uv_stripe_mark_seams=False)
+    assert not _read(obj, lambda bm: any(e.seam for e in bm.edges))
+    obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
+    _run(obj, width=0.25, chain_sides="+", use_uv_stripe=True)
+
+    def check(bm):
+        strip = {f for f in bm.faces if all(v.co.y <= 0.25 + 1e-6 for v in f.verts)}
+        outline = {e for f in strip for e in f.edges if sum(g in strip for g in e.link_faces) == 1}
+        return len(strip), len(outline), {e for e in bm.edges if e.seam} == outline
+
+    assert _read(obj, check) == (3, 8, True)
+
+
+def test_uv_stripe_split_at_bends_on_a_bent_slide():
+    # The chain turns 40 degrees at vertex 2: two pieces with one Fit scale (the first, 2 long, spans u 0-1; the
+    # second, 1 long, about half of it), the chain on each piece's v = 0.
+    bm, chain, points = _bent_strip([0, 40])
+    obj = _edit_object(bm, chain=chain)
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_split_at_bends=True,
+                uv_stripe_split_angle=math.radians(15)) == {'FINISHED'}
+    faces = _slide_strip_faces(obj, points)
+    assert len(faces) == 3
+    bend_us = {uv[0] for face in faces for c, _r, uv in face if c == 2}
+    assert len(bend_us) == 2                                 # torn at the bend
+    for face in faces:
+        vs = [uv[1] for _c, _r, uv in face]
+        assert all(uv[1] == min(vs) for c, _r, uv in face if c is not None), face
+        assert all(uv[1] > min(vs) for c, _r, uv in face if c is None), face
+    assert abs(max(uv[0] for face in faces for _c, _r, uv in face) - 1.0) < 1e-5     # the first piece spans 0-1
+    (last,) = [face for face in faces if any(c == 3 or r == 3 for c, r, _uv in face)]
+    us = [uv[0] for _c, _r, uv in last]
+    assert 0.3 < max(us) - min(us) < 0.75, us                # the second piece keeps the first one's scale
 
 
 def test_apply_stripes_without_contexts_fits():   # Smart Inset calls it Fit-only
@@ -2681,16 +2792,16 @@ def test_modal_d_hud_help_status_and_cancel():
     op, ctx = _invoke(x=0, width=0.25)
     params = {p.name: p for section in op._hud.param_sections for p in section.params}
     assert list(params)[:6] == [
-        "Width", "Exact Width (E)", "Allow Collapse (C)", "Destructive (D)", "Auto Adjust (Q)", "UV Stripe (U)"]
+        "Width", "Exact Width (E)", "Allow Collapse / Unclamp (C)", "Destructive (D)", "Auto Adjust (Q)", "UV Stripe (U)"]
     legend = [(it.label, it.key) for it in op._help.sections[0].items]
     assert legend.index(("Destructive", "D")) == legend.index(("Allow collapse", "C")) + 1
     assert "destructive = off (D)" in op._status_text()
-    assert params["Destructive (D)"].value_text() == "✗" and params["Allow Collapse (C)"].is_active()
+    assert params["Destructive (D)"].value_text() == "✗" and params["Allow Collapse / Unclamp (C)"].is_active()
     _keys(op, ctx, "D")
     assert "destructive = on (D)" in op._status_text()
     assert "allow collapse = on (C)" in op._status_text()            # as the HUD shows it, though C is off
     assert params["Destructive (D)"].value_text() == "✓"
-    assert params["Allow Collapse (C)"].value_text() == "✓" and not params["Allow Collapse (C)"].is_active()
+    assert params["Allow Collapse / Unclamp (C)"].value_text() == "✓" and not params["Allow Collapse / Unclamp (C)"].is_active()
     _keys(op, ctx, "D")
     assert "allow collapse = off (C)" in op._status_text()           # C's own value comes back
     _keys(op, ctx, "D")
@@ -3129,7 +3240,7 @@ def test_execute_destructive_in_place_stripes_use_each_pieces_own_uvs():
     seen = []
     apply_stripes = stripe_bridge.apply_stripes
 
-    def spy(bm_, strips, faces, mode, contexts=None):
+    def spy(bm_, strips, faces, mode, contexts=None, **kwargs):
         # Each strip's faces' bounding box centre in x and y, read before the stripe moves anything.
         boxes = []
         for strip in strips:
@@ -3137,12 +3248,12 @@ def test_execute_destructive_in_place_stripes_use_each_pieces_own_uvs():
             ys = [v.co.y for fid in strip.faces for v in faces[fid].verts]
             boxes.append(((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2))
         seen.append((boxes, contexts))
-        return apply_stripes(bm_, strips, faces, mode, contexts)
+        return apply_stripes(bm_, strips, faces, mode, contexts, **kwargs)
 
     stripe_bridge.apply_stripes = spy
     try:
         op = _OperatorStandIn(width=0.47, chain_sides="+", use_destructive=True, use_uv_stripe=True,
-                              uv_stripe_mode="IN_PLACE")
+                              uv_stripe_mode="IN_PLACE", uv_stripe_layout="EVEN", uv_stripe_split_at_bends=False)
         assert op.execute(bpy.context) == {'FINISHED'} and not op.reports, op.reports
     finally:
         stripe_bridge.apply_stripes = apply_stripes
@@ -3321,6 +3432,9 @@ class _PanelLayout:
     def row(self):
         return _PanelLayout(self.drawn)
 
+    def column(self):
+        return _PanelLayout(self.drawn)
+
     def label(self, text):
         pass
 
@@ -3340,6 +3454,24 @@ def test_redo_panel_greys_what_the_mode_does_not_use():
         assert all(drawn[name] for name in ("width", "use_exact", "use_destructive", "use_auto_adjust", "rail_bend")), drawn
         names = list(drawn)
         assert names.index("use_auto_adjust") == names.index("use_destructive") + 1, names   # next to Destructive
+
+
+def test_redo_panel_greys_the_uv_stripe_options():
+    # The UV Stripe options are greyed while UV Stripe is off; Bend Angle also while Split at Bends is off.
+    options = ("uv_stripe_mode", "uv_stripe_layout", "uv_stripe_orientation", "uv_stripe_split_at_bends",
+               "uv_stripe_mark_seams")
+    for stripe, split in ((False, False), (False, True), (True, False), (True, True)):
+        drawn = {}
+        op = _OperatorStandIn(use_uv_stripe=stripe, uv_stripe_split_at_bends=split)
+        op.layout = _PanelLayout(drawn)
+        op.draw(bpy.context)
+        assert drawn["use_uv_stripe"] is True
+        assert all(drawn[name] is stripe for name in options), drawn
+        assert drawn["uv_stripe_split_angle"] is (stripe and split), drawn
+        names = list(drawn)
+        assert names[names.index("use_uv_stripe"):names.index("use_uv_stripe") + 7] == [
+            "use_uv_stripe", "uv_stripe_mode", "uv_stripe_layout", "uv_stripe_orientation",
+            "uv_stripe_split_at_bends", "uv_stripe_split_angle", "uv_stripe_mark_seams"], names
 
 
 # --- why a slide stops ------------------------------------------------------------------
@@ -3651,6 +3783,9 @@ TESTS = [
     test_uv_stripe_other_side_is_not_mirrored,
     test_uv_stripe_closed_seam_collapse,
     test_uv_stripe_skips_a_strip_its_layout_rejects,
+    test_uv_stripe_straightens_a_bent_slide,
+    test_uv_stripe_marks_the_strip_outline_as_seams,
+    test_uv_stripe_split_at_bends_on_a_bent_slide,
     test_apply_stripes_without_contexts_fits,
     test_apply_destructive_u_wall_opens_on_the_wall,
     test_apply_destructive_square_apex_fans,
@@ -3703,6 +3838,7 @@ TESTS = [
     test_execute_destructive_selects_a_lone_points_vertex,
     test_destructive_turns_an_unexpected_error_into_a_skip,
     test_redo_panel_greys_what_the_mode_does_not_use,
+    test_redo_panel_greys_the_uv_stripe_options,
     test_relay_passes_the_rows_of_a_zigzag_ladder,
     test_relay_leaves_a_slide_that_goes_on_by_itself,
     test_execute_destructive_cuts_past_the_relays,

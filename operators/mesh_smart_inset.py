@@ -1409,11 +1409,41 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
     )
     uv_stripe_mode: EnumProperty(
         name="UV Stripe Mode",
-        items=[
-            ("FIT", "Fit 0–1", "Stretch the strip across U 0–1, V in proportion"),
-            ("IN_PLACE", "In Place", "Keep the old UV location and the neighbours' texel density"),
-        ],
+        items=uv_stripe_bridge.MODE_ITEMS,
         default="FIT",
+    )
+    uv_stripe_layout: EnumProperty(
+        name="Layout",
+        description="How the strip's rows are laid out along its length",
+        items=uv_stripe_bridge.LAYOUT_ITEMS,
+        default="TRUE",
+    )
+    uv_stripe_orientation: EnumProperty(
+        name="Orientation",
+        description="Whether the strip runs along U or along V",
+        items=uv_stripe_bridge.ORIENTATION_ITEMS,
+        default="HORIZONTAL",
+    )
+    uv_stripe_split_at_bends: BoolProperty(
+        name="Split at Bends",
+        description="Tear the strip at cross edges where it bends within its own surface by more than the bend angle",
+        default=True,
+    )
+    uv_stripe_split_angle: FloatProperty(
+        name="Bend Angle",
+        description="Turn of the strip, summed since the last tear, beyond which it is torn",
+        subtype="ANGLE",
+        default=math.radians(15.0),
+        min=math.radians(1.0),
+        max=math.pi,
+    )
+    uv_stripe_mark_seams: BoolProperty(
+        name="Mark Seams",
+        description=(
+            "Make the seams match the laid-out UV pieces: mark every piece's outline and clear the seams "
+            "inside a piece"
+        ),
+        default=True,
     )
 
     @classmethod
@@ -2155,21 +2185,36 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         whole, with a warning. Each strip's old UV placement is read from its
         own faces before any UV is written, while they still hold the UVs
         ``_copy_face_attrs`` interpolated onto them: In Place puts every strip
-        back where its own faces were.
+        back where its own faces were. The UV Stripe options (layout, orientation,
+        split at bends, mark seams) go through ``uv_stripe_bridge.prepare_strip``,
+        ``apply_stripes`` and ``match_piece_seams``, as in UV Stripe and Smart Edge Slide.
         """
         bm.verts.index_update()  # stripe_for's ids
         bm.faces.index_update()
-        strips, faces, contexts = [], {}, []
+        split = self.uv_stripe_split_angle if self.uv_stripe_split_at_bends else None
+        strips, faces, contexts, groups, outlines = [], {}, [], [], []
         for loops in stripes:
             loops = [loop for loop in loops if any(face is not None for _top, face in loop.walls)]
             try:
-                built = [stripe_for(loop) for loop in loops]
+                built = [
+                    uv_stripe_bridge.prepare_strip(*stripe_for(loop), self.uv_stripe_layout, split)
+                    for loop in loops
+                ]
             except ValueError as exc:
                 self.report({'WARNING'}, f"Smart Inset: UV Stripe skipped ({exc})")
                 continue
-            for strip, strip_faces in built:
-                strips.append(strip)
-                faces.update(strip_faces)
-                contexts.append(uv_stripe_bridge.uv_context(bm, list(strip_faces.values())))
+            for pieces, reason in built:   # the pieces of one loop share a Fit scale
+                if reason:
+                    self.report({'WARNING'}, f"Smart Inset: UV Stripe not split ({reason})")
+                group = len(set(groups))
+                for strip, strip_faces in pieces:
+                    strips.append(strip)
+                    faces.update(strip_faces)
+                    contexts.append(uv_stripe_bridge.uv_context(bm, list(strip_faces.values())))
+                    groups.append(group)
+                    outlines.append((strip, strip_faces))
         if strips:
-            uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts)
+            uv_stripe_bridge.apply_stripes(bm, strips, faces, self.uv_stripe_mode, contexts, fit_groups=groups,
+                                           vertical=self.uv_stripe_orientation == "VERTICAL")
+            if self.uv_stripe_mark_seams:
+                uv_stripe_bridge.match_piece_seams(outlines)
