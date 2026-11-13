@@ -12,10 +12,10 @@ Scope: the selected faces; with no face selected, every visible face of the mesh
 in Edit Mode.
 
 Invoked, the operator is modal and opens with the automatic layout already done.
-The edge under the cursor shows the seam loop it would make; a first click makes
-that loop pending, a second click on it commits it: a lengthwise loop becomes its
-wall's seam, a ring loop toggles a ring seam, a cross edge of a ring strip is that
-ring's break. Every commit and option change restores the UVs and seams the faces
+The edge under the cursor shows the seam loop it would make; a click selects that
+loop and C marks or unmarks it: a lengthwise loop becomes its wall's seam (or goes
+back to automatic), a ring or open loop toggles a seam, a cross edge of a ring
+strip is that ring's break (or no longer). Every commit and option change restores the UVs and seams the faces
 had and lays them out again; cancel puts them back. The committed loops are kept in
 ``picks`` for redo.
 """
@@ -52,15 +52,15 @@ LAYOUT_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LAYOUT_ITEMS}
 SOURCE_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LOOP_SOURCE_ITEMS}
 ORIENTATION_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ORIENTATION_ITEMS}
 KIND_NAMES = {"RING": "ring seam", "LENGTH": "wall seam", "BREAK": "ring break", "CUT": "open seam"}
-LOOP_TEXT = {
-    "LENGTH": "Lengthwise loop: set the wall seam",
-    "BREAK": "Ring cross edge: set the ring break",
-}
-TOGGLE_TEXT = {  # (kind, all its edges already cut) -> what a click does
-    ("RING", True): "Ring seam: remove it",
-    ("RING", False): "Ring loop: add a ring seam",
-    ("CUT", True): "Seam: remove it",
-    ("CUT", False): "Open loop: add a seam along it",
+TOGGLE_TEXT = {  # (kind, already applied: all its edges cut / already the picked seam or break) -> what C does
+    ("RING", True): "Remove seam",
+    ("RING", False): "Add ring seam",
+    ("CUT", True): "Remove seam",
+    ("CUT", False): "Add seam",
+    ("LENGTH", True): "Automatic wall seam",
+    ("LENGTH", False): "Set wall seam",
+    ("BREAK", True): "Remove ring break",
+    ("BREAK", False): "Set ring break",
 }
 SEAM_SIDE_ITEMS = [
     ("SHORTEST", "Shortest", "The shortest lengthwise loop of each wall"),
@@ -549,6 +549,9 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         self._result = self._lay_out(context)
         for me, *_rest in self._snapshot:
             bmesh.update_edit_mesh(me)
+        pending = getattr(self, "_pending", None)
+        if pending is not None and self._indices(pending[0], pending[1]) is None:
+            self._pending = None            # its edges are gone from the faces in scope
         if getattr(context, "area", None):
             context.area.tag_redraw()
         self._show_status(context)
@@ -560,7 +563,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             pass
 
     # ------------------------------------------------------------------
-    # Loops: hover, pending, commit, stepping the wall seam
+    # Loops: hover, selection, mark, stepping the wall seam
     # ------------------------------------------------------------------
 
     def _classify(self, obj, key):
@@ -643,33 +646,59 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         return a[0].name == b[0].name and frozenset(a[1].edges()) == frozenset(b[1].edges())
 
     def _click_loop(self, context, obj, loop, kind):
-        """A first click makes ``loop`` pending; a second click on the same loop commits it (``_commit``). Returns
-        whether it was committed."""
+        """Select ``loop`` (the selection is ``_pending``); a click on the selected loop changes nothing. Never
+        commits. Returns whether the selection changed."""
         pending = getattr(self, "_pending", None)
-        if pending is None or not self._same(pending, (obj, loop)):
-            self._pending = (obj, loop, kind)
-            self._show_status(context)
+        if pending is not None and self._same(pending, (obj, loop)):
             return False
-        self._pending = None
-        self._commit(context, obj, loop, kind)
+        self._pending = (obj, loop, kind)
+        self._show_status(context)
         return True
 
+    def _mark(self, context):
+        """C: apply (``_commit``) the selected loop, else the loop under the cursor, which becomes the selected one.
+        The loop stays selected, so C again takes it back. Returns whether anything was applied."""
+        entry = getattr(self, "_pending", None) or getattr(self, "_hover", None)
+        if entry is None:
+            return False
+        self._pending = entry
+        applied = self._commit(context, *entry)
+        self._show_status(context)
+        return applied
+
+    def _indices(self, obj, loop):
+        """The mesh edge indices of ``loop`` in the last pass, sorted; None when an edge is not in it."""
+        cache = (getattr(self, "_result", None) or _Result()).objects.get(obj.name)
+        if cache is None or not all(e in cache.edge_index for e in loop.edges()):
+            return None
+        return sorted(cache.edge_index[e] for e in loop.edges())
+
+    def _is_picked(self, obj, loop, kind):
+        """Whether the LENGTH / BREAK ``loop`` is already the user's pick."""
+        indices = self._indices(obj, loop)
+        if not indices:
+            return False
+        own = set(indices if kind == "LENGTH" else indices[:1])
+        entry = _parse_picks(getattr(self, "picks", "")).get(obj.name, {})
+        return any(set(lp) == own for lp in entry.get("picked", []))
+
     def _commit(self, context, obj, loop, kind):
-        """Store ``loop`` in ``picks`` and lay out again.
+        """Store ``loop`` in ``picks`` (or take it out) and lay out again; returns whether ``picks`` changed.
 
         RING and CUT (an open seam): a loop the user added is dropped again, a removed one is restored; otherwise a
-        loop whose edges are all current cuts is removed, any other added. LENGTH (a wall's seam) and BREAK (a ring's break) replace the
-        picks lying inside the same part, then are added to ``picked``."""
+        loop whose edges are all current cuts is removed, any other added. LENGTH (a wall's seam) and BREAK (a
+        ring's break): the same pick made again is dropped (the wall's seam goes back to automatic, the ring's break
+        to its own); otherwise it replaces the picks lying inside the same part and is added to ``picked``."""
         cache = self._result.objects.get(obj.name)
         if cache is None:
-            return
+            return False
         picks = _parse_picks(getattr(self, "picks", ""))
         entry = picks.setdefault(obj.name, {})
         for name in PICK_KINDS:
             entry.setdefault(name, [])
         indices = sorted(cache.edge_index[e] for e in loop.edges() if e in cache.edge_index)
         if not indices:
-            return
+            return False
         if kind in ("RING", "CUT"):
             own = set(indices)
             if any(set(lp) == own for lp in entry["added"]):
@@ -681,15 +710,20 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             else:
                 entry["added"].append(indices)
         else:
-            parts = {cache.part_of_face[f] for e in loop.edges() for f in cache.edge_faces.get(e, ())}
-            inside = set()
-            for i in parts:
-                inside |= {cache.edge_index[e] for e in uv_pipe_core._inner_edges(cache.analysis.parts[i])
-                           if e in cache.edge_index}
-            entry["picked"] = [lp for lp in entry["picked"] if not set(lp) <= inside]
-            entry["picked"].append(indices if kind == "LENGTH" else indices[:1])
+            pick = indices if kind == "LENGTH" else indices[:1]
+            if any(set(lp) == set(pick) for lp in entry["picked"]):
+                entry["picked"] = [lp for lp in entry["picked"] if set(lp) != set(pick)]
+            else:
+                parts = {cache.part_of_face[f] for e in loop.edges() for f in cache.edge_faces.get(e, ())}
+                inside = set()
+                for i in parts:
+                    inside |= {cache.edge_index[e] for e in uv_pipe_core._inner_edges(cache.analysis.parts[i])
+                               if e in cache.edge_index}
+                entry["picked"] = [lp for lp in entry["picked"] if not set(lp) <= inside]
+                entry["picked"].append(pick)
         self.picks = json.dumps(picks, sort_keys=True)
         self._relayout(context)
+        return True
 
     def _cycle_seam(self, context, obj, part_index, step):
         """Make the next (``step`` 1) or previous (-1) lengthwise loop round the wall ``part_index`` its seam
@@ -775,41 +809,24 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             context.area.tag_redraw()
         return {"RUNNING_MODAL"}
 
-    def _seam_state(self):
-        result = getattr(self, "_result", None)
-        if result is not None and result.fallback:
-            return "Fallback"
-        picked = any(entry.get("picked") for entry in _parse_picks(getattr(self, "picks", "")).values())
-        return "Picked" if picked else "Automatic"
-
-    def _notices(self):
-        result = getattr(self, "_result", None)
-        if result is None:
-            return "None"
-        notes = list(dict.fromkeys(m.removeprefix("UV Pipe: ") for m in result.infos + result.warnings))
-        return "; ".join(notes) if notes else "None"
-
     def _loop_text(self, entry):
-        """What a click on the (object, loop, kind) ``entry`` does, for the HUD."""
+        """What C does with the (object, loop, kind) ``entry``, for the HUD."""
         if entry is None:
             return "None"
         obj, loop, kind = entry
         if kind in ("RING", "CUT"):
             cache = (getattr(self, "_result", None) or _Result()).objects.get(obj.name)
-            cut = cache is not None and set(loop.edges()) <= cache.analysis.cuts
-            return TOGGLE_TEXT[(kind, cut)]
-        return LOOP_TEXT[kind]
+            done = cache is not None and set(loop.edges()) <= cache.analysis.cuts
+        else:
+            done = self._is_picked(obj, loop, kind)
+        return TOGGLE_TEXT[(kind, done)]
 
-    def _pending_text(self):
+    def _loop_row(self):
+        """The HUD's loop row: what C does to the selected loop ("Selected: ..."), else to the hovered one."""
         pending = getattr(self, "_pending", None)
-        return "None" if pending is None else f"{self._loop_text(pending)} (click it again)"
-
-    def _picks_text(self):
-        counts = dict.fromkeys(PICK_KINDS, 0)
-        for entry in _parse_picks(getattr(self, "picks", "")).values():
-            for kind in PICK_KINDS:
-                counts[kind] += len(entry.get(kind, []))
-        return f"{counts['added']} added, {counts['removed']} removed, {counts['picked']} picked"
+        if pending is not None:
+            return f"Selected: {self._loop_text(pending)}"
+        return self._loop_text(getattr(self, "_hover", None))
 
     def _header(self):
         kinds = (getattr(self, "_result", None) or _Result()).kinds
@@ -824,35 +841,31 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         def offset_matters():
             return self.offset_axis != "NONE" and not (self.mode == "FIT" and self.pack)
 
+        # compact: the wheel combinations are in the help overlay, rows that do not apply are hidden
         rows = [
             HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum"),
-            HUDParam("Orientation (W)", lambda: ORIENTATION_NAMES[self.orientation], "enum"),
             HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
-                     active_getter=lambda: self.mode == "ACTIVE"),
+                     visible_getter=lambda: self.mode == "ACTIVE"),
+            HUDParam("Orientation (W)", lambda: ORIENTATION_NAMES[self.orientation], "enum"),
             HUDParam("Layout (E)", lambda: LAYOUT_NAMES[self.layout], "enum"),
+            HUDParam("Loop (LMB, C)", self._loop_row, "str"),
+            HUDParam("Seam Side (T)", lambda: SEAM_SIDE_NAMES[self.seam_side], "enum"),
             HUDParam("Loop Source (G)", lambda: SOURCE_NAMES[self.loop_source], "enum",
-                     active_getter=self._has_uv_source),
-            HUDParam("Under Cursor", lambda: self._loop_text(getattr(self, "_hover", None)), "str"),
-            HUDParam("Pending Loop (LMB)", self._pending_text, "str"),
-            HUDParam("Your Loops", self._picks_text, "str"),
-            HUDParam("Loop Angle (Ctrl + Wheel)", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
-            HUDParam("Sharp Angle (Shift + Wheel)", lambda: math.degrees(self.sharp_angle), "float", fmt=degrees),
-            HUDParam("Hard Edge Angle (Ctrl + Alt + Wheel)", lambda: math.degrees(self.hard_angle), "float",
-                     fmt=degrees),
+                     visible_getter=self._has_uv_source),
+            HUDParam("Loop Angle", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
+            HUDParam("Sharp Angle", lambda: math.degrees(self.sharp_angle), "float", fmt=degrees),
+            HUDParam("Hard Edge Angle", lambda: math.degrees(self.hard_angle), "float", fmt=degrees),
             HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool"),
-            HUDParam("Bend Angle (Shift + Alt + Wheel)", lambda: math.degrees(self.bend_angle), "float",
-                     fmt=degrees, active_getter=lambda: self.split_at_bends),
+            HUDParam("Bend Angle", lambda: math.degrees(self.bend_angle), "float", fmt=degrees,
+                     visible_getter=lambda: self.split_at_bends),
             HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool"),
             HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool"),
-            HUDParam("Pack (P)", lambda: self.pack, "bool", active_getter=lambda: self.mode == "FIT"),
+            HUDParam("Pack (P)", lambda: self.pack, "bool", visible_getter=lambda: self.mode == "FIT"),
             HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum",
-                     active_getter=lambda: not (self.mode == "FIT" and self.pack)),
-            HUDParam("Offset Limit", lambda: self.offset_limit, "float", fmt="{:.2f}", active_getter=offset_matters),
-            HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int", active_getter=offset_matters),
+                     visible_getter=lambda: not (self.mode == "FIT" and self.pack)),
+            HUDParam("Offset Limit", lambda: self.offset_limit, "float", fmt="{:.2f}", visible_getter=offset_matters),
+            HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int", visible_getter=offset_matters),
             HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool"),
-            HUDParam("Seam Side (T)", lambda: SEAM_SIDE_NAMES[self.seam_side], "enum"),
-            HUDParam("Seam (Alt + Wheel)", self._seam_state, "str"),
-            HUDParam("Notices", self._notices, "str"),
         ]
         for row in rows:
             self._hud.add_param(row)
@@ -862,7 +875,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
 
         self._help = HelpOverlay("uv_pipe")
         self._help.add_section(HUDSection("UV Pipe", [
-            item("Pick a loop or an open seam; click it again to cut or uncut", "LMB"),
+            item("Select the loop under the cursor", "LMB"),
+            item("Mark / unmark the selected loop as a seam", "C"),
             item("Step the wall seam under the cursor", "Alt + Wheel"),
             item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
@@ -882,7 +896,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             item("Layout", "E"),
             item("Mark seams", "X"),
             item("Finish", "Enter / Space"),
-            item("Drop the pending loop, else cancel", "Esc / RMB"),
+            item("Deselect the loop, else cancel", "Esc / RMB"),
             item("Help / Toggle HUD", "H"),
         ]))
         self._help.bind_region(region)
@@ -965,6 +979,11 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             self._update_hover(context, event)
             if self._hover is not None:
                 self._click_loop(context, *self._hover)
+            return {"RUNNING_MODAL"}
+        if event.type == "C" and not (event.ctrl or event.alt or event.shift):
+            if getattr(self, "_pending", None) is None:
+                self._update_hover(context, event)
+            self._mark(context)
             return {"RUNNING_MODAL"}
         if event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
             result = self._result
@@ -1056,11 +1075,11 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         count = f"{self._summary(result)} | " if result is not None else ""
         pending = getattr(self, "_pending", None)
         if pending is not None:
-            return (f"UV Pipe: {count}pending {KIND_NAMES[pending[2]]} | [LMB] on it again to commit | "
-                    "[Esc/RMB] drop it | [Enter/Space] finish")
+            return (f"UV Pipe: {count}selected {KIND_NAMES[pending[2]]} | [C] mark / unmark | "
+                    "[Esc/RMB] deselect | [Enter/Space] finish")
         return (
             f"UV Pipe: {count}"
-            "[LMB] pick a loop or an open seam, again to commit | [Alt+Wheel] step the wall seam | "
+            "[LMB] select a loop | [C] mark / unmark it as a seam | [Alt+Wheel] step the wall seam | "
             f"seam side = {SEAM_SIDE_NAMES[self.seam_side].lower()} (T) | "
             f"loop angle = {math.degrees(self.loop_angle):.0f}° (Ctrl+Wheel) | "
             f"sharp angle = {math.degrees(self.sharp_angle):.0f}° (Shift+Wheel) | "
@@ -1103,7 +1122,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         except Exception:   # a draw handler must never raise: it would repeat every frame
             cuts, errors, mine, hovered, waiting = [], [], [], [], []
         if cuts or errors or mine or hovered or waiting:
-            # bottom to top: automatic seams, the user's own, fallback seams, the hover, the pending loop
+            # bottom to top: automatic seams, the user's own, fallback seams, the hover, the selected loop
             with draw_scope(blend="ALPHA"):
                 if cuts:
                     draw.edges_3d(cuts, role=Role.PREVIEW_LINE, context=context)
