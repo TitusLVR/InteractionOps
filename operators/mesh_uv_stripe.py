@@ -14,12 +14,13 @@ follows live; the viewport shows each piece's outline and where the strip is tor
 Confirm keeps the result (one undo step), cancel puts the snapshot back.
 """
 
+import json
 import math
 from dataclasses import dataclass, field
 
 import bmesh
 import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras import view3d_utils
 from mathutils import Vector
 
@@ -93,6 +94,18 @@ def _inner_cuts(island, cuts):
     return {e for e in cuts if uses.get(e) == 2}
 
 
+def _parse_breaks(text):
+    """``cup_breaks`` as {object name: [edge index, ...]}; anything malformed reads as no break."""
+    try:
+        data = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(name): [i for i in indices if isinstance(i, int) and not isinstance(i, bool)]
+            for name, indices in data.items() if isinstance(indices, list)}
+
+
 @dataclass
 class _Result:
     """What one layout pass did, over every object in Edit Mode."""
@@ -109,6 +122,8 @@ class _Result:
     merged: int = 0               # doubled vertices merged before the layout
     outline: list = field(default_factory=list)   # world-space segment end points, two per segment
     tears: list = field(default_factory=list)
+    # per object name: {edge index: ring number} for every cross edge of a selected closed ring (a break pick)
+    rings: dict = field(default_factory=dict)
 
 
 def _doubles_warning(count):
@@ -124,7 +139,9 @@ def _collect_preview(result, pieces, matrix):
     for n, (strip, faces) in enumerate(pieces):
         inside = set(faces.values())
         cut = set()
-        if strip.closed and strip.rungs:
+        if strip.break_edge is not None:
+            cut = set(strip.break_edge)
+        elif strip.closed and strip.rungs:
             k = strip.seam if strip.seam is not None else uv_stripe_core.sharpest_rung(strip)
             ni, fi = strip.rungs[k]
             cut = {strip.near[ni % len(strip.near)], strip.far[fi % len(strip.far)]}
@@ -227,6 +244,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         description="Merge the doubled vertices found in the strip before laying it out",
         default=True,
     )
+    # The rings' picked break edges, as JSON {object name: [edge index, ...]}: kept for redo, never saved as a
+    # last-used value and no StripeSettings field, so Smart Inset and Smart Edge Slide never see it.
+    cup_breaks: StringProperty(
+        name="Ring Breaks",
+        description="The cross edges the selected rings are opened at, picked in the interactive mode",
+        default="",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
 
     @classmethod
     def poll(cls, context):
@@ -258,12 +283,16 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     # Layout
     # ------------------------------------------------------------------
 
-    def _pieces(self, island, verts, picked, seam_cuts):
+    def _pieces(self, island, verts, picked, seam_cuts, breaks=frozenset(), rings=None):
         """The laid-out pieces of one island as ([(strip, faces by id)], warning); raises ValueError.
 
         The whole island is built and torn at its bends and at the seams inside it that
         are its rungs. An island that is no strip as a whole, or one with a seam inside
         it that is no rung, is first split at those seams and each part built on its own.
+        An island that is a closed ring with a rung among ``breaks`` (vertex-id pairs, the
+        picked breaks) is opened there as one piece instead, its seams and bends not
+        tearing it (``uv_stripe_bridge.prepare_strip``). ``rings`` (a list) gets the rung
+        edges of an island that is a closed ring: the edges a break can be picked on.
         """
         split = self.split_angle if self.split_at_bends else None
         inner = _inner_cuts(island, seam_cuts)
@@ -273,8 +302,16 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             strip = None
         if strip is not None:
             cuts = uv_stripe_select_core.rungs_at(strip, inner)
-            if len(cuts) == len(inner):
-                return uv_stripe_bridge.prepare_strip(strip, picked, self.layout, split, cuts)
+            picked_break = None
+            if strip.closed:
+                if rings is not None:
+                    rings.append([uv_stripe_select_core.rung_edge(strip, k) for k in range(len(strip.rungs))])
+                at = uv_stripe_select_core.rungs_at(strip, breaks)
+                if at:
+                    picked_break = uv_stripe_select_core.rung_edge(strip, at[0])
+            if picked_break is not None or len(cuts) == len(inner):
+                return uv_stripe_bridge.prepare_strip(strip, picked, self.layout, split, cuts,
+                                                      break_edge=picked_break)
         if not inner:
             _build(island, verts)          # raises the island's own reason
         out, reasons, failed = [], [], None
@@ -324,18 +361,25 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         never the modal's preview, which does not change the mesh).
         """
         result = _Result()
+        cup = _parse_breaks(getattr(self, "cup_breaks", ""))
         for obj in context.objects_in_mode_unique_data:
             if obj.type != "MESH":
                 continue
             me = obj.data
             bm = bmesh.from_edit_mesh(me)
+            # the picked breaks name edges by index: take hold of the edges before a weld renumbers them
+            bm.edges.index_update()
+            bm.edges.ensure_lookup_table()
+            break_edges = [bm.edges[i] for i in cup.get(obj.name, ()) if 0 <= i < len(bm.edges)]
             found = self._merge_doubles(bm, obj, merge)
             if merge:
                 result.merged += found
             else:
                 result.doubles += found
             bm.verts.index_update()
+            bm.edges.index_update()
             bm.faces.index_update()
+            breaks = {tuple(sorted(v.index for v in e.verts)) for e in break_edges if e.is_valid}
             picked = {f.index: f for f in bm.faces if f.select and not f.hide}
             if not picked:
                 continue
@@ -351,11 +395,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     for e in f.edges
                     if e.seam and sum(g.index in picked for g in e.link_faces) == 2
                 }
-            strips, contexts, pieces = [], [], []
+            strips, contexts, pieces, rings = [], [], [], []
             active_face = bm.faces.active if self.mode == "ACTIVE" else None
             for island in uv_stripe_select_core.face_islands(ids):
                 try:
-                    laid, warning = self._pieces(island, verts, picked, seam_cuts)
+                    laid, warning = self._pieces(island, verts, picked, seam_cuts, breaks, rings)
                 except ValueError as exc:
                     result.skipped += 1
                     result.first_reason = result.first_reason or str(exc)
@@ -367,6 +411,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     strips.append(strip)
                     pieces.append((strip, faces))
                     contexts.append(_world_context(uv_stripe_bridge.uv_context(bm, piece_faces), piece_faces, matrix))
+            if rings:
+                index_of = {tuple(sorted(v.index for v in e.verts)): e.index for f in picked.values() for e in f.edges}
+                result.rings[obj.name] = {index_of[key]: n for n, ring in enumerate(rings)
+                                          for key in ring if key in index_of}
             if not strips:
                 continue
             holds_active = any(active_face is not None and faces.get(active_face.index) is active_face

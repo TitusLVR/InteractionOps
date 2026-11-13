@@ -186,8 +186,33 @@ def apply_stripes(
     return fitted
 
 
+def _lay_piece(piece: core.Strip, layout: str) -> None:
+    """Lay one piece out under ``layout``: "STRAIGHT" through ``uv_stripe_core.straighten``, every other
+    layout as itself. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
+    if layout == "STRAIGHT":
+        core.straighten(piece)
+    else:
+        core.stripe_uvs(piece)
+
+
+def _opened_ring(strip: core.Strip, layout: str, break_edge) -> core.Strip:
+    """``strip`` (closed) opened at the rung ``break_edge`` and laid out as one piece: "STRAIGHT" when every
+    face is a quad, else ``layout``. Raises ValueError when ``break_edge`` is no rung of it, or as
+    ``uv_stripe_select_core.open_ring`` and ``uv_stripe_core.stripe_uvs`` do."""
+    at = select_core.rungs_at(strip, [tuple(sorted(break_edge))])
+    if not at:
+        raise ValueError("the picked edge is not a cross edge of the ring")
+    opened = select_core.open_ring(strip, at[0])
+    if all(len(face) == 4 for face in opened.faces.values()):
+        layout = "STRAIGHT"
+    opened.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
+    _lay_piece(opened, layout)
+    return opened
+
+
 def prepare_strip(
-    strip: core.Strip, faces: dict[int, BMFace], layout: str, split_angle: float | None, extra_cuts=()
+    strip: core.Strip, faces: dict[int, BMFace], layout: str, split_angle: float | None, extra_cuts=(),
+    break_edge: tuple[int, int] | None = None,
 ) -> tuple[list[tuple[core.Strip, dict[int, BMFace]]], str | None]:
     """The final pieces of one built strip, with their faces by id, and why a requested tear was not made.
 
@@ -198,27 +223,41 @@ def prepare_strip(
     ``LAYOUT_ITEMS``) is set on every piece; "STRAIGHT" goes through
     ``uv_stripe_core.straighten``, which keeps "EVEN" for a piece where it would fold
     a face. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does.
+
+    ``break_edge`` (a vertex-id pair) is a ring's picked break: when ``strip`` is
+    closed and that pair is one of its rungs, the ring is opened there
+    (``uv_stripe_select_core.open_ring``) and comes back as exactly one open piece,
+    with no tear at its bends or at ``extra_cuts``; its layout is "STRAIGHT" when
+    every face is a quad, else ``layout``. When the ring cannot be opened there it is
+    laid out as without ``break_edge`` and the reason is returned. On an open strip
+    ``break_edge`` is ignored.
     """
+    broken = None
+    if break_edge is not None and strip.closed:
+        try:
+            opened = _opened_ring(strip, layout, break_edge)
+        except ValueError as exc:
+            broken = f"the ring cannot be opened at the picked edge: {exc}"
+        else:
+            return [(opened, {fid: faces[fid] for fid in opened.faces})], None
     strip.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
     if split_angle is None and not extra_cuts:
         pieces, reason = [strip], None
     else:
         pieces, reason = select_core.split_strip(strip, split_angle, extra_cuts)
     for piece in pieces:
-        if layout == "STRAIGHT":
-            core.straighten(piece)
-        else:
-            core.stripe_uvs(piece)
-    return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in pieces], reason
+        _lay_piece(piece, layout)
+    return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in pieces], broken or reason
 
 
 def match_piece_seams(pieces) -> None:
     """Make the seams of the laid-out (strip, faces by id) pieces say where their UV islands end.
 
-    Marked: every edge with one face in its piece, and a closed strip's cut rung (the
-    seam ``uv_stripe_core.stripe_uvs`` opens it at) when that rung is an edge of its
-    faces. Cleared: every other edge with both its faces in one piece, so a seam the
-    strip was laid across goes. Edges outside the pieces are not touched.
+    Marked: every edge with one face in its piece, a closed strip's cut rung (the
+    seam ``uv_stripe_core.stripe_uvs`` opens it at) and an opened ring's
+    ``break_edge``, when that rung is an edge of its faces. Cleared: every other edge
+    with both its faces in one piece, so a seam the strip was laid across goes. Edges
+    outside the pieces are not touched.
     """
     pieces = list(pieces)
     marked, cleared = set(), set()
@@ -226,7 +265,9 @@ def match_piece_seams(pieces) -> None:
         inside = set(faces.values())
         edges = {e for f in inside for e in f.edges}
         cut = set()
-        if strip.closed and strip.rungs:
+        if strip.break_edge is not None:
+            cut = set(strip.break_edge)
+        elif strip.closed and strip.rungs:
             k = strip.seam if strip.seam is not None else core.sharpest_rung(strip)
             ni, fi = strip.rungs[k]
             cut = {strip.near[ni % len(strip.near)], strip.far[fi % len(strip.far)]}
