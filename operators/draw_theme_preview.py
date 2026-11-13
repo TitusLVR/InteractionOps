@@ -80,7 +80,7 @@ def _draw_view(state):
         for pt, role in zip(state["pts_row"], _POINT_ROLES):
             draw.points([pt], role=role, theme=th)
         # 5-state line column, tested against the scene's depth: the
-        # parts behind geometry show the theme's Occluded Opacity.
+        # parts behind geometry are dimmed by the theme's Backface Dimming.
         pairs = state["line_pairs"]
         for i, role in enumerate(_LINE_ROLES):
             draw.edges_world(pairs[i*2:i*2+2], role=role, theme=th)

@@ -84,6 +84,13 @@ def serialize_theme(theme) -> dict[str, Any]:
 def apply_theme_dict(theme, data: dict[str, Any]) -> int:
     """Write `data` onto `theme`. Returns count of applied props."""
     applied = 0
+    if "backface_dimming" not in data and "occluded_alpha" in data:
+        # The setting's first, unreleased form stored the opacity of what
+        # geometry hides; Backface Dimming is its complement.
+        try:
+            data = {**data, "backface_dimming": 1.0 - float(data["occluded_alpha"])}
+        except (TypeError, ValueError):
+            pass
     for k, v in data.items():
         if k in _SKIP_PROPS or k.startswith("show_"):
             continue

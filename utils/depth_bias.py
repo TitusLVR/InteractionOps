@@ -1,8 +1,9 @@
-"""Depth bias and pass plan for lines drawn over a mesh. Pure Python, no bpy / gpu / mathutils.
+"""Depth bias and pass plan for lines and points drawn over a mesh. Pure Python, no bpy / gpu / mathutils.
 
-Used by ``ui.draw.primitives.edges_world``: lines that lie on mesh edges are drawn twice with the scene's depth
-buffer, once where they are in front (``LESS_EQUAL``) and once where geometry hides them (``GREATER``) at a lower
-alpha. Two things make that work:
+Used by ``ui.draw.primitives.edges_world`` / ``points_world``: lines that lie on mesh edges (and points on its
+vertices) are drawn twice with the scene's depth buffer, once where they are in front (``LESS_EQUAL``) and once
+where geometry hides them (``GREATER``) at the occluded opacity, ``1 -`` the theme's Backface Dimming. Two things
+make that work:
 
 * The bias. A line on an edge has the same depth as the faces around it, so without a bias it would z-fight with
   them. ``biased_projection`` moves every point toward the viewer by changing only the depth row of the projection
@@ -45,8 +46,21 @@ def scale_alpha(color: Sequence[float], factor) -> tuple[float, float, float, fl
     return (r, g, b, a * clamp_factor(factor))
 
 
+def occluded_opacity(backface_dimming) -> float:
+    """The alpha factor for what geometry hides, from the theme's Backface Dimming (0 = drawn as in front,
+    1 = hidden): ``1 - backface_dimming``, clamped to 0..1. Anything unreadable dims nothing."""
+    try:
+        d = float(backface_dimming)
+    except (TypeError, ValueError):
+        return 1.0
+    if d != d:          # NaN
+        return 1.0
+    return 1.0 - min(max(d, 0.0), 1.0)
+
+
 def occlusion_passes(factor) -> list[tuple[str, float]]:
-    """The draw passes for an occluded-alpha ``factor``, bottom to top, as (depth test, alpha factor).
+    """The draw passes for an occluded opacity ``factor`` (``occluded_opacity``), bottom to top, as (depth test,
+    alpha factor).
 
     1 (or more): one pass with no depth test, the colour as is. 0 (or less): only the visible pass, so hidden
     parts are not drawn. Between: the visible pass at full alpha and the hidden pass at ``factor``."""

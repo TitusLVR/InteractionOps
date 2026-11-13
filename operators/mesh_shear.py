@@ -28,7 +28,7 @@ import bmesh
 import math
 import gpu
 
-from ..ui.draw import primitives as draw_prim, Role
+from ..ui.draw import primitives as draw_prim, Role, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
@@ -37,6 +37,15 @@ from bpy_extras import view3d_utils
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import normal as poly_normal
+
+
+_ACTIVE_HANDLES = set()
+
+
+def _purge_handles():
+    """Remove any stale draw handlers left behind by a previous reload."""
+    while _ACTIVE_HANDLES:
+        safe_handler_remove(_ACTIVE_HANDLES.pop(), bpy.types.SpaceView3D, "WINDOW")
 
 
 DIGIT_TYPES = {
@@ -1551,8 +1560,7 @@ cancels. LMB clicks only pick widget handles."""
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle = safe_handler_add(bpy.types.SpaceView3D,
-            self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
+        self._add_handlers(context)
 
         self._apply()
         context.workspace.status_text_set(self._status_text())
@@ -2120,10 +2128,45 @@ cancels. LMB clicks only pick widget handles."""
 
         return {"RUNNING_MODAL"}
 
+    def _add_handlers(self, context):
+        """The two draw handlers: the profile outlines on the mesh (POST_VIEW, tested against the scene's
+        depth) and the widget handles, extrude arrow, align highlight, HUD and help on top (POST_PIXEL); both
+        tracked for the purge on reload."""
+        _purge_handles()
+        self._handle_view = safe_handler_add(bpy.types.SpaceView3D,
+            self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        self._handle = safe_handler_add(bpy.types.SpaceView3D,
+            self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.update((self._handle_view, self._handle))
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
+            _ACTIVE_HANDLES.discard(h)
+            try:
+                safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
+            except (ValueError, RuntimeError, ReferenceError):
+                pass
+            setattr(self, name, None)
+
+    def _drop_dead_handlers(self):
+        """Both draw handlers, removed from inside a draw callback whose operator was freed."""
+        for name in ("_handle_view", "_handle"):
+            try:
+                h = getattr(self, name, None)
+            except ReferenceError:
+                h = None
+            if h is not None:
+                _ACTIVE_HANDLES.discard(h)
+                try:
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
+                except (ValueError, RuntimeError, ReferenceError):
+                    pass
+
     def _finish(self, context):
-        if getattr(self, "_handle", None):
-            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
-            self._handle = None
+        self._remove_handlers()
         context.workspace.status_text_set(None)
         if context.area:
             context.area.tag_redraw()
@@ -2147,6 +2190,20 @@ cancels. LMB clicks only pick widget handles."""
     # Draw
     # ----------------------------------------------------------------------
 
+    def _draw_view_callback(self, context):
+        """POST_VIEW: each profile's pre-shear ghost, its virtual fill, its sheared outline and the saw-entry
+        tick, the lines dimmed where geometry hides them."""
+        # Guard against blinker (or any addon reload) freeing the
+        # operator's RNA while this draw handler is still registered.
+        try:
+            mw = self.obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
+        theme = get_theme(context)
+        for r in self.records:
+            self._draw_face_record_world(mw, r, context=context, theme=theme)
+
     def _draw_callback(self, context):
         region = context.region
         rv3d = context.region_data
@@ -2159,12 +2216,7 @@ cancels. LMB clicks only pick widget handles."""
         try:
             mw = self.obj.matrix_world
         except (ReferenceError, AttributeError):
-            h = getattr(self, "_handle", None)
-            if h is not None:
-                try:
-                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
-                except (ValueError, RuntimeError, ReferenceError):
-                    pass
+            self._drop_dead_handlers()
             return
 
         theme = get_theme(context)
@@ -2214,7 +2266,39 @@ cancels. LMB clicks only pick widget handles."""
         err = theme.color_for(Role.ERROR_LINE)
         draw_prim.tris(tris, color=(err[0], err[1], err[2], 0.35), context=context)
 
-    def _draw_face_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
+    @staticmethod
+    def _record_widget_frame(r):
+        """(bbox_center, axis_dir, in_plane_perp, half_a, half_p, pivot_pt) of the direction widget, anchored
+        to the *orig* face bounding box (the perpendicular / reset-state selection bbox), or None."""
+        face_normal = r["normal"]
+        axis_dir = r["axis_dir"]
+        origs = r["orig_active_cos"]
+        if not (face_normal.length > 1e-9 and origs):
+            return None
+        in_plane_perp = face_normal.cross(axis_dir)
+        if in_plane_perp.length <= 1e-9:
+            return None
+        in_plane_perp.normalize()
+        centroid = r["centroid"]
+        a_projs = [(oc - centroid).dot(axis_dir) for oc in origs]
+        p_projs = [(oc - centroid).dot(in_plane_perp) for oc in origs]
+        a_min, a_max = min(a_projs), max(a_projs)
+        p_min, p_max = min(p_projs), max(p_projs)
+        # Bbox center: midpoint of axis_dir and in_plane_perp
+        # extents in face plane. The axis hint passes through
+        # this point so the widget reads the same regardless
+        # of which side of the bbox is the pivot.
+        bbox_center = (centroid
+                       + axis_dir * ((a_min + a_max) * 0.5)
+                       + in_plane_perp * ((p_min + p_max) * 0.5))
+        half_a = (a_max - a_min) * 0.5
+        half_p = (p_max - p_min) * 0.5
+        pivot_pt = bbox_center - axis_dir * half_a
+        return bbox_center, axis_dir, in_plane_perp, half_a, half_p, pivot_pt
+
+    def _draw_face_record_world(self, mw, r, *, context, theme):
+        """POST_VIEW part of one profile, in world space and bottom to top: the pre-shear ghost outline, the
+        virtual face fill (no depth test, as before), the sheared outline and the saw-entry tick."""
         verts = r["active_verts"]
         origs = r["orig_active_cos"]
         projs = r["projections"]
@@ -2231,22 +2315,13 @@ cancels. LMB clicks only pick widget handles."""
         pivot_tol = max(max_p * 0.001, 1e-5)
         on_pivot = [p < pivot_tol for p in projs]
 
-        def s2d(co):
-            return view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ co)
-
         # ----- Pre-shear ghost outline (subtle gray) ------------------
-        ghost = []
-        for oc in origs:
-            p = s2d(oc)
-            if p is None:
-                ghost = []
-                break
-            ghost.append(p)
+        ghost = [mw @ oc for oc in origs]
         if ghost:
             segs = []
             for i in range(n_segs):
                 segs.extend([ghost[i], ghost[(i + 1) % n]])
-            draw_prim.edges_3d(segs, role=Role.GHOST_EDGE, context=context)
+            draw_prim.edges_world(segs, role=Role.GHOST_EDGE, context=context)
 
         # ----- Sheared face outline -----------------------------------
         curr = []
@@ -2254,19 +2329,16 @@ cancels. LMB clicks only pick widget handles."""
             if not v.is_valid:
                 curr = []
                 break
-            p = s2d(v.co)
-            if p is None:
-                curr = []
-                break
-            curr.append(p)
+            curr.append(mw @ v.co)
         if curr and virtual_i is not None and n >= 3:
             # Virtual face fill: the open chain closed by its chord is
             # the profile the OBB / pivot sides are built on — show it.
             tris = []
             for i in range(1, n - 1):
                 tris.extend([curr[0], curr[i], curr[i + 1]])
-            draw_prim.tris(tris, color=theme.color_for(Role.GHOST_DEFAULT),
-                           context=context)
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                draw_prim.tris(tris, color=theme.color_for(Role.GHOST_DEFAULT),
+                               context=context)
         if curr:
             normal_segs = []
             pivot_segs = []
@@ -2281,21 +2353,40 @@ cancels. LMB clicks only pick widget handles."""
                 else:
                     normal_segs.extend([a, b])
             if normal_segs:
-                draw_prim.edges_3d(normal_segs, role=Role.ACTIVE_LINE, context=context)
+                draw_prim.edges_world(normal_segs, role=Role.ACTIVE_LINE, context=context)
             if virtual_segs:
-                draw_prim.edges_3d(virtual_segs, role=Role.LINE, context=context)
+                draw_prim.edges_world(virtual_segs, role=Role.LINE, context=context)
             if pivot_segs:
                 # Pivot edges (on-pivot boundary) — brighter amber via LOCKED_POINT role.
-                draw_prim.edges_3d(pivot_segs, role=Role.LOCKED_LINE, context=context)
+                draw_prim.edges_world(pivot_segs, role=Role.LOCKED_LINE, context=context)
+
+        # Saw-entry tick at the pivot end (perp to axis_dir in the face
+        # plane, spanning the bbox extent).
+        frame = self._record_widget_frame(r)
+        if frame is not None:
+            _center, _axis, in_plane_perp, _half_a, half_p, pivot_pt = frame
+            tick_a = pivot_pt - in_plane_perp * half_p
+            tick_b = pivot_pt + in_plane_perp * half_p
+            draw_prim.edges_world([mw @ tick_a, mw @ tick_b],
+                                  role=Role.LOCKED_LINE, context=context)
+
+    def _draw_face_record(self, region, rv3d, mw, r, rec_idx=0, *, context, theme):
+        """POST_PIXEL part of one profile: the direction widget's clickable dots, which also fill the hotspot
+        list the clicks are tested against."""
+        if len(r["active_verts"]) < 2:
+            return
+
+        def s2d(co):
+            return view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ co)
 
         # ----- Bbox-anchored direction widget -------------------------
-        # Anchored to the *orig* face bounding box (the perpendicular /
-        # reset-state selection bbox). The cross of orange dots follows
+        # The cross of orange dots follows
         # the current axis_dir + in-plane perpendicular so any change
         # to axis_dir (A-align, B-OBB, axis click, F toggle, D flip)
         # immediately reorients the widget on the next redraw.
         face_normal = r["normal"]
         axis_dir = r["axis_dir"]
+        origs = r["orig_active_cos"]
 
         if face_normal.length > 1e-9 and origs:
             in_plane_perp = face_normal.cross(axis_dir)
@@ -2316,21 +2407,9 @@ cancels. LMB clicks only pick widget handles."""
                                + in_plane_perp * ((p_min + p_max) * 0.5))
                 half_a = (a_max - a_min) * 0.5
                 half_p = (p_max - p_min) * 0.5
-                pivot_pt = bbox_center - axis_dir * half_a
-                # Saw-entry tick spans the in-plane-perp extent at the
-                # pivot end of the axis line.
-                tick_a = pivot_pt - in_plane_perp * half_p
-                tick_b = pivot_pt + in_plane_perp * half_p
-
-                p_tick_a = s2d(tick_a)
-                p_tick_b = s2d(tick_b)
+                # (The saw-entry tick at the pivot end is drawn in
+                # world space: _draw_face_record_world.)
                 p_bbox_center = s2d(bbox_center)
-
-                if p_tick_a is not None and p_tick_b is not None:
-                    # Saw-entry tick at the pivot end (perp to axis_dir
-                    # in the face plane, spanning the bbox extent).
-                    draw_prim.edges_3d([p_tick_a, p_tick_b],
-                                       role=Role.LOCKED_LINE, context=context)
 
                 locked = theme.color_for(Role.LOCKED_POINT)
                 # Four cross-end orange dots aligned to the current
