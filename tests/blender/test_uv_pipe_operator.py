@@ -246,7 +246,8 @@ def test_operator_is_registered():
     props = rna.properties
     expected = {"mode": "FIT", "active_fit": "WIDTH", "orientation": "HORIZONTAL", "layout": "RECTANGLE",
                 "loop_source": "GEOMETRY", "split_at_bends": False, "split_at_seams": False, "mark_seams": True,
-                "pack": True, "offset_axis": "NONE", "offset_seed": 0, "merge_doubles": True, "picks": ""}
+                "pack": True, "offset_axis": "NONE", "offset_seed": 0, "merge_doubles": True, "picks": "",
+                "seam_side": "SHORTEST"}
     for name, value in expected.items():
         assert props[name].default == value, (name, props[name].default)
     for name, deg in (("loop_angle", 120.0), ("sharp_angle", 60.0), ("bend_angle", 45.0)):
@@ -536,6 +537,95 @@ def test_split_at_seams_keeps_an_old_lengthwise_seam():
     assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 6)      # the automatic seam (see core tests)
 
 
+def _lying(mesh):
+    """The fixture turned 90 degrees round X, (x, y, z) -> (x, -z, y): open_tube's axis runs along world Y and its
+    ring vertex i sits at x = cos(a), z = sin(a), so column 9 is the bottom (z = -1)."""
+    verts, faces = mesh
+    return {v: (p[0], -p[2], p[1]) for v, p in verts.items()}, faces
+
+
+def _world_z(obj, keys):
+    bm = _bm(obj)
+    return {round((obj.matrix_world @ bm.verts[v].co).z, 6) for key in keys for v in key}
+
+
+def test_seam_side_bottom_puts_the_seam_lowest():
+    obj = _object(_lying(open_tube(12, 4)))
+    _edit(obj)
+    assert _run(seam_side="BOTTOM") == {"FINISHED"}
+    seam = _inner_seams(obj, range(48))
+    assert seam == _column_edges(obj, 12, 4, 9) and _world_z(obj, seam) == {-1.0}, _world_z(obj, seam)
+    _edit(obj)
+    assert _run() == {"FINISHED"}
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 6)      # Shortest: as before
+    # the same tube lying by the object's rotation: world space is what counts
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj = _object(open_tube(12, 4), name="turned")
+    obj.rotation_euler = (math.pi / 2.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    _edit(obj)
+    assert _run(seam_side="BOTTOM") == {"FINISHED"}
+    seam = _inner_seams(obj, range(48))
+    assert seam == _column_edges(obj, 12, 4, 9) and _world_z(obj, seam) == {-1.0}, _world_z(obj, seam)
+    _edit(obj)
+    assert _run(seam_side="TOP") == {"FINISHED"}
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 3)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def test_t_cycles_the_seam_side():
+    obj = _object(_lying(open_tube(12, 4)))
+    _edit(obj)
+    op = _modal_on()
+    sides = ["SHORTEST", "BOTTOM", "TOP", "LEFT", "RIGHT", "FRONT", "BACK"]
+    # along the tube's axis (Y) every column faces Front and Back alike: the shortest, column 6, as Left
+    columns = {"SHORTEST": 6, "BOTTOM": 9, "TOP": 3, "LEFT": 6, "RIGHT": 0, "FRONT": 6, "BACK": 6}
+    params = {p.name: p for section in op._hud.param_sections for p in section.params}
+    assert op.seam_side == "SHORTEST" and params["Seam Side (T)"].value_text() == "Shortest"
+    for side in sides[1:] + sides[:1]:
+        before = op._result
+        assert op._modal(bpy.context, _Event("T")) == {"RUNNING_MODAL"}
+        assert op.seam_side == side and op._result is not before, side
+        assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, columns[side]), side
+    assert op._modal(bpy.context, _Event("T", shift=True)) == {"RUNNING_MODAL"}
+    assert op.seam_side == "BACK" and params["Seam Side (T)"].value_text() == "Back (+Y)"
+    op._modal(bpy.context, _Event("T", shift=True))
+    assert op.seam_side == "FRONT"
+    assert op._modal(bpy.context, _Event("ESC")) == {"CANCELLED"}
+    assert op.seam_side == "SHORTEST"                                  # cancel restores it
+
+
+def test_t_drops_the_picked_wall_seam_but_keeps_ring_breaks():
+    obj = _object(_lying(open_tube(12, 4)))
+    _edit(obj)
+    op = _modal_on()
+    op._part_under_cursor = lambda _context, _event: (obj, 0)
+    assert op._modal(bpy.context, _Event("WHEELUPMOUSE", alt=True)) == {"RUNNING_MODAL"}
+    assert len(json.loads(op.picks)[obj.name]["picked"]) == 1
+    assert _inner_seams(obj, range(48)) != _column_edges(obj, 12, 4, 9)
+    op._modal(bpy.context, _Event("T"))
+    assert op.seam_side == "BOTTOM" and json.loads(op.picks)[obj.name]["picked"] == []
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 9)
+    op._finish(bpy.context)
+    # a ring break on a cap ring survives T; the wall's picked seam does not
+    obj = _object(capped_cylinder())
+    _edit(obj)
+    op = _modal_on()
+    radial = _key(obj, 3, 163)                 # between two faces of the outer bottom ring
+    assert _commit_by_clicks(op, obj, radial) == "BREAK"
+    automatic = _inner_seams(obj, A_WALL)
+    wall = next(i for i, p in enumerate(op._result.objects[obj.name].analysis.parts) if p.kind == "WALL")
+    op._part_under_cursor = lambda _context, _event: (obj, wall)
+    op._modal(bpy.context, _Event("WHEELUPMOUSE", alt=True))
+    assert len(json.loads(op.picks)[obj.name]["picked"]) == 2 and _inner_seams(obj, A_WALL) != automatic
+    op._modal(bpy.context, _Event("T"))
+    picked = json.loads(op.picks)[obj.name]["picked"]
+    assert picked == [_edge_indices(obj, {radial})], picked
+    assert _inner_seams(obj, A_RINGS[0]) == {radial} and op._result.objects[obj.name].analysis.breaks
+    assert _inner_seams(obj, A_WALL) == automatic          # an upright wall faces Bottom alike all round
+    op._finish(bpy.context)
+
+
 def test_split_at_bends_cuts_the_clean_bend():
     mesh = clean_bend(12, 4)
     obj = _object(mesh)
@@ -778,8 +868,9 @@ def test_wheel_changes_loop_angle_and_relays_out():
     for _ in range(40):
         op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True))
     assert abs(op.loop_angle - math.pi) < 1e-6                        # clamped
-    for key in ("MIDDLEMOUSE", "TRACKPADPAN", "NDOF_MOTION", "N", "T"):
+    for key in ("MIDDLEMOUSE", "TRACKPADPAN", "NDOF_MOTION", "N"):
         assert op._modal(bpy.context, _Event(key)) == {"PASS_THROUGH"}, key
+    assert op._modal(bpy.context, _Event("T")) == {"RUNNING_MODAL"}     # T is Seam Side now
     op._finish(bpy.context)
 
 
@@ -901,20 +992,20 @@ def test_modal_hud_and_help_list_every_key():
         "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Loop Source (G)", "Under Cursor",
         "Pending Loop (LMB)", "Your Loops", "Loop Angle (Ctrl + Wheel)", "Sharp Angle (Shift + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
         "Mark Seams (X)", "Pack (P)", "Random Offset (Z)", "Offset Limit", "Offset Seed (R)", "Merge Doubles (F)",
-        "Seam (Alt + Wheel)", "Notices"]
+        "Seam Side (T)", "Seam (Alt + Wheel)", "Notices"]
     assert [p.value_text() for p in params] == [
         "Fit 0–1", "Horizontal", "Width", "Rectangle", "Geometry", "None", "None",
         "0 added, 0 removed, 0 picked", "120°", "60°", "✗", "45°", "✗", "✓", "✓", "None",
-        "0.25", "0", "✓", "Automatic", "None"]
+        "0.25", "0", "✓", "Shortest", "Automatic", "None"]
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and not active["Bend Angle (Shift + Alt + Wheel)"]
     assert not active["Random Offset (Z)"] and active["Pack (P)"]
     keys = [it.key for it in op._help.sections[0].items]
     for key in ("LMB", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
                 "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
-                "E", "X", "Enter / Space", "Esc / RMB", "H"):
+                "E", "X", "T / Shift + T", "Enter / Space", "Esc / RMB", "H"):
         assert key in keys, key
-    assert len(keys) == 20
+    assert len(keys) == 21
     text = op._status_text()
     assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
 
@@ -953,6 +1044,7 @@ TESTS = [
     test_no_selection_takes_every_visible_face,
     test_object_scale_is_respected,
     test_split_at_seams_keeps_an_old_lengthwise_seam,
+    test_seam_side_bottom_puts_the_seam_lowest,
     test_split_at_bends_cuts_the_clean_bend,
     test_picks_property_is_applied_by_execute,
     test_picks_are_taken_before_doubles_are_merged,
@@ -972,6 +1064,8 @@ TESTS = [
     test_redo_reproduces_the_modal_result,
     test_modal_hud_and_help_list_every_key,
     test_modal_keys_toggle_their_options,
+    test_t_cycles_the_seam_side,
+    test_t_drops_the_picked_wall_seam_but_keeps_ring_breaks,
 ]
 
 

@@ -418,13 +418,32 @@ def _shortest_path(verts, part: Part) -> Loop | None:
     return None
 
 
-def wall_seam(verts, part: Part, loop_angle, uv=None) -> tuple[Loop | None, bool]:
+def _facing(verts, part: Part, loop: Loop, side, edge_faces) -> float:
+    """How far the wall faces ``side`` along ``loop``: the dot product of ``side`` with the mean of the unit normals
+    of the part's faces that use the loop's edges."""
+    fids = sorted({f for e in loop.edges() for f in edge_faces.get(e, ())})
+    if not fids:
+        return -math.inf
+    normals = [_normal(verts, part.faces[f]) for f in fids]
+    return sum(side[k] * sum(n[k] for n in normals) / len(normals) for k in range(3))
+
+
+def wall_seam(verts, part: Part, loop_angle, uv=None, side=None) -> tuple[Loop | None, bool]:
     """The automatic lengthwise seam of a wall and whether it is a fallback.
 
-    The shortest of ``wall_candidates`` by 3D length, ties to the lowest start position. With no candidate, the
-    shortest edge path between the two longest boundary loops, with fallback True; (None, True) when there is none.
+    The shortest of ``wall_candidates`` by 3D length, ties to the lowest start position. With ``side`` (a world
+    direction (x, y, z)) the candidates are first narrowed to those whose wall faces ``side`` most (``_facing``,
+    within 1e-6 of the best), so the seam follows the tube's surface to that side even round a bend. With no
+    candidate, the shortest edge path between the two longest boundary loops, with fallback True (``side`` is not
+    used there); (None, True) when there is none.
     """
-    best = _shortest(verts, wall_candidates(verts, part, loop_angle, uv))
+    candidates = wall_candidates(verts, part, loop_angle, uv)
+    if side is not None and candidates:
+        edge_faces = _edge_faces(part.faces)
+        scores = [_facing(verts, part, c, side, edge_faces) for c in candidates]
+        top = max(scores)
+        candidates = [c for c, score in zip(candidates, scores) if score >= top - 1e-6]
+    best = _shortest(verts, candidates)
     if best is not None:
         return best, False
     if len(part.boundaries) < 2:
@@ -548,7 +567,7 @@ def _picked_seam(part: Part, picked) -> Loop | None:
     return None
 
 
-def _seams(verts, parts, loop_angle, existing, picked, uv):
+def _seams(verts, parts, loop_angle, existing, picked, uv, side):
     seams: dict[int, Loop] = {}
     fallback: set[int] = set()
     for i, part in enumerate(parts):
@@ -558,7 +577,7 @@ def _seams(verts, parts, loop_angle, existing, picked, uv):
         if seam is None and existing:
             seam = existing_wall_seam(part, existing)
         if seam is None:
-            seam, is_fallback = wall_seam(verts, part, loop_angle, uv)
+            seam, is_fallback = wall_seam(verts, part, loop_angle, uv, side)
             if is_fallback and seam is not None:
                 fallback.add(i)
         if seam is not None:
@@ -567,13 +586,14 @@ def _seams(verts, parts, loop_angle, existing, picked, uv):
 
 
 def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=frozenset(),
-            added=frozenset(), removed=frozenset(), picked=(), uv=None) -> Analysis:
+            added=frozenset(), removed=frozenset(), picked=(), uv=None, seam_side=None) -> Analysis:
     """Split ``faces`` into parts and propose every seam.
 
     Cuts are the automatic ring seams (``ring_seams``) with ``existing`` (the mesh's seams under Split at Seams)
     and the user's ``added`` ring loops, minus the ``removed`` ones; ``split_parts`` (with ``removed`` suppressed)
     classifies the parts and adds its peel seams. Each WALL takes the last ``picked`` loop lying wholly inside it,
-    else its existing seam (``existing_wall_seam``), else ``wall_seam``. With ``bend_angle`` (Split at Bends on) the
+    else its existing seam (``existing_wall_seam``), else ``wall_seam`` toward ``seam_side`` (a world direction, or
+    None for the shortest). With ``bend_angle`` (Split at Bends on) the
     walls' ``bend_seams``, minus ``removed``, are added to the cuts and the parts and seams are worked out once
     more. A picked loop holding a cross edge of a RING part (an edge two of its faces share) sets that ring's
     break, the first such edge of the last such pick. A WALL with no seam at all becomes FREE; every FREE part
@@ -584,7 +604,7 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
     base = {e for loop in ring_seams(verts, faces, sharp_angle, loop_angle) for e in loop.edges()}
     base = (base | existing | {_edge(*e) for e in added}) - removed
     parts, peel = split_parts(verts, faces, base, suppressed=removed)
-    seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv)
+    seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv, seam_side)
     cuts = base | peel
     if bend_angle is not None:
         bends = set()
@@ -595,7 +615,7 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
         if bends - cuts:
             base |= bends
             parts, peel = split_parts(verts, faces, base, suppressed=removed)
-            seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv)
+            seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv, seam_side)
             cuts = base | peel
 
     breaks: dict[int, tuple] = {}
