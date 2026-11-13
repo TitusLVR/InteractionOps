@@ -14,7 +14,7 @@ choices go to the lower vertex id or the lower position.
 
 import heapq
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .uv_stripe_core import Strip, _signed_area, _tutte
 from .uv_stripe_select_core import _boundary_loops, _edge, face_islands, strip_from_faces
@@ -547,6 +547,7 @@ class Analysis:
     breaks: dict[int, tuple]       # part index -> break edge, RING parts with a user pick only
     fallback: set[int]             # WALL part indices whose seam is a fallback path
     warnings: list[str]
+    slits: dict[int, set] = field(default_factory=dict)   # part index -> the user's added cut edges inside it
 
 
 def _inner_edges(part: Part) -> set:
@@ -642,9 +643,13 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
     walls' ``bend_seams``, minus ``removed``, are added to the cuts and the parts and seams are worked out once
     more. A picked loop holding a cross edge of a RING part (an edge two of its faces share) sets that ring's
     break, the first such edge of the last such pick. A WALL with no seam at all becomes FREE. With ``hard_angle``
-    the FREE parts, and only they, then go through the hard-surface pass (``_hard_pieces``, with ``sharp``: the
-    edges marked sharp): each is replaced in place by its pieces and the hard edges join the cuts. Every FREE part
-    left adds one warning naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
+    a WALL that is no tube (lengthwise loops from fewer than half the vertices of its longest boundary, and no
+    picked or existing seam) becomes FREE too, and the FREE parts, and only they, then go through the hard-surface
+    pass (``_hard_pieces``, with ``sharp``: the edges marked sharp): each is replaced in place by its pieces and the
+    hard edges join the cuts. Last, a part with ``added`` edges inside it (a cut that does not separate it: a slit)
+    becomes FREE whatever its kind, its seam or break dropped, and records them in ``slits``; it is unwrapped with
+    them as seams. The slits play no part in the decisions before. Every other FREE part left adds one warning
+    naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
     """
     removed = frozenset(_edge(*e) for e in removed)
     existing = frozenset(_edge(*e) for e in existing)
@@ -683,20 +688,46 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
             fallback.discard(i)
             seamless.add(id(part))
     if hard_angle is not None:
+        # A wall is a tube only when lengthwise loops run from at least half the vertices of its longest boundary
+        # (or the user gave it a seam). A box with holes in it has boundary loops too, but no such loops: it goes
+        # to the hard-surface pass instead of being laid out as a wall on a fallback seam.
+        for i, part in enumerate(parts):
+            if part.kind != "WALL" or i not in seams:
+                continue
+            if _picked_seam(part, picked) is not None:
+                continue
+            if existing and existing_wall_seam(part, existing) is not None:
+                continue
+            if 2 * len(wall_candidates(verts, part, loop_angle, uv)) < len(part.boundaries[0]):
+                part.kind = "FREE"
+                del seams[i]
+                fallback.discard(i)
         pieces, hard = _hard_pieces(verts, parts, frozenset(_edge(*e) for e in sharp), hard_angle, removed)
         if pieces:
             parts, seams, breaks, fallback = _replace_parts(parts, seams, breaks, fallback, pieces)
             cuts = cuts | hard
 
+    added_edges = {_edge(*e) for e in added} - removed
+    slits: dict[int, set] = {}
+    if added_edges:
+        for i, part in enumerate(parts):
+            inside = _inner_edges(part) & added_edges
+            if inside:
+                part.kind = "FREE"
+                slits[i] = inside
+                seams.pop(i, None)
+                breaks.pop(i, None)
+                fallback.discard(i)
+
     warnings: list[str] = []
-    for part in parts:
-        if part.kind != "FREE":
+    for i, part in enumerate(parts):
+        if part.kind != "FREE" or i in slits:
             continue
         if id(part) in seamless:
             warnings.append(f"a wall of {len(part.faces)} faces has no seam between its ends: unwrapped as a free part")
         else:
             warnings.append(f"{len(part.faces)} faces are no tube, cap or ring: unwrapped as a free part")
-    return Analysis(parts, cuts, seams, breaks, fallback, warnings)
+    return Analysis(parts, cuts, seams, breaks, fallback, warnings, slits)
 
 
 # --- Wall and disk layouts ----------------------------------------------------------------------------------------

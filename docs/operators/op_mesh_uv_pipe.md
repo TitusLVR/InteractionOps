@@ -10,7 +10,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | Key | Action |
 | --- | --- |
 | <kbd>Mouse move</kbd> | Shows the edge under the cursor and the seam loop it would make |
-| <kbd>LMB</kbd> | First click: the loop becomes pending. Second click on the same loop: it is committed and the UVs are laid out again; the tool stays open |
+| <kbd>LMB</kbd> | First click: the loop under the cursor becomes pending. Second click on the same loop: it is committed and the UVs are laid out again; the tool stays open. Every loop can be committed: a ring seam, a wall seam, a ring break or an open seam (added, or removed when it is already a seam) |
 | <kbd>Alt</kbd>+<kbd>Wheel</kbd> | Step the seam of the wall under the cursor to the next / previous lengthwise loop round the tube |
 | <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> | Loop Angle ±5° |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Sharp Angle ±5° (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±1°) |
@@ -40,9 +40,9 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | --- | --- |
 | Preview colour (dim) | The seams found automatically |
 | Active colour (bright) | The seams you committed: added ring seams, picked wall seams and ring breaks |
-| Closest colour | The loop under the cursor; a click makes it pending |
+| Closest colour | The loop under the cursor, whatever its kind; a click makes it pending |
 | Locked colour | The pending loop: click it again to commit, <kbd>Esc</kbd> / <kbd>RMB</kbd> to drop it |
-| Error colour | Under the cursor: a loop that cannot be used — it neither closes into a ring nor joins two ends of a wall; lower the Loop Angle or click another edge. On a wall: a fallback seam (no lengthwise loop was found) |
+| Error colour | A wall's fallback seam (no lengthwise loop was found) |
 
 The HUD says the same in words: **Under Cursor** tells what a click on the highlighted loop will do, **Pending Loop** what waits for the second click, **Your Loops** how many loops you have added, removed and picked.
 
@@ -56,7 +56,7 @@ The faces are split into parts at the ring seams, and each part is one of:
 - **Free part** — anything else (a dome, a closed blob): first cut as a hard-surface part (see below); what is left is unwrapped by Blender's unwrap and scaled to its real size, and a warning names it.
 
 ### Hard-surface parts
-A part that is no tube, ring or cap — a cube, a bevelled box, a bracket — is cut along its hard edges in a separate pass that runs after everything above and touches only those parts: walls, rings, disks and their seams never change, even when their own edges are sharp. The hard edges are the edges **marked Sharp** inside such parts when the mesh has any there; otherwise the edges whose angle between faces reaches **Hard Edge Angle** (30° by default). Every flat piece is projected at its real size, holes included, like a cap disk; a piece that is still curved is unwrapped by Blender's unwrap with its outline as the seam. The hard edges are marked as seams. A seam loop you removed is never cut again by this pass.
+A part that is no tube, ring or cap — a cube, a bevelled box, a bracket — is cut along its hard edges in a separate pass that runs after everything above and touches only those parts: walls, rings, disks and their seams never change, even when their own edges are sharp. A part with ends but lengthwise loops from fewer than half the vertices of its longest end (a box with holes in it) is no tube either and goes to this pass, unless you picked its wall seam or it has one under Split at Seams. The hard edges are the edges **marked Sharp** inside such parts when the mesh has any there; otherwise the edges whose angle between faces reaches **Hard Edge Angle** (30° by default). Every flat piece is projected at its real size, holes included, like a cap disk; a piece that is still curved is unwrapped by Blender's unwrap with its outline as the seam. The hard edges are marked as seams. A seam loop you removed is never cut again by this pass.
 
 ## Seams
 - **Ring seams** are found automatically: a closed loop of edges whose mean angle between faces is at least **Sharp Angle** (60° by default) cuts — the rims of a tube, the edges between cap rings, junctions and diameter steps. Sharp edges that do not close into a loop do not cut, so the lengthwise edges of a low-poly tube never split the wall.
@@ -64,7 +64,8 @@ A part that is no tube, ring or cap — a cube, a bevelled box, a bracket — is
 - Each wall's **lengthwise seam** is the shortest lengthwise loop that reaches both ends — on a bent pipe that is the inside of the bends. When no loop reaches both ends, the shortest edge path between them is used and the HUD says it is a fallback; lowering Loop Angle usually finds a real loop.
 - **Seam Side** moves the automatic lengthwise seam to hide it: *Shortest* (default) is the rule above; *Bottom (−Z)*, *Top (+Z)*, *Left (−X)*, *Right (+X)*, *Front (−Y)* and *Back (+Y)* take, of the lengthwise loops, the one whose faces point most toward that world direction — on a lying tube *Bottom* puts the seam along its underside. It follows the tube's surface, so on a bent pipe the seam stays on that side of the tube round the bend. Loops that face the side equally (a direction along the tube's axis) fall back to the shortest of them. A seam you pick by hand or with <kbd>Alt</kbd>+<kbd>Wheel</kbd> overrides it, and so does an existing seam under Split at Seams; pressing <kbd>T</kbd> drops the wall seams you picked so the new side applies (ring breaks and ring seams stay). The direction is judged by the faces' normals: on a mesh whose normals point inward the opposite side is chosen.
 - Clicking a **ring loop** toggles a ring seam there: it adds one, or removes one already present, automatic ones included. A removed seam is not found again when the options change.
-- Clicking a **lengthwise loop** on a wall makes it that wall's seam. A loop that stops before reaching both ends is shown in the error colour and cannot be committed.
+- Clicking a **lengthwise loop** on a wall makes it that wall's seam.
+- Any other loop is an **open seam**: from the edge under the cursor it runs both ways until it meets a seam, the border of the faces, or a turn sharper than Loop Angle (inside a wall: until the wall's ends). Clicking it adds a seam along it, or removes it when it is already a seam (an automatic one included; the hard-surface pass then does not cut it again). An open seam that splits a part into two cuts it there; one that does not (a slit) turns the part into a free part, unwrapped by Blender's unwrap with the slit as a seam and no warning. On a curved part the UVs open along the slit; on a flat one the unwrap keeps the plane, so the slit is marked but its two sides stay together. To set a wall's seam, click its lengthwise loop instead: an added open seam along a whole wall is a slit, not the wall's seam.
 - Clicking a **cross edge of a ring** strip picks where that ring is cut open.
 
 ## Options

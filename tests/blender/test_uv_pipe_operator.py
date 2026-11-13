@@ -18,7 +18,7 @@ from mathutils import Vector
 ADDON = "InteractionOps"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/: shared fixtures
-from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, open_tube  # noqa: E402
+from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, framed_box, open_tube  # noqa: E402
 
 operator = None
 
@@ -950,19 +950,109 @@ def test_wheel_changes_loop_angle_and_relays_out():
     op._finish(bpy.context)
 
 
-def test_invalid_loop_cannot_be_committed():
+def _corner_uvs(obj, key):
+    """For the edge ``key``: per end vertex, the UVs its two faces give it."""
+    bm = _bm(obj)
+    layer = bm.loops.layers.uv.active
+    edge = next(e for e in bm.edges if tuple(sorted(v.index for v in e.verts)) == key)
+    return {v.index: [next(_uv(lp, layer) for lp in f.loops if lp.vert is v) for f in edge.link_faces]
+            for v in edge.verts}
+
+
+def _opened(obj, key):
+    """Whether both faces of the edge ``key`` give one of its ends different UVs: the UVs open along it."""
+    return any(math.dist(a, b) > 1e-6 for a, b in _corner_uvs(obj, key).values())
+
+
+def test_a_short_loop_is_an_open_seam_that_toggles():
+    # no lengthwise loop at 179 degrees on the twisted tube, and nothing reaches the 180-degree hard edge angle:
+    # one free part; a loop that stops short is an open seam, committed and taken back like a ring seam
     obj = _object(open_tube(12, 4, twist=math.radians(5.0)))
     _edit(obj)
-    op = _modal_on(loop_angle=math.radians(179.0))
-    assert op._result.fallback == 1 and op._result.error_lines       # the fallback seam is drawn as an error
-    assert op._seam_state() == "Fallback"
-    loop, kind, _part = op._classify(obj, _key(obj, 3, 15))
-    assert kind == "INVALID"
-    before = _uv_state(obj)
-    for _ in range(2):
-        assert op._click_loop(bpy.context, obj, loop, kind) is False
-    assert op._pending is None and op.picks == "" and _uv_state(obj) == before
+    op = _modal_on(loop_angle=math.radians(179.0), hard_angle=math.pi)
+    assert op._result.kinds == {"FREE": 1}
+    key = _key(obj, 3, 15)
+    loop, kind, _part = op._classify(obj, key)
+    assert kind == "CUT" and loop.edges() == [key], loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Open loop: add a seam along it"
+    assert op._click_loop(bpy.context, obj, loop, kind) is False
+    assert "pending open seam" in op._status_text()
+    assert op._click_loop(bpy.context, obj, loop, kind) is True
+    assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, {key})]
+    assert key in _seams(obj) and key in op._result.objects[obj.name].analysis.cuts
+    assert op._result.objects[obj.name].analysis.slits == {0: {key}}
+    assert not any("free part" in w for w in op._result.warnings), op._result.warnings   # the user asked for it
+    loop, kind, _part = op._classify(obj, key)
+    assert kind == "CUT" and op._loop_text((obj, loop, kind)) == "Seam: remove it"
+    assert _commit_by_clicks(op, obj, key) == "CUT"
+    assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
+    assert key not in _seams(obj)
     op._finish(bpy.context)
+
+
+def test_every_hovered_edge_of_a_cube_can_be_cut():
+    obj = _object(_cube())
+    _edit(obj)
+    op = _modal_on()
+    cache = op._result.objects[obj.name]
+    assert cache.analysis.cuts == _all_edge_keys(obj)
+    assert len(op._result.cut_lines) == 24                     # the 12 hard edges are drawn like every cut
+    drawn = {tuple(sorted((tuple(round(c, 6) for c in a), tuple(round(c, 6) for c in b))))
+             for a, b in zip(op._result.cut_lines[::2], op._result.cut_lines[1::2])}
+    bm = _bm(obj)
+    expected = {tuple(sorted(tuple(round(c, 6) for c in obj.matrix_world @ v.co) for v in e.verts)) for e in bm.edges}
+    assert drawn == expected
+    for key in sorted(_all_edge_keys(obj)):
+        loop, kind, _part = op._classify(obj, key)
+        assert kind == "CUT" and loop.edges() == [key], (key, kind, loop.verts)
+        assert op._loop_text((obj, loop, kind)) == "Seam: remove it"
+    key = sorted(_all_edge_keys(obj))[0]
+    assert _commit_by_clicks(op, obj, key) == "CUT"
+    assert json.loads(op.picks)[obj.name]["removed"] == [_edge_indices(obj, {key})]
+    assert key not in _seams(obj) and len(_islands(obj)) == 5
+    assert _commit_by_clicks(op, obj, key) == "CUT"           # restored
+    assert key in _seams(obj) and len(_islands(obj)) == 6
+    op._finish(bpy.context)
+
+
+def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
+    obj = _object(framed_box())
+    _edit(obj)
+    op = _modal_on()
+    assert op._result.kinds == {"DISK": 6}, op._result.kinds
+    key = _key(obj, 1, 5)                      # between two frame quads, from the rim to the hole
+    assert key not in _seams(obj) and not _opened(obj, key)
+    loop, kind, _part = op._classify(obj, key)
+    assert kind == "CUT" and loop.edges() == [key], loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Open loop: add a seam along it"
+    assert _commit_by_clicks(op, obj, key) == "CUT"
+    assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, {key})]
+    assert key in _seams(obj) and op._result.objects[obj.name].analysis.slits
+    # the frame is now unwrapped by Blender with the slit as a seam; a flat piece unwraps to its own plane, so the
+    # slit's two sides land on the same UVs (a slit opens only where the surface is curved: see the tube below)
+    assert op._result.kinds == {"DISK": 5, "FREE": 1}
+    assert not _flipped(obj, range(len(framed_box()[1])))
+    assert _commit_by_clicks(op, obj, key) == "CUT"
+    assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
+    assert key not in _seams(obj) and not _opened(obj, key) and op._result.kinds == {"DISK": 6}
+    op._finish(bpy.context)
+
+
+def test_a_slit_opens_a_curved_part():
+    # a full column added as a cut (not picked as the wall seam): the tube is one free part unwrapped with the column
+    # as its only seam, so both sides of every column edge get different UVs
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    column = _column_edges(obj, 12, 4, 3)
+    stand = _OperatorStandIn(picks=json.dumps({obj.name: {"added": [_edge_indices(obj, column)]}}))
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert any("0 wall(s), 0 ring(s), 0 disk(s), 1 free part(s)" in m for _k, m in stand.reports), stand.reports
+    assert not any("faces are no tube" in m for _k, m in stand.reports), stand.reports
+    assert _inner_seams(obj, range(48)) == column
+    for key in column:
+        assert _opened(obj, key), (key, _corner_uvs(obj, key))
+    assert len(_islands(obj)) == 1
+    assert not _flipped(obj, range(48))
 
 
 def test_break_click_on_a_ring_strip_sets_its_break():
@@ -1079,6 +1169,8 @@ def test_modal_hud_and_help_list_every_key():
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and not active["Bend Angle (Shift + Alt + Wheel)"]
     assert not active["Random Offset (Z)"] and active["Pack (P)"]
+    labels = [it.label for it in op._help.sections[0].items]
+    assert "Pick a loop or an open seam; click it again to cut or uncut" in labels, labels
     keys = [it.key for it in op._help.sections[0].items]
     for key in ("LMB", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
                 "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "Ctrl + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
@@ -1087,6 +1179,7 @@ def test_modal_hud_and_help_list_every_key():
     assert len(keys) == 22
     text = op._status_text()
     assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
+    assert "[LMB] pick a loop or an open seam, again to commit" in text
 
 
 def test_modal_keys_toggle_their_options():
@@ -1137,7 +1230,10 @@ TESTS = [
     test_removing_a_rim_does_not_come_back_on_relayout,
     test_alt_wheel_steps_the_seam,
     test_wheel_changes_loop_angle_and_relays_out,
-    test_invalid_loop_cannot_be_committed,
+    test_a_short_loop_is_an_open_seam_that_toggles,
+    test_every_hovered_edge_of_a_cube_can_be_cut,
+    test_a_slit_in_a_flat_frame_is_a_seam_and_toggles,
+    test_a_slit_opens_a_curved_part,
     test_break_click_on_a_ring_strip_sets_its_break,
     test_loop_source_uv_is_unavailable_without_a_uv_layer,
     test_cancel_restores_uvs_and_seams_exactly,

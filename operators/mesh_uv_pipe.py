@@ -51,11 +51,16 @@ LAYOUT_CYCLE = [item[0] for item in uv_pipe_bridge.LAYOUT_ITEMS]
 LAYOUT_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LAYOUT_ITEMS}
 SOURCE_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LOOP_SOURCE_ITEMS}
 ORIENTATION_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ORIENTATION_ITEMS}
-KIND_NAMES = {"RING": "ring seam", "LENGTH": "wall seam", "BREAK": "ring break", "INVALID": "invalid loop"}
+KIND_NAMES = {"RING": "ring seam", "LENGTH": "wall seam", "BREAK": "ring break", "CUT": "open seam"}
 LOOP_TEXT = {
     "LENGTH": "Lengthwise loop: set the wall seam",
     "BREAK": "Ring cross edge: set the ring break",
-    "INVALID": "Unusable: not closed, not joining two wall ends (lower Loop Angle)",
+}
+TOGGLE_TEXT = {  # (kind, all its edges already cut) -> what a click does
+    ("RING", True): "Ring seam: remove it",
+    ("RING", False): "Ring loop: add a ring seam",
+    ("CUT", True): "Seam: remove it",
+    ("CUT", False): "Open loop: add a seam along it",
 }
 SEAM_SIDE_ITEMS = [
     ("SHORTEST", "Shortest", "The shortest lengthwise loop of each wall"),
@@ -152,6 +157,15 @@ class _Cache:
     part_of_face: dict               # face id -> part index
     edge_index: dict                 # edge key -> BMEdge.index
     part_nbrs: dict = field(default_factory=dict)        # part index -> neighbours, filled on demand
+    _cut_stops: frozenset | None = None
+
+    def cut_stops(self):
+        """Where an open cut ends: the vertices on a cut edge or a wall seam and the boundary vertices of the scope."""
+        if self._cut_stops is None:
+            seams = {e for loop in self.analysis.seams.values() for e in loop.edges()}
+            border = {e for e, fs in self.edge_faces.items() if len(fs) == 1}
+            self._cut_stops = frozenset(v for e in self.analysis.cuts | seams | border for v in e)
+        return self._cut_stops
 
     def stops(self, i):
         return frozenset(v for b in self.analysis.parts[i].boundaries for v in b)
@@ -554,8 +568,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
 
         "BREAK" when the edge lies between two faces of a ring strip; else the loop traced on all faces in scope
         is "RING" when it closes; else, on an edge inside a wall, the loop traced in that wall up to its
-        boundaries is "LENGTH" when it joins two of them, "INVALID" when it stops short; any other edge is
-        "INVALID". Returns (loop, kind, part index or None), or None when the edge is not in scope."""
+        boundaries is "LENGTH" when it joins two of them and an open "CUT" when it stops short; on any other edge
+        the open "CUT" traced on all faces in scope until it meets a cut, a wall seam or the scope's border
+        (``_Cache.cut_stops``) or turns sharper than Loop Angle. Every kind can be committed. Returns (loop, kind,
+        part index or None), or None when the edge is not in scope."""
         cache = getattr(self, "_result", None) or _Result()
         cache = cache.objects.get(obj.name)
         if cache is None or key not in cache.edge_faces:
@@ -571,8 +587,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         if part is not None and cache.analysis.parts[part].kind == "WALL":
             loop = uv_pipe_core.trace_loop(cache.verts, cache.neighbours(part), key, self.loop_angle,
                                            cache.stops(part), cache.uv)
-            return loop, uv_pipe_core.loop_kind(loop, cache.analysis.parts[part]), part
-        return loop, "INVALID", None
+            kind = uv_pipe_core.loop_kind(loop, cache.analysis.parts[part])
+            return loop, ("LENGTH" if kind == "LENGTH" else "CUT"), part
+        loop = uv_pipe_core.trace_loop(cache.verts, cache.nbrs, key, self.loop_angle, cache.cut_stops(), cache.uv)
+        return loop, "CUT", part
 
     def _hit(self, context, event):
         """(object, face index) under the cursor among the faces of the last pass, or None."""
@@ -625,10 +643,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         return a[0].name == b[0].name and frozenset(a[1].edges()) == frozenset(b[1].edges())
 
     def _click_loop(self, context, obj, loop, kind):
-        """A first click makes ``loop`` pending; a second click on the same loop commits it (``_commit``). An
-        INVALID loop is neither. Returns whether it was committed."""
-        if kind == "INVALID":
-            return False
+        """A first click makes ``loop`` pending; a second click on the same loop commits it (``_commit``). Returns
+        whether it was committed."""
         pending = getattr(self, "_pending", None)
         if pending is None or not self._same(pending, (obj, loop)):
             self._pending = (obj, loop, kind)
@@ -641,8 +657,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
     def _commit(self, context, obj, loop, kind):
         """Store ``loop`` in ``picks`` and lay out again.
 
-        RING: a loop the user added is dropped again, a removed one is restored; otherwise a loop whose edges are
-        all current cuts is removed, any other added. LENGTH (a wall's seam) and BREAK (a ring's break) replace the
+        RING and CUT (an open seam): a loop the user added is dropped again, a removed one is restored; otherwise a
+        loop whose edges are all current cuts is removed, any other added. LENGTH (a wall's seam) and BREAK (a ring's break) replace the
         picks lying inside the same part, then are added to ``picked``."""
         cache = self._result.objects.get(obj.name)
         if cache is None:
@@ -654,7 +670,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         indices = sorted(cache.edge_index[e] for e in loop.edges() if e in cache.edge_index)
         if not indices:
             return
-        if kind == "RING":
+        if kind in ("RING", "CUT"):
             own = set(indices)
             if any(set(lp) == own for lp in entry["added"]):
                 entry["added"] = [lp for lp in entry["added"] if set(lp) != own]
@@ -778,10 +794,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         if entry is None:
             return "None"
         obj, loop, kind = entry
-        if kind == "RING":
+        if kind in ("RING", "CUT"):
             cache = (getattr(self, "_result", None) or _Result()).objects.get(obj.name)
             cut = cache is not None and set(loop.edges()) <= cache.analysis.cuts
-            return "Ring seam: remove it" if cut else "Ring loop: add a ring seam"
+            return TOGGLE_TEXT[(kind, cut)]
         return LOOP_TEXT[kind]
 
     def _pending_text(self):
@@ -846,7 +862,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
 
         self._help = HelpOverlay("uv_pipe")
         self._help.add_section(HUDSection("UV Pipe", [
-            item("Pick a loop; click it again to commit", "LMB"),
+            item("Pick a loop or an open seam; click it again to cut or uncut", "LMB"),
             item("Step the wall seam under the cursor", "Alt + Wheel"),
             item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
@@ -1044,7 +1060,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                     "[Esc/RMB] drop it | [Enter/Space] finish")
         return (
             f"UV Pipe: {count}"
-            "[LMB] pick a loop, again to commit | [Alt+Wheel] step the wall seam | "
+            "[LMB] pick a loop or an open seam, again to commit | [Alt+Wheel] step the wall seam | "
             f"seam side = {SEAM_SIDE_NAMES[self.seam_side].lower()} (T) | "
             f"loop angle = {math.degrees(self.loop_angle):.0f}° (Ctrl+Wheel) | "
             f"sharp angle = {math.degrees(self.sharp_angle):.0f}° (Shift+Wheel) | "
@@ -1086,7 +1102,6 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             waiting = project(loop_points(pending))
         except Exception:   # a draw handler must never raise: it would repeat every frame
             cuts, errors, mine, hovered, waiting = [], [], [], [], []
-        invalid = hover is not None and hover[2] == "INVALID"
         if cuts or errors or mine or hovered or waiting:
             # bottom to top: automatic seams, the user's own, fallback seams, the hover, the pending loop
             with draw_scope(blend="ALPHA"):
@@ -1097,7 +1112,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 if errors:
                     draw.edges_3d(errors, role=Role.ERROR_LINE, context=context)
                 if hovered:
-                    draw.edges_3d(hovered, role=Role.ERROR_LINE if invalid else Role.CLOSEST_LINE, context=context)
+                    draw.edges_3d(hovered, role=Role.CLOSEST_LINE, context=context)
                 if waiting:
                     draw.edges_3d(waiting, role=Role.LOCKED_LINE, context=context)
         hud = getattr(self, "_hud", None)

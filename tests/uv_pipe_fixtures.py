@@ -153,3 +153,21 @@ def torus(major=12, minor=8):
             i1, j1 = (i + 1) % major, (j + 1) % minor
             _add(faces, (i * minor + j, i1 * minor + j, i1 * minor + j1, i * minor + j1))
     return verts, faces
+
+
+def framed_box():
+    """A closed 3 x 3 x 1 box whose top is a 3 x 3 grid of unit quads with the middle one missing (a frame round a
+    hole) and whose sides are hexagons: one FREE part, cut at its 90-degree edges into six flat pieces, the top one
+    with two boundary loops."""
+    verts = {y * 4 + x: (float(x), float(y), 1.0) for y in range(4) for x in range(4)}
+    verts.update({16: (0.0, 0.0, 0.0), 17: (3.0, 0.0, 0.0), 18: (3.0, 3.0, 0.0), 19: (0.0, 3.0, 0.0)})
+    faces = {}
+    for y in range(3):
+        for x in range(3):
+            if (x, y) != (1, 1):
+                a = y * 4 + x
+                faces[len(faces)] = (a, a + 1, a + 5, a + 4)
+    for face in ((16, 17, 3, 2, 1, 0), (17, 18, 15, 11, 7, 3), (18, 19, 12, 13, 14, 15), (19, 16, 0, 4, 8, 12),
+                 (16, 19, 18, 17)):
+        faces[len(faces)] = face
+    return verts, faces
