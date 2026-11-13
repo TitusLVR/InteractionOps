@@ -6,7 +6,7 @@ from math import radians
 from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, open_tube, torus
 from utils.uv_pipe_core import (
     Loop, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
-    wall_candidates, wall_seam,
+    disk_uvs, wall_candidates, wall_seam, wall_uvs,
 )
 from utils.uv_stripe_select_core import _edge
 
@@ -534,3 +534,143 @@ def test_analysis_is_deterministic():
         assert runs[0].cuts == runs[1].cuts
         assert {i: s.verts for i, s in runs[0].seams.items()} == {i: s.verts for i, s in runs[1].seams.items()}
         assert [sorted(p.faces) for p in runs[0].parts] == [sorted(p.faces) for p in runs[1].parts]
+
+
+# --- Task 8: wall and disk layouts --------------------------------------------------------------------------------
+
+
+def _area(pts):
+    return 0.5 * sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))
+
+
+def _analysed_wall(verts, faces):
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    (i,) = [k for k, p in enumerate(result.parts) if p.kind == "WALL"]
+    return result.parts[i], result.seams[i]
+
+
+def _closed_length(verts, ids):
+    return sum(math.dist(verts[a], verts[b]) for a, b in zip(ids, ids[1:] + ids[:1]))
+
+
+def _assert_straight_perimeter(verts, part, seam, uv):
+    ends = [b for b in part.boundaries if seam.verts[0] in b or seam.verts[-1] in b]
+    width = sum(_closed_length(verts, b) for b in ends) / 2.0
+    height = _path_length(verts, seam)
+    on_seam = set(seam.verts)
+    for (fid, vid), (u, v) in uv.items():
+        if vid in on_seam:
+            assert min(abs(u), abs(u - width)) < 1e-9
+        if any(vid in b for b in ends):
+            assert min(abs(v), abs(v - height)) < 1e-9
+    us = [u for u, _v in uv.values()]
+    vs = [v for _u, v in uv.values()]
+    assert min(us) > -1e-9 and max(us) < width + 1e-9 and min(vs) > -1e-9 and max(vs) < height + 1e-9
+    return width, height
+
+
+def _assert_no_flip(part, uv):
+    for fid, face in part.faces.items():
+        assert _area([uv[(fid, v)] for v in face]) > 0.0, fid
+
+
+def test_cylinder_wall_is_a_true_size_rectangle():    # spec acceptance
+    verts, faces = capped_cylinder()
+    part, seam = _analysed_wall(verts, faces)
+    uv, quads = wall_uvs(verts, part, seam)
+    assert quads is False
+    assert set(uv) == {(fid, v) for fid, face in part.faces.items() for v in face}
+    us = [u for u, _v in uv.values()]
+    vs = [v for _u, v in uv.values()]
+    perimeter = 32 * 2.0 * math.sin(math.pi / 32)
+    assert abs((max(us) - min(us)) - perimeter) < 1e-6 * perimeter
+    assert abs((max(vs) - min(vs)) - 2.0) < 1e-6 * 2.0
+    _assert_no_flip(part, uv)
+
+
+def test_wall_perimeter_is_straight():
+    verts, faces = bent_pipe()
+    part, seam = _analysed_wall(verts, faces)
+    uv, _ = wall_uvs(verts, part, seam)
+    _assert_straight_perimeter(verts, part, seam, uv)
+    # both sides of the seam are used: every seam vertex has a corner at u = 0 and one at u = W
+    width = sum(_closed_length(verts, b) for b in part.boundaries[:2]) / 2.0
+    for vid in seam.verts:
+        us = {round(u / width) for (fid, w), (u, _v) in uv.items() if w == vid}
+        assert us == {0, 1}
+
+
+def test_wall_has_no_flipped_face():
+    for mesh in (bent_pipe(), clean_bend()):
+        part, seam = _analysed_wall(*mesh)
+        uv, _ = wall_uvs(mesh[0], part, seam)
+        _assert_no_flip(part, uv)
+
+
+def test_pole_triangles_take_the_side_they_lie_on():
+    # the triangles beside the pole touch the seam at the pole only; their pole corner must sit on their side
+    verts, faces = bent_pipe()
+    part, seam = _analysed_wall(verts, faces)
+    uv, _ = wall_uvs(verts, part, seam)
+    (pole,) = _pole(faces)
+    width = sum(_closed_length(verts, b) for b in part.boundaries[:2]) / 2.0
+    for fid, face in part.faces.items():
+        if pole in face and len(face) == 3:
+            others = [uv[(fid, v)][0] for v in face if v != pole]
+            u = uv[(fid, pole)][0]
+            assert all(abs(o - u) < width / 2 for o in others)
+
+
+def test_quads_layout_makes_every_face_a_rectangle():
+    verts, faces = open_tube()
+    part, seam = _analysed_wall(verts, faces)
+    uv, quads = wall_uvs(verts, part, seam, quads=True)
+    assert quads is True
+    for fid, face in part.faces.items():
+        pts = [uv[(fid, v)] for v in face]
+        assert len({round(u, 9) for u, _v in pts}) == 2 and len({round(v, 9) for _u, v in pts}) == 2
+    _assert_no_flip(part, uv)
+    _assert_straight_perimeter(verts, part, seam, uv)
+
+
+def test_quads_layout_on_a_clean_bend():
+    verts, faces = clean_bend()
+    part, seam = _analysed_wall(verts, faces)
+    uv, quads = wall_uvs(verts, part, seam, quads=True)
+    assert quads is True
+    _assert_no_flip(part, uv)
+
+
+def test_quads_layout_falls_back_on_triangles():
+    verts, faces = bent_pipe()
+    part, seam = _analysed_wall(verts, faces)
+    uv, quads = wall_uvs(verts, part, seam, quads=True)
+    assert quads is False
+    _assert_straight_perimeter(verts, part, seam, uv)
+
+
+def test_wall_with_a_hole_keeps_the_hole_inside():
+    verts, faces = open_tube()
+    hole = faces.pop(12 + 3)                          # row 1, between columns 3 and 4
+    part, seam = _analysed_wall(verts, faces)
+    assert len(part.boundaries) == 3
+    uv, _ = wall_uvs(verts, part, seam)
+    width, height = _assert_straight_perimeter(verts, part, seam, uv)
+    for (fid, vid), (u, v) in uv.items():
+        if vid in hole:
+            assert 1e-6 < u < width - 1e-6 and 1e-6 < v < height - 1e-6
+    _assert_no_flip(part, uv)
+
+
+def test_disk_keeps_real_size():
+    verts, faces = capped_cylinder()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    disks = sorted((p for p in result.parts if p.kind == "DISK"), key=lambda p: len(p.faces))
+    for part, radius in zip(disks, (0.671, 0.493)):       # the top 32-gon, then the bottom fan
+        uv = disk_uvs(verts, part)
+        assert set(uv) == {(fid, v) for fid, face in part.faces.items() for v in face}
+        us = [u for u, _v in uv.values()]
+        vs = [v for _u, v in uv.values()]
+        assert abs((max(us) - min(us)) - 2 * radius) < 1e-6
+        assert abs((max(vs) - min(vs)) - 2 * radius) < 1e-6
+        _assert_no_flip(part, uv)

@@ -16,6 +16,7 @@ import heapq
 import math
 from dataclasses import dataclass
 
+from .uv_stripe_core import Strip, _signed_area, _tutte
 from .uv_stripe_select_core import _boundary_loops, _edge, face_islands, strip_from_faces
 
 EPS = 1e-6
@@ -617,3 +618,199 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
         elif part.kind == "FREE":
             warnings.append(f"{len(part.faces)} faces are no tube, cap or ring: unwrapped as a free part")
     return Analysis(parts, cuts, seams, breaks, fallback, warnings)
+
+
+# --- Wall and disk layouts ----------------------------------------------------------------------------------------
+
+
+def _seam_sides(part: Part, seam: Loop) -> dict[tuple[int, int], bool]:
+    """(face id, seam vertex id) -> True when the face lies left of the seam (its winding runs along the seam).
+
+    Round each seam vertex the faces are grouped by the edges at that vertex that are not seam edges, so a face
+    that touches the seam at the vertex only (a triangle at a pole) joins the side of the faces it is fanned
+    with. A group takes the side of its face that holds a seam edge at the vertex."""
+    seam_edges = set(seam.edges())
+    order = {v: k for k, v in enumerate(seam.verts)}
+    at: dict[int, list[int]] = {}
+    for fid in sorted(part.faces):
+        for v in set(part.faces[fid]):
+            if v in order:
+                at.setdefault(v, []).append(fid)
+    out: dict[tuple[int, int], bool] = {}
+    for v, fids in at.items():
+        parent = {f: f for f in fids}
+
+        def root(f):
+            while parent[f] != f:
+                parent[f] = parent[parent[f]]
+                f = parent[f]
+            return f
+
+        by_edge: dict[tuple, list[int]] = {}
+        label: dict[int, bool] = {}
+        for fid in fids:
+            face = part.faces[fid]
+            n = len(face)
+            for i in range(n):
+                a, b = face[i], face[(i + 1) % n]
+                if v not in (a, b) or a == b:
+                    continue
+                e = _edge(a, b)
+                if e in seam_edges:
+                    other = b if a == v else a
+                    label[fid] = (order[b] == order[a] + 1) if other in order else True
+                else:
+                    by_edge.setdefault(e, []).append(fid)
+        for fs in by_edge.values():
+            for f in fs[1:]:
+                parent[root(f)] = root(fs[0])
+        group_label = {root(f): side for f, side in sorted(label.items())}
+        for fid in fids:
+            out[(fid, v)] = group_label.get(root(fid), True)
+    return out
+
+
+def _cumulative(verts, ids: list[int]) -> list[float]:
+    out = [0.0]
+    for a, b in zip(ids, ids[1:]):
+        out.append(out[-1] + math.dist(verts[a], verts[b]))
+    return out
+
+
+def _end_walk(part: Part, loop: list[int], start: int, sides) -> list[int]:
+    """The boundary loop from ``start`` round to ``start`` again (closed), toward the seam's left side first."""
+    i = loop.index(start)
+    ring = loop[i:] + loop[:i]
+    edge_faces = _edge_faces(part.faces)
+    fs = edge_faces.get(_edge(ring[0], ring[1]), [])
+    if not (fs and sides.get((fs[0], start), True)):
+        ring = ring[:1] + ring[1:][::-1]
+    return ring + ring[:1]
+
+
+def _grid(part: Part, seam: Loop, first: list[int], last: list[int]) -> list[list[int]] | None:
+    """The wall's rings of a regular quad grid, ring 0 = ``first`` (as walked), column 0 = the seam; else None."""
+    if any(len(f) != 4 for f in part.faces.values()) or len(first) != len(last):
+        return None
+    nbrs = neighbours(part.faces)
+    quads = {frozenset(f) for f in part.faces.values()}
+    n = len(first)
+    rings, used, end = [first], set(first), set(last)
+    while set(rings[-1]) != end:
+        cur, below = set(rings[-1]), set(rings[-2]) if len(rings) > 1 else set()
+        nxt = []
+        for v in rings[-1]:
+            ups = [w for w in nbrs[v] if w not in cur and w not in below]
+            if len(ups) != 1 or ups[0] in used:
+                return None
+            nxt.append(ups[0])
+        if len(set(nxt)) != n:
+            return None
+        lo = rings[-1]
+        for j in range(n):
+            if frozenset((lo[j], lo[(j + 1) % n], nxt[(j + 1) % n], nxt[j])) not in quads:
+                return None
+        used.update(nxt)
+        rings.append(nxt)
+    if (len(rings) - 1) * n != len(part.faces) or [r[0] for r in rings] != seam.verts:
+        return None
+    return rings
+
+
+def _relax(verts, part: Part, uv: dict, fixed: set, size: float) -> None:
+    interior = {v for face in part.faces.values() for v in face if v not in fixed}
+    strip = Strip(verts={v: tuple(verts[v]) for face in part.faces.values() for v in face}, faces=part.faces,
+                  near=[], far=[], rungs=[], closed=False, height=0.0)
+    pos = _tutte(strip, interior, uv, size)
+    for fid, face in part.faces.items():
+        for v in face:
+            if v in pos:
+                uv[(fid, v)] = pos[v]
+
+
+def wall_uvs(verts, part: Part, seam: Loop, quads=False) -> tuple[dict, bool]:
+    """The wall laid out inside a straight perimeter: {(fid, vid): (u, v)} in world units, and whether the
+    quad-grid layout was used.
+
+    The ends are the boundary loops the seam touches; width W = their mean 3D length, height H = the seam's 3D
+    length. A seam vertex sits at u = 0 for the faces left of the seam and at u = W for the others, v by arc length
+    along the seam; each end loop's vertices lie on v = 0 or v = H, u by arc length round the loop scaled to W.
+    Every other vertex, those of further boundary loops too, is relaxed with the mean-value solve (``_tutte``).
+    With ``quads`` and the wall a regular quad grid whose column 0 is the seam, ring k sits at v = the mean arc
+    length of the columns up to k and column j at u = the mean arc length of the rings up to j. A layout whose total
+    signed area is negative is mirrored in u.
+    """
+    first = next(b for b in part.boundaries if seam.verts[0] in b)
+    last = next(b for b in part.boundaries if seam.verts[-1] in b)
+    sides = _seam_sides(part, seam)
+    walk0 = _end_walk(part, first, seam.verts[0], sides)
+    walk1 = _end_walk(part, last, seam.verts[-1], sides)
+    seam_set = set(seam.verts)
+    uv: dict[tuple[int, int], tuple[float, float]] = {}
+    rings = _grid(part, seam, walk0[:-1], walk1[:-1]) if quads else None
+    if rings is not None:
+        n = len(rings[0])
+        u_at = [sum(_cumulative(verts, r + r[:1])[j] for r in rings) / len(rings) for j in range(n + 1)]
+        columns = [[r[j] for r in rings] for j in range(n)]
+        v_at = [sum(_cumulative(verts, c)[k] for c in columns) / n for k in range(len(rings))]
+        width = u_at[-1]
+        where = {v: (j, k) for k, r in enumerate(rings) for j, v in enumerate(r)}
+        for fid, face in part.faces.items():
+            for v in face:
+                j, k = where[v]
+                u = u_at[j] if j else (0.0 if sides[(fid, v)] else width)
+                uv[(fid, v)] = (u, v_at[k])
+    else:
+        width = (_loop_length(verts, first) + _loop_length(verts, last)) / 2.0
+        arc = _cumulative(verts, seam.verts)
+        height = arc[-1]
+        place: dict[int, tuple[float, float]] = {}
+        for walk, v in ((walk0, 0.0), (walk1, height)):
+            s = _cumulative(verts, walk)
+            total = s[-1] if s[-1] > 0.0 else 1.0
+            for k, vid in enumerate(walk[1:-1], 1):
+                place[vid] = (s[k] / total * width, v)
+        seam_v = dict(zip(seam.verts, arc))
+        for fid, face in part.faces.items():
+            for vid in face:
+                if vid in seam_set:
+                    uv[(fid, vid)] = (0.0 if sides[(fid, vid)] else width, seam_v[vid])
+                elif vid in place:
+                    uv[(fid, vid)] = place[vid]
+        _relax(verts, part, uv, seam_set | set(place), max(width, height))
+    if sum(_signed_area([uv[(fid, v)] for v in face]) for fid, face in part.faces.items()) < 0.0:
+        uv = {key: (width - u, v) for key, (u, v) in uv.items()}
+    return uv, rings is not None
+
+
+def disk_uvs(verts, part: Part) -> dict:
+    """{(fid, vid): (u, v)}: the part projected onto its best-fit plane at real size, centred on its vertex mean.
+
+    The plane's normal is the sum of the faces' area normals; u runs along the world axis least aligned with it
+    (ties X, then Y, then Z) made perpendicular, v = normal x u, so faces wound round the normal stay
+    counter-clockwise."""
+    nx = ny = nz = 0.0
+    for face in part.faces.values():
+        n = len(face)
+        for i in range(n):
+            x0, y0, z0 = verts[face[i]]
+            x1, y1, z1 = verts[face[(i + 1) % n]]
+            nx += (y0 - y1) * (z0 + z1)
+            ny += (z0 - z1) * (x0 + x1)
+            nz += (x0 - x1) * (y0 + y1)
+    length = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+    normal = (nx / length, ny / length, nz / length)
+    axis = min(range(3), key=lambda k: (round(abs(normal[k]), 9), k))
+    e1 = [-normal[axis] * c for c in normal]
+    e1[axis] += 1.0
+    size = _norm(e1)
+    e1 = tuple(c / size for c in e1)
+    e2 = (normal[1] * e1[2] - normal[2] * e1[1], normal[2] * e1[0] - normal[0] * e1[2],
+          normal[0] * e1[1] - normal[1] * e1[0])
+    ids = sorted({v for face in part.faces.values() for v in face})
+    centre = _centroid(verts, ids)
+    flat = {}
+    for v in ids:
+        d = _sub(verts[v], centre)
+        flat[v] = (sum(a * b for a, b in zip(d, e1)), sum(a * b for a, b in zip(d, e2)))
+    return {(fid, v): flat[v] for fid, face in part.faces.items() for v in face}
