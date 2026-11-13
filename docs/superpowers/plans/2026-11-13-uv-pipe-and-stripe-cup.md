@@ -436,7 +436,8 @@ def test_picked_loop_on_a_ring_sets_its_break():
 def test_split_at_bends():   # clean_bend: one WALL with bend_angle=None; two with radians(45)
 def test_existing_seam_is_kept():   # spec acceptance: existing = one lengthwise column -> that is the seam
 def test_box_tube_is_free_with_a_warning():           # Review Focus 1
-    # box_tube at 120°: one FREE part, one warning; at loop_angle=radians(80): WALL + two caps
+    # box_tube at 120°: one FREE part, one warning; at loop_angle=radians(80): no exception and
+    # every face belongs to exactly one part (the kinds are not pinned: at 80° a loop may turn a box corner)
 def test_open_tube_is_one_wall():                     # Review Focus 2
 def test_torus_is_free_with_a_warning():              # Review Focus 3
 def test_analysis_is_deterministic():                 # two runs give equal cuts and seams
