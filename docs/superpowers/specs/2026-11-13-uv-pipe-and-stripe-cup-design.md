@@ -76,8 +76,7 @@ the island relaxes inside a straight perimeter.
   rectangle, the strip a straight rectangle.
 - A ring with a picked break that has triangles or n-gons follows the Layout
   setting like an open strip **(call)**: *Rectangles* where it can; *No
-  Stretch* keeps each row's true length, so the ends slant; *True Shape* and
-  *Even Rows* work as on any open strip. Today a closed strip uses Even Rows
+  Stretch*, *True Shape* and *Even Rows* work as on any open strip. Today a closed strip uses Even Rows
   for *No Stretch* and *True Shape* (and already honours *Rectangles*); that
   stays true for rings without a picked break.
 - A picked break **replaces** any seam on another rung of the same ring
