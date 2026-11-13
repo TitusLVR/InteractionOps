@@ -71,6 +71,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md) — highlight faces that are not flat.
 - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md) — mark seams along the shortest path.
 - [UV Stripe](operators/op_mesh_uv_stripe.md) — unwrap a selected strip of faces as one straight UV rectangle.
+- [UV Pipe](operators/op_mesh_uv_pipe.md) — unwrap tubes: the wall as one straight island, cap rings as straight strips, cap centres as disks.
 - [Rename Active Group](operators/op_mesh_vertex_group_rename.md) — rename the active vertex group from the Ctrl+G menu.
 
 ## Snap & Transform

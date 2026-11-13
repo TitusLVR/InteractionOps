@@ -72,6 +72,7 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md)
         - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md)
         - [UV Stripe](operators/op_mesh_uv_stripe.md)
+        - [UV Pipe](operators/op_mesh_uv_pipe.md)
         - [Rename Active Group](operators/op_mesh_vertex_group_rename.md)
     - **Snap & Transform**
         - [Drag Snap](operators/op_drag_snap.md)

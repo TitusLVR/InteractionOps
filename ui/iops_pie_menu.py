@@ -77,6 +77,7 @@ class IOPS_MT_Pie_Menu(Menu):
         op_if_poll(col, "iops.mesh_smart_inset", text="Smart Inset")
         op_if_poll(col, "iops.mesh_smart_edge_slide", text="Smart Edge Slide")
         op_if_poll(col, "iops.mesh_uv_stripe", text="UV Stripe")
+        op_if_poll(col, "iops.mesh_uv_pipe", text="UV Pipe")
         op_if_poll(col, "iops.mesh_straight_bevel", text="Straight Bevel")
         op_if_poll(col, "iops.mesh_shear", text="Shear")
         op_if_poll(col, "iops.mesh_hinge", text="Hinge")
