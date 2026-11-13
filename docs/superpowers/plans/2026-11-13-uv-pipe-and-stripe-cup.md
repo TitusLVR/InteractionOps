@@ -140,7 +140,8 @@ def test_cup_break_replaces_an_old_seam():
 
 def test_cup_break_with_a_triangle_follows_layout():
     # annulus with one quad split into triangles, layout="TRUE":
-    # one island, outer row UV length equals the outer loop's 3D length (within 1e-4 relative)
+    # one island, no flipped face, and the faces are NOT all axis-aligned rectangles
+    # (the ring is laid out by No Stretch as an open strip would be, not forced to Rectangles)
 
 def test_cup_break_on_an_open_strip_is_ignored():
     # straight 4-quad strip, cup_breaks names an inner cross edge: result identical to no cup_breaks
