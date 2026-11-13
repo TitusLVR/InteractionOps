@@ -36,7 +36,7 @@ A closed ring is normally cut open at one cross edge (an existing seam, else its
 
 ## What counts as a strip
 Each edge-connected group of selected faces is one strip:
-- **Open chain** — faces in a row, one face wide; it may bend. Quad, triangle or n-gon ends (a quad whose rails or end carry extra vertices).
+- **Open chain** — faces in a row, one face wide; it may bend. Quad, triangle or n-gon ends (a quad whose rails or end carry extra vertices, or whose rail steps in or out): an n-gon end is closed where its two rails come out most equal in length, so a step stays in its rail. A single n-gon selected on its own is a strip too.
 - **Closed ring** — a loop of faces, such as a band round a cylinder; it is cut open at one rung, or at the cross edge you pick (see *Breaking a ring*).
 - **Quad grid** — a patch several faces wide with four corners; the two longer sides become the rows.
 

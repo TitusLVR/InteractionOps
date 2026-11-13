@@ -18,7 +18,8 @@ ADDON = "InteractionOps"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/: shared fixtures
 from uv_stripe_fixtures import (  # noqa: E402
-    DOUBLE_FACES, DOUBLE_VERTS, NGON_FACES, NGON_VERTS, exact_ngon_verts, flat_annulus, flat_annulus_with_triangle)
+    DOUBLE_FACES, DOUBLE_VERTS, NGON_FACES, NGON_VERTS, STEP_FACES, STEP_VERTS, exact_ngon_verts, flat_annulus,
+    flat_annulus_with_triangle)
 
 operator = None
 
@@ -1297,6 +1298,58 @@ def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
         module._purge_handles()
 
 
+def _operator_defaults():
+    """Every plain property of UV Stripe at its default (the stand-in otherwise holds ``OLD_DEFAULTS``)."""
+    out = {}
+    for prop in bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties:
+        if prop.identifier == "rna_type" or prop.type not in {"BOOLEAN", "ENUM", "FLOAT", "INT"}:
+            continue
+        if getattr(prop, "is_array", False) or (prop.type == "ENUM" and prop.is_enum_flag):
+            continue
+        out[prop.identifier] = prop.default
+    return out
+
+
+def _step_object(active=None):
+    """The strip with a stepped end face, its seams 12-18 and 13-19 marked; ``active``: that face id made active."""
+    ids = sorted(STEP_VERTS)
+    at = {v: i for i, v in enumerate(ids)}
+    order = list(STEP_FACES)
+    obj = _object([STEP_VERTS[v] for v in ids], [tuple(at[v] for v in STEP_FACES[f]) for f in order])
+    _edit(obj)
+    _set_seams(obj, {tuple(sorted((at[12], at[18]))), tuple(sorted((at[13], at[19])))})
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bm.faces.active = bm.faces[order.index(active)] if active is not None else None
+    bmesh.update_edit_mesh(obj.data)
+    return obj
+
+
+def test_the_stepped_strip_with_the_users_defaults():
+    # Active, Fit to Active Width, No Stretch, Split at Seams and at Bends (5 degrees), Mark Seams, Random Offset
+    # along the strip, Merge Doubles: nothing raises, nothing folds, through execute and the modal alike.
+    defaults = _operator_defaults()
+    assert defaults["mode"] == "ACTIVE" and defaults["layout"] == "TRUE" and defaults["split_at_seams"]
+    for active in (None, 20):
+        obj = _step_object(active)
+        assert bpy.ops.iops.mesh_uv_stripe() == {"FINISHED"}
+        assert all(a > 1e-9 for a in _face_areas(obj)), _face_areas(obj)
+        obj = _step_object(active)
+        stand = _OperatorStandIn(**defaults)
+        assert stand.execute(bpy.context) == {"FINISHED"}, stand.reports
+        assert all(a > 1e-9 for a in _face_areas(obj))
+        obj = _step_object(active)
+        op = _modal_on(obj, **defaults)
+        for key in ("E", "E", "E", "E", "Q", "Q", "Q", "W", "D", "A", "A", "S", "S"):
+            assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}, key
+            assert all(a > 1e-9 for a in _face_areas(obj)), (key, op.layout, op.mode)
+        assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}, op.reports
+    for layout in ("TRUE", "STRAIGHT", "EVEN", "SHAPE"):
+        obj = _step_object(20)
+        assert bpy.ops.iops.mesh_uv_stripe(layout=layout) == {"FINISHED"}
+        assert all(a > 1e-9 for a in _face_areas(obj)), (layout, _face_areas(obj))
+
+
 TESTS = [
     test_fit_straight_strip,
     test_in_place_keeps_centre_and_density,
@@ -1355,6 +1408,7 @@ TESTS = [
     test_confirm_after_break_equals_execute,
     test_cup_breaks_is_no_shared_setting,
     test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top,
+    test_the_stepped_strip_with_the_users_defaults,
 ]
 
 

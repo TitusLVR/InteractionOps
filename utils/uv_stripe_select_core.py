@@ -12,9 +12,12 @@ must be one of three shapes (``strip_from_faces``), tried in this order:
   boundary turns more sharply (the row runs straight on at the other), when the
   two turns differ by more than ``CAP_ANGLE``; otherwise (a pointed tip) the cap
   is the middle vertex, where both rows start. An end face of more than four
-  vertices (a quad whose rails or end carry extra vertices) has its cap between
-  the two of its run's inner vertices with the sharpest face corners, when both
-  are below ``CORNER_ANGLE``; the vertices between them are that end's sides.
+  vertices (a quad whose rails or end carry extra vertices, or whose rail steps)
+  has its cap between two sharp inner vertices of its run (face corner below
+  ``CORNER_ANGLE``), chosen so the two rails it leaves are as equal in length as
+  possible and the cap is short (``_balanced_cap``); the vertices between them are
+  that end's sides. A single face of more than four vertices is laid out the same
+  way, both its caps chosen together.
   The caps split the boundary into the two rows. A single quad, or two triangles
   forming one, is the quad.
 - a closed chain: a ring of faces, each sharing one edge with each of two others.
@@ -219,9 +222,12 @@ def strip_from_faces(
 
     if m == 1:
         (face,) = faces.values()
-        if len(face) != 4:
-            raise ValueError("not a strip: a single face must be a quad")
-        return _grid_strip(verts, faces, loops[0], list(face), near)
+        if len(face) == 4:
+            return _grid_strip(verts, faces, loops[0], list(face), near)
+        if len(face) < 4:
+            raise ValueError("not a strip: a single face must be a quad or more")
+        corners = _single_ngon_corners(verts, face, island_tolerance(verts, faces))
+        return _grid_strip(verts, faces, loops[0], corners, near)
     if m == 2 and len(loops) == 1 and len(loops[0]) == 4:
         return _grid_strip(verts, faces, loops[0], list(loops[0]), near)
     if degree[1] == 2 and degree[2] == m - 2:
@@ -261,9 +267,9 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     """Loop positions of the ends of an end face's cap, in loop order: one edge, a run, or a vertex (twice).
 
     ``owner[i]`` is the face of the loop edge from position i to i + 1. The end face's
-    edges must be one run of the loop. A face of more than four vertices: the cap runs
-    between the two inner vertices of that run with the smallest face corner angles,
-    when both are below ``CORNER_ANGLE``. Otherwise an odd run's cap is its middle edge,
+    edges must be one run of the loop. A face of more than four vertices: the cap the
+    run's sharp inner vertices allow with the most equal rails (``_balanced_cap``).
+    Otherwise (no sharp inner vertex) an odd run's cap is its middle edge,
     and an even run's cap is the middle edge at the run's middle-adjacent vertex with
     the smaller boundary angle (the sharper turn), when the two angles differ by more
     than ``CAP_ANGLE``; else it is the middle vertex. Angles are taken with points
@@ -279,22 +285,10 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     while owner[(s + k) % n] == fid:
         k += 1
     if len(face) > 4 and k >= 3:
-        m = len(face)
-
-        ring = list(face)
-
-        def corner(t: int) -> float:
-            return welded_angle(verts, ring, ring.index(loop[(s + t) % n]), tol)
-
-        ranked = sorted(range(1, k), key=lambda t: (corner(t), t))
-        inner = ranked[:1]
-        for t in ranked[1:]:
-            if math.dist(verts[loop[(s + t) % n]], verts[loop[(s + inner[0]) % n]]) > tol:
-                inner.append(t)
-                break
-        if len(inner) == 2 and m > 4 and all(corner(t) < CORNER_ANGLE for t in inner):
-            t0, t1 = sorted(inner)
-            return (s + t0) % n, (s + t1) % n
+        run = [loop[(s + t) % n] for t in range(k + 1)]
+        cap = _balanced_cap(verts, run, list(face), tol)
+        if cap is not None:
+            return (s + cap[0]) % n, (s + cap[1]) % n
     if k % 2:
         return (s + (k - 1) // 2) % n, (s + (k + 1) // 2) % n
     mid = s + k // 2
@@ -308,6 +302,70 @@ def _cap(verts, loop: list[int], owner: list[int], fid: int, face: tuple[int, ..
     if before < after:
         return (mid - 1) % n, mid % n
     return mid % n, (mid + 1) % n
+
+
+def _sharp(verts, ring: list[int], v: int, tol: float) -> bool:
+    """Whether the face ``ring`` turns at ``v`` (its weld-aware corner below ``CORNER_ANGLE``)."""
+    return welded_angle(verts, ring, ring.index(v), tol) < CORNER_ANGLE
+
+
+def _run_arcs(verts, run: list[int]) -> list[float]:
+    out = [0.0]
+    for a, b in zip(run, run[1:]):
+        out.append(out[-1] + math.dist(verts[a], verts[b]))
+    return out
+
+
+def _balanced_cap(verts, run: list[int], ring: list[int], tol: float) -> tuple[int, int] | None:
+    """The cap of an end face's boundary run, as run positions (i, j), i < j; None with fewer than two sharp
+    inner vertices (the triangle-like rules then decide, an apex among them).
+
+    ``run`` goes from one vertex of the edge the face shares to the other. A cap is
+    a pair of sharp inner positions (``_sharp``); the rails are the run up to i and
+    from j, the cap the run between. The
+    pair with the smallest |rail a - rail b| + cap wins; then the more equal rails,
+    then the lower positions. A step in a rail (two right angles close together)
+    thus stays in its rail, where the two rails balance, instead of becoming the cap.
+    """
+    k = len(run) - 1
+    arc = _run_arcs(verts, run)
+    sharp = [t for t in range(1, k) if _sharp(verts, ring, run[t], tol)]
+    best = None
+    for a, i in enumerate(sharp):
+        for j in sharp[a + 1:]:
+            imbalance = abs(arc[i] - (arc[k] - arc[j]))
+            key = (round(imbalance + arc[j] - arc[i], 12), round(imbalance, 12), i, j)
+            if best is None or key < best[0]:
+                best = (key, (i, j))
+    return None if best is None else best[1]
+
+
+def _single_ngon_corners(verts, face: tuple[int, ...], tol: float) -> list[int]:
+    """The four corners of a single face of more than four vertices taken as a strip: of its sharp vertices,
+    the four whose two opposite runs as rails are the most equal and whose other two runs, the caps, are the
+    shortest (|rail a - rail b| + both caps). Raises ValueError with fewer than four sharp vertices."""
+    ring = list(face)
+    m = len(ring)
+    sharp = [p for p in range(m) if _sharp(verts, ring, ring[p], tol)]
+    if len(sharp) < 4:
+        raise ValueError("not a strip: a single face needs four corners")
+
+    def run_length(p: int, q: int) -> float:
+        return sum(math.dist(verts[ring[(p + t) % m]], verts[ring[(p + t + 1) % m]]) for t in range((q - p) % m))
+
+    best = None
+    for a in range(len(sharp)):
+        for b in range(a + 1, len(sharp)):
+            for c in range(b + 1, len(sharp)):
+                for d in range(c + 1, len(sharp)):
+                    pos = [sharp[a], sharp[b], sharp[c], sharp[d]]
+                    segs = [run_length(pos[t], pos[(t + 1) % 4]) for t in range(4)]
+                    for r in (0, 1):
+                        imbalance = abs(segs[r] - segs[r + 2])
+                        key = (round(imbalance + segs[r + 1] + segs[(r + 3) % 4], 12), round(imbalance, 12), pos)
+                        if best is None or key < best[0]:
+                            best = (key, pos)
+    return [ring[p] for p in best[1]]
 
 
 def _walk(loop: list[int], i: int, j: int) -> list[int]:
