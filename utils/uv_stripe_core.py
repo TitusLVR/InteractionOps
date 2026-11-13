@@ -47,6 +47,8 @@ class Strip:
     layout: str = "EVEN"
     # A closed strip's seam: the index into ``rungs`` it is cut at; None picks ``sharpest_rung``.
     seam: int | None = None
+    # A ring opened at a rung (``uv_stripe_select_core.open_ring``): that rung's edge, a sorted vertex-id pair.
+    break_edge: tuple[int, int] | None = None
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
@@ -363,9 +365,9 @@ def _shape_uv(strip: Strip):
     if not edges:
         return None
 
-    def place(p):
+    def place(p, near_edges=edges):
         best = None
-        for i, e, b in edges:
+        for i, e, b in near_edges:
             a = verts[base[i]]
             w = [p[c] - a[c] for c in range(3)]
             along = sum(w[c] * e[c] for c in range(3))
@@ -378,6 +380,16 @@ def _shape_uv(strip: Strip):
 
     base_uv = [(u, 0.0) for u in u_base]
     other_uv = [place(verts[v]) for v in other]
+    if len(other) > 1 and other[0] == other[-1] and len(edges) > 1:
+        # A row that starts and ends on one vertex (an opened ring): the base row's first and last edges meet
+        # at the break, so a position is placed against the edges of its own half (its end: that end's edge).
+        last = len(other) - 1
+        for k, v in enumerate(other):
+            if k == 0 or k == last:
+                own = edges[:1] if k == 0 else edges[-1:]
+            else:
+                own = edges[:-1] if 2 * k < last else edges[1:]
+            other_uv[k] = place(verts[v], own)
     sides = {v: place(verts[v]) for side in strip.sides for v in side}
     top = max([v for _u, v in other_uv] + [v for _u, v in sides.values()])
     if on_far:                              # the far row is the straight one: it lies on top, the near row below

@@ -46,6 +46,27 @@ def exact_ngon_verts():
     return {v: (x, y, 4.3) for v, (x, y) in xy.items()}
 
 
+def flat_annulus(segments=8, outer=1.0, inner=0.5):
+    """A flat ring of quads in the XY plane, wound counter-clockwise: outer vertices 0 .. segments - 1 and
+    inner vertices segments .. 2 * segments - 1, face i between angles i and i + 1."""
+    verts = {}
+    for i in range(segments):
+        a = 2 * math.pi * i / segments
+        verts[i] = (outer * math.cos(a), outer * math.sin(a), 0.0)
+        verts[segments + i] = (inner * math.cos(a), inner * math.sin(a), 0.0)
+    faces = {i: (i, (i + 1) % segments, segments + (i + 1) % segments, segments + i) for i in range(segments)}
+    return verts, faces
+
+
+def flat_annulus_with_triangle(segments=8, outer=1.0, inner=0.5):
+    """``flat_annulus`` with face 0 split into two triangles, faces 0 and ``segments``."""
+    verts, faces = flat_annulus(segments, outer, inner)
+    a, b, c, d = faces[0]
+    faces[0] = (a, b, c)
+    faces[segments] = (a, c, d)
+    return verts, faces
+
+
 # A flat strip of five faces whose far rail carries an unmerged double (28 and 21, 0.0002 apart, the strip about
 # 0.22 wide), turning about 30 degrees at the double and again at 92 / 24. Coordinates rounded to 1e-4.
 DOUBLE_VERTS = {

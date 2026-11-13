@@ -46,6 +46,7 @@ core turns the strip so that they stay counter-clockwise in UV.
 
 import math
 from collections import Counter, defaultdict
+from dataclasses import replace
 
 from .uv_stripe_core import (
     WELD, Strip, Vec3, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
@@ -742,6 +743,74 @@ def _cut_open(strip: Strip, k: int) -> Strip:
     piece = Strip(**{**strip.__dict__, "seam": k})
     stripe_uvs(piece)
     return piece
+
+
+def open_ring(strip: Strip, rung: int) -> Strip:
+    """A closed strip opened at rung ``rung`` (an index into ``strip.rungs``): one open strip of all its faces.
+
+    Both rows start at the rung's vertex and run once round, listing it again last; the
+    other rungs, re-indexed, are the inner rungs, and the end sides are empty (each end is
+    the rung itself). The faces after the rung in chain order take the repeated ids'
+    first positions, the faces before it their last (``corner_near`` / ``corner_far``).
+    ``break_edge`` is the rung's edge, ``seam`` None; the height and layout are kept. The
+    closed strip is not changed. Raises ValueError when the rows do not follow the faces.
+    """
+    near_cycle = strip.near[:_row_cycle(strip.near)]
+    far_cycle = strip.far[:_row_cycle(strip.far)]
+    nn, nf = len(near_cycle), len(far_cycle)
+    m = len(strip.rungs)
+    i0, j0 = strip.rungs[rung]
+    i0, j0 = i0 % len(strip.near) % nn, j0 % len(strip.far) % nf
+    near = near_cycle[i0:] + near_cycle[:i0]
+    far = far_cycle[j0:] + far_cycle[:j0]
+    near_pos = {v: x for x, v in enumerate(near)}
+    far_pos = {v: x for x, v in enumerate(far)}
+    near.append(near[0])
+    far.append(far[0])
+
+    # the other rungs in chain order from the break, unwrapped so they never run backward
+    rungs = []
+    last = (0, 0)
+    for t in range(1, m):
+        i, j = strip.rungs[(rung + t) % m]
+        x = near_pos[strip.near[i % len(strip.near)]]
+        y = far_pos[strip.far[j % len(strip.far)]]
+        x += nn if x < last[0] else 0
+        y += nf if y < last[1] else 0
+        if x > nn or y > nf:
+            raise ValueError("not a strip: the ring's boundaries do not follow its faces")
+        last = (x, y)
+        rungs.append(last)
+
+    # the faces in chain order from the one after the break to the one before it
+    cut = rung_edge(strip, rung)
+    edge_faces = _edge_faces(strip.faces)
+    pair = edge_faces.get(cut, [])
+    if len(pair) != 2:
+        raise ValueError("not a strip: the break is not an edge between two faces")
+    after_edges = {_edge(*e) for e in _face_edges(strip.faces[pair[0]])}
+    first = pair[0] if m > 1 and rung_edge(strip, (rung + 1) % m) in after_edges else pair[1]
+    nbrs: dict[int, list[int]] = {fid: [] for fid in strip.faces}
+    for e, fs in edge_faces.items():
+        if len(fs) == 2 and e != cut:
+            nbrs[fs[0]].append(fs[1])
+            nbrs[fs[1]].append(fs[0])
+    order = _chain_order(nbrs, first)
+    if len(order) != len(strip.faces):
+        raise ValueError("not a strip: the ring's faces are not one chain")
+
+    corner = []
+    for vid, end in ((near[0], nn), (far[0], nf)):
+        holders = [fid for fid in order if vid in strip.faces[fid]]
+        lead = 0
+        while lead < len(order) and vid in strip.faces[order[lead]]:
+            lead += 1
+        leading = set(order[:lead])
+        corner.append({(fid, vid): 0 if fid in leading else end for fid in holders})
+
+    return replace(strip, faces=dict(strip.faces), near=near, far=far, rungs=rungs, closed=False,
+                   sides=([], []), corner_near=corner[0], corner_far=corner[1], seam=None,
+                   break_edge=rung_edge(strip, rung))
 
 
 def split_strip(strip: Strip, angle: float, extra_cuts=()) -> tuple[list[Strip], str | None]:
