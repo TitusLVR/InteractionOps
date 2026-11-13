@@ -15,9 +15,11 @@ from collections.abc import Sequence
 
 import gpu
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
+from ...utils import depth_bias
 from . import shaders
+from .state import draw_scope
 from .theme import Role, Theme, get_theme
 
 
@@ -83,6 +85,65 @@ def edges_3d(coord_pairs: Sequence, *, role: Role | None = None,
     shader.uniform_float("lineWidth", w)
     shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
     batch.draw(shader)
+
+
+def _gpu_state():
+    """(blend, depth test, depth mask) now set, or None where this Blender has no getters."""
+    try:
+        return (gpu.state.blend_get(), gpu.state.depth_test_get(),
+                gpu.state.depth_mask_get())
+    except AttributeError:
+        return None
+
+
+def edges_world(coord_pairs: Sequence, *, role: Role | None = None,
+                color: tuple[float, float, float, float] | None = None,
+                width: str | None = None,
+                theme: Theme | None = None, context=None) -> None:
+    """Disjoint world-space segments (flat [a, b, c, d, ...] as in
+    `edges_3d`) for a POST_VIEW handler, tested against the scene's
+    depth: the parts in front are drawn in the colour as is, the parts
+    geometry hides at the theme's `occluded_alpha` times its alpha.
+
+    The points are pulled toward the viewer by a projection-matrix depth
+    bias (utils/depth_bias.py) so lines lying on mesh edges do not
+    z-fight with their faces; both passes use the same biased depth, so
+    each fragment is drawn exactly once. With `occluded_alpha` 1 this is
+    one draw with no depth test. Sets ALPHA blend and no depth writes
+    itself (inside `draw_scope`) and then puts back the blend / depth
+    state the caller had, so it can sit inside the caller's own scope."""
+    pairs = list(coord_pairs)
+    if len(pairs) < 2:
+        return
+    th = _resolve_theme(theme, context)
+    c = _resolve_color(role, color, th)
+    if width is not None:
+        w = th.width(width)
+    elif role is not None:
+        w = th.line_width_for(role)
+    else:
+        w = th.width("default")
+    passes = depth_bias.occlusion_passes(th.occluded_alpha)
+    shader = shaders.polyline_uniform_color()
+    batch = batch_for_shader(shader, "LINES", {"pos": pairs})
+    biased = Matrix(depth_bias.biased_projection(gpu.matrix.get_projection_matrix()))
+    saved = _gpu_state()
+    try:
+        with gpu.matrix.push_pop_projection():
+            gpu.matrix.load_projection_matrix(biased)
+            with draw_scope(blend="ALPHA", depth=passes[0][0], depth_mask=False):
+                for depth, factor in passes:
+                    gpu.state.depth_test_set(depth)
+                    shader.bind()
+                    shader.uniform_float("color", depth_bias.scale_alpha(c, factor))
+                    shader.uniform_float("lineWidth", w)
+                    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+                    batch.draw(shader)
+    finally:
+        if saved is not None:
+            gpu.state.blend_set(saved[0])
+            gpu.state.depth_test_set(saved[1])
+            gpu.state.depth_mask_set(saved[2])
 
 
 def points(coords: Sequence, *, role: Role | None = None,

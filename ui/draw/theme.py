@@ -136,6 +136,7 @@ _DEFAULT_LINE_WIDTHS = {
     "locked": 3.0, "preview": 2.0, "error": 2.5,
     "axis_gizmo": 1.5,
 }
+_DEFAULT_OCCLUDED_ALPHA = 0.25
 _DEFAULT_TEXT_SIZES = {
     "hud_header": 13,
     "hud_key":    11,
@@ -210,6 +211,10 @@ class Theme:
     stats_offset_y: int = 220
     stats_row_spacing: float = 1.5
     stats_column_spacing: float = 5.0
+    # Alpha multiplier for the parts of world-space lines that geometry
+    # hides (primitives.edges_world): 1 = as in front, 0 = not drawn.
+    occluded_alpha: float = _DEFAULT_OCCLUDED_ALPHA
+
     def color_for(self, role: Role) -> tuple[float, float, float, float]:
         return self.colors[role]
 
@@ -336,6 +341,7 @@ def get_theme(context) -> "Theme":
             **{s: fl(f"line_width_{s}", _DEFAULT_LINE_WIDTHS[s]) for s in STATES},
             "axis_gizmo": fl("axis_gizmo_line_width", _DEFAULT_LINE_WIDTHS["axis_gizmo"]),
         },
+        occluded_alpha=fl("occluded_alpha", _DEFAULT_OCCLUDED_ALPHA),
         text_sizes={
             "hud_header": i("text_size_hud_header", _DEFAULT_TEXT_SIZES["hud_header"]),
             "hud_key":    i("text_size_hud_key",    _DEFAULT_TEXT_SIZES["hud_key"]),

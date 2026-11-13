@@ -23,10 +23,8 @@ from dataclasses import dataclass, field
 import bmesh
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
-from bpy_extras import view3d_utils
-from mathutils import Vector
 
-from ..ui.draw import Role, draw_scope, safe_handler_add, safe_handler_remove
+from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
 from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
 from ..utils import picking, uv_stripe_core, uv_stripe_select_core
@@ -632,14 +630,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
     def invoke(self, context, event):
         _purge_handles()
-        self._handle = None
+        self._handle = self._handle_view = None
         if not self._start(context):
             return {"CANCELLED"}
         self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
-        _ACTIVE_HANDLES.add(self._handle)
+        self._add_handlers(context)
         context.workspace.status_text_set(self._status_text())
         context.window_manager.modal_handler_add(self)
         if context.area:
@@ -798,15 +794,30 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._relayout(context)
         return {"RUNNING_MODAL"}
 
-    def _finish(self, context):
-        h = getattr(self, "_handle", None)
-        if h is not None:
+    def _add_handlers(self, context):
+        """The two draw handlers: the lines in the scene (POST_VIEW, tested against its depth) and the HUD and
+        help on top (POST_PIXEL); both tracked for the purge on reload."""
+        self._handle_view = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        _ACTIVE_HANDLES.add(self._handle_view)
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.add(self._handle)
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
             _ACTIVE_HANDLES.discard(h)
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
             except (ValueError, RuntimeError):
                 pass
-            self._handle = None
+            setattr(self, name, None)
+
+    def _finish(self, context):
+        self._remove_handlers()
         try:
             context.workspace.status_text_set(None)
         except AttributeError:
@@ -844,37 +855,26 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             "[Enter/LMB/Space] confirm | [Esc/RMB] cancel"
         )
 
-    def _draw_callback(self, context):
-        region = context.region
-        rv3d = context.region_data
-        if rv3d is None:
-            return
+    def _draw_view_callback(self, context):
+        """POST_VIEW: the world-space lines, dimmed where geometry hides them (``draw.edges_world``)."""
         result = getattr(self, "_result", None)
-
-        def project(points):
-            out = []
-            for i in range(0, len(points) - 1, 2):
-                a = view3d_utils.location_3d_to_region_2d(region, rv3d, points[i])
-                b = view3d_utils.location_3d_to_region_2d(region, rv3d, points[i + 1])
-                if a is not None and b is not None:
-                    out += [Vector((a[0], a[1], 0.0)), Vector((b[0], b[1], 0.0))]
-            return out
-
         hover = getattr(self, "_hover", None) if getattr(self, "_picking", False) else None
         try:
-            outline = project(result.outline) if result is not None else []
-            tears = project(result.tears) if result is not None else []
-            hovered = project(hover[2]) if hover is not None else []
+            outline = list(result.outline) if result is not None else []
+            tears = list(result.tears) if result is not None else []   # the picked breaks are among them
+            hovered = list(hover[2]) if hover is not None else []
+            # bottom to top: the strip outlines, the tears (each opened ring's cut), the cross edge under the cursor
+            for points, role in ((outline, Role.PREVIEW_LINE), (tears, Role.ERROR_LINE), (hovered, Role.ACTIVE_LINE)):
+                if points:
+                    draw.edges_world(points, role=role, context=context)
         except Exception:   # a draw handler must never raise: it would repeat every frame
-            outline, tears, hovered = [], [], []
-        if outline or tears or hovered:
-            with draw_scope(blend="ALPHA"):
-                if outline:
-                    draw.edges_3d(outline, role=Role.PREVIEW_LINE, context=context)
-                if tears:     # the picked breaks are among them: each opened ring's cut
-                    draw.edges_3d(tears, role=Role.ERROR_LINE, context=context)
-                if hovered:
-                    draw.edges_3d(hovered, role=Role.ACTIVE_LINE, context=context)
+            pass
+
+    def _draw_callback(self, context):
+        """POST_PIXEL: the HUD and the help."""
+        if context.region_data is None:
+            return
+        result = getattr(self, "_result", None)
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
