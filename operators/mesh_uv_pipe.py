@@ -1125,15 +1125,15 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             # bottom to top: automatic seams, the user's own, fallback seams, the hover, the selected loop
             with draw_scope(blend="ALPHA"):
                 if cuts:
-                    draw.edges_3d(cuts, role=Role.PREVIEW_LINE, context=context)
+                    draw.edges_3d(cuts, role=Role.PREVIEW_LINE, width="preview", context=context)
                 if mine:
-                    draw.edges_3d(mine, role=Role.ACTIVE_LINE, context=context)
+                    draw.edges_3d(mine, role=Role.ACTIVE_LINE, width="preview", context=context)
                 if errors:
-                    draw.edges_3d(errors, role=Role.ERROR_LINE, context=context)
+                    draw.edges_3d(errors, role=Role.ERROR_LINE, width="preview", context=context)
                 if hovered:
-                    draw.edges_3d(hovered, role=Role.CLOSEST_LINE, context=context)
+                    draw.edges_3d(hovered, role=Role.CLOSEST_LINE, width="closest", context=context)
                 if waiting:
-                    draw.edges_3d(waiting, role=Role.LOCKED_LINE, context=context)
+                    draw.edges_3d(waiting, role=Role.LOCKED_LINE, width="closest", context=context)
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
