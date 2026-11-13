@@ -1436,6 +1436,85 @@ def test_modal_keys_toggle_their_options():
     op._finish(bpy.context)
 
 
+class _WindowManager:
+    """Stands in for the window manager: keeps the modal handler instead of needing a window."""
+
+    def __init__(self):
+        self.modal = []
+
+    def modal_handler_add(self, op):
+        self.modal.append(op)
+        return True
+
+
+class _InvokeContext:
+    """``bpy.context`` with no region or area and a stand-in window manager, so ``invoke`` runs headless."""
+
+    region = None
+    area = None
+
+    def __init__(self):
+        self.window_manager = _WindowManager()
+
+    def __getattr__(self, name):
+        return getattr(bpy.context, name)
+
+
+def _recording_handlers(module):
+    """Wrap ``module``'s safe_handler_add / _remove so every call is recorded (and still made); returns
+    (added: [(handle, callback name, draw type)], removed: [handle], undo)."""
+    added, removed = [], []
+    real_add, real_remove = module.safe_handler_add, module.safe_handler_remove
+
+    def add(space, callback, args, region, draw_type, **kwargs):
+        handle = real_add(space, callback, args, region, draw_type, **kwargs)
+        added.append((handle, callback.__name__, draw_type))
+        return handle
+
+    def remove(handle, space, region):
+        removed.append(handle)
+        real_remove(handle, space, region)
+
+    module.safe_handler_add, module.safe_handler_remove = add, remove
+
+    def undo():
+        module.safe_handler_add, module.safe_handler_remove = real_add, real_remove
+    return added, removed, undo
+
+
+def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
+    from InteractionOps.operators import mesh_uv_pipe as module
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    added, removed, undo = _recording_handlers(module)
+    try:
+        op = _OperatorStandIn()
+        context = _InvokeContext()
+        assert op.invoke(context, _Event("LEFTMOUSE")) == {"RUNNING_MODAL"}, op.reports
+        assert context.window_manager.modal == [op]
+        assert [(name, kind) for _h, name, kind in added] == [
+            ("_draw_view_callback", "POST_VIEW"), ("_draw_callback", "POST_PIXEL")]
+        handles = {h for h, _name, _kind in added}
+        assert len(handles) == 2 and {op._handle_view, op._handle} == handles
+        assert handles <= module._ACTIVE_HANDLES
+        op._draw_view_callback(bpy.context)        # no GPU in the background: the draw fails inside, never raises
+        assert op._modal(bpy.context, _Event("ESC")) == {"CANCELLED"}
+        assert set(removed) == handles and not handles & module._ACTIVE_HANDLES
+        assert op._handle is None and op._handle_view is None
+        # a reload's purge removes both as well
+        removed.clear()
+        _edit(obj)
+        op = _OperatorStandIn()
+        assert op.invoke(_InvokeContext(), _Event("LEFTMOUSE")) == {"RUNNING_MODAL"}
+        handles = {op._handle_view, op._handle}
+        module._purge_handles()
+        assert set(removed) == handles and not module._ACTIVE_HANDLES
+        op._finish(bpy.context)
+    finally:
+        undo()
+        module._purge_handles()
+
+
 TESTS = [
     test_operator_is_registered,
     test_reference_a_gives_six_islands,
@@ -1484,6 +1563,7 @@ TESTS = [
     test_modal_keys_toggle_their_options,
     test_t_cycles_the_seam_side,
     test_t_drops_the_picked_wall_seam_but_keeps_ring_breaks,
+    test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top,
 ]
 
 

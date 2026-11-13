@@ -40,6 +40,11 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     line_width_locked:     FloatProperty(name="Locked",         default=3.0, min=0.5, max=12.0)
     line_width_preview:    FloatProperty(name="Result Preview", default=2.0, min=0.5, max=12.0)
     line_width_error:      FloatProperty(name="Error",          default=2.5, min=0.5, max=12.0)
+    occluded_alpha:        FloatProperty(
+        name="Occluded Opacity",
+        description="How strongly lines behind geometry are drawn (1 = as in front, 0 = hidden)",
+        default=0.25, min=0.0, max=1.0, step=5, precision=2, subtype="FACTOR",
+    )
 
     # (Old per-state text colors/sizes were unused by drawing code and
     # have been removed. All HUD/stats text now flows through a small
@@ -516,6 +521,8 @@ def draw_theme_tab(layout, theme):
     sub = _theme_section(layout, theme, "show_line", "Line", icon="EDGESEL")
     if sub is not None:
         _state_table(sub, theme, "line", size_prefix="line_width")
+        sub.separator()
+        sub.prop(theme, "occluded_alpha", slider=True)
 
     # Ghost / Surfaces — highlight color for ghost-preview wires and the
     # translucent fill behind them.
