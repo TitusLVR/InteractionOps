@@ -5,14 +5,16 @@ import math
 import pytest
 
 from utils.uv_stripe_core import (
-    Strip, bbox, fit_to_reference, place_fit, place_in_place, random_offsets, shifted, strip_extent, strip_length,
-    stripe_uvs,
+    Strip, bbox, fit_to_reference, place_fit, place_in_place, random_offsets, shifted, straighten, strip_extent,
+    strip_length, stripe_uvs,
 )
 from utils.uv_stripe_select_core import (
-    bend_cut_rungs, rung_edge, rungs_at, slice_strip, split_strip, strip_from_faces,
+    bend_cut_rungs, open_ring, rung_edge, rungs_at, slice_strip, split_strip, strip_from_faces,
 )
 
-from uv_stripe_fixtures import NGON_FACES, NGON_VERTS, exact_ngon_verts  # noqa: E402
+from uv_stripe_fixtures import (  # noqa: E402
+    NGON_FACES, NGON_VERTS, exact_ngon_verts, flat_annulus, flat_annulus_with_triangle,
+)
 
 
 def corners_uv(strip, uv):
@@ -380,3 +382,90 @@ def test_random_offsets_move_only_the_chosen_axis_and_keep_the_reference():
     assert kept[2] == (0.0, 0.0) and kept[:2] + kept[3:] == both[:2] + both[3:]
     assert random_offsets(3, "NONE", 0.5, seed=1) == [(0.0, 0.0)] * 3
     assert shifted(_rect_piece(1.0, 1.0), (0.5, -0.25))[(0, 2)] == pytest.approx((1.5, 0.75))
+
+
+# --- opening a ring at a rung -------------------------------------------------------
+
+def uvs_by_face(uv):
+    """Each face's corner UVs in its winding order (``stripe_uvs`` lists a face's corners in that order)."""
+    out = {}
+    for (fid, _vid), co in uv.items():
+        out.setdefault(fid, []).append(co)
+    return out
+
+
+def is_axis_aligned_rectangle(pts, tol=1e-9):
+    if len(pts) != 4 or abs(signed_area(pts)) <= tol:
+        return False
+    edges = [(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:] + pts[:1])]
+    flat = [abs(dv) <= tol for _du, dv in edges]
+    upright = [abs(du) <= tol for du, _dv in edges]
+    return all(f != u for f, u in zip(flat, upright)) and flat[0] == flat[2] != flat[1] == flat[3]
+
+
+def test_open_ring_is_open_and_keeps_every_face():
+    strip = strip_from_faces(*flat_annulus(8))
+    opened = open_ring(strip, 3)
+    assert opened.closed is False
+    assert opened.break_edge == rung_edge(strip, 3)
+    assert set(opened.faces) == set(strip.faces)
+    assert opened.near[0] == opened.near[-1] and opened.far[0] == opened.far[-1]
+
+
+def _covers_every_corner(strip, uv):
+    return set(uv) == {(fid, vid) for fid, face in strip.faces.items() for vid in face}
+
+
+def test_opened_ring_true_layout_matches_open_strip_rules():
+    opened = open_ring(strip_from_faces(*flat_annulus(8, outer=1.0, inner=0.5)), 0)
+    opened.layout = "TRUE"
+    uv = stripe_uvs(opened)
+    assert _covers_every_corner(opened, uv)
+    assert all(signed_area(f) > 0 for f in uvs_by_face(uv).values())
+    us = [u for u, _v in uv.values()]
+    assert max(us) - min(us) == pytest.approx(strip_extent(opened), rel=1e-9)
+    for vid in (opened.near[0], opened.far[0]):            # the row's start and end copies of the break vertex
+        assert len({round(u, 9) for (_f, v), (u, _v) in uv.items() if v == vid}) == 2
+
+
+@pytest.mark.parametrize("rung", [0, 5])
+def test_opened_ring_shape_layout_does_not_fold(rung):
+    opened = open_ring(strip_from_faces(*flat_annulus(8)), rung)
+    opened.layout = "SHAPE"
+    uv = stripe_uvs(opened)
+    assert _covers_every_corner(opened, uv)
+    assert all(signed_area(f) > 0 for f in uvs_by_face(uv).values())
+
+
+def test_opened_ring_straightens_to_rectangles():
+    opened = open_ring(strip_from_faces(*flat_annulus(8)), 0)
+    assert straighten(opened) is True
+    for face_uvs in uvs_by_face(stripe_uvs(opened)).values():
+        assert is_axis_aligned_rectangle(face_uvs)
+
+
+def test_opened_ring_faces_are_not_flipped():
+    opened = open_ring(strip_from_faces(*flat_annulus(8)), 5)
+    assert all(signed_area(f) > 0 for f in uvs_by_face(stripe_uvs(opened)).values())
+
+
+@pytest.mark.parametrize("layout", ["EVEN", "STRAIGHT", "TRUE", "SHAPE"])
+@pytest.mark.parametrize("rung", range(9))
+def test_opened_ring_with_a_triangle_lays_out_in_every_layout(layout, rung):
+    strip = strip_from_faces(*flat_annulus_with_triangle(8))
+    opened = open_ring(strip, rung)
+    assert opened.break_edge == rung_edge(strip, rung) and opened.seam is None
+    assert opened.height == strip.height and opened.sides == ([], [])
+    opened.layout = layout
+    uv = stripe_uvs(opened)
+    assert all(signed_area(f) > 0 for f in uvs_by_face(uv).values())
+    # the break edge's two vertices stand at both ends of the strip (vertical ends: "EVEN" and "STRAIGHT")
+    for vid in opened.break_edge if layout in ("EVEN", "STRAIGHT") else ():
+        assert {round(u, 6) for (_f, v), (u, _v) in uv.items() if v == vid} == {0.0, round(strip_extent(opened), 6)}
+
+
+def test_open_ring_keeps_the_closed_strip():
+    strip = strip_from_faces(*flat_annulus(8))
+    before = (list(strip.near), list(strip.far), list(strip.rungs), dict(strip.corner_near), dict(strip.corner_far))
+    open_ring(strip, 2)
+    assert strip.closed and (strip.near, strip.far, strip.rungs, strip.corner_near, strip.corner_far) == before
