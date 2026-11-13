@@ -15,9 +15,10 @@ choices go to the lower vertex id or the lower position.
 import math
 from dataclasses import dataclass
 
-from .uv_stripe_select_core import _edge
+from .uv_stripe_select_core import _boundary_loops, _edge, face_islands, strip_from_faces
 
 EPS = 1e-6
+FLAT_TOLERANCE = math.radians(1.0)
 
 
 @dataclass
@@ -175,3 +176,158 @@ def trace_loop(verts, nbrs, edge, min_angle, stop_verts=frozenset(), uv=None) ->
                 break
             prev, cur = cur, nxt
     return Loop(back[::-1] + path, False)
+
+
+# --- Ring seams and parts -----------------------------------------------------------------------------------------
+
+
+def ring_seams(verts, faces, sharp_angle, loop_angle) -> list[Loop]:
+    """The automatic ring seams: closed loops (``trace_loop`` on geometry at ``loop_angle``) whose mean dihedral
+    over their edges is at least ``sharp_angle``. Loops start only from edges whose own dihedral is at least
+    ``sharp_angle``, in edge-key order; each loop is returned once. A boundary edge counts as flat in the mean."""
+    angles = dihedrals(verts, faces)
+    nbrs = neighbours(faces)
+    taken: set = set()
+    seen: set = set()
+    out = []
+    for e, a in angles.items():
+        if a < sharp_angle - EPS or e in taken:
+            continue
+        loop = trace_loop(verts, nbrs, e, loop_angle)
+        if not loop.closed:
+            continue
+        edges = loop.edges()
+        key = frozenset(edges)
+        if key in seen:
+            continue
+        seen.add(key)
+        if sum(angles.get(x, 0.0) for x in edges) / len(edges) >= sharp_angle - EPS:
+            out.append(loop)
+            taken.update(edges)
+    return out
+
+
+@dataclass
+class Part:
+    kind: str                       # "WALL" | "RING" | "DISK" | "FREE"
+    faces: dict[int, tuple]
+    boundaries: list[list[int]]     # boundary vertex loops, longest first
+
+
+def _face_edge_keys(face) -> list[tuple]:
+    n = len(face)
+    return [_edge(face[i], face[(i + 1) % n]) for i in range(n) if face[i] != face[(i + 1) % n]]
+
+
+def _loop_length(verts, loop: list[int], closed: bool = True) -> float:
+    ids = loop + loop[:1] if closed else loop
+    return sum(math.dist(verts[a], verts[b]) for a, b in zip(ids, ids[1:]))
+
+
+def _boundaries(verts, faces: dict) -> list[list[int]] | None:
+    """The faces' boundary loops (edges used by one of them), longest first (3D length, then lowest first id);
+    None when the boundary touches itself at a vertex."""
+    try:
+        loops = _boundary_loops(faces, _edge_faces(faces))
+    except ValueError:
+        return None
+    return sorted(loops, key=lambda lp: (-round(_loop_length(verts, lp), 9), lp[0]))
+
+
+def _is_flat(verts, faces: dict) -> bool:
+    normals = [_normal(verts, face) for face in faces.values()]
+    mean = tuple(sum(n[k] for n in normals) for k in range(3))
+    if _norm(mean) < 1e-12:
+        return False
+    return all(_between(n, mean) <= FLAT_TOLERANCE + 1e-12 for n in normals)
+
+
+def _sub_faces(faces: dict, ids) -> dict:
+    return {fid: faces[fid] for fid in sorted(ids)}
+
+
+def _shared_edges(faces: dict, band: set, rest: set) -> set:
+    """Edges used by a face of ``band`` and a face of ``rest``."""
+    a = {e for fid in band for e in _face_edge_keys(faces[fid])}
+    return {e for fid in rest for e in _face_edge_keys(faces[fid]) if e in a}
+
+
+def _flat_rest(verts, faces: dict) -> Part | None:
+    """What is left of a flat part once peeling stops: nothing, a DISK (one boundary loop) or a WALL (more)."""
+    if not faces:
+        return None
+    loops = _boundaries(verts, faces)
+    if not loops:
+        return Part("FREE", faces, loops or [])
+    return Part("DISK" if len(loops) == 1 else "WALL", faces, loops)
+
+
+def _closed_strip(verts, faces: dict) -> bool:
+    try:
+        return strip_from_faces(verts, faces).closed
+    except ValueError:
+        return False
+
+
+def _peel(verts, comp: dict, cuts, suppressed, parts: list, peel: set) -> None:
+    """Peel one-face-wide closed rings off a flat part from its longest boundary inward (see ``split_parts``)."""
+    work = [comp]
+    while work:
+        rest = work.pop(0)
+        while rest:
+            loops = _boundaries(verts, rest)
+            if not loops:
+                break
+            ring = set(Loop(loops[0], True).edges())
+            band = {fid for fid, face in rest.items() if any(e in ring for e in _face_edge_keys(face))}
+            if not _closed_strip(verts, _sub_faces(rest, band)):
+                break
+            left = set(rest) - band
+            inner = _shared_edges(rest, band, left)
+            layers = 1
+            while inner & suppressed and left:
+                grow = {fid for fid in left if any(e in inner for e in _face_edge_keys(rest[fid]))}
+                band |= grow
+                left -= grow
+                inner = _shared_edges(rest, band, left)
+                layers += 1
+            band_faces = _sub_faces(rest, band)
+            if layers == 1:
+                parts.append(Part("RING", band_faces, _boundaries(verts, band_faces) or []))
+            else:
+                band_loops = _boundaries(verts, band_faces)
+                if not band_loops or len(band_loops) != 2:
+                    break
+                parts.append(Part("WALL", band_faces, band_loops))
+            peel |= inner
+            pieces = face_islands(_sub_faces(rest, left), cuts) if left else []
+            work[:0] = pieces[1:]
+            rest = pieces[0] if pieces else {}
+        part = _flat_rest(verts, rest)
+        if part is not None:
+            parts.append(part)
+
+
+def split_parts(verts, faces, cuts, suppressed=frozenset()) -> tuple[list[Part], set]:
+    """Split ``faces`` at the ``cuts`` (edge keys) into classified parts; return them and the peel seams added.
+
+    Each edge-connected component (``face_islands``) is flat when every face normal lies within ``FLAT_TOLERANCE``
+    of their mean. A flat component is peeled: the faces with an edge on its longest boundary loop, when they make
+    a closed strip, are a RING and the edges between them and the rest a peel seam; peeling goes on with the rest.
+    When an edge between the layer and the rest is in ``suppressed`` (a seam the user removed), the band grows
+    inward a face layer at a time until no such edge is suppressed or nothing is left; a band of two or more layers
+    with two boundary loops is a WALL, its inner edges a peel seam, and peeling goes on. Otherwise (the layer is no
+    closed strip, or the grown band has not two boundary loops) peeling stops, and what is left is nothing, a DISK
+    (one boundary loop) or a WALL (two or more). A part that is not flat is a WALL with two or more boundary loops,
+    else FREE. Cut edges and mesh boundary edges both count as boundary; a boundary that touches itself at a
+    vertex leaves the part FREE with no boundaries.
+    """
+    parts: list[Part] = []
+    peel: set = set()
+    for comp in face_islands(faces, cuts):
+        if _is_flat(verts, comp):
+            _peel(verts, comp, cuts, suppressed, parts, peel)
+            continue
+        loops = _boundaries(verts, comp) or []
+        parts.append(Part("WALL" if len(loops) >= 2 else "FREE", comp, loops))
+    return parts, peel

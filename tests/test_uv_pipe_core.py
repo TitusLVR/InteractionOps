@@ -3,8 +3,8 @@ import math
 from collections import Counter
 from math import radians
 
-from uv_pipe_fixtures import bent_pipe, capped_cylinder, open_tube
-from utils.uv_pipe_core import Loop, dihedrals, neighbours, trace_loop
+from uv_pipe_fixtures import bent_pipe, capped_cylinder, clean_bend, open_tube, torus
+from utils.uv_pipe_core import Loop, dihedrals, neighbours, ring_seams, split_parts, trace_loop
 from utils.uv_stripe_select_core import _edge
 
 
@@ -152,3 +152,108 @@ def test_uv_source_falls_back_where_a_vertex_has_no_single_uv():
 def test_loop_edges_include_the_closing_edge():
     assert Loop([3, 1, 2], True).edges() == [(1, 3), (1, 2), (2, 3)]
     assert Loop([3, 1, 2], False).edges() == [(1, 3), (1, 2)]
+
+
+# --- Task 5: ring seams and part classification -------------------------------------------------------------------
+
+
+def _cylinder_parts(**kwargs):
+    verts, faces = capped_cylinder(**kwargs)
+    cuts = {e for loop in ring_seams(verts, faces, radians(60), radians(120)) for e in loop.edges()}
+    return verts, faces, cuts
+
+
+def _cap_loop(verts, faces, radius, z):
+    """Edges of a cap's concentric loop at ``radius`` and height ``z``."""
+    out = set()
+    for face in faces.values():
+        for a, b in zip(face, face[1:] + face[:1]):
+            if all(abs(_radius(verts[v]) - radius) < 1e-9 and abs(verts[v][2] - z) < 1e-9 for v in (a, b)):
+                out.add(_edge(a, b))
+    return out
+
+
+def test_cylinder_ring_seams_are_the_two_rims():
+    verts, faces = capped_cylinder()
+    loops = ring_seams(verts, faces, radians(60), radians(120))
+    assert len(loops) == 2 and all(lp.closed and len(lp.verts) == 32 for lp in loops)
+    assert {e for lp in loops for e in lp.edges()} == _rim_edges(verts, faces, 0.0) | _rim_edges(verts, faces, 2.0)
+
+
+def test_low_poly_wall_edges_are_not_ring_seams():
+    verts, faces = capped_cylinder(sides=8)
+    assert abs(dihedrals(verts, faces)[_edge(0, 8)] - radians(45)) < 1e-9
+    rims = _rim_edges(verts, faces, 0.0) | _rim_edges(verts, faces, 2.0)
+    for sharp in (radians(60), radians(30)):        # at 30 the lengthwise edges are sharp too, but never close
+        loops = ring_seams(verts, faces, sharp, radians(120))
+        assert len(loops) == 2
+        assert {e for lp in loops for e in lp.edges()} == rims
+
+
+def test_bend_rings_are_not_ring_seams():
+    assert ring_seams(*clean_bend(), radians(60), radians(120)) == []
+
+
+def test_ring_seams_are_returned_once_and_in_a_stable_order():
+    verts, faces = capped_cylinder()
+    first = ring_seams(verts, faces, radians(60), radians(120))
+    second = ring_seams(verts, faces, radians(60), radians(120))
+    assert [lp.verts for lp in first] == [lp.verts for lp in second]
+    assert len({frozenset(lp.edges()) for lp in first}) == len(first)
+
+
+def test_cylinder_splits_into_six_parts():            # spec Reference A
+    verts, faces, cuts = _cylinder_parts()
+    parts, peel = split_parts(verts, faces, cuts)
+    assert sorted(p.kind for p in parts) == ["DISK", "DISK", "RING", "RING", "RING", "WALL"]
+    assert len(peel) == 3 * 32                       # the three inner cap loops
+    assert peel == (_cap_loop(verts, faces, 0.671, 0.0) | _cap_loop(verts, faces, 0.493, 0.0)
+                    | _cap_loop(verts, faces, 0.671, 2.0))
+    assert sorted(len(p.faces) for p in parts) == [1, 32, 32, 32, 32, 128]
+    assert sorted(fid for p in parts for fid in p.faces) == sorted(faces)
+    wall = next(p for p in parts if p.kind == "WALL")
+    assert len(wall.boundaries) == 2 and all(len(b) == 32 for b in wall.boundaries)
+    for p in parts:
+        if p.kind == "RING":
+            assert len(p.boundaries) == 2
+            lengths = [sum(math.dist(verts[a], verts[b]) for a, b in zip(lp, lp[1:] + lp[:1]))
+                       for lp in p.boundaries]
+            assert lengths[0] > lengths[1]                # longest first
+        if p.kind == "DISK":
+            assert len(p.boundaries) == 1
+
+
+def test_suppressed_peel_merges_two_rings_into_a_wall():
+    verts, faces, cuts = _cylinder_parts()
+    between = _cap_loop(verts, faces, 0.671, 0.0)
+    parts, peel = split_parts(verts, faces, cuts, suppressed=frozenset(between))
+    assert sorted(p.kind for p in parts) == ["DISK", "DISK", "RING", "WALL", "WALL"]
+    assert not peel & between
+    assert peel == _cap_loop(verts, faces, 0.493, 0.0) | _cap_loop(verts, faces, 0.671, 2.0)
+    flat_wall = next(p for p in parts if p.kind == "WALL" and len(p.faces) == 64)
+    assert len(flat_wall.boundaries) == 2
+
+
+def test_suppressed_peel_into_the_centre_is_a_disk():
+    # removing the loop round the fan merges the inner ring and the fan: one boundary loop, so a disk
+    verts, faces, cuts = _cylinder_parts()
+    parts, peel = split_parts(verts, faces, cuts, suppressed=frozenset(_cap_loop(verts, faces, 0.493, 0.0)))
+    assert sorted(p.kind for p in parts) == ["DISK", "DISK", "RING", "RING", "WALL"]
+    assert sorted(len(p.faces) for p in parts if p.kind == "DISK") == [1, 64]
+
+
+def test_bent_pipe_is_one_wall_and_two_disks():       # spec Reference B
+    verts, faces = bent_pipe()
+    cuts = {e for loop in ring_seams(verts, faces, radians(60), radians(120)) for e in loop.edges()}
+    parts, peel = split_parts(verts, faces, cuts)
+    assert sorted(p.kind for p in parts) == ["DISK", "DISK", "WALL"]
+    assert peel == set()
+    wall = next(p for p in parts if p.kind == "WALL")
+    assert len(wall.faces) == len(faces) - 2 and len(wall.boundaries) == 2
+
+
+def test_uncut_closed_and_open_surfaces():
+    parts, _ = split_parts(*torus(), set())
+    assert [p.kind for p in parts] == ["FREE"] and parts[0].boundaries == []
+    parts, _ = split_parts(*open_tube(), set())
+    assert [p.kind for p in parts] == ["WALL"] and len(parts[0].boundaries) == 2
