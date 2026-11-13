@@ -11,7 +11,9 @@ active UV map through ``uv_stripe_bridge``; no ``bpy.ops.uv`` call.
 Invoked, the operator is modal: every option has a key, and every change restores
 the UVs and seams the selected faces had and lays them out again, so the UV editor
 follows live; the viewport shows each piece's outline and where the strip is torn.
-Confirm keeps the result (one undo step), cancel puts the snapshot back.
+Confirm keeps the result (one undo step), cancel puts the snapshot back. C picks
+the cross edge a closed ring is broken at (``cup_breaks``): the ring is then laid
+out as one open strip from there.
 """
 
 import json
@@ -27,7 +29,7 @@ from mathutils import Vector
 from ..ui.draw import Role, draw_scope, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
 from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
-from ..utils import uv_stripe_core, uv_stripe_select_core
+from ..utils import picking, uv_stripe_core, uv_stripe_select_core
 from . import uv_stripe_bridge
 
 EPS = 1e-6
@@ -513,6 +515,96 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             pass
 
     # ------------------------------------------------------------------
+    # Ring break: pick the cross edge a closed ring is opened at (C)
+    # ------------------------------------------------------------------
+
+    def _hover_break(self, context, event):
+        """(object, edge index) of the pickable cross edge under the cursor, or None.
+
+        Pickable: a cross edge of a selected closed ring in the last layout (``_Result.rings``),
+        one of the edges of the face under the cursor, the one nearest to it on screen.
+        """
+        region = getattr(context, "region", None)
+        rv3d = getattr(context, "region_data", None)
+        result = getattr(self, "_result", None)
+        if region is None or rv3d is None or result is None or not result.rings:
+            return None
+        objects = [o for o in context.objects_in_mode_unique_data if o.type == "MESH" and result.rings.get(o.name)]
+        if not objects:
+            return None
+        coord = (event.mouse_region_x, event.mouse_region_y)
+        hit = picking.raycast_edit_meshes(context, coord, objects, cache=getattr(self, "_pick_cache", None),
+                                          region=region, rv3d=rv3d)
+        if not hit[0]:
+            return None
+        face_index, obj = hit[3], hit[4]
+        pickable = result.rings[obj.name]
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        if not 0 <= face_index < len(bm.faces):
+            return None
+        edges = [e for e in bm.faces[face_index].edges if e.index in pickable]
+        if not edges:
+            return None
+        k, _distance = picking.closest_edge_screen(context, edges, obj.matrix_world, coord)
+        return None if k is None else (obj, edges[k].index)
+
+    def _update_hover(self, context, event):
+        """Keep the hovered cross edge, and its world-space end points for the preview."""
+        found = self._hover_break(context, event)
+        self._hover = None
+        if found is not None:
+            obj, index = found
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.edges.ensure_lookup_table()
+            edge = bm.edges[index]
+            self._hover = (obj, index, [obj.matrix_world @ v.co for v in edge.verts])
+
+    def _set_break(self, context, obj, edge_index):
+        """Break the ring holding cross edge ``edge_index`` of ``obj`` there, re-lay out and leave picking.
+
+        Any break already stored for the same ring is replaced. An edge that is no cross
+        edge of a selected closed ring changes nothing; returns whether the break was set.
+        """
+        rings = getattr(self, "_result", _Result()).rings.get(obj.name, {})
+        ring = rings.get(edge_index)
+        if ring is None:
+            return False
+        breaks = _parse_breaks(getattr(self, "cup_breaks", ""))
+        kept = [i for i in breaks.get(obj.name, []) if rings.get(i) != ring]
+        breaks[obj.name] = kept + [edge_index]
+        self.cup_breaks = json.dumps(breaks, sort_keys=True)
+        self._picking = False
+        self._hover = None
+        self._relayout(context)
+        return True
+
+    def _pick_event(self, context, event):
+        """The modal's answer to ``event`` while picking a break."""
+        if event.type == "MOUSEMOVE":
+            self._update_hover(context, event)
+            return {"RUNNING_MODAL"}
+        if event.type in NAVIGATION or event.type.startswith("NDOF"):
+            return {"PASS_THROUGH"}
+        if event.value != "PRESS":
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE":
+            self._update_hover(context, event)
+            if self._hover is not None:
+                self._set_break(context, self._hover[0], self._hover[1])
+        elif event.type in {"RIGHTMOUSE", "ESC", "C"}:
+            self._picking = False
+            self._hover = None
+            self._show_status(context)
+        return {"RUNNING_MODAL"}
+
+    def _show_status(self, context):
+        try:
+            context.workspace.status_text_set(self._status_text())
+        except AttributeError:
+            pass
+
+    # ------------------------------------------------------------------
     # Modal
     # ------------------------------------------------------------------
 
@@ -522,6 +614,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._cancel = {name: getattr(self, name) for name in (
             "mode", "active_fit", "orientation", "layout", "split_at_seams", "split_at_bends", "split_angle", "mark_seams",
             "offset_axis", "offset_limit", "offset_seed", "merge_doubles")}
+        self._cancel["cup_breaks"] = getattr(self, "cup_breaks", "")
+        self._picking = False
+        self._hover = None
+        self._pick_cache = {}
         self._relayout(context)
         if not self._result.done:
             self._restore_snapshot()
@@ -566,10 +662,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._hud.add_param(HUDParam("Bend Angle (Wheel)", lambda: math.degrees(self.split_angle), "float",
                                      fmt="{:.0f}°", active_getter=lambda: self.split_at_bends))
         self._hud.add_param(HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool"))
+        self._hud.add_param(HUDParam("Break Ring (C)", lambda: getattr(self, "_picking", False), "bool"))
         self._hud.add_param(HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum"))
         self._hud.add_param(HUDParam("Offset Limit (Shift + Wheel)", lambda: self.offset_limit, "float",
                                      fmt="{:.2f}", active_getter=lambda: self.offset_axis != "NONE"))
-        self._hud.add_param(HUDParam("Offset Seed (C)", lambda: self.offset_seed, "int",
+        self._hud.add_param(HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int",
                                      active_getter=lambda: self.offset_axis != "NONE"))
         self._hud.add_param(HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool"))
         self._hud.add_param(HUDParam("Doubled Vertices", lambda: getattr(self, "_result", _Result()).doubles, "int"))
@@ -587,7 +684,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             item("Fit to active", "D"),
             item("Random offset", "Z"),
             item("Mark seams", "X"),
-            item("New offset seed", "C"),
+            item("Break ring: pick a cross edge", "C"),
+            item("New offset seed", "R"),
             item("Merge doubles", "F"),
             item("Bend angle", "Wheel / Ctrl + Wheel"),
             item("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"),
@@ -630,6 +728,9 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
                 return {"RUNNING_MODAL"}
 
+        if getattr(self, "_picking", False):     # picking a ring's break: LMB takes it before the confirm
+            return self._pick_event(context, event)
+
         wheel = event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
         if wheel and event.shift and self.offset_axis != "NONE":
             step = LIMIT_FINE_STEP if event.ctrl else LIMIT_STEP
@@ -664,8 +765,13 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.offset_axis = OFFSET_CYCLE[(OFFSET_CYCLE.index(self.offset_axis) + 1) % len(OFFSET_CYCLE)]
         elif event.type == "X":
             self.mark_seams = not self.mark_seams
-        elif event.type == "C":
+        elif event.type == "R":
             self.offset_seed += 1
+        elif event.type == "C":           # pick the cross edge a ring is broken at
+            self._picking = True
+            self._update_hover(context, event)
+            self._show_status(context)
+            return {"RUNNING_MODAL"}
         elif event.type == "F":           # the preview is weld-aware: only the HUD and the confirm change
             self.merge_doubles = not self.merge_doubles
             return {"RUNNING_MODAL"}
@@ -711,8 +817,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._snapshot = []
         self._hud = None
         self._help = None
+        self._picking = False
+        self._hover = None
+        self._pick_cache = {}
 
     def _status_text(self):
+        if getattr(self, "_picking", False):
+            return ("UV Stripe: break ring | click the cross edge to open the ring at | "
+                    "[LMB] set the break | [C/Esc/RMB] stop picking | [MMB/Wheel] navigate")
         layout_names = {item[0]: item[1] for item in uv_stripe_bridge.LAYOUT_ITEMS}
         result = getattr(self, "_result", None)
         count = f"{result.done} strip(s) | " if result is not None else ""
@@ -728,6 +840,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             f"random offset = {OFFSET_NAMES[self.offset_axis].lower()} (Z) | "
             f"mark seams = {'on' if self.mark_seams else 'off'} (X) | "
             f"merge doubles = {'on' if self.merge_doubles else 'off'} (F) | "
+            "break ring (C) | new offset seed (R) | "
             "[Enter/LMB/Space] confirm | [Esc/RMB] cancel"
         )
 
@@ -747,22 +860,29 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     out += [Vector((a[0], a[1], 0.0)), Vector((b[0], b[1], 0.0))]
             return out
 
+        hover = getattr(self, "_hover", None) if getattr(self, "_picking", False) else None
         try:
             outline = project(result.outline) if result is not None else []
             tears = project(result.tears) if result is not None else []
+            hovered = project(hover[2]) if hover is not None else []
         except Exception:   # a draw handler must never raise: it would repeat every frame
-            outline, tears = [], []
-        if outline or tears:
+            outline, tears, hovered = [], [], []
+        if outline or tears or hovered:
             with draw_scope(blend="ALPHA"):
                 if outline:
                     draw.edges_3d(outline, role=Role.PREVIEW_LINE, context=context)
-                if tears:
+                if tears:     # the picked breaks are among them: each opened ring's cut
                     draw.edges_3d(tears, role=Role.ERROR_LINE, context=context)
+                if hovered:
+                    draw.edges_3d(hovered, role=Role.ACTIVE_LINE, context=context)
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
             helpo.draw(context, last_event)
         if hud is not None:
-            hud.set_header(f"{result.done if result is not None else 0} strip(s)")
+            if getattr(self, "_picking", False):
+                hud.set_header("Break Ring: click a cross edge")
+            else:
+                hud.set_header(f"{result.done if result is not None else 0} strip(s)")
             hud.draw(context, last_event)

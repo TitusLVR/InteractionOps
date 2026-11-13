@@ -15,7 +15,8 @@ Unwraps each selected strip of faces into UV without stretch: the strip is torn 
 | <kbd>D</kbd> | Fit to Active: Width and Height → Width → Height |
 | <kbd>Z</kbd> | Random Offset: None → Along Strip → Across Strip → Both |
 | <kbd>X</kbd> | Mark Seams on / off |
-| <kbd>C</kbd> | New offset seed |
+| <kbd>C</kbd> | Break Ring: pick the cross edge a closed ring is opened at (see *Breaking a ring*); <kbd>C</kbd> again stops picking |
+| <kbd>R</kbd> | New offset seed |
 | <kbd>F</kbd> | Merge Doubles on / off (applied on confirm) |
 | <kbd>Wheel</kbd> | Bend Angle ±5° while Split at Bends is on (<kbd>Ctrl</kbd>: ±1°); with it off the wheel zooms the view |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Offset Limit ±0.05 while Random Offset is on (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±0.01); with it off the view pans |
@@ -23,14 +24,20 @@ Unwraps each selected strip of faces into UV without stretch: the strip is torn 
 | <kbd>N</kbd> / <kbd>T</kbd> | Sidebar / toolbar, as usual |
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm |
-| <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel: the UVs and seams go back exactly as they were |
+| <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel: the UVs and seams go back exactly as they were; while picking a break, they only stop picking |
 
 Run from the operator search or a key, it starts in this interactive mode; the redo panel and scripts give the same result without it.
+
+## Breaking a ring
+A closed ring is normally cut open at one cross edge (an existing seam, else its sharpest corner) and, with Split at Bends, torn wherever it bends. To lay a ring out as **one straight strip** instead, press <kbd>C</kbd>: the cross edge of a selected ring nearest the cursor lights up, and <kbd>LMB</kbd> breaks the ring there and lays it out again. Only cross edges of closed rings can be picked; the viewport keeps navigating while you pick, and <kbd>Esc</kbd> / <kbd>RMB</kbd> (or <kbd>C</kbd> again) stop picking without cancelling.
+- A broken ring is one piece: Split at Bends does not tear it, and the seams on its other cross edges no longer cut it (Mark Seams clears them and marks the break).
+- A broken ring made **only of quads** is laid out as *Rectangles* whatever the Layout says: every face a rectangle, the strip one straight rectangle. A ring with triangles or n-gons follows the Layout as an open strip would.
+- Picking another edge of the same ring moves its break there; each ring keeps its own break. The breaks last for the redo panel, but a new run of UV Stripe starts without them.
 
 ## What counts as a strip
 Each edge-connected group of selected faces is one strip:
 - **Open chain** — faces in a row, one face wide; it may bend. Quad, triangle or n-gon ends (a quad whose rails or end carry extra vertices).
-- **Closed ring** — a loop of faces, such as a band round a cylinder; it is cut open at one rung.
+- **Closed ring** — a loop of faces, such as a band round a cylinder; it is cut open at one rung, or at the cross edge you pick (see *Breaking a ring*).
 - **Quad grid** — a patch several faces wide with four corners; the two longer sides become the rows.
 
 A group that branches, touches itself at a vertex, has a hole, or is a single triangle is skipped with a warning; the other groups are still unwrapped.
@@ -43,7 +50,7 @@ All options are also in the redo panel. They are the settings of every UV Stripe
 - **Mode** — *Active* (default) lays out the strip holding the active face as In Place does, then fits every other piece onto its UV bounding box, as Visual UV's Fit to Active (<kbd>D</kbd>) does: a piece lying across the reference (landscape against portrait) is turned a quarter, never mirrored, scaled to match it and centred on it. With no active face among the selected faces, or no UV map to place it by, everything is laid out In Place and a short note says so. *Fit 0–1* scales all strips by one factor so the longest spans U 0–1, keeping one texel density, and stacks them upward. *In Place* keeps each strip where its old UVs were, at the texel density of the neighbouring faces.
 - **Fit to Active** — used by Active: *Width* (default) matches the reference's width only and *Height* its height only, the other axis keeping its size (measured after the quarter turn); *Width and Height* makes each other piece's bounding box equal the reference's.
 - **Orientation** — *Horizontal* (default) runs the strip along U. *Vertical* turns it 90° counter-clockwise, never mirrored: Fit spans V 0–1 and stacks the strips to the right, In Place turns each strip about its own place. Under Active the reference strip turns and the other pieces follow it.
-- **Layout** — *No Stretch* (default) keeps every row at its true length: a flat piece between straight rails comes out at its exact shape, ends at their real slant. The rows are lined up again at every cross edge, so a slight bend below the bend angle, or a width that tapers, only distorts the faces where it happens, not the rest of the piece. *Rectangles* stands every cross edge vertical, so each quad becomes a rectangle; it stretches where the strip bends. *Even Rows* lays each row out by its own length, scaled to the strip's mean length. *True Shape* keeps the real width as well: one row (the straighter one) stays straight at its true length and every other vertex sits at its real distance from it, so a strip whose width changes maps one to one; the other row then follows the strip's real outline instead of a straight line. A ring laid out whole cannot close at true lengths and uses Even Rows.
+- **Layout** — *No Stretch* (default) keeps every row at its true length: a flat piece between straight rails comes out at its exact shape, ends at their real slant. The rows are lined up again at every cross edge, so a slight bend below the bend angle, or a width that tapers, only distorts the faces where it happens, not the rest of the piece. *Rectangles* stands every cross edge vertical, so each quad becomes a rectangle; it stretches where the strip bends. *Even Rows* lays each row out by its own length, scaled to the strip's mean length. *True Shape* keeps the real width as well: one row (the straighter one) stays straight at its true length and every other vertex sits at its real distance from it, so a strip whose width changes maps one to one; the other row then follows the strip's real outline instead of a straight line. A ring laid out whole cannot close at true lengths and uses Even Rows; a ring with a picked break is laid out as an open strip (see *Breaking a ring*).
 - **Split at Seams** — on by default: seams already inside a strip tear it into pieces; a ring with a single seam is cut open there instead of at its sharpest corner. Off, the strip is laid out across them (and Mark Seams clears them).
 - **Split at Bends** — on by default: tears the strip at cross edges once it has turned by more than **Bend Angle** (5° by default) within its own surface since the last tear. One sharp corner tears there, a gentle arc tears at regular intervals; a strip that only folds (wrapped round a cylinder) is not torn. Works on quad, n-gon and triangulated strips one face wide. When a tear cannot be made the strip stays whole and a warning says why.
 - **Mark Seams** — makes the seams match the pieces: every piece's outline (tears, and where a ring is cut open) is marked, and the seams inside a piece are cleared. Seams outside the selection are never touched; with Mark Seams off no seam changes.
