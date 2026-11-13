@@ -17,7 +17,8 @@ from mathutils import Vector
 ADDON = "InteractionOps"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/: shared fixtures
-from uv_stripe_fixtures import DOUBLE_FACES, DOUBLE_VERTS, NGON_FACES, NGON_VERTS, exact_ngon_verts  # noqa: E402
+from uv_stripe_fixtures import (  # noqa: E402
+    DOUBLE_FACES, DOUBLE_VERTS, NGON_FACES, NGON_VERTS, exact_ngon_verts, flat_annulus, flat_annulus_with_triangle)
 
 operator = None
 
@@ -900,6 +901,139 @@ def test_mesh_without_uv_gets_one():
     assert len(obj.data.uv_layers) == 1
 
 
+# --- cup break: a ring opened at a picked cross edge ------------------------------------
+
+def _annulus(n=8, triangle=False):
+    """A flat ring of ``n`` quads (outer vertices 0 .. n - 1, inner n .. 2n - 1, cross edge k = (k, n + k));
+    ``triangle`` splits face 0 into two triangles along (0, n + 1)."""
+    verts, faces = (flat_annulus_with_triangle if triangle else flat_annulus)(n)
+    return _object([verts[i] for i in range(2 * n)], [faces[k] for k in sorted(faces)])
+
+
+def _edge_index(obj, pair):
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.edges.index_update()
+    pair = tuple(sorted(pair))
+    return next(e.index for e in bm.edges if tuple(sorted(v.index for v in e.verts)) == pair)
+
+
+def _cup(obj, *pairs):
+    import json
+    return json.dumps({obj.name: [_edge_index(obj, p) for p in pairs]})
+
+
+def _inner_edges(obj):
+    """The edges between two selected faces, as sorted vertex-id pairs."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    return {tuple(sorted(v.index for v in e.verts)) for e in bm.edges if sum(f.select for f in e.link_faces) == 2}
+
+
+def _uv_islands(obj):
+    """The number of UV islands among the selected faces: faces joined where both corners of an edge agree."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    faces = [f for f in bm.faces if f.select]
+    parent = {f: f for f in faces}
+
+    def root(f):
+        while parent[f] is not f:
+            f = parent[f]
+        return f
+
+    def uv_at(face, vert):
+        return next(lp[layer].uv for lp in face.loops if lp.vert == vert)
+
+    for e in bm.edges:
+        linked = [f for f in e.link_faces if f.select]
+        if len(linked) == 2 and all((uv_at(linked[0], v) - uv_at(linked[1], v)).length < 1e-6 for v in e.verts):
+            parent[root(linked[0])] = root(linked[1])
+    return len({root(f) for f in faces})
+
+
+def _rectangles(obj):
+    """Whether every selected face's UVs form an axis-aligned rectangle."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    for f in bm.faces:
+        if not f.select:
+            continue
+        pts = [lp[layer].uv for lp in f.loops]
+        if len(pts) != 4 or len({round(p.x, 6) for p in pts}) != 2 or len({round(p.y, 6) for p in pts}) != 2:
+            return False
+    return True
+
+
+def test_cup_break_ring_is_one_piece_despite_bend_split():
+    obj = _annulus()
+    _edit(obj)
+    assert _run(mode="FIT", split_at_bends=True, split_angle=math.radians(5)) == {"FINISHED"}
+    assert _uv_islands(obj) > 1                              # without a break the flat ring is torn at its bends
+    obj = _annulus()
+    _edit(obj)
+    assert _run(mode="FIT", split_at_bends=True, split_angle=math.radians(5),
+                cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1
+    assert _seams(obj) & _inner_edges(obj) == {(3, 11)}
+    assert all(a > 0 for a in _face_areas(obj))
+
+
+def test_cup_break_all_quads_is_rectangles_under_no_stretch():
+    obj = _annulus()
+    _edit(obj)
+    assert _run(mode="FIT", layout="TRUE", cup_breaks=_cup(obj, (5, 13))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and _rectangles(obj)
+    assert all(a > 0 for a in _face_areas(obj))
+
+
+def test_cup_break_replaces_an_old_seam():
+    obj = _annulus()
+    _edit(obj)
+    _set_seams(obj, {(6, 14)})
+    assert _run(mode="FIT", split_at_seams=True, mark_seams=True, cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1
+    assert _seams(obj) & _inner_edges(obj) == {(3, 11)}
+
+
+def test_cup_break_with_a_triangle_follows_layout():
+    obj = _annulus(triangle=True)
+    _edit(obj)
+    assert _run(mode="FIT", layout="TRUE", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1
+    assert all(a > 0 for a in _face_areas(obj))
+    assert not _rectangles(obj)                              # laid out by No Stretch, not forced to Rectangles
+    assert _run(mode="FIT", layout="STRAIGHT", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and all(a > 0 for a in _face_areas(obj))
+
+
+def test_cup_break_on_an_open_strip_is_ignored():
+    obj = _grid(4, 1)
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    plain = _uv_state(obj)
+    obj = _grid(4, 1)
+    _edit(obj)
+    assert _run(mode="FIT", cup_breaks=_cup(obj, (2, 7))) == {"FINISHED"}
+    assert _uv_state(obj) == plain
+
+
+def test_cup_break_is_taken_before_doubles_are_merged():
+    # The flat ring with outer vertex 5 doubled by vertex 16 inside face 4: merging renumbers the edges after it.
+    verts, faces = flat_annulus(8)
+    points = [verts[i] for i in range(16)] + [(verts[5][0], verts[5][1] + 1e-5, 0.0)]
+    faces[4] = (4, 5, 16, 13, 12)
+    faces[5] = (16, 6, 14, 13)
+    obj = _object(points, [faces[k] for k in sorted(faces)])
+    _edit(obj)
+    before = _edge_index(obj, (7, 15))
+    stand = _OperatorStandIn(mode="FIT", merge_doubles=True, split_angle=math.radians(5),
+                             cup_breaks=_cup(obj, (7, 15)))
+    assert stand.execute(bpy.context) == {"FINISHED"}, stand.reports
+    assert "UV Stripe: merged 1 doubled vertices" in stand.reports, stand.reports
+    assert _edge_index(obj, (7, 15)) != before               # the index alone would now name another edge
+    assert _uv_islands(obj) == 1
+    assert _seams(obj) & _inner_edges(obj) == {(7, 15)}
+
+
 TESTS = [
     test_fit_straight_strip,
     test_in_place_keeps_centre_and_density,
@@ -941,6 +1075,12 @@ TESTS = [
     test_active_without_an_active_face_lays_out_in_place_and_says_so,
     test_random_offset_moves_the_other_strip_along_u_only,
     test_modal_fit_to_active_and_random_offset_keys,
+    test_cup_break_ring_is_one_piece_despite_bend_split,
+    test_cup_break_all_quads_is_rectangles_under_no_stretch,
+    test_cup_break_replaces_an_old_seam,
+    test_cup_break_with_a_triangle_follows_layout,
+    test_cup_break_on_an_open_strip_is_ignored,
+    test_cup_break_is_taken_before_doubles_are_merged,
 ]
 
 
