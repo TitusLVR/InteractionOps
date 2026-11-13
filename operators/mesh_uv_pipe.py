@@ -52,9 +52,15 @@ LAYOUT_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LAYOUT_ITEMS}
 SOURCE_NAMES = {item[0]: item[1] for item in uv_pipe_bridge.LOOP_SOURCE_ITEMS}
 ORIENTATION_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ORIENTATION_ITEMS}
 KIND_NAMES = {"RING": "ring seam", "LENGTH": "wall seam", "BREAK": "ring break", "INVALID": "invalid loop"}
-PASS_KEYS = {"N", "T"}   # the sidebar and the toolbar still toggle while the modal runs
+LOOP_TEXT = {
+    "LENGTH": "Lengthwise loop: set the wall seam",
+    "BREAK": "Ring cross edge: set the ring break",
+    "INVALID": "Unusable: not closed, not joining two wall ends (lower Loop Angle)",
+}
+PASS_KEYS = {"N", "T"}  # the sidebar and the toolbar still toggle while the modal runs
 NAVIGATION = {"MIDDLEMOUSE", "TRACKPADPAN", "TRACKPADZOOM"}
 WHEEL = {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
+MODIFIER_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}
 SETTINGS = ("mode", "active_fit", "orientation", "layout", "loop_source", "loop_angle", "sharp_angle",
             "split_at_bends", "bend_angle", "split_at_seams", "mark_seams", "pack", "offset_axis", "offset_limit",
             "offset_seed", "merge_doubles", "picks")
@@ -115,6 +121,7 @@ class _Result:
     objects: dict = field(default_factory=dict)
     cut_lines: list = field(default_factory=list)      # world-space segment end points, two per segment
     error_lines: list = field(default_factory=list)    # fallback wall seams
+    user_lines: list = field(default_factory=list)     # the cuts, seams and breaks the user committed
 
 
 @dataclass
@@ -393,6 +400,9 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             result.cut_lines += cache.segments(sorted(analysis.cuts | seams))
             result.error_lines += cache.segments(
                 sorted(e for i in analysis.fallback if i in analysis.seams for e in analysis.seams[i].edges()))
+            mine = {e for kind in ("added", "picked") for loop in loops[kind] for e in loop}
+            result.user_lines += cache.segments(
+                sorted((mine & (analysis.cuts | seams)) | {tuple(e) for e in analysis.breaks.values()}))
             result.done += len(layouts)
             result.fallback += len(analysis.fallback)
             for lay in layouts:
@@ -708,6 +718,28 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         notes = list(dict.fromkeys(m.removeprefix("UV Pipe: ") for m in result.infos + result.warnings))
         return "; ".join(notes) if notes else "None"
 
+    def _loop_text(self, entry):
+        """What a click on the (object, loop, kind) ``entry`` does, for the HUD."""
+        if entry is None:
+            return "None"
+        obj, loop, kind = entry
+        if kind == "RING":
+            cache = (getattr(self, "_result", None) or _Result()).objects.get(obj.name)
+            cut = cache is not None and set(loop.edges()) <= cache.analysis.cuts
+            return "Ring seam: remove it" if cut else "Ring loop: add a ring seam"
+        return LOOP_TEXT[kind]
+
+    def _pending_text(self):
+        pending = getattr(self, "_pending", None)
+        return "None" if pending is None else f"{self._loop_text(pending)} (click it again)"
+
+    def _picks_text(self):
+        counts = dict.fromkeys(PICK_KINDS, 0)
+        for entry in _parse_picks(getattr(self, "picks", "")).values():
+            for kind in PICK_KINDS:
+                counts[kind] += len(entry.get(kind, []))
+        return f"{counts['added']} added, {counts['removed']} removed, {counts['picked']} picked"
+
     def _header(self):
         kinds = (getattr(self, "_result", None) or _Result()).kinds
         return f"{kinds.get('WALL', 0)} wall(s), {kinds.get('RING', 0)} ring(s), {kinds.get('DISK', 0)} disk(s)"
@@ -729,7 +761,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             HUDParam("Layout (E)", lambda: LAYOUT_NAMES[self.layout], "enum"),
             HUDParam("Loop Source (G)", lambda: SOURCE_NAMES[self.loop_source], "enum",
                      active_getter=self._has_uv_source),
-            HUDParam("Loop Angle (Wheel)", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
+            HUDParam("Under Cursor", lambda: self._loop_text(getattr(self, "_hover", None)), "str"),
+            HUDParam("Pending Loop (LMB)", self._pending_text, "str"),
+            HUDParam("Your Loops", self._picks_text, "str"),
+            HUDParam("Loop Angle (Ctrl + Wheel)", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
             HUDParam("Sharp Angle (Shift + Wheel)", lambda: math.degrees(self.sharp_angle), "float", fmt=degrees),
             HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool"),
             HUDParam("Bend Angle (Shift + Alt + Wheel)", lambda: math.degrees(self.bend_angle), "float",
@@ -755,7 +790,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         self._help.add_section(HUDSection("UV Pipe", [
             item("Pick a loop; click it again to commit", "LMB"),
             item("Step the wall seam under the cursor", "Alt + Wheel"),
-            item("Loop angle", "Wheel / Ctrl + Wheel"),
+            item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
             item("Bend angle", "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel"),
             item("Loop source", "G"),
@@ -789,21 +824,26 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             raise
 
     def _wheel(self, context, event):
-        """The answer to a wheel event: Alt steps the wall seam under the cursor, Shift + Alt the bend angle
-        (with Split at Bends), Shift the sharp angle, a plain wheel the loop angle; Ctrl steps 1 degree, not 5."""
+        """The answer to a wheel event: Ctrl the loop angle, Alt steps the wall seam under the cursor, Shift the
+        sharp angle and Shift + Alt the bend angle (with Split at Bends), both 1 degree instead of 5 with Ctrl.
+        A plain wheel, and any other combination, goes on to the viewport."""
         sign = 1 if event.type == "WHEELUPMOUSE" else -1
-        step = (ANGLE_FINE_STEP if event.ctrl else ANGLE_STEP) * sign
+        step = ANGLE_STEP * sign
         if event.alt and not event.shift:
-            target = self._part_under_cursor(context, event)
+            target = None if event.ctrl else self._part_under_cursor(context, event)
             if target is None or not self._cycle_seam(context, target[0], target[1], sign):
                 return {"PASS_THROUGH"}
             return {"RUNNING_MODAL"}
-        if event.alt:
-            if not self.split_at_bends:
+        if event.shift:
+            if event.alt and not self.split_at_bends:
                 return {"PASS_THROUGH"}
-            name = "bend_angle"
+            name = "bend_angle" if event.alt else "sharp_angle"
+            if event.ctrl:
+                step = ANGLE_FINE_STEP * sign
+        elif event.ctrl:
+            name = "loop_angle"
         else:
-            name = "sharp_angle" if event.shift else "loop_angle"
+            return {"PASS_THROUGH"}
         setattr(self, name, min(max(getattr(self, name) + step, ANGLE_MIN), math.pi))
         self._pending = None
         self._relayout(context)
@@ -835,8 +875,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
             return {"RUNNING_MODAL"}
-        if event.type in NAVIGATION or event.type.startswith("NDOF"):
-            return {"PASS_THROUGH"}
+        if event.type in NAVIGATION or event.type in MODIFIER_KEYS or event.type.startswith("NDOF"):
+            return {"PASS_THROUGH"}     # the viewport keeps its navigation, modifier combinations included
         if event.value != "PRESS":
             return {"RUNNING_MODAL"}
 
@@ -936,7 +976,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         return (
             f"UV Pipe: {count}"
             "[LMB] pick a loop, again to commit | [Alt+Wheel] step the wall seam | "
-            f"loop angle = {math.degrees(self.loop_angle):.0f}° (Wheel) | "
+            f"loop angle = {math.degrees(self.loop_angle):.0f}° (Ctrl+Wheel) | "
             f"sharp angle = {math.degrees(self.sharp_angle):.0f}° (Shift+Wheel) | "
             f"layout = {LAYOUT_NAMES[self.layout].lower()} (E) | "
             f"mode = {MODE_NAMES[self.mode].lower()} (Q) | "
@@ -971,21 +1011,25 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         try:
             cuts = project(result.cut_lines) if result is not None else []
             errors = project(result.error_lines) if result is not None else []
+            mine = project(result.user_lines) if result is not None else []
             hovered = project(loop_points(hover))
             waiting = project(loop_points(pending))
         except Exception:   # a draw handler must never raise: it would repeat every frame
-            cuts, errors, hovered, waiting = [], [], [], []
+            cuts, errors, mine, hovered, waiting = [], [], [], [], []
         invalid = hover is not None and hover[2] == "INVALID"
-        if cuts or errors or hovered or waiting:
+        if cuts or errors or mine or hovered or waiting:
+            # bottom to top: automatic seams, the user's own, fallback seams, the hover, the pending loop
             with draw_scope(blend="ALPHA"):
                 if cuts:
                     draw.edges_3d(cuts, role=Role.PREVIEW_LINE, context=context)
+                if mine:
+                    draw.edges_3d(mine, role=Role.ACTIVE_LINE, context=context)
                 if errors:
                     draw.edges_3d(errors, role=Role.ERROR_LINE, context=context)
-                if waiting:
-                    draw.edges_3d(waiting, role=Role.ACTIVE_LINE, context=context)
                 if hovered:
                     draw.edges_3d(hovered, role=Role.ERROR_LINE if invalid else Role.CLOSEST_LINE, context=context)
+                if waiting:
+                    draw.edges_3d(waiting, role=Role.LOCKED_LINE, context=context)
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
