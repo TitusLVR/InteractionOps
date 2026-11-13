@@ -434,9 +434,9 @@ def _pack(bm, faces, *, mesh, meshes) -> None:
                 lp[layer].uv = (lp[layer].uv.x - du, lp[layer].uv.y - dv)
 
 
-def _mark_seams(layouts) -> None:
-    """Seams on every part outline and on each part's ``inner_seams``; the other edges inside a part cleared; edges
-    outside the parts untouched."""
+def seam_split(layouts) -> tuple[set, set]:
+    """(marked, cleared) BMEdges of the laid-out parts: every part outline and each part's ``inner_seams`` are
+    seams, the other edges inside a part are not. What Mark Seams sets, and what the modal draws as seams."""
     marked, cleared = set(), set()
     for lay in layouts:
         inside = set(lay.faces.values())
@@ -447,7 +447,14 @@ def _mark_seams(layouts) -> None:
                 marked.add(e)
             elif inner >= 2:
                 cleared.add(e)
-    for e in cleared - marked:
+    return marked, cleared - marked
+
+
+def _mark_seams(layouts) -> None:
+    """Seams on every part outline and on each part's ``inner_seams``; the other edges inside a part cleared; edges
+    outside the parts untouched."""
+    marked, cleared = seam_split(layouts)
+    for e in cleared:
         e.seam = False
     for e in marked:
         e.seam = True
