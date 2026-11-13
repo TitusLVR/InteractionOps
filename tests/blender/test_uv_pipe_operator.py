@@ -695,9 +695,19 @@ def test_ring_click_adds_then_removes_a_ring_seam():
     _edit(obj)
     op = _modal_on()
     middle = _key(obj, 24, 25)
+    loop, kind, _part = op._classify(obj, middle)
+    assert op._loop_text((obj, loop, kind)) == "Ring loop: add a ring seam"
+    assert not op._result.user_lines
+    op._click_loop(bpy.context, obj, loop, kind)                      # the first click only makes it pending
+    assert op._pending_text() == "Ring loop: add a ring seam (click it again)"
+    op._pending = None
     assert _commit_by_clicks(op, obj, middle) == "RING"
     assert len(_islands(obj)) == 2 and op._result.kinds == {"WALL": 2}
     assert json.loads(op.picks)[obj.name]["added"]
+    # the committed ring is drawn as the user's own (12 edges), and a click on it now says it removes the seam
+    assert len(op._result.user_lines) == 24 and op._picks_text() == "1 added, 0 removed, 0 picked"
+    loop, kind, _part = op._classify(obj, middle)
+    assert op._loop_text((obj, loop, kind)) == "Ring seam: remove it" and op._pending_text() == "None"
     assert _commit_by_clicks(op, obj, middle) == "RING"
     assert len(_islands(obj)) == 1
     assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
@@ -746,12 +756,15 @@ def test_wheel_changes_loop_angle_and_relays_out():
     _edit(obj)
     op = _modal_on()
     assert op._result.kinds == {"FREE": 1}
+    assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE")) == {"PASS_THROUGH"}   # a plain wheel zooms the viewport
+    assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True, alt=True)) == {"PASS_THROUGH"}
+    assert abs(op.loop_angle - math.radians(120.0)) < 1e-6
     for _ in range(8):
-        assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE")) == {"RUNNING_MODAL"}
+        assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True)) == {"RUNNING_MODAL"}
     assert abs(op.loop_angle - math.radians(80.0)) < 1e-6
     assert sum(op._result.kinds.values()) > 1, op._result.kinds        # the rims close at 80 degrees
     op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True))
-    assert abs(op.loop_angle - math.radians(81.0)) < 1e-6
+    assert abs(op.loop_angle - math.radians(85.0)) < 1e-6
     op._modal(bpy.context, _Event("WHEELUPMOUSE", shift=True))
     assert abs(op.sharp_angle - math.radians(65.0)) < 1e-6
     op._modal(bpy.context, _Event("WHEELDOWNMOUSE", shift=True, ctrl=True))
@@ -763,8 +776,8 @@ def test_wheel_changes_loop_angle_and_relays_out():
     assert op._modal(bpy.context, bend) == {"RUNNING_MODAL"}
     assert abs(op.bend_angle - math.radians(50.0)) < 1e-6
     for _ in range(40):
-        op._modal(bpy.context, _Event("WHEELUPMOUSE"))
-    assert abs(op.loop_angle - math.pi) < 1e-6                         # clamped
+        op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True))
+    assert abs(op.loop_angle - math.pi) < 1e-6                        # clamped
     for key in ("MIDDLEMOUSE", "TRACKPADPAN", "NDOF_MOTION", "N", "T"):
         assert op._modal(bpy.context, _Event(key)) == {"PASS_THROUGH"}, key
     op._finish(bpy.context)
@@ -828,7 +841,7 @@ def test_cancel_restores_uvs_and_seams_exactly():
     exact = [tuple(lp[bm.loops.layers.uv.active].uv) for f in bm.faces for lp in f.loops]
     op = _modal_on()
     defaults = {name: getattr(op, name) for name in ("layout", "orientation", "loop_angle", "pack", "picks")}
-    for event in (_Event("W"), _Event("E"), _Event("P"), _Event("WHEELDOWNMOUSE")):
+    for event in (_Event("W"), _Event("E"), _Event("P"), _Event("WHEELDOWNMOUSE", ctrl=True)):
         op._modal(bpy.context, event)
     _commit_by_clicks(op, obj, _key(obj, 0, 1))
     assert op.picks and _uv_state(obj) != uvs
@@ -885,24 +898,25 @@ def test_modal_hud_and_help_list_every_key():
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Loop Source (G)", "Loop Angle (Wheel)",
-        "Sharp Angle (Shift + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
+        "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Loop Source (G)", "Under Cursor",
+        "Pending Loop (LMB)", "Your Loops", "Loop Angle (Ctrl + Wheel)", "Sharp Angle (Shift + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
         "Mark Seams (X)", "Pack (P)", "Random Offset (Z)", "Offset Limit", "Offset Seed (R)", "Merge Doubles (F)",
         "Seam (Alt + Wheel)", "Notices"]
     assert [p.value_text() for p in params] == [
-        "Fit 0–1", "Horizontal", "Width", "Rectangle", "Geometry", "120°", "60°", "✗", "45°", "✗", "✓", "✓", "None",
+        "Fit 0–1", "Horizontal", "Width", "Rectangle", "Geometry", "None", "None",
+        "0 added, 0 removed, 0 picked", "120°", "60°", "✗", "45°", "✗", "✓", "✓", "None",
         "0.25", "0", "✓", "Automatic", "None"]
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and not active["Bend Angle (Shift + Alt + Wheel)"]
     assert not active["Random Offset (Z)"] and active["Pack (P)"]
     keys = [it.key for it in op._help.sections[0].items]
-    for key in ("LMB", "Alt + Wheel", "Wheel / Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
+    for key in ("LMB", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
                 "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
                 "E", "X", "Enter / Space", "Esc / RMB", "H"):
         assert key in keys, key
     assert len(keys) == 20
     text = op._status_text()
-    assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Wheel)" in text
+    assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
 
 
 def test_modal_keys_toggle_their_options():

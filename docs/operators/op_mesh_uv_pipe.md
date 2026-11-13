@@ -12,7 +12,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>Mouse move</kbd> | Shows the edge under the cursor and the seam loop it would make |
 | <kbd>LMB</kbd> | First click: the loop becomes pending. Second click on the same loop: it is committed and the UVs are laid out again; the tool stays open |
 | <kbd>Alt</kbd>+<kbd>Wheel</kbd> | Step the seam of the wall under the cursor to the next / previous lengthwise loop round the tube |
-| <kbd>Wheel</kbd> | Loop Angle ±5° (<kbd>Ctrl</kbd>: ±1°) |
+| <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> | Loop Angle ±5° |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Sharp Angle ±5° (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±1°) |
 | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Wheel</kbd> | Bend Angle ±5° while Split at Bends is on (<kbd>Ctrl</kbd>: ±1°) |
 | <kbd>G</kbd> | Loop Source: Geometry / UV (UV only when the mesh had a UV map) |
@@ -27,11 +27,22 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>W</kbd> | Orientation: Horizontal / Vertical |
 | <kbd>E</kbd> | Layout: Rectangle → Quads → No Stretch |
 | <kbd>X</kbd> | Mark Seams on / off |
-| <kbd>MMB</kbd> | Navigate the viewport |
+| <kbd>MMB</kbd> (with any modifier) / <kbd>Wheel</kbd> | Navigate the viewport: orbit, pan, zoom |
 | <kbd>N</kbd> / <kbd>T</kbd> | Sidebar / toolbar, as usual |
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Finish |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Drop the pending loop if there is one; otherwise cancel: UVs, seams and options go back exactly as they were |
+
+### What the colours mean
+| Line | Meaning |
+| --- | --- |
+| Preview colour (dim) | The seams found automatically |
+| Active colour (bright) | The seams you committed: added ring seams, picked wall seams and ring breaks |
+| Closest colour | The loop under the cursor; a click makes it pending |
+| Locked colour | The pending loop: click it again to commit, <kbd>Esc</kbd> / <kbd>RMB</kbd> to drop it |
+| Error colour | Under the cursor: a loop that cannot be used — it neither closes into a ring nor joins two ends of a wall; lower the Loop Angle or click another edge. On a wall: a fallback seam (no lengthwise loop was found) |
+
+The HUD says the same in words: **Under Cursor** tells what a click on the highlighted loop will do, **Pending Loop** what waits for the second click, **Your Loops** how many loops you have added, removed and picked.
 
 The automatic result is laid out as soon as the tool starts, so <kbd>Enter</kbd> right away accepts it. Run from the redo panel or a script, it gives the same result without the interactive mode, the loops you committed included.
 
