@@ -5,7 +5,7 @@ from math import radians
 
 from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, open_tube, torus
 from utils.uv_pipe_core import (
-    Loop, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
+    Loop, Part, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
     disk_uvs, wall_candidates, wall_seam, wall_uvs,
 )
 from utils.uv_stripe_select_core import _edge
@@ -608,6 +608,163 @@ def test_seam_side_through_analyse():
     assert set(existing.seams[0].edges()) == _column(5)                 # so does an existing seam
     none = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=None)
     assert set(none.seams[0].edges()) == _column(6)
+
+
+# --- Hard-surface pass: parts that are no tube, cut at sharp edges or the Hard Edge Angle -------------------------
+
+H30 = radians(30)
+
+
+def _all_edges(faces):
+    return {_edge(a, b) for f in faces.values() for a, b in zip(f, f[1:] + f[:1])}
+
+
+def _covers_once(result, faces):
+    ids = sorted(fid for p in result.parts for fid in p.faces)
+    assert ids == sorted(faces), (len(ids), len(faces))
+
+
+def _summary(result):
+    return ([p.kind for p in result.parts], [sorted(p.faces) for p in result.parts], result.cuts,
+            {i: s.verts for i, s in result.seams.items()}, result.breaks, result.fallback, result.warnings)
+
+
+def test_hard_pass_cuts_a_box_into_flat_faces():
+    verts, faces = box_tube()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    assert _kinds(result) == ["DISK"] * 6 and result.warnings == []
+    _covers_once(result, faces)
+    right = {e for e, a in dihedrals(verts, faces).items() if abs(a - math.pi / 2) < 1e-6}
+    assert len(right) == 16 and right <= result.cuts     # 8 rim edges, 4 corners of two rows each
+    assert sorted(len(p.faces) for p in result.parts) == [1, 1, 2, 2, 2, 2]
+    off = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(off) == ["FREE"] and len(off.warnings) == 1 and off.cuts == set()
+
+
+def test_hard_pass_off_is_the_previous_result():
+    for mesh in (box_tube(), capped_cylinder(), bent_pipe(), torus()):
+        a = analyse(*mesh, loop_angle=A120, sharp_angle=S60)
+        b = analyse(*mesh, loop_angle=A120, sharp_angle=S60, hard_angle=None, sharp=frozenset(_all_edges(mesh[1])))
+        assert _summary(a) == _summary(b)
+
+
+def test_sharp_edges_win_over_the_angle():
+    verts, faces = box_tube()
+    rims = {e for e, a in dihedrals(verts, faces).items()
+            if abs(a - math.pi / 2) < 1e-6 and abs(verts[e[0]][2] - verts[e[1]][2]) < 1e-9}
+    assert len(rims) == 8                              # the cap outlines; the 4 vertical corners stay uncut
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30, sharp=frozenset(rims))
+    assert _kinds(result) == ["DISK", "DISK", "FREE"]
+    _covers_once(result, faces)
+    free = next(p for p in result.parts if p.kind == "FREE")
+    assert len(free.faces) == 8                        # the four sides in one band, not flat
+    assert rims <= result.cuts and not (result.cuts - rims)
+    assert len(result.warnings) == 1 and "8 faces" in result.warnings[0]
+
+
+def test_tubes_are_untouched_by_the_hard_pass():
+    # every wall edge sharp, and the 12-sided bent pipe's 30-degree lengthwise edges reach the angle: still no change
+    for mesh in (capped_cylinder(), bent_pipe(), clean_bend()):
+        sharp = frozenset(_all_edges(mesh[1]))
+        a = analyse(*mesh, loop_angle=A120, sharp_angle=S60)
+        b = analyse(*mesh, loop_angle=A120, sharp_angle=S60, hard_angle=H30, sharp=sharp)
+        c = analyse(*mesh, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+        assert _summary(a) == _summary(b) == _summary(c)
+
+
+def _with_box():
+    """A capped cylinder and, beside it, a box tube with its ids moved past the cylinder's."""
+    verts, faces = capped_cylinder()
+    bverts, bfaces = box_tube()
+    vo, fo = max(verts) + 1, max(faces) + 1
+    verts = {**verts, **{v + vo: (p[0] + 5.0, p[1], p[2]) for v, p in bverts.items()}}
+    faces = {**faces, **{f + fo: tuple(v + vo for v in face) for f, face in bfaces.items()}}
+    return verts, faces, set(range(fo, fo + len(bfaces)))
+
+
+def test_tube_and_box_in_one_mesh():
+    verts, faces, box = _with_box()
+    alone = analyse(*capped_cylinder(), loop_angle=A120, sharp_angle=S60)
+    both = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    _covers_once(both, faces)
+    tube = [p for p in both.parts if not set(p.faces) & box]
+    pieces = [p for p in both.parts if set(p.faces) <= box]
+    assert len(tube) + len(pieces) == len(both.parts)
+    assert [(p.kind, sorted(p.faces)) for p in tube] == [(p.kind, sorted(p.faces)) for p in alone.parts]
+    assert [p.kind for p in pieces] == ["DISK"] * 6 and both.warnings == []
+    assert alone.cuts <= both.cuts
+    (wall,) = [i for i, p in enumerate(both.parts) if p.kind == "WALL"]
+    (alone_wall,) = [i for i, p in enumerate(alone.parts) if p.kind == "WALL"]
+    assert list(both.seams) == [wall] and both.seams[wall].verts == alone.seams[alone_wall].verts
+    assert loop_kind(both.seams[wall], both.parts[wall]) == "LENGTH"
+    # a ring break picked on the cylinder stays keyed to its ring
+    rim0 = 4 * 32
+    inner = next(v for v, p in verts.items() if abs(p[0] - 0.671) < 1e-9 and abs(p[1]) < 1e-9 and p[2] == 2.0)
+    cross = _edge(rim0, inner)
+    picked = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30, picked=((cross,),))
+    (ring,) = picked.breaks
+    assert picked.parts[ring].kind == "RING" and cross in _all_edges(picked.parts[ring].faces)
+
+
+def test_hard_pass_never_cuts_a_removed_seam():
+    verts, faces = capped_cylinder()
+    rim = frozenset(_rim_edges(verts, faces, 0.0))
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, removed=rim, hard_angle=H30)
+    assert not rim & result.cuts
+    _covers_once(result, faces)
+    sharp = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, removed=rim, hard_angle=H30, sharp=rim)
+    assert not rim & sharp.cuts
+
+
+def test_torus_with_the_hard_pass():
+    verts, faces = torus()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    _covers_once(result, faces)
+    flat = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=math.pi)   # nothing reaches 180
+    assert _kinds(flat) == ["FREE"] and len(flat.warnings) == 1
+
+
+def _box_with_a_framed_top():
+    """A closed 3 x 3 x 1 box whose top is a 3 x 3 grid of unit quads with the middle one missing (a frame round a
+    hole) and whose sides are hexagons: one FREE part, cut at its 90-degree edges into six flat pieces, the top one
+    with two boundary loops."""
+    verts = {y * 4 + x: (float(x), float(y), 1.0) for y in range(4) for x in range(4)}
+    verts.update({16: (0.0, 0.0, 0.0), 17: (3.0, 0.0, 0.0), 18: (3.0, 3.0, 0.0), 19: (0.0, 3.0, 0.0)})
+    faces = {}
+    for y in range(3):
+        for x in range(3):
+            if (x, y) != (1, 1):
+                a = y * 4 + x
+                faces[len(faces)] = (a, a + 1, a + 5, a + 4)
+    for face in ((16, 17, 3, 2, 1, 0), (17, 18, 15, 11, 7, 3), (18, 19, 12, 13, 14, 15), (19, 16, 0, 4, 8, 12),
+                 (16, 19, 18, 17)):
+        faces[len(faces)] = face
+    return verts, faces
+
+
+def test_flat_piece_with_a_hole_is_a_disk_at_real_size():
+    verts, faces = _box_with_a_framed_top()
+    assert _kinds(analyse(verts, faces, loop_angle=A120, sharp_angle=S60)) == ["FREE"]
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    _covers_once(result, faces)
+    assert _kinds(result) == ["DISK"] * 6 and result.warnings == []
+    frame = next(p for p in result.parts if len(p.faces) == 8)
+    assert len(frame.boundaries) == 2
+    uv = disk_uvs(verts, frame)
+    for fid, face in frame.faces.items():
+        assert _area([uv[(fid, v)] for v in face]) > 0.0, fid
+    total = sum(_area([uv[(fid, v)] for v in face]) for fid, face in frame.faces.items())
+    assert abs(total - 8.0) < 1e-9
+    again = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    assert _summary(result) == _summary(again)
+
+
+def test_disk_uvs_on_a_flat_quad():
+    verts = {0: (0.0, 0.0, 1.0), 1: (2.0, 0.0, 1.0), 2: (2.0, 3.0, 1.0), 3: (0.0, 3.0, 1.0)}
+    for face in ((0, 1, 2, 3), (3, 2, 1, 0)):          # facing +Z and -Z
+        part = Part("DISK", {0: face}, [list(face)])
+        uv = disk_uvs(verts, part)
+        assert abs(_area([uv[(0, v)] for v in face]) - 6.0) < 1e-9
 
 
 # --- Task 8: wall and disk layouts --------------------------------------------------------------------------------

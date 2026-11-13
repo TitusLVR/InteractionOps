@@ -585,8 +585,53 @@ def _seams(verts, parts, loop_angle, existing, picked, uv, side):
     return seams, fallback
 
 
+def _hard_pieces(verts, parts: list[Part], sharp, hard_angle, removed) -> tuple[dict[int, list[Part]], set]:
+    """The hard-surface pass over the FREE parts: {part index: the pieces replacing it} and the hard edges cut.
+
+    A FREE part's hard edges are its inner edges in ``sharp`` when ``sharp`` holds an inner edge of any FREE part,
+    else its inner edges whose dihedral is at least ``hard_angle`` (decided once for all parts); an edge in
+    ``removed`` (a seam the user took out) is never hard. The part is split
+    at them (``face_islands``); a flat piece is a DISK whatever its boundary loops, any other piece FREE. A part
+    with no hard edge is left out."""
+    free = {i: _inner_edges(p) for i, p in enumerate(parts) if p.kind == "FREE"}
+    use_sharp = any(inner & sharp for inner in free.values())
+    out: dict[int, list[Part]] = {}
+    cut: set = set()
+    for i, inner in free.items():
+        part = parts[i]
+        if use_sharp:
+            hard = inner & sharp
+        else:
+            angles = dihedrals(verts, part.faces)
+            hard = {e for e in inner if angles.get(e, 0.0) >= hard_angle - EPS}
+        hard -= removed
+        if not hard:
+            continue
+        cut |= hard
+        pieces = []
+        for piece in face_islands(part.faces, hard):
+            kind = "DISK" if _is_flat(verts, piece) else "FREE"
+            pieces.append(Part(kind, piece, _boundaries(verts, piece) or []))
+        out[i] = pieces
+    return out, cut
+
+
+def _replace_parts(parts, seams, breaks, fallback, pieces):
+    """``parts`` with each part index of ``pieces`` replaced in place by its pieces, the index maps moved along."""
+    new_parts, moved = [], {}
+    for i, part in enumerate(parts):
+        if i in pieces:
+            new_parts += pieces[i]
+        else:
+            moved[i] = len(new_parts)
+            new_parts.append(part)
+    return (new_parts, {moved[i]: s for i, s in seams.items()}, {moved[i]: b for i, b in breaks.items()},
+            {moved[i] for i in fallback})
+
+
 def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=frozenset(),
-            added=frozenset(), removed=frozenset(), picked=(), uv=None, seam_side=None) -> Analysis:
+            added=frozenset(), removed=frozenset(), picked=(), uv=None, seam_side=None, sharp=frozenset(),
+            hard_angle=None) -> Analysis:
     """Split ``faces`` into parts and propose every seam.
 
     Cuts are the automatic ring seams (``ring_seams``) with ``existing`` (the mesh's seams under Split at Seams)
@@ -596,8 +641,10 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
     None for the shortest). With ``bend_angle`` (Split at Bends on) the
     walls' ``bend_seams``, minus ``removed``, are added to the cuts and the parts and seams are worked out once
     more. A picked loop holding a cross edge of a RING part (an edge two of its faces share) sets that ring's
-    break, the first such edge of the last such pick. A WALL with no seam at all becomes FREE; every FREE part
-    adds one warning naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
+    break, the first such edge of the last such pick. A WALL with no seam at all becomes FREE. With ``hard_angle``
+    the FREE parts, and only they, then go through the hard-surface pass (``_hard_pieces``, with ``sharp``: the
+    edges marked sharp): each is replaced in place by its pieces and the hard edges join the cuts. Every FREE part
+    left adds one warning naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
     """
     removed = frozenset(_edge(*e) for e in removed)
     existing = frozenset(_edge(*e) for e in existing)
@@ -629,13 +676,25 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
                 breaks[i] = hit[0]
                 break
 
-    warnings: list[str] = []
+    seamless = set()                   # ids of the WALL parts with no seam, now FREE
     for i, part in enumerate(parts):
         if part.kind == "WALL" and i not in seams:
             part.kind = "FREE"
             fallback.discard(i)
+            seamless.add(id(part))
+    if hard_angle is not None:
+        pieces, hard = _hard_pieces(verts, parts, frozenset(_edge(*e) for e in sharp), hard_angle, removed)
+        if pieces:
+            parts, seams, breaks, fallback = _replace_parts(parts, seams, breaks, fallback, pieces)
+            cuts = cuts | hard
+
+    warnings: list[str] = []
+    for part in parts:
+        if part.kind != "FREE":
+            continue
+        if id(part) in seamless:
             warnings.append(f"a wall of {len(part.faces)} faces has no seam between its ends: unwrapped as a free part")
-        elif part.kind == "FREE":
+        else:
             warnings.append(f"{len(part.faces)} faces are no tube, cap or ring: unwrapped as a free part")
     return Analysis(parts, cuts, seams, breaks, fallback, warnings)
 

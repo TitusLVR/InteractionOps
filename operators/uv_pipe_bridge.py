@@ -2,7 +2,7 @@
 
 The core splits the faces into parts (walls, ring strips, disks, free parts) and
 proposes every seam. This module reads what it needs from the mesh (``mesh_dicts``,
-``single_uvs``, ``seam_edges``), lays each part out (``lay_out_parts``) and places,
+``single_uvs``, ``seam_edges``, ``sharp_edges``), lays each part out (``lay_out_parts``) and places,
 packs and seams the result (``finish_pipe``). Placement is UV Stripe's own
 (``uv_stripe_bridge.apply_maps``).
 
@@ -101,6 +101,15 @@ def seam_edges(bm, faces) -> frozenset:
         select_core._edge(e.verts[0].index, e.verts[1].index)
         for f in inside for e in f.edges
         if e.seam and sum(g in inside for g in e.link_faces) == 2)
+
+
+def sharp_edges(bm, faces) -> frozenset:
+    """The edges marked Sharp (``BMEdge.smooth`` off) between two of ``faces``, as edge keys."""
+    inside = set(faces)
+    return frozenset(
+        select_core._edge(e.verts[0].index, e.verts[1].index)
+        for f in inside for e in f.edges
+        if not e.smooth and sum(g in inside for g in e.link_faces) == 2)
 
 
 # --- Blender's own UV operators, isolated ----------------------------------------------------------------------------

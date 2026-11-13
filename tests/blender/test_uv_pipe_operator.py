@@ -250,7 +250,7 @@ def test_operator_is_registered():
                 "seam_side": "SHORTEST"}
     for name, value in expected.items():
         assert props[name].default == value, (name, props[name].default)
-    for name, deg in (("loop_angle", 120.0), ("sharp_angle", 60.0), ("bend_angle", 45.0)):
+    for name, deg in (("loop_angle", 120.0), ("sharp_angle", 60.0), ("bend_angle", 45.0), ("hard_angle", 30.0)):
         assert abs(props[name].default - math.radians(deg)) < 1e-6, name
         assert props[name].subtype == "ANGLE"
     assert abs(props["offset_limit"].default - 0.25) < 1e-6
@@ -481,7 +481,7 @@ def test_free_part_keeps_other_faces_and_selection():
     bmesh.update_edit_mesh(box.data)
     bmesh.update_edit_mesh(other.data)
     before = _uv_state(other)
-    assert _run() == {"FINISHED"}
+    assert _run(hard_angle=math.pi) == {"FINISHED"}
     assert _uv_state(other) == before
     assert not any(f.select for f in _bm(other).faces)
     assert all(f.select for f in _bm(box).faces)
@@ -626,6 +626,71 @@ def test_t_drops_the_picked_wall_seam_but_keeps_ring_breaks():
     op._finish(bpy.context)
 
 
+def _cube():
+    """A 2 x 2 x 2 cube centred on the origin, six quads facing out."""
+    verts = {i: (float(2 * (i & 1) - 1), float(2 * ((i >> 1) & 1) - 1), float(2 * (i >> 2) - 1)) for i in range(8)}
+    faces = {0: (0, 2, 3, 1), 1: (4, 5, 7, 6), 2: (0, 1, 5, 4), 3: (2, 6, 7, 3), 4: (0, 4, 6, 2), 5: (1, 3, 7, 5)}
+    return verts, faces
+
+
+def _all_edge_keys(obj):
+    return {tuple(sorted(v.index for v in e.verts)) for e in _bm(obj).edges}
+
+
+def test_cube_comes_out_as_six_flat_faces():
+    obj = _object(_cube())
+    _edit(obj)
+    stand = _OperatorStandIn()
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert any("0 wall(s), 0 ring(s), 6 disk(s)" in m for _k, m in stand.reports), stand.reports
+    assert not any("could not be laid out" in m or "free part" in m for _k, m in stand.reports), stand.reports
+    assert _islands(obj) == [[i] for i in range(6)]
+    bm = _bm(obj)
+    layer = bm.loops.layers.uv.active
+    for f in bm.faces:                                   # each an axis-aligned rectangle (a square here)
+        pts = [_uv(lp, layer) for lp in f.loops]
+        assert len({round(p[0], 6) for p in pts}) == 2 and len({round(p[1], 6) for p in pts}) == 2, pts
+    densities = [_density(obj, [i]) for i in range(6)]
+    assert max(densities) / min(densities) - 1.0 < 1e-3, densities
+    for u, v in _uv_state(obj):
+        assert -1e-6 <= u <= 1.0 + 1e-6 and -1e-6 <= v <= 1.0 + 1e-6, (u, v)
+    boxes = [_bbox(obj, [i]) for i in range(6)]
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            overlap = min(a[2], b[2]) - max(a[0], b[0]) > 1e-9 and min(a[3], b[3]) - max(a[1], b[1]) > 1e-9
+            assert not overlap, (a, b)
+    assert _seams(obj) == _all_edge_keys(obj) and len(_seams(obj)) == 12
+    assert not _flipped(obj, range(6))
+
+
+def test_cube_with_sharp_edges_is_cut_only_there():
+    obj = _object(_cube())
+    bm = _edit(obj)
+    bm.edges.ensure_lookup_table()
+    ring = set()
+    for e in bm.edges:                                   # the top and bottom outlines: z equal at both ends
+        flat = abs(e.verts[0].co.z - e.verts[1].co.z) < 1e-9
+        e.smooth = not flat
+        if flat:
+            ring.add(tuple(sorted(v.index for v in e.verts)))
+    bmesh.update_edit_mesh(obj.data)
+    stand = _OperatorStandIn()
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert len(ring) == 8
+    islands = _islands(obj)
+    assert sorted(len(g) for g in islands) == [1, 1, 4], islands      # top, bottom, the four sides as one band
+    assert _seams(obj) == ring
+    assert any("4 faces are no tube" in m for _k, m in stand.reports), stand.reports
+    assert not _flipped(obj, range(6))
+    # no sharp edge: the 30-degree angle cuts all twelve
+    bm = _bm(obj)
+    for e in bm.edges:
+        e.smooth = True
+    bmesh.update_edit_mesh(obj.data)
+    assert _run() == {"FINISHED"}
+    assert len(_islands(obj)) == 6 and len(_seams(obj)) == 12
+
+
 def test_split_at_bends_cuts_the_clean_bend():
     mesh = clean_bend(12, 4)
     obj = _object(mesh)
@@ -680,7 +745,7 @@ def test_free_part_reports_a_warning():
     mesh = box_tube()
     obj = _object(mesh)
     _edit(obj)
-    stand = _OperatorStandIn()
+    stand = _OperatorStandIn(hard_angle=math.pi)        # no edge reaches 180 degrees: the box stays one free part
     assert stand.execute(bpy.context) == {"FINISHED"}
     warnings = [m for kinds, m in stand.reports if "WARNING" in kinds]
     assert any("free part" in m for m in warnings), stand.reports
@@ -844,10 +909,21 @@ def test_alt_wheel_steps_the_seam():
 def test_wheel_changes_loop_angle_and_relays_out():
     obj = _object(box_tube())
     _edit(obj)
-    op = _modal_on()
+    op = _modal_on(hard_angle=math.pi)
     assert op._result.kinds == {"FREE": 1}
     assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE")) == {"PASS_THROUGH"}   # a plain wheel zooms the viewport
-    assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True, alt=True)) == {"PASS_THROUGH"}
+    assert op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True, alt=True)) == {"RUNNING_MODAL"}
+    assert abs(op.hard_angle - math.pi) < 1e-6                         # clamped at 180
+    before = op._result
+    assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True, alt=True)) == {"RUNNING_MODAL"}
+    assert abs(op.hard_angle - math.radians(175.0)) < 1e-6 and op._result is not before
+    assert op._result.kinds == {"FREE": 1}
+    for _ in range(17):
+        op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True, alt=True))
+    assert abs(op.hard_angle - math.radians(90.0)) < 1e-6
+    assert op._result.kinds == {"DISK": 6}, op._result.kinds          # the box's 90-degree edges cut now
+    for _ in range(18):
+        op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True, alt=True))
     assert abs(op.loop_angle - math.radians(120.0)) < 1e-6
     for _ in range(8):
         assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", ctrl=True)) == {"RUNNING_MODAL"}
@@ -931,8 +1007,10 @@ def test_cancel_restores_uvs_and_seams_exactly():
     uvs, seams = _uv_state(obj), _seams(obj)
     exact = [tuple(lp[bm.loops.layers.uv.active].uv) for f in bm.faces for lp in f.loops]
     op = _modal_on()
-    defaults = {name: getattr(op, name) for name in ("layout", "orientation", "loop_angle", "pack", "picks")}
-    for event in (_Event("W"), _Event("E"), _Event("P"), _Event("WHEELDOWNMOUSE", ctrl=True)):
+    defaults = {name: getattr(op, name) for name in ("layout", "orientation", "loop_angle", "pack", "picks",
+                                                     "hard_angle")}
+    for event in (_Event("W"), _Event("E"), _Event("P"), _Event("WHEELDOWNMOUSE", ctrl=True),
+                  _Event("WHEELUPMOUSE", ctrl=True, alt=True)):
         op._modal(bpy.context, event)
     _commit_by_clicks(op, obj, _key(obj, 0, 1))
     assert op.picks and _uv_state(obj) != uvs
@@ -990,22 +1068,23 @@ def test_modal_hud_and_help_list_every_key():
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
         "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Loop Source (G)", "Under Cursor",
-        "Pending Loop (LMB)", "Your Loops", "Loop Angle (Ctrl + Wheel)", "Sharp Angle (Shift + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
+        "Pending Loop (LMB)", "Your Loops", "Loop Angle (Ctrl + Wheel)", "Sharp Angle (Shift + Wheel)",
+        "Hard Edge Angle (Ctrl + Alt + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
         "Mark Seams (X)", "Pack (P)", "Random Offset (Z)", "Offset Limit", "Offset Seed (R)", "Merge Doubles (F)",
         "Seam Side (T)", "Seam (Alt + Wheel)", "Notices"]
     assert [p.value_text() for p in params] == [
         "Fit 0–1", "Horizontal", "Width", "Rectangle", "Geometry", "None", "None",
-        "0 added, 0 removed, 0 picked", "120°", "60°", "✗", "45°", "✗", "✓", "✓", "None",
+        "0 added, 0 removed, 0 picked", "120°", "60°", "30°", "✗", "45°", "✗", "✓", "✓", "None",
         "0.25", "0", "✓", "Shortest", "Automatic", "None"]
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and not active["Bend Angle (Shift + Alt + Wheel)"]
     assert not active["Random Offset (Z)"] and active["Pack (P)"]
     keys = [it.key for it in op._help.sections[0].items]
     for key in ("LMB", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
-                "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
+                "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "Ctrl + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
                 "E", "X", "T / Shift + T", "Enter / Space", "Esc / RMB", "H"):
         assert key in keys, key
-    assert len(keys) == 21
+    assert len(keys) == 22
     text = op._status_text()
     assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
 
@@ -1049,6 +1128,8 @@ TESTS = [
     test_picks_property_is_applied_by_execute,
     test_picks_are_taken_before_doubles_are_merged,
     test_free_part_reports_a_warning,
+    test_cube_comes_out_as_six_flat_faces,
+    test_cube_with_sharp_edges_is_cut_only_there,
     test_modal_opens_with_the_automatic_layout,
     test_first_click_is_pending_and_second_commits,
     test_escape_drops_the_pending_loop_first,

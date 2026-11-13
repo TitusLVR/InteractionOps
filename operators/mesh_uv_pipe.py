@@ -76,7 +76,7 @@ PASS_KEYS = {"N"}  # the sidebar still toggles while the modal runs
 NAVIGATION = {"MIDDLEMOUSE", "TRACKPADPAN", "TRACKPADZOOM"}
 WHEEL = {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
 MODIFIER_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}
-SETTINGS = ("mode", "active_fit", "orientation", "layout", "loop_source", "loop_angle", "sharp_angle",
+SETTINGS = ("mode", "active_fit", "orientation", "layout", "loop_source", "loop_angle", "sharp_angle", "hard_angle",
             "split_at_bends", "bend_angle", "split_at_seams", "seam_side", "mark_seams", "pack", "offset_axis", "offset_limit",
             "offset_seed", "merge_doubles", "picks")
 
@@ -222,6 +222,15 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         min=math.radians(1.0),
         max=math.pi,
     )
+    hard_angle: FloatProperty(
+        name="Hard Edge Angle",
+        description="Angle between faces from which an edge cuts a part that is not a tube; used when the mesh has "
+                    "no edges marked sharp",
+        subtype="ANGLE",
+        default=math.radians(30.0),
+        min=math.radians(1.0),
+        max=math.pi,
+    )
     split_at_bends: BoolProperty(
         name="Split at Bends",
         description="Cut a wall with a ring seam where the tube has turned by the bend angle",
@@ -305,7 +314,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         row = layout.row()
         row.active = self.mode == "ACTIVE"
         row.prop(self, "active_fit")
-        for name in ("orientation", "layout", "loop_source", "loop_angle", "sharp_angle", "split_at_bends"):
+        for name in ("orientation", "layout", "loop_source", "loop_angle", "sharp_angle", "hard_angle",
+                     "split_at_bends"):
             layout.prop(self, name)
         row = layout.row()
         row.enabled = self.split_at_bends
@@ -403,7 +413,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 added={e for loop in loops["added"] for e in loop},
                 removed={e for loop in loops["removed"] for e in loop},
                 picked=[loop for loop in loops["picked"] if loop], uv=uv,
-                seam_side=SEAM_SIDE_DIRECTIONS[self.seam_side])
+                seam_side=SEAM_SIDE_DIRECTIONS[self.seam_side], sharp=uv_pipe_bridge.sharp_edges(bm, scoped),
+                hard_angle=self.hard_angle)
             layouts = uv_pipe_bridge.lay_out_parts(bm, analysis, verts, self.layout, mesh=me, meshes=meshes)
             contexts = [_world_context(uv_stripe_bridge.uv_context(bm, list(lay.faces.values())),
                                        list(lay.faces.values()), matrix) for lay in layouts]
@@ -810,6 +821,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             HUDParam("Your Loops", self._picks_text, "str"),
             HUDParam("Loop Angle (Ctrl + Wheel)", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
             HUDParam("Sharp Angle (Shift + Wheel)", lambda: math.degrees(self.sharp_angle), "float", fmt=degrees),
+            HUDParam("Hard Edge Angle (Ctrl + Alt + Wheel)", lambda: math.degrees(self.hard_angle), "float",
+                     fmt=degrees),
             HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool"),
             HUDParam("Bend Angle (Shift + Alt + Wheel)", lambda: math.degrees(self.bend_angle), "float",
                      fmt=degrees, active_getter=lambda: self.split_at_bends),
@@ -838,6 +851,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
             item("Bend angle", "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel"),
+            item("Hard edge angle", "Ctrl + Alt + Wheel"),
             item("Seam side", "T / Shift + T"),
             item("Loop source", "G"),
             item("Split at bends", "A"),
@@ -870,13 +884,18 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             raise
 
     def _wheel(self, context, event):
-        """The answer to a wheel event: Ctrl the loop angle, Alt steps the wall seam under the cursor, Shift the
-        sharp angle and Shift + Alt the bend angle (with Split at Bends), both 1 degree instead of 5 with Ctrl.
-        A plain wheel, and any other combination, goes on to the viewport."""
+        """The answer to a wheel event: Ctrl the loop angle, Alt steps the wall seam under the cursor, Ctrl + Alt
+        the hard edge angle, Shift the sharp angle and Shift + Alt the bend angle (with Split at Bends), both 1
+        degree instead of 5 with Ctrl. A plain wheel, and any other combination, goes on to the viewport."""
         sign = 1 if event.type == "WHEELUPMOUSE" else -1
         step = ANGLE_STEP * sign
+        if event.alt and event.ctrl and not event.shift:
+            self.hard_angle = min(max(self.hard_angle + step, ANGLE_MIN), math.pi)
+            self._pending = None
+            self._relayout(context)
+            return {"RUNNING_MODAL"}
         if event.alt and not event.shift:
-            target = None if event.ctrl else self._part_under_cursor(context, event)
+            target = self._part_under_cursor(context, event)
             if target is None or not self._cycle_seam(context, target[0], target[1], sign):
                 return {"PASS_THROUGH"}
             return {"RUNNING_MODAL"}
