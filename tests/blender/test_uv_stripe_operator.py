@@ -647,7 +647,7 @@ def test_modal_fit_to_active_and_random_offset_keys():
         assert op.offset_axis == expected
     moved = _uv_box(obj, _high)
     assert (moved[0] - before[0]).length > 1e-4
-    op._modal(bpy.context, _KeyPress("C"))
+    op._modal(bpy.context, _KeyPress("R"))
     assert op.offset_seed == 1 and (_uv_box(obj, _high)[0] - moved[0]).length > 1e-6
     assert op._modal(bpy.context, shift_wheel) == {"RUNNING_MODAL"} and _close(op.offset_limit, 0.30)
     shift_wheel.ctrl = True
@@ -668,26 +668,31 @@ def test_modal_hud_and_help_list_every_key():
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
         "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Split at Bends (A)",
-        "Split at Seams (S)", "Bend Angle (Wheel)", "Mark Seams (X)", "Random Offset (Z)",
-        "Offset Limit (Shift + Wheel)", "Offset Seed (C)", "Merge Doubles (F)", "Doubled Vertices"]
+        "Split at Seams (S)", "Bend Angle (Wheel)", "Mark Seams (X)", "Break Ring (C)", "Random Offset (Z)",
+        "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)", "Doubled Vertices"]
     assert [p.value_text() for p in params] == [
-        "Active", "Horizontal", "Width and Height", "No Stretch", "✓", "✗", "15°", "✓", "None", "0.25", "0", "✗",
-        "0"]
+        "Active", "Horizontal", "Width and Height", "No Stretch", "✓", "✗", "15°", "✓", "✗", "None", "0.25", "0",
+        "✗", "0"]
     active = {p.name: p.is_active() for p in params}
     assert active["Fit to Active (D)"] and not active["Offset Limit (Shift + Wheel)"]
-    assert not active["Offset Seed (C)"]
+    assert not active["Offset Seed (R)"]
     op.mode, op.offset_axis = "FIT", "BOTH"
     active = {p.name: p.is_active() for p in params}
-    assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (C)"]
+    assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (R)"]
+    op._picking = True
+    assert {p.name: p.value_text() for p in params}["Break Ring (C)"] == "✓"
+    assert "[LMB] set the break" in op._status_text() and "[C/Esc/RMB] stop picking" in op._status_text()
+    op._picking = False
     assert [(it.label, it.key) for it in op._help.sections[0].items] == [
         ("Mode", "Q"), ("Orientation", "W"), ("Layout", "E"), ("Split at bends", "A"), ("Split at seams", "S"),
-        ("Fit to active", "D"), ("Random offset", "Z"), ("Mark seams", "X"), ("New offset seed", "C"),
-        ("Merge doubles", "F"), ("Bend angle", "Wheel / Ctrl + Wheel"),
+        ("Fit to active", "D"), ("Random offset", "Z"), ("Mark seams", "X"), ("Break ring: pick a cross edge", "C"),
+        ("New offset seed", "R"), ("Merge doubles", "F"), ("Bend angle", "Wheel / Ctrl + Wheel"),
         ("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"), ("Confirm", "LMB / Enter / Space"),
         ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
     status = op._status_text()
     assert "layout = no stretch (E)" in status and "fit to active = width and height (D)" in status
     assert "random offset = both (Z)" in status and "merge doubles = off (F)" in status
+    assert "break ring (C)" in status and "new offset seed (R)" in status
 
 
 def test_modal_old_letters_are_free():
@@ -695,7 +700,7 @@ def test_modal_old_letters_are_free():
     _edit(obj)
     op = _modal_on(obj)
     before = _uv_state(obj)
-    for key in ("R", "M", "B", "O"):
+    for key in ("M", "B", "O"):
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
     assert op._modal(bpy.context, _KeyPress("N")) == {"PASS_THROUGH"}       # the sidebar opens again
     assert _uv_state(obj) == before
@@ -928,11 +933,12 @@ def _inner_edges(obj):
     return {tuple(sorted(v.index for v in e.verts)) for e in bm.edges if sum(f.select for f in e.link_faces) == 2}
 
 
-def _uv_islands(obj):
-    """The number of UV islands among the selected faces: faces joined where both corners of an edge agree."""
+def _uv_islands(obj, only=None):
+    """The number of UV islands among the selected faces (or those whose centre passes ``only``): faces joined
+    where both corners of an edge agree."""
     bm = bmesh.from_edit_mesh(obj.data)
     layer = bm.loops.layers.uv.active
-    faces = [f for f in bm.faces if f.select]
+    faces = [f for f in bm.faces if f.select and (only is None or only(f.calc_center_median()))]
     parent = {f: f for f in faces}
 
     def root(f):
@@ -944,7 +950,7 @@ def _uv_islands(obj):
         return next(lp[layer].uv for lp in face.loops if lp.vert == vert)
 
     for e in bm.edges:
-        linked = [f for f in e.link_faces if f.select]
+        linked = [f for f in e.link_faces if f in parent]
         if len(linked) == 2 and all((uv_at(linked[0], v) - uv_at(linked[1], v)).length < 1e-6 for v in e.verts):
             parent[root(linked[0])] = root(linked[1])
     return len({root(f) for f in faces})
@@ -1034,6 +1040,183 @@ def test_cup_break_is_taken_before_doubles_are_merged():
     assert _seams(obj) & _inner_edges(obj) == {(7, 15)}
 
 
+# --- cup break in the modal: C picks, LMB sets, R is the seed -------------------------------
+
+def _ring_and_strip():
+    """The 8-quad flat ring (vertices 0 - 15, below y = 2) and an open 4-quad strip at y = 3 (vertices 16 - 25),
+    one mesh, all selected."""
+    verts, faces = flat_annulus(8)
+    points = [verts[i] for i in range(16)] + [(float(x), y, 0.0) for y in (3.0, 3.5) for x in range(5)]
+    strip = [(16 + i, 17 + i, 22 + i, 21 + i) for i in range(4)]
+    obj = _object(points, [faces[k] for k in sorted(faces)] + strip)
+    _edit(obj)
+    return obj
+
+
+def _two_rings():
+    """Two 8-quad flat rings side by side (vertices 0 - 15 at x = 0, 16 - 31 at x = 3), one mesh, all selected."""
+    verts, faces = flat_annulus(8)
+    points = [verts[i] for i in range(16)] + [(x + 3.0, y, z) for x, y, z in (verts[i] for i in range(16))]
+    polys = [faces[k] for k in sorted(faces)]
+    obj = _object(points, polys + [tuple(v + 16 for v in face) for face in polys])
+    _edit(obj)
+    return obj
+
+
+def _ring_part(c):
+    return c.y < 2.0 and c.x < 2.0
+
+
+def _torn_at(op, obj, pair):
+    """Whether the preview draws edge ``pair`` (vertex ids) among the tears."""
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    ends = {tuple(round(c, 6) for c in obj.matrix_world @ bm.verts[i].co) for i in pair}
+    tears = op._result.tears
+    return any({tuple(round(c, 6) for c in tears[i]), tuple(round(c, 6) for c in tears[i + 1])} == ends
+               for i in range(0, len(tears), 2))
+
+
+def _ring_seams(obj, only=_ring_part):
+    bm = bmesh.from_edit_mesh(obj.data)
+    return {tuple(sorted(v.index for v in e.verts)) for e in bm.edges if e.seam
+            and sum(f.select and only(f.calc_center_median()) for f in e.link_faces) == 2}
+
+
+def test_c_enters_and_leaves_picking():
+    obj = _annulus()
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    laid = _uv_state(obj)
+    for leave in ("ESC", "RIGHTMOUSE", "C"):
+        assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
+        assert op._modal(bpy.context, _KeyPress("E")) == {"RUNNING_MODAL"} and op.layout == "TRUE"   # swallowed
+        assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"} and op._picking  # no edge: stays
+        assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"PASS_THROUGH"}            # the view zooms
+        assert op._modal(bpy.context, _KeyPress(leave)) == {"RUNNING_MODAL"} and not op._picking, leave
+        assert _uv_state(obj) == laid and getattr(op, "cup_breaks", "") == ""
+    op._finish(bpy.context)
+
+
+def test_set_break_relays_out_and_leaves_picking():
+    obj = _annulus()
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert _uv_islands(obj) > 1                              # torn at its bends until it is broken
+    index = _edge_index(obj, (3, 11))
+    assert index in op._result.rings[obj.name]              # a ring's cross edge can be picked
+    op._picking = True
+    assert op._set_break(bpy.context, obj, index)
+    assert not op._picking and _uv_islands(obj) == 1
+    assert _torn_at(op, obj, (3, 11)) and _seams(obj) & _inner_edges(obj) == {(3, 11)}
+    op._finish(bpy.context)
+
+
+def test_lmb_in_picking_sets_the_hovered_break():
+    # A real cursor cannot hover headless: the hover lookup is stood in for, the event handling is the operator's.
+    obj = _annulus()
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    index = _edge_index(obj, (5, 13))
+    op._hover_break = lambda _context, _event: (obj, index)
+    op._modal(bpy.context, _KeyPress("C"))
+    move = _KeyPress("MOUSEMOVE")
+    move.value = "NOTHING"
+    assert op._modal(bpy.context, move) == {"RUNNING_MODAL"} and op._hover[:2] == (obj, index)
+    assert len(op._hover[2]) == 2                            # the hovered edge's end points, for the preview
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # not the confirm
+    assert not op._picking and _uv_islands(obj) == 1 and _ring_seams(obj, lambda c: True) == {(5, 13)}
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"FINISHED"}            # outside picking: confirm
+
+
+def test_second_break_on_the_same_ring_replaces_the_first():
+    import json
+    obj = _annulus()
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    a, b = _edge_index(obj, (3, 11)), _edge_index(obj, (6, 14))
+    op._set_break(bpy.context, obj, a)
+    op._set_break(bpy.context, obj, b)
+    assert json.loads(op.cup_breaks) == {obj.name: [b]}
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == {(6, 14)}
+    op._finish(bpy.context)
+
+
+def test_breaks_on_two_rings_are_both_kept():
+    import json
+    obj = _two_rings()
+    op = _modal_on(obj, mode="FIT")
+    a, b = _edge_index(obj, (3, 11)), _edge_index(obj, (16 + 6, 16 + 14))
+    op._set_break(bpy.context, obj, a)
+    op._set_break(bpy.context, obj, b)
+    assert sorted(json.loads(op.cup_breaks)[obj.name]) == sorted([a, b])
+    assert _uv_islands(obj, lambda c: c.x < 1.5) == 1 and _uv_islands(obj, lambda c: c.x > 1.5) == 1
+    assert _seams(obj) & _inner_edges(obj) == {(3, 11), (22, 30)}
+    op._finish(bpy.context)
+
+
+def test_break_survives_option_changes():
+    obj = _ring_and_strip()
+    op = _modal_on(obj, mode="FIT", split_angle=math.radians(5))
+    open_rung = _edge_index(obj, (18, 23))
+    assert open_rung not in op._result.rings.get(obj.name, {})        # an open strip's cross edge is not pickable
+    assert not op._set_break(bpy.context, obj, open_rung) and getattr(op, "cup_breaks", "") == ""
+    op._set_break(bpy.context, obj, _edge_index(obj, (3, 11)))
+    for key in ("S", "E", "A", "E", "S"):
+        op._modal(bpy.context, _KeyPress(key))
+        assert _uv_islands(obj, _ring_part) == 1, key
+        assert _ring_seams(obj) == {(3, 11)} and _torn_at(op, obj, (3, 11)), key
+    op._finish(bpy.context)
+
+
+def test_r_changes_seed_and_c_does_not():
+    obj = _annulus()
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT", offset_axis="ALONG")
+    assert op._modal(bpy.context, _KeyPress("R")) == {"RUNNING_MODAL"} and op.offset_seed == 1
+    op._modal(bpy.context, _KeyPress("C"))
+    assert op.offset_seed == 1 and op._picking
+    op._modal(bpy.context, _KeyPress("ESC"))
+    op._finish(bpy.context)
+
+
+def test_cancel_after_break_restores_uvs_and_seams():
+    obj = _annulus()
+    _edit(obj)
+    _set_uvs(obj, lambda co: co.xy * 0.1)
+    _set_seams(obj, {(6, 14)})
+    before = _uv_state(obj)
+    op = _modal_on(obj, mode="FIT", split_at_seams=True)
+    op._set_break(bpy.context, obj, _edge_index(obj, (3, 11)))
+    assert op.cup_breaks != ""
+    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"CANCELLED"}
+    assert _uv_state(obj) == before and op.cup_breaks == ""
+
+
+def test_confirm_after_break_equals_execute():
+    def made(confirm):
+        obj = _ring_and_strip()
+        brk = _cup(obj, (3, 11))
+        if confirm:
+            op = _modal_on(obj, mode="FIT")
+            op._set_break(bpy.context, obj, _edge_index(obj, (3, 11)))
+            assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+            assert op.cup_breaks == brk                      # kept for redo
+            return _uv_state(obj)
+        stand = _OperatorStandIn(mode="FIT", cup_breaks=brk)
+        assert stand.execute(bpy.context) == {"FINISHED"}
+        return _uv_state(obj)
+
+    assert made(True) == made(False)
+
+
+def test_cup_breaks_is_no_shared_setting():
+    rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
+    assert rna["cup_breaks"].is_hidden and rna["cup_breaks"].is_skip_save
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    assert "cup_breaks" not in StripeSettings.__dataclass_fields__
+
+
 TESTS = [
     test_fit_straight_strip,
     test_in_place_keeps_centre_and_density,
@@ -1081,6 +1264,16 @@ TESTS = [
     test_cup_break_with_a_triangle_follows_layout,
     test_cup_break_on_an_open_strip_is_ignored,
     test_cup_break_is_taken_before_doubles_are_merged,
+    test_c_enters_and_leaves_picking,
+    test_set_break_relays_out_and_leaves_picking,
+    test_lmb_in_picking_sets_the_hovered_break,
+    test_second_break_on_the_same_ring_replaces_the_first,
+    test_breaks_on_two_rings_are_both_kept,
+    test_break_survives_option_changes,
+    test_r_changes_seed_and_c_does_not,
+    test_cancel_after_break_restores_uvs_and_seams,
+    test_confirm_after_break_equals_execute,
+    test_cup_breaks_is_no_shared_setting,
 ]
 
 
