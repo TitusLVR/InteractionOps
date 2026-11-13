@@ -1,15 +1,15 @@
-"""Smart Edge Slide band fixtures shared by the pure-Python tests and the headless Blender tests.
+"""Edge Slide band fixtures shared by the pure-Python tests and the headless Blender tests.
 
-Stdlib only, no pytest: ``tests/blender/test_smart_edge_slide.py`` imports this module inside Blender, where
-``utils`` names the add-on's own package, and builds each band as a bmesh mesh. ``test_smart_edge_slide_core``
-and ``test_smart_edge_slide_wave`` import these builders back under the same names.
+Stdlib only, no pytest: ``tests/blender/test_edge_slide.py`` imports this module inside Blender, where
+``utils`` names the add-on's own package, and builds each band as a bmesh mesh. ``test_edge_slide_core``
+and ``test_edge_slide_wave`` import these builders back under the same names.
 """
 
 import dataclasses
 import math
 import random
 
-from utils.smart_edge_slide_core import Band
+from utils.edge_slide_core import Band
 
 
 def _band(pts, faces, chain, side_faces, closed=False, end_edges=(None, None)):
@@ -300,7 +300,7 @@ def square_in_grid():
     # - each vertex runs in along its bisector, (2 + w, 2 + w) and its mirrors, so every segment is 2 - 2w long and all
     #   four fold together at w = 1, the inradius, where every vertex reaches the centre (3, 3): the apex, a new point
     #   inside face 4 that every anchor shares, joined to all four chain vertices.
-    # - Below that the loop is a square ring inside the one face, which the bridge leaves to Smart Inset.
+    # - Below that the loop is a square ring inside the one face, which the bridge leaves to Inset.
     pts = [(2 * x, 2 * y, 0) for y in range(4) for x in range(4)]
     faces = {y * 3 + x: (y * 4 + x, y * 4 + x + 1, (y + 1) * 4 + x + 1, (y + 1) * 4 + x)
              for y in range(3) for x in range(3)}

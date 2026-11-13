@@ -116,7 +116,7 @@ def test_repeated_far_id_needs_a_hint():
 
 
 def test_open_strip_with_a_seam_on_its_near_row():
-    # A closed chain 0-1-2 opened at 0 (Smart Edge Slide's destructive mode: one cut, one open piece): the near row
+    # A closed chain 0-1-2 opened at 0 (Edge Slide's destructive mode: one cut, one open piece): the near row
     # starts and ends on vertex 0. Each of its corners takes the row position its face names, so the UV splits there.
     v = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (1.0, 2.0, 0.0),
          3: (0.0, -1.0, 0.0), 4: (3.0, -1.0, 0.0), 5: (1.0, 3.0, 0.0), 6: (-1.0, 0.0, 0.0)}
@@ -231,7 +231,7 @@ def test_ascending_rungs_keeps_a_strip_that_already_ascends():
 
 
 def test_closed_collapsed_inset_seam_on_a_collapse_node():
-    # 4 x 1 rectangle fully collapsed to the ridge A-B, in the form Smart Inset's stripe_for builds:
+    # 4 x 1 rectangle fully collapsed to the ridge A-B, in the form Inset's stripe_for builds:
     # far lists each ridge vertex once and the rungs share them, so the seam far vertex is shared
     v = {0: (0.0, 0.0, 0.0), 1: (4.0, 0.0, 0.0), 2: (4.0, 1.0, 0.0), 3: (0.0, 1.0, 0.0),
          10: (0.5, 0.5, 0.0), 11: (3.5, 0.5, 0.0)}

@@ -1,7 +1,7 @@
 import math
 import pytest
 
-from utils.smart_inset_core import (
+from utils.inset_core import (
     edge_normal, vertex_velocity, EPS, norm, sub,
 )
 
@@ -49,7 +49,7 @@ def test_velocity_spike_is_capped():
     assert math.hypot(*v) <= 1e6  # SPEED_CAP
 
 
-from utils.smart_inset_core import build_timeline
+from utils.inset_core import build_timeline
 
 
 SQUARE = [[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]]
@@ -245,7 +245,7 @@ def test_timeline_not_truncated_for_normal_input():
         assert build_timeline(loops).truncated is False
 
 
-from utils.smart_inset_core import sanitize_loops
+from utils.inset_core import sanitize_loops
 
 
 def test_sanitize_drops_zero_edges():
@@ -302,7 +302,7 @@ def test_sanitize_carries_dropped_points_weight_when_dropped_edge_differs():
     assert ws[0] == [5.0, 1.0, 1.0, 1.0]
 
 
-from utils.smart_inset_core import boundary_distance
+from utils.inset_core import boundary_distance
 
 SQUARE2 = [[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]]
 
@@ -329,7 +329,7 @@ def test_boundary_distance_respects_holes():
     assert boundary_distance(SQUARE2 + [hole], (1.0, 0.5)) == pytest.approx(0.3)
 
 
-from utils.smart_inset_core import BoundaryLevel
+from utils.inset_core import BoundaryLevel
 
 HOLED = SQUARE2 + [[(0.8, 0.8), (1.2, 0.8), (1.2, 1.2), (0.8, 1.2)]]
 

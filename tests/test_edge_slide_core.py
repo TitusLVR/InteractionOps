@@ -2,9 +2,9 @@ import math
 import random
 
 import pytest
-from smart_edge_slide_fixtures import _band, chamfer_ring, jittered_grid, ring, u_in_grid
+from edge_slide_fixtures import _band, chamfer_ring, jittered_grid, ring, u_in_grid
 
-from utils.smart_edge_slide_core import (
+from utils.edge_slide_core import (
     RAIL_MAX_DEV,
     STEP_AGREE_COS,
     STEP_DIFFER_COS,

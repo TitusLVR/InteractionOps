@@ -3,7 +3,7 @@
 The core lays each ``Strip`` out in UV space without bpy. This module reads what
 In Place needs from the mesh before any UV changes (``uv_context``), then places
 the strips and writes their UVs onto the strip faces' corners (``apply_stripes``).
-UV Stripe, Smart Inset and Smart Edge Slide share the rest here, so they cannot
+UV Stripe, Inset and Edge Slide share the rest here, so they cannot
 drift apart: the option items (``LAYOUT_ITEMS``, ``ORIENTATION_ITEMS``), the
 pieces one built strip becomes (``prepare_strip``) and the seams that match the
 laid-out pieces (``match_piece_seams``).
@@ -320,7 +320,7 @@ def match_piece_seams(pieces) -> None:
 
 @dataclass
 class StripeSettings:
-    """UV Stripe's settings: one set for UV Stripe, Smart Inset and Smart Edge Slide.
+    """UV Stripe's settings: one set for UV Stripe, Inset and Edge Slide.
 
     ``from_operator`` reads a UV Stripe operator (or anything with its properties);
     ``from_last`` reads UV Stripe's last-used properties, its defaults when it never ran.
@@ -355,7 +355,7 @@ class StripeSettings:
 
 def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bool:
     """Place the prepared (strip, faces by id) pieces and set their seams, as ``settings`` say; the one
-    placement step of UV Stripe, Smart Inset and Smart Edge Slide.
+    placement step of UV Stripe, Inset and Edge Slide.
 
     ``contexts`` holds each piece's ``uv_context`` and ``groups`` its Fit group. In
     Active mode the reference is the piece holding the mesh's active face (In Place

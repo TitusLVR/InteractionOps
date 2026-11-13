@@ -46,8 +46,8 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 ## Mesh — Editing
 - [Mesh to Grid](operators/op_mesh_to_grid.md) — snap selected vertices to the grid.
 - [Cursor Bisect](operators/op_mesh_cursor_bisect.md) — cut the mesh with a plane placed at the cursor.
-- [Smart Inset](operators/op_mesh_smart_inset.md) — straight-skeleton inset that stays clean in corners.
-- [Smart Edge Slide](operators/op_mesh_smart_edge_slide.md) — cut a new edge loop beside the selected edges at an exact width, wrapping steps such as pockets.
+- [Inset](operators/op_mesh_inset.md) — straight-skeleton inset that stays clean in corners.
+- [Edge Slide](operators/op_mesh_edge_slide.md) — cut a new edge loop beside the selected edges at an exact width, wrapping steps such as pockets.
 - [Extrude (Keep Edge Data)](operators/op_mesh_extrude_ex.md) — extrude while keeping creases, bevel weights and seams.
 - [Straight Bevel](operators/op_mesh_straight_bevel.md) — bevel with straight, even segments.
 - [Shear](operators/op_mesh_shear.md) — shear the selection around a hinge you pick.

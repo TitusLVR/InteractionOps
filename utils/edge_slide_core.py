@@ -1,4 +1,4 @@
-"""Smart Edge Slide core: pure-Python band model and wedge development.
+"""Edge Slide core: pure-Python band model and wedge development.
 
 Stdlib only (no bpy), so it runs under plain pytest.
 
@@ -1288,7 +1288,7 @@ class Cut:
     ``clamped`` tells whether it is below the width asked for. ``breaks`` holds
     each index ``i`` where no new edge runs from ``points[i-1]`` to ``points[i]``;
     on a closed loop 0 is the wrap edge. Only the destructive mode
-    (``smart_edge_slide_wave``) sets it, and ``inner``: the breaks that lie
+    (``edge_slide_wave``) sets it, and ``inner``: the breaks that lie
     inside one piece of the loop (a piece pressed onto its walls, its points
     there apart), not between two pieces, and ``rings``: the breaks that start a
     piece which closes on itself (a ring the loop split into where it touched

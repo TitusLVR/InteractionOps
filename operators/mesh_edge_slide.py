@@ -1,13 +1,13 @@
-"""Smart Edge Slide: cut a new edge loop beside each selected chain of edges.
+"""Edge Slide: cut a new edge loop beside each selected chain of edges.
 
 The loop runs at a set width from the chain, measured in the surface on one side
-of it. ``utils/smart_edge_slide_core`` places the loop on a band of faces, and
-``mesh_smart_edge_slide_bridge`` builds the bands and the cuts on the mesh.
+of it. ``utils/edge_slide_core`` places the loop on a band of faces, and
+``mesh_edge_slide_bridge`` builds the bands and the cuts on the mesh.
 
-The modal (``invoke``) drags the width with the mouse, mirroring Smart Inset's:
+The modal (``invoke``) drags the width with the mouse, mirroring Inset's:
 numeric entry, Shift precision, Ctrl snap to a vertex, F to flip the side of the
 chain nearest the cursor, and a themed preview of the new loops. D switches to
-the destructive mode (``utils/smart_edge_slide_wave``), where the loop merges,
+the destructive mode (``utils/edge_slide_wave``), where the loop merges,
 opens at walls and stops only at open edges; it implies collapse. There a loop
 that comes to lie on a row of existing edges and stops (or holds its ends) is
 relayed: the slide carries on from that row (``bridge.Relay``), the width adding up.
@@ -33,9 +33,9 @@ from ..ui.draw import Role, draw_scope, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
 from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
 from ..utils import picking
-from ..utils import smart_edge_slide_core as core
-from ..utils import smart_edge_slide_wave as wave
-from . import mesh_smart_edge_slide_bridge as bridge
+from ..utils import edge_slide_core as core
+from ..utils import edge_slide_wave as wave
+from . import mesh_edge_slide_bridge as bridge
 from . import uv_stripe_bridge
 
 DIGIT_TYPES = {
@@ -152,11 +152,11 @@ def _band_size(build) -> float:
     return math.dist([min(p[k] for p in points) for k in range(3)], [max(p[k] for p in points) for k in range(3)])
 
 
-class IOPS_OT_smart_edge_slide(bpy.types.Operator):
+class IOPS_OT_edge_slide(bpy.types.Operator):
     """Cut a new edge loop beside the selected edges at a set width"""
 
-    bl_idname = "iops.mesh_smart_edge_slide"
-    bl_label = "Smart Edge Slide"
+    bl_idname = "iops.mesh_edge_slide"
+    bl_label = "Edge Slide"
     bl_description = (
         "Cut a new edge loop beside each selected chain of edges, at a set "
         "distance measured in the surface on one side of the chain. Where a "
@@ -328,7 +328,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         row = layout.row()
         row.active = False  # a muted note: the UV Stripe settings live in UV Stripe's own redo panel
         row.label(text="Settings from UV Stripe")
-        header, body = layout.panel("IOPS_PT_smart_edge_slide_angles", default_closed=True)
+        header, body = layout.panel("IOPS_PT_edge_slide_angles", default_closed=True)
         header.label(text="Angles")
         if body is not None:
             for name in ("rail_bend", "end_edge_angle", "step_agreement", "step_difference"):
@@ -343,7 +343,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         return obj is not None and obj.type == "MESH" and obj.mode == "EDIT"
 
     def _skip(self, msg) -> None:
-        self.report({'WARNING'}, f"Smart Edge Slide: chain skipped ({msg})")
+        self.report({'WARNING'}, f"Edge Slide: chain skipped ({msg})")
 
     def _side(self, i: int) -> int:
         """The band side chain ``i`` is cut on: its stored side, the other one for a negative width."""
@@ -512,7 +512,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         if any(self._sides):
             return True
         if not chains and not warnings:
-            self.report({'WARNING'}, "Smart Edge Slide: no edges selected")
+            self.report({'WARNING'}, "Edge Slide: no edges selected")
         return False
 
     def _to_region(self, context, co):
@@ -541,8 +541,8 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         return out
 
     def _build_overlays(self, region):
-        self._hud = HUDOverlay("smart_edge_slide")
-        self._hud.title = "Smart Edge Slide"
+        self._hud = HUDOverlay("edge_slide")
+        self._hud.title = "Edge Slide"
         self._hud.bind_region(region)
         self._hud.add_param(HUDParam("Width", lambda: self.width, "float", fmt="{:.4f}"))
         self._hud.add_param(HUDParam("Exact Width (E)", lambda: self.use_exact, "bool"))
@@ -555,8 +555,8 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         self._hud.add_param(HUDParam("UV Stripe (U)", lambda: self.use_uv_stripe, "bool"))
         self._hud.add_param(HUDParam("Clamped", lambda: self._clamped, "bool"))
 
-        self._help = HelpOverlay("smart_edge_slide")
-        self._help.add_section(HUDSection("Smart Edge Slide", [
+        self._help = HelpOverlay("edge_slide")
+        self._help.add_section(HUDSection("Edge Slide", [
             HUDItem("Adjust width",      "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Snap to vertex",    "Ctrl",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Exact width",       "E",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -580,7 +580,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
             # down so the viewport is not left with a dangling callback.
             self._finish(context)
             self.report({'WARNING'},
-                        "Smart Edge Slide: bmesh data became invalid — cancelled")
+                        "Edge Slide: bmesh data became invalid — cancelled")
             return {'CANCELLED'}
         except Exception:
             self._finish(context)
@@ -992,7 +992,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         hint = getattr(self, "_status_hint", "")
         hint = f" | {hint}" if hint else ""
         return (
-            f"Smart Edge Slide: width = {self.width:.4f}{typed}{hint} | "
+            f"Edge Slide: width = {self.width:.4f}{typed}{hint} | "
             f"exact width = {'on' if self.use_exact else 'off'} (E) | "
             f"allow collapse = {'on' if self.use_collapse or self.use_destructive else 'off'} (C) | "
             f"destructive = {'on' if self.use_destructive else 'off'} (D) | "
@@ -1505,7 +1505,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
             self._skip(msg)
         if not chains:
             if not warnings:
-                self.report({'WARNING'}, "Smart Edge Slide: no edges selected")
+                self.report({'WARNING'}, "Edge Slide: no edges selected")
             return {'CANCELLED'}
 
         width = abs(self.width)
@@ -1531,7 +1531,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
                 destructive = mode["destructive"]
                 if self.use_destructive and not destructive:
                     self.report({'WARNING'}, (
-                        "Smart Edge Slide: Destructive is off for a chain next to a face with more than "
+                        "Edge Slide: Destructive is off for a chain next to a face with more than "
                         f"{bridge.DESTRUCTIVE_MAX_FACE_SIDES} sides"))
                 cutting = False
                 try:
@@ -1568,9 +1568,9 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
                     lone += [v for v in applied.loop_verts if v not in on_edges]
                 if applied.failures:
                     msg = "; ".join(dict.fromkeys(applied.failures))
-                    self.report({'WARNING'}, f"Smart Edge Slide: chain cut incomplete ({msg})")
+                    self.report({'WARNING'}, f"Edge Slide: chain cut incomplete ({msg})")
                     if self.use_uv_stripe:
-                        self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe skipped ({msg})")
+                        self.report({'WARNING'}, f"Edge Slide: UV Stripe skipped ({msg})")
                 elif self.use_uv_stripe:
                     stripes.append((build, applied, cut.width))
                 for e in applied.loop_edges:
@@ -1578,7 +1578,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
 
             # An edited mesh always finishes, so the change gets its update and undo step.
             if not edited:
-                self.report({'WARNING'}, "Smart Edge Slide: nothing was cut")
+                self.report({'WARNING'}, "Edge Slide: nothing was cut")
                 return {'CANCELLED'}
             if stripes:
                 self._uv_stripe(context, bm, stripes)
@@ -1607,7 +1607,7 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         every strip back where its own faces were. A strip that cannot be laid out
         is skipped with a warning. The settings are UV Stripe's last-used ones
         (``uv_stripe_bridge.StripeSettings.from_last``): the pieces go through
-        ``prepare_strip`` and ``finish_stripes``, as in UV Stripe and Smart Inset; the
+        ``prepare_strip`` and ``finish_stripes``, as in UV Stripe and Inset; the
         pieces one strip is split into share its Fit scale. Split at Seams and Merge
         Doubles do not apply to the new faces; Active without the active face among them
         lays out In Place, silently.
@@ -1627,13 +1627,13 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
                     pieces, reason = uv_stripe_bridge.prepare_strip(strip, strip_faces, settings.layout,
                                                                     settings.split)
                 except ValueError as exc:
-                    self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe skipped ({exc})")
+                    self.report({'WARNING'}, f"Edge Slide: UV Stripe skipped ({exc})")
                     continue
                 except unexpected as exc:
                     self._stripe_error(exc)
                     continue
                 if reason:
-                    self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe not split ({reason})")
+                    self.report({'WARNING'}, f"Edge Slide: UV Stripe not split ({reason})")
                 try:
                     contexts_here = [uv_stripe_bridge.uv_context(bm, list(f.values())) for _s, f in pieces]
                 except unexpected as exc:
@@ -1654,4 +1654,4 @@ class IOPS_OT_smart_edge_slide(bpy.types.Operator):
         """Warn that UV Stripe skipped a strip over an unexpected error, named with its type; its traceback goes to
         the console."""
         traceback.print_exception(exc)
-        self.report({'WARNING'}, f"Smart Edge Slide: UV Stripe skipped ({type(exc).__name__}: {exc})")
+        self.report({'WARNING'}, f"Edge Slide: UV Stripe skipped ({type(exc).__name__}: {exc})")

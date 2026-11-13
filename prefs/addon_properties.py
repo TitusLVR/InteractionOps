@@ -636,7 +636,7 @@ class IOPS_SceneProperties(PropertyGroup):
     cursor_bisect_mark_active: BoolProperty(name="Mark Cut Edges", default=False)
     cursor_bisect_mark_type_idx: IntProperty(name="Mark Type Index", default=0, min=0, max=3)
 
-    # Smart Shear persistent parameters (last confirmed values)
+    # Shear persistent parameters (last confirmed values)
     shear_last_angle: FloatProperty(name="Shear Angle", default=0.0)
     shear_hinge_last_angle: FloatProperty(name="Hinge Angle", default=0.0)
     shear_hinge_last_steps: IntProperty(name="Hinge Steps", default=6, min=1)

@@ -53,8 +53,8 @@ It is a set of operators which boost Blender interactivity between user and appl
     - **Mesh — Editing**
         - [Mesh to Grid](operators/op_mesh_to_grid.md)
         - [Cursor Bisect](operators/op_mesh_cursor_bisect.md)
-        - [Smart Inset](operators/op_mesh_smart_inset.md)
-        - [Smart Edge Slide](operators/op_mesh_smart_edge_slide.md)
+        - [Inset](operators/op_mesh_inset.md)
+        - [Edge Slide](operators/op_mesh_edge_slide.md)
         - [Extrude (Keep Edge Data)](operators/op_mesh_extrude_ex.md)
         - [Straight Bevel](operators/op_mesh_straight_bevel.md)
         - [Shear](operators/op_mesh_shear.md)

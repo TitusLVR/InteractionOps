@@ -1,4 +1,4 @@
-"""Smart shear operator.
+"""Shear operator.
 
 Every selection becomes one or more *profile records*: an ordered vert
 loop (a face's verts, or a connected chain of selected edges) with a
@@ -1419,7 +1419,7 @@ class ExtrudeMixin:
 
 
 class IOPS_OT_mesh_shear(ExtrudeMixin, bpy.types.Operator):
-    """Smart shear. Tilts the active selection: a face tilts around its
+    """Shear. Tilts the active selection: a face tilts around its
 centroid (rail-constrained), an edge tilts in its face plane.
 
 The selection determines the mode automatically. Numeric input sets
@@ -1428,9 +1428,9 @@ vert for edges). D flips direction. Enter confirms, Esc/RMB
 cancels. LMB clicks only pick widget handles."""
 
     bl_idname = "iops.mesh_shear"
-    bl_label = "Shear (Smart)"
+    bl_label = "Shear"
     bl_description = (
-        "Smart shear that auto-detects selection. Faces tilt around "
+        "Shear that auto-detects selection. Faces tilt around "
         "their centroid; edges tilt in their face plane. Type a number "
         "for the angle, F is mode-specific, D flips direction"
     )

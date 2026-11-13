@@ -1,10 +1,10 @@
-# Smart Inset
+# Inset
 
-![Smart Inset](../img/ops/op_mesh_smart_inset.png)
+![Inset](../img/ops/op_mesh_inset.png)
 
 Insets the selected faces without the flipped or overlapping geometry the regular inset produces when pushed too far. Every boundary edge moves inward at the same speed; where opposite sides meet, the region cleanly collapses into a ridge or a point instead of self-intersecting. Drag for thickness, hold Ctrl for depth, or type exact values. Edit Mesh mode.
 
-**Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Pie › Smart Inset.
+**Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Pie › Inset.
 
 ## Controls
 | Key | Action |

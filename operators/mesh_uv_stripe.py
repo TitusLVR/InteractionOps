@@ -247,7 +247,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         default=True,
     )
     # The rings' picked break edges, as JSON {object name: [edge index, ...]}: kept for redo, never saved as a
-    # last-used value and no StripeSettings field, so Smart Inset and Smart Edge Slide never see it.
+    # last-used value and no StripeSettings field, so Inset and Edge Slide never see it.
     cup_breaks: StringProperty(
         name="Ring Breaks",
         description="The cross edges the selected rings are opened at, picked in the interactive mode",
