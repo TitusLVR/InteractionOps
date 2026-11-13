@@ -157,15 +157,6 @@ class _Cache:
     part_of_face: dict               # face id -> part index
     edge_index: dict                 # edge key -> BMEdge.index
     part_nbrs: dict = field(default_factory=dict)        # part index -> neighbours, filled on demand
-    _cut_stops: frozenset | None = None
-
-    def cut_stops(self):
-        """Where an open cut ends: the vertices on a cut edge or a wall seam and the boundary vertices of the scope."""
-        if self._cut_stops is None:
-            seams = {e for loop in self.analysis.seams.values() for e in loop.edges()}
-            border = {e for e, fs in self.edge_faces.items() if len(fs) == 1}
-            self._cut_stops = frozenset(v for e in self.analysis.cuts | seams | border for v in e)
-        return self._cut_stops
 
     def stops(self, i):
         return frozenset(v for b in self.analysis.parts[i].boundaries for v in b)
@@ -571,10 +562,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
 
         "BREAK" when the edge lies between two faces of a ring strip; else the loop traced on all faces in scope
         is "RING" when it closes; else, on an edge inside a wall, the loop traced in that wall up to its
-        boundaries is "LENGTH" when it joins two of them and an open "CUT" when it stops short; on any other edge
-        the open "CUT" traced on all faces in scope until it meets a cut, a wall seam or the scope's border
-        (``_Cache.cut_stops``) or turns sharper than Loop Angle. Every kind can be committed. Returns (loop, kind,
-        part index or None), or None when the edge is not in scope."""
+        boundaries is "LENGTH" when it joins two of them; any other loop is an open "CUT": the loop traced on all
+        faces in scope by Loop Angle alone, so it runs through the seams it crosses and a seam's own edges all give
+        the whole seam. Every kind can be committed. Returns (loop, kind, part index or None), or None when the
+        edge is not in scope."""
         cache = getattr(self, "_result", None) or _Result()
         cache = cache.objects.get(obj.name)
         if cache is None or key not in cache.edge_faces:
@@ -588,11 +579,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         if loop.closed:
             return loop, "RING", None
         if part is not None and cache.analysis.parts[part].kind == "WALL":
-            loop = uv_pipe_core.trace_loop(cache.verts, cache.neighbours(part), key, self.loop_angle,
-                                           cache.stops(part), cache.uv)
-            kind = uv_pipe_core.loop_kind(loop, cache.analysis.parts[part])
-            return loop, ("LENGTH" if kind == "LENGTH" else "CUT"), part
-        loop = uv_pipe_core.trace_loop(cache.verts, cache.nbrs, key, self.loop_angle, cache.cut_stops(), cache.uv)
+            inside = uv_pipe_core.trace_loop(cache.verts, cache.neighbours(part), key, self.loop_angle,
+                                             cache.stops(part), cache.uv)
+            if uv_pipe_core.loop_kind(inside, cache.analysis.parts[part]) == "LENGTH":
+                return inside, "LENGTH", part
         return loop, "CUT", part
 
     def _hit(self, context, event):
@@ -665,6 +655,47 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         applied = self._commit(context, *entry)
         self._show_status(context)
         return applied
+
+    def _unmark(self, context):
+        """Alt + C: take the mark off the loop under the cursor, else off the selected loop; the selection stays.
+
+        RING / CUT: each of its edges that is a current cut stops being one: the user's added edges leave the
+        added loops (emptied loops are dropped), the automatic ones go to ``removed`` as one loop; edges that are
+        no cut are left alone. LENGTH / BREAK: the user's pick of that wall seam / ring break is dropped. Lays out
+        again only when ``picks`` changed; returns whether it did."""
+        target = getattr(self, "_hover", None) or getattr(self, "_pending", None)
+        if target is None:
+            return False
+        obj, loop, kind = target
+        cache = (getattr(self, "_result", None) or _Result()).objects.get(obj.name)
+        if cache is None:
+            return False
+        picks = _parse_picks(getattr(self, "picks", ""))
+        entry = picks.setdefault(obj.name, {})
+        for name in PICK_KINDS:
+            entry.setdefault(name, [])
+        before = json.dumps(picks, sort_keys=True)
+        if kind in ("RING", "CUT"):
+            cut = {cache.edge_index[e] for e in loop.edges() if e in cache.analysis.cuts and e in cache.edge_index}
+            if not cut:
+                return False
+            mine = {i for lp in entry["added"] for i in lp}
+            entry["added"] = [kept for kept in ([i for i in lp if i not in cut] for lp in entry["added"]) if kept]
+            automatic = sorted(cut - mine)
+            if automatic:
+                entry["removed"].append(automatic)
+        else:
+            if not self._is_picked(obj, loop, kind):
+                return False
+            indices = self._indices(obj, loop)
+            own = set(indices if kind == "LENGTH" else indices[:1])
+            entry["picked"] = [lp for lp in entry["picked"] if set(lp) != own]
+        after = json.dumps(picks, sort_keys=True)
+        if after == before:
+            return False
+        self.picks = after
+        self._relayout(context)
+        return True
 
     def _indices(self, obj, loop):
         """The mesh edge indices of ``loop`` in the last pass, sorted; None when an edge is not in it."""
@@ -877,6 +908,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         self._help.add_section(HUDSection("UV Pipe", [
             item("Select the loop under the cursor", "LMB"),
             item("Mark / unmark the selected loop as a seam", "C"),
+            item("Unmark the loop under the cursor", "Alt + C"),
             item("Step the wall seam under the cursor", "Alt + Wheel"),
             item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
@@ -980,6 +1012,11 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             if self._hover is not None:
                 self._click_loop(context, *self._hover)
             return {"RUNNING_MODAL"}
+        if event.type == "C" and event.alt and not (event.ctrl or event.shift):
+            self._update_hover(context, event)
+            self._unmark(context)
+            self._show_status(context)
+            return {"RUNNING_MODAL"}
         if event.type == "C" and not (event.ctrl or event.alt or event.shift):
             if getattr(self, "_pending", None) is None:
                 self._update_hover(context, event)
@@ -1075,11 +1112,11 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         count = f"{self._summary(result)} | " if result is not None else ""
         pending = getattr(self, "_pending", None)
         if pending is not None:
-            return (f"UV Pipe: {count}selected {KIND_NAMES[pending[2]]} | [C] mark / unmark | "
+            return (f"UV Pipe: {count}selected {KIND_NAMES[pending[2]]} | [C] mark / unmark | [Alt+C] unmark | "
                     "[Esc/RMB] deselect | [Enter/Space] finish")
         return (
             f"UV Pipe: {count}"
-            "[LMB] select a loop | [C] mark / unmark it as a seam | [Alt+Wheel] step the wall seam | "
+            "[LMB] select a loop | [C] mark / unmark it as a seam | [Alt+C] unmark | [Alt+Wheel] step the wall seam | "
             f"seam side = {SEAM_SIDE_NAMES[self.seam_side].lower()} (T) | "
             f"loop angle = {math.degrees(self.loop_angle):.0f}° (Ctrl+Wheel) | "
             f"sharp angle = {math.degrees(self.sharp_angle):.0f}° (Shift+Wheel) | "
@@ -1127,7 +1164,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 if cuts:
                     draw.edges_3d(cuts, role=Role.PREVIEW_LINE, width="preview", context=context)
                 if mine:
-                    draw.edges_3d(mine, role=Role.ACTIVE_LINE, width="preview", context=context)
+                    draw.edges_3d(mine, role=Role.LOCKED_LINE, width="preview", context=context)
                 if errors:
                     draw.edges_3d(errors, role=Role.ERROR_LINE, width="preview", context=context)
                 if hovered:

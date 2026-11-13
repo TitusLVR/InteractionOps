@@ -1096,14 +1096,20 @@ def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
     _edit(obj)
     op = _modal_on()
     assert op._result.kinds == {"DISK": 6}, op._result.kinds
+    start = (_islands(obj), _seams(obj), _uv_state(obj))
     key = _key(obj, 1, 5)                      # between two frame quads, from the rim to the hole
+    column = {key, _key(obj, 5, 9), _key(obj, 9, 13)}      # on along the hole's side to the far rim
     assert key not in _seams(obj) and not _opened(obj, key)
     loop, kind, _part = op._classify(obj, key)
-    assert kind == "CUT" and loop.edges() == [key], loop.verts
+    assert kind == "CUT" and set(loop.edges()) == column, loop.verts
     assert op._loop_text((obj, loop, kind)) == "Add seam"
     assert _commit_by_clicks(op, obj, key) == "CUT"
-    assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, {key})]
-    assert key in _seams(obj) and op._result.objects[obj.name].analysis.slits
+    assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, column)]
+    assert column <= _seams(obj) and op._result.objects[obj.name].analysis.slits
+    for edge in sorted(column):                # every edge of the marked seam gives the whole seam back
+        loop, kind, _part = op._classify(obj, edge)
+        assert kind == "CUT" and set(loop.edges()) == column, (edge, loop.verts)
+        assert op._loop_text((obj, loop, kind)) == "Remove seam"
     # the frame is now unwrapped by Blender with the slit as a seam; a flat piece unwraps to its own plane, so the
     # slit's two sides land on the same UVs (a slit opens only where the surface is curved: see the tube below)
     assert op._result.kinds == {"DISK": 5, "FREE": 1}
@@ -1111,6 +1117,116 @@ def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
     assert _commit_by_clicks(op, obj, key) == "CUT"
     assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
     assert key not in _seams(obj) and not _opened(obj, key) and op._result.kinds == {"DISK": 6}
+    assert (_islands(obj), _seams(obj), _uv_state(obj)) == start
+    op._finish(bpy.context)
+
+
+def test_an_open_loop_runs_through_a_seam():
+    obj = _object(framed_box())
+    _edit(obj)
+    op = _modal_on()
+    row = {_key(obj, 4, 5), _key(obj, 5, 6), _key(obj, 6, 7)}      # across the frame through the hole's side
+    loop, kind, _part = op._classify(obj, _key(obj, 4, 5))
+    assert kind == "CUT" and set(loop.edges()) == row, loop.verts
+    _commit_by_clicks(op, obj, _key(obj, 4, 5))
+    assert row <= op._result.objects[obj.name].analysis.cuts
+    # vertex 5 is on that seam now: the loop through 1-5 does not stop there
+    loop, kind, _part = op._classify(obj, _key(obj, 1, 5))
+    assert kind == "CUT" and set(loop.edges()) == {_key(obj, 1, 5), _key(obj, 5, 9), _key(obj, 9, 13)}, loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Add seam"                # only partly a seam: it adds
+    op._finish(bpy.context)
+    # inside a wall a lengthwise loop still ends at the wall's ends: an added ring seam splits the tube in two
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    _commit_by_clicks(op, obj, _key(obj, 24, 25))
+    loop, kind, _part = op._classify(obj, _key(obj, 3, 15))
+    assert kind == "LENGTH" and loop.verts in ([_vid(obj, v) for v in (3, 15, 27)], [_vid(obj, v) for v in (27, 15, 3)])
+    op._finish(bpy.context)
+
+
+def test_cube_loops_follow_the_loop_angle():
+    obj = _object(_cube())
+    _edit(obj)
+    op = _modal_on()
+    loop, kind, _part = op._classify(obj, _key(obj, 0, 1))
+    assert kind == "CUT" and loop.edges() == [_key(obj, 0, 1)]          # the corners turn 90 degrees: one edge
+    op._finish(bpy.context)
+    _edit(obj)
+    op = _modal_on(loop_angle=math.radians(80.0))
+    loop, kind, _part = op._classify(obj, _key(obj, 0, 1))
+    assert kind == "RING" and len(loop.edges()) == 4 and _key(obj, 0, 1) in loop.edges()    # round the cube
+    op._finish(bpy.context)
+
+
+def _hover(op, obj, key):
+    """Stand in for the hover: the loop through ``key`` is under the cursor (None: nothing is)."""
+    found = None if key is None else op._classify(obj, key)
+    op._hover_loop = lambda _context, _event: None if found is None else (obj, found[0], found[1])
+
+
+def test_alt_c_unmarks_the_loop_under_the_cursor():
+    alt_c = _Event("C", alt=True)
+    # a seam the user marked, unmarked from another of its edges in one go
+    obj = _object(framed_box())
+    _edit(obj)
+    op = _modal_on()
+    start = (_islands(obj), _seams(obj), _uv_state(obj))
+    _hover(op, obj, _key(obj, 1, 5))
+    first = op._result
+    assert op._modal(bpy.context, alt_c) == {"RUNNING_MODAL"}           # no cut edge on it: nothing at all
+    assert op._result is first and op.picks == ""
+    _commit_by_clicks(op, obj, _key(obj, 1, 5))
+    op._modal(bpy.context, _Event("ESC"))
+    assert op._pending is None
+    _hover(op, obj, _key(obj, 9, 13))
+    assert op._modal(bpy.context, alt_c) == {"RUNNING_MODAL"}
+    assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
+    assert (_islands(obj), _seams(obj), _uv_state(obj)) == start and op._pending is None
+    op._finish(bpy.context)
+    # an automatic hard edge of the cube: removed, and not found again on a later pass
+    obj = _object(_cube())
+    _edit(obj)
+    op = _modal_on()
+    edge = _key(obj, 0, 1)
+    _hover(op, obj, edge)
+    op._modal(bpy.context, alt_c)
+    assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [_edge_indices(obj, {edge})], "picked": []}
+    assert edge not in _seams(obj) and len(_islands(obj)) == 5
+    for _ in range(2):
+        op._modal(bpy.context, _Event("E"))
+    assert edge not in _seams(obj) and len(_islands(obj)) == 5
+    # nothing under the cursor: the selected loop is the target, and it stays selected
+    other = _key(obj, 4, 5)
+    loop, kind, _part = op._classify(obj, other)
+    op._click_loop(bpy.context, obj, loop, kind)
+    _hover(op, obj, None)
+    op._modal(bpy.context, alt_c)
+    assert other not in _seams(obj) and len(json.loads(op.picks)[obj.name]["removed"]) == 2
+    assert op._same(op._pending, (obj, loop))
+    op._finish(bpy.context)
+    # the picked wall seam: dropped, the automatic column returns; the selection elsewhere is untouched
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    _commit_by_clicks(op, obj, _key(obj, 3, 15))
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 3)
+    ring = op._classify(obj, _key(obj, 24, 25))
+    op._click_loop(bpy.context, obj, ring[0], ring[1])
+    _hover(op, obj, _key(obj, 3, 15))
+    op._modal(bpy.context, alt_c)
+    assert json.loads(op.picks)[obj.name]["picked"] == []
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 6)
+    assert op._same(op._pending, (obj, ring[0]))
+    # an automatic wall seam (not picked) and nothing at all: nothing happens
+    _hover(op, obj, _key(obj, 6, 18))
+    same = op._result
+    op._modal(bpy.context, alt_c)
+    assert op._result is same
+    op._pending = None
+    _hover(op, obj, None)
+    op._modal(bpy.context, alt_c)
+    assert op._result is same and json.loads(op.picks)[obj.name]["picked"] == []
     op._finish(bpy.context)
 
 
@@ -1257,14 +1373,14 @@ def test_modal_hud_and_help_list_every_key():
     labels = [it.label for it in op._help.sections[0].items]
     assert "Select the loop under the cursor" in labels and "Mark / unmark the selected loop as a seam" in labels
     keys = [it.key for it in op._help.sections[0].items]
-    for key in ("LMB", "C", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
+    for key in ("LMB", "C", "Alt + C", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
                 "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "Ctrl + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
                 "E", "X", "T / Shift + T", "Enter / Space", "Esc / RMB", "H"):
         assert key in keys, key
-    assert len(keys) == 23
+    assert len(keys) == 24
     text = op._status_text()
     assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
-    assert "[LMB] select a loop | [C] mark / unmark it as a seam" in text
+    assert "[LMB] select a loop | [C] mark / unmark it as a seam | [Alt+C] unmark" in text
 
 
 def test_modal_keys_toggle_their_options():
@@ -1321,6 +1437,9 @@ TESTS = [
     test_every_hovered_edge_of_a_cube_can_be_cut,
     test_a_slit_in_a_flat_frame_is_a_seam_and_toggles,
     test_a_slit_opens_a_curved_part,
+    test_an_open_loop_runs_through_a_seam,
+    test_cube_loops_follow_the_loop_angle,
+    test_alt_c_unmarks_the_loop_under_the_cursor,
     test_break_click_on_a_ring_strip_sets_its_break,
     test_loop_source_uv_is_unavailable_without_a_uv_layer,
     test_cancel_restores_uvs_and_seams_exactly,

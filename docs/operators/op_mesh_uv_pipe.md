@@ -12,6 +12,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>Mouse move</kbd> | Shows the edge under the cursor and the seam loop it would make |
 | <kbd>LMB</kbd> | Select the loop under the cursor; a click on another loop moves the selection. A click never changes the UVs |
 | <kbd>C</kbd> | Mark / unmark the selected loop (with nothing selected: the loop under the cursor, which becomes selected) and lay the UVs out again; the loop stays selected, so <kbd>C</kbd> again undoes it. Every loop can be marked: a ring seam, a wall seam, a ring break or an open seam |
+| <kbd>Alt</kbd>+<kbd>C</kbd> | Unmark the loop under the cursor (with nothing under it: the selected loop), without selecting it: its seam edges stop being seams, your picked wall seam or ring break is dropped |
 | <kbd>Alt</kbd>+<kbd>Wheel</kbd> | Step the seam of the wall under the cursor to the next / previous lengthwise loop round the tube |
 | <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> | Loop Angle ±5° |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Sharp Angle ±5° (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±1°) |
@@ -40,9 +41,8 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | Line | Meaning |
 | --- | --- |
 | Preview colour (dim) | The seams found automatically |
-| Active colour (bright) | The seams you committed: added ring seams, picked wall seams and ring breaks |
 | Closest colour | The loop under the cursor, whatever its kind; a click selects it |
-| Locked colour | The selected loop: <kbd>C</kbd> marks or unmarks it, <kbd>Esc</kbd> / <kbd>RMB</kbd> deselects it |
+| Locked colour | The selected loop (drawn wider): <kbd>C</kbd> marks or unmarks it, <kbd>Esc</kbd> / <kbd>RMB</kbd> deselects it. Also the seams you marked: added ring and open seams, picked wall seams and ring breaks |
 | Error colour | A wall's fallback seam (no lengthwise loop was found) |
 
 The HUD is kept short: its **Loop (LMB, C)** row says what <kbd>C</kbd> will do — to the selected loop (shown as "Selected: …"), else to the loop under the cursor — for example *Add ring seam*, *Add seam*, *Remove seam*, *Set wall seam*, *Automatic wall seam*, *Set ring break* or *Remove ring break*. Rows that do not apply are hidden: Fit to Active outside Active mode, Pack outside Fit 0–1, Random Offset while packing (Offset Limit and Seed also while it is None), Bend Angle while Split at Bends is off, Loop Source when the mesh had no UV map. The wheel keys of the angles are listed in the help legend (<kbd>H</kbd>) and the table above. Notices and warnings are reported when the tool finishes.
@@ -67,7 +67,7 @@ A part that is no tube, ring or cap — a cube, a bevelled box, a bracket — is
 Every loop below is marked by selecting it (<kbd>LMB</kbd>) and pressing <kbd>C</kbd>; <kbd>C</kbd> again on the same loop takes the mark back.
 - Marking a **ring loop** toggles a ring seam there: it adds one, or removes one already present, automatic ones included. A removed seam is not found again when the options change.
 - Marking a **lengthwise loop** on a wall makes it that wall's seam; marking it again gives the wall back its automatic seam (see Seam Side).
-- Any other loop is an **open seam**: from the edge under the cursor it runs both ways until it meets a seam, the border of the faces, or a turn sharper than Loop Angle (inside a wall: until the wall's ends). Marking it adds a seam along it, or removes it when it is already a seam (an automatic one included; the hard-surface pass then does not cut it again). An open seam that splits a part into two cuts it there; one that does not (a slit) turns the part into a free part, unwrapped by Blender's unwrap with the slit as a seam and no warning. On a curved part the UVs open along the slit; on a flat one the unwrap keeps the plane, so the slit is marked but its two sides stay together. To set a wall's seam, mark its lengthwise loop instead: an added open seam along a whole wall is a slit, not the wall's seam.
+- Any other loop is an **open seam**: from the edge under the cursor it runs both ways, through any seams it crosses, until it reaches the border of the faces or a turn sharper than Loop Angle — so every edge of a marked open seam selects the whole seam again. Marking it adds a seam along it, or removes it when all of it is already a seam (an automatic one included; the hard-surface pass then does not cut it again); a loop only partly on seams is added. <kbd>Alt</kbd>+<kbd>C</kbd> unmarks the loop under the cursor in one go: its edges that are seams stop being seams (yours are taken back, automatic ones are removed and not found again), the rest is left alone. An open seam that splits a part into two cuts it there; one that does not (a slit) turns the part into a free part, unwrapped by Blender's unwrap with the slit as a seam and no warning. On a curved part the UVs open along the slit; on a flat one the unwrap keeps the plane, so the slit is marked but its two sides stay together. To set a wall's seam, mark its lengthwise loop instead: an added open seam along a whole wall is a slit, not the wall's seam.
 - Marking a **cross edge of a ring** strip picks where that ring is cut open; marking it again takes the pick back.
 
 ## Options
