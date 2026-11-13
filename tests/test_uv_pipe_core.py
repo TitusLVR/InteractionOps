@@ -4,7 +4,10 @@ from collections import Counter
 from math import radians
 
 from uv_pipe_fixtures import bent_pipe, capped_cylinder, clean_bend, open_tube, torus
-from utils.uv_pipe_core import Loop, dihedrals, neighbours, ring_seams, split_parts, trace_loop
+from utils.uv_pipe_core import (
+    Loop, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
+    wall_candidates, wall_seam,
+)
 from utils.uv_stripe_select_core import _edge
 
 
@@ -257,3 +260,142 @@ def test_uncut_closed_and_open_surfaces():
     assert [p.kind for p in parts] == ["FREE"] and parts[0].boundaries == []
     parts, _ = split_parts(*open_tube(), set())
     assert [p.kind for p in parts] == ["WALL"] and len(parts[0].boundaries) == 2
+
+
+# --- Task 6: lengthwise seam of a wall ------------------------------------------------------------------------------
+
+
+def _only_wall(verts, faces, cuts=frozenset()):
+    parts, _ = split_parts(verts, faces, cuts)
+    walls = [p for p in parts if p.kind == "WALL"]
+    assert len(walls) == 1
+    return walls[0]
+
+
+def _path_length(verts, loop):
+    ids = loop.verts + loop.verts[:1] if loop.closed else loop.verts
+    return sum(math.dist(verts[a], verts[b]) for a, b in zip(ids, ids[1:]))
+
+
+def _is_path(faces, loop):
+    edges = {_edge(a, b) for f in faces.values() for a, b in zip(f, f[1:] + f[:1])}
+    return all(e in edges for e in loop.edges())
+
+
+def test_straight_tube_has_one_candidate_per_side():
+    verts, faces = open_tube(12)
+    part = _only_wall(verts, faces)
+    candidates = wall_candidates(verts, part, radians(120))
+    assert len(candidates) == 12
+    assert all(len(c.verts) == 5 and loop_kind(c, part) == "LENGTH" for c in candidates)
+    assert [c.verts[0] for c in candidates] == part.boundaries[0]          # ordered round the longest loop
+    assert len({frozenset(c.edges()) for c in candidates}) == 12
+
+
+def test_wall_seam_takes_the_inside_of_the_bend():    # spec: shortest loop
+    verts, faces = clean_bend()
+    part = _only_wall(verts, faces)
+    candidates = wall_candidates(verts, part, radians(120))
+    assert len(candidates) == 12
+    seam, fallback = wall_seam(verts, part, radians(120))
+    assert fallback is False and loop_kind(seam, part) == "LENGTH"
+    lengths = [_path_length(verts, c) for c in candidates]
+    assert abs(_path_length(verts, seam) - min(lengths)) < 1e-12
+    assert _path_length(verts, seam) < max(lengths) - 1.0
+    assert all(v % 12 == 0 for v in seam.verts)      # every ring's vertex 0: the inside of the bend
+
+
+def test_wall_seam_is_deterministic_on_ties():
+    verts, faces = open_tube(12)
+    part = _only_wall(verts, faces)
+    seam, fallback = wall_seam(verts, part, radians(120))
+    assert fallback is False
+    starts = [verts[c.verts[0]] for c in wall_candidates(verts, part, radians(120))]
+    assert verts[seam.verts[0]] == min(starts)
+    assert wall_seam(verts, part, radians(120))[0].verts == seam.verts
+
+
+def test_wall_seam_goes_through_the_pole():           # spec Reference B
+    verts, faces = bent_pipe()
+    cuts = {e for loop in ring_seams(verts, faces, radians(60), radians(120)) for e in loop.edges()}
+    part = _only_wall(verts, faces, cuts)
+    seam, fallback = wall_seam(verts, part, radians(120))
+    assert fallback is False and loop_kind(seam, part) == "LENGTH"
+    (pole,) = _pole(faces)
+    assert pole in seam.verts
+    rims = [set(f) for f in faces.values() if len(f) == 12]
+    ends = {seam.verts[0], seam.verts[-1]}
+    assert all(len(ends & rim) == 1 for rim in rims)
+
+
+def test_wall_seam_falls_back_to_shortest_path():
+    verts, faces = open_tube()
+    assert len(wall_candidates(verts, _only_wall(verts, faces), radians(179))) == 12   # straight columns pass
+    verts, faces = open_tube(twist=radians(5))       # every odd ring turned 5 degrees: the columns zigzag
+    part = _only_wall(verts, faces)
+    assert wall_candidates(verts, part, radians(179)) == []
+    seam, fallback = wall_seam(verts, part, radians(179))
+    assert fallback is True and seam is not None and not seam.closed
+    assert loop_kind(seam, part) == "LENGTH" and _is_path(faces, seam)
+    assert len(seam.verts) == 5                       # one edge per row is the shortest way across
+
+
+def test_wall_seam_without_two_ends_is_none():
+    verts, faces = torus()
+    parts, _ = split_parts(verts, faces, set())
+    assert wall_candidates(verts, parts[0], radians(120)) == []
+    assert wall_seam(verts, parts[0], radians(120)) == (None, True)
+
+
+def test_loop_kind():
+    verts, faces = capped_cylinder()
+    cuts = {e for loop in ring_seams(verts, faces, radians(60), radians(120)) for e in loop.edges()}
+    part = next(p for p in split_parts(verts, faces, cuts)[0] if p.kind == "WALL")
+    rim = Loop(list(range(32)), True)
+    assert loop_kind(rim, part) == "RING"
+    length = wall_candidates(verts, part, radians(120))[0]
+    assert loop_kind(length, part) == "LENGTH"
+    assert loop_kind(Loop(length.verts[:3], False), part) == "INVALID"      # ends mid-wall
+    assert loop_kind(Loop([0, 1, 2], False), part) == "INVALID"             # both ends on one rim
+
+
+def test_existing_wall_seam_is_found():
+    verts, faces = open_tube()
+    part = _only_wall(verts, faces)
+    column = [0, 12, 24, 36, 48]
+    edges = {_edge(a, b) for a, b in zip(column, column[1:])}
+    seam = existing_wall_seam(part, edges)
+    assert seam is not None and not seam.closed
+    assert set(seam.edges()) == edges and seam.verts in (column, column[::-1])
+    assert existing_wall_seam(part, edges - {_edge(24, 36)}) is None
+    assert existing_wall_seam(part, edges | {_edge(13, 25)}) is None     # a second piece: not one path
+
+
+def test_existing_seam_cut_by_split_at_seams_is_still_found():
+    # with Split at Seams on the old seam is a cut too: its faces stay one part, the seam edges inside it
+    verts, faces = open_tube()
+    column = [0, 12, 24, 36, 48]
+    edges = {_edge(a, b) for a, b in zip(column, column[1:])}
+    part = _only_wall(verts, faces, edges)
+    seam = existing_wall_seam(part, edges)
+    assert seam is not None and set(seam.edges()) == edges
+
+
+def test_bend_seams_cut_a_right_angle_bend_once_at_45():   # spec acceptance
+    verts, faces = clean_bend(bend_rings=4)
+    part = _only_wall(verts, faces)
+    seam, _ = wall_seam(verts, part, radians(120))
+    rings = bend_seams(verts, part, seam, radians(45), radians(120))
+    assert len(rings) == 1 and rings[0].closed and len(rings[0].verts) == 12
+    centre = [sum(verts[v][k] for v in rings[0].verts) / 12 for k in range(3)]
+    middle = (2.0 - 2.0 * math.cos(radians(45)), 0.0, 2.0 * math.sin(radians(45)))   # the bend's middle ring
+    assert math.dist(centre, middle) < 1e-9
+    assert bend_seams(verts, part, seam, radians(120), radians(120)) == []
+
+
+def test_bend_seams_on_a_straight_tube_is_empty():
+    verts, faces = open_tube()
+    part = _only_wall(verts, faces)
+    seam, _ = wall_seam(verts, part, radians(120))
+    assert bend_seams(verts, part, seam, radians(45), radians(120)) == []
+    assert bend_seams(verts, part, seam, radians(1), radians(120)) == []

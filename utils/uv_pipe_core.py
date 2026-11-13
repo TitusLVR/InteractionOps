@@ -12,6 +12,7 @@ Every result is deterministic: sets are sorted wherever their order reaches the 
 choices go to the lower vertex id or the lower position.
 """
 
+import heapq
 import math
 from dataclasses import dataclass
 
@@ -331,3 +332,185 @@ def split_parts(verts, faces, cuts, suppressed=frozenset()) -> tuple[list[Part],
         loops = _boundaries(verts, comp) or []
         parts.append(Part("WALL" if len(loops) >= 2 else "FREE", comp, loops))
     return parts, peel
+
+
+# --- Lengthwise seam of a wall ---------------------------------------------------------------------------------------
+
+
+def loop_kind(loop: Loop, part: Part) -> str:
+    """"RING" for a closed loop, "LENGTH" when its two ends lie on two different boundary loops of ``part``,
+    else "INVALID"."""
+    if loop.closed:
+        return "RING"
+    if len(loop.verts) < 2:
+        return "INVALID"
+    first, last = loop.verts[0], loop.verts[-1]
+    at_first = [i for i, b in enumerate(part.boundaries) if first in b]
+    at_last = [i for i, b in enumerate(part.boundaries) if last in b]
+    return "LENGTH" if any(i != j for i in at_first for j in at_last) else "INVALID"
+
+
+def _shortest(verts, loops: list[Loop]) -> Loop | None:
+    """The loop of least 3D length; lengths within 1e-9 (relative) tie, and a tie goes to the loop whose vertex
+    positions come first, in path order (so to the lowest start position)."""
+    if not loops:
+        return None
+    lengths = [_loop_length(verts, lp.verts, lp.closed) for lp in loops]
+    low = min(lengths)
+    tied = [lp for lp, length in zip(loops, lengths) if length <= low + 1e-9 * max(1.0, low)]
+    return min(tied, key=lambda lp: [tuple(verts[v]) for v in lp.verts])
+
+
+def wall_candidates(verts, part: Part, loop_angle, uv=None) -> list[Loop]:
+    """The lengthwise loops between the part's two longest boundary loops: one per vertex of the longest, in its
+    order, duplicates removed. From each vertex every edge into the part is traced (``trace_loop``, ending on any
+    boundary vertex of the part); of those reaching the second loop the shortest is kept (``_shortest``)."""
+    if len(part.boundaries) < 2:
+        return []
+    first, second = part.boundaries[0], set(part.boundaries[1])
+    on_first = set(first)
+    nbrs = neighbours(part.faces)
+    stops = frozenset(v for b in part.boundaries for v in b)
+    out, seen = [], set()
+    for v in first:
+        found = []
+        for w in nbrs.get(v, ()):
+            if w in on_first:
+                continue
+            loop = trace_loop(verts, nbrs, (v, w), loop_angle, stops, uv)
+            if not loop.closed and loop.verts[0] == v and loop.verts[-1] in second:
+                found.append(loop)
+        best = _shortest(verts, found)
+        if best is not None:
+            key = frozenset(best.edges())
+            if key not in seen:
+                seen.add(key)
+                out.append(best)
+    return out
+
+
+def _shortest_path(verts, part: Part) -> Loop | None:
+    """The shortest edge path (3D length) from the part's longest boundary loop to its second, or None."""
+    first, second = part.boundaries[0], set(part.boundaries[1])
+    nbrs = neighbours(part.faces)
+    dist = dict.fromkeys(first, 0.0)
+    came: dict[int, int] = {}
+    heap = [(0.0, v) for v in sorted(first)]
+    heapq.heapify(heap)
+    done: set = set()
+    while heap:
+        d, v = heapq.heappop(heap)
+        if v in done:
+            continue
+        done.add(v)
+        if v in second:
+            path = [v]
+            while path[-1] in came:
+                path.append(came[path[-1]])
+            return Loop(path[::-1], False)
+        for w in nbrs.get(v, ()):
+            nd = d + math.dist(verts[v], verts[w])
+            if nd < dist.get(w, math.inf):
+                dist[w] = nd
+                came[w] = v
+                heapq.heappush(heap, (nd, w))
+    return None
+
+
+def wall_seam(verts, part: Part, loop_angle, uv=None) -> tuple[Loop | None, bool]:
+    """The automatic lengthwise seam of a wall and whether it is a fallback.
+
+    The shortest of ``wall_candidates`` by 3D length, ties to the lowest start position. With no candidate, the
+    shortest edge path between the two longest boundary loops, with fallback True; (None, True) when there is none.
+    """
+    best = _shortest(verts, wall_candidates(verts, part, loop_angle, uv))
+    if best is not None:
+        return best, False
+    if len(part.boundaries) < 2:
+        return None, True
+    return _shortest_path(verts, part), True
+
+
+def existing_wall_seam(part: Part, seam_edges) -> Loop | None:
+    """The seam already on the mesh as the wall's lengthwise seam: the ``seam_edges`` inside the part (used by two
+    of its faces) when they form one open path whose ends lie on two different boundary loops; else None. The path
+    starts at the end on the longer boundary loop."""
+    edge_faces = _edge_faces(part.faces)
+    inside = sorted(e for e in set(seam_edges) if len(edge_faces.get(e, ())) == 2)
+    if not inside:
+        return None
+    adj: dict[int, list[int]] = {}
+    for a, b in inside:
+        adj.setdefault(a, []).append(b)
+        adj.setdefault(b, []).append(a)
+    if any(len(n) > 2 for n in adj.values()):
+        return None
+    ends = sorted(v for v, n in adj.items() if len(n) == 1)
+    if len(ends) != 2:
+        return None
+
+    def first_loop(v):
+        return min((i for i, b in enumerate(part.boundaries) if v in b), default=len(part.boundaries))
+
+    start = min(ends, key=lambda v: (first_loop(v), v))
+    path, prev = [start], None
+    while True:
+        nxt = [w for w in adj[path[-1]] if w != prev]
+        if not nxt:
+            break
+        prev = path[-1]
+        path.append(nxt[0])
+    if len(path) != len(inside) + 1:
+        return None
+    loop = Loop(path, False)
+    return loop if loop_kind(loop, part) == "LENGTH" else None
+
+
+def _centroid(verts, ids) -> tuple[float, float, float]:
+    n = len(ids)
+    return tuple(sum(verts[v][k] for v in ids) / n for k in range(3))
+
+
+def bend_seams(verts, part: Part, seam: Loop, bend_angle, loop_angle) -> list[Loop]:
+    """Ring seams where the wall bends (Split at Bends).
+
+    At each interior vertex of ``seam``, in order, the closed loop (``trace_loop`` at ``loop_angle``) through an
+    edge off the seam is that vertex's ring; a vertex with no closed loop through it has none (a messy bend gets no
+    cut there). The tube's direction is the difference of consecutive centroids of the seam's start boundary loop,
+    the rings and its end boundary loop; the turn between directions is summed ring by ring, and the ring where the
+    sum reaches ``bend_angle`` is returned, after which the sum restarts."""
+    nbrs = neighbours(part.faces)
+    rings: list[Loop] = []
+    seen: set = set()
+    for k in range(1, len(seam.verts) - 1):
+        v = seam.verts[k]
+        along = (seam.verts[k - 1], seam.verts[k + 1])
+        for w in nbrs.get(v, ()):
+            if w in along:
+                continue
+            loop = trace_loop(verts, nbrs, (v, w), loop_angle)
+            if loop.closed:
+                key = frozenset(loop.edges())
+                if key not in seen:
+                    seen.add(key)
+                    rings.append(loop)
+                break
+    if not rings:
+        return []
+    def end_point(v):
+        loop = next((b for b in part.boundaries if v in b), None)
+        return [] if loop is None else [(_centroid(verts, loop), None)]
+
+    points = end_point(seam.verts[0]) + [(_centroid(verts, r.verts), r) for r in rings] + end_point(seam.verts[-1])
+    out, total = [], 0.0
+    for i in range(1, len(points) - 1):
+        ring = points[i][1]
+        if ring is None:
+            continue
+        before = _sub(points[i][0], points[i - 1][0])
+        after = _sub(points[i + 1][0], points[i][0])
+        total += _between(before, after)
+        if total >= bend_angle - EPS:
+            out.append(ring)
+            total = 0.0
+    return out
