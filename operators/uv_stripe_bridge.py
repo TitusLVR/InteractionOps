@@ -151,12 +151,47 @@ def apply_stripes(
     maps = [core.stripe_uvs(s) for s in strips]
     lengths = [core.strip_extent(s) for s in strips]
     heights = [core.strip_v_extent(s) for s in strips]
-    placed: list[dict | None] = [None] * len(strips)
+    return apply_maps(bm, maps, lengths, heights, faces, mode, contexts, fit_groups, vertical, active, active_fit,
+                      offset)
+
+
+def apply_maps(
+    bm,
+    maps: list[dict],
+    lengths: list[float],
+    heights: list[float],
+    faces: dict[int, BMFace],
+    mode: str,
+    contexts: list[StripeContext | None] | None = None,
+    fit_groups: list[int] | None = None,
+    vertical: bool = False,
+    active: int | None = None,
+    active_fit: str = "BOTH",
+    offset: tuple[str, float, int] = ("NONE", 0.0, 0),
+) -> bool:
+    """Place laid-out pieces and write their UVs onto their faces' corners in the active UV layer.
+
+    ``maps`` holds each piece's {(face id, vertex id): (u, v)} in world units, laid out
+    from (0, 0) over ``lengths`` (u extent) and ``heights`` (v extent); ``faces`` maps
+    every face id of the maps to its face. Placement, the vertical turn, the random
+    offset, the return value and the other parameters are those of ``apply_stripes``,
+    with "strip" read as "piece". Raises ``ValueError`` before writing anything when
+    ``contexts`` or ``fit_groups`` does not hold one entry per piece.
+    """
+    if contexts is None:
+        contexts = [None] * len(maps)
+    if len(contexts) != len(maps):
+        raise ValueError(f"{len(contexts)} UV contexts for {len(maps)} pieces")
+    if fit_groups is None:
+        fit_groups = list(range(len(maps)))
+    if len(fit_groups) != len(maps):
+        raise ValueError(f"{len(fit_groups)} fit groups for {len(maps)} pieces")
+    placed: list[dict | None] = [None] * len(maps)
     fitted = mode == "ACTIVE" and active is not None and bm.loops.layers.uv.active is not None
     if mode == "ACTIVE":
         mode = "IN_PLACE"
     fit = []
-    for i, (strip, ctx) in enumerate(zip(strips, contexts)):
+    for i, ctx in enumerate(contexts):
         if mode == "IN_PLACE" and ctx is not None:
             placed[i] = core.place_in_place(maps[i], lengths[i], heights[i], ctx.center, ctx.density, vertical)
         else:
@@ -177,8 +212,8 @@ def apply_stripes(
     layer = bm.loops.layers.uv.active
     if layer is None:
         layer = bm.loops.layers.uv.new("UVMap")
-    for strip, uv in zip(strips, placed):
-        for fid in strip.faces:
+    for uv in placed:
+        for fid in dict.fromkeys(fid for fid, _vid in uv):
             for lp in faces[fid].loops:
                 co = uv.get((fid, lp.vert.index))
                 if co is not None:
