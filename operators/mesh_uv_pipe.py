@@ -1173,11 +1173,11 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 if loop:
                     draw.edges_3d(loop, role=Role.ACTIVE_LINE, width="preview", context=context)
                 if seams:
-                    draw.edges_3d(seams, role=Role.LOCKED_LINE, width="preview", context=context)
+                    draw.edges_3d(seams, role=Role.PREVIEW_LINE, width="preview", context=context)
                 if errors:
                     draw.edges_3d(errors, role=Role.ERROR_LINE, width="preview", context=context)
                 if edge:
-                    draw.edges_3d(edge, role=Role.CLOSEST_LINE, width="closest", context=context)
+                    draw.edges_3d(edge, role=Role.LOCKED_LINE, width="closest", context=context)
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
