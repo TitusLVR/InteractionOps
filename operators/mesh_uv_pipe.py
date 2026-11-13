@@ -57,12 +57,27 @@ LOOP_TEXT = {
     "BREAK": "Ring cross edge: set the ring break",
     "INVALID": "Unusable: not closed, not joining two wall ends (lower Loop Angle)",
 }
-PASS_KEYS = {"N", "T"}  # the sidebar and the toolbar still toggle while the modal runs
+SEAM_SIDE_ITEMS = [
+    ("SHORTEST", "Shortest", "The shortest lengthwise loop of each wall"),
+    ("BOTTOM", "Bottom (−Z)", "The lengthwise loop whose faces point most toward world −Z"),
+    ("TOP", "Top (+Z)", "The lengthwise loop whose faces point most toward world +Z"),
+    ("LEFT", "Left (−X)", "The lengthwise loop whose faces point most toward world −X"),
+    ("RIGHT", "Right (+X)", "The lengthwise loop whose faces point most toward world +X"),
+    ("FRONT", "Front (−Y)", "The lengthwise loop whose faces point most toward world −Y"),
+    ("BACK", "Back (+Y)", "The lengthwise loop whose faces point most toward world +Y"),
+]
+SEAM_SIDE_CYCLE = [item[0] for item in SEAM_SIDE_ITEMS]
+SEAM_SIDE_NAMES = {item[0]: item[1] for item in SEAM_SIDE_ITEMS}
+SEAM_SIDE_DIRECTIONS = {
+    "SHORTEST": None, "BOTTOM": (0.0, 0.0, -1.0), "TOP": (0.0, 0.0, 1.0), "LEFT": (-1.0, 0.0, 0.0),
+    "RIGHT": (1.0, 0.0, 0.0), "FRONT": (0.0, -1.0, 0.0), "BACK": (0.0, 1.0, 0.0),
+}
+PASS_KEYS = {"N"}  # the sidebar still toggles while the modal runs
 NAVIGATION = {"MIDDLEMOUSE", "TRACKPADPAN", "TRACKPADZOOM"}
 WHEEL = {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}
 MODIFIER_KEYS = {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}
 SETTINGS = ("mode", "active_fit", "orientation", "layout", "loop_source", "loop_angle", "sharp_angle",
-            "split_at_bends", "bend_angle", "split_at_seams", "mark_seams", "pack", "offset_axis", "offset_limit",
+            "split_at_bends", "bend_angle", "split_at_seams", "seam_side", "mark_seams", "pack", "offset_axis", "offset_limit",
             "offset_seed", "merge_doubles", "picks")
 
 _ACTIVE_HANDLES = set()
@@ -225,6 +240,13 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         description="Cut at the seams already on the mesh; a seam joining a wall's two ends is that wall's seam",
         default=False,
     )
+    seam_side: EnumProperty(
+        name="Seam Side",
+        description="Where the automatic lengthwise seam of each wall is placed: the shortest loop, or the loop whose "
+                    "faces point most toward a world direction (a seam you pick overrides it)",
+        items=SEAM_SIDE_ITEMS,
+        default="SHORTEST",
+    )
     mark_seams: BoolProperty(
         name="Mark Seams",
         description="Make the seams follow the parts: mark every part outline, wall seam and ring cut, clear the rest",
@@ -288,7 +310,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         row = layout.row()
         row.enabled = self.split_at_bends
         row.prop(self, "bend_angle")
-        for name in ("split_at_seams", "mark_seams"):
+        for name in ("split_at_seams", "seam_side", "mark_seams"):
             layout.prop(self, name)
         row = layout.row()
         row.active = self.mode == "FIT"
@@ -380,7 +402,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 bend_angle=self.bend_angle if self.split_at_bends else None, existing=existing,
                 added={e for loop in loops["added"] for e in loop},
                 removed={e for loop in loops["removed"] for e in loop},
-                picked=[loop for loop in loops["picked"] if loop], uv=uv)
+                picked=[loop for loop in loops["picked"] if loop], uv=uv,
+                seam_side=SEAM_SIDE_DIRECTIONS[self.seam_side])
             layouts = uv_pipe_bridge.lay_out_parts(bm, analysis, verts, self.layout, mesh=me, meshes=meshes)
             contexts = [_world_context(uv_stripe_bridge.uv_context(bm, list(lay.faces.values())),
                                        list(lay.faces.values()), matrix) for lay in layouts]
@@ -663,6 +686,27 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         self._commit(context, obj, chosen, "LENGTH")
         return True
 
+    def _drop_wall_picks(self):
+        """Drop the picked loops lying in a WALL part of the last pass (hand-picked and Alt + Wheel wall seams), so
+        Seam Side takes effect again; ring breaks and the added and removed ring seams stay."""
+        result = getattr(self, "_result", None) or _Result()
+        picks = _parse_picks(getattr(self, "picks", ""))
+        changed = False
+        for name, entry in picks.items():
+            cache = result.objects.get(name)
+            if cache is None or not entry.get("picked"):
+                continue
+            walls = set()
+            for part in cache.analysis.parts:
+                if part.kind == "WALL":
+                    walls |= {cache.edge_index[e] for e in uv_pipe_core._inner_edges(part) if e in cache.edge_index}
+            kept = [lp for lp in entry["picked"] if not (lp and set(lp) <= walls)]
+            if len(kept) != len(entry["picked"]):
+                entry["picked"] = kept
+                changed = True
+        if changed:
+            self.picks = json.dumps(picks, sort_keys=True)
+
     # ------------------------------------------------------------------
     # Modal
     # ------------------------------------------------------------------
@@ -777,6 +821,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             HUDParam("Offset Limit", lambda: self.offset_limit, "float", fmt="{:.2f}", active_getter=offset_matters),
             HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int", active_getter=offset_matters),
             HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool"),
+            HUDParam("Seam Side (T)", lambda: SEAM_SIDE_NAMES[self.seam_side], "enum"),
             HUDParam("Seam (Alt + Wheel)", self._seam_state, "str"),
             HUDParam("Notices", self._notices, "str"),
         ]
@@ -793,6 +838,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             item("Loop angle", "Ctrl + Wheel"),
             item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
             item("Bend angle", "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel"),
+            item("Seam side", "T / Shift + T"),
             item("Loop source", "G"),
             item("Split at bends", "A"),
             item("Split at seams", "S"),
@@ -924,6 +970,10 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             self.active_fit = FIT_CYCLE[(FIT_CYCLE.index(self.active_fit) + 1) % len(FIT_CYCLE)]
         elif event.type == "Z":
             self.offset_axis = OFFSET_CYCLE[(OFFSET_CYCLE.index(self.offset_axis) + 1) % len(OFFSET_CYCLE)]
+        elif event.type == "T":
+            step = -1 if event.shift else 1
+            self.seam_side = SEAM_SIDE_CYCLE[(SEAM_SIDE_CYCLE.index(self.seam_side) + step) % len(SEAM_SIDE_CYCLE)]
+            self._drop_wall_picks()
         elif event.type == "X":
             self.mark_seams = not self.mark_seams
         elif event.type == "P":
@@ -976,6 +1026,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         return (
             f"UV Pipe: {count}"
             "[LMB] pick a loop, again to commit | [Alt+Wheel] step the wall seam | "
+            f"seam side = {SEAM_SIDE_NAMES[self.seam_side].lower()} (T) | "
             f"loop angle = {math.degrees(self.loop_angle):.0f}° (Ctrl+Wheel) | "
             f"sharp angle = {math.degrees(self.sharp_angle):.0f}° (Shift+Wheel) | "
             f"layout = {LAYOUT_NAMES[self.layout].lower()} (E) | "

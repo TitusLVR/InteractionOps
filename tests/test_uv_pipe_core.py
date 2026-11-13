@@ -536,6 +536,80 @@ def test_analysis_is_deterministic():
         assert [sorted(p.faces) for p in runs[0].parts] == [sorted(p.faces) for p in runs[1].parts]
 
 
+# --- Seam Side: the automatic wall seam on the bottom, top or a side ----------------------------------------------
+
+DOWN, UP, LEFT, RIGHT = (0.0, 0.0, -1.0), (0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+
+
+def _lying(mesh):
+    """The mesh turned 90 degrees round X, (x, y, z) -> (x, -z, y): open_tube's axis then runs along world Y and
+    ring vertex i sits at x = cos(a), z = sin(a). The turn is proper, so the faces still face out."""
+    verts, faces = mesh
+    return {v: (p[0], -p[2], p[1]) for v, p in verts.items()}, faces
+
+
+def _ring_extreme_seam(verts, seam, axis, pick):
+    """Every seam vertex has the ``pick`` (min or max) of coordinate ``axis`` among its open_tube ring."""
+    for v in seam.verts:
+        ring = [w for w in verts if w // 12 == v // 12]
+        assert abs(verts[v][axis] - pick(verts[w][axis] for w in ring)) < 1e-6, (v, verts[v])
+
+
+def test_seam_side_puts_the_seam_on_that_side():
+    verts, faces = _lying(open_tube(12, 4))
+    part = _only_wall(verts, faces)
+    for side, axis, pick in ((DOWN, 2, min), (UP, 2, max), (LEFT, 0, min), (RIGHT, 0, max)):
+        seam, fallback = wall_seam(verts, part, A120, side=side)
+        assert fallback is False and loop_kind(seam, part) == "LENGTH" and len(seam.verts) == 5
+        _ring_extreme_seam(verts, seam, axis, pick)
+
+
+def test_seam_side_none_is_the_shortest_as_before():
+    verts, faces = _lying(open_tube(12, 4))
+    part = _only_wall(verts, faces)
+    seam, fallback = wall_seam(verts, part, A120, side=None)
+    assert fallback is False and set(seam.edges()) == _column(6)       # the lowest start position, x = -1
+    assert seam.verts == wall_seam(verts, part, A120)[0].verts
+
+
+def test_seam_side_along_the_axis_ties_to_the_shortest():
+    verts, faces = _lying(open_tube(12, 4))
+    part = _only_wall(verts, faces)
+    for side in ((0.0, 1.0, 0.0), (0.0, -1.0, 0.0)):                    # every column faces it equally
+        assert wall_seam(verts, part, A120, side=side)[0].verts == wall_seam(verts, part, A120)[0].verts
+
+
+def test_seam_side_on_a_bent_pipe():
+    verts, faces = bent_pipe()
+    rims = [set(f) for f in faces.values() if len(f) == 12]
+    for side in (DOWN, UP, LEFT, RIGHT, (0.0, 1.0, 0.0)):
+        result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=side)
+        (wall,) = [i for i, p in enumerate(result.parts) if p.kind == "WALL"]
+        seam = result.seams[wall]
+        assert result.fallback == set() and loop_kind(seam, result.parts[wall]) == "LENGTH"
+        assert _is_path(faces, seam)
+        assert all(len({seam.verts[0], seam.verts[-1]} & rim) == 1 for rim in rims)
+    # +Y is the side of the tube: the seam runs along its y = +1 line, the bend included
+    side = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=(0.0, 1.0, 0.0))
+    (wall,) = [i for i, p in enumerate(side.parts) if p.kind == "WALL"]
+    assert all(abs(verts[v][1] - 1.0) < 1e-6 for v in side.seams[wall].verts)
+
+
+def test_seam_side_through_analyse():
+    verts, faces = _lying(open_tube(12, 4))
+    down = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=DOWN)
+    assert set(down.seams[0].edges()) == _column(9)                    # ring vertex 9 sits at z = -1
+    again = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=DOWN)
+    assert down.seams[0].verts == again.seams[0].verts
+    picked = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=DOWN,
+                     picked=(tuple(sorted(_column(3))),))
+    assert set(picked.seams[0].edges()) == _column(3)                   # a picked loop wins over the side
+    existing = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=DOWN, existing=frozenset(_column(5)))
+    assert set(existing.seams[0].edges()) == _column(5)                 # so does an existing seam
+    none = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, seam_side=None)
+    assert set(none.seams[0].edges()) == _column(6)
+
+
 # --- Task 8: wall and disk layouts --------------------------------------------------------------------------------
 
 

@@ -15,6 +15,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> | Loop Angle ±5° |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Sharp Angle ±5° (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±1°) |
 | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Wheel</kbd> | Bend Angle ±5° while Split at Bends is on (<kbd>Ctrl</kbd>: ±1°) |
+| <kbd>T</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd> | Seam Side: Shortest → Bottom → Top → Left → Right → Front → Back (<kbd>Shift</kbd>: backward); drops the wall seams you picked |
 | <kbd>G</kbd> | Loop Source: Geometry / UV (UV only when the mesh had a UV map) |
 | <kbd>A</kbd> | Split at Bends on / off |
 | <kbd>S</kbd> | Split at Seams on / off |
@@ -28,7 +29,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>E</kbd> | Layout: Rectangle → Quads → No Stretch |
 | <kbd>X</kbd> | Mark Seams on / off |
 | <kbd>MMB</kbd> (with any modifier) / <kbd>Wheel</kbd> | Navigate the viewport: orbit, pan, zoom |
-| <kbd>N</kbd> / <kbd>T</kbd> | Sidebar / toolbar, as usual |
+| <kbd>N</kbd> | Sidebar, as usual |
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Finish |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Drop the pending loop if there is one; otherwise cancel: UVs, seams and options go back exactly as they were |
@@ -57,6 +58,7 @@ The faces are split into parts at the ring seams, and each part is one of:
 - **Ring seams** are found automatically: a closed loop of edges whose mean angle between faces is at least **Sharp Angle** (60° by default) cuts — the rims of a tube, the edges between cap rings, junctions and diameter steps. Sharp edges that do not close into a loop do not cut, so the lengthwise edges of a low-poly tube never split the wall.
 - A **seam loop** is traced edge by edge, always on along the straightest edge, through poles, triangles and n-gons alike. It goes on while the angle between consecutive edges is at least **Loop Angle** (120° by default) and stops at a sharper turn.
 - Each wall's **lengthwise seam** is the shortest lengthwise loop that reaches both ends — on a bent pipe that is the inside of the bends. When no loop reaches both ends, the shortest edge path between them is used and the HUD says it is a fallback; lowering Loop Angle usually finds a real loop.
+- **Seam Side** moves the automatic lengthwise seam to hide it: *Shortest* (default) is the rule above; *Bottom (−Z)*, *Top (+Z)*, *Left (−X)*, *Right (+X)*, *Front (−Y)* and *Back (+Y)* take, of the lengthwise loops, the one whose faces point most toward that world direction — on a lying tube *Bottom* puts the seam along its underside. It follows the tube's surface, so on a bent pipe the seam stays on that side of the tube round the bend. Loops that face the side equally (a direction along the tube's axis) fall back to the shortest of them. A seam you pick by hand or with <kbd>Alt</kbd>+<kbd>Wheel</kbd> overrides it, and so does an existing seam under Split at Seams; pressing <kbd>T</kbd> drops the wall seams you picked so the new side applies (ring breaks and ring seams stay). The direction is judged by the faces' normals: on a mesh whose normals point inward the opposite side is chosen.
 - Clicking a **ring loop** toggles a ring seam there: it adds one, or removes one already present, automatic ones included. A removed seam is not found again when the options change.
 - Clicking a **lengthwise loop** on a wall makes it that wall's seam. A loop that stops before reaching both ends is shown in the error colour and cannot be committed.
 - Clicking a **cross edge of a ring** strip picks where that ring is cut open.
@@ -70,6 +72,7 @@ All options are also in the redo panel.
 - **Loop Source** — *Geometry* (default) measures loop angles on the 3D positions; *UV* in the UV layout the mesh had when the tool started (where a vertex has more than one UV, that step is measured on geometry).
 - **Split at Bends** — off by default: when on, a wall is cut by a ring seam each time the tube has turned by **Bend Angle** (45° by default). A bend with no clean ring of edges through it gets no cut.
 - **Split at Seams** — off by default (an old unwrap leaves many seams): when on, seams already on the mesh are cuts; a seam joining a wall's two ends becomes its lengthwise seam.
+- **Seam Side** — *Shortest* by default: where each wall's automatic lengthwise seam goes (see Seams).
 - **Mark Seams** — on by default: every part outline, each wall's seam and each ring's cut are marked; the seams inside a part are cleared. Seams outside the faces in scope are never touched.
 - **Random Offset**, **Offset Limit**, **Offset Seed** — as in UV Stripe, applied only when the islands are not packed (packing would undo them).
 - **Merge Doubles** — as in UV Stripe: doubled vertices are merged before the layout (in the interactive mode, on finish).
