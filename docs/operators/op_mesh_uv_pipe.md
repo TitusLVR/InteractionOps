@@ -40,10 +40,10 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 ### What the colours mean
 | Line | Meaning |
 | --- | --- |
-| Active colour (blue in the default theme) | The loop under the cursor: what <kbd>LMB</kbd> marks or unmarks |
-| Closest colour (green), wider | The edge under the cursor: what <kbd>C</kbd> marks or unmarks |
-| Locked colour (yellow) | Every seam the layout has now — automatic or marked by you, the part outlines, each wall's seam and each ring strip's cut: exactly the edges Mark Seams marks. It is drawn over the loop under the cursor, so a marked loop stays yellow and turns blue as soon as you unmark it |
-| Error colour | A wall's fallback seam (no lengthwise loop was found) |
+| Active Line colour | The loop under the cursor: what <kbd>LMB</kbd> marks or unmarks |
+| Locked Line colour, wider | The edge under the cursor: what <kbd>C</kbd> marks or unmarks |
+| Preview Line colour | Every seam the layout has now — automatic or marked by you, the part outlines, each wall's seam and each ring strip's cut: exactly the edges Mark Seams marks. It is drawn over the loop under the cursor, so a marked loop keeps the seam colour and takes the loop colour as soon as you unmark it |
+| Error Line colour | A wall's fallback seam (no lengthwise loop was found) |
 
 The HUD is kept short: its **Loop (LMB)** row says what <kbd>LMB</kbd> will do to the loop under the cursor — *Add ring seam*, *Add seam*, *Remove seam*, *Set wall seam*, *Automatic wall seam*, *Set ring break* or *Remove ring break* — and its **Edge (C)** row what <kbd>C</kbd> will do to the edge under the cursor. Rows that do not apply are hidden: Fit to Active outside Active mode, Pack outside Fit 0–1, Random Offset while packing (Offset Limit and Seed also while it is None), Bend Angle while Split at Bends is off, Loop Source when the mesh had no UV map. The wheel keys of the angles are listed in the help legend (<kbd>H</kbd>) and the table above. Notices and warnings are reported when the tool finishes.
 
