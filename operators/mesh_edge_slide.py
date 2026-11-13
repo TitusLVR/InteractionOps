@@ -29,7 +29,7 @@ from bpy.props import BoolProperty, FloatProperty, StringProperty
 from bpy_extras import view3d_utils
 from mathutils import Vector
 
-from ..ui.draw import Role, draw_scope, safe_handler_add, safe_handler_remove
+from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
 from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
 from ..utils import picking
@@ -471,10 +471,7 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,),
-            "WINDOW", "POST_PIXEL", tick=True)
-        _ACTIVE_HANDLES.add(self._handle)
+        self._add_handlers(context)
 
         context.workspace.status_text_set(self._status_text())
         context.window_manager.modal_handler_add(self)
@@ -947,15 +944,31 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
     # Teardown, status and preview
     # ------------------------------------------------------------------
 
-    def _finish(self, context):
-        h = getattr(self, "_handle", None)
-        if h is not None:
+    def _add_handlers(self, context):
+        """The two draw handlers: the preview on the mesh (POST_VIEW, tested against the scene's depth) and the
+        HUD and help on top (POST_PIXEL); both tracked for the purge on reload."""
+        self._handle_view = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        _ACTIVE_HANDLES.add(self._handle_view)
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,),
+            "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.add(self._handle)
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
             _ACTIVE_HANDLES.discard(h)
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
-            except (ValueError, RuntimeError):
+            except (ValueError, RuntimeError, ReferenceError):
                 pass
-            self._handle = None
+            setattr(self, name, None)
+
+    def _finish(self, context):
+        self._remove_handlers()
         context.workspace.status_text_set(None)
         if context.area:
             context.area.tag_redraw()
@@ -1432,52 +1445,57 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
             self._clamped = self._clamped or clamped
         self._stops = stops  # the HUD works out why they stop as it draws (``_update_hints``)
 
-    def _draw_callback(self, context):
-        region_ui = context.region
-        rv3d = context.region_data
-        if rv3d is None:
-            return
-
+    def _draw_view_callback(self, context):
+        """POST_VIEW: the preview loops, their vertices and the snap target, dimmed where geometry hides them."""
         # Guard against an in-place addon reload freeing this operator's RNA
         # struct while the draw handler is still registered.
         try:
             mw = self._obj.matrix_world
         except (ReferenceError, AttributeError):
-            h = getattr(self, "_handle", None)
+            self._drop_dead_handlers()
+            return
+        # Any exception escaping a draw handler repeats every single frame and
+        # can wedge the UI, so a failure draws nothing instead.
+        try:
+            segs = [mw @ co for co in getattr(self, "_preview_segs", None) or ()]
+            points = [mw @ co for co in getattr(self, "_preview_points", None) or ()]
+            snap_co = getattr(self, "_snap_co", None)
+            # Clamp feedback: the width asked for runs past the limit, so the
+            # loop sits at the limit; flag it in the error colour.
+            line_role = Role.ERROR_LINE if getattr(self, "_clamped", False) else Role.PREVIEW_LINE
+            if segs:
+                draw.edges_world(segs, role=line_role, context=context)
+            if points:
+                draw.points_world(points, role=Role.PREVIEW_POINT, context=context)
+            if snap_co is not None:
+                draw.points_world([mw @ snap_co], role=Role.CLOSEST_POINT, context=context)
+        except Exception:
+            pass
+
+    def _drop_dead_handlers(self):
+        """Both draw handlers, removed from inside a draw callback whose operator was freed."""
+        for name in ("_handle_view", "_handle"):
+            try:
+                h = getattr(self, name, None)
+            except ReferenceError:
+                h = None
             if h is not None:
                 _ACTIVE_HANDLES.discard(h)
                 try:
                     safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
+
+    def _draw_callback(self, context):
+        """POST_PIXEL: the HUD and the help."""
+        if context.region_data is None:
             return
-
-        # Any exception escaping a draw handler repeats every single frame and
-        # can wedge the UI, so a failure draws nothing instead.
         try:
-            def project(co):
-                p = view3d_utils.location_3d_to_region_2d(region_ui, rv3d, mw @ co)
-                return None if p is None else Vector((p[0], p[1], 0.0))
-
-            segs = getattr(self, "_preview_segs", None) or ()
-            ends = [project(co) for co in segs]
-            segs_2d = [p for a, b in zip(ends[0::2], ends[1::2]) if a is not None and b is not None for p in (a, b)]
-            points_2d = [p for p in map(project, getattr(self, "_preview_points", None) or ()) if p is not None]
-            snap_co = getattr(self, "_snap_co", None)
-            snap_2d = [p for p in ([project(snap_co)] if snap_co is not None else []) if p is not None]
-
-            if segs_2d or points_2d or snap_2d:
-                # Clamp feedback: the width asked for runs past the limit, so the
-                # loop sits at the limit; flag it in the error colour.
-                line_role = Role.ERROR_LINE if getattr(self, "_clamped", False) else Role.PREVIEW_LINE
-                with draw_scope(blend="ALPHA"):
-                    if segs_2d:
-                        draw.edges_3d(segs_2d, role=line_role, context=context)
-                    if points_2d:
-                        draw.points(points_2d, role=Role.PREVIEW_POINT, context=context)
-                    if snap_2d:
-                        draw.points(snap_2d, role=Role.CLOSEST_POINT, context=context)
-
+            self._obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
+        try:
             hud = getattr(self, "_hud", None)
             helpo = getattr(self, "_help", None)
             last_event = getattr(self, "_last_event", None)

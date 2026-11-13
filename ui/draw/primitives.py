@@ -96,6 +96,28 @@ def _gpu_state():
         return None
 
 
+def _draw_occluded(th: Theme, draw_pass) -> None:
+    """Run `draw_pass(alpha_factor)` once per occlusion pass of the theme's
+    Backface Dimming (utils/depth_bias.py), under the depth-biased
+    projection, ALPHA blend and no depth writes; puts back the blend /
+    depth state the caller had."""
+    passes = depth_bias.occlusion_passes(depth_bias.occluded_opacity(th.backface_dimming))
+    biased = Matrix(depth_bias.biased_projection(gpu.matrix.get_projection_matrix()))
+    saved = _gpu_state()
+    try:
+        with gpu.matrix.push_pop_projection():
+            gpu.matrix.load_projection_matrix(biased)
+            with draw_scope(blend="ALPHA", depth=passes[0][0], depth_mask=False):
+                for depth, factor in passes:
+                    gpu.state.depth_test_set(depth)
+                    draw_pass(factor)
+    finally:
+        if saved is not None:
+            gpu.state.blend_set(saved[0])
+            gpu.state.depth_test_set(saved[1])
+            gpu.state.depth_mask_set(saved[2])
+
+
 def edges_world(coord_pairs: Sequence, *, role: Role | None = None,
                 color: tuple[float, float, float, float] | None = None,
                 width: str | None = None,
@@ -103,13 +125,14 @@ def edges_world(coord_pairs: Sequence, *, role: Role | None = None,
     """Disjoint world-space segments (flat [a, b, c, d, ...] as in
     `edges_3d`) for a POST_VIEW handler, tested against the scene's
     depth: the parts in front are drawn in the colour as is, the parts
-    geometry hides at the theme's `occluded_alpha` times its alpha.
+    geometry hides with the alpha times 1 - the theme's
+    `backface_dimming`.
 
     The points are pulled toward the viewer by a projection-matrix depth
     bias (utils/depth_bias.py) so lines lying on mesh edges do not
     z-fight with their faces; both passes use the same biased depth, so
-    each fragment is drawn exactly once. With `occluded_alpha` 1 this is
-    one draw with no depth test. Sets ALPHA blend and no depth writes
+    each fragment is drawn exactly once. With `backface_dimming` 0 this
+    is one draw with no depth test. Sets ALPHA blend and no depth writes
     itself (inside `draw_scope`) and then puts back the blend / depth
     state the caller had, so it can sit inside the caller's own scope."""
     pairs = list(coord_pairs)
@@ -123,28 +146,56 @@ def edges_world(coord_pairs: Sequence, *, role: Role | None = None,
         w = th.line_width_for(role)
     else:
         w = th.width("default")
-    passes = depth_bias.occlusion_passes(th.occluded_alpha)
     shader = shaders.polyline_uniform_color()
     batch = batch_for_shader(shader, "LINES", {"pos": pairs})
-    biased = Matrix(depth_bias.biased_projection(gpu.matrix.get_projection_matrix()))
-    saved = _gpu_state()
-    try:
-        with gpu.matrix.push_pop_projection():
-            gpu.matrix.load_projection_matrix(biased)
-            with draw_scope(blend="ALPHA", depth=passes[0][0], depth_mask=False):
-                for depth, factor in passes:
-                    gpu.state.depth_test_set(depth)
-                    shader.bind()
-                    shader.uniform_float("color", depth_bias.scale_alpha(c, factor))
-                    shader.uniform_float("lineWidth", w)
-                    shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
-                    batch.draw(shader)
-    finally:
-        if saved is not None:
-            gpu.state.blend_set(saved[0])
-            gpu.state.depth_test_set(saved[1])
-            gpu.state.depth_mask_set(saved[2])
 
+    def draw_pass(factor):
+        shader.bind()
+        shader.uniform_float("color", depth_bias.scale_alpha(c, factor))
+        shader.uniform_float("lineWidth", w)
+        shader.uniform_float("viewportSize", gpu.state.viewport_get()[2:])
+        batch.draw(shader)
+
+    _draw_occluded(th, draw_pass)
+
+
+def points_world(coords: Sequence, *, role: Role | None = None,
+                 color: tuple[float, float, float, float] | None = None,
+                 size: str | float | int | None = None,
+                 ring_role: Role | None = None,
+                 theme: Theme | None = None, context=None) -> None:
+    """World-space points (`points` discs) for a POST_VIEW handler, with
+    the same depth bias and passes as `edges_world`: hidden points get
+    their fill and ring alpha times 1 - the theme's `backface_dimming`."""
+    coords = list(coords)
+    if not coords:
+        return
+    th = _resolve_theme(theme, context)
+    fill = _resolve_color(role, color, th)
+    ring = th.color_for(ring_role if ring_role is not None else Role.POINT_OUTLINE)
+    px = _point_px(th, role, size)
+    shader = shaders.point_disc()
+    batch = batch_for_shader(shader, "POINTS", {"pos": coords})
+
+    def draw_pass(factor):
+        shader.bind()
+        shader.uniform_float("color", depth_bias.scale_alpha(fill, factor))
+        shader.uniform_float("ringColor", depth_bias.scale_alpha(ring, factor))
+        shader.uniform_float("pointSize", px)
+        gpu.state.point_size_set(px)
+        batch.draw(shader)
+
+    _draw_occluded(th, draw_pass)
+
+
+def _point_px(th: Theme, role, size) -> float:
+    if isinstance(size, (int, float)):
+        return float(size)
+    if size is not None:
+        return th.point_size(size)
+    if role is not None:
+        return th.point_size_for(role)
+    return th.point_size("default")
 
 def points(coords: Sequence, *, role: Role | None = None,
            color: tuple[float, float, float, float] | None = None,
@@ -156,14 +207,7 @@ def points(coords: Sequence, *, role: Role | None = None,
     batch = batch_for_shader(shader, "POINTS", {"pos": list(coords)})
     fill = _resolve_color(role, color, th)
     ring = th.color_for(ring_role if ring_role is not None else Role.POINT_OUTLINE)
-    if isinstance(size, (int, float)):
-        px = float(size)
-    elif size is not None:
-        px = th.point_size(size)
-    elif role is not None:
-        px = th.point_size_for(role)
-    else:
-        px = th.point_size("default")
+    px = _point_px(th, role, size)
     shader.bind()
     shader.uniform_float("color", fill)
     shader.uniform_float("ringColor", ring)

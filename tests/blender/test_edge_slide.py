@@ -1666,7 +1666,7 @@ def test_modal_esc_restores_every_prop():
     assert op._modal(ctx, _event("ESC", 150, 1000)) == {'CANCELLED'}
     assert (op.width, op.use_exact, op.use_collapse, op.use_uv_stripe, op.chain_sides) == (
         0.05, False, False, False, "")
-    assert op._handle is None and op._sides == [] and op._bm is None
+    assert op._handle is None and op._handle_view is None and op._sides == [] and op._bm is None
     assert _counts(obj) == before
 
 
@@ -1675,7 +1675,7 @@ def test_modal_enter_confirms_through_execute():
     op, ctx = _invoke(x=0, width=0.05)
     _keys(op, ctx, "PERIOD TWO FIVE")
     assert op._modal(ctx, _event("RET")) == {'FINISHED'}
-    assert op._handle is None and op._bm is None and not op.reports
+    assert op._handle is None and op._handle_view is None and op._bm is None and not op.reports
     assert _new_coords(obj) == _round_set([(x, 0.25, 0.0) for x in range(4)])
     assert _selected_edge_count(obj) == 3
 
@@ -3723,6 +3723,56 @@ def test_auto_adjust_shows_its_change_in_the_hud():
     assert op._auto_notes() == []
     op._finish(ctx)
 
+def test_preview_is_drawn_on_the_mesh_and_both_handlers_go_on_every_exit():
+    """invoke() adds a POST_VIEW handler for the preview on the mesh and a POST_PIXEL one for the HUD, both in the
+    purge registry; Esc, Enter, an error inside the modal and the purge each remove both."""
+    module = importlib.import_module("InteractionOps.operators.mesh_edge_slide")
+    real_add, real_remove = module.safe_handler_add, module.safe_handler_remove
+    added, removed = [], []
+
+    def add(space, callback, args, region, draw_type, **kwargs):
+        handle = real_add(space, callback, args, region, draw_type, **kwargs)
+        added.append((handle, callback.__name__, draw_type))
+        return handle
+
+    def remove(handle, space, region):
+        removed.append(handle)
+        real_remove(handle, space, region)
+
+    def run(finish):
+        added.clear()
+        removed.clear()
+        _edit_object(_strip(), chain=[0, 1, 2, 3])
+        op, ctx = _invoke(x=0, width=0.05)
+        assert [(name, kind) for _h, name, kind in added] == [
+            ("_draw_view_callback", "POST_VIEW"), ("_draw_callback", "POST_PIXEL")], added
+        handles = {h for h, _name, _kind in added}
+        assert handles <= module._ACTIVE_HANDLES
+        finish(op, ctx)
+        assert handles <= set(removed) and not handles & module._ACTIVE_HANDLES, (added, removed)
+
+    def fail(_context, _event):
+        raise RuntimeError("a bug inside the modal")
+
+    def raising(op, ctx):
+        op.__dict__["_modal"] = fail
+        try:
+            op.modal(ctx, _move(0))
+        except RuntimeError:
+            return
+        raise AssertionError("the modal swallowed the error")
+
+    module.safe_handler_add, module.safe_handler_remove = add, remove
+    try:
+        run(lambda op, ctx: op._modal(ctx, _event("ESC")))
+        run(lambda op, ctx: op._modal(ctx, _event("RET")))
+        run(raising)
+        run(lambda op, ctx: (module._purge_handles(), op._finish(ctx)))
+    finally:
+        module.safe_handler_add, module.safe_handler_remove = real_add, real_remove
+        module._purge_handles()
+
+
 TESTS = [
     test_collect_chains_orders_and_rejects_branching,
     test_collect_chains_closed_and_reversed_order,
@@ -3885,6 +3935,7 @@ TESTS = [
     test_relay_match_is_taken_at_the_width_the_loop_meets_the_row,
     test_relay_chain_drops_a_shot_end_past_the_row,
     test_relay_knows_when_an_end_has_shot_past_its_end_edge,
+    test_preview_is_drawn_on_the_mesh_and_both_handlers_go_on_every_exit,
 ]
 
 

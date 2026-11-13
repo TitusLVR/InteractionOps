@@ -1,12 +1,11 @@
 import bpy
 import bmesh
 import math
-from mathutils import Vector
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, BoolProperty, IntProperty, EnumProperty
 from mathutils.geometry import intersect_line_line
 
-from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import primitives as draw, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
@@ -364,9 +363,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
-        _ACTIVE_HANDLES.add(self._handle)
+        self._add_handlers(context)
 
         context.workspace.status_text_set(self._status_text())
         context.window_manager.modal_handler_add(self)
@@ -499,15 +496,30 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             except ValueError:
                 pass
 
-    def _finish(self, context):
-        h = getattr(self, "_handle", None)
-        if h is not None:
+    def _add_handlers(self, context):
+        """The two draw handlers: the preview on the mesh (POST_VIEW, tested against the scene's depth) and the
+        HUD and help on top (POST_PIXEL); both tracked for the purge on reload."""
+        self._handle_view = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        _ACTIVE_HANDLES.add(self._handle_view)
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,), "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.add(self._handle)
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
             _ACTIVE_HANDLES.discard(h)
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
-            except (ValueError, RuntimeError):
+            except (ValueError, RuntimeError, ReferenceError):
                 pass
-            self._handle = None
+            setattr(self, name, None)
+
+    def _finish(self, context):
+        self._remove_handlers()
         context.workspace.status_text_set(None)
         if context.area:
             context.area.tag_redraw()
@@ -816,7 +828,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 segments.append((cos[0].copy(), cos[1].copy()))
         return segments
 
-    def _draw_pct_overlay(self, region, rv3d, mw):
+    def _draw_pct_overlay(self, mw):
         """Percent-bevel preview at each ridge corner. Bridges the
         TWO cut points at each ridge-endpoint vert (the same orange
         endpoints the perpendicular preview already draws) with a
@@ -864,26 +876,19 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             arc = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
             if arc is None:
                 continue
-            prev_2d = None
-            for p_world in arc:
-                p_2d = view3d_utils.location_3d_to_region_2d(
-                    region, rv3d, mw @ p_world)
-                if p_2d is None:
-                    prev_2d = None
-                    continue
-                if prev_2d is not None:
-                    line_pts.extend([prev_2d, p_2d])
-                point_pts.append(p_2d)
-                prev_2d = p_2d
+            prev = None
+            for p_obj in arc:
+                p = mw @ p_obj
+                if prev is not None:
+                    line_pts.extend([prev, p])
+                point_pts.append(p)
+                prev = p
 
         if not line_pts:
             return
-        coords3 = [Vector((p[0], p[1], 0.0)) for p in line_pts]
-        with draw_scope(blend="ALPHA"):
-            draw.edges_3d(coords3, role=Role.PREVIEW_LINE, context=bpy.context)
-            if point_pts:
-                pts3 = [Vector((p[0], p[1], 0.0)) for p in point_pts]
-                draw.points(pts3, role=Role.PREVIEW_POINT, context=bpy.context)
+        draw.edges_world(line_pts, role=Role.PREVIEW_LINE, context=bpy.context)
+        if point_pts:
+            draw.points_world(point_pts, role=Role.PREVIEW_POINT, context=bpy.context)
 
     def _raycast_pick_face(self, context, event):
         """Q-handler: cast a ray from the mouse cursor into the active
@@ -1290,7 +1295,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 )
         bmesh.update_edit_mesh(self._obj.data)
 
-    def _draw_fan_overlay(self, region, rv3d, mw):
+    def _draw_fan_overlay(self, mw):
         """Flat-fan preview: arc between the two cut points (same as
         pct overlay) plus radial spokes from the corner V to every arc
         sample. Confirming in this mode replaces the corner ngon with
@@ -1365,21 +1370,15 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 arc = _arc_through_cuts(v.co, cuts[0], cuts[1], segs)
             if arc is None:
                 continue
-            corner_2d = view3d_utils.location_3d_to_region_2d(
-                region, rv3d, mw @ v.co)
-            prev_2d = None
-            for p_world in arc:
-                p_2d = view3d_utils.location_3d_to_region_2d(
-                    region, rv3d, mw @ p_world)
-                if p_2d is None:
-                    prev_2d = None
-                    continue
-                if prev_2d is not None:
-                    line_pts.extend([prev_2d, p_2d])
-                if corner_2d is not None:
-                    spoke_pts.extend([corner_2d, p_2d])
-                point_pts.append(p_2d)
-                prev_2d = p_2d
+            corner = mw @ v.co
+            prev = None
+            for p_obj in arc:
+                p = mw @ p_obj
+                if prev is not None:
+                    line_pts.extend([prev, p])
+                spoke_pts.extend([corner, p])
+                point_pts.append(p)
+                prev = p
 
         # Outline currently picked alignment faces.
         face_outline = []
@@ -1392,27 +1391,18 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                 continue
             fv = list(f.verts)
             for i, vrt in enumerate(fv):
-                a = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ vrt.co)
-                b = view3d_utils.location_3d_to_region_2d(
-                    region, rv3d, mw @ fv[(i + 1) % len(fv)].co)
-                if a is not None and b is not None:
-                    face_outline.extend([a, b])
+                face_outline.extend([mw @ vrt.co, mw @ fv[(i + 1) % len(fv)].co])
 
         if not line_pts and not spoke_pts and not face_outline:
             return
-        with draw_scope(blend="ALPHA"):
-            if line_pts:
-                coords = [Vector((p[0], p[1], 0.0)) for p in line_pts]
-                draw.edges_3d(coords, role=Role.PREVIEW_LINE, context=bpy.context)
-            if spoke_pts:
-                coords = [Vector((p[0], p[1], 0.0)) for p in spoke_pts]
-                draw.edges_3d(coords, role=Role.PREVIEW_LINE, context=bpy.context)
-            if face_outline:
-                coords = [Vector((p[0], p[1], 0.0)) for p in face_outline]
-                draw.edges_3d(coords, role=Role.ACTIVE_LINE, context=bpy.context)
-            if point_pts:
-                pts = [Vector((p[0], p[1], 0.0)) for p in point_pts]
-                draw.points(pts, role=Role.PREVIEW_POINT, context=bpy.context)
+        if line_pts:
+            draw.edges_world(line_pts, role=Role.PREVIEW_LINE, context=bpy.context)
+        if spoke_pts:
+            draw.edges_world(spoke_pts, role=Role.PREVIEW_LINE, context=bpy.context)
+        if face_outline:
+            draw.edges_world(face_outline, role=Role.ACTIVE_LINE, context=bpy.context)
+        if point_pts:
+            draw.points_world(point_pts, role=Role.PREVIEW_POINT, context=bpy.context)
 
     def _preview_snap_extensions(self):
         """Returns list of (sv_co, target_co) pairs showing where each
@@ -1490,48 +1480,46 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
                         out.append((sv_co.copy(), best[1]))
         return out
 
-    def _draw_callback(self, context):
-        region = context.region
-        rv3d = context.region_data
-        if rv3d is None:
-            return
-
-        # Guard against blinker (and any in-place addon reload) freeing
-        # this operator's RNA struct while the draw handler is still
-        # registered. Touching any attribute through path_resolve
-        # raises ReferenceError; self-remove the handle and bail.
-        try:
-            mw = self._obj.matrix_world
-        except (ReferenceError, AttributeError):
-            h = getattr(self, "_handle", None)
+    def _drop_dead_handlers(self):
+        """Both draw handlers, removed from inside a draw callback whose operator was freed."""
+        for name in ("_handle_view", "_handle"):
+            try:
+                h = getattr(self, name, None)
+            except ReferenceError:
+                h = None
             if h is not None:
                 _ACTIVE_HANDLES.discard(h)
                 try:
                     safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
+
+    def _draw_view_callback(self, context):
+        """POST_VIEW: the cut lines, snap extensions and percent / fan previews, dimmed where geometry hides
+        them."""
+        # Guard against blinker (and any in-place addon reload) freeing
+        # this operator's RNA struct while the draw handler is still
+        # registered. Touching any attribute through path_resolve
+        # raises ReferenceError; self-remove the handles and bail.
+        try:
+            mw = self._obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
             return
         # Boundary preview lines parallel to each ridge in each face —
         # always drawn (in B/F mode they ARE the bevel boundary; in
         # straight mode they're the perpendicular cut lines).
-        segs_2d = []
-        endpoints_2d = []
+        segs = []
+        endpoints = []
         for a, b in self._preview_segments():
-            pa = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ a)
-            pb = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ b)
-            if pa is None or pb is None:
-                continue
-            segs_2d.extend([pa, pb])
-            endpoints_2d.append(pa)
-            endpoints_2d.append(pb)
+            pa, pb = mw @ a, mw @ b
+            segs.extend([pa, pb])
+            endpoints.extend([pa, pb])
 
-        if segs_2d:
-            coords3 = [Vector((p[0], p[1], 0.0)) for p in segs_2d]
-            with draw_scope(blend="ALPHA"):
-                draw.edges_3d(coords3, role=Role.PREVIEW_LINE, context=context)
-                if endpoints_2d:
-                    pts3 = [Vector((p[0], p[1], 0.0)) for p in endpoints_2d]
-                    draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
+        if segs:
+            draw.edges_world(segs, role=Role.PREVIEW_LINE, context=context)
+            if endpoints:
+                draw.points_world(endpoints, role=Role.PREVIEW_POINT, context=context)
 
         # Snap-endpoint extension preview: line from the hanging cut
         # endpoint to the boundary edge it'll snap to. Only drawn while
@@ -1544,25 +1532,28 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
             ext_segs = []
             ext_pts = []
             for a, b in snap_ext:
-                pa = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ a)
-                pb = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ b)
-                if pa is None or pb is None:
-                    continue
+                pa, pb = mw @ a, mw @ b
                 ext_segs.extend([pa, pb])
                 ext_pts.append(pb)
             if ext_segs:
-                coords3 = [Vector((p[0], p[1], 0.0)) for p in ext_segs]
-                with draw_scope(blend="ALPHA"):
-                    draw.edges_3d(coords3, role=Role.ACTIVE_LINE, context=context)
-                    if ext_pts:
-                        pts3 = [Vector((p[0], p[1], 0.0)) for p in ext_pts]
-                        draw.points(pts3, role=Role.PREVIEW_POINT, context=context)
+                draw.edges_world(ext_segs, role=Role.ACTIVE_LINE, context=context)
+                if ext_pts:
+                    draw.points_world(ext_pts, role=Role.PREVIEW_POINT, context=context)
 
         if self._pct_active:
-            self._draw_pct_overlay(region, rv3d, mw)
+            self._draw_pct_overlay(mw)
         elif self._fan_active:
-            self._draw_fan_overlay(region, rv3d, mw)
+            self._draw_fan_overlay(mw)
 
+    def _draw_callback(self, context):
+        """POST_PIXEL: the HUD and the help."""
+        if context.region_data is None:
+            return
+        try:
+            self._obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)

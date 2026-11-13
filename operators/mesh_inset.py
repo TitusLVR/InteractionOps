@@ -30,13 +30,12 @@ import bmesh
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import tessellate_polygon
-from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, BoolProperty, EnumProperty
 
 from ..utils import inset_core as core
 from ..utils import uv_stripe_core
 from . import uv_stripe_bridge
-from ..ui.draw import primitives as draw, draw_scope, Role
+from ..ui.draw import primitives as draw, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState, capture_event)
@@ -1497,10 +1496,7 @@ class IOPS_OT_inset(bpy.types.Operator):
         self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,),
-            "WINDOW", "POST_PIXEL", tick=True)
-        _ACTIVE_HANDLES.add(self._handle)
+        self._add_handlers(context)
 
         context.workspace.status_text_set(self._status_text())
         context.window_manager.modal_handler_add(self)
@@ -1829,15 +1825,31 @@ class IOPS_OT_inset(bpy.types.Operator):
         self._regions = built
         self._preview_key = None
 
-    def _finish(self, context):
-        h = getattr(self, "_handle", None)
-        if h is not None:
+    def _add_handlers(self, context):
+        """The two draw handlers: the preview on the mesh (POST_VIEW, tested against the scene's depth) and the
+        HUD and help on top (POST_PIXEL); both tracked for the purge on reload."""
+        self._handle_view = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        _ACTIVE_HANDLES.add(self._handle_view)
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,),
+            "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.add(self._handle)
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
             _ACTIVE_HANDLES.discard(h)
             try:
                 safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
-            except (ValueError, RuntimeError):
+            except (ValueError, RuntimeError, ReferenceError):
                 pass
-            self._handle = None
+            setattr(self, name, None)
+
+    def _finish(self, context):
+        self._remove_handlers()
         context.workspace.status_text_set(None)
         if context.area:
             context.area.tag_redraw()
@@ -2000,62 +2012,56 @@ class IOPS_OT_inset(bpy.types.Operator):
                     front_segs.append(pts[(i + 1) % len(pts)])
         return front_segs
 
-    def _draw_callback(self, context):
-        region_ui = context.region
-        rv3d = context.region_data
-        if rv3d is None:
-            return
-
-        # Guard against an in-place addon reload freeing this operator's RNA
-        # struct while the draw handler is still registered.
-        try:
-            mw = self._obj.matrix_world
-        except (ReferenceError, AttributeError):
-            h = getattr(self, "_handle", None)
+    def _drop_dead_handlers(self):
+        """Both draw handlers, removed from inside a draw callback whose operator was freed."""
+        for name in ("_handle_view", "_handle"):
+            try:
+                h = getattr(self, name, None)
+            except ReferenceError:
+                h = None
             if h is not None:
                 _ACTIVE_HANDLES.discard(h)
                 try:
                     safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
                 except (ValueError, RuntimeError, ReferenceError):
                     pass
-            return
 
-        # Cached 3D segments -- this path only projects them. Any exception
-        # escaping a draw handler repeats every single frame and can wedge the
-        # UI, so the whole projection falls back to drawing nothing.
-        def _project(segs):
-            pts = []
-            for i in range(0, len(segs) - 1, 2):
-                pa = view3d_utils.location_3d_to_region_2d(
-                    region_ui, rv3d, mw @ segs[i])
-                pb = view3d_utils.location_3d_to_region_2d(
-                    region_ui, rv3d, mw @ segs[i + 1])
-                if pa is None or pb is None:
-                    continue
-                pts.append(Vector((pa[0], pa[1], 0.0)))
-                pts.append(Vector((pb[0], pb[1], 0.0)))
-            return pts
-
-        front_2d, seam_2d = [], []
+    def _draw_view_callback(self, context):
+        """POST_VIEW: the inset front and the seams, dimmed where geometry hides them."""
+        # Guard against an in-place addon reload freeing this operator's RNA
+        # struct while the draw handler is still registered.
         try:
-            front_2d = _project(getattr(self, "_preview_segs", None) or ())
-            seam_2d = _project(getattr(self, "_seam_segs", None) or ())
-        except Exception:
-            front_2d, seam_2d = [], []
-
-        if front_2d or seam_2d:
+            mw = self._obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
+        # Cached 3D segments. Any exception escaping a draw handler repeats
+        # every single frame and can wedge the UI, so a failure draws nothing.
+        try:
+            front = [mw @ co for co in getattr(self, "_preview_segs", None) or ()]
+            seam = [mw @ co for co in getattr(self, "_seam_segs", None) or ()]
             # Clamp feedback: with collapse disallowed and the requested
             # thickness past the region's first-event cap, the front is
             # already sitting at the clamp -- flag it in the warning colour
             # instead of the normal preview cyan.
             front_role = (Role.ERROR_LINE if getattr(self, "_clamped", False)
                           else Role.PREVIEW_LINE)
-            with draw_scope(blend="ALPHA"):
-                if front_2d:
-                    draw.edges_3d(front_2d, role=front_role, context=context)
-                if seam_2d:
-                    draw.edges_3d(seam_2d, role=Role.LOCKED_LINE, context=context)
+            if front:
+                draw.edges_world(front, role=front_role, context=context)
+            if seam:
+                draw.edges_world(seam, role=Role.LOCKED_LINE, context=context)
+        except Exception:
+            pass
 
+    def _draw_callback(self, context):
+        """POST_PIXEL: the HUD and the help."""
+        if context.region_data is None:
+            return
+        try:
+            self._obj.matrix_world
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)

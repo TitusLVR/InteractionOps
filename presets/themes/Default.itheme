@@ -90,7 +90,7 @@
   "line_width_locked": 6.0,
   "line_width_preview": 2.0,
   "line_width_error": 2.5,
-  "occluded_alpha": 0.25,
+  "backface_dimming": 0.75,
   "color_handle": [
     1.0,
     1.0,

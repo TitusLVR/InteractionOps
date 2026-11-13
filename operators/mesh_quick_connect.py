@@ -11,6 +11,15 @@ from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
                       HUDParam, ItemState,
                       handle_hud_toggle, handle_help_toggle, capture_event)
 
+_ACTIVE_HANDLES = set()
+
+
+def _purge_handles():
+    """Remove any stale draw handlers left behind by a previous reload."""
+    while _ACTIVE_HANDLES:
+        safe_handler_remove(_ACTIVE_HANDLES.pop(), bpy.types.SpaceView3D, 'WINDOW')
+
+
 class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     bl_idname = "iops.mesh_quick_connect"
     is_bindable = True
@@ -23,6 +32,11 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
     
     _handle = None
     _handle_text = None
+    _handle_view = None
+    # World-space twins of the 2D points above, for the POST_VIEW draw
+    start_point_3d = None
+    end_point_3d = None
+    hover_point_3d = None
     start_vert_index = -1
     end_vert_index = -1
     mouse_pos = (0, 0)
@@ -78,9 +92,15 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
+        _purge_handles()
         args = (context,)
+        # The vertices and the connection on the mesh (POST_VIEW, tested
+        # against the scene's depth); the line still following the mouse,
+        # then the HUD and help, on top (POST_PIXEL).
+        self._handle_view = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_view, args, 'WINDOW', 'POST_VIEW')
         self._handle = safe_handler_add(bpy.types.SpaceView3D, self.draw_callback_px, args, 'WINDOW', 'POST_PIXEL', tick=True)
         self._handle_text = safe_handler_add(bpy.types.SpaceView3D, self.draw_shortcuts_callback, args, 'WINDOW', 'POST_PIXEL', tick=True)
+        _ACTIVE_HANDLES.update((self._handle_view, self._handle, self._handle_text))
 
         context.window_manager.modal_handler_add(self)
         
@@ -144,6 +164,7 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
                      region = context.region
                      rv3d = context.region_data
                      self.end_point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, self.preview_edge_point_3d)
+                     self.end_point_3d = self.preview_edge_point_3d.copy()
             elif self.start_vert_index != -1:
                 self.end_vert_index = self.find_closest_vertex(context, event)
                 self.update_points(context)
@@ -171,7 +192,9 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
                     self.end_vert_index = -1
                     self.start_point_2d = None
                     self.end_point_2d = None
-                
+                    self.start_point_3d = None
+                    self.end_point_3d = None
+
             return {'RUNNING_MODAL'}
             
         elif event.type == 'A':
@@ -219,47 +242,54 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def remove_handler(self, context):
-        if self._handle:
-            safe_handler_remove(self._handle, bpy.types.SpaceView3D, 'WINDOW')
-            self._handle = None
-        if self._handle_text:
-            safe_handler_remove(self._handle_text, bpy.types.SpaceView3D, 'WINDOW')
-            self._handle_text = None
+        for name in ('_handle_view', '_handle', '_handle_text'):
+            h = getattr(self, name, None)
+            if h:
+                _ACTIVE_HANDLES.discard(h)
+                safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
+                setattr(self, name, None)
         context.area.tag_redraw()
 
+    def _connecting_in_world(self):
+        """The connection has both ends on the mesh (drawn in POST_VIEW); False while its end still follows
+        the mouse (drawn in POST_PIXEL)."""
+        return bool(self.start_point_2d and self.end_point_2d
+                    and self.start_point_3d is not None and self.end_point_3d is not None)
+
+    def draw_callback_view(self, context):
+        """POST_VIEW: the hovered vertex, the connection between two vertices and the edge-split point, dimmed
+        where geometry hides them."""
+        try:
+            if self.start_vert_index == -1 and self.hover_point_2d and self.hover_point_3d is not None:
+                draw.points_world([self.hover_point_3d], role=Role.CLOSEST_POINT, context=context)
+
+            if not self.start_point_2d:
+                return
+
+            if self._connecting_in_world():
+                coords = [self.start_point_3d, self.end_point_3d]
+                draw.edges_world(coords, role=Role.ACTIVE_LINE, context=context)
+                draw.points_world(coords, role=Role.ACTIVE_POINT, context=context)
+                if self.is_a_held and self.preview_edge_point_3d:
+                    draw.points_world([self.preview_edge_point_3d], role=Role.PREVIEW_POINT, context=context)
+        except ReferenceError:
+            pass
+        except Exception:
+            pass
+
     def draw_callback_px(self, context):
+        """POST_PIXEL: while the connection's end still follows the mouse, the line from the start vertex to the
+        cursor, a screen-space guide, with its start point on top as before."""
         try:
             def _v3(p):
                 return Vector((p[0], p[1], 0.0))
 
+            if not self.start_point_2d or self._connecting_in_world():
+                return
             with draw_scope(blend="ALPHA"):
-                if self.start_vert_index == -1 and self.hover_point_2d:
-                    draw.points([_v3(self.hover_point_2d)],
-                                role=Role.CLOSEST_POINT, context=context)
-
-                if not self.start_point_2d:
-                    return
-
-                coords_line = [_v3(self.start_point_2d)]
-                coords_points = [_v3(self.start_point_2d)]
-
-                if self.end_point_2d:
-                    coords_line.append(_v3(self.end_point_2d))
-                    coords_points.append(_v3(self.end_point_2d))
-                else:
-                    coords_line.append(_v3(self.mouse_pos))
-
-                draw.edges_3d(coords_line, role=Role.ACTIVE_LINE, context=context)
-                draw.points(coords_points, role=Role.ACTIVE_POINT, context=context)
-
-                if self.is_a_held and self.preview_edge_point_3d:
-                    region = context.region
-                    rv3d = context.region_data
-                    preview_2d = view3d_utils.location_3d_to_region_2d(
-                        region, rv3d, self.preview_edge_point_3d)
-                    if preview_2d:
-                        draw.points([_v3(preview_2d)],
-                                    role=Role.PREVIEW_POINT, context=context)
+                draw.edges_3d([_v3(self.start_point_2d), _v3(self.mouse_pos)],
+                              role=Role.ACTIVE_LINE, context=context)
+                draw.points([_v3(self.start_point_2d)], role=Role.ACTIVE_POINT, context=context)
         except ReferenceError:
             pass
         except Exception:
@@ -407,7 +437,8 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
             else:
                 self.start_vert_index = -1
                 self.start_point_2d = None
-                
+                self.start_point_3d = None
+
         except Exception as e:
             print(f"Error in execute_edge_split: {e}")
             self.report({'WARNING'}, "Failed to split edge")
@@ -484,12 +515,14 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
                     if dist < 20.0:
                         self.hover_vert_index = idx
                         self.hover_point_2d = co_2d
+                        self.hover_point_3d = mw @ v.co
                         return
             except IndexError:
                 pass
-                
+
         self.hover_vert_index = -1
         self.hover_point_2d = None
+        self.hover_point_3d = None
 
     def update_points(self, context):
         obj = context.active_object
@@ -505,15 +538,20 @@ class IOPS_OT_Mesh_Quick_Connect(bpy.types.Operator):
         if self.start_vert_index != -1:
             try:
                 v1 = bm.verts[self.start_vert_index]
-                self.start_point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ v1.co)
+                self.start_point_3d = mw @ v1.co
+                self.start_point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, self.start_point_3d)
             except IndexError:
                 self.start_point_2d = None
-        
+                self.start_point_3d = None
+
         if self.end_vert_index != -1:
             try:
                 v2 = bm.verts[self.end_vert_index]
-                self.end_point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ v2.co)
+                self.end_point_3d = mw @ v2.co
+                self.end_point_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, self.end_point_3d)
             except IndexError:
                 self.end_point_2d = None
+                self.end_point_3d = None
         else:
             self.end_point_2d = None
+            self.end_point_3d = None

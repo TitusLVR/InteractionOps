@@ -7,6 +7,7 @@ from utils.depth_bias import (
     biased_projection,
     clamp_factor,
     is_perspective,
+    occluded_opacity,
     occlusion_passes,
     scale_alpha,
 )
@@ -82,6 +83,16 @@ def test_factor_one_path_matches_one_plain_draw():
     color = (0.302, 0.816, 1.0, 0.9)
     passes = occlusion_passes(1.0)
     assert [(depth, scale_alpha(color, f)) for depth, f in passes] == [("ALWAYS", color)]
+
+
+def test_backface_dimming_gives_the_opacity_of_what_is_hidden():
+    assert occluded_opacity(0.75) == pytest.approx(0.25)
+    assert occluded_opacity(0.0) == 1.0                  # no dimming: drawn as in front
+    assert occluded_opacity(1.0) == 0.0                  # full dimming: hidden
+    assert occluded_opacity(2.0) == 0.0 and occluded_opacity(-1.0) == 1.0
+    assert occluded_opacity(None) == 1.0 and occluded_opacity(float("nan")) == 1.0
+    assert occlusion_passes(occluded_opacity(0.0)) == [("ALWAYS", 1.0)]
+    assert occlusion_passes(occluded_opacity(1.0)) == [("LESS_EQUAL", 1.0)]
 
 
 # --- bias ---------------------------------------------------------------------------------------------------------

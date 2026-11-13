@@ -41,7 +41,7 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import normal as poly_normal
 
-from ..ui.draw import primitives as draw_prim, Role
+from ..ui.draw import primitives as draw_prim, Role, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
@@ -52,6 +52,14 @@ from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
                          chains_from_edges, chain_normal, profile_principal_axes,
                          records_for_faces, records_for_edges, ExtrudeMixin,
                          bbox_basis, BBOX_SPACES, BBOX_SPACE_LABELS)
+
+_ACTIVE_HANDLES = set()
+
+
+def _purge_handles():
+    """Remove any stale draw handlers left behind by a previous reload."""
+    while _ACTIVE_HANDLES:
+        safe_handler_remove(_ACTIVE_HANDLES.pop(), bpy.types.SpaceView3D, "WINDOW")
 
 
 class _Pt:
@@ -242,9 +250,7 @@ mouse, baking the sweep as segments"""
         self._help.bind_region(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle = safe_handler_add(
-            bpy.types.SpaceView3D, self._draw_callback, (context,),
-            "WINDOW", "POST_PIXEL", tick=True)
+        self._add_handlers(context)
         context.workspace.status_text_set(self._status_text())
         context.window_manager.modal_handler_add(self)
         if context.area:
@@ -360,10 +366,32 @@ mouse, baking the sweep as segments"""
             return False
         return True
 
+    def _add_handlers(self, context):
+        """The two draw handlers: the spin ghost on the mesh (POST_VIEW, tested against the scene's depth) and
+        the hinge handles, extrude arrow, HUD and help on top (POST_PIXEL); both tracked for the purge on
+        reload."""
+        _purge_handles()
+        self._handle_view = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_view_callback, (context,), "WINDOW", "POST_VIEW")
+        self._handle = safe_handler_add(
+            bpy.types.SpaceView3D, self._draw_callback, (context,),
+            "WINDOW", "POST_PIXEL", tick=True)
+        _ACTIVE_HANDLES.update((self._handle_view, self._handle))
+
+    def _remove_handlers(self):
+        for name in ("_handle_view", "_handle"):
+            h = getattr(self, name, None)
+            if h is None:
+                continue
+            _ACTIVE_HANDLES.discard(h)
+            try:
+                safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
+            except (ValueError, RuntimeError, ReferenceError):
+                pass
+            setattr(self, name, None)
+
     def _finish(self, context):
-        if getattr(self, "_handle", None):
-            safe_handler_remove(self._handle, bpy.types.SpaceView3D, "WINDOW")
-            self._handle = None
+        self._remove_handlers()
         context.workspace.status_text_set(None)
         if context.area:
             context.area.tag_redraw()
@@ -972,7 +1000,39 @@ mouse, baking the sweep as segments"""
     # Draw
     # ------------------------------------------------------------------
 
+    def _drop_dead_handlers(self):
+        """Both draw handlers, removed from inside a draw callback whose operator was freed."""
+        for name in ("_handle_view", "_handle"):
+            try:
+                h = getattr(self, name, None)
+            except ReferenceError:
+                h = None
+            if h is not None:
+                _ACTIVE_HANDLES.discard(h)
+                try:
+                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
+                except (ValueError, RuntimeError, ReferenceError):
+                    pass
+
+    def _draw_view_callback(self, context):
+        """POST_VIEW: the spin ghost and the flush target, in world space, the lines dimmed where geometry
+        hides them (not while extruding: the arrow is a screen-space handle)."""
+        try:
+            mw = self.obj.matrix_world
+            if self._axis is None:
+                return
+        except (ReferenceError, AttributeError):
+            self._drop_dead_handlers()
+            return
+        if getattr(self, "_extrude_active", False):
+            return
+        theme = get_theme(context)
+        self._draw_ghost(mw, context=context, theme=theme)
+        if self._flush_active:
+            self._draw_flush_face(mw, context=context, theme=theme)
+
     def _draw_callback(self, context):
+        """POST_PIXEL: the hinge midpoint and its drag handles (or the extrude arrow), the HUD and the help."""
         region = context.region
         rv3d = context.region_data
         if rv3d is None:
@@ -982,53 +1042,48 @@ mouse, baking the sweep as segments"""
             if self._axis is None:
                 return
         except (ReferenceError, AttributeError):
-            h = getattr(self, "_handle", None)
-            if h is not None:
-                try:
-                    safe_handler_remove(h, bpy.types.SpaceView3D, "WINDOW")
-                except (ValueError, RuntimeError, ReferenceError):
-                    pass
+            self._drop_dead_handlers()
             return
         theme = get_theme(context)
         gpu.state.blend_set("ALPHA")
         if getattr(self, "_extrude_active", False):
             self._draw_extrude_arrows(region, rv3d, mw, context=context, theme=theme)
         else:
-            self._draw_ghost(region, rv3d, mw, context=context, theme=theme)
-            if self._flush_active:
-                self._draw_flush_face(region, rv3d, mw, context=context, theme=theme)
+            pc = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ self._center)
+            if pc is not None:
+                self._draw_dot(pc, radius=5.0,
+                               color=theme.color_for(Role.LOCKED_POINT), context=context)
+            self._draw_pivot_handles(pc, context=context, theme=theme)
         gpu.state.blend_set("NONE")
         self._draw_hud(context)
 
-    def _draw_flush_face(self, region, rv3d, mw, *, context, theme):
-        """Flush target under the cursor: theme match-hint fill + outline."""
+    def _draw_flush_face(self, mw, *, context, theme):
+        """Flush target under the cursor: theme match-hint fill (no depth
+        test, as before) + outline."""
         f = self._flush_face
         if f is None or not f.is_valid:
             return
-        pts = []
-        for vt in f.verts:
-            p = view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ vt.co)
-            if p is None:
-                return
-            pts.append(p)
+        pts = [mw @ vt.co for vt in f.verts]
         if len(pts) < 3:
             return
         tris = []
         for i in range(1, len(pts) - 1):
             tris.extend([pts[0], pts[i], pts[i + 1]])
-        draw_prim.tris(tris, color=theme.color_for(Role.GHOST_MATCH_HINT),
-                       context=context)
+        with draw_scope(blend="ALPHA", depth="NONE"):
+            draw_prim.tris(tris, color=theme.color_for(Role.GHOST_MATCH_HINT),
+                           context=context)
         segs = []
         for i in range(len(pts)):
             segs.extend([pts[i], pts[(i + 1) % len(pts)]])
-        draw_prim.edges_3d(segs, role=Role.CLOSEST_LINE, context=context)
+        draw_prim.edges_world(segs, role=Role.CLOSEST_LINE, context=context)
 
-    def _draw_ghost(self, region, rv3d, mw, *, context, theme):
-        """Ghost of the FINAL spin result: outlines at the target angle
-        (bright), intermediate segment rings (dim), the wall arcs each
-        vert traces, the axis (amber) and its midpoint."""
-        def s2d(co):
-            return view3d_utils.location_3d_to_region_2d(region, rv3d, mw @ co)
+    def _draw_ghost(self, mw, *, context, theme):
+        """Ghost of the FINAL spin result in world space: outlines at the
+        target angle (bright), intermediate segment rings (dim), the wall
+        arcs each vert traces and the axis (amber). The midpoint and its
+        handles are screen-space and drawn by `_draw_callback`."""
+        def to_world(co):
+            return mw @ co
 
         angle_rad = math.radians(self._effective_angle())
         axis = self._axis
@@ -1059,7 +1114,7 @@ mouse, baking the sweep as segments"""
                         b = co_map.get(loop[(i + 1) % n])
                         if a is None or b is None:
                             continue
-                        pa, pb = s2d(a), s2d(b)
+                        pa, pb = to_world(a), to_world(b)
                         if pa is not None and pb is not None:
                             segs.extend([pa, pb])
             else:
@@ -1073,7 +1128,7 @@ mouse, baking the sweep as segments"""
                     b = co_map.get(e.verts[1])
                     if a is None or b is None:
                         continue
-                    pa, pb = s2d(a), s2d(b)
+                    pa, pb = to_world(a), to_world(b)
                     if pa is not None and pb is not None:
                         segs.extend([pa, pb])
             return segs
@@ -1086,7 +1141,7 @@ mouse, baking the sweep as segments"""
                 pts = []
                 for v in f.verts:
                     co = co_map.get(v)
-                    p = s2d(co) if co is not None else None
+                    p = to_world(co) if co is not None else None
                     if p is None:
                         pts = []
                         break
@@ -1100,7 +1155,7 @@ mouse, baking the sweep as segments"""
             for k in range(1, steps):
                 segs = outline_segs(step_cos[k])
                 if segs:
-                    draw_prim.edges_3d(segs, role=Role.PREVIEW_LINE, context=context)
+                    draw_prim.edges_world(segs, role=Role.PREVIEW_LINE, context=context)
             wall_segs = []
             for v in self._verts:
                 for k in range(steps):
@@ -1108,18 +1163,19 @@ mouse, baking the sweep as segments"""
                     b = step_cos[k + 1].get(v)
                     if a is None or b is None:
                         continue
-                    pa, pb = s2d(a), s2d(b)
+                    pa, pb = to_world(a), to_world(b)
                     if pa is not None and pb is not None:
                         wall_segs.extend([pa, pb])
             if wall_segs:
-                draw_prim.edges_3d(wall_segs, role=Role.PREVIEW_LINE, context=context)
+                draw_prim.edges_world(wall_segs, role=Role.PREVIEW_LINE, context=context)
         cap_tris = fill_tris(step_cos[steps])
         if cap_tris:
-            draw_prim.tris(cap_tris, color=theme.color_for(Role.GHOST_ACTIVE),
-                           context=context)
+            with draw_scope(blend="ALPHA", depth="NONE"):
+                draw_prim.tris(cap_tris, color=theme.color_for(Role.GHOST_ACTIVE),
+                               context=context)
         final_segs = outline_segs(step_cos[steps])
         if final_segs:
-            draw_prim.edges_3d(final_segs, role=Role.ACTIVE_LINE, context=context)
+            draw_prim.edges_world(final_segs, role=Role.ACTIVE_LINE, context=context)
 
         # Virtual chords at rest: dim, so the pick target is visible
         # even at zero angle (the real edges are already on screen).
@@ -1127,11 +1183,11 @@ mouse, baking the sweep as segments"""
         for ve in self._virtual:
             if not ve.is_valid or ve is axis_edge:
                 continue
-            p0, p1 = s2d(ve.verts[0].co), s2d(ve.verts[1].co)
+            p0, p1 = to_world(ve.verts[0].co), to_world(ve.verts[1].co)
             if p0 is not None and p1 is not None:
                 rest_segs.extend([p0, p1])
         if rest_segs:
-            draw_prim.edges_3d(rest_segs, role=Role.LINE, context=context)
+            draw_prim.edges_world(rest_segs, role=Role.LINE, context=context)
         # Bbox mode: the box outline (theme BBOX role); the picked side
         # is the amber axis line below.
         if self._bbox_mode:
@@ -1139,27 +1195,18 @@ mouse, baking the sweep as segments"""
             for ln in self._bbox:
                 if ln is axis_edge:
                     continue
-                p0, p1 = s2d(ln.verts[0].co), s2d(ln.verts[1].co)
+                p0, p1 = to_world(ln.verts[0].co), to_world(ln.verts[1].co)
                 if p0 is not None and p1 is not None:
                     box_segs.extend([p0, p1])
             if box_segs:
-                draw_prim.edges_3d(box_segs, role=Role.BBOX, context=context)
+                draw_prim.edges_world(box_segs, role=Role.BBOX, context=context)
 
         pa, pb = self._axis_pts
-        p0, p1 = s2d(pa), s2d(pb)
-        if p0 is not None and p1 is not None:
-            draw_prim.edges_3d([p0, p1], role=Role.LOCKED_LINE, context=context)
+        draw_prim.edges_world([to_world(pa), to_world(pb)], role=Role.LOCKED_LINE, context=context)
         if self._pivot_offset_active():
             # Tether from the picked edge midpoint to the moved line.
-            pbc = s2d(self._axis_base_center)
-            pcc = s2d(center)
-            if pbc is not None and pcc is not None:
-                draw_prim.edges_3d([pbc, pcc], role=Role.LINE, context=context)
-        pc = s2d(center)
-        if pc is not None:
-            self._draw_dot(pc, radius=5.0,
-                           color=theme.color_for(Role.LOCKED_POINT), context=context)
-        self._draw_pivot_handles(pc, context=context, theme=theme)
+            draw_prim.edges_world([to_world(self._axis_base_center), to_world(center)],
+                                  role=Role.LINE, context=context)
 
     def _draw_pivot_handles(self, pc, *, context, theme):
         """Two drag handles at the hinge-line midpoint: across the
