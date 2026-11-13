@@ -3,7 +3,7 @@ import math
 from collections import Counter
 from math import radians
 
-from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, open_tube, torus
+from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, framed_box, open_tube, torus
 from utils.uv_pipe_core import (
     Loop, Part, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
     disk_uvs, wall_candidates, wall_seam, wall_uvs,
@@ -724,26 +724,8 @@ def test_torus_with_the_hard_pass():
     assert _kinds(flat) == ["FREE"] and len(flat.warnings) == 1
 
 
-def _box_with_a_framed_top():
-    """A closed 3 x 3 x 1 box whose top is a 3 x 3 grid of unit quads with the middle one missing (a frame round a
-    hole) and whose sides are hexagons: one FREE part, cut at its 90-degree edges into six flat pieces, the top one
-    with two boundary loops."""
-    verts = {y * 4 + x: (float(x), float(y), 1.0) for y in range(4) for x in range(4)}
-    verts.update({16: (0.0, 0.0, 0.0), 17: (3.0, 0.0, 0.0), 18: (3.0, 3.0, 0.0), 19: (0.0, 3.0, 0.0)})
-    faces = {}
-    for y in range(3):
-        for x in range(3):
-            if (x, y) != (1, 1):
-                a = y * 4 + x
-                faces[len(faces)] = (a, a + 1, a + 5, a + 4)
-    for face in ((16, 17, 3, 2, 1, 0), (17, 18, 15, 11, 7, 3), (18, 19, 12, 13, 14, 15), (19, 16, 0, 4, 8, 12),
-                 (16, 19, 18, 17)):
-        faces[len(faces)] = face
-    return verts, faces
-
-
 def test_flat_piece_with_a_hole_is_a_disk_at_real_size():
-    verts, faces = _box_with_a_framed_top()
+    verts, faces = framed_box()
     assert _kinds(analyse(verts, faces, loop_angle=A120, sharp_angle=S60)) == ["FREE"]
     result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
     _covers_once(result, faces)
@@ -905,3 +887,95 @@ def test_disk_keeps_real_size():
         assert abs((max(us) - min(us)) - 2 * radius) < 1e-6
         assert abs((max(vs) - min(vs)) - 2 * radius) < 1e-6
         _assert_no_flip(part, uv)
+
+
+def _box_with_two_holes():
+    """A box 2 x 2 x 2 whose top and bottom are each a frame of four quads round a square hole."""
+    square = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+    verts = {}
+    for i, (x, y) in enumerate(square):
+        verts[i] = (x, y, 0.0)
+        verts[4 + i] = (x, y, 2.0)
+        verts[8 + i] = (x / 2.0, y / 2.0, 0.0)
+        verts[12 + i] = (x / 2.0, y / 2.0, 2.0)
+    faces = {}
+    for i in range(4):
+        j = (i + 1) % 4
+        faces[i] = (i, j, 4 + j, 4 + i)                    # sides
+        faces[4 + i] = (4 + i, 4 + j, 12 + j, 12 + i)      # top frame
+        faces[8 + i] = (j, i, 8 + i, 8 + j)                # bottom frame
+    return verts, faces
+
+
+def test_a_box_with_holes_is_not_a_tube():
+    verts, faces = _box_with_two_holes()
+    options = {"loop_angle": radians(120), "sharp_angle": radians(60)}
+    plain = analyse(verts, faces, **options)
+    assert [p.kind for p in plain.parts] == ["WALL"] and plain.fallback == {0}     # the pass off: as before
+    hard = analyse(verts, faces, hard_angle=radians(30), **options)
+    assert sorted(p.kind for p in hard.parts) == ["DISK"] * 6
+    assert sorted(len(p.faces) for p in hard.parts) == [1, 1, 1, 1, 4, 4]
+    assert not hard.seams and not hard.fallback and not hard.warnings
+    assert sorted(f for p in hard.parts for f in p.faces) == sorted(faces)
+
+
+def test_a_picked_seam_keeps_a_part_a_wall_under_the_hard_pass():
+    verts, faces = open_tube(12, 4, twist=radians(5.0))       # no lengthwise loop at 179 degrees
+    options = {"loop_angle": radians(179), "sharp_angle": radians(60), "hard_angle": radians(180)}
+    assert [p.kind for p in analyse(verts, faces, **options).parts] == ["FREE"]
+    column = [(k * 12, (k + 1) * 12) for k in range(4)]
+    kept = analyse(verts, faces, picked=[column], **options)
+    assert [p.kind for p in kept.parts] == ["WALL"] and 0 in kept.seams
+
+
+# --- Slits: the user's added cuts that do not separate a part --------------------------------------------------------
+
+
+def test_a_slit_in_a_wall_makes_it_a_free_part():
+    verts, faces = open_tube(12, 4)
+    slit = {_edge(15, 27), _edge(27, 39)}               # column 3, the middle two rows: neither end reached
+    for hard in (None, H30):                            # a tube with a slit is still no hard-surface part
+        result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(slit), hard_angle=hard)
+        assert _kinds(result) == ["FREE"] and len(result.parts[0].faces) == 48
+        assert result.slits == {0: slit} and slit <= result.cuts
+        assert result.seams == {} and result.fallback == set() and result.warnings == []
+        again = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(slit), hard_angle=hard)
+        assert _summary(again) == _summary(result) and again.slits == result.slits
+
+
+def test_an_added_full_column_is_a_slit_not_the_wall_seam():
+    verts, faces = open_tube(12, 4)
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(_column(3)))
+    assert _kinds(result) == ["FREE"] and result.slits == {0: _column(3)}
+    assert result.seams == {} and result.warnings == []
+    picked = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, picked=(tuple(sorted(_column(3))),))
+    assert _kinds(picked) == ["WALL"] and set(picked.seams[0].edges()) == _column(3) and picked.slits == {}
+
+
+def test_an_added_ring_still_cuts_a_wall_in_two():
+    verts, faces = open_tube()
+    middle = {_edge(24 + i, 24 + (i + 1) % 12) for i in range(12)}
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(middle))
+    assert _kinds(result) == ["WALL", "WALL"] and result.slits == {} and sorted(result.seams) == [0, 1]
+
+
+def test_an_added_hard_edge_changes_nothing():
+    verts, faces = box_tube()
+    hard = next(e for e, a in dihedrals(verts, faces).items() if abs(a - math.pi / 2) < 1e-6)
+    plain = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    added = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30, added=frozenset({hard}))
+    assert _summary(added) == _summary(plain) and added.slits == {}
+
+
+def test_a_slit_in_a_hard_surface_piece_keeps_the_rest_flat():
+    verts, faces = _box_with_two_holes()
+    frame = list(range(4, 8))                           # the top frame: four quads round the hole
+    inner = {e for f in frame for e in _all_edges({f: faces[f]})}
+    shared = sorted(e for e in inner if sum(e in _all_edges({f: faces[f]}) for f in frame) == 2)
+    slit = {shared[0]}                                  # an edge between two frame quads, from the rim to the hole
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, hard_angle=H30, added=frozenset(slit))
+    _covers_once(result, faces)
+    (piece,) = [i for i, p in enumerate(result.parts) if set(p.faces) == set(frame)]
+    assert result.parts[piece].kind == "FREE" and result.slits == {piece: slit}
+    assert sorted(p.kind for i, p in enumerate(result.parts) if i != piece) == ["DISK"] * 5
+    assert result.warnings == [] and slit <= result.cuts

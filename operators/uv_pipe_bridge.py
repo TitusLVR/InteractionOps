@@ -348,7 +348,8 @@ def lay_out_parts(bm, analysis, verts, layout, *, mesh=None, meshes=()) -> list[
     WALL: ``wall_uvs`` under "RECTANGLE" and "QUADS" (with ``QUADS_FALLBACK`` as the notice when it is no regular
     grid); under "TRUE" Blender's unwrap with the wall's seam, its seam sides then made straight and parallel to V
     (``_straight_seam_sides``). RING: a straight strip under Even Rows, opened at the analysis' break, else cut as
-    UV Stripe cuts a ring. DISK: ``disk_uvs``. FREE: Blender's unwrap scaled to the real area. A part whose own
+    UV Stripe cuts a ring. DISK: ``disk_uvs``. FREE: Blender's unwrap scaled to the real area, cut at the cuts
+    inside it, the user's slits (``analysis.slits``) among them, which stay marked as seams. A part whose own
     layout fails is unwrapped as a FREE part, with the reason as its notice. ``verts`` are the core's world-space
     vertices; face ids are ``BMFace.index``. Blender's unwrap needs ``mesh`` (``bm``'s mesh) and ``meshes`` (every
     mesh in Edit Mode, whose selection it changes and restores). The mesh's UVs are not changed."""
@@ -378,7 +379,7 @@ def lay_out_parts(bm, analysis, verts, layout, *, mesh=None, meshes=()) -> list[
             notice = f"a {kind.lower()} of {len(part.faces)} faces could not be laid out ({exc}): unwrapped freely"
             kind, uv, inner = "FREE", None, set()
         if uv is None:
-            seams = analysis.cuts & _inner(part)
+            seams = (analysis.cuts & _inner(part)) | getattr(analysis, "slits", {}).get(i, set())
             uv = _to_real_area(verts, part, blender_unwrap(bm, list(faces.values()), seams, mesh=mesh, meshes=meshes))
             inner = set(seams)
         uv, length, height = _normalised(uv)
