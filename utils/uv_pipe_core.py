@@ -514,3 +514,106 @@ def bend_seams(verts, part: Part, seam: Loop, bend_angle, loop_angle) -> list[Lo
             out.append(ring)
             total = 0.0
     return out
+
+
+# --- Analysis -----------------------------------------------------------------------------------------------------
+
+
+@dataclass
+class Analysis:
+    parts: list[Part]
+    cuts: set                      # every ring / peel / bend / existing-seam cut edge
+    seams: dict[int, Loop]         # part index -> lengthwise seam, WALL parts only
+    breaks: dict[int, tuple]       # part index -> break edge, RING parts with a user pick only
+    fallback: set[int]             # WALL part indices whose seam is a fallback path
+    warnings: list[str]
+
+
+def _inner_edges(part: Part) -> set:
+    """Edges used by two of the part's faces."""
+    return {e for e, fs in _edge_faces(part.faces).items() if len(fs) == 2}
+
+
+def _picked_seam(part: Part, picked) -> Loop | None:
+    """The last picked loop lying wholly inside the part (every edge used by two of its faces) that joins two of
+    its boundary loops."""
+    inner = _inner_edges(part)
+    for pick in reversed(picked):
+        edges = {_edge(*e) for e in pick}
+        if edges and edges <= inner:
+            loop = existing_wall_seam(part, edges)
+            if loop is not None:
+                return loop
+    return None
+
+
+def _seams(verts, parts, loop_angle, existing, picked, uv):
+    seams: dict[int, Loop] = {}
+    fallback: set[int] = set()
+    for i, part in enumerate(parts):
+        if part.kind != "WALL":
+            continue
+        seam = _picked_seam(part, picked)
+        if seam is None and existing:
+            seam = existing_wall_seam(part, existing)
+        if seam is None:
+            seam, is_fallback = wall_seam(verts, part, loop_angle, uv)
+            if is_fallback and seam is not None:
+                fallback.add(i)
+        if seam is not None:
+            seams[i] = seam
+    return seams, fallback
+
+
+def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=frozenset(),
+            added=frozenset(), removed=frozenset(), picked=(), uv=None) -> Analysis:
+    """Split ``faces`` into parts and propose every seam.
+
+    Cuts are the automatic ring seams (``ring_seams``) with ``existing`` (the mesh's seams under Split at Seams)
+    and the user's ``added`` ring loops, minus the ``removed`` ones; ``split_parts`` (with ``removed`` suppressed)
+    classifies the parts and adds its peel seams. Each WALL takes the last ``picked`` loop lying wholly inside it,
+    else its existing seam (``existing_wall_seam``), else ``wall_seam``. With ``bend_angle`` (Split at Bends on) the
+    walls' ``bend_seams``, minus ``removed``, are added to the cuts and the parts and seams are worked out once
+    more. A picked loop holding a cross edge of a RING part (an edge two of its faces share) sets that ring's
+    break, the first such edge of the last such pick. A WALL with no seam at all becomes FREE; every FREE part
+    adds one warning naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
+    """
+    removed = frozenset(_edge(*e) for e in removed)
+    existing = frozenset(_edge(*e) for e in existing)
+    base = {e for loop in ring_seams(verts, faces, sharp_angle, loop_angle) for e in loop.edges()}
+    base = (base | existing | {_edge(*e) for e in added}) - removed
+    parts, peel = split_parts(verts, faces, base, suppressed=removed)
+    seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv)
+    cuts = base | peel
+    if bend_angle is not None:
+        bends = set()
+        for i, seam in sorted(seams.items()):
+            for ring in bend_seams(verts, parts[i], seam, bend_angle, loop_angle):
+                bends.update(ring.edges())
+        bends -= removed
+        if bends - cuts:
+            base |= bends
+            parts, peel = split_parts(verts, faces, base, suppressed=removed)
+            seams, fallback = _seams(verts, parts, loop_angle, existing, picked, uv)
+            cuts = base | peel
+
+    breaks: dict[int, tuple] = {}
+    for i, part in enumerate(parts):
+        if part.kind != "RING":
+            continue
+        rungs = _inner_edges(part)
+        for pick in reversed(picked):
+            hit = [_edge(*e) for e in pick if _edge(*e) in rungs]
+            if hit:
+                breaks[i] = hit[0]
+                break
+
+    warnings: list[str] = []
+    for i, part in enumerate(parts):
+        if part.kind == "WALL" and i not in seams:
+            part.kind = "FREE"
+            fallback.discard(i)
+            warnings.append(f"a wall of {len(part.faces)} faces has no seam between its ends: unwrapped as a free part")
+        elif part.kind == "FREE":
+            warnings.append(f"{len(part.faces)} faces are no tube, cap or ring: unwrapped as a free part")
+    return Analysis(parts, cuts, seams, breaks, fallback, warnings)

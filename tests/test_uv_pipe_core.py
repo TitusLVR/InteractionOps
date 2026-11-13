@@ -3,9 +3,9 @@ import math
 from collections import Counter
 from math import radians
 
-from uv_pipe_fixtures import bent_pipe, capped_cylinder, clean_bend, open_tube, torus
+from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, open_tube, torus
 from utils.uv_pipe_core import (
-    Loop, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
+    Loop, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
     wall_candidates, wall_seam,
 )
 from utils.uv_stripe_select_core import _edge
@@ -399,3 +399,138 @@ def test_bend_seams_on_a_straight_tube_is_empty():
     seam, _ = wall_seam(verts, part, radians(120))
     assert bend_seams(verts, part, seam, radians(45), radians(120)) == []
     assert bend_seams(verts, part, seam, radians(1), radians(120)) == []
+
+
+# --- Task 7: analysis and the seam state model --------------------------------------------------------------------
+
+A120, S60 = radians(120), radians(60)
+
+
+def _column(i, sides=12, rows=4):
+    ids = [k * sides + i for k in range(rows + 1)]
+    return {_edge(a, b) for a, b in zip(ids, ids[1:])}
+
+
+def _kinds(result):
+    return sorted(p.kind for p in result.parts)
+
+
+def test_reference_a():
+    verts, faces = capped_cylinder()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(result) == ["DISK", "DISK", "RING", "RING", "RING", "WALL"]
+    (wall,) = [i for i, p in enumerate(result.parts) if p.kind == "WALL"]
+    assert list(result.seams) == [wall] and len(result.seams[wall].edges()) == 4
+    assert result.warnings == [] and result.fallback == set() and result.breaks == {}
+    rims = _rim_edges(verts, faces, 0.0) | _rim_edges(verts, faces, 2.0)
+    assert len(result.cuts) == 64 + 96 and rims <= result.cuts
+
+
+def test_reference_b():
+    verts, faces = bent_pipe()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(result) == ["DISK", "DISK", "WALL"]
+    (wall,) = [i for i, p in enumerate(result.parts) if p.kind == "WALL"]
+    (pole,) = _pole(faces)
+    assert pole in result.seams[wall].verts
+    assert result.fallback == set() and result.warnings == []
+
+
+def test_removed_rim_is_not_found_again():
+    verts, faces = capped_cylinder()
+    rim = _rim_edges(verts, faces, 0.0)
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, removed=frozenset(rim))
+    assert not rim & result.cuts
+    merged = [p for p in result.parts if any(f in p.faces for f in (0, 128))]   # a wall face and a bottom ring face
+    assert len(merged) == 1
+    assert sorted(f for p in result.parts for f in p.faces) == sorted(faces)
+
+
+def test_added_ring_cuts_a_wall_in_two():
+    verts, faces = open_tube()
+    middle = {_edge(24 + i, 24 + (i + 1) % 12) for i in range(12)}
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(middle))
+    assert _kinds(result) == ["WALL", "WALL"]
+    assert middle <= result.cuts
+    assert sorted(result.seams) == [0, 1]
+    assert all(len(s.verts) == 3 and loop_kind(s, result.parts[i]) == "LENGTH" for i, s in result.seams.items())
+
+
+def test_picked_seam_replaces_the_automatic_one():
+    verts, faces = open_tube()
+    auto = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert set(auto.seams[0].edges()) == _column(6)      # the lowest start, x = -1
+    picked = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, picked=(tuple(sorted(_column(9))),))
+    assert set(picked.seams[0].edges()) == _column(9)
+    later = analyse(verts, faces, loop_angle=A120, sharp_angle=S60,
+                    picked=(tuple(sorted(_column(3))), tuple(sorted(_column(9)))))
+    assert set(later.seams[0].edges()) == _column(9)                   # later picks beat earlier
+    broken = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, picked=(tuple(sorted(_column(9)))[:2],))
+    assert set(broken.seams[0].edges()) == set(auto.seams[0].edges())  # a pick that joins no two ends is ignored
+
+
+def test_picked_loop_on_a_ring_sets_its_break():
+    verts, faces = capped_cylinder()
+    # the top ring's cross edge at vertex 0, picked as part of a lengthwise loop that also runs down the wall
+    rim0 = 4 * 32
+    inner = next(v for v, p in verts.items() if abs(p[0] - 0.671) < 1e-9 and abs(p[1]) < 1e-9 and p[2] == 2.0)
+    cross = _edge(rim0, inner)
+    loop = tuple(sorted(_column(0, 32, 4))) + (cross,)
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, picked=(loop,))
+    rings = [i for i, p in enumerate(result.parts) if p.kind == "RING" and cross in
+             {_edge(a, b) for f in p.faces.values() for a, b in zip(f, f[1:] + f[:1])}]
+    assert len(rings) == 1 and result.breaks == {rings[0]: cross}
+
+
+def test_split_at_bends():
+    verts, faces = clean_bend()
+    off = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(off) == ["WALL"]
+    on = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, bend_angle=radians(45))
+    assert _kinds(on) == ["WALL", "WALL"] and sorted(on.seams) == [0, 1]
+    assert len(on.cuts) == 12 and on.warnings == []
+    removed = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, bend_angle=radians(45),
+                      removed=frozenset(on.cuts))
+    assert _kinds(removed) == ["WALL"]                                   # a removed bend seam is not found again
+
+
+def test_existing_seam_is_kept():
+    verts, faces = open_tube()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, existing=frozenset(_column(5)))
+    assert _kinds(result) == ["WALL"]
+    assert set(result.seams[0].edges()) == _column(5) and result.fallback == set()
+
+
+def test_box_tube_is_free_with_a_warning():           # Review Focus 1
+    verts, faces = box_tube()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(result) == ["FREE"] and len(result.warnings) == 1
+    low = analyse(verts, faces, loop_angle=radians(80), sharp_angle=S60)
+    assert sorted(f for p in low.parts for f in p.faces) == sorted(faces)
+
+
+def test_open_tube_is_one_wall():                     # Review Focus 2
+    verts, faces = open_tube()
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60)
+    assert _kinds(result) == ["WALL"] and result.warnings == [] and result.fallback == set()
+    assert loop_kind(result.seams[0], result.parts[0]) == "LENGTH" and result.cuts == set()
+
+
+def test_torus_is_free_with_a_warning():              # Review Focus 3
+    result = analyse(*torus(), loop_angle=A120, sharp_angle=S60)
+    assert _kinds(result) == ["FREE"] and len(result.warnings) == 1 and result.seams == {}
+    assert str(12 * 8) in result.warnings[0]
+
+
+def test_fallback_wall_is_reported():
+    verts, faces = open_tube(twist=radians(5))
+    result = analyse(verts, faces, loop_angle=radians(179), sharp_angle=S60)
+    assert _kinds(result) == ["WALL"] and result.fallback == {0} and 0 in result.seams
+
+
+def test_analysis_is_deterministic():
+    for mesh, bend in ((capped_cylinder(), None), (bent_pipe(), None), (clean_bend(), radians(45))):
+        runs = [analyse(*mesh, loop_angle=A120, sharp_angle=S60, bend_angle=bend) for _ in range(2)]
+        assert runs[0].cuts == runs[1].cuts
+        assert {i: s.verts for i, s in runs[0].seams.items()} == {i: s.verts for i, s in runs[1].seams.items()}
+        assert [sorted(p.faces) for p in runs[0].parts] == [sorted(p.faces) for p in runs[1].parts]
