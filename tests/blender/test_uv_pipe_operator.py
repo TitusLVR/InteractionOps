@@ -600,6 +600,329 @@ def test_free_part_reports_a_warning():
         assert abs(_signed([_uv(lp, layer) for lp in f.loops])) > 1e-6, f.index
 
 
+# --- the modal ------------------------------------------------------------------------------------------------------
+# A real cursor cannot hover headless: the loops are classified from edge keys (``_classify``) or the hover lookup is
+# stood in for; the event handling is the operator's own.
+
+class _Event:
+    """Stands in for a modal event."""
+
+    def __init__(self, key, value="PRESS", ctrl=False, shift=False, alt=False):
+        self.type, self.value = key, value
+        self.ctrl, self.shift, self.alt, self.oskey = ctrl, shift, alt, False
+        self.mouse_region_x = self.mouse_region_y = self.mouse_x = self.mouse_y = 0
+
+
+def _modal_on(**props):
+    op = _OperatorStandIn(**props)
+    assert op._start(bpy.context), op.reports
+    op._build_overlays(None)
+    return op
+
+
+def _key(obj, a, b):
+    """The mesh edge key of the fixture vertex ids a, b."""
+    return tuple(sorted((_vid(obj, a), _vid(obj, b))))
+
+
+def _commit_by_clicks(op, obj, key):
+    loop, kind, _part = op._classify(obj, key)
+    assert op._click_loop(bpy.context, obj, loop, kind) is False
+    assert op._click_loop(bpy.context, obj, loop, kind) is True
+    return kind
+
+
+def test_modal_opens_with_the_automatic_layout():
+    obj = _object(capped_cylinder())
+    _edit(obj)
+    op = _modal_on()
+    assert _islands(obj) == sorted(sorted(g) for g in A_GROUPS)
+    assert op._result.kinds == {"WALL": 1, "RING": 3, "DISK": 2}
+    assert op._header() == "1 wall(s), 3 ring(s), 2 disk(s)"
+    assert op._result.cut_lines and not op._result.error_lines        # cuts and the wall seam to draw
+    modal = _uv_state(obj)
+    assert op._modal(bpy.context, _Event("SPACE")) == {"FINISHED"}
+    assert _uv_state(obj) == modal
+    _edit(obj)
+    stand = _OperatorStandIn()
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _uv_state(obj) == modal                                     # the same as execute
+
+
+def test_first_click_is_pending_and_second_commits():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 6)
+    loop, kind, part = op._classify(obj, _key(obj, 3, 15))
+    assert (kind, part) == ("LENGTH", 0) and len(loop.verts) == 5
+    before = _uv_state(obj)
+    assert op._click_loop(bpy.context, obj, loop, kind) is False
+    assert _uv_state(obj) == before and op._pending is not None
+    assert "pending wall seam" in op._status_text()
+    assert op._click_loop(bpy.context, obj, loop, kind) is True
+    assert op._pending is None
+    assert _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 3)
+    assert _uv_state(obj) != before
+    # LMB goes through the hover: a stand-in for it, the click handling is the modal's
+    loop9 = op._classify(obj, _key(obj, 9, 21))
+    op._hover_loop = lambda _context, _event: (obj, loop9[0], loop9[1])
+    assert op._modal(bpy.context, _Event("LEFTMOUSE")) == {"RUNNING_MODAL"}
+    assert op._pending is not None and _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 3)
+    assert op._modal(bpy.context, _Event("LEFTMOUSE", value="RELEASE")) == {"RUNNING_MODAL"}
+    assert op._modal(bpy.context, _Event("LEFTMOUSE")) == {"RUNNING_MODAL"}       # still running
+    assert op._pending is None and _inner_seams(obj, range(48)) == _column_edges(obj, 12, 4, 9)
+    assert len(json.loads(op.picks)[obj.name]["picked"]) == 1          # the later pick replaced the earlier
+    op._finish(bpy.context)
+
+
+def test_escape_drops_the_pending_loop_first():
+    obj = _object(open_tube(12, 4), uv_size=4.0)
+    _edit(obj)
+    original = _uv_state(obj)
+    op = _modal_on()
+    laid = _uv_state(obj)
+    loop, kind, _part = op._classify(obj, _key(obj, 3, 15))
+    op._click_loop(bpy.context, obj, loop, kind)
+    assert op._modal(bpy.context, _Event("ESC")) == {"RUNNING_MODAL"}
+    assert op._pending is None and _uv_state(obj) == laid
+    assert op._modal(bpy.context, _Event("RIGHTMOUSE")) == {"CANCELLED"}
+    assert _uv_state(obj) == original
+
+
+def test_ring_click_adds_then_removes_a_ring_seam():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    middle = _key(obj, 24, 25)
+    assert _commit_by_clicks(op, obj, middle) == "RING"
+    assert len(_islands(obj)) == 2 and op._result.kinds == {"WALL": 2}
+    assert json.loads(op.picks)[obj.name]["added"]
+    assert _commit_by_clicks(op, obj, middle) == "RING"
+    assert len(_islands(obj)) == 1
+    assert json.loads(op.picks)[obj.name] == {"added": [], "removed": [], "picked": []}
+    op._finish(bpy.context)
+
+
+def test_removing_a_rim_does_not_come_back_on_relayout():
+    obj = _object(capped_cylinder())
+    _edit(obj)
+    op = _modal_on()
+    rim = _key(obj, 0, 1)
+    assert rim in _seams(obj)
+    assert _commit_by_clicks(op, obj, rim) == "RING"
+    assert json.loads(op.picks)[obj.name]["removed"]
+    cache = op._result.objects[obj.name]
+    assert rim not in cache.analysis.cuts and rim not in _seams(obj)
+    for _ in range(2):
+        assert op._modal(bpy.context, _Event("E")) == {"RUNNING_MODAL"}
+        assert rim not in op._result.objects[obj.name].analysis.cuts and rim not in _seams(obj)
+    op._finish(bpy.context)
+
+
+def test_alt_wheel_steps_the_seam():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    op._part_under_cursor = lambda _context, _event: (obj, 0)
+    first = _inner_seams(obj, range(48))
+    up = _Event("WHEELUPMOUSE", alt=True)
+    assert op._modal(bpy.context, up) == {"RUNNING_MODAL"}
+    second = _inner_seams(obj, range(48))
+    assert second != first and len(second) == 4
+    assert abs(op.loop_angle - math.radians(120.0)) < 1e-6          # Alt + Wheel is not the loop angle
+    for _ in range(11):
+        op._modal(bpy.context, up)
+    assert _inner_seams(obj, range(48)) == first
+    assert len(json.loads(op.picks)[obj.name]["picked"]) == 1
+    assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE", alt=True)) == {"RUNNING_MODAL"}
+    op._part_under_cursor = lambda _context, _event: None             # no wall under the cursor: navigation
+    assert op._modal(bpy.context, up) == {"PASS_THROUGH"}
+    op._finish(bpy.context)
+
+
+def test_wheel_changes_loop_angle_and_relays_out():
+    obj = _object(box_tube())
+    _edit(obj)
+    op = _modal_on()
+    assert op._result.kinds == {"FREE": 1}
+    for _ in range(8):
+        assert op._modal(bpy.context, _Event("WHEELDOWNMOUSE")) == {"RUNNING_MODAL"}
+    assert abs(op.loop_angle - math.radians(80.0)) < 1e-6
+    assert sum(op._result.kinds.values()) > 1, op._result.kinds        # the rims close at 80 degrees
+    op._modal(bpy.context, _Event("WHEELUPMOUSE", ctrl=True))
+    assert abs(op.loop_angle - math.radians(81.0)) < 1e-6
+    op._modal(bpy.context, _Event("WHEELUPMOUSE", shift=True))
+    assert abs(op.sharp_angle - math.radians(65.0)) < 1e-6
+    op._modal(bpy.context, _Event("WHEELDOWNMOUSE", shift=True, ctrl=True))
+    assert abs(op.sharp_angle - math.radians(64.0)) < 1e-6
+    bend = _Event("WHEELUPMOUSE", shift=True, alt=True)
+    assert op._modal(bpy.context, bend) == {"PASS_THROUGH"}           # Split at Bends off
+    assert abs(op.bend_angle - math.radians(45.0)) < 1e-6
+    op._modal(bpy.context, _Event("A"))
+    assert op._modal(bpy.context, bend) == {"RUNNING_MODAL"}
+    assert abs(op.bend_angle - math.radians(50.0)) < 1e-6
+    for _ in range(40):
+        op._modal(bpy.context, _Event("WHEELUPMOUSE"))
+    assert abs(op.loop_angle - math.pi) < 1e-6                         # clamped
+    for key in ("MIDDLEMOUSE", "TRACKPADPAN", "NDOF_MOTION", "N", "T"):
+        assert op._modal(bpy.context, _Event(key)) == {"PASS_THROUGH"}, key
+    op._finish(bpy.context)
+
+
+def test_invalid_loop_cannot_be_committed():
+    obj = _object(open_tube(12, 4, twist=math.radians(5.0)))
+    _edit(obj)
+    op = _modal_on(loop_angle=math.radians(179.0))
+    assert op._result.fallback == 1 and op._result.error_lines       # the fallback seam is drawn as an error
+    assert op._seam_state() == "Fallback"
+    loop, kind, _part = op._classify(obj, _key(obj, 3, 15))
+    assert kind == "INVALID"
+    before = _uv_state(obj)
+    for _ in range(2):
+        assert op._click_loop(bpy.context, obj, loop, kind) is False
+    assert op._pending is None and op.picks == "" and _uv_state(obj) == before
+    op._finish(bpy.context)
+
+
+def test_break_click_on_a_ring_strip_sets_its_break():
+    obj = _object(capped_cylinder())
+    _edit(obj)
+    op = _modal_on()
+    radial = _key(obj, 3, 163)                 # between two faces of the outer bottom ring
+    assert _commit_by_clicks(op, obj, radial) == "BREAK"
+    assert len(json.loads(op.picks)[obj.name]["picked"]) == 1
+    assert _inner_seams(obj, A_RINGS[0]) == {radial}
+    assert op._result.objects[obj.name].analysis.breaks
+    assert len(_islands(obj)) == 6
+    op._finish(bpy.context)
+
+
+def test_loop_source_uv_is_unavailable_without_a_uv_layer():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    assert bmesh.from_edit_mesh(obj.data).loops.layers.uv.active is not None
+    assert op._modal(bpy.context, _Event("G")) == {"RUNNING_MODAL"}
+    assert op.loop_source == "GEOMETRY"
+    params = {p.name: p for section in op._hud.param_sections for p in section.params}
+    assert not params["Loop Source (G)"].is_active()
+    assert op._modal(bpy.context, _Event("ESC")) == {"CANCELLED"}
+    assert bmesh.from_edit_mesh(obj.data).loops.layers.uv.active is None
+    obj = _object(open_tube(12, 4), uv_size=4.0)
+    _edit(obj)
+    op = _modal_on()
+    op._modal(bpy.context, _Event("G"))
+    assert op.loop_source == "UV" and op._result.objects[obj.name].uv
+    op._finish(bpy.context)
+
+
+def test_cancel_restores_uvs_and_seams_exactly():
+    obj = _object(capped_cylinder(), uv_size=10.0)
+    _edit(obj)
+    bm = _bm(obj)
+    for e in bm.edges:
+        e.seam = e.index % 5 == 0
+    bmesh.update_edit_mesh(obj.data)
+    uvs, seams = _uv_state(obj), _seams(obj)
+    exact = [tuple(lp[bm.loops.layers.uv.active].uv) for f in bm.faces for lp in f.loops]
+    op = _modal_on()
+    defaults = {name: getattr(op, name) for name in ("layout", "orientation", "loop_angle", "pack", "picks")}
+    for event in (_Event("W"), _Event("E"), _Event("P"), _Event("WHEELDOWNMOUSE")):
+        op._modal(bpy.context, event)
+    _commit_by_clicks(op, obj, _key(obj, 0, 1))
+    assert op.picks and _uv_state(obj) != uvs
+    assert op._modal(bpy.context, _Event("ESC")) == {"CANCELLED"}
+    bm = _bm(obj)
+    assert [tuple(lp[bm.loops.layers.uv.active].uv) for f in bm.faces for lp in f.loops] == exact
+    assert _seams(obj) == seams
+    assert {name: getattr(op, name) for name in defaults} == defaults
+
+
+def test_relayout_starts_from_the_snapshot():
+    obj = _object(capped_cylinder(), uv_size=10.0)
+    _edit(obj)
+    op = _modal_on(layout="TRUE")              # Blender's unwrap and the packer on every pass
+    first = _uv_state(obj)
+    for _ in range(2):
+        op._modal(bpy.context, _Event("X"))
+    assert _uv_state(obj) == first             # two passes later: the same, nothing accumulated
+    op._finish(bpy.context)
+    # the seams a pass marks are no input of the next: with Split at Seams on, a ring seam added and removed again
+    # leaves no cut behind
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on(split_at_seams=True)
+    middle = _key(obj, 24, 25)
+    _commit_by_clicks(op, obj, middle)
+    assert len(_islands(obj)) == 2 and middle in _seams(obj)
+    _commit_by_clicks(op, obj, middle)
+    assert len(_islands(obj)) == 1 and middle not in _seams(obj)
+    op._finish(bpy.context)
+
+
+def test_redo_reproduces_the_modal_result():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    name = obj.name
+    op = _modal_on(orientation="VERTICAL")
+    _commit_by_clicks(op, obj, _key(obj, 3, 15))
+    _commit_by_clicks(op, obj, _key(obj, 24, 25))
+    assert op._modal(bpy.context, _Event("RET")) == {"FINISHED"}
+    picks, made, seams = op.picks, _uv_state(obj), _seams(obj)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.name = name + "_done"
+    fresh = _object(open_tube(12, 4))
+    fresh.name = name
+    _edit(fresh)
+    stand = _OperatorStandIn(orientation="VERTICAL", picks=picks)
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _uv_state(fresh) == made and _seams(fresh) == seams
+
+
+def test_modal_hud_and_help_list_every_key():
+    op = _OperatorStandIn()
+    op._build_overlays(None)
+    params = [p for section in op._hud.param_sections for p in section.params]
+    assert [p.name for p in params] == [
+        "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Loop Source (G)", "Loop Angle (Wheel)",
+        "Sharp Angle (Shift + Wheel)", "Split at Bends (A)", "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)",
+        "Mark Seams (X)", "Pack (P)", "Random Offset (Z)", "Offset Limit", "Offset Seed (R)", "Merge Doubles (F)",
+        "Seam (Alt + Wheel)", "Notices"]
+    assert [p.value_text() for p in params] == [
+        "Fit 0–1", "Horizontal", "Width", "Rectangle", "Geometry", "120°", "60°", "✗", "45°", "✗", "✓", "✓", "None",
+        "0.25", "0", "✓", "Automatic", "None"]
+    active = {p.name: p.is_active() for p in params}
+    assert not active["Fit to Active (D)"] and not active["Bend Angle (Shift + Alt + Wheel)"]
+    assert not active["Random Offset (Z)"] and active["Pack (P)"]
+    keys = [it.key for it in op._help.sections[0].items]
+    for key in ("LMB", "Alt + Wheel", "Wheel / Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
+                "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
+                "E", "X", "Enter / Space", "Esc / RMB", "H"):
+        assert key in keys, key
+    assert len(keys) == 20
+    text = op._status_text()
+    assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Wheel)" in text
+
+
+def test_modal_keys_toggle_their_options():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    steps = [("Q", "mode", "IN_PLACE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"), ("W", "orientation", "VERTICAL"),
+             ("D", "active_fit", "HEIGHT"), ("E", "layout", "QUADS"), ("E", "layout", "TRUE"),
+             ("E", "layout", "RECTANGLE"), ("A", "split_at_bends", True), ("S", "split_at_seams", True),
+             ("X", "mark_seams", False), ("P", "pack", False), ("Z", "offset_axis", "ALONG"), ("R", "offset_seed", 1),
+             ("F", "merge_doubles", False)]
+    for key, name, value in steps:
+        assert op._modal(bpy.context, _Event(key)) == {"RUNNING_MODAL"}
+        assert getattr(op, name) == value, (key, name, getattr(op, name))
+    before = _uv_state(obj)
+    assert op._modal(bpy.context, _Event("M")) == {"RUNNING_MODAL"}     # an unbound letter changes nothing
+    assert _uv_state(obj) == before
+    op._finish(bpy.context)
+
+
 TESTS = [
     test_operator_is_registered,
     test_reference_a_gives_six_islands,
@@ -620,6 +943,21 @@ TESTS = [
     test_picks_property_is_applied_by_execute,
     test_picks_are_taken_before_doubles_are_merged,
     test_free_part_reports_a_warning,
+    test_modal_opens_with_the_automatic_layout,
+    test_first_click_is_pending_and_second_commits,
+    test_escape_drops_the_pending_loop_first,
+    test_ring_click_adds_then_removes_a_ring_seam,
+    test_removing_a_rim_does_not_come_back_on_relayout,
+    test_alt_wheel_steps_the_seam,
+    test_wheel_changes_loop_angle_and_relays_out,
+    test_invalid_loop_cannot_be_committed,
+    test_break_click_on_a_ring_strip_sets_its_break,
+    test_loop_source_uv_is_unavailable_without_a_uv_layer,
+    test_cancel_restores_uvs_and_seams_exactly,
+    test_relayout_starts_from_the_snapshot,
+    test_redo_reproduces_the_modal_result,
+    test_modal_hud_and_help_list_every_key,
+    test_modal_keys_toggle_their_options,
 ]
 
 
