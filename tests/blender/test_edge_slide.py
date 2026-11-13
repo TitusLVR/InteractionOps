@@ -1,13 +1,13 @@
-"""Headless tests of Smart Edge Slide on real BMesh data: the bridge (chains
+"""Headless tests of Edge Slide on real BMesh data: the bridge (chains
 from the selection, band sides, wedge faces and step lids) and the operator's
 execute(). Run from the repo root via:
 
-    blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_smart_edge_slide.py
+    blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_edge_slide.py
 
 No viewport is needed: the bridge tests build their own bmesh, the execute()
 tests put each mesh in an object of its own and run the operator in Edit Mode.
 The destructive mode's tests build the pure-Python band fixtures
-(tests/smart_edge_slide_fixtures.py) as meshes and apply WaveSlider cuts.
+(tests/edge_slide_fixtures.py) as meshes and apply WaveSlider cuts.
 
 Not collected by pytest (tests/conftest.py ignores tests/blender).
 """
@@ -28,7 +28,7 @@ from mathutils.bvhtree import BVHTree
 
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:   # the helper module beside this script
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import smart_edge_slide_topology as topology
+import edge_slide_topology as topology
 
 ADDON = "InteractionOps"
 
@@ -51,23 +51,23 @@ def enable_addon():
     import InteractionOps
     loaded = os.path.dirname(os.path.abspath(InteractionOps.__file__))
     assert os.path.samefile(loaded, repo_root), f"addon loaded from {loaded}"
-    from InteractionOps.operators import mesh_smart_edge_slide_bridge as _bridge
+    from InteractionOps.operators import mesh_edge_slide_bridge as _bridge
     from InteractionOps.operators import uv_stripe_bridge as _stripe_bridge
-    from InteractionOps.operators.mesh_smart_edge_slide import IOPS_OT_smart_edge_slide
-    from InteractionOps.utils import smart_edge_slide_core as _core
-    from InteractionOps.utils import smart_edge_slide_wave as _wave
+    from InteractionOps.operators.mesh_edge_slide import IOPS_OT_edge_slide
+    from InteractionOps.utils import edge_slide_core as _core
+    from InteractionOps.utils import edge_slide_wave as _wave
     bridge = _bridge
     core = _core
-    operator = IOPS_OT_smart_edge_slide
+    operator = IOPS_OT_edge_slide
     stripe_bridge = _stripe_bridge
     wave = _wave
     fixtures = _import_fixtures(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _import_fixtures(tests_dir):
-    """tests/smart_edge_slide_fixtures.py, the pure-Python band fixtures, built on the add-on's own core.
+    """tests/edge_slide_fixtures.py, the pure-Python band fixtures, built on the add-on's own core.
 
-    pytest runs them from the repo root, where they import ``utils.smart_edge_slide_core``. Here ``utils`` and
+    pytest runs them from the repo root, where they import ``utils.edge_slide_core``. Here ``utils`` and
     its loaded modules are aliased to the add-on's own ``InteractionOps.utils``, so the fixtures build the
     add-on's ``Band``: one class identity, and the core is never loaded twice.
     """
@@ -78,7 +78,7 @@ def _import_fixtures(tests_dir):
             sys.modules.setdefault(name[len(ADDON) + 1:], module)
     if tests_dir not in sys.path:
         sys.path.insert(0, tests_dir)
-    return importlib.import_module("smart_edge_slide_fixtures")
+    return importlib.import_module("edge_slide_fixtures")
 
 
 # --- mesh builders ---------------------------------------------------------------
@@ -398,7 +398,7 @@ def _ring_build(bm, chain):
 
 
 def _band_mesh(band):
-    """A core fixture band (``smart_edge_slide_fixtures``) as a bmesh: its vertex i and face f at index i and f."""
+    """A core fixture band (``edge_slide_fixtures``) as a bmesh: its vertex i and face f at index i and f."""
     ids, fids = sorted(band.verts), sorted(band.faces)
     assert ids == list(range(len(ids))) and fids == list(range(len(fids))), "fixture ids are not 0 .. n-1"
     return _mesh([band.verts[i] for i in ids], [band.faces[f] for f in fids])
@@ -449,10 +449,10 @@ def _edit_object(bm, chain):
             for elem in seq:
                 elem.select = False
         _select_chain(bm, chain)
-    me = bpy.data.meshes.new("smart_edge_slide")
+    me = bpy.data.meshes.new("edge_slide")
     bm.to_mesh(me)
     bm.free()
-    obj = bpy.data.objects.new("smart_edge_slide", me)
+    obj = bpy.data.objects.new("edge_slide", me)
     bpy.context.scene.collection.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
@@ -653,7 +653,7 @@ class _KeyPress:
         self.mouse_x = self.mouse_y = self.mouse_region_x = self.mouse_region_y = 0
 
 
-# --- UV Stripe's settings, which Smart Inset and Smart Edge Slide follow -----------------
+# --- UV Stripe's settings, which Inset and Edge Slide follow -----------------
 
 # The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
 # before every test, and a test changes what it needs with _stripe_settings.
@@ -663,7 +663,7 @@ STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL",
 
 
 def _stripe_settings(**values):
-    """Set UV Stripe's last-used properties, the settings Smart Inset and Smart Edge Slide read."""
+    """Set UV Stripe's last-used properties, the settings Inset and Edge Slide read."""
     props = bpy.context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
     for name, value in values.items():
         setattr(props, name, value)
@@ -677,7 +677,7 @@ def _take_stripe_settings(props):
 
 
 def _run(bm_obj, **props):
-    return bpy.ops.iops.mesh_smart_edge_slide('EXEC_DEFAULT', **_take_stripe_settings(props))
+    return bpy.ops.iops.mesh_edge_slide('EXEC_DEFAULT', **_take_stripe_settings(props))
 
 
 # --- the modal, driven by stand-in events -----------------------------------------
@@ -1311,7 +1311,7 @@ def test_execute_reports_an_incomplete_cut():   # a failure once editing began s
     finally:
         bridge._split_face = split
     assert result == {'FINISHED'}
-    assert any(r.startswith("Smart Edge Slide: chain cut incomplete (") for r in op.reports), op.reports
+    assert any(r.startswith("Edge Slide: chain cut incomplete (") for r in op.reports), op.reports
     assert _evaluated_vertex_count(obj) == 12                      # update_edit_mesh ran
     assert _selected_edges(obj) == {_edge_key((0, .25, 0), (1, .25, 0)), _edge_key((2, .25, 0), (3, .25, 0))}
     assert not _validate_fixed_something(obj)
@@ -1341,7 +1341,7 @@ def test_execute_keeps_the_first_cut_when_a_later_chain_raises():   # the update
     finally:
         core.Slider.solve = solve
     assert result == {'FINISHED'}, op.reports
-    assert "Smart Edge Slide: chain skipped (trace did not terminate)" in op.reports, op.reports
+    assert "Edge Slide: chain skipped (trace did not terminate)" in op.reports, op.reports
     assert _new_coords(obj) == first_cut
     assert _evaluated_vertex_count(obj) == 20                      # update_edit_mesh ran
     assert not _validate_fixed_something(obj)
@@ -1379,7 +1379,7 @@ def test_execute_loop_inside_one_face_is_skipped():   # no vertex or edge to sta
     before = _counts(obj)
     op = _OperatorStandIn(width=0.25, chain_sides="+")
     assert op.execute(bpy.context) == {'CANCELLED'}
-    assert "Smart Edge Slide: chain skipped (the loop lies inside one face; use Smart Inset)" in op.reports, op.reports
+    assert "Edge Slide: chain skipped (the loop lies inside one face; use Inset)" in op.reports, op.reports
     assert _counts(obj) == before
 
 
@@ -1437,7 +1437,7 @@ def test_modal_invoke_path_smoke():
     assert op._preview_segs and all(p.y < 0 for p in op._preview_segs)
 
     op._build_overlays(region)
-    assert op._hud.title == "Smart Edge Slide"
+    assert op._hud.title == "Edge Slide"
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
         "Width", "Exact Width (E)", "Allow Collapse / Unclamp (C)", "Destructive (D)", "Auto Adjust (Q)",
@@ -1448,7 +1448,7 @@ def test_modal_invoke_path_smoke():
         ("Allow collapse", "C"), ("Destructive", "D"), ("Auto adjust", "Q"), ("UV Stripe", "U"),
         ("Flip chain side", "F"),
         ("Confirm", "LMB / Enter"), ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
-    assert op._status_text().startswith("Smart Edge Slide: width = -0.5000")
+    assert op._status_text().startswith("Edge Slide: width = -0.5000")
 
     strip = _edit_object(_strip(rows=2), chain=[0, 1, 2, 3])
     op = _OperatorStandIn(chain_sides="+")
@@ -1684,7 +1684,7 @@ def test_a_new_launch_starts_at_width_zero():
     # The width is not remembered (SKIP_SAVE): a new launch starts at 0, while the toggles, the angles and Tolerance
     # come back as last used. Blender hands a new launch the last run's props but the SKIP_SAVE ones, which start at
     # their defaults; that is what the second invoke gets here. Redo still re-runs from the operator's own props.
-    rna = bpy.ops.iops.mesh_smart_edge_slide.get_rna_type().properties
+    rna = bpy.ops.iops.mesh_edge_slide.get_rna_type().properties
     assert rna["width"].default == 0.0 and rna["width"].is_skip_save
     kept = ("use_exact", "use_collapse", "use_destructive", "use_uv_stripe", "rail_bend",
             "end_edge_angle", "step_agreement", "step_difference", "shoot_angle", "tolerance")
@@ -1813,7 +1813,7 @@ def test_uv_stripe_skips_a_strip_its_layout_rejects():   # stripe_for tries the 
     finally:
         bridge.uv_stripe_core.stripe_uvs = stripe_uvs
     assert result == {'FINISHED'}
-    assert "Smart Edge Slide: UV Stripe skipped (layout rejected)" in op.reports, op.reports
+    assert "Edge Slide: UV Stripe skipped (layout rejected)" in op.reports, op.reports
     assert _strip_uv_ranges(obj, 5.0, 5.25) == ((0.0, 1.0), (0.0, 0.083333))   # the other strip, fitted alone
 
 
@@ -1925,7 +1925,7 @@ def test_uv_stripe_split_at_bends_on_a_bent_slide():
     assert 0.3 < max(us) - min(us) < 0.75, us                # the second piece keeps the first one's scale
 
 
-def test_apply_stripes_without_contexts_fits():   # Smart Inset calls it Fit-only
+def test_apply_stripes_without_contexts_fits():   # Inset calls it Fit-only
     bm = _strip()
     build, _ = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
     applied = bridge.apply_cut(bm, build, core.Slider(build.band).solve(0.25))
@@ -2112,7 +2112,7 @@ def test_tolerance_builds_the_near_event_refusals():
 
 
 def test_tolerance_prop():
-    prop = bpy.ops.iops.mesh_smart_edge_slide.get_rna_type().properties["tolerance"]
+    prop = bpy.ops.iops.mesh_edge_slide.get_rna_type().properties["tolerance"]
     assert (prop.name, prop.subtype, prop.default, prop.hard_min) == ("Tolerance", 'DISTANCE', 0.0, 0.0)
     assert _OperatorStandIn().tolerance == prop.default
 
@@ -2231,7 +2231,7 @@ def _final_strip_spreads(bm, build, cut, slider):
 
 def test_uv_stripe_lays_out_final_states():
     # Each final state gets one straight strip (V within 1e-6 of 0 on the chain, of the width on the new loop), its
-    # triangles where vertices merged, as UV Stripe lays out Smart Inset's collapsed insets (``corner_far``):
+    # triangles where vertices merged, as UV Stripe lays out Inset's collapsed insets (``corner_far``):
     # - square_in_grid past 1: the apex, the four triangles fanning into it;
     # - the L n-gon past 1/2: the walk round its tree, its knee twice on the far row;
     # - u_in_grid past 2.5: the ridge into a quad and back, its mouth point twice on the far row, its tip in between;
@@ -3154,7 +3154,7 @@ def test_execute_skips_a_refused_chain_and_cuts_the_other():
     count_left = _read(obj, lambda b: sum(v.co.x < 15.0 for v in b.verts))
     op = _OperatorStandIn(width=0.936565, chain_sides="++", use_destructive=True)
     assert op.execute(bpy.context) == {'FINISHED'}
-    assert op.reports == [f"Smart Edge Slide: chain skipped ({bridge.LOOP_CROSSES})"], op.reports
+    assert op.reports == [f"Edge Slide: chain skipped ({bridge.LOOP_CROSSES})"], op.reports
     assert _read(obj, lambda b: sum(v.co.x < 15.0 for v in b.verts)) == count_left        # nothing cut there
     picked = _selected_edges(obj)
     assert picked and all(min(p[0][0], p[1][0]) > 15.0 for p in picked)                    # only the clean chain's loop
@@ -3168,7 +3168,7 @@ def test_execute_destructive_uv_stripe_per_piece():
         op = _OperatorStandIn(width=width, chain_sides="+", use_destructive=True, use_uv_stripe=True)
         assert op.execute(bpy.context) == {'FINISHED'}
         warnings = [r for r in op.reports if "UV Stripe skipped" in r]
-        assert warnings == [f"Smart Edge Slide: UV Stripe skipped ({bridge.PIECE_OPEN_SIDE})"] * skipped, op.reports
+        assert warnings == [f"Edge Slide: UV Stripe skipped ({bridge.PIECE_OPEN_SIDE})"] * skipped, op.reports
         assert len(op.reports) == skipped, op.reports
         assert _read(obj, lambda bm: bool(bm.loops.layers.uv)) == (skipped == 0)
 
@@ -3222,7 +3222,7 @@ def test_modal_preview_leaves_out_a_chain_confirm_refuses():
     op._finish(ctx)
     run = _OperatorStandIn(width=0.936565, chain_sides="++", use_destructive=True)
     assert run.execute(bpy.context) == {'FINISHED'}
-    assert run.reports == [f"Smart Edge Slide: chain skipped ({bridge.LOOP_CROSSES})"], run.reports
+    assert run.reports == [f"Edge Slide: chain skipped ({bridge.LOOP_CROSSES})"], run.reports
     assert obj.name
 
 
@@ -3309,7 +3309,7 @@ def _capped_cylinder(sides):
     return bm
 
 
-NGON_WARNING = "Smart Edge Slide: Destructive is off for a chain next to a face with more than 48 sides"
+NGON_WARNING = "Edge Slide: Destructive is off for a chain next to a face with more than 48 sides"
 
 
 def _same_points(points, coords, tol=1e-5):
@@ -3417,7 +3417,7 @@ def test_destructive_turns_an_unexpected_error_into_a_skip():
         assert op.execute(bpy.context) == {'CANCELLED'}
     finally:
         bridge._split_face = split
-    assert op.reports[0] == "Smart Edge Slide: chain skipped (the trial build failed (TypeError: broken split))", \
+    assert op.reports[0] == "Edge Slide: chain skipped (the trial build failed (TypeError: broken split))", \
         op.reports
     assert _counts(obj) == before
 
@@ -3436,7 +3436,7 @@ def test_destructive_turns_an_unexpected_error_into_a_skip():
         assert op.execute(bpy.context) == {'FINISHED'}
     finally:
         bridge._split_face, bridge._trial_failure = split, trial
-    assert op.reports == ["Smart Edge Slide: chain skipped (TypeError: broken split)"], op.reports
+    assert op.reports == ["Edge Slide: chain skipped (TypeError: broken split)"], op.reports
     assert _counts(obj) != before
 
     _edit_object(_band_mesh(fixtures.u_wall()), chain=band.chain)
@@ -3451,7 +3451,7 @@ def test_destructive_turns_an_unexpected_error_into_a_skip():
         assert op.execute(bpy.context) == {'FINISHED'}
     finally:
         bridge.stripe_for = stripe_for
-    assert op.reports == ["Smart Edge Slide: UV Stripe skipped (KeyError: 'broken strip')"] * 3, op.reports
+    assert op.reports == ["Edge Slide: UV Stripe skipped (KeyError: 'broken strip')"] * 3, op.reports
 
 
 class _PanelLayout:

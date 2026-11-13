@@ -1,4 +1,4 @@
-"""Smart Edge Slide on the reference mesh: a standalone headless check, not part
+"""Edge Slide on the reference mesh: a standalone headless check, not part
 of the regular suite (tests/conftest.py ignores tests/blender, and nothing else
 runs it).
 
@@ -12,7 +12,7 @@ repo root:
         --python tests/blender/check_reference_mesh.py -- <reference_mesh.json>
 
 Each run rebuilds the mesh, selects the chain and cuts it with
-``bpy.ops.iops.mesh_smart_edge_slide`` on one side: the wall side at widths 0.2,
+``bpy.ops.iops.mesh_edge_slide`` on one side: the wall side at widths 0.2,
 0.4 and 1.0, and the slanted panel side at width 0.2, all in the default mode. 1.0
 runs well past 0.377, where the first build's slide stopped. The mesh keeps
 being edited, so the check asserts properties, not vertex or face counts, which
@@ -110,9 +110,9 @@ def enable_addon():
     import InteractionOps
     loaded = os.path.dirname(os.path.abspath(InteractionOps.__file__))
     assert os.path.samefile(loaded, repo_root), f"addon loaded from {loaded}"
-    from InteractionOps.operators import mesh_smart_edge_slide_bridge as _bridge
-    from InteractionOps.utils import smart_edge_slide_core as _core
-    from InteractionOps.utils import smart_edge_slide_wave as _wave
+    from InteractionOps.operators import mesh_edge_slide_bridge as _bridge
+    from InteractionOps.utils import edge_slide_core as _core
+    from InteractionOps.utils import edge_slide_wave as _wave
     bridge = _bridge
     core = _core
     wave = _wave
@@ -337,7 +337,7 @@ def run(snap, sign, kind, width, destructive=False, limit=None, exact=False):
     side = 1 if sign == "+" else -1
     before["limit"] = side_limit(obj, side, destructive) if limit is None else limit
     anchors, chain_ids = panel_anchors(obj, side, width) if kind == "panel" else ([], None)
-    result = bpy.ops.iops.mesh_smart_edge_slide(
+    result = bpy.ops.iops.mesh_edge_slide(
         'EXEC_DEFAULT', width=width, chain_sides=sign, use_destructive=destructive, use_exact=exact)
     bm = _bm(obj)
     after = _state(bm)

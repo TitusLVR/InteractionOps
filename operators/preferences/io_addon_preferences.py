@@ -3,6 +3,7 @@ import os
 import json
 from ...prefs.iops_prefs import get_iops_prefs
 from ...utils.split_areas_dict import split_areas_dict, split_areas_position_list
+from ...utils.renamed_idnames import migrate_idname, migrate_operator_call
 
 # Save Addon Preferences
 def save_iops_preferences():
@@ -271,6 +272,11 @@ def load_iops_preferences():
                                             val_ = safe_get(ctx_data, key_, ctx_defaults.get(key_))
                                             if val_ is None:
                                                 continue
+                                            # Saved under an operator's old idname: follow the rename.
+                                            if suffix == "content":
+                                                val_ = migrate_idname(val_)
+                                            elif suffix == "custom":
+                                                val_ = migrate_operator_call(val_)
                                             try:
                                                 setattr(prefs, key_, val_)
                                             except (TypeError, ValueError) as e:

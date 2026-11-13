@@ -1,4 +1,4 @@
-"""Pure-Python 2D wavefront (simplified straight skeleton) for Smart Inset.
+"""Pure-Python 2D wavefront (simplified straight skeleton) for Inset.
 
 No bpy imports — unit-testable with plain pytest. Outer loops CCW,
 holes CW; inward edge normal is the left normal of the edge direction.

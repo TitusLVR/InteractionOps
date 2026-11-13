@@ -1,6 +1,6 @@
-"""Smart Edge Slide bridge: from the edit mesh to core bands, and core cuts back onto it.
+"""Edge Slide bridge: from the edit mesh to core bands, and core cuts back onto it.
 
-``utils/smart_edge_slide_core`` knows nothing about bpy. This module turns the
+``utils/edge_slide_core`` knows nothing about bpy. This module turns the
 selection into chains and one side of one chain into a core ``Band``:
 
 1. chains are the connected runs of selected, visible edges, in an order that
@@ -42,7 +42,7 @@ import bmesh
 from bmesh.types import BMEdge, BMFace, BMLoop, BMVert
 from mathutils import Vector, geometry
 
-from ..utils import smart_edge_slide_core as core
+from ..utils import edge_slide_core as core
 from ..utils import uv_stripe_core
 
 BRANCHING = "branching selection"
@@ -55,7 +55,7 @@ WEDGE_INTERRUPTED = (
 MIXED_SECTORS = "chain vertex side faces with inconsistent normals"
 STEP_GAP = "the cut across a step leaves a gap in the faces under it"
 LOOSE_LOOP = "new loop does not run between two separate vertices or edges"
-INSIDE_ONE_FACE = "the loop lies inside one face; use Smart Inset"
+INSIDE_ONE_FACE = "the loop lies inside one face; use Inset"
 NO_SHARED_FACE = "consecutive new loop points share no face"
 NO_CUT_EDGE = "new loop point on an edge the mesh does not have"
 PIECE_FAILED = "a piece of the new loop could not be cut into its face"
@@ -2683,7 +2683,7 @@ def _revisits(near: list[BMVert], loop: list[BMVert], rungs: list[tuple[int, int
     """(rungs, ``corner_far``) for a far row that passes one vertex more than once.
 
     A final state can come back to a vertex: a tree's walk passes each junction once per branch, a ridge's tip runs
-    from its wall point and back to it. Smart Inset's collapsed insets reach UV Stripe the same way: each corner on
+    from its wall point and back to it. Inset's collapsed insets reach UV Stripe the same way: each corner on
     such a vertex takes the occurrence its face lies at (``uv_stripe_core.Strip.corner_far``), and the strip has
     triangles where the far row folds. The rungs' far indices (each the vertex's first occurrence) are moved onto
     occurrences that ascend in chain order, trying each occurrence for the first rung (a closed strip may start

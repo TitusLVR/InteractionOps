@@ -1,6 +1,6 @@
-"""Smart Edge Slide destructive mode (D): the new loop moves as a wavefront.
+"""Edge Slide destructive mode (D): the new loop moves as a wavefront.
 
-Stdlib only (no bpy), like ``smart_edge_slide_core``, and unit-tested the same way.
+Stdlib only (no bpy), like ``edge_slide_core``, and unit-tested the same way.
 
 ``WaveSlider`` is a ``Slider`` whose ``solve``, ``limit`` and ``snap_width`` also
 take ``destructive``. Off, each returns exactly what ``Slider``'s does. On, it
@@ -75,7 +75,7 @@ Events (``WaveEvent``):
 - ``contact``: a reflex vertex k of a closed loop (no cut yet), not merged,
   reaches a segment j of the loop that is not its neighbour, or a vertex v of
   it (``_contacts``, in k's own development along the chain, never one of the
-  whole band). The loop splits there, as Smart Inset's wavefront does: one ring
+  whole band). The loop splits there, as Inset's wavefront does: one ring
   keeps the segments from k to j, the other those from j round to k; each
   drops the other's, which merge into one group in it at the contact, where its
   outer chain edges' offset lines meet (``_touch``). A ring that encloses no
@@ -171,7 +171,7 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple
 
-from .smart_edge_slide_core import (
+from .edge_slide_core import (
     _ANCHOR_SNAP_TOL,
     _SEGMENT_MEET_TOL,
     _SNAP_SCAN,
@@ -403,7 +403,7 @@ class WaveSlider(Slider):
         # Per mode, each piece in its final state, by its first chain vertex mod n: its points as ``_piece_xy`` gives
         # them per vertex first..last (``_freeze``).
         self._frozen: dict[bool, dict[int, list[Vec2]]] = {False: {}, True: {}}
-        # The weld the bridge builds with (``mesh_smart_edge_slide_bridge._tolerance``: 1e-6, or 4 float32 steps at the
+        # The weld the bridge builds with (``mesh_edge_slide_bridge._tolerance``: 1e-6, or 4 float32 steps at the
         # band's largest coordinate): in D, points no further apart are one, and no cut carries a segment that short.
         # A Tolerance above it raises it: every hold, snap, thinness and contact test of the wave uses this one value.
         self._weld = max(1e-6, 4.0 * 2.0 ** -23 * max((abs(c) for p in band.verts.values() for c in p), default=0.0),
@@ -1423,7 +1423,7 @@ class WaveSlider(Slider):
 
         A reflex vertex (its wedge's ``theta`` above pi by more than ``_PARALLEL_SIN``, so a straight vertex is never
         reflex by float noise, nor taken for one that is not: its side's neighbours reach as far) splits the loop as
-        Smart Inset's does. One that is not reflex reaches a part of the loop
+        Inset's does. One that is not reflex reaches a part of the loop
         that is not its neighbour only where the loop's sides close on each other: a sliver ring whose long sides meet
         a hair before its short ends fold (the jittered dumbbells' small rooms). For it the loop's vertices either side
         are its neighbours with their groups whole, so reaching one of those is a fold, not a contact; and it counts
@@ -1516,7 +1516,7 @@ class WaveSlider(Slider):
         the chords (k, j, v) that split it); None when no ring with area is left but the loop itself.
 
         A contact of vertex k with segment j (or with its vertex v) splits the
-        ring that holds both, as Smart Inset's split does: one ring keeps the
+        ring that holds both, as Inset's split does: one ring keeps the
         segments from k on to j (to v's segment before it), the other those from
         j (from v) on round to k's before it. Each drops the other's, which merge
         into one group in it at the contact, where its outer chain edges' offset

@@ -1,7 +1,7 @@
-"""Headless tests of UV Stripe in Smart Inset: the operator's execute() on real
+"""Headless tests of UV Stripe in Inset: the operator's execute() on real
 meshes in Edit Mode, and the modal's U key, HUD and help. Run from the repo root via:
 
-    blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_smart_inset_uv_stripe.py
+    blender --background --factory-startup --python-exit-code 1 --python tests/blender/test_inset_uv_stripe.py
 
 No viewport is needed: every test puts its mesh in an object of its own and runs
 the operator in Edit Mode.
@@ -33,8 +33,8 @@ def enable_addon():
     import InteractionOps
     loaded = os.path.dirname(os.path.abspath(InteractionOps.__file__))
     assert os.path.samefile(loaded, repo_root), f"addon loaded from {loaded}"
-    from InteractionOps.operators.mesh_smart_inset import IOPS_OT_smart_inset
-    operator = IOPS_OT_smart_inset
+    from InteractionOps.operators.mesh_inset import IOPS_OT_inset
+    operator = IOPS_OT_inset
 
 
 # --- mesh builders ---------------------------------------------------------------
@@ -57,10 +57,10 @@ def _object(points, faces, uv_size=None):
         for f in bm.faces:
             for lp in f.loops:
                 lp[layer].uv = lp.vert.co.xy / uv_size + Vector((0.5, 0.5))
-    me = bpy.data.meshes.new("smart_inset")
+    me = bpy.data.meshes.new("inset")
     bm.to_mesh(me)
     bm.free()
-    obj = bpy.data.objects.new("smart_inset", me)
+    obj = bpy.data.objects.new("inset", me)
     bpy.context.scene.collection.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
@@ -172,7 +172,7 @@ def _uv_bbox(obj):
     return (min(us), max(us)), (min(vs), max(vs))
 
 
-# --- UV Stripe's settings, which Smart Inset and Smart Edge Slide follow -----------------
+# --- UV Stripe's settings, which Inset and Edge Slide follow -----------------
 
 # The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
 # before every test, and a test changes what it needs with _stripe_settings.
@@ -182,7 +182,7 @@ STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL",
 
 
 def _stripe_settings(**values):
-    """Set UV Stripe's last-used properties, the settings Smart Inset and Smart Edge Slide read."""
+    """Set UV Stripe's last-used properties, the settings Inset and Edge Slide read."""
     props = bpy.context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
     for name, value in values.items():
         setattr(props, name, value)
@@ -196,7 +196,7 @@ def _take_stripe_settings(props):
 
 
 def _inset(**props):
-    return bpy.ops.iops.mesh_smart_inset('EXEC_DEFAULT', **_take_stripe_settings(props))
+    return bpy.ops.iops.mesh_inset('EXEC_DEFAULT', **_take_stripe_settings(props))
 
 
 # --- modal stand-ins ---------------------------------------------------------------
@@ -428,7 +428,7 @@ def test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole():
         assert op._run(bpy.context) == {'FINISHED'}
     finally:
         select_core.slice_strip = real
-    assert op.reports == ["Smart Inset: UV Stripe not split (refused for the test)"], op.reports
+    assert op.reports == ["Inset: UV Stripe not split (refused for the test)"], op.reports
     assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.021739))
     assert _seam_vertex_has_u0_and_u1(obj)
 

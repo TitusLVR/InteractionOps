@@ -1,4 +1,4 @@
-"""Straight cross edges (``Strip.layout`` "STRAIGHT") on the strip shapes Smart Inset and Smart Edge Slide build:
+"""Straight cross edges (``Strip.layout`` "STRAIGHT") on the strip shapes Inset and Edge Slide build:
 repeated far ids, a near row that starts and ends on one vertex, collapsed segments, rungs starting mid-loop and
 a seam on a collapse node."""
 

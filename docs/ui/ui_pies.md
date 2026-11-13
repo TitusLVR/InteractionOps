@@ -23,7 +23,7 @@ The everyday toolbox: vertex colours, object tools, mesh tools and the Easy Modi
 | | **Quick Snap** | Snap mesh elements point to point |
 | | **Quick Connect** | Connect selected vertices across faces |
 | | **Tris to Quads** | Triangulate and re-quad the selection |
-| | **Smart Inset**, **Smart Edge Slide**, **Straight Bevel**, **Shear**, **Hinge**, **Converge**, **Vert Fuse** | Edit Mesh tools (hidden outside Edit Mode) |
+| | **Inset**, **Edge Slide**, **Straight Bevel**, **Shear**, **Hinge**, **Converge**, **Vert Fuse** | Edit Mesh tools (hidden outside Edit Mode) |
 | | **Drop It!** | Drop objects onto the surface below |
 | | **Grid** / **to Center** | Arrange kitbash pieces on a grid or gather them at the centre |
 | | **Easy Modifier - Array Caps / Array Curve / Curve / SHWARP** | Modifier setup shortcuts |

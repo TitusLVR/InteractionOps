@@ -1,10 +1,10 @@
-# Smart Edge Slide
+# Edge Slide
 
-![Smart Edge Slide](../img/ops/op_mesh_smart_edge_slide.png)
+![Edge Slide](../img/ops/op_mesh_edge_slide.png)
 
 Cuts a new edge loop beside each selected chain of edges, at a set distance from it. The width is measured in the surface on one side of the chain, so on a folded strip such as a fillet it is the distance along the surface, not a straight chord. Every chain vertex is joined to its new vertex, so the strip between the two loops becomes quads where it can. Drag for width, type an exact value or Ctrl-snap it to a vertex, and flip the side of any chain with F. Edit Mesh mode.
 
-**Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Pie › Smart Edge Slide.
+**Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the iOps pie / operator search. Also available: iOps Pie › Edge Slide.
 
 ## Controls
 | Key | Action |
@@ -42,7 +42,7 @@ Cuts a new edge loop beside each selected chain of edges, at a set distance from
 - On an open chain each end of the new loop slides along an end wall: the edge that leaves the chain's end vertex across the side (the first one at least the **End Edge Angle**, 60° by default, off the chain), continued edge by edge across the rows. The loop never reaches round the end of the chain past it. Where the two ends' walls meet, an end turns there onto the other end's wall and slides on along it. Where the border of the side surface comes before any such edge, that end slides along the border instead.
 - In the default mode each chain vertex gets one new vertex. Where the source loop bends against the side's edges, the width between two new vertices can drift slightly mid-edge; Exact Width removes that drift at the cost of extra points.
 - A connecting edge from a chain vertex to its new vertex is skipped where it would cross an existing edge; the face stays an n-gon there.
-- With Destructive off, a closed chain round a single face, such as the border of an n-gon cap, is skipped: its new loop would lie inside that one face, with no edge to cut it into. Use [Smart Inset](op_mesh_smart_inset.md) there, or turn Destructive on: it builds that inset itself.
+- With Destructive off, a closed chain round a single face, such as the border of an n-gon cap, is skipped: its new loop would lie inside that one face, with no edge to cut it into. Use [Inset](op_mesh_inset.md) there, or turn Destructive on: it builds that inset itself.
 
 ## Destructive mode
 Press <kbd>D</kbd> (or tick **Destructive** in the redo panel) to let the new loop run like a skeleton of the chain, the way a straight skeleton grows inwards, instead of stopping at the first trouble:
@@ -56,7 +56,7 @@ Press <kbd>D</kbd> (or tick **Destructive** in the redo panel) to let the new lo
 - **Very large faces.** Next to a face with more than 48 sides the destructive mode would be slow, so Destructive is off for that chain: it is cut as with Allow Collapse, and a warning says so. The other chains keep Destructive.
 - **Rough meshes.** On a very rough or noisy mesh the slide may refuse a cut close to the width at which two parts of the loop meet. Raising **Tolerance** usually lets it through.
 
-With **UV Stripe** on, each piece of an opened loop gets its own strip, and several strips stack as with several chains. Where merged vertices leave triangles in the strip they are laid out as they are for a collapsed Smart Inset. A piece that cannot form a strip, such as one whose end shot onto a far edge and left no strip shape, is skipped with the usual UV Stripe warning.
+With **UV Stripe** on, each piece of an opened loop gets its own strip, and several strips stack as with several chains. Where merged vertices leave triangles in the strip they are laid out as they are for a collapsed Inset. A piece that cannot form a strip, such as one whose end shot onto a far edge and left no strip shape, is skipped with the usual UV Stripe warning.
 
 With Destructive off everything works as described above, unchanged.
 

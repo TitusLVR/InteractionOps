@@ -764,7 +764,12 @@ def merge_missing_defaults(keys):
     Called on load so operators newly made bindable (added to `keys_default`
     or flagged `is_bindable`) become available even for users who already have
     a saved `iops_hotkeys_user.py` file. Works in-memory only; the file is
-    rewritten solely when the user clicks Save."""
+    rewritten solely when the user clicks Save.
+
+    Rows saved under a renamed operator's old idname first move to the new
+    idname (`migrate_key_rows`), keeping the user's binding."""
+    from .renamed_idnames import migrate_key_rows
+    keys = migrate_key_rows(keys)
     existing = {k[0] for k in keys}
     merged = list(keys)
     for dk in build_bindable_defaults():

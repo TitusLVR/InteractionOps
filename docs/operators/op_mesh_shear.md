@@ -1,6 +1,6 @@
-# Shear (Smart)
+# Shear
 
-![Shear (Smart)](../img/ops/op_mesh_shear.png)
+![Shear](../img/ops/op_mesh_shear.png)
 
 Tilts a selected face (or edge) by a typed angle while its corners stay glued to the surrounding mesh — each vertex slides along its own connected edge instead of floating off. Great for "saw-off" cuts on chamfered blocks. Pick the pivot side on the on-screen widget, then extrude the sheared face along mirrored rails or hinge it around an edge without leaving the tool. Edit Mesh mode; faces take priority over edges.
 

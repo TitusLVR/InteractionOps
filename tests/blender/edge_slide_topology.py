@@ -1,6 +1,6 @@
-"""Topology checks for Smart Edge Slide's destructive cuts, on real BMesh data (Blender only: bmesh, mathutils).
+"""Topology checks for Edge Slide's destructive cuts, on real BMesh data (Blender only: bmesh, mathutils).
 
-``tests/blender/test_smart_edge_slide.py`` holds a mesh's ``snapshot`` before a cut and asks ``problems``
+``tests/blender/test_edge_slide.py`` holds a mesh's ``snapshot`` before a cut and asks ``problems``
 what the cut broke (anti-goal 2): edges crossing without a vertex, zero-length edges, faces repeating a vertex, new
 vertices off the old surface, overlapping faces. Distances are worked out in float64 with numpy. Tasks 4-7 extend it.
 """

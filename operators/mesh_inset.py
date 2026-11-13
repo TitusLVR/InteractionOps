@@ -1,7 +1,7 @@
-"""Smart Inset — bmesh bridge over the pure 2D wavefront core.
+"""Inset — bmesh bridge over the pure 2D wavefront core.
 
 The heavy lifting (simplified straight skeleton / weighted wavefront) lives in
-``utils/smart_inset_core.py`` and knows nothing about bpy. This module is the
+``utils/inset_core.py`` and knows nothing about bpy. This module is the
 bridge:
 
 1. group the selected faces into regions (connected components, or one region
@@ -33,7 +33,7 @@ from mathutils.geometry import tessellate_polygon
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, BoolProperty, EnumProperty
 
-from ..utils import smart_inset_core as core
+from ..utils import inset_core as core
 from ..utils import uv_stripe_core
 from . import uv_stripe_bridge
 from ..ui.draw import primitives as draw, draw_scope, Role
@@ -912,7 +912,7 @@ def _fill_front_loops(front, bmvert, new_face, report=None):
             holes.setdefault(host, []).append(h)
     if unhosted and report is not None:
         report({'WARNING'},
-               "Smart Inset: %d front hole loop(s) left unfilled"
+               "Inset: %d front hole loop(s) left unfilled"
                % len(unhosted))
 
     made = 0
@@ -933,7 +933,7 @@ def _fill_front_loops(front, bmvert, new_face, report=None):
         except Exception:
             if report is not None:
                 report({'WARNING'},
-                       "Smart Inset: hole fill failed, ngon fill used")
+                       "Inset: hole fill failed, ngon fill used")
             for li in (o,) + tuple(hs):
                 made += 1 if new_face([bmvert(p) for p in front[li]]) else 0
             continue
@@ -1017,7 +1017,7 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
             plan = None
             if report is not None:
                 report({'WARNING'},
-                       "Smart Inset: interior clip failed, ngon fill used")
+                       "Inset: interior clip failed, ngon fill used")
         if plan is not None:
             chains = plan.chains
 
@@ -1063,7 +1063,7 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
             lost += 1 - n_ok
         if lost and report is not None:
             report({'WARNING'},
-                   "Smart Inset: %d clipped face(s) dropped as degenerate"
+                   "Inset: %d clipped face(s) dropped as degenerate"
                    % lost)
 
     if abs(depth) > 1e-9:
@@ -1334,11 +1334,11 @@ def stripe_for(loop):
 # --------------------------------------------------------------------------
 
 
-class IOPS_OT_smart_inset(bpy.types.Operator):
+class IOPS_OT_inset(bpy.types.Operator):
     """Inset selected faces with a straight-skeleton wavefront"""
 
-    bl_idname = "iops.mesh_smart_inset"
-    bl_label = "Smart Inset"
+    bl_idname = "iops.mesh_inset"
+    bl_label = "Inset"
     bl_description = (
         "Inset the selected faces by moving every boundary edge inward at "
         "the same speed. Unlike mesh.inset the result stays self-consistent "
@@ -1433,12 +1433,12 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # hold live BMVert references that a mesh update would invalidate.
         regions, warnings = collect_regions(bm, self.mode)
         for msg in warnings:
-            self.report({'WARNING'}, "Smart Inset: region skipped (%s)" % msg)
+            self.report({'WARNING'}, "Inset: region skipped (%s)" % msg)
         self._regions = self._build_timelines(regions)
         if not self._regions:
             if not warnings:
                 self.report({'WARNING'},
-                            "Smart Inset: no usable face selection")
+                            "Inset: no usable face selection")
             return {'CANCELLED'}
 
         self._obj = obj
@@ -1509,8 +1509,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def _build_overlays(self, region):
-        self._hud = HUDOverlay("smart_inset")
-        self._hud.title = "Smart Inset"
+        self._hud = HUDOverlay("inset")
+        self._hud.title = "Inset"
         self._hud.bind_region(region)
         self._hud.add_param(HUDParam(
             "Thickness", self._hud_thickness, "float", fmt="{:.4f}"))
@@ -1524,8 +1524,8 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         self._hud.add_param(HUDParam(
             "UV Stripe (U)", lambda: self.use_uv_stripe, "bool"))
 
-        self._help = HelpOverlay("smart_inset")
-        self._help.add_section(HUDSection("Smart Inset", [
+        self._help = HelpOverlay("inset")
+        self._help.add_section(HUDSection("Inset", [
             HUDItem("Adjust thickness", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Depth",            "Ctrl + Mouse", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Mode",             "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -1553,11 +1553,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                     resolve_weights(region, self.use_boundary))
             except ValueError as ex:
                 self.report({'WARNING'},
-                            "Smart Inset: region skipped (%s)" % ex)
+                            "Inset: region skipped (%s)" % ex)
                 continue
             if tl.truncated:
                 self.report({'WARNING'},
-                            "Smart Inset: wavefront truncated, result may be "
+                            "Inset: wavefront truncated, result may be "
                             "incomplete")
             out.append((region, tl))
         return out
@@ -1571,7 +1571,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             # down so the viewport is not left with a dangling callback.
             self._finish(context)
             self.report({'WARNING'},
-                        "Smart Inset: bmesh data became invalid — cancelled")
+                        "Inset: bmesh data became invalid — cancelled")
             return {'CANCELLED'}
         except Exception:
             self._finish(context)
@@ -1795,10 +1795,10 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         regions, warnings = collect_regions(self._bm, new_mode)
         built = self._build_timelines(regions)
         for msg in warnings:
-            self.report({'WARNING'}, "Smart Inset: region skipped (%s)" % msg)
+            self.report({'WARNING'}, "Inset: region skipped (%s)" % msg)
         if not built:
             self.report({'WARNING'},
-                        "Smart Inset: mode change left no usable regions "
+                        "Inset: mode change left no usable regions "
                         "— reverted")
             return
         self.mode = new_mode
@@ -1823,7 +1823,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         if not built:
             self.use_boundary = prev_use_boundary
             self.report({'WARNING'},
-                        "Smart Inset: boundary toggle left no usable "
+                        "Inset: boundary toggle left no usable "
                         "regions — reverted")
             return
         self._regions = built
@@ -1857,7 +1857,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
     def _status_text(self):
         typed = f" | typing: {self._input_str}" if self._input_str else ""
         return (
-            f"Smart Inset: thickness = {self.thickness:.4f}{typed} | "
+            f"Inset: thickness = {self.thickness:.4f}{typed} | "
             f"depth = {self.depth:.4f} | "
             f"mode = {self.mode} (I) | "
             f"collapse = {'on' if self.use_collapse else 'off'} (C) | "
@@ -2083,14 +2083,14 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
 
         regions, warnings = collect_regions(bm, self.mode)
         for msg in warnings:
-            self.report({'WARNING'}, "Smart Inset: region skipped (%s)" % msg)
+            self.report({'WARNING'}, "Inset: region skipped (%s)" % msg)
         if not regions:
             if not warnings:
-                self.report({'WARNING'}, "Smart Inset: no faces selected")
+                self.report({'WARNING'}, "Inset: no faces selected")
             return {'CANCELLED'}
         if abs(t) <= EPS:
             self.report({'WARNING'},
-                        "Smart Inset: zero thickness — nothing to apply")
+                        "Inset: zero thickness — nothing to apply")
             return {'CANCELLED'}
 
         changed = 0
@@ -2119,7 +2119,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
             # region whose first event is at t=0, an all-frozen boundary, ...)
             # but returning CANCELLED without a word looks like a dead hotkey.
             self.report({'WARNING'},
-                        "Smart Inset: effective thickness is zero for every "
+                        "Inset: effective thickness is zero for every "
                         "region — nothing to apply (try Collapse/Boundary on, "
                         "or a larger thickness)")
             return {'CANCELLED'}
@@ -2129,7 +2129,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         # leave the change unundoable.
         if not changed:
             self.report({'WARNING'},
-                        "Smart Inset: no faces produced for this thickness")
+                        "Inset: no faces produced for this thickness")
         if self.use_uv_stripe:
             self._uv_stripe(context, bm, stripes)
         # apply_inset/_apply_outset set the face-level selection; propagate it
@@ -2149,7 +2149,7 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
         ``_copy_face_attrs`` interpolated onto them: In Place puts every strip
         back where its own faces were. The settings are UV Stripe's last-used ones
         (``uv_stripe_bridge.StripeSettings.from_last``): the pieces go through
-        ``prepare_strip`` and ``finish_stripes``, as in UV Stripe and Smart Edge Slide.
+        ``prepare_strip`` and ``finish_stripes``, as in UV Stripe and Edge Slide.
         Split at Seams and Merge Doubles do not apply to new wall faces; Active without
         the active face among the walls lays out In Place, silently.
         """
@@ -2165,11 +2165,11 @@ class IOPS_OT_smart_inset(bpy.types.Operator):
                     for loop in loops
                 ]
             except ValueError as exc:
-                self.report({'WARNING'}, f"Smart Inset: UV Stripe skipped ({exc})")
+                self.report({'WARNING'}, f"Inset: UV Stripe skipped ({exc})")
                 continue
             for pieces, reason in built:   # the pieces of one loop share a Fit scale
                 if reason:
-                    self.report({'WARNING'}, f"Smart Inset: UV Stripe not split ({reason})")
+                    self.report({'WARNING'}, f"Inset: UV Stripe not split ({reason})")
                 group = len(set(groups))
                 for strip, strip_faces in pieces:
                     contexts.append(uv_stripe_bridge.uv_context(bm, list(strip_faces.values())))

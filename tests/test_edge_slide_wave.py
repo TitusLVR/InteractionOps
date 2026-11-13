@@ -3,7 +3,7 @@ import math
 import random
 
 import pytest
-from smart_edge_slide_fixtures import (
+from edge_slide_fixtures import (
     _flat_band,
     asymmetric_l_ngon,
     bumped_arm,
@@ -30,9 +30,9 @@ from smart_edge_slide_fixtures import (
     u_wall,
     xy_jittered,
 )
-from test_smart_edge_slide_core import end_slide, fold_box, grid_open, jittered_grid, strip2, u_in_grid, walls_meet
+from test_edge_slide_core import end_slide, fold_box, grid_open, jittered_grid, strip2, u_in_grid, walls_meet
 
-from utils.smart_edge_slide_core import (
+from utils.edge_slide_core import (
     _ANCHOR_SNAP_TOL,
     EXACT_TOL,
     Angles,
@@ -41,7 +41,7 @@ from utils.smart_edge_slide_core import (
     SurfacePoint,
     _band_scale,
 )
-from utils.smart_edge_slide_wave import _REST_HOLD, WaveSlider, _Step
+from utils.edge_slide_wave import _REST_HOLD, WaveSlider, _Step
 
 
 def tilted(band, eps):
