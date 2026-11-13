@@ -15,6 +15,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> | Loop Angle ±5° |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Sharp Angle ±5° (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±1°) |
 | <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Wheel</kbd> | Bend Angle ±5° while Split at Bends is on (<kbd>Ctrl</kbd>: ±1°) |
+| <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Wheel</kbd> | Hard Edge Angle ±5° |
 | <kbd>T</kbd> / <kbd>Shift</kbd>+<kbd>T</kbd> | Seam Side: Shortest → Bottom → Top → Left → Right → Front → Back (<kbd>Shift</kbd>: backward); drops the wall seams you picked |
 | <kbd>G</kbd> | Loop Source: Geometry / UV (UV only when the mesh had a UV map) |
 | <kbd>A</kbd> | Split at Bends on / off |
@@ -52,7 +53,10 @@ The faces are split into parts at the ring seams, and each part is one of:
 - **Wall** — a part with two or more boundary loops that is not a flat cap ring: the tube's side. It gets one lengthwise seam from one end to the other.
 - **Ring** — a one-face-wide closed band peeled off the outside of a flat cap, ring after ring inward. Laid out as one straight strip whose length is the mean of its two loops.
 - **Disk** — what is left in the middle of a flat cap (an n-gon, a triangle fan, anything): projected flat at its real size.
-- **Free part** — anything else (a dome, a closed blob): unwrapped by Blender's unwrap and scaled to its real size; a warning names it.
+- **Free part** — anything else (a dome, a closed blob): first cut as a hard-surface part (see below); what is left is unwrapped by Blender's unwrap and scaled to its real size, and a warning names it.
+
+### Hard-surface parts
+A part that is no tube, ring or cap — a cube, a bevelled box, a bracket — is cut along its hard edges in a separate pass that runs after everything above and touches only those parts: walls, rings, disks and their seams never change, even when their own edges are sharp. The hard edges are the edges **marked Sharp** inside such parts when the mesh has any there; otherwise the edges whose angle between faces reaches **Hard Edge Angle** (30° by default). Every flat piece is projected at its real size, holes included, like a cap disk; a piece that is still curved is unwrapped by Blender's unwrap with its outline as the seam. The hard edges are marked as seams. A seam loop you removed is never cut again by this pass.
 
 ## Seams
 - **Ring seams** are found automatically: a closed loop of edges whose mean angle between faces is at least **Sharp Angle** (60° by default) cuts — the rims of a tube, the edges between cap rings, junctions and diameter steps. Sharp edges that do not close into a loop do not cut, so the lengthwise edges of a low-poly tube never split the wall.
@@ -70,6 +74,7 @@ All options are also in the redo panel.
 - **Orientation** — *Horizontal* (default) runs a wall's circumference and a ring's length along U; *Vertical* turns them 90°.
 - **Layout** (walls) — *Rectangle* (default): the two seam sides are straight and parallel, each end is a straight line; width = the mean length of the two ends, height = the seam's length; the inside is relaxed. *Quads*: on a regular quad grid every quad becomes a rectangle; any other wall falls back to Rectangle with a notice. *No Stretch*: Blender's unwrap of the wall, then only the seam sides are made straight; the ends keep their natural shape.
 - **Loop Source** — *Geometry* (default) measures loop angles on the 3D positions; *UV* in the UV layout the mesh had when the tool started (where a vertex has more than one UV, that step is measured on geometry).
+- **Hard Edge Angle** — 30° by default: the angle between faces from which an edge cuts a part that is no tube (see Hard-surface parts); used only when no edge of such parts is marked Sharp. At 180° nothing is cut.
 - **Split at Bends** — off by default: when on, a wall is cut by a ring seam each time the tube has turned by **Bend Angle** (45° by default). A bend with no clean ring of edges through it gets no cut.
 - **Split at Seams** — off by default (an old unwrap leaves many seams): when on, seams already on the mesh are cuts; a seam joining a wall's two ends becomes its lengthwise seam.
 - **Seam Side** — *Shortest* by default: where each wall's automatic lengthwise seam goes (see Seams).
@@ -79,6 +84,6 @@ All options are also in the redo panel.
 
 ## Limits
 - A chamfered or rounded rim has no single sharp loop and is not found: click it to add the ring seam.
-- On a tube with 4 or 5 sides the rim's corners are sharper than the default Loop Angle, so no rim closes and the whole tube comes out as a free part: lower Loop Angle (for example to 80°) and the rims are found.
+- On a tube with 4 or 5 sides the rim's corners are sharper than the default Loop Angle, so no rim closes and the tube is no tube to UV Pipe: it is cut as a hard-surface part, into its flat faces. Lower Loop Angle (for example to 80°) and the rims are found, so it is unwrapped as a tube with one wall.
 - A closed surface with no ends (a torus) is a free part.
 - The selection, the active face, pins and the UVs of faces outside the scope are left as they are; a mesh without a UV map gets one, and cancelling removes it again.
