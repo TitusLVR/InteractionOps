@@ -18,7 +18,7 @@ Every visible mesh is a snap target, including collection instances and the geom
 | <kbd>Shift</kbd> (held at a click) | Snap to the point of the edge under the cursor |
 | <kbd>Alt</kbd> (held at a click) | Snap to the middle of the edge under the cursor |
 | <kbd>Ctrl</kbd> (held at a click) | Snap to the center of the face under the cursor |
-| <kbd>C</kbd> | Copy the source-to-target distance to the clipboard instead of moving |
+| <kbd>C</kbd> | Toggle Measure: the target click copies the source-to-target distance to the clipboard instead of moving |
 | <kbd>MMB</kbd> / Wheel | Navigate the viewport |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |

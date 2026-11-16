@@ -72,6 +72,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         hud = HUDOverlay("drag_snap")
         hud.title = "Drag Snap"
         hud.bind_region(context.region)
+        hud.add_param(HUDParam("Action", lambda: "Measure" if self._measure else "Move", "str"))
         hud.add_param(HUDParam("Snap to", lambda: _MODE_LABELS[self._mode], "str"))
         hud.add_param(HUDParam("Source", lambda: _MODE_LABELS.get(self._source_mode, "-"), "str",
                                visible_getter=lambda: self.source[0] is not None))
@@ -84,7 +85,8 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             HUDItem("Point on edge", "Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Face center", "Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Edge middle", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Copy distance to clipboard", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Measure: copy distance instead of moving", "C", ItemState.OFF,
+                    default_state=ItemState.OFF, always_show=True),
             HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
@@ -194,13 +196,17 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         self._source_mode = self._mode
 
     def _copy_distance(self):
-        if self.source[0] is None or self.preview[0] is None:
-            self.report({"WARNING"}, "Pick a source and point at a target first")
-            return False
-        distance = (self.preview[0] - self.source[0]).length
+        distance = (self.target[0] - self.source[0]).length
         bpy.context.window_manager.clipboard = str(distance)
         self.report({"INFO"}, f"Distance copied to clipboard: {distance}")
-        return True
+
+    def _toggle_measure(self):
+        self._measure = not self._measure
+        helpo = getattr(self, "help", None)
+        if helpo is not None:
+            helpo.set_state("C", ItemState.ON if self._measure else ItemState.OFF)
+        self.report({"INFO"}, "Drag Snap: measure (the target click copies the distance)"
+                    if self._measure else "Drag Snap: move")
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -230,9 +236,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             self._take_preview()
 
         elif event.type == "C" and event.value == "PRESS":
-            if self._copy_distance():
-                self.clear_draw_handlers()
-                return {"FINISHED"}
+            self._toggle_measure()
 
         elif event.type == "LEFTMOUSE" and event.value == "PRESS":
             # the element is the one for the modifiers held at this click
@@ -243,6 +247,10 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
                 if self.target[0] is None:
                     self.report({"WARNING"}, "No snap target under the mouse")
                     return {"RUNNING_MODAL"}
+                if self._measure:
+                    self._copy_distance()
+                    self.clear_draw_handlers()
+                    return {"FINISHED"}
                 self.execute(context)
                 return {"FINISHED"}
             self._set_source()
@@ -256,6 +264,10 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
                 return {"CANCELLED"}
             if self.target[0] and self.target[0] != self.source[0]:
                 # dragged from the source to a target and released there
+                if self._measure:
+                    self._copy_distance()
+                    self.clear_draw_handlers()
+                    return {"FINISHED"}
                 self.execute(context)
                 return {"FINISHED"}
             self.target = None, None
@@ -277,6 +289,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         self.active = context.view_layer.objects.active
         self.source = self.target = self.preview = self.nearest = (None, None)
         self._mode = "VERTEX"
+        self._measure = False
         self._source_mode = None
         self._nearest_shape = self._preview_shape = self._source_shape = None
         self._snap_cache = build_vertex_snap_cache(context)
