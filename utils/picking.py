@@ -105,7 +105,9 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
     `visible_only` is True, hits on objects whose `visible_get()` is False in
     the current view layer (eye-icon / H-hidden) are also pierced — depsgraph
     still contains those objects, so `scene.ray_cast` would otherwise see them.
-    The ray repeats until it hits a permitted object or runs out of iterations.
+    The ray repeats until it hits a permitted object or runs out of iterations;
+    a permitted surface that coincides with a pierced one is still hit
+    (`_coincident_permitted_hit`).
 
     Pass `region` / `rv3d` explicitly when the caller runs outside the 3D
     viewport's WINDOW region (N-panel / popup buttons); otherwise they are
@@ -191,9 +193,99 @@ def raycast_from_mouse(context, mouse_coord, *, restrict_to=None, exclude=None,
             return (True, location, normal, face_index, obj, matrix)
         if location is None:
             break
+        # A permitted surface lying on the rejected one (a collision hull on
+        # its asset, a duplicate outside local view) would be left behind
+        # the next origin: look for it before stepping past.
+        back = min(RAYCAST_OFFSET_DISTANCE, (location - current_origin).length)
+        coincident = _coincident_permitted_hit(
+            context, depsgraph, location - view_vec_norm * back,
+            location + view_vec_norm * RAYCAST_OFFSET_DISTANCE,
+            allowed=allowed, blocked=blocked, viewport=viewport,
+            visible_only=visible_only, owner_cache=owner_cache)
+        if coincident is not None:
+            return coincident
         current_origin = location + view_vec_norm * RAYCAST_OFFSET_DISTANCE
 
     return (False, None, None, None, None, None)
+
+
+# Object types `Object.ray_cast` can have a surface for.
+_RAYCAST_TYPES = frozenset({"MESH", "CURVE", "SURFACE", "FONT", "META",
+                            "CURVES", "POINTCLOUD", "VOLUME"})
+
+
+def _coincident_pool(context, viewport, visible_only, owner_cache):
+    """View-layer objects with a surface that are visible (in `viewport`
+    too when `visible_only`), memoised in `owner_cache` for a modal."""
+    key = ("coincident_pool", bool(visible_only))
+    if owner_cache is not None:
+        pool = owner_cache.get(key)
+        if pool is not None:
+            return pool
+    pool = []
+    try:
+        objects = list(context.view_layer.objects)
+    except (ReferenceError, AttributeError):
+        objects = []
+    for ob in objects:
+        try:
+            if ob.type not in _RAYCAST_TYPES:
+                continue
+            if not ob.visible_get(viewport=viewport if visible_only else None):
+                continue
+        except (ReferenceError, TypeError):
+            continue
+        pool.append(ob)
+    if owner_cache is not None:
+        owner_cache[key] = pool
+    return pool
+
+
+def _coincident_permitted_hit(context, depsgraph, start, end, *, allowed, blocked,
+                              viewport, visible_only, owner_cache):
+    """Nearest hit of a permitted view-layer object on the world segment
+    `start`-`end`, as `raycast_from_mouse` returns it, or None.
+
+    `scene.ray_cast` gives one hit per cast, so where a rejected surface
+    and a permitted one coincide it can return the rejected one and the
+    step past it then starts beyond both. Each permitted object whose
+    bounds reach the segment is cast on its own here. Collection-instance
+    geometry is not covered: only objects of the view layer are."""
+    pool = _coincident_pool(context, viewport, visible_only, owner_cache)
+    best = None
+    best_d = None
+    for ob in pool:
+        if allowed is not None and ob not in allowed:
+            continue
+        if blocked is not None and ob in blocked:
+            continue
+        try:
+            ob_eval = ob.evaluated_get(depsgraph)
+            matrix = ob_eval.matrix_world.copy()
+            inv = matrix.inverted()
+            lo = inv @ start
+            delta = inv @ end - lo
+            length = delta.length
+            if length <= 0.0:
+                continue
+            corners = [Vector(c) for c in ob_eval.bound_box]
+            if any(lo[i] < min(c[i] for c in corners) - length
+                   or lo[i] > max(c[i] for c in corners) + length for i in range(3)):
+                continue
+            ok, loc, nrm, index = ob_eval.ray_cast(lo, delta / length, distance=length)
+        except (ReferenceError, RuntimeError, ValueError, AttributeError):
+            continue
+        if not ok:
+            continue
+        world = matrix @ loc
+        d = (world - start).length_squared
+        if best_d is None or d < best_d:
+            normal = (inv.transposed().to_3x3() @ nrm)
+            if normal.length_squared > 0.0:
+                normal.normalize()
+            best_d = d
+            best = (True, world, normal, index, ob, matrix)
+    return best
 
 
 def hit_owner(depsgraph, obj, matrix, *, view_layer=None):
