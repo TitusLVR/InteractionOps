@@ -46,16 +46,17 @@ def scale_alpha(color: Sequence[float], factor) -> tuple[float, float, float, fl
     return (r, g, b, a * clamp_factor(factor))
 
 
-def occluded_opacity(backface_dimming) -> float:
+def occluded_opacity(backface_dimming, floor: float = 0.0) -> float:
     """The alpha factor for what geometry hides, from the theme's Backface Dimming (0 = drawn as in front,
-    1 = hidden): ``1 - backface_dimming``, clamped to 0..1. Anything unreadable dims nothing."""
+    1 = hidden): ``1 - backface_dimming``, clamped to 0..1, and at least ``floor`` (clamped to 0..1) for
+    drawing that must stay readable through geometry. Anything unreadable dims nothing."""
     try:
         d = float(backface_dimming)
     except (TypeError, ValueError):
         return 1.0
     if d != d:          # NaN
         return 1.0
-    return 1.0 - min(max(d, 0.0), 1.0)
+    return max(1.0 - min(max(d, 0.0), 1.0), clamp_factor(floor))
 
 
 def occlusion_passes(factor) -> list[tuple[str, float]]:
