@@ -625,13 +625,23 @@ def nearest_vertex_screen(context, obj, mouse_coord, *,
     if rv3d is None:
         return None, None
 
-    # Allow both edit-mode (bmesh) and object-mode (Mesh.vertices) access.
+    # Edit mode: the cage BMesh. Object mode: the evaluated mesh, so vertices
+    # that only modifiers create (Mirror, Array, ...) can be picked too; the
+    # object `scene.ray_cast` returns is the original, whose `data` lacks
+    # them. Indices then refer to the evaluated mesh.
     if obj.mode == "EDIT":
         bm = bmesh.from_edit_mesh(obj.data)
         bm.verts.ensure_lookup_table()
         verts_iter = ((v.index, v.co) for v in bm.verts)
     else:
-        verts_iter = ((i, v.co) for i, v in enumerate(obj.data.vertices))
+        mesh = obj.data
+        try:
+            evaluated = obj.original.evaluated_get(context.evaluated_depsgraph_get())
+            if evaluated.type == "MESH" and evaluated.data is not None:
+                mesh = evaluated.data
+        except (ReferenceError, RuntimeError, AttributeError):
+            pass
+        verts_iter = ((i, v.co) for i, v in enumerate(mesh.vertices))
 
     mw = matrix if matrix is not None else obj.matrix_world
     mouse_v = Vector(mouse_coord)
@@ -678,6 +688,305 @@ def nearest_vertex_screen(context, obj, mouse_coord, *,
         if not result:
             return idx, co_world
     return None, None
+
+
+# --- Nearest visible vertex in the whole scene ---------------------------
+
+def _real_viewport(context):
+    """The context's SpaceView3D, or None when there is no real one (a
+    test stub, a header / Properties editor context)."""
+    sv = getattr(context, "space_data", None)
+    return sv if isinstance(sv, bpy.types.SpaceView3D) else None
+
+
+def build_vertex_snap_cache(context, depsgraph=None):
+    """Snapshot of every visible mesh the viewport draws, for
+    `nearest_vertex_scene`: plain objects and collection / geometry-node
+    instances alike, with the evaluated mesh (modifiers applied) and the
+    world matrix it is drawn with. Build it once when a modal starts;
+    instances do not change while the modal holds all events.
+
+    Vertex arrays are shared per evaluated mesh, so 1000 instances of 30
+    assets read 30 meshes."""
+    if depsgraph is None:
+        depsgraph = context.evaluated_depsgraph_get()
+    viewport = _real_viewport(context)
+    owner_visible = {}
+    meshes = {}
+    edges = {}
+    entries_mesh = []
+    matrices = []
+    lo_hi = []
+    for inst in depsgraph.object_instances:
+        try:
+            ob = inst.object
+            if ob.type != "MESH":
+                continue
+            owner = (inst.parent if inst.is_instance and inst.parent is not None else ob).original
+            key = owner.as_pointer()
+            vis = owner_visible.get(key)
+            if vis is None:
+                try:
+                    vis = bool(owner.visible_get(viewport=viewport) if viewport is not None
+                               else owner.visible_get())
+                except (ReferenceError, TypeError, RuntimeError):
+                    vis = False
+                owner_visible[key] = vis
+            if not vis:
+                continue
+            me = ob.data
+            mkey = me.as_pointer()
+            cos = meshes.get(mkey)
+            if cos is None:
+                n = len(me.vertices)
+                cos = np.empty(n * 3, dtype=np.float32)
+                me.vertices.foreach_get("co", cos)
+                cos = cos.reshape(-1, 3).astype(np.float64)
+                meshes[mkey] = cos
+                ne = len(me.edges)
+                ev = np.empty(ne * 2, dtype=np.int32)
+                me.edges.foreach_get("vertices", ev)
+                edges[mkey] = ev.reshape(-1, 2)
+            if len(cos) == 0:
+                continue
+            entries_mesh.append(mkey)
+            matrices.append(np.array(inst.matrix_world, dtype=np.float64))
+            lo_hi.append((cos.min(axis=0), cos.max(axis=0)))
+        except ReferenceError:
+            continue
+    if matrices:
+        mats = np.stack(matrices)
+        lo = np.stack([a for a, _b in lo_hi])
+        hi = np.stack([b for _a, b in lo_hi])
+        # the 8 local bbox corners of every entry, in world space
+        sel = np.array([[i >> 0 & 1, i >> 1 & 1, i >> 2 & 1] for i in range(8)], dtype=bool)
+        local = np.where(sel[None, :, :], hi[:, None, :], lo[:, None, :])          # (N, 8, 3)
+        corners = np.einsum("nij,nkj->nki", mats[:, :3, :3], local) + mats[:, None, :3, 3]
+        extent = float(np.abs(corners).max()) + 1.0
+    else:
+        mats = np.zeros((0, 4, 4))
+        corners = np.zeros((0, 8, 3))
+        extent = 1.0
+    return {"mesh": entries_mesh, "matrices": mats, "corners": corners,
+            "meshes": meshes, "edges": edges, "extent": extent, "viewport": viewport}
+
+
+def _ray_to(rv3d, point, extent):
+    """World ray `(origin, direction)` from the viewer to `point`."""
+    if rv3d.is_perspective:
+        origin = rv3d.view_matrix.inverted().translation
+        d = point - origin
+        return origin, d
+    toward = rv3d.view_matrix.to_3x3().inverted() @ Vector((0.0, 0.0, 1.0))
+    toward.normalize()
+    reach = 2.0 * extent + (point.length if point is not None else 0.0)
+    origin = point + toward * reach
+    return origin, point - origin
+
+
+def _mouse_ray(region, rv3d, mouse_coord):
+    """World ray `(origin, unit direction)` under a region pixel, from the
+    inverse of the view projection (works for perspective and ortho)."""
+    inv = rv3d.perspective_matrix.inverted()
+    x = 2.0 * mouse_coord[0] / region.width - 1.0
+    y = 2.0 * mouse_coord[1] / region.height - 1.0
+    near = inv @ Vector((x, y, -1.0, 1.0))
+    far = inv @ Vector((x, y, 1.0, 1.0))
+    near = near.xyz / near.w
+    far = far.xyz / far.w
+    d = far - near
+    return near, d.normalized()
+
+
+def _is_visible(context, region, rv3d, cache, point, mouse_coord):
+    """True when the first surface on the ray from the viewer to `point` is
+    at `point` itself (nothing covers it)."""
+    origin, d = _ray_to(rv3d, point, cache["extent"])
+    dist = d.length
+    if dist <= 1e-9:
+        return True
+    viewport = cache.get("viewport")
+    hit, loc, *_ = raycast_from_mouse(
+        context, mouse_coord, region=region, rv3d=rv3d, ray=(origin, d / dist),
+        visible_only=viewport is not None, viewport=viewport,
+        owner_cache=cache.setdefault("owner_cache", {}))
+    tol = 1e-4 * dist + 1e-5
+    return not hit or (loc - origin).length >= dist - tol
+
+
+SNAP_ELEMENTS = ("VERTEX", "EDGE", "EDGE_MIDDLE")
+
+
+def nearest_vertex_scene(context, mouse_coord, *, cache,
+                         threshold_px: float = SNAP_THRESHOLD_PX,
+                         region=None, rv3d=None, max_candidates: int = 32):
+    """`nearest_element_scene` for vertices: `(co_world, None)` or
+    `(None, None)`."""
+    return nearest_element_scene(context, mouse_coord, cache=cache, element="VERTEX",
+                                 threshold_px=threshold_px, region=region, rv3d=rv3d,
+                                 max_candidates=max_candidates)
+
+
+def nearest_element_scene(context, mouse_coord, *, cache, element: str = "VERTEX",
+                          threshold_px: float = SNAP_THRESHOLD_PX,
+                          region=None, rv3d=None, max_candidates: int = 32):
+    """The visible snap point closest to `mouse_coord` on screen among every
+    mesh in `cache` (`build_vertex_snap_cache`), within `threshold_px`:
+
+    - `"VERTEX"`: a vertex;
+    - `"EDGE"`: the point of the nearest edge under the mouse;
+    - `"EDGE_MIDDLE"`: the middle of the nearest edge.
+
+    Unlike `nearest_vertex_screen` it does not stop at the object under the
+    mouse: at a seam the ray hits one object while the element to snap to
+    belongs to its neighbour, as Blender's own snapping finds it.
+
+    Objects whose screen-projected bounding box is farther than the
+    threshold from the mouse cannot hold an element within it and are
+    skipped (exact: every vertex and edge lies inside the box, whatever the
+    object's shape); every element of the rest is measured. Candidates are
+    tried nearest first, and one counts as visible when the first surface
+    on the ray from the viewer to it is the point itself, so details hidden
+    behind any geometry are passed over. For edges the point under the
+    mouse is tested, so a partly covered edge still snaps where it shows.
+
+    Returns `(co_world, edge)` where `edge` is the world `(a, b)` segment
+    for the edge modes and None for vertices, or `(None, None)`."""
+    if element not in SNAP_ELEMENTS:
+        raise ValueError(element)
+    if region is None:
+        region = context.region
+    if rv3d is None:
+        rv3d = getattr(context.space_data, "region_3d", None)
+    corners = cache["corners"]
+    if region is None or rv3d is None or len(corners) == 0:
+        return None, None
+
+    pm = np.array(rv3d.perspective_matrix, dtype=np.float64)
+    half_w, half_h = region.width / 2.0, region.height / 2.0
+    mx, my = float(mouse_coord[0]), float(mouse_coord[1])
+    thr = float(threshold_px)
+
+    # Screen bbox of every entry (exact cull).
+    flat = corners.reshape(-1, 3)
+    clip = flat @ pm[:3, :3].T + pm[:3, 3]
+    w = flat @ pm[3, :3] + pm[3, 3]
+    w = w.reshape(-1, 8)
+    with np.errstate(all="ignore"):
+        sx = (half_w * (1.0 + clip[:, 0].reshape(-1, 8) / w))
+        sy = (half_h * (1.0 + clip[:, 1].reshape(-1, 8) / w))
+    front = w > 1e-9
+    any_front = front.any(axis=1)
+    all_front = front.all(axis=1)
+    big = np.inf
+    sx_lo = np.where(front, sx, big).min(axis=1)
+    sx_hi = np.where(front, sx, -big).max(axis=1)
+    sy_lo = np.where(front, sy, big).min(axis=1)
+    sy_hi = np.where(front, sy, -big).max(axis=1)
+    inside = ((sx_lo - thr <= mx) & (mx <= sx_hi + thr)
+              & (sy_lo - thr <= my) & (my <= sy_hi + thr))
+    # A box crossing the camera plane has no exact screen bounds: keep it.
+    near = np.flatnonzero(any_front & (inside | ~all_front))
+
+    # Every element of the remaining entries within the threshold, as
+    # (screen d2, depth, probe point, snap point, edge or None).
+    found = []
+    thr2 = thr * thr
+    for i in near:
+        mkey = cache["mesh"][i]
+        cos = cache["meshes"][mkey]
+        m = cache["matrices"][i]
+        to_clip = pm @ m
+        c = cos @ to_clip[:3, :3].T + to_clip[:3, 3]
+        ww = cos @ to_clip[3, :3] + to_clip[3, 3]
+        with np.errstate(all="ignore"):
+            sx = half_w * (1.0 + c[:, 0] / ww)
+            sy = half_h * (1.0 + c[:, 1] / ww)
+            depth = c[:, 2] / ww
+        front = ww > 1e-9
+        if element == "VERTEX":
+            dx, dy = sx - mx, sy - my
+            d2 = np.where(front, dx * dx + dy * dy, np.inf)
+            hits = np.flatnonzero(d2 <= thr2)
+            if len(hits) == 0:
+                continue
+            for j in hits[np.argsort(d2[hits])][:max_candidates]:
+                p = m[:3, :3] @ cos[j] + m[:3, 3]
+                found.append((float(d2[j]), float(depth[j]), p, p, None))
+            continue
+        ed = cache["edges"].get(mkey)
+        if ed is None or len(ed) == 0:
+            continue
+        a, b = ed[:, 0], ed[:, 1]
+        ok = front[a] & front[b]
+        ax, ay, bx, by = sx[a], sy[a], sx[b], sy[b]
+        ex, ey = bx - ax, by - ay
+        ll = ex * ex + ey * ey
+        with np.errstate(all="ignore"):
+            t = np.clip(((mx - ax) * ex + (my - ay) * ey) / ll, 0.0, 1.0)
+        t = np.where(ll > 1e-12, t, 0.0)
+        px, py = ax + t * ex - mx, ay + t * ey - my
+        d2 = np.where(ok, px * px + py * py, np.inf)
+        hits = np.flatnonzero(d2 <= thr2)
+        if len(hits) == 0:
+            continue
+        for k in hits[np.argsort(d2[hits])][:max_candidates]:
+            ia, ib = int(a[k]), int(b[k])
+            pa = m[:3, :3] @ cos[ia] + m[:3, 3]
+            pb = m[:3, :3] @ cos[ib] + m[:3, 3]
+            # perspective-correct: screen parameter -> parameter on the 3D edge
+            tk, wa, wb = float(t[k]), float(ww[ia]), float(ww[ib])
+            den = (1.0 - tk) * wb + tk * wa
+            s = tk * wa / den if abs(den) > 1e-12 else tk
+            probe = pa + (pb - pa) * s
+            snap = probe if element == "EDGE" else (pa + pb) * 0.5
+            dep = float(depth[ia] + (depth[ib] - depth[ia]) * tk)
+            found.append((float(d2[k]), dep, probe, snap, (pa, pb)))
+    if not found:
+        return None, None
+    # Nearest on screen first; elements on the same pixel (a top and a
+    # bottom corner seen along an edge) nearest to the viewer first.
+    found.sort(key=lambda t: (round(t[0], 2), t[1]))
+
+    tried = set()
+    for _d2, _depth, probe, snap, edge in found[:max_candidates]:
+        key = tuple(np.round(snap, 6))
+        if key in tried:          # coincident elements of neighbouring tiles
+            continue
+        tried.add(key)
+        if _is_visible(context, region, rv3d, cache, Vector(probe), mouse_coord):
+            seg = None if edge is None else (Vector(edge[0]), Vector(edge[1]))
+            return Vector(snap), seg
+    return None, None
+
+
+def face_center_under_mouse(context, mouse_coord, *, region=None, rv3d=None,
+                            owner_cache=None):
+    """Centre of the visible face under the mouse, on the evaluated mesh
+    (modifiers applied) and placed with the hit's instance matrix, plus the
+    face outline in world space: `(center, [corners])` or `(None, None)`."""
+    if region is None:
+        region = context.region
+    if rv3d is None:
+        rv3d = getattr(context.space_data, "region_3d", None)
+    if region is None or rv3d is None:
+        return None, None
+    viewport = _real_viewport(context)
+    origin, direction = _mouse_ray(region, rv3d, mouse_coord)
+    hit, _loc, _nrm, face_index, obj, matrix = raycast_from_mouse(
+        context, mouse_coord, region=region, rv3d=rv3d, ray=(origin, direction),
+        visible_only=viewport is not None, viewport=viewport, owner_cache=owner_cache)
+    if not hit or obj is None or obj.type != "MESH" or face_index is None or face_index < 0:
+        return None, None
+    try:
+        mesh = obj.original.evaluated_get(context.evaluated_depsgraph_get()).data
+    except (ReferenceError, RuntimeError, AttributeError):
+        mesh = obj.data
+    if mesh is None or face_index >= len(mesh.polygons):
+        return None, None
+    poly = mesh.polygons[face_index]
+    outline = [matrix @ mesh.vertices[v].co for v in poly.vertices]
+    return matrix @ poly.center, outline
 
 
 # --- Closest bbox corner (object mode) ---------------------------------
