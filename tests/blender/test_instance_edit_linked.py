@@ -1640,7 +1640,46 @@ def test_newer_source_is_refused():
     assert error and "newer than this" in error and "down-version" in error, error
 
 
+def test_linked_nested_in_local_prefab(fx):
+    """A local prefab holding an instancer of the linked C: open the prefab
+    (LOCAL), then C inside it (LINKED), Cancel, Stop."""
+    build_source(fx)
+    inst, inst2 = build_editing_file(fx)
+    scene = bpy.context.scene
+    prefab = bpy.data.collections.new("Prefab")
+    nested = bpy.data.objects.new("NestedC", None)
+    nested.instance_type = "COLLECTION"
+    nested.instance_collection = inst.instance_collection
+    nested.location = (2, 0, 0)
+    prefab.objects.link(nested)
+    p = bpy.data.objects.new("P", None)
+    p.instance_type = "COLLECTION"
+    p.instance_collection = prefab
+    p.location = (0, 20, 0)
+    scene.collection.objects.link(p)
+    bpy.context.view_layer.update()
+
+    activate(p)
+    assert bpy.ops.iops.instance_edit_start() == {"FINISHED"}
+    assert top().kind == "LOCAL" and stack_len() == 1
+    # Instancers of C outside the prefab cannot nest.
+    activate(inst2)
+    assert not bpy.ops.iops.instance_edit_start.poll()
+    activate(nested)
+    assert bpy.ops.iops.instance_edit_start.poll()
+    assert bpy.ops.iops.instance_edit_start() == {"FINISHED"}
+    assert stack_len() == 2 and top().kind == "LINKED"
+    assert nested.hide_get() is True
+    assert bpy.ops.iops.instance_edit_cancel() == {"FINISHED"}
+    assert stack_len() == 1 and top().kind == "LOCAL"
+    assert nested.hide_get() is False
+    assert bpy.ops.iops.instance_edit_stop() == {"FINISHED"}
+    assert stack_len() == 0 and hidden_objects() == set()
+    assert prefab not in scene.collection.children_recursive
+
+
 TESTS = [
+    test_linked_nested_in_local_prefab,
     test_start_places_copy_and_hides_only_instancer,
     test_start_unowns_nested_same_file_collection,
     test_start_refuses_second_session_on_same_collection,

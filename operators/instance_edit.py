@@ -65,18 +65,46 @@ def collect_targets(coll):
     return list(dict.fromkeys(coll.all_objects))
 
 
-def instancers_of(scene, coll):
-    """Scene objects instancing ``coll`` or any collection that contains it."""
-    out = []
-    for obj in scene.objects:
-        if obj.instance_type != "COLLECTION":
-            continue
-        inst = obj.instance_collection
-        if inst is None:
-            continue
-        if inst == coll or coll in inst.children_recursive:
-            out.append(obj)
+def _containers_of(coll):
+    """``coll`` and every collection that shows it: through child
+    collections or through an instancer object (a prefab), at any depth."""
+    out = {coll}
+    changed = True
+    while changed:
+        changed = False
+        for c in bpy.data.collections:
+            if c in out:
+                continue
+            if any(ch in out for ch in c.children) or any(
+                o.instance_type == "COLLECTION" and o.instance_collection in out
+                for o in c.objects
+            ):
+                out.add(c)
+                changed = True
     return out
+
+
+def instancers_of(scene, coll):
+    """Scene objects instancing ``coll`` or any collection that shows it
+    (contains it, or instances it through a nested instancer)."""
+    containers = _containers_of(coll)
+    return [
+        obj
+        for obj in scene.objects
+        if obj.instance_type == "COLLECTION" and obj.instance_collection in containers
+    ]
+
+
+def nested_parent_collection(scene, obj):
+    """The collection of the open session ``obj`` can nest in (the edited
+    collection of a LOCAL session, the copy of a LINKED one), or None."""
+    top = active_session(scene)
+    if top is None or obj is None:
+        return None
+    parent = top.copy_collection if top.kind == "LINKED" else top.collection
+    if parent is None or parent.all_objects.get(obj.name) != obj:
+        return None
+    return parent
 
 
 def root_names_of(targets):
@@ -105,12 +133,16 @@ def can_start(context):
         return can_start_linked(context)
     obj = active
     if session_active(scene):
-        # A LOCAL session may nest on a LINKED one when the instancer is
-        # inside that session's copy (a local sub-collection instancer).
-        top = active_session(scene)
-        copy = top.copy_collection if top.kind == "LINKED" else None
-        if obj is None or copy is None or copy.all_objects.get(obj.name) != obj:
+        # A LOCAL session nests on the open one when the instancer is inside
+        # the collection it edits (a prefab's sub-instance) or, for a LINKED
+        # session, inside its copy.
+        if nested_parent_collection(scene, obj) is None:
             return False, "Instance edit in progress: Stop or Restore first"
+        if _is_collection_instance(obj) and any(
+            s.collection == obj.instance_collection
+            for s in scene.iops_instance_edit.sessions
+        ):
+            return False, f"'{obj.instance_collection.name}' is already being edited"
     if context.mode != "OBJECT":
         return False, "Switch to Object Mode"
     if not _is_collection_instance(obj):
@@ -633,6 +665,12 @@ class IOPS_OT_instance_edit_start(bpy.types.Operator):
         if coll is not None and coll.library is not None:
             name = os.path.basename(bpy.path.abspath(coll.library.filepath))
             return f"Edit linked collection {coll.name} (writes back to {name} on Commit)"
+        scene = getattr(context, "scene", None)
+        if coll is not None and scene is not None and session_active(scene):
+            return (
+                f"Open nested collection {coll.name} in place; "
+                f"Stop returns to {active_session(scene).collection_name}"
+            )
         return cls.__doc__
 
     @classmethod

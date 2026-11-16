@@ -21,12 +21,26 @@ def _active_linked_instancer(context):
     return coll is not None and coll.library is not None
 
 
+def _nested_instancer(context):
+    """The active object is a collection instancer inside the collection the
+    open session edits: Start can open it as a nested session."""
+    from ..operators.assets_management import _is_collection_instance
+    from ..operators.instance_edit import nested_parent_collection
+
+    obj = getattr(context, "active_object", None)
+    if not _is_collection_instance(obj):
+        return False
+    return nested_parent_collection(context.scene, obj) is not None
+
+
 def draw_iops_instance_edit_header(self, context):
     """Appended to VIEW3D_MT_editor_menus right after the Selection Sets row.
     The red button pair of an open session is drawn in every mode and
     regardless of the preference: it is the only way out. LOCAL session:
     Stop/Restore (they switch to Object Mode themselves); LINKED session:
-    Commit/Cancel, plus the session depth when nested. The idle Edit button
+    Commit/Cancel, plus the session depth when nested, plus an Open Nested
+    button in Object Mode when the active object is a collection instancer
+    inside the edited collection (a prefab's sub-instance). The idle Edit button
     (Edit Instance, or Edit Linked on a linked instancer) shows in Object and
     Edit Mode only and follows the iops_instance_edit_header preference.
     Rollback buttons (one per library with backup points in either backup
@@ -46,6 +60,9 @@ def draw_iops_instance_edit_header(self, context):
         depth = len(scene.iops_instance_edit.sessions)
         if depth > 1:
             layout.label(text=f"{depth}")
+        if context.mode == "OBJECT" and _nested_instancer(context):
+            icon = "LINKED" if _active_linked_instancer(context) else "OUTLINER_OB_GROUP_INSTANCE"
+            layout.row(align=True).operator("iops.instance_edit_start", text="", icon=icon)
         return
     if context.mode not in {"OBJECT", "EDIT_MESH"}:
         return

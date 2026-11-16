@@ -10,7 +10,7 @@ Select an instancer Empty of a collection that lives in this file (for a collect
 
 - The collection's original objects move onto the instance, become visible and selected (hidden and unselectable objects and collections included).
 - The edited collection becomes the active collection, so new objects you add land inside the asset.
-- The instancer, every other instancer of that collection and the instancers of its parent collections are hidden while you edit.
+- The instancer, every other instancer of that collection and the instancers of collections that contain it (as a child collection or through a nested instancer) are hidden while you edit.
 
 ## Stop and Restore
 
@@ -22,6 +22,14 @@ While a session is open the icon turns red and a **Restore** icon appears next t
 | **Restore** (recover icon) | Emergency exit. Puts parents, transforms and visibility back exactly as they were at Start and discards transform edits made since. Geometry, modifier and material edits stay. |
 
 Undo works across Start, Stop and Restore.
+
+## Nested instances (prefabs)
+
+A prefab is a collection that holds instancers of other collections. Open the prefab, then select one of its instancers: in Object Mode an **Open Nested** icon appears after Stop and Restore (a chain when the nested collection is linked from a library). It opens that collection in place as a session of its own, on top of the prefab's. The header shows the depth number.
+
+- Stop, Restore, Commit and Cancel act on the innermost session and bring you back to the prefab, with the nested instancer selected. Close inner sessions before the outer one.
+- Every instance that shows the nested collection is hidden while you edit it, including instances of other prefabs that contain it.
+- A collection that is already open in the stack cannot be opened again.
 
 ## Tips
 - Only uniformly scaled instances can be edited. A non-uniformly scaled or sheared instancer (or one under such a parent), or one scaled to zero, keeps the button inactive; the tooltip says "Instance is non-uniformly scaled or sheared; edit a uniformly scaled instance".
