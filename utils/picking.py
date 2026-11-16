@@ -604,9 +604,15 @@ def closest_face_edge(context, face, obj_matrix, mouse_coord):
 
 def nearest_vertex_screen(context, obj, mouse_coord, *,
                           threshold_px: float = SNAP_THRESHOLD_PX,
-                          check_occlusion: bool = False):
+                          check_occlusion: bool = False,
+                          matrix=None):
     """Find the index of the mesh vertex with smallest screen distance to
     `mouse_coord`. Returns `(index, co_world_2d_vector)` or `(None, None)`.
+
+    `matrix` places the vertices in the world instead of `obj.matrix_world`.
+    Pass the matrix of a `scene.ray_cast` hit: for geometry of a collection
+    instance the hit object is the instanced mesh, whose own matrix is its
+    place inside the collection, not where the instance is drawn.
 
     If `check_occlusion=True`, each candidate is ray-tested against the
     scene to skip vertices hidden behind other geometry.
@@ -627,7 +633,7 @@ def nearest_vertex_screen(context, obj, mouse_coord, *,
     else:
         verts_iter = ((i, v.co) for i, v in enumerate(obj.data.vertices))
 
-    mw = obj.matrix_world
+    mw = matrix if matrix is not None else obj.matrix_world
     mouse_v = Vector(mouse_coord)
     threshold_sq = threshold_px * threshold_px
 
