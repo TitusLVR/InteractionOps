@@ -1,36 +1,56 @@
 import bpy
-import numpy as np
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+                      HUDParam, ItemState, capture_event)
 from ..utils.picking import (
-    raycast_from_mouse,
-    nearest_vertex_screen,
+    build_vertex_snap_cache,
+    nearest_element_scene,
+    face_center_under_mouse,
     SNAP_THRESHOLD_PX,
 )
 
 
+# Snap element per held modifier, checked in this order.
+_MODE_LABELS = {
+    "VERTEX": "Vertex",
+    "EDGE": "Edge",
+    "EDGE_MIDDLE": "Edge middle",
+    "FACE_CENTER": "Face center",
+}
+_MODIFIER_KEYS = {"LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_CTRL", "RIGHT_CTRL",
+                  "LEFT_ALT", "RIGHT_ALT"}
+
+
+def _mode_from_event(event):
+    if event.ctrl:
+        return "FACE_CENTER"
+    if event.shift:
+        return "EDGE"
+    if event.alt:
+        return "EDGE_MIDDLE"
+    return "VERTEX"
+
+
 class IOPS_OT_DragSnap(bpy.types.Operator):
-    """Quick drag & snap point to point"""
+    """Move the selection from one snap point to another: vertex, point on an
+    edge (Shift), edge middle (Alt) or face center (Ctrl), chosen per click"""
 
     bl_idname = "iops.object_drag_snap"
     is_bindable = True
     bl_label = "IOPS Drag Snap"
     bl_options = {"REGISTER", "UNDO"}
 
+    # (co_world, co_region) pairs
     source = None, None
     target = None, None
     preview = None, None
+    nearest = None, None
     active = None
     lmb = False
-
-    nearest = None, None
 
     sd_handlers = []
 
@@ -46,19 +66,35 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         for handler in self.sd_handlers:
             safe_handler_remove(handler, bpy.types.SpaceView3D, "WINDOW")
 
+    # --- HUD -----------------------------------------------------------
+
     def _build_hud(self, context):
         hud = HUDOverlay("drag_snap")
         hud.title = "Drag Snap"
         hud.bind_region(context.region)
+        hud.add_param(HUDParam("Snap to", lambda: _MODE_LABELS[self._mode], "str"))
+        hud.add_param(HUDParam("Source", lambda: _MODE_LABELS.get(self._source_mode, "-"), "str",
+                               visible_getter=lambda: self.source[0] is not None))
+        hud.add_param(HUDParam("Distance", lambda: self._distance_label(), "str",
+                               visible_getter=lambda: self.source[0] is not None
+                               and self.preview[0] is not None))
         helpo = HelpOverlay("drag_snap")
         helpo.add_section(HUDSection("Drag Snap", [
-            HUDItem("Pick source / snap target", "LMB",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Copy distance to clipboard","Ctrl + LMB",ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",                    "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Pick source / snap target", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Point on edge", "Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Face center", "Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Edge middle", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Copy distance to clipboard", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
+            HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
             HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
         ]))
         helpo.bind_region(context.region)
         return hud, helpo
+
+    def _distance_label(self):
+        if self.source[0] is None or self.preview[0] is None:
+            return "-"
+        return f"{(self.preview[0] - self.source[0]).length:.4f}"
 
     def _draw_hud(self, context):
         helpo = getattr(self, "help", None)
@@ -68,12 +104,24 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             return
         self.hud.draw(context, getattr(self, "_last_event", None))
 
+    # --- Viewport preview --------------------------------------------------
+
     def _draw_snap_line(self, context):
-        if not self.source[0] or not self.preview[0]:
-            return
         with draw_scope(blend="ALPHA", depth="ALWAYS"):
-            draw.line(self.source[0], self.preview[0],
-                      role=Role.PREVIEW_LINE, context=context)
+            # the element the next click takes: an edge or a face outline
+            shape = self._preview_shape
+            if shape:
+                pts = list(shape) + ([shape[0]] if len(shape) > 2 else [])
+                for a, b in zip(pts, pts[1:]):
+                    draw.line(a, b, role=Role.CLOSEST_LINE, context=context)
+            shape = self._source_shape
+            if shape and self.source[0] is not None:
+                pts = list(shape) + ([shape[0]] if len(shape) > 2 else [])
+                for a, b in zip(pts, pts[1:]):
+                    draw.line(a, b, role=Role.LOCKED_LINE, context=context)
+            if self.source[0] is not None and self.preview[0] is not None:
+                draw.line(self.source[0], self.preview[0],
+                          role=Role.PREVIEW_LINE, context=context)
 
     def _draw_snap_points(self, context):
         coords = []
@@ -86,8 +134,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         with draw_scope(blend="ALPHA", depth="ALWAYS"):
             draw.points(coords, role=Role.ACTIVE_POINT, context=context)
 
-    def get_vector_length(self, vector):
-        return np.linalg.norm(vector)
+    # --- Snapping ----------------------------------------------------------
 
     def execute(self, context):
         if self.target[0] == self.source[0]:
@@ -106,24 +153,54 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             return Vector((0, 0, 0))
         return self.target[0] - self.source[0]
 
-    def update_distances(self, context, event):
-        mouse_coord = (event.mouse_region_x, event.mouse_region_y)
-        hit, _location, _normal, _face_idx, hit_obj, hit_matrix = raycast_from_mouse(
-            context, mouse_coord)
-
+    def update_distances(self, context, event=None):
+        """Find the snap point under the mouse for the held modifier:
+        a vertex, a point on an edge, an edge middle or a face center, on
+        any visible object (instances and modifier geometry included)."""
+        if event is not None:
+            self._mouse = (event.mouse_region_x, event.mouse_region_y)
+            self._mode = _mode_from_event(event)
+        mouse_coord = self._mouse
         self.nearest = None, None
-        if not hit or hit_obj is None or hit_obj.type != "MESH":
+        self._nearest_shape = None
+        cache = getattr(self, "_snap_cache", None)
+        if cache is None:
+            cache = self._snap_cache = build_vertex_snap_cache(context)
+
+        if self._mode == "FACE_CENTER":
+            co3d, shape = face_center_under_mouse(
+                context, mouse_coord, owner_cache=cache.setdefault("owner_cache", {}))
+        else:
+            co3d, shape = nearest_element_scene(
+                context, mouse_coord, cache=cache, element=self._mode,
+                threshold_px=SNAP_THRESHOLD_PX)
+        if co3d is None:
             return self.nearest
 
-        idx, v_co3d = nearest_vertex_screen(
-            context, hit_obj, mouse_coord, threshold_px=SNAP_THRESHOLD_PX,
-            matrix=hit_matrix)
-        if idx is None or v_co3d is None:
-            return self.nearest
-
-        v_co2d = location_3d_to_region_2d(context.region, context.region_data, v_co3d)
-        self.nearest = v_co3d, v_co2d
+        co2d = location_3d_to_region_2d(context.region, context.region_data, co3d)
+        self.nearest = co3d, co2d
+        self._nearest_shape = shape
         return self.nearest
+
+    def _take_preview(self):
+        self.preview = self.nearest
+        self._preview_shape = self._nearest_shape
+        if self.source[0]:
+            self.target = self.nearest
+
+    def _set_source(self):
+        self.source = self.nearest
+        self._source_shape = self._nearest_shape
+        self._source_mode = self._mode
+
+    def _copy_distance(self):
+        if self.source[0] is None or self.preview[0] is None:
+            self.report({"WARNING"}, "Pick a source and point at a target first")
+            return False
+        distance = (self.preview[0] - self.source[0]).length
+        bpy.context.window_manager.clipboard = str(distance)
+        self.report({"INFO"}, f"Distance copied to clipboard: {distance}")
+        return True
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -147,46 +224,42 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
             return {"PASS_THROUGH"}
 
-        elif event.type == "MOUSEMOVE":
+        if event.type == "MOUSEMOVE" or event.type in _MODIFIER_KEYS:
+            # a modifier pressed or released switches the element at once
             self.update_distances(context, event)
-            self.preview = self.nearest
+            self._take_preview()
+
+        elif event.type == "C" and event.value == "PRESS":
+            if self._copy_distance():
+                self.clear_draw_handlers()
+                return {"FINISHED"}
+
+        elif event.type == "LEFTMOUSE" and event.value == "PRESS":
+            # the element is the one for the modifiers held at this click
+            self.update_distances(context, event)
+            self._take_preview()
             if self.source[0]:
                 self.target = self.nearest
-
-        elif event.type in {"LEFTMOUSE"} and event.value == "PRESS":
-            if self.source[0]:
-                if event.ctrl:
-                    DISTANCE = self.get_vector_length(self.snap())
-                    bpy.context.window_manager.clipboard = str(DISTANCE)
-                    self.report({"INFO"}, "DISTANCE COPIED TO BUFFER: " + str(DISTANCE))
-                    try:
-                        self.clear_draw_handlers()
-                    except ValueError:
-                        pass
-                    return {"FINISHED"}
-                else:
-                    self.target = self.nearest
-                    self.execute(context)
+                if self.target[0] is None:
+                    self.report({"WARNING"}, "No snap target under the mouse")
+                    return {"RUNNING_MODAL"}
+                self.execute(context)
                 return {"FINISHED"}
-            self.source = self.nearest
+            self._set_source()
             self.lmb = True
 
-        elif event.type in {"LEFTMOUSE"} and event.value == "RELEASE":
+        elif event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self.lmb = False
             if not self.source[0]:
                 self.report({"WARNING"}, "WRONG SOURCE OR TARGET")
                 self.clear_draw_handlers()
                 return {"CANCELLED"}
-            elif not self.target[0]:
-                self.source = self.nearest
-                self.report({"INFO"}, "Click target now...")
-            else:
+            if self.target[0] and self.target[0] != self.source[0]:
+                # dragged from the source to a target and released there
                 self.execute(context)
                 return {"FINISHED"}
-
-        if event.type == "LEFTMOUSE":
-            self.lmb = event.value == "PRESS"
-            if self.lmb:
-                self.source = self.nearest
+            self.target = None, None
+            self.report({"INFO"}, "Click target now...")
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
             self.clear_draw_handlers()
@@ -202,7 +275,13 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             return {"CANCELLED"}
 
         self.active = context.view_layer.objects.active
+        self.source = self.target = self.preview = self.nearest = (None, None)
+        self._mode = "VERTEX"
+        self._source_mode = None
+        self._nearest_shape = self._preview_shape = self._source_shape = None
+        self._snap_cache = build_vertex_snap_cache(context)
         self.update_distances(context, event)
+        self._take_preview()
         self.lmb = False
 
         self.hud, self.help = self._build_hud(context)
