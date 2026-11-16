@@ -1,8 +1,22 @@
-"""Headless registration smoke test. Run via:
-blender --background --factory-startup --python tests/smoke_register.py
-with BLENDER_USER_SCRIPTS pointing at a scripts dir whose addons/
-contains this repo as 'InteractionOps' (junction)."""
+"""Headless registration smoke test. Run with isolated user folders (the
+script refuses the real ones, see tests/blender/_isolation.py):
+BLENDER_USER_RESOURCES="$TEMP/iops_blender_res" blender --background --factory-startup --python tests/smoke_register.py
+with the add-on importable as 'InteractionOps': the repo's parent dir on
+sys.path (--python-expr "import sys; sys.path.insert(0, <parent>)" before
+--python), or BLENDER_USER_SCRIPTS pointing at a scripts dir under the temp
+dir (iOps saves its preferences there) whose addons/ contains this repo as
+'InteractionOps' (junction)."""
+import os
+import sys
+
+import addon_utils
 import bpy
+
+# refuse to run against the real user resources (enable / disable write there)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender"))
+from _isolation import require_isolated_user_resources  # noqa: E402
+
+require_isolated_user_resources()
 
 bpy.ops.preferences.addon_enable(module="InteractionOps")
 assert "InteractionOps" in bpy.context.preferences.addons, "addon not enabled"
@@ -17,6 +31,8 @@ for op_name in (
     "mesh_falloff_move",
     "mesh_falloff_rotate",
     "mesh_falloff_scale",
+    "mesh_falloff_normal_offset",
+    "mesh_falloff_fit",
     "instance_edit_start",
     "instance_edit_stop",
     "instance_edit_restore",
@@ -27,7 +43,7 @@ for op_name in (
     "mesh_edge_slide",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
-    if op_name.startswith("instance_edit_") or op_name == "mesh_edge_slide":
+    if op_name.startswith(("instance_edit_", "mesh_falloff_")) or op_name == "mesh_edge_slide":
         # hasattr is always True (lazy wrapper): resolve the RNA type.
         getattr(bpy.ops.iops, op_name).get_rna_type()
 
@@ -97,5 +113,7 @@ assert "preview" in wm.iops_attr.bl_rna.properties, "missing preview toggle"
 assert hasattr(bpy.types, "IOPS_PT_attributes_preview"), "preview sub-panel not registered"
 assert hasattr(prefs, "attr_preview_max_labels"), "missing pref: attr_preview_max_labels"
 
-bpy.ops.preferences.addon_disable(module="InteractionOps")
+# not the preferences operator: it also re-syncs the extension wheels of the
+# user resource folder for the (empty) set of extensions a factory session has
+addon_utils.disable("InteractionOps", default_set=True, refresh_handled=True)
 print("SMOKE_OK")

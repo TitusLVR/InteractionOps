@@ -350,9 +350,20 @@ from .operators.mesh_inset import IOPS_OT_inset
 from .operators.mesh_edge_slide import IOPS_OT_edge_slide
 from .operators.mesh_shear import IOPS_OT_mesh_shear
 from .operators.mesh_hinge import IOPS_OT_mesh_hinge
+from .operators.falloff.props import IOPS_FalloffField, IOPS_FalloffSettings
+from .operators.falloff.fields import (IOPS_OT_mesh_falloff_field_add,
+                                       IOPS_OT_mesh_falloff_field_remove,
+                                       IOPS_OT_mesh_falloff_field_move,
+                                       IOPS_OT_mesh_falloff_clear,
+                                       IOPS_OT_mesh_falloff_fit,
+                                       IOPS_OT_mesh_falloff_pivot_reset)
 from .operators.falloff.ops import (IOPS_OT_mesh_falloff_move,
                                     IOPS_OT_mesh_falloff_rotate,
-                                    IOPS_OT_mesh_falloff_scale)
+                                    IOPS_OT_mesh_falloff_scale,
+                                    IOPS_OT_mesh_falloff_normal_offset)
+from .operators.falloff import tool as falloff_tool
+from .operators.falloff.tool import (IOPS_GT_falloff_handle, IOPS_GGT_falloff,
+                                     IOPS_UL_falloff_fields, IOPS_PT_falloff_stack)
 from .operators.mesh_converge import IOPS_OT_mesh_converge
 from .operators.mesh_vert_fuse import IOPS_OT_mesh_vert_fuse
 from .operators.mesh_vertex_group_rename import IOPS_OT_VertexGroupRenameActive
@@ -507,6 +518,8 @@ classes = (
     IOPS_RenameSettings,  # PointerProperty target — must register before IOPS_SceneProperties
     IOPS_WidgetDataKV,     # CollectionProperty targets — same rule
     IOPS_WidgetDataBlock,
+    IOPS_FalloffField,     # PointerProperty / CollectionProperty targets — must register before IOPS_SceneProperties
+    IOPS_FalloffSettings,
     IOPS_SceneProperties,
     IOPS_OT_Collections_Include,
     IOPS_OT_Collections_Exclude,
@@ -736,9 +749,20 @@ classes = (
     IOPS_OT_edge_slide,
     IOPS_OT_mesh_shear,
     IOPS_OT_mesh_hinge,
+    IOPS_OT_mesh_falloff_field_add,
+    IOPS_OT_mesh_falloff_field_remove,
+    IOPS_OT_mesh_falloff_field_move,
+    IOPS_OT_mesh_falloff_clear,
+    IOPS_OT_mesh_falloff_fit,
+    IOPS_OT_mesh_falloff_pivot_reset,
     IOPS_OT_mesh_falloff_move,
     IOPS_OT_mesh_falloff_rotate,
     IOPS_OT_mesh_falloff_scale,
+    IOPS_OT_mesh_falloff_normal_offset,
+    IOPS_GT_falloff_handle,
+    IOPS_GGT_falloff,
+    IOPS_UL_falloff_fields,
+    IOPS_PT_falloff_stack,
     IOPS_OT_mesh_converge,
     IOPS_OT_mesh_vert_fuse,
     IOPS_OT_VertexGroupRenameActive,
@@ -950,10 +974,23 @@ def register():
         except Exception as e:
             print(f"IOPS widgets: composed widget load failed: {e}")
 
+    # Falloff toolbar tool + its field draw handlers (after the classes,
+    # incl. the gizmo group the tool names as its widget)
+    try:
+        falloff_tool.register()
+    except Exception as e:
+        print("IOPS: falloff tool register failed:", e)
+
     print("IOPS Registered!")
 
 
 def unregister():
+    # Falloff tool and its draw / depsgraph handlers first, while its classes
+    # still exist; safe when the tool is active or never got registered
+    try:
+        falloff_tool.unregister()
+    except Exception as e:
+        print("IOPS: falloff tool unregister failed:", e)
     if bpy.app.timers.is_registered(iops_mod_list.seed_grid_list_if_empty):
         bpy.app.timers.unregister(iops_mod_list.seed_grid_list_if_empty)
     # Vertex Paint palette icons (bpy.utils.previews collection).

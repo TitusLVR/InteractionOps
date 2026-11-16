@@ -73,6 +73,16 @@ def polyline_uniform_color():
     return s
 
 
+def polyline_flat_color():
+    """Builtin wide lines with a per-vertex colour (attributes `pos`,
+    `color`; uniforms `lineWidth`, `viewportSize`)."""
+    s = _cache.get("POLYLINE_FLAT_COLOR")
+    if s is None:
+        s = gpu.shader.from_builtin("POLYLINE_FLAT_COLOR")
+        _cache["POLYLINE_FLAT_COLOR"] = s
+    return s
+
+
 def point_flat_color():
     """Builtin per-vertex-colour points. Uniform: float `size`. Caller
     also sets gpu.state.point_size_set(size) for drivers that ignore
