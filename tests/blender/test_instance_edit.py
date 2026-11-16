@@ -609,11 +609,12 @@ class _StubLayout:
         return _StubRow(self.log)
 
 
-def _draw_header(mode):
+def _draw_header(mode, active=None):
     from InteractionOps.ui.iops_instance_edit_header import draw_iops_instance_edit_header
 
     layout = _StubLayout()
-    ctx = SimpleNamespace(scene=bpy.context.scene, mode=mode, preferences=bpy.context.preferences)
+    ctx = SimpleNamespace(scene=bpy.context.scene, mode=mode, preferences=bpy.context.preferences,
+                          active_object=active)
     draw_iops_instance_edit_header(SimpleNamespace(layout=layout), ctx)
     return layout.log
 
@@ -654,6 +655,108 @@ def test_session_ops_require_local_kind():
     assert run_op("instance_edit_stop") == {"FINISHED"}
 
 
+def build_prefab():
+    """Fresh empty file with: collection Inner (InnerCube at (1,0,0), offset
+    (0,0,1)); collection Prefab (PrefabCube, N instancing Inner at (2,0,0)
+    rotated 90 deg about Z); scene instancers P of Prefab at (10,0,0) and Q
+    of Inner at (0,-10,0). Neither collection is in the scene tree."""
+    bpy.ops.wm.read_homefile(use_empty=True)
+    scene = bpy.context.scene
+    vl = bpy.context.view_layer
+    inner = bpy.data.collections.new("Inner")
+    inner.instance_offset = (0, 0, 1)
+    inner_cube = mesh_obj("InnerCube", inner, (1, 0, 0))
+    prefab = bpy.data.collections.new("Prefab")
+    prefab_cube = mesh_obj("PrefabCube", prefab)
+
+    def instancer(name, coll, owner, loc, rot_z=0.0):
+        e = bpy.data.objects.new(name, None)
+        e.instance_type = "COLLECTION"
+        e.instance_collection = coll
+        e.location = loc
+        e.rotation_euler = (0, 0, rot_z)
+        owner.objects.link(e)
+        return e
+
+    N = instancer("N", inner, prefab, (2, 0, 0), math.radians(90))
+    P = instancer("P", prefab, scene.collection, (10, 0, 0))
+    Q = instancer("Q", inner, scene.collection, (0, -10, 0))
+    vl.update()
+    select_only([P], P)
+    return dict(scene=scene, vl=vl, inner=inner, prefab=prefab, inner_cube=inner_cube,
+                prefab_cube=prefab_cube, N=N, P=P, Q=Q)
+
+
+def test_nested_prefab_open_edit_close():
+    s = build_prefab()
+    vl, N, P, Q, cube = s["vl"], s["N"], s["P"], s["Q"], s["inner_cube"]
+    before = channels(cube)
+    pre_world = cube.matrix_world.copy()
+    prefab_before = channels(s["prefab_cube"])
+
+    assert run_op("instance_edit_start", P) == {"FINISHED"}
+    assert stack_len() == 1
+    # A scene object outside the edited collection cannot nest.
+    select_only([Q], Q)
+    ok, reason = ie.can_start(bpy.context)
+    assert ok is False and "in progress" in reason, reason
+
+    select_only([N], N)
+    assert ie.can_start(bpy.context) == (True, ""), ie.can_start(bpy.context)
+    assert "iops.instance_edit_start" in _draw_header("OBJECT", N)
+    assert "iops.instance_edit_start" not in _draw_header("EDIT_MESH", N)
+    assert run_op("instance_edit_start", N) == {"FINISHED"}
+    vl.update()
+    assert stack_len() == 2
+    frame = to_matrix(edit_frame(N.matrix_world, s["inner"].instance_offset))
+    assert_matrix_close(cube.matrix_world, frame @ pre_world, "InnerCube world")
+    assert N.hide_get() and Q.hide_get() and P.hide_get()
+    # The same collection cannot open twice.
+    select_only([N], N)
+    assert ie.can_start(bpy.context)[0] is False
+
+    cube.location.z += 1  # Inner's root has no parent: +1 along world Z
+    vl.update()
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    vl.update()
+    assert stack_len() == 1
+    assert vl.objects.active == N and not N.hide_get()
+    assert P.hide_get(), "outer instancer shown by the inner Stop"
+    assert not Q.hide_get()
+    assert_vector_close(cube.location, Vector(before[0]) + Vector((0, 0, 1)), "edit kept")
+
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    vl.update()
+    assert stack_len() == 0
+    assert not P.hide_get() and not Q.hide_get()
+    assert channels(s["prefab_cube"]) == prefab_before
+    assert s["inner"] not in s["scene"].collection.children_recursive
+    assert s["prefab"] not in s["scene"].collection.children_recursive
+
+
+def test_nested_restore_only_inner():
+    s = build_prefab()
+    N, P, cube = s["N"], s["P"], s["inner_cube"]
+    before = channels(cube)
+    assert run_op("instance_edit_start", P) == {"FINISHED"}
+    assert run_op("instance_edit_start", N) == {"FINISHED"}
+    cube.location.x += 5
+    assert run_op("instance_edit_restore") == {"FINISHED"}
+    assert stack_len() == 1
+    assert channels(cube) == before
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    assert stack_len() == 0 and not P.hide_get()
+
+
+def test_direct_edit_hides_prefab_instancers():
+    s = build_prefab()
+    P, Q = s["P"], s["Q"]
+    assert run_op("instance_edit_start", Q) == {"FINISHED"}
+    assert Q.hide_get() and P.hide_get(), "prefab instancing Inner still shown"
+    assert run_op("instance_edit_stop") == {"FINISHED"}
+    assert not Q.hide_get() and not P.hide_get()
+
+
 TESTS = [
     test_start_places_roots,
     test_restore_external_parent,
@@ -674,6 +777,9 @@ TESTS = [
     test_stop_on_recorded_view_layer,
     test_header_pair_in_every_mode,
     test_session_ops_require_local_kind,
+    test_nested_prefab_open_edit_close,
+    test_nested_restore_only_inner,
+    test_direct_edit_hides_prefab_instancers,
 ]
 
 
