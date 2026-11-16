@@ -108,7 +108,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
     def update_distances(self, context, event):
         mouse_coord = (event.mouse_region_x, event.mouse_region_y)
-        hit, _location, _normal, _face_idx, hit_obj, _matrix = raycast_from_mouse(
+        hit, _location, _normal, _face_idx, hit_obj, hit_matrix = raycast_from_mouse(
             context, mouse_coord)
 
         self.nearest = None, None
@@ -116,7 +116,8 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
             return self.nearest
 
         idx, v_co3d = nearest_vertex_screen(
-            context, hit_obj, mouse_coord, threshold_px=SNAP_THRESHOLD_PX)
+            context, hit_obj, mouse_coord, threshold_px=SNAP_THRESHOLD_PX,
+            matrix=hit_matrix)
         if idx is None or v_co3d is None:
             return self.nearest
 
