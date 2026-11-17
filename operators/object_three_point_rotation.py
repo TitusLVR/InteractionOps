@@ -567,10 +567,17 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
             return
         # Two casts: the scene without the selection (targets), and the
         # selection as displayed — the ghost — via the inverse of the
-        # committed delta. Whichever is nearer along the ray wins, so the
-        # ghost occludes what it sits on and the originals never pick.
+        # committed delta. The originals never pick. The ghost is only solid
+        # while the step still wants a point on it: auto Align (normals,
+        # normals + edge) takes no source pick, so the ray goes straight
+        # through to the target it sits on; once the source is locked the
+        # target wins too, and the ghost picks only where nothing is behind
+        # it (clicking there re-picks the source).
         target = _pick_face(context, mouse, exclude=self._moving)
-        source = _pick_face(context, mouse, restrict_to=self._moving, xform=self._base)
+        needs_source = not (self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS)
+        source = None
+        if needs_source and (target is None or not self._src_locked):
+            source = _pick_face(context, mouse, restrict_to=self._moving, xform=self._base)
         if source is not None and (target is None or source["depth"] <= target["depth"]):
             face = source
         else:
@@ -736,6 +743,7 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         elif event.type == "R" and self.step == STEP_ALIGN:
             i = ROT_CYCLE.index(self.rot_mode)
             self.rot_mode = ROT_CYCLE[(i + 1) % len(ROT_CYCLE)]
+            self._update_hover(context, event)   # the ghost turns solid / see-through
             self._update()
         elif event.type == "F":
             self.face_to_face = not self.face_to_face
