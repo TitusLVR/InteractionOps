@@ -279,21 +279,25 @@ def _draw_preview_3d(op, context):
 
     if auto:
         # the face of A turns onto the target: outline, normal and roll edge
-        # ride on the ghost (total), pivoting about A′
+        # ride on the ghost (total), pivoting about A′. Where it is going is
+        # Preview, like the ghost itself; it is Locked only before a target
+        # gives it a pending turn.
         af = op._a_face
         if af is not None:
             total = op._total()
+            role = Role.PREVIEW_LINE if op._preview is not None else Role.LOCKED_LINE
+            width = "preview" if op._preview is not None else "locked"
             gpu.matrix.push()
             try:
                 gpu.matrix.multiply_matrix(total)
-                _draw_face(context, af, fill=None, line=Role.LOCKED_LINE, width="locked",
-                           roll_role=Role.LOCKED_LINE if edge_mode else None)
+                _draw_face(context, af, fill=None, line=role, width=width,
+                           roll_role=role if edge_mode else None)
             finally:
                 gpu.matrix.pop()
             n = (total.to_3x3() @ af["normal"]).normalized()
             with draw_scope(blend="ALPHA", depth="NONE"):
-                iops_draw.edges_3d([op.a_dst, op.a_dst + n * length], role=Role.LOCKED_LINE,
-                                   width="locked", context=context)
+                iops_draw.edges_3d([op.a_dst, op.a_dst + n * length], role=role,
+                                   width=width, context=context)
     elif op._src_face is not None:
         # your pick: Closest while the cursor is on it, Locked once it is
         # sticky or clicked; it sits on the ghost (carried by base)
@@ -506,6 +510,10 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         _a, _b, e_src = _face_edge(af)
         src = frame_from_face(tuple(piv), tuple(n_src), tuple(r3 @ e_src))
         _a, _b, e_dst = _face_edge(hv, self.roll_shift)
+        if self.face_to_face:
+            # faces that meet wind opposite ways: the matching edge runs
+            # back along the target, or the vertices land half a turn off
+            e_dst = -e_dst
         dst = frame_from_face(tuple(piv), tuple(n_dst), tuple(e_dst))
         return _tuple_matrix(align_matrix(src, dst))
 
