@@ -1,30 +1,173 @@
 import bpy
 from bpy.types import Menu
-from ..utils.functions import get_addon
-from ..operators.mesh_nonplanar_overlay import overlay_enabled
+from ..operators.mesh_nonplanar_overlay import overlay_enabled as nonplanar_overlay_enabled
+from ..operators.object_negative_scale_overlay import overlay_enabled as negative_scale_overlay_enabled
+from .iops_pie_groups import GROUP_COLUMNS, SLOTS, VERTEX_COLOR, groups_for_mode
+from .iops_tm_panel import draw_vertex_paint_buttons
+
+# Toggle operators: the button is drawn pressed while the overlay is on.
+DEPRESS_STATE = {
+    "iops.mesh_nonplanar_overlay": nonplanar_overlay_enabled,
+    "iops.object_negative_scale_overlay": negative_scale_overlay_enabled,
+}
+
+# Diagonal pie slots overlap the side columns, so the diagonal groups are
+# drawn as extra columns of the top / bottom panel instead.
+_PANEL_COLUMNS = {
+    "LEFT": ("LEFT",),
+    "RIGHT": ("RIGHT",),
+    "TOP": ("TOP_LEFT", "TOP", "TOP_RIGHT"),
+    "BOTTOM": ("BOTTOM_LEFT", "BOTTOM", "BOTTOM_RIGHT"),
+}
+
+_VERTEX_COLOR_OPS = (
+    "iops.mesh_assign_vertex_color",
+    "iops.mesh_assign_vertex_color_alpha",
+    "iops.mesh_vertex_paint",
+    "iops.mesh_vertex_color_filter",
+)
+# Width of the Vertex Color column, in UI units: the color swatch and the
+# palette row would otherwise stretch it to twice the other panels.
+_VERTEX_COLOR_WIDTH = 9.0
+# Most button rows one column of a group may have before it is split in two.
+_MAX_ROWS = 8
+# Half-height, in button rows, a side panel may have before it reaches the
+# top and bottom panels (measured at the default pie radius).
+_FREE_HALF_ROWS = 5.0
 
 
-def op_if_poll(layout, idname, text=None, icon=None, **props):
+def op_polls(idname):
+    """True when the operator is registered and its poll() passes now."""
+    module, _, func = idname.partition(".")
+    try:
+        return bool(getattr(getattr(bpy.ops, module), func).poll())
+    except AttributeError:
+        return False
+
+
+def op_if_poll(layout, idname, text=None, icon=None, depress=None, **props):
     """Draw an operator button only when its poll() passes in the current context.
 
     Returns the operator properties object (like layout.operator) or None
     when the button was hidden (poll failed or operator is not registered).
+    `depress` is a layout argument (drawn pressed), not an operator property.
     """
-    module, _, func = idname.partition(".")
-    try:
-        if not getattr(getattr(bpy.ops, module), func).poll():
-            return None
-    except AttributeError:
+    if not op_polls(idname):
         return None
     kwargs = {}
     if text is not None:
         kwargs["text"] = text
     if icon is not None:
         kwargs["icon"] = icon
+    if depress is not None:
+        kwargs["depress"] = depress
     btn = layout.operator(idname, **kwargs)
     for key, value in props.items():
         setattr(btn, key, value)
     return btn
+
+
+def visible_rows(group):
+    """Rows of a group with the entries whose operator polls now."""
+    if group[1] == VERTEX_COLOR:
+        return [op for op in _VERTEX_COLOR_OPS if op_polls(op)]
+    rows = [[e for e in row if op_polls(e[0])] for row in group[1]]
+    return [row for row in rows if row]
+
+
+def _column_count(group, rows):
+    """Button columns of a group: its fixed count, else two when it is over
+    the row limit (a tall column runs into the neighbouring panels)."""
+    count = GROUP_COLUMNS.get(group[0], 2 if len(rows) > _MAX_ROWS else 1)
+    return max(1, min(count, len(rows)))
+
+
+def _side_overreach(groups):
+    """Button rows by which the taller side panel reaches past the free
+    space next to the top / bottom panels; those are padded away by it."""
+    tallest = 0
+    for key in ("LEFT", "RIGHT"):
+        group = groups.get(key)
+        if group is None or group[1] == VERTEX_COLOR:
+            continue
+        rows = visible_rows(group)
+        if rows:
+            tallest = max(tallest, -(-len(rows) // _column_count(group, rows)))
+    return max(0.0, (tallest + 1) / 2 - _FREE_HALF_ROWS)
+
+
+def _pad(col, rows):
+    """Blank spacer, `rows` button rows tall."""
+    if rows > 0:
+        spacer = col.column()
+        spacer.scale_y = rows
+        spacer.label(text="")
+
+
+def draw_group(col, group):
+    """Title and buttons of one group into `col`; hidden buttons are skipped."""
+    col.label(text=group[0])
+    rows = visible_rows(group)
+    count = _column_count(group, rows)
+    if count > 1:
+        per = -(-len(rows) // count)
+        split = col.row(align=True)
+        parts = [(split.column(align=True), rows[i:i + per])
+                 for i in range(0, len(rows), per)]
+    else:
+        parts = [(col, rows)]
+    for target, part in parts:
+        for row in part:
+            line = target.row(align=True) if len(row) > 1 else target
+            for idname, text, props in row:
+                state = DEPRESS_STATE.get(idname)
+                op_if_poll(line, idname, text=text,
+                           depress=state() if state else None, **props)
+
+
+def draw_vertex_color(col, context):
+    """Vertex Color group: set color / alpha, the paint brush, Blur / Sharpen.
+    Parts whose operator does not poll are hidden."""
+    col.ui_units_x = _VERTEX_COLOR_WIDTH
+    col.label(text="Vertex Color")
+    if op_polls("iops.mesh_assign_vertex_color"):
+        col.prop(context.scene.IOPS, "iops_vertex_color", text="")
+        row = col.row(align=True)
+        op_if_poll(row, "iops.mesh_assign_vertex_color", text="Set Color")
+        op_if_poll(row, "iops.mesh_assign_vertex_color_alpha", text="Set Alpha")
+        row = col.row(align=True)
+        op_if_poll(row, "iops.mesh_assign_vertex_color", text="White", fill_color_white=True)
+        op_if_poll(row, "iops.mesh_assign_vertex_color", text="Grey", fill_color_grey=True)
+        op_if_poll(row, "iops.mesh_assign_vertex_color", text="Black", fill_color_black=True)
+    else:
+        op_if_poll(col, "iops.mesh_assign_vertex_color_alpha", text="Set Alpha")
+    if op_polls("iops.mesh_vertex_paint"):
+        draw_vertex_paint_buttons(col)
+    row = col.row(align=True)
+    op_if_poll(row, "iops.mesh_vertex_color_filter", text="Blur", mode="BLUR")
+    op_if_poll(row, "iops.mesh_vertex_color_filter", text="Sharpen", mode="SHARPEN")
+
+
+def draw_panel(pie, context, groups, pad_above=0.0, pad_below=0.0):
+    """One pie slot: a box with a column per group that has something to
+    show. With nothing to show the slot gets pie.separator() and False is
+    returned, so the slots after it keep their place. The pads move the
+    panel away from the pie center."""
+    shown = [g for g in groups if g is not None and visible_rows(g)]
+    if not shown:
+        pie.separator()
+        return False
+    outer = pie.column()
+    _pad(outer, pad_above)
+    row = outer.box().row()
+    _pad(outer, pad_below)
+    for group in shown:
+        col = row.column(align=True)
+        if group[1] == VERTEX_COLOR:
+            draw_vertex_color(col, context)
+        else:
+            draw_group(col, group)
+    return True
 
 
 class IOPS_MT_Pie_Menu(Menu):
@@ -32,167 +175,22 @@ class IOPS_MT_Pie_Menu(Menu):
     bl_label = "IOPS Pie"
 
     def draw(self, context):
-        forgottentools, _, _, _ = get_addon("Forgotten Tools")
-        optiloops, _, _, _ = get_addon("Optiloops")
-        bmax_connector, _, _, _ = get_addon("BMAX Connector")
-        bmoi_connector, _, _, _ = get_addon("BMOI Connector")
-        # brush = context.tool_settings.image_paint.brush
-
-        layout = self.layout
-        pie = layout.menu_pie()
-
-        # 4 - LEFT
-        # pie.separator()
-        # pie.operator("wm.call_menu_pie", text = "Some Other Pie 0", icon = "RIGHTARROW_THIN").name="Pie_menu"
-        col = layout.menu_pie()
-        box = col.column(align=True).box().column()
-        box.label(text="IOPS")
-        col.scale_x = 0.9
-        col = box.column(align=True)
-        col.prop(
-            context.scene.IOPS,
-            "iops_vertex_color",
-            text="",
-        )
-        op_if_poll(col, "iops.mesh_assign_vertex_color", text="Set Vertex Color")
-        col = box.column(align=True)
-        row = col.row(align=True)
-        op_if_poll(row, "iops.mesh_assign_vertex_color", text="White", fill_color_white=True)
-        op_if_poll(row, "iops.mesh_assign_vertex_color", text="Grey", fill_color_grey=True)
-        op_if_poll(row, "iops.mesh_assign_vertex_color", text="Black", fill_color_black=True)
-        col = box.column(align=True)
-        op_if_poll(col, "iops.mesh_assign_vertex_color_alpha", text="Set Vertex Alpha")
-        col.separator()
-        op_if_poll(col, "iops.materials_from_textures", text="Materials from Textures")
-        col.separator()
-        op_if_poll(col, "iops.object_replace", text="Object Replace")
-        op_if_poll(col, "iops.object_aligner", text="Object Aligner")
-        op_if_poll(col, "iops.object_radial_array", text="Radial Array")
-        op_if_poll(col, "iops.object_mirror_rotate", text="Mirror Rotate")
-        op_if_poll(col, "iops.object_modal_three_point_rotation", text="3 Point Rotation")
-        op_if_poll(col, "iops.object_align_between_two", text="Align Between Two")
-        op_if_poll(col, "iops.mesh_quick_snap", text="Quick Snap")
-        op_if_poll(col, "iops.mesh_quick_connect", text="Quick Connect")
-        op_if_poll(col, "iops.mesh_to_tris_to_quads", text="Tris to Quads")
-        op_if_poll(col, "iops.mesh_inset", text="Inset")
-        op_if_poll(col, "iops.mesh_edge_slide", text="Edge Slide")
-        op_if_poll(col, "iops.mesh_uv_stripe", text="UV Stripe")
-        op_if_poll(col, "iops.mesh_uv_pipe", text="UV Pipe")
-        op_if_poll(col, "iops.mesh_straight_bevel", text="Straight Bevel")
-        op_if_poll(col, "iops.mesh_shear", text="Shear")
-        op_if_poll(col, "iops.mesh_hinge", text="Hinge")
-        op_if_poll(col, "iops.mesh_converge", text="Converge")
-        op_if_poll(col, "iops.mesh_vert_fuse", text="Vert Fuse")
-        op_if_poll(col, "iops.mesh_snapshot", text="Mesh Snapshot")
-        # col.operator("iops.polygon_bevel", text="Polygon Bevel")  # WIP
-        op_if_poll(col, "iops.object_drop_it", text="Drop It!")
-        op_if_poll(col, "iops.object_kitbash_grid", text="Grid")
-        op_if_poll(col, "iops.object_kitbash_grid", text="to Center", arrange_mode='CENTER')
-        col.separator()
-        op_if_poll(col, "iops.modifier_easy_array_caps", text="Easy Modifier - Array Caps")
-        op_if_poll(col, "iops.modifier_easy_array_curve", text="Easy Modifier - Array Curve")
-        op_if_poll(col, "iops.modifier_easy_curve", text="Easy Modifier - Curve")
-        op_if_poll(col, "iops.modifier_easy_shwarp", text="Easy Modifier - SHWARP")
-        col.separator()
-        op_if_poll(col, "iops.assets_render_asset_thumbnail", text="Render Asset Thumbnail")
-        col.separator()
-        op_if_poll(col, "iops.reload_libraries", text="Reload Libraries")
-        op_if_poll(col, "iops.reload_images", text="Reload Images")
-
-        # 6 - RIGHT
-        # pie.separator()
-
-        other = pie.row()
-        gap = other.column()
-        gap.separator()
-        gap.scale_y = 7
-        other_menu = other.box().column()
-        other_menu.scale_y = 1
-        if bmax_connector:
-            bmax_prefs = bpy.context.preferences.addons["BMAX_Connector"].preferences
-            other_menu.label(text="BMax")
-            if bmax_prefs.file_format == "FBX":
-                op_if_poll(other_menu, "bmax.export", icon="EXPORT", text="Send to Maya/3dsmax")
-                op_if_poll(other_menu, "bmax.import", icon="IMPORT", text="Get from Maya/3dsmax")
-            if bmax_prefs.file_format == "USD":
-                op_if_poll(other_menu, "bmax.export_usd", icon="EXPORT", text="Send to Maya/3dsmax")
-                op_if_poll(other_menu, "bmax.import_usd", icon="IMPORT", text="Get from Maya/3dsmax")
-            row = other_menu.row(align=True)
-            row.prop(bmax_prefs, "export_reset_location", icon="EVENT_L", text="  ")
-            row.prop(bmax_prefs, "export_reset_rotation", icon="EVENT_R", text="  ")
-            row.prop(bmax_prefs, "export_reset_scale", icon="EVENT_S", text="  ")
-            other_menu = other.box().column()
-        if bmoi_connector:
-            other_menu.label(text="BMoI")
-            op_if_poll(other_menu, "bmoi3d.export", icon="EXPORT", text="Send to MoI3D")
-            op_if_poll(other_menu, "bmoi3d.import", icon="IMPORT", text="Get from MoI3D")
-
-        # 2 - BOTTOM
-        wm = context.window_manager
-        prefs = context.preferences.addons["B2RUVL"].preferences
-        uvl = prefs.uvlayout_enable
-        ruv = prefs.rizomuv_enable
-        uvl_path = prefs.uvlayout_app_path
-        ruv_path = prefs.rizomuv_app_path
-
-        col = layout.menu_pie()
-        box = col.column(align=True).box().column()
-        box.label(text="B2RUVL")
-        col_top = box.column(align=True)
-        col_top.prop(wm.B2RUVL_PanelProperties, "uvMap")
-        col_uvl = col_top.column(align=True)
-        col_uvl.enabled = uvl is not False and len(uvl_path) != 0
-        col_uvl.operator("b2ruvl.send_to_uvlayout")
-        col_ruv = col_top.column(align=True)
-        col_ruv.enabled = ruv is not False and len(ruv_path) != 0
-        col_ruv.operator("b2ruvl.send_to_rizomuv")
-        col_ruv.operator("b2ruvl.get_from_rizomuv")
-
-        # 8 - TOP
-        if context.mode == "EDIT_MESH":
-            other = pie.column()
-            gap = other.column()
-            gap.separator()
-            gap.scale_y = 7
-            other_menu = other.box().column()
-            other_menu.scale_y = 1
-            other_menu.label(text="IOPS")
-            # depress is a layout kwarg, not an operator prop, so this
-            # one bypasses op_if_poll (poll always passes in EDIT_MESH).
-            other_menu.operator("iops.mesh_nonplanar_overlay",
-                                text="Non-Planar Overlay",
-                                depress=overlay_enabled())
-            if forgottentools:
-                other_menu = other.box().column()
-                other_menu.scale_y = 1
-                other_menu.label(text="ForgottenTools")
-                op_if_poll(other_menu, "mesh.connect_spread")
-                op_if_poll(other_menu, "mesh.grid_fill_all")
-
-                op_if_poll(other_menu, "mesh.dice_faces")
-                op_if_poll(other_menu, "mesh.hinge")
-
-                op_if_poll(other_menu, "mesh.forgotten_separate_duplicate")
-                other_menu.operator(
-                    "wm.call_panel", text="Selection Sets", icon="SELECT_SET"
-                ).name = "MESH_PT_selection_sets_panel_frgttn"
-        else:
-            pie.separator()
-
-        # 7 - TOP - LEFT
-        pie.separator()
-        # 9 - TOP - RIGHT
-        if optiloops and context.mode == "EDIT_MESH":
-            if op_if_poll(pie, "mesh.optiloops") is None:
+        pie = self.layout.menu_pie()
+        groups = groups_for_mode(context.mode)
+        # Every slot is emitted, in Blender's fill order, so an empty panel
+        # never shifts the ones after it.
+        reach = _side_overreach(groups)
+        for slot in SLOTS:
+            columns = _PANEL_COLUMNS.get(slot)
+            if columns is None:
                 pie.separator()
-        else:
-            pie.separator()
-
-        # 1 - BOTTOM - LEFT
-        pie.separator()
-
-        # 3 - BOTTOM - RIGHT
-        pie.separator()
+                continue
+            pads = {}
+            if slot == "TOP":
+                pads["pad_below"] = reach
+            elif slot == "BOTTOM":
+                pads["pad_above"] = reach
+            draw_panel(pie, context, [groups.get(key) for key in columns], **pads)
 
 
 class IOPS_OT_Call_Pie_Menu(bpy.types.Operator):

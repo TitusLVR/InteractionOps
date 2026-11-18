@@ -103,7 +103,7 @@ class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
         uv_names = set(current)
         for attr in me.attributes:
             if attr.name in targets and attr.name not in uv_names:
-                return False, "attribute '%s' is not a UV map" % attr.name
+                return False, f"attribute '{attr.name}' is not a UV map"
         order = cls._target_order(current)
         if order != list(range(count)):
             cls._permute_layer_data(uv_layers, order)
@@ -111,7 +111,7 @@ class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
         taken = {attr.name for attr in me.attributes}
         temps = []
         for i in range(count):
-            tmp = ".iops_uv_tmp_%d" % i
+            tmp = f".iops_uv_tmp_{i}"
             while tmp in taken:
                 tmp += "_"
             taken.add(tmp)
@@ -122,7 +122,7 @@ class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
         for i, uv in enumerate(uv_layers):
             uv.name = targets[i]
         if len(uv_layers) != count:
-            return True, "layer count changed (%d -> %d)" % (count, len(uv_layers))
+            return True, f"layer count changed ({count} -> {len(uv_layers)})"
         return True, ""
 
     def execute(self, context):
@@ -140,15 +140,15 @@ class IOPS_OT_homonize_uvmaps_names(bpy.types.Operator):
             if done:
                 renamed += 1
             if reason:
-                skipped.append("%s: %s" % (me.name, reason))
+                skipped.append(f"{me.name}: {reason}")
         if not seen:
             self.report({"WARNING"}, "No mesh objects selected")
             return {"CANCELLED"}
-        msg = "UV maps renamed on %d of %d mesh(es)" % (renamed, len(seen))
+        msg = f"UV maps renamed on {renamed} of {len(seen)} mesh(es)"
         for line in skipped:
             print("[iOps] homonize_uvmaps_names skipped", line)
         if skipped:
-            msg += "; skipped %d (see console)" % len(skipped)
+            msg += f"; skipped {len(skipped)} (see console)"
         self.report({"INFO"}, msg)
         return {"FINISHED"}
 
@@ -730,6 +730,30 @@ class IOPS_OT_Call_Collection_Append_Panel(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def draw_vertex_paint_buttons(layout):
+    """Paint button plus the palette swatch row of the vertex paint brush.
+
+    Shared by the sidebar Vertex Color panel and the IOPS Pie."""
+    bcol = layout.column(align=True)
+    bcol.operator("iops.mesh_vertex_paint", icon="BRUSH_DATA", text="Paint")
+    # Palette: one row of solid color squares, each starts the brush
+    # with that color (icon generated per color; text fallback if the
+    # preview system is unavailable).
+    from ..operators.mesh_vertex_paint import PALETTE, color_icon_id
+    row = bcol.row(align=True)
+    row.scale_y = 1.3
+    for label, rgba in PALETTE:
+        icon_id = color_icon_id(rgba)
+        if icon_id:
+            # text=" " (not ""): icon-only buttons have a fixed width,
+            # a (blank) label makes them flex to fill the row.
+            op = row.operator("iops.mesh_vertex_paint", text=" ", icon_value=icon_id)
+        else:
+            op = row.operator("iops.mesh_vertex_paint", text=label[:1])
+        op.use_start_color = True
+        op.start_color = rgba
+
+
 class IOPS_PT_VCol_Panel(bpy.types.Panel):
     """VCOL"""
 
@@ -771,24 +795,7 @@ class IOPS_PT_VCol_Panel(bpy.types.Panel):
         ups = vp.unified_paint_settings
         box = layout.box()
         box.label(text="Paint Brush", icon="BRUSH_DATA")
-        bcol = box.column(align=True)
-        bcol.operator("iops.mesh_vertex_paint", icon="BRUSH_DATA", text="Paint")
-        # Palette: one row of solid color squares, each starts the brush
-        # with that color (icon generated per color; text fallback if the
-        # preview system is unavailable).
-        from ..operators.mesh_vertex_paint import PALETTE, color_icon_id
-        row = bcol.row(align=True)
-        row.scale_y = 1.3
-        for label, rgba in PALETTE:
-            icon_id = color_icon_id(rgba)
-            if icon_id:
-                # text=" " (not ""): icon-only buttons have a fixed width,
-                # a (blank) label makes them flex to fill the row.
-                op = row.operator("iops.mesh_vertex_paint", text=" ", icon_value=icon_id)
-            else:
-                op = row.operator("iops.mesh_vertex_paint", text=label[:1])
-            op.use_start_color = True
-            op.start_color = rgba
+        draw_vertex_paint_buttons(box)
         # Radius / strength / color: the brush slot is read-only in 4.3+
         # and empty until Vertex Paint mode was entered, so show the brush
         # props when a brush is set and the unified ones otherwise.
