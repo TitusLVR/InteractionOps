@@ -1622,16 +1622,19 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
                 return {'CANCELLED'}
             if stripes:
                 self._uv_stripe(context, bm, stripes)
-            self._select_result(bm, lone, strips)
+            self._select_result(context, bm, lone, strips)
             return {'FINISHED'}
         finally:
             if edited:
                 bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
 
-    def _select_result(self, bm, lone, strips) -> None:
+    def _select_result(self, context, bm, lone, strips) -> None:
         """Leave the result selected: the tagged new loop edges and ``lone`` vertices (Select New Edges), the tagged
         strip faces and those of ``strips`` still valid (Select New Faces). With both off the selection stays as
-        it was. The tags are cleared either way."""
+        it was. The tags are cleared either way.
+
+        Faces alone switch the mesh to face select mode: in edge mode the strip's selected edges also belong to
+        the faces beside it, and a tool that reads the selection by mode (Zen UV's Fit to Trim) takes those too."""
         faces = {f for f in strips if f.is_valid} | {f for f in bm.faces if f.tag}
         edges = [e for e in bm.edges if e.tag]
         for elem in (*edges, *faces):
@@ -1650,6 +1653,9 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         if self.select_faces:
             for f in faces:
                 f.select_set(True)
+            if faces and not self.select_edges:
+                context.tool_settings.mesh_select_mode = (False, False, True)
+                bm.select_mode = {'FACE'}
         bm.select_flush_mode()
 
     def _uv_stripe(self, context, bm, stripes) -> None:

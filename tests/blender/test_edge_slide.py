@@ -1094,6 +1094,10 @@ def test_execute_select_options():
         assert _selected_faces(obj) == want_faces, (edges, faces)
         if want_edges is not None:
             assert _selected_edges(obj) == want_edges, (edges, faces)
+        # Faces alone leave the mesh in face select mode; anything else leaves it in edge mode.
+        want_mode = (False, False, True) if faces and not edges else (False, True, False)
+        assert tuple(bpy.context.tool_settings.mesh_select_mode) == want_mode, (edges, faces)
+        assert _read(obj, lambda bm: set(bm.select_mode)) == ({'FACE'} if want_mode[2] else {'EDGE'}), (edges, faces)
 
 
 def test_execute_reuses_existing_mid_loop():    # Review Focus 1

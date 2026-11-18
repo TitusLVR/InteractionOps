@@ -266,6 +266,19 @@ def test_select_options_pick_the_inner_faces_and_the_walls():
     assert sum(f.select for f in bmesh.from_edit_mesh(obj.data).faces) == 1
 
 
+def test_selected_faces_leave_the_mesh_in_face_select_mode():
+    # From edge mode the inner face's edges are also the walls' edges: face mode keeps the selection to the faces.
+    for inner, walls, want in ((True, False, (False, False, True)), (False, False, (False, True, False))):
+        obj = _plane(2.0)
+        _select_all_faces(obj)
+        bpy.context.tool_settings.mesh_select_mode = (False, True, False)
+        _inset(thickness=0.2, select_inner=inner, select_walls=walls)
+        assert tuple(bpy.context.tool_settings.mesh_select_mode) == want, (inner, walls)
+        bm = bmesh.from_edit_mesh(obj.data)
+        assert set(bm.select_mode) == ({'FACE'} if want[2] else {'EDGE'}), (inner, walls)
+        assert sum(f.select for f in bm.faces) == (1 if inner else 0), (inner, walls)
+
+
 def test_collapsed_rectangle_still_a_rectangle():
     obj = _plane_rect(1.0, 4.0)
     _select_all_faces(obj)
@@ -544,6 +557,7 @@ TESTS = [
     test_outset_square_fit,
     test_collapsed_rectangle_still_a_rectangle,
     test_select_options_pick_the_inner_faces_and_the_walls,
+    test_selected_faces_leave_the_mesh_in_face_select_mode,
     test_uv_stripe_off_keeps_old_behaviour,
     test_depth_strip_height_is_the_slanted_wall,
     test_hole_gives_two_stacked_strips,

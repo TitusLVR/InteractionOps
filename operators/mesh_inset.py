@@ -2161,8 +2161,12 @@ class IOPS_OT_inset(bpy.types.Operator):
                         "Inset: no faces produced for this thickness")
         if self.use_uv_stripe:
             self._uv_stripe(context, bm, stripes)
-        # apply_inset/_apply_outset set the face-level selection; propagate it
-        # to whatever the mesh's actual select mode needs.
+        # apply_inset/_apply_outset set the face-level selection. Faces left selected switch the mesh to
+        # face select mode: in vertex or edge mode their selected edges also belong to the faces beside
+        # them, and a tool that reads the selection by mode (Zen UV's Fit to Trim) takes those too.
+        if mutated and (self.select_inner or self.select_walls):
+            context.tool_settings.mesh_select_mode = (False, False, True)
+            bm.select_mode = {'FACE'}
         bm.select_flush_mode()
         bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
         return {'FINISHED'}
