@@ -689,6 +689,11 @@ def keymap_name_for_idname(idname):
     # not in Window (which would swallow right-clicks in every editor).
     if idname.startswith("iops.cursor_place"):
         return "3D View"
+    # Ctrl+` is Blender's own gizmo toggle in the 3D View region keymap,
+    # which is handled before Window; the External pie has to sit in the
+    # same keymap to take the key.
+    if idname == "iops.call_pie_external":
+        return "3D View"
     if "iops.object" in idname:
         return "Object Mode"
     if "iops.uv" in idname:

@@ -16,7 +16,7 @@ keys_default = [
     ("iops.mesh_extrude_ex_normals", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_extrude_ex_indiv", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_mouseover_fill_select", "F19", "PRESS", True, True, True, False),
-    ("iops.mesh_to_grid", "UP_ARROW", "PRESS", False, False, False, False),    
+    ("iops.mesh_to_grid", "UP_ARROW", "PRESS", False, False, False, False),
     ("iops.mesh_cursor_bisect", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_inset", "F19", "PRESS", False, False, False, False),
     ("iops.mesh_edge_slide", "F19", "PRESS", False, False, False, False),
@@ -64,6 +64,7 @@ keys_default = [
     ("iops.call_pie_split", "S", "PRESS", True, True, True, False),
     ("iops.call_pie_assets", "A", "PRESS", True, True, True, False),
     ("iops.call_pie_node", "Q", "PRESS", True, True, True, False),
+    ("iops.call_pie_external", "ACCENT_GRAVE", "PRESS", True, False, False, False),
     ("iops.uv_call_pie_align", "A", "PRESS", False, True, False, False),
 
     # IOPS UI Panels
@@ -71,7 +72,7 @@ keys_default = [
     ("iops.call_panel_data", "BUTTON4MOUSE", "PRESS", True, False, True, False),
     ("iops.call_panel_tm", "T", "PRESS", True, True, True, False),
     ("iops.call_panel_modifiers", "RIGHTMOUSE", "PRESS", False, True, True, False),
-    
+
     # IOPS Windows
     ("iops.window_modifiers", "F19", "PRESS", True, True, True, False),
     # IOPS Library

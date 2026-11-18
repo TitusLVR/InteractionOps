@@ -1,0 +1,91 @@
+import os
+import re
+
+from ui.iops_pie_groups import PIE_GROUPS, SLOTS, VERTEX_COLOR, groups_for_mode
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DIAGONALS = {"TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT"}
+
+
+def _entries():
+    for mode, table in PIE_GROUPS.items():
+        for slot, (_title, rows) in table.items():
+            if rows == VERTEX_COLOR:
+                continue
+            for row in rows:
+                for entry in row:
+                    yield mode, slot, entry
+
+
+def _source_idnames():
+    found = set()
+    pattern = re.compile(r'bl_idname\s*=\s*"([^"]+)"')
+    for sub in ("operators", "ui"):
+        for dirpath, _dirs, files in os.walk(os.path.join(_ROOT, sub)):
+            for name in files:
+                if name.endswith(".py"):
+                    with open(os.path.join(dirpath, name), encoding="utf-8") as f:
+                        found.update(pattern.findall(f.read()))
+    return found
+
+
+def _read(rel):
+    with open(os.path.join(_ROOT, rel), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_slots_order():
+    assert SLOTS == ("LEFT", "RIGHT", "BOTTOM", "TOP",
+                     "TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT")
+
+
+def test_slot_names_valid():
+    for table in PIE_GROUPS.values():
+        for slot in table:
+            assert slot in SLOTS
+
+
+def test_diagonals_short():
+    for table in PIE_GROUPS.values():
+        for slot, (_title, rows) in table.items():
+            if slot in _DIAGONALS and rows != VERTEX_COLOR:
+                assert len(rows) <= 5, slot
+
+
+def test_only_iops_operators():
+    for _mode, _slot, (idname, _text, _props) in _entries():
+        assert idname.startswith("iops."), idname
+
+
+def test_vertex_color_bottom_in_both_modes():
+    for mode in ("OBJECT", "EDIT_MESH"):
+        assert PIE_GROUPS[mode]["BOTTOM"] == ("Vertex Color", VERTEX_COLOR)
+
+
+def test_idnames_exist_in_source():
+    known = _source_idnames()
+    missing = sorted({e[0] for _m, _s, e in _entries()} - known)
+    assert missing == []
+
+
+def test_groups_for_mode():
+    assert groups_for_mode("EDIT_MESH") is PIE_GROUPS["EDIT_MESH"]
+    assert groups_for_mode("OBJECT") is PIE_GROUPS["OBJECT"]
+    assert groups_for_mode("EDIT_CURVE") is PIE_GROUPS["OBJECT"]
+
+
+def test_external_hotkey():
+    from prefs.hotkeys_default import keys_default
+    rows = [k for k in keys_default if k[0] == "iops.call_pie_external"]
+    assert rows == [("iops.call_pie_external", "ACCENT_GRAVE", "PRESS",
+                     True, False, False, False)]
+
+
+def test_external_pie_guards_addons():
+    assert 'addons["' not in _read(os.path.join("ui", "iops_pie_external.py"))
+
+
+def test_main_pie_has_no_external_ops():
+    src = _read(os.path.join("ui", "iops_pie_menu.py"))
+    for needle in ("bmax.", "bmoi3d.", "b2ruvl.", "mesh.optiloops", "B2RUVL"):
+        assert needle not in src, needle

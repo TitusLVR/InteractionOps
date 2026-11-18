@@ -1,6 +1,6 @@
 # Pie Menus
 
-InteractionOps adds five pie menus and one floating library palette. Every pie has its own hotkey (see *Preferences › iOps › Keymaps*); buttons that cannot run in the current context are hidden, so a pie only shows what works right now.
+InteractionOps adds a set of pie menus and one floating library palette. Every pie has its own hotkey (see *Preferences › iOps › Keymaps*); buttons that cannot run in the current context are hidden, so a pie only shows what works right now.
 
 ---
 
@@ -8,32 +8,50 @@ InteractionOps adds five pie menus and one floating library palette. Every pie h
 
 ![Main Pie](../img/ui/pies/pie_main.png)
 
-The everyday toolbox: vertex colours, object tools, mesh tools and the Easy Modifier helpers, plus bridges to companion addons when they are installed.
+The everyday toolbox of iOps operators, sorted into titled group boxes. Object Mode and Edit Mesh get different groups; every other mode uses the Object Mode set. Buttons that cannot run right now are hidden, and a group with nothing left to show is dropped. Third-party addon tools live in the [External Pie](#external-pie).
 
 **Hotkey:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd>
 
-| Slot | Button | What it does |
+### Object Mode
+
+| Slot | Box | Buttons |
 | --- | --- | --- |
-| Left (iOps box) | Colour picker + **Set Vertex Color**, **White / Grey / Black**, **Set Vertex Alpha** | Paint the selection with a vertex colour or alpha |
-| | **Materials from Textures** | Build materials from the textures in the file |
-| | **Object Replace** | Swap selected objects for the active one |
-| | **Object Aligner** | Match objects to a reference by shape |
-| | **Radial Array** | Circular array around the cursor |
-| | **Align Between Two** | Place the active object between two others |
-| | **Quick Snap** | Snap mesh elements point to point |
-| | **Quick Connect** | Connect selected vertices across faces |
-| | **Tris to Quads** | Triangulate and re-quad the selection |
-| | **Inset**, **Edge Slide**, **Straight Bevel**, **Shear**, **Hinge**, **Converge**, **Vert Fuse** | Edit Mesh tools (hidden outside Edit Mode) |
-| | **Drop It!** | Drop objects onto the surface below |
-| | **Grid** / **to Center** | Arrange kitbash pieces on a grid or gather them at the centre |
-| | **Easy Modifier - Array Caps / Array Curve / Curve / SHWARP** | Modifier setup shortcuts |
-| | **Render Asset Thumbnail** | Render a preview for the active asset |
-| | **Reload Libraries**, **Reload Images** | Refresh linked files and textures |
-| Right | **BMax** / **BMoI** boxes | Send to / get from 3ds Max, Maya or MoI3D — only when those connector addons are installed |
-| Bottom | **B2RUVL** box | UV map choice and send/get for UVLayout and RizomUV (needs the B2RUVL addon) |
-| Top (Edit Mesh only) | **Non-Planar Overlay** | Toggle the non-planar face overlay |
-| | **ForgottenTools** box | Connect Spread, Grid Fill, Dice Faces, Hinge, Separate Duplicate, Selection Sets — when Forgotten Tools is installed |
-| Top-right (Edit Mesh only) | **Optiloops** | When the Optiloops addon is installed |
+| Left | **Transform & Align** | Object Aligner, Align Between Two, 3 Point Rotation, Mirror Rotate, Match Dimensions, Normalize, Change Scale, Visual Origin, Drop It! |
+| Right | **Arrange** | Object Replace, Radial Array, Grid / Grid to Center, To Grid From Active |
+| Bottom | **Vertex Color** | See below |
+| Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects, Negative Scale Overlay (drawn pressed while the overlay is on) |
+| Top-left | **Modifiers** | Easy Modifier shortcuts: Array Caps, Array Curve, Curve, SHWARP |
+| Top-right | **Assets & Files** | Materials from Textures, Material Override, Render Asset Thumbnail, Reload Libraries, Reload Images |
+
+### Edit Mesh
+
+| Slot | Box | Buttons |
+| --- | --- | --- |
+| Left | **Mesh** | Inset, Edge Slide, Straight Bevel, Shear, Hinge, Converge, Vert Fuse, Quick Connect, Quick Snap, Tris to Quads, Cursor Bisect, To Grid, Mesh Snapshot |
+| Right | **UV** | UV Stripe, UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
+| Bottom | **Vertex Color** | See below |
+| Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face, Non-Planar Overlay (drawn pressed while the overlay is on) |
+| Top-left | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
+
+### Vertex Color box
+
+The bottom slot in both modes. Colour picker + **Set Vertex Color**, **White / Grey / Black**, **Set Vertex Alpha**; then the vertex paint brush: **Paint**, a row of palette swatches that start the brush with that colour, and **Blur / Sharpen** for the existing vertex colours. The brush buttons are the same as in the sidebar *IOPS Vertex Color* panel.
+
+---
+
+## External Pie
+
+Tools of companion addons, one box per addon. A box appears only when its addon is installed; with none installed the pie shows *No external addons installed*.
+
+**Hotkey:** <kbd>Ctrl</kbd>+<kbd>&#96;</kbd> (the key left of 1)
+
+| Slot | Box | Buttons |
+| --- | --- | --- |
+| Left | **BMax** | Send to / Get from Maya/3dsmax (FBX or USD, per the addon's file format), Reset Location / Rotation / Scale toggles |
+| Right | **BMoI** | Send to / Get from MoI3D |
+| Bottom | **B2RUVL** | UV map choice, Send to UVLayout, Send to RizomUV, Get from RizomUV |
+| Top | **ForgottenTools** | Connect Spread, Grid Fill All, Dice Faces, Hinge, Separate Duplicate, Selection Sets (Edit Mesh) |
+| Top-right | **Optiloops** | Optiloops (Edit Mesh) |
 
 ---
 
