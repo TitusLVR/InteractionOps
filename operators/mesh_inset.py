@@ -491,23 +491,23 @@ def _copy_face_attrs(face, src):
         pass
 
 
-def _apply_selection(inner, walls):
-    """Leave the new inner surface selected and the walls not.
+def _apply_selection(inner, walls, select=(True, False)):
+    """Leave the inner surface and the walls selected as ``select`` (inner, walls) says: by default the
+    inner surface is and the walls are not.
 
-    Mirrors native ``mesh.inset``, which hands back the inner faces selected
-    so the operation can be chained. Walls are cleared *first*: they share the
-    front verts/edges with the inner faces, so clearing them afterwards would
+    The default mirrors native ``mesh.inset``, which hands back the inner faces selected
+    so the operation can be chained. The faces left out are cleared *first*: they share the
+    front verts/edges with the others, so clearing them afterwards would
     strip the selection straight back off. An inner face never touches an
     original boundary vert (those are consumed by definition), so every wall
     keeps at least one unselected vert and no later select flush can resurrect
     it.
     """
-    for f in walls:
-        if f.is_valid:
-            f.select_set(False)
-    for f in inner:
-        if f.is_valid:
-            f.select_set(True)
+    groups = sorted(zip(select, (inner, walls)), key=lambda pair: pair[0])   # the cleared ones first
+    for chosen, faces in groups:
+        for f in faces:
+            if f.is_valid:
+                f.select_set(bool(chosen))
 
 
 def _point_in_poly(pts, p):
@@ -943,7 +943,7 @@ def _fill_front_loops(front, bmvert, new_face, report=None):
     return made
 
 
-def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
+def apply_inset(bm, region, tl, t, depth, use_collapse, report=None, select=(True, False)):
     """Rebuild the region at thickness ``t``. Mutates ``bm``.
 
     Interior faces the front has not reached yet are preserved: their verts
@@ -1094,7 +1094,7 @@ def apply_inset(bm, region, tl, t, depth, use_collapse, report=None):
     # stay selected alongside the freshly built caps/clips.
     if plan is not None:
         inner_faces.extend(plan.kept)
-    _apply_selection(inner_faces, wall_faces)
+    _apply_selection(inner_faces, wall_faces, select)
     bm.normal_update()
     return made_faces, True, _stripe_loops(region, walls_built, math.hypot(t_eff, depth))
 
@@ -1133,7 +1133,7 @@ def _outset_positions(region, weights, t_abs):
     return out
 
 
-def _apply_outset(bm, region, weights, t_abs, depth):
+def _apply_outset(bm, region, weights, t_abs, depth, select=(True, False)):
     """Build a naive outward offset of the region boundary. Mutates ``bm``.
 
     Unlike ``apply_inset`` the original region faces are left untouched --
@@ -1216,9 +1216,8 @@ def _apply_outset(bm, region, weights, t_abs, depth):
     orphans = [vt for vt in fresh if vt.is_valid and not vt.link_faces]
     if orphans:
         bmesh.ops.delete(bm, geom=orphans, context='VERTS')
-    # Outset keeps the original faces, so the roles swap relative to inset:
-    # the new ring is what stays selected, the untouched region drops out.
-    _apply_selection(ring_faces, region.faces)
+    # Outset keeps the original faces: they are its inner surface, the new ring its walls.
+    _apply_selection(region.faces, ring_faces, select)
     bm.normal_update()
     return made_faces, True, _stripe_loops(region, walls_built, math.hypot(t_abs, depth))
 
@@ -1406,6 +1405,29 @@ class IOPS_OT_inset(bpy.types.Operator):
         ),
         default=False,
     )
+    select_inner: BoolProperty(
+        name="Select Inner Faces",
+        description="Leave the inner faces selected after the inset (the original faces for an outset)",
+        default=True,
+    )
+    select_walls: BoolProperty(
+        name="Select Wall Faces",
+        description=(
+            "Leave the new walls between the original boundary and the new contour selected "
+            "after the inset (the new ring for an outset)"
+        ),
+        default=False,
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        for name in ("thickness", "depth", "mode", "use_collapse", "use_boundary", "use_uv_stripe"):
+            layout.prop(self, name)
+        row = layout.row(heading="Select", align=True)
+        row.prop(self, "select_inner", text="Inner", toggle=True)
+        row.prop(self, "select_walls", text="Walls", toggle=True)
 
     @classmethod
     def poll(cls, context):
@@ -2101,20 +2123,21 @@ class IOPS_OT_inset(bpy.types.Operator):
 
         changed = 0
         mutated = False
+        select = (self.select_inner, self.select_walls)
         stripes = []  # each region's StripeLoops, for UV Stripe
         if t < 0.0:
             # Naive outset, no skeleton/timeline needed -- see _apply_outset.
             for region in regions:
                 weights = resolve_weights(region, self.use_boundary)
                 n_faces, did, loops = _apply_outset(bm, region, weights, -t,
-                                                    self.depth)
+                                                    self.depth, select)
                 changed += n_faces
                 mutated = mutated or did
                 stripes.append(loops)
         else:
             for region, tl in self._build_timelines(regions):
                 n_faces, did, loops = apply_inset(bm, region, tl, t, self.depth,
-                                                  self.use_collapse, self.report)
+                                                  self.use_collapse, self.report, select)
                 changed += n_faces
                 mutated = mutated or did
                 stripes.append(loops)

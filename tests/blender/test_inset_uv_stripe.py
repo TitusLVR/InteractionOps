@@ -208,6 +208,7 @@ class _OperatorStandIn:
         self.thickness, self.depth, self.mode = 0.05, 0.0, "REGION"
         self.use_collapse, self.use_boundary = True, True
         self.use_uv_stripe = False
+        self.select_inner, self.select_walls = True, False
         props = _take_stripe_settings(props)
         self.__dict__.update(props)
         self.reports = []
@@ -244,6 +245,25 @@ def test_outset_square_fit():
     _select_all_faces(obj)
     _inset(thickness=-0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
     assert _wall_uv_ranges(obj)[1] == (0.0, 0.022727)
+
+
+def test_select_options_pick_the_inner_faces_and_the_walls():
+    # Inset: the walls are the new faces on the old border. Outset: the ring is, and the old faces are the inner ones.
+    for thickness in (0.2, -0.2):
+        for inner, walls in ((True, False), (False, True), (True, True), (False, False)):
+            obj = _plane(2.0)
+            _select_all_faces(obj)
+            _inset(thickness=thickness, select_inner=inner, select_walls=walls)
+            bm = bmesh.from_edit_mesh(obj.data)
+            wall = set(_wall_faces(bm, obj.name))
+            assert len(wall) == 4 and len(bm.faces) == 5, (len(wall), len(bm.faces))
+            got = {f for f in bm.faces if f.select}
+            want = (wall if walls else set()) | ((set(bm.faces) - wall) if inner else set())
+            assert got == want, (thickness, inner, walls, len(got), len(want))
+    obj = _plane(2.0)                                   # the defaults: the inner face alone
+    _select_all_faces(obj)
+    _inset(thickness=0.2)
+    assert sum(f.select for f in bmesh.from_edit_mesh(obj.data).faces) == 1
 
 
 def test_collapsed_rectangle_still_a_rectangle():
@@ -523,6 +543,7 @@ TESTS = [
     test_inset_square_fit,
     test_outset_square_fit,
     test_collapsed_rectangle_still_a_rectangle,
+    test_select_options_pick_the_inner_faces_and_the_walls,
     test_uv_stripe_off_keeps_old_behaviour,
     test_depth_strip_height_is_the_slanted_wall,
     test_hole_gives_two_stacked_strips,
