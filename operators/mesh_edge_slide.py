@@ -235,6 +235,19 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         ),
         default=False,
     )
+    select_edges: BoolProperty(
+        name="Select New Edges",
+        description="Leave the new edge loops selected after the cut",
+        default=True,
+    )
+    select_faces: BoolProperty(
+        name="Select New Faces",
+        description=(
+            "Leave the faces between the selected edges and each new loop selected after the cut. "
+            "With both Select options off the selection stays as it was"
+        ),
+        default=True,
+    )
     rail_bend: FloatProperty(
         name="Rail Bend",
         description=(
@@ -328,6 +341,9 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         row = layout.row()
         row.active = False  # a muted note: the UV Stripe settings live in UV Stripe's own redo panel
         row.label(text="Settings from UV Stripe")
+        row = layout.row(heading="Select", align=True)
+        row.prop(self, "select_edges", text="Edges", toggle=True)
+        row.prop(self, "select_faces", text="Faces", toggle=True)
         header, body = layout.panel("IOPS_PT_edge_slide_angles", default_closed=True)
         header.label(text="Angles")
         if body is not None:
@@ -1531,6 +1547,9 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         # one, and edge_split copies the tag onto both halves.
         for e in bm.edges:
             e.tag = False
+        for f in bm.faces:
+            f.tag = False
+        strips = []  # the strip faces of every complete cut, for Select New Faces: tagged too, as the loop edges are
         edited = False
         lone = []  # the vertices of the pieces of destructive cuts that end as a single point: selected too
         stripes = []  # (build, applied, width cut at) of each complete cut, for UV Stripe
@@ -1593,6 +1612,9 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
                     stripes.append((build, applied, cut.width))
                 for e in applied.loop_edges:
                     e.tag = True
+                for f in applied.strip_faces:
+                    f.tag = True
+                strips += applied.strip_faces
 
             # An edited mesh always finishes, so the change gets its update and undo step.
             if not edited:
@@ -1600,21 +1622,35 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
                 return {'CANCELLED'}
             if stripes:
                 self._uv_stripe(context, bm, stripes)
-            for seq in (bm.verts, bm.edges, bm.faces):
-                for elem in seq:
-                    elem.select = False
-            for e in bm.edges:
-                if e.tag:
-                    e.select_set(True)
-                    e.tag = False
-            for v in lone:
-                if v.is_valid:
-                    v.select_set(True)
-            bm.select_flush_mode()
+            self._select_result(bm, lone, strips)
             return {'FINISHED'}
         finally:
             if edited:
                 bmesh.update_edit_mesh(me, loop_triangles=True, destructive=True)
+
+    def _select_result(self, bm, lone, strips) -> None:
+        """Leave the result selected: the tagged new loop edges and ``lone`` vertices (Select New Edges), the tagged
+        strip faces and those of ``strips`` still valid (Select New Faces). With both off the selection stays as
+        it was. The tags are cleared either way."""
+        faces = {f for f in strips if f.is_valid} | {f for f in bm.faces if f.tag}
+        edges = [e for e in bm.edges if e.tag]
+        for elem in (*edges, *faces):
+            elem.tag = False
+        if not (self.select_edges or self.select_faces):
+            return
+        for seq in (bm.verts, bm.edges, bm.faces):
+            for elem in seq:
+                elem.select = False
+        if self.select_edges:
+            for e in edges:
+                e.select_set(True)
+            for v in lone:
+                if v.is_valid:
+                    v.select_set(True)
+        if self.select_faces:
+            for f in faces:
+                f.select_set(True)
+        bm.select_flush_mode()
 
     def _uv_stripe(self, context, bm, stripes) -> None:
         """Unwrap the strip of every piece of every (build, applied, width) cut, with UV Stripe's settings.

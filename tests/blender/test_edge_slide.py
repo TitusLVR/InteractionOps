@@ -549,6 +549,7 @@ class _OperatorStandIn:
         self.rail_bend, self.end_edge_angle = math.radians(30), math.radians(60)
         self.step_agreement, self.step_difference, self.shoot_angle = math.radians(30), math.radians(60), math.radians(30)
         self.tolerance = 0.0
+        self.select_edges, self.select_faces = True, False   # the new loop alone, as _run
         self.__dict__.update(props)
         self.reports = []
 
@@ -677,6 +678,9 @@ def _take_stripe_settings(props):
 
 
 def _run(bm_obj, **props):
+    """The operator run on ``props``. Select New Faces is off unless asked for: the tests read the new loop
+    from the selection."""
+    props.setdefault("select_faces", False)
     return bpy.ops.iops.mesh_edge_slide('EXEC_DEFAULT', **_take_stripe_settings(props))
 
 
@@ -1063,6 +1067,33 @@ def test_angles_at_the_defaults_are_exactly_the_core_defaults():   # Blender sto
 def test_step_agreement_stays_under_step_difference():
     stand = _OperatorStandIn(step_agreement=math.radians(50), step_difference=math.radians(40))
     assert stand._angles().step_agree == math.radians(40) - math.radians(1)
+
+
+def _selected_faces(obj):
+    return _read(obj, lambda bm: {_key(f.calc_center_median()) for f in bm.faces if f.select})
+
+
+def test_execute_selects_the_new_loop_and_its_faces_by_default():
+    obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
+    assert bpy.ops.iops.mesh_edge_slide('EXEC_DEFAULT', width=0.25, chain_sides="+") == {'FINISHED'}
+    strip = _round_set([(x + .5, .125, 0) for x in range(3)])
+    assert _selected_faces(obj) == strip
+    assert _selected_edge_count(obj) == 10                      # the loop, the chain and the four rungs
+
+
+def test_execute_select_options():
+    loop = {_edge_key((x, .25, 0), (x + 1, .25, 0)) for x in range(3)}
+    chain = {_edge_key((x, 0, 0), (x + 1, 0, 0)) for x in range(3)}
+    strip = _round_set([(x + .5, .125, 0) for x in range(3)])
+    for edges, faces, want_edges, want_faces in (
+            (True, False, loop, set()),
+            (False, True, None, strip),
+            (False, False, chain, set())):                      # both off: the selection stays as it was
+        obj = _edit_object(_strip(), chain=[0, 1, 2, 3])
+        assert _run(obj, width=0.25, chain_sides="+", select_edges=edges, select_faces=faces) == {'FINISHED'}
+        assert _selected_faces(obj) == want_faces, (edges, faces)
+        if want_edges is not None:
+            assert _selected_edges(obj) == want_edges, (edges, faces)
 
 
 def test_execute_reuses_existing_mid_loop():    # Review Focus 1
@@ -3461,10 +3492,10 @@ class _PanelLayout:
         self.drawn, self.active = drawn, True
         self.use_property_split = self.use_property_decorate = False
 
-    def prop(self, _owner, name):
+    def prop(self, _owner, name, **_look):
         self.drawn[name] = self.active
 
-    def row(self):
+    def row(self, **_look):
         return _PanelLayout(self.drawn)
 
     def column(self):
@@ -3501,6 +3532,7 @@ def test_redo_panel_shows_only_the_uv_stripe_checkbox():
     assert names[names.index("use_uv_stripe") + 1] == "label: Settings from UV Stripe", names
     assert drawn["label: Settings from UV Stripe"] is False                    # muted
     assert not any(name.startswith("uv_stripe_") for name in names), names
+    assert drawn["select_edges"] and drawn["select_faces"], drawn             # the Select row
 
 
 # --- why a slide stops ------------------------------------------------------------------
@@ -3936,6 +3968,8 @@ TESTS = [
     test_relay_chain_drops_a_shot_end_past_the_row,
     test_relay_knows_when_an_end_has_shot_past_its_end_edge,
     test_preview_is_drawn_on_the_mesh_and_both_handlers_go_on_every_exit,
+    test_execute_selects_the_new_loop_and_its_faces_by_default,
+    test_execute_select_options,
 ]
 
 
