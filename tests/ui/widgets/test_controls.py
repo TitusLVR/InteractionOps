@@ -481,3 +481,16 @@ def test_dd_state_hovered_returns_pair():
     dd = DropdownState(DD_ITEMS, (10.0, 300.0, 50.0, 20.0), 400.0, 20.0,
                        current="C")
     assert dd.hovered() == ("C", "Charlie")
+
+
+def test_operator_pushed_undo_needs_finished_result():
+    # A cancelled / modal / failed call never counts as "pushed its own undo"
+    # (decided before any bpy lookup, so this stays bpy-free).
+    assert controls.operator_pushed_undo("mesh.x", {"CANCELLED"}) is False
+    assert controls.operator_pushed_undo("mesh.x", {"RUNNING_MODAL"}) is False
+    assert controls.operator_pushed_undo("mesh.x", None) is False
+
+
+def test_operator_pushed_undo_unknown_operator_is_false():
+    # No bpy under pytest -> lookup fails -> caller keeps its own undo push.
+    assert controls.operator_pushed_undo("no.such_op", {"FINISHED"}) is False

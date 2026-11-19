@@ -275,11 +275,49 @@ def _invoke_operator(op_idname, kwargs):
     this module — deferred import so the module stays importable under plain
     pytest. INVOKE_DEFAULT: invoke-only operators (e.g. CCP export ops) raise
     under EXEC_DEFAULT; operators without invoke fall through to execute, so
-    this is safe for both kinds. Shared by ActionButton and Swatch."""
+    this is safe for both kinds. Shared by ActionButton and Swatch.
+
+    The second positional argument is bpy.ops' `undo` flag: with it Blender
+    treats the call like a click in its own UI — the operator is registered
+    for Adjust Last Operation (F9) and pushes its own undo step. Without it
+    a Python call is never registered, and the redo panel keeps showing
+    whatever ran before the widget button.
+
+    Only operators with the UNDO option get the flag — they are the ones
+    the redo panel can show. Everything else (iops.executor scripts, modal
+    pickers) is called the plain way: registering e.g. the executor makes
+    Blender set up the redo HUD right after the call, which closes a popup
+    menu the script has just opened (the Trim Presets list)."""
     import bpy
     module, _, name = op_idname.partition(".")
     op = getattr(getattr(bpy.ops, module), name)
+    if _has_undo_option(op):
+        return op("INVOKE_DEFAULT", True, **kwargs)
     return op("INVOKE_DEFAULT", **kwargs)
+
+
+def _has_undo_option(op):
+    try:
+        options = op.bl_options
+        return "UNDO" in options or "UNDO_GROUPED" in options
+    except Exception:
+        return False
+
+
+def operator_pushed_undo(op_idname, result):
+    """True when the operator fired by _invoke_operator has pushed its own
+    undo step: it finished and its type carries the UNDO option. The caller
+    must then NOT add an undo step of its own — an extra step on top makes
+    Adjust Last Operation refuse the operator ("last undo step is not this
+    operator"). Unknown operator / odd result -> False (caller pushes)."""
+    try:
+        if "FINISHED" not in result:
+            return False
+        import bpy
+        module, _, name = op_idname.partition(".")
+        return _has_undo_option(getattr(getattr(bpy.ops, module), name))
+    except Exception:
+        return False
 
 
 class ActionButton(Control):
