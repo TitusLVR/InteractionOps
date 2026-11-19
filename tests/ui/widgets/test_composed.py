@@ -1384,3 +1384,12 @@ def test_shipped_widget_scripts_exist():
     assert used and all(os.path.isfile(os.path.join(scripts, s))
                         for s in used)
     assert used == set(os.listdir(scripts)) - {"__pycache__"}
+
+
+def test_validate_def_button_undo_flag():
+    clean, errors = composed.validate_def({"name": "u", "rows": [
+        {"type": "BUTTON", "label": "A", "op": "iops.executor", "undo": True},
+        {"type": "BUTTON", "label": "B", "op": "iops.executor"}]})
+    assert errors == []
+    assert clean["rows"][0]["undo"] is True
+    assert "undo" not in clean["rows"][1]

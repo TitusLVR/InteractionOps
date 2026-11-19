@@ -494,3 +494,12 @@ def test_operator_pushed_undo_needs_finished_result():
 def test_operator_pushed_undo_unknown_operator_is_false():
     # No bpy under pytest -> lookup fails -> caller keeps its own undo push.
     assert controls.operator_pushed_undo("no.such_op", {"FINISHED"}) is False
+
+
+def test_action_button_undo_forces_the_undo_flag(monkeypatch):
+    calls = []
+    monkeypatch.setattr(controls, "_invoke_operator",
+                        lambda op, kw, undo=False: calls.append((op, undo)))
+    ActionButton("Unwrap", op="iops.executor", undo=True).execute(None)
+    ActionButton("Presets", op="iops.executor").execute(None)
+    assert calls == [("iops.executor", True), ("iops.executor", False)]
