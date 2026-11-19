@@ -270,7 +270,7 @@ class FlipBox(_ValueControl):
         return not value
 
 
-def _invoke_operator(op_idname, kwargs):
+def _invoke_operator(op_idname, kwargs, undo=False):
     """Fire an operator by idname via INVOKE_DEFAULT. The ONLY bpy touch in
     this module — deferred import so the module stays importable under plain
     pytest. INVOKE_DEFAULT: invoke-only operators (e.g. CCP export ops) raise
@@ -287,11 +287,13 @@ def _invoke_operator(op_idname, kwargs):
     the redo panel can show. Everything else (iops.executor scripts, modal
     pickers) is called the plain way: registering e.g. the executor makes
     Blender set up the redo HUD right after the call, which closes a popup
-    menu the script has just opened (the Trim Presets list)."""
+    menu the script has just opened (the Trim Presets list). `undo=True`
+    (a BUTTON's "undo" key) forces the flag for a script button whose inner
+    operator call is the thing to register."""
     import bpy
     module, _, name = op_idname.partition(".")
     op = getattr(getattr(bpy.ops, module), name)
-    if _has_undo_option(op):
+    if undo or _has_undo_option(op):
         return op("INVOKE_DEFAULT", True, **kwargs)
     return op("INVOKE_DEFAULT", **kwargs)
 
@@ -327,15 +329,20 @@ class ActionButton(Control):
     interactive = True
 
     def __init__(self, label, op, kwargs=None, role="default",
-                 enabled_get=None):
+                 enabled_get=None, undo=False):
         super().__init__()
         self.label = label
         self.op = op            # operator idname, e.g. "iops.executor"
         self.kwargs = dict(kwargs) if kwargs else {}
         self.role = role        # "default" | "error" (render color hint)
         self.enabled_get = enabled_get
+        # True: the fired operator (a script) takes care of undo and the
+        # redo panel itself — forced undo flag, no undo_push by the widget.
+        self.undo = bool(undo)
 
     def execute(self, context):
+        if self.undo:
+            return _invoke_operator(self.op, self.kwargs, undo=True)
         return _invoke_operator(self.op, self.kwargs)
 
 

@@ -629,8 +629,9 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
                 # An UNDO operator has pushed its own step (it is called
                 # with undo enabled, see controls._invoke_operator); a
                 # second step here would break Adjust Last Operation.
-                if not operator_pushed_undo(
-                        getattr(self._control, "op", ""), result):
+                if not (getattr(self._control, "undo", False)
+                        or operator_pushed_undo(
+                            getattr(self._control, "op", ""), result)):
                     self._undo_push()
         elif mode == "title_close":
             if self._rect.contains(mx, my):

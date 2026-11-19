@@ -675,6 +675,13 @@ def _clean_row_body(row):
     out["op_kwargs"] = kwargs if isinstance(kwargs, dict) else {}
     role = str(row.get("role", "default"))
     out["role"] = role if role in ("default", "error") else "default"
+    # "undo": true — fire the operator with bpy.ops' undo flag even though
+    # its own type has no UNDO option. For iops.executor scripts whose inner
+    # operator call should land in Adjust Last Operation and push its own
+    # undo step (the script passes the flag on to that call). Off for
+    # scripts that open a popup: see controls._invoke_operator.
+    if bool(row.get("undo", False)):
+        out["undo"] = True
     return out, None
 
 
@@ -1026,7 +1033,8 @@ def build_controls(row_defs, switch_store=None, on_switch=None, widget_name=""):
             return ActionButton(row["label"], op=row["op"],
                                 kwargs=row.get("op_kwargs") or {},
                                 role=row.get("role", "default"),
-                                enabled_get=gate)
+                                enabled_get=gate,
+                                undo=bool(row.get("undo", False)))
         return None
 
     controls = []
