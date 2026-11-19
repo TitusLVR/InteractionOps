@@ -33,7 +33,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 
 from . import state
-from .controls import TextEditState, DropdownState
+from .controls import TextEditState, DropdownState, operator_pushed_undo
 
 
 def _tag_redraw(context):
@@ -620,12 +620,18 @@ class IOPS_OT_widget_interact(bpy.types.Operator):
             self._undo_push()
         elif mode == "button":
             if self._rect.contains(mx, my):
+                result = None
                 try:
-                    self._control.execute(context)
+                    result = self._control.execute(context)
                 except Exception as e:
                     self.report({"ERROR"}, f"IOPS widget action failed: {e}")
                 self._widget.mark_dirty()
-                self._undo_push()
+                # An UNDO operator has pushed its own step (it is called
+                # with undo enabled, see controls._invoke_operator); a
+                # second step here would break Adjust Last Operation.
+                if not operator_pushed_undo(
+                        getattr(self._control, "op", ""), result):
+                    self._undo_push()
         elif mode == "title_close":
             if self._rect.contains(mx, my):
                 self._widget._press_cell = None
