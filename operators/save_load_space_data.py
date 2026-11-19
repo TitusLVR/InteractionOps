@@ -1,6 +1,29 @@
 import bpy
 
 
+# Blender 5.3 replaced SpaceOutliner.use_sort_alpha with the sort_method enum.
+# Scenes saved by either version must load in the other.
+def _save_outliner_sort(sd, outliner):
+    if hasattr(sd, "sort_method"):
+        outliner["sort_method"] = sd.sort_method
+        outliner["use_sort_alpha"] = sd.sort_method == "ALPHA"
+    else:
+        outliner["use_sort_alpha"] = sd.use_sort_alpha
+
+
+def _load_outliner_sort(sd, outliner):
+    if hasattr(sd, "sort_method"):
+        if "sort_method" in outliner:
+            try:
+                sd.sort_method = outliner["sort_method"]
+            except TypeError:
+                pass
+        elif "use_sort_alpha" in outliner:
+            sd.sort_method = "ALPHA" if outliner["use_sort_alpha"] else "NONE"
+    elif "use_sort_alpha" in outliner:
+        sd.use_sort_alpha = outliner["use_sort_alpha"]
+
+
 def save_space_data(context):
     area_type = context.area.type
     sd = context.space_data
@@ -34,7 +57,7 @@ def save_space_data(context):
             outliner["show_restrict_column_render"] = sd.show_restrict_column_render
 
         if display_mode != "DATA_API":
-            outliner["use_sort_alpha"] = sd.use_sort_alpha
+            _save_outliner_sort(sd, outliner)
     else:
         context.scene["IOPS"][area_type]["show_header"] = sd.show_region_header
         context.scene["IOPS"][area_type]["show_menus"] = context.area.show_menus
@@ -76,7 +99,7 @@ def load_space_data(context):
                 sd.show_restrict_column_render = outliner["show_restrict_column_render"]
 
             if display_mode != "DATA_API":
-                sd.use_sort_alpha = outliner["use_sort_alpha"]
+                _load_outliner_sort(sd, outliner)
 
             return f"{area_type} space data loaded"
 
