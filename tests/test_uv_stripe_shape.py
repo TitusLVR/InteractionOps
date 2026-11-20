@@ -218,3 +218,164 @@ def test_a_face_with_a_flipped_normal_unfolds_beside_its_neighbour():
     assert math.dist(pos[0], pos[2]) == pytest.approx(2.0)     # side by side, not folded back onto the first
     for face in faces.values():
         assert face_stretch([verts[v] for v in face], [pos[v] for v in face]) == pytest.approx(1.0)
+
+
+# --- aligning True Shape: what the unfolded piece runs along -------------------------------------------
+
+def bent_flat():
+    """A flat strip in the xy plane that turns by 45 degrees in its own surface: near row edges 2 and 1.414, far
+    row edges 1.8 and 1.14."""
+    verts = {0: (0.0, 0.0, 0.0), 1: (2.0, 0.0, 0.0), 2: (3.0, 1.0, 0.0),
+             10: (0.0, 0.5, 0.0), 11: (1.8, 0.5, 0.0), 12: (2.5, 1.4, 0.0)}
+    faces = {0: (0, 1, 11, 10), 1: (1, 2, 12, 11)}
+    return verts, faces
+
+
+def shaped(verts, faces, align="AUTO", align_edge=None):
+    strip = strip_from_faces(verts, faces)
+    strip.layout = "SHAPE"
+    strip.align = align
+    strip.align_edge = None if align_edge is None else tuple(sorted(align_edge))
+    return strip
+
+
+def row_edges(strip):
+    """Every row edge as (length, (a, b)) in row order: near row first, then far row."""
+    return [(math.dist(strip.verts[a], strip.verts[b]), (a, b))
+            for row in (strip.near, strip.far) for a, b in zip(row, row[1:])]
+
+
+def uv_of(uv, vid):
+    return next(p for (_fid, v), p in uv.items() if v == vid)
+
+
+def assert_along_u(uv, edge):
+    a, b = (uv_of(uv, v) for v in edge)
+    assert a[1] == pytest.approx(b[1], abs=1e-9), edge
+    assert abs(a[0] - b[0]) > 1e-6, edge
+
+
+def assert_along_v(uv, edge):
+    a, b = (uv_of(uv, v) for v in edge)
+    assert a[0] == pytest.approx(b[0], abs=1e-9), edge
+    assert abs(a[1] - b[1]) > 1e-6, edge
+
+
+def assert_near_below_far(strip, uv):
+    near = [uv_of(uv, v) for v in strip.near]
+    far = [uv_of(uv, v) for v in strip.far]
+    assert sum(v for _u, v in near) / len(near) < sum(v for _u, v in far) / len(far)
+    assert min(u for u, _v in uv.values()) == pytest.approx(0.0, abs=1e-12)
+    assert min(v for _u, v in uv.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+SHAPES = {"chamfer": (CHAMFER_VERTS, CHAMFER_FACES), "bent": bent_flat()}
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_auto_align_is_the_default_layout(shape):
+    verts, faces = SHAPES[shape]
+    plain = strip_from_faces(verts, faces)
+    plain.layout = "SHAPE"
+    assert plain.align == "AUTO" and plain.align_edge is None
+    assert stripe_uvs(shaped(verts, faces, "AUTO")) == stripe_uvs(plain)
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+@pytest.mark.parametrize("align", ["LONGEST", "SHORTEST"])
+def test_longest_and_shortest_put_that_row_edge_along_u(shape, align):
+    verts, faces = SHAPES[shape]
+    strip = shaped(verts, faces, align)
+    edges = row_edges(strip)
+    pick = max if align == "LONGEST" else min
+    best = pick(length for length, _e in edges)
+    edge = next(e for length, e in edges if length == best)      # the first one on a tie, near row before far
+    uv = stripe_uvs(strip)
+    assert_unfolded(strip, uv)
+    assert_along_u(uv, edge)
+    assert_near_below_far(strip, uv)
+    assert strip_extent(strip) == pytest.approx(max(u for u, _v in uv.values()))
+    assert strip_v_extent(strip) == pytest.approx(max(v for _u, v in uv.values()))
+
+
+def test_the_chamfer_aligns_to_its_known_edges():
+    longest = stripe_uvs(shaped(CHAMFER_VERTS, CHAMFER_FACES, "LONGEST"))
+    assert_along_u(longest, (1, 2))                               # ties with (0, 3): the near row's comes first
+    shortest = stripe_uvs(shaped(CHAMFER_VERTS, CHAMFER_FACES, "SHORTEST"))
+    assert_along_u(shortest, (5, 7))
+    assert uv_of(shortest, 1)[1] != pytest.approx(uv_of(shortest, 2)[1], abs=1e-6)
+
+
+def test_the_bent_strip_aligns_its_shortest_edge_on_the_far_row():
+    strip = shaped(*bent_flat(), "SHORTEST")
+    assert {11, 12} <= set(strip.far)
+    uv = stripe_uvs(strip)
+    assert_along_u(uv, (11, 12))
+    assert_unfolded(strip, uv)
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_a_picked_row_edge_runs_along_u_and_a_picked_cross_edge_along_v(shape):
+    verts, faces = SHAPES[shape]
+    probe = strip_from_faces(verts, faces)
+    row_edge = (probe.far[-2], probe.far[-1])
+    ni, fi = probe.rungs[0] if probe.rungs else (1, 1)
+    cross = (probe.near[ni], probe.far[fi])
+    end_side = (probe.near[-1], probe.far[-1])
+    strip = shaped(verts, faces, "PICKED", row_edge)
+    uv = stripe_uvs(strip)
+    assert_unfolded(strip, uv)
+    assert_along_u(uv, row_edge)
+    assert_near_below_far(strip, uv)
+    for edge in (cross, end_side):
+        strip = shaped(verts, faces, "PICKED", edge)
+        uv = stripe_uvs(strip)
+        assert_unfolded(strip, uv)
+        assert_along_v(uv, edge)
+        assert_near_below_far(strip, uv)
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_a_picked_edge_outside_the_piece_lays_out_as_auto(shape):
+    verts, faces = SHAPES[shape]
+    auto = stripe_uvs(shaped(verts, faces, "AUTO"))
+    assert stripe_uvs(shaped(verts, faces, "PICKED", (900, 901))) == auto
+    assert stripe_uvs(shaped(verts, faces, "PICKED", None)) == auto
+
+
+def test_align_is_ignored_by_the_other_layouts():
+    verts, faces = bent_flat()
+    for layout in ("EVEN", "TRUE", "STRAIGHT"):
+        plain = strip_from_faces(verts, faces)
+        plain.layout = layout
+        strip = shaped(verts, faces, "SHORTEST")
+        strip.layout = layout
+        assert stripe_uvs(strip) == stripe_uvs(plain)
+
+
+def test_split_pieces_align_on_their_own_edges():
+    from utils.uv_stripe_core import align_edge_in
+
+    verts, faces = bent_flat()
+    strip = shaped(verts, faces, "LONGEST")
+    pieces, reason = split_strip(strip, None, [0])
+    assert reason is None and len(pieces) == 2
+    for piece in pieces:
+        assert piece.align == "LONGEST" and piece.layout == "SHAPE"
+        edges = row_edges(piece)
+        best = max(length for length, _e in edges)
+        uv = stripe_uvs(piece)
+        assert_along_u(uv, next(e for length, e in edges if length == best))
+        assert_unfolded(piece, uv)
+        assert_near_below_far(piece, uv)
+    # picked edges: each piece takes the first stored edge that lies in it, the others stay automatic
+    stored = [(2, 12), (10, 11), (0, 10)]
+    strip = shaped(verts, faces, "PICKED")
+    pieces, _reason = split_strip(strip, None, [0])
+    chosen = [align_edge_in(piece, stored) for piece in pieces]
+    assert chosen == [(10, 11), (2, 12)]
+    for piece, edge in zip(pieces, chosen):
+        piece.align_edge = edge
+    assert_along_u(stripe_uvs(pieces[0]), (10, 11))
+    assert_along_v(stripe_uvs(pieces[1]), (2, 12))
+    assert align_edge_in(pieces[0], [(2, 12)]) is None

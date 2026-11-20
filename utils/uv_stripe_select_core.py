@@ -725,10 +725,11 @@ def slice_strip(strip: Strip, cuts: list[int]) -> list[Strip]:
     """A built strip torn at the given rungs (indices into ``strip.rungs``), as pieces in row order.
 
     The rows are sliced between consecutive cut rungs; each piece is an open strip with
-    those slices as its rows, the rungs between them re-indexed, the same orientation
-    and ``layout``, and the strip's height ("TRUE" / "SHAPE": its own area over its
+    those slices as its rows, the rungs between them re-indexed, the same orientation,
+    ``layout``, ``align`` and ``align_edge``, and the strip's height ("TRUE" / "SHAPE": its own area over its
     length, the true width). Every face goes to the piece whose row slices hold all its row corners
-    (faces joined by an edge that is no cut stay together). An open strip's end sides
+    (faces joined by an edge that is no cut stay together; a ring opened at a break,
+    ``Strip.break_edge``, is torn there too). An open strip's end sides
     stay with its first and last piece. A closed strip with one cut is that strip cut
     open there (``Strip.seam``); with more, the pieces run between consecutive cuts,
     the last one wrapping round. Raises ValueError when a cut leaves a piece without a
@@ -763,6 +764,8 @@ def slice_strip(strip: Strip, cuts: list[int]) -> list[Strip]:
     for i, v in enumerate(far):
         far_at[v].append(i)
     cut_edges = {rung_edge(strip, k) for k in cuts}
+    if strip.break_edge is not None:     # a ring opened at a break: its faces meet across that edge, a tear too
+        cut_edges.add(tuple(sorted(strip.break_edge)))
     fits: dict[int, set[int]] = {}
     for fid, face in strip.faces.items():
         ok = set(range(len(spans)))
@@ -815,7 +818,8 @@ def slice_strip(strip: Strip, cuts: list[int]) -> list[Strip]:
                  strip.sides[1] if not strip.closed and t == len(spans) - 1 else [])
         piece = Strip(verts=strip.verts, faces=faces, near=piece_near, far=piece_far, rungs=piece_rungs,
                       closed=False, height=strip.height, sides=sides, corner_far=corner_far,
-                      corner_near=corner_near, layout=strip.layout)
+                      corner_near=corner_near, layout=strip.layout,
+                      align=strip.align, align_edge=strip.align_edge)
         if strip.layout in ("TRUE", "SHAPE"):
             width = _mean_width(piece)
             if width > TOL:
@@ -902,25 +906,33 @@ def open_ring(strip: Strip, rung: int) -> Strip:
                    break_edge=rung_edge(strip, rung))
 
 
-def split_strip(strip: Strip, angle: float, extra_cuts=()) -> tuple[list[Strip], str | None]:
+def split_strip(strip: Strip, angle: float, extra_cuts=(), skip_cuts=(), bends=None) -> tuple[list[Strip], str | None]:
     """A built strip torn at its bends (``bend_cut_rungs``) and at ``extra_cuts`` (rung indices).
 
+    The bend cuts among ``skip_cuts`` (rung indices) are dropped; ``extra_cuts`` tear
+    whether skipped or not, and a skipped rung that is no bend cut changes nothing.
     Returns the pieces (``slice_strip``) and None, or, when there are cuts but the
     strip cannot be torn there, the strip whole and the reason. ``angle`` None: no
-    bend cuts. Never raises ValueError.
+    bend cuts. ``bends`` (a list) gets the bend cuts kept, in order, when the strip
+    is torn. Never raises ValueError.
     """
     try:
-        cuts = set(extra_cuts)
+        bend = []
         if angle is not None:
-            cuts |= set(bend_cut_rungs(strip, angle))
+            skipped = set(skip_cuts)
+            bend = [k for k in bend_cut_rungs(strip, angle) if k not in skipped]
+        cuts = set(extra_cuts) | set(bend)
     except ValueError as exc:
         return [strip], str(exc)
     if not cuts:
         return [strip], None
     try:
-        return slice_strip(strip, sorted(cuts)), None
+        pieces = slice_strip(strip, sorted(cuts))
     except ValueError as exc:
         return [strip], str(exc)
+    if bends is not None:
+        bends.extend(bend)
+    return pieces, None
 
 
 def island_tolerance(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]]) -> float:

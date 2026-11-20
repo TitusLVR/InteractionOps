@@ -48,6 +48,10 @@ class Strip:
     seam: int | None = None
     # A ring opened at a rung (``uv_stripe_select_core.open_ring``): that rung's edge, a sorted vertex-id pair.
     break_edge: tuple[int, int] | None = None
+    # What "SHAPE" turns the unfold to run along +u (``_shape_direction``): "AUTO", "LONGEST" or "SHORTEST" (that
+    # row edge) or "PICKED" (``align_edge``, a sorted vertex-id pair; "AUTO" when it is not in the strip).
+    align: str = "AUTO"
+    align_edge: tuple[int, int] | None = None
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
@@ -441,38 +445,106 @@ def _unfold(strip: Strip) -> dict[int, Vec2] | None:
     return pos
 
 
-def _shape_uv(strip: Strip):
-    """The true-shape layout of an open strip: (near (u, v), far (u, v), sides' (u, v), u extent, v extent).
-
-    The faces are unfolded across their shared edges (``_unfold``), each keeping its real
-    shape, so a strip that turns in its surface turns in UV, as Unwrap lays it out. The
-    unfold is turned so the strip runs along +u: the direction of the straighter row (the
-    near row on a tie; ``_row_turn``) is its one welded edge longer than half the row, else
-    its chord from first to last position; then turned by 180 degrees when the near row lies
-    above the far row. It is never mirrored. Shifted so the smallest u and v are 0; the sides
-    hold every vertex on neither row (end sides and inner vertices). A strip that cannot
-    unfold, or whose straighter row has no direction, takes ``_shape_uv_projected``.
-    """
-    pos = _unfold(strip)
-    if pos is None:
-        return _shape_uv_projected(strip)
-    verts = strip.verts
-    tol = weld_tolerance(strip)
-    on_far = _row_turn(verts, strip.far, tol) < _row_turn(verts, strip.near, tol) - 1e-9
-    base = strip.far if on_far else strip.near
-    welded = []                             # (start, end) positions of the base row's welded edges
+def _welded_edges(verts: dict[int, Vec3], row: list[int], tol: float) -> list[tuple[int, int]]:
+    """(start, end) positions of an open row's welded edges: each from a position to the first one farther than
+    ``tol`` from it, so an unmerged double makes no edge of its own."""
+    out = []
     i = 0
-    while i < len(base) - 1:
-        j = welded_neighbour(verts, base, i, 1, tol, closed=False)
+    while i < len(row) - 1:
+        j = welded_neighbour(verts, row, i, 1, tol, closed=False)
         if j is None:
             break
-        welded.append((i, j))
+        out.append((i, j))
         i = j
+    return out
+
+
+def align_edge_in(strip: Strip, edges) -> tuple[int, int] | None:
+    """The first of ``edges`` (vertex-id pairs) that is an edge of one of the strip's faces, sorted; None when
+    there is none. A strip torn into pieces gives each piece its own picked align edge this way."""
+    own = {tuple(sorted((a, b))) for face in strip.faces.values() for a, b in zip(face, face[1:] + face[:1])}
+    for edge in edges:
+        key = tuple(sorted(edge))
+        if key in own:
+            return key
+    return None
+
+
+def _auto_direction(strip: Strip, pos: dict[int, Vec2], tol: float) -> list[float]:
+    """The "AUTO" direction of an unfold: the straighter row's (the near row on a tie; ``_row_turn``) one welded
+    edge longer than half the row, else its chord from first to last position."""
+    verts = strip.verts
+    on_far = _row_turn(verts, strip.far, tol) < _row_turn(verts, strip.near, tol) - 1e-9
+    base = strip.far if on_far else strip.near
+    welded = _welded_edges(verts, base, tol)
     row_length = sum(math.dist(verts[base[a]], verts[base[b]]) for a, b in welded)
     direction = _sub(pos[base[-1]], pos[base[0]])
     for a, b in welded:
         if math.dist(verts[base[a]], verts[base[b]]) > row_length / 2.0:
             direction = _sub(pos[base[b]], pos[base[a]])
+    return direction
+
+
+def _shape_direction(strip: Strip, pos: dict[int, Vec2], tol: float) -> list[float]:
+    """The unfold direction that is turned to +u, by ``strip.align``.
+
+    "LONGEST" / "SHORTEST": the longest / shortest welded row edge by real length, over
+    the near row and then the far row (never a cross edge), in row order; the first one on
+    a tie. "PICKED": ``align_edge`` when both its vertices are in the unfold: an edge of
+    the near or far row (its two ids next to each other there) in row order, any other
+    edge (a cross edge, an end side, a diagonal) turned a quarter, so it is laid along v.
+    Anything else, a picked edge outside the strip, and a direction with no length (an
+    edge shorter than ``tol``) give "AUTO" (``_auto_direction``).
+    """
+    verts, align = strip.verts, strip.align
+    direction = None
+    if align in ("LONGEST", "SHORTEST"):
+        best = None
+        for row in (strip.near, strip.far):
+            for a, b in _welded_edges(verts, row, tol):
+                length = math.dist(verts[row[a]], verts[row[b]])
+                if (best is None or (align == "LONGEST" and length > best[0] + TIE_TOL)
+                        or (align == "SHORTEST" and length < best[0] - TIE_TOL)):
+                    best = (length, row[a], row[b])
+        if best is not None:
+            direction = _sub(pos[best[2]], pos[best[1]])
+    elif align == "PICKED" and strip.align_edge is not None and all(v in pos for v in strip.align_edge):
+        pair = set(strip.align_edge)
+        for row in (strip.near, strip.far):
+            for a, b in zip(row, row[1:]):
+                if {a, b} == pair:
+                    direction = _sub(pos[b], pos[a])
+                    break
+            if direction is not None:
+                break
+        else:
+            a, b = strip.align_edge
+            x, y = _sub(pos[b], pos[a])
+            direction = [y, -x]
+        if math.dist(verts[strip.align_edge[0]], verts[strip.align_edge[1]]) <= tol:
+            direction = None
+    if direction is None or math.hypot(*direction) <= TIE_TOL:
+        return _auto_direction(strip, pos, tol)
+    return direction
+
+
+def _shape_uv(strip: Strip):
+    """The true-shape layout of an open strip: (near (u, v), far (u, v), sides' (u, v), u extent, v extent).
+
+    The faces are unfolded across their shared edges (``_unfold``), each keeping its real
+    shape, so a strip that turns in its surface turns in UV, as Unwrap lays it out. The
+    unfold is turned so the strip runs along +u, the direction chosen by ``strip.align``
+    (``_shape_direction``; "AUTO": the straighter row's one welded edge longer than half
+    the row, else its chord); then turned by 180 degrees when the near row lies above the
+    far row. It is never mirrored. Shifted so the smallest u and v are 0; the sides hold
+    every vertex on neither row (end sides and inner vertices). A strip that cannot
+    unfold, or whose direction has no length, takes ``_shape_uv_projected``, which
+    ignores ``align``.
+    """
+    pos = _unfold(strip)
+    if pos is None:
+        return _shape_uv_projected(strip)
+    direction = _shape_direction(strip, pos, weld_tolerance(strip))
     if math.hypot(*direction) <= TIE_TOL:
         return _shape_uv_projected(strip)
     turn = -math.atan2(direction[1], direction[0])
