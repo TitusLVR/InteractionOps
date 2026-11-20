@@ -1,0 +1,231 @@
+{
+  "color_point": [
+    0.7454000115394592,
+    0.7454000115394592,
+    0.7454000115394592,
+    0.699999988079071
+  ],
+  "color_closest_point": [
+    0.3278000056743622,
+    0.7990999817848206,
+    1.0,
+    1.0
+  ],
+  "color_active_point": [
+    0.0,
+    1.0,
+    0.39794886112213135,
+    0.15000000596046448
+  ],
+  "color_locked_point": [
+    1.0,
+    0.28189632296562195,
+    0.07654174417257309,
+    0.15000000596046448
+  ],
+  "color_preview_point": [
+    1.0,
+    0.7986176013946533,
+    0.15332870185375214,
+    1.0
+  ],
+  "color_error_point": [
+    0.6938999891281128,
+    0.08649999648332596,
+    0.1143999993801117,
+    1.0
+  ],
+  "color_point_outline": [
+    0.004800000227987766,
+    0.00559999980032444,
+    0.007000000216066837,
+    0.75
+  ],
+  "point_size_default": 8.0,
+  "point_size_closest": 11.0,
+  "point_size_active": 12.0,
+  "point_size_locked": 13.0,
+  "point_size_preview": 10.0,
+  "point_size_error": 13.0,
+  "color_line": [
+    0.7454000115394592,
+    0.7454000115394592,
+    0.7454000115394592,
+    0.30000001192092896
+  ],
+  "color_closest_line": [
+    0.3278000056743622,
+    0.7990999817848206,
+    1.0,
+    0.8500000238418579
+  ],
+  "color_active_line": [
+    0.0,
+    1.0,
+    0.39794886112213135,
+    0.15000000596046448
+  ],
+  "color_locked_line": [
+    1.0,
+    0.28189632296562195,
+    0.07654174417257309,
+    0.15000000596046448
+  ],
+  "color_preview_line": [
+    1.0,
+    0.7986176013946533,
+    0.15332870185375214,
+    1.0
+  ],
+  "color_error_line": [
+    0.6938999891281128,
+    0.08649999648332596,
+    0.1143999993801117,
+    0.8999999761581421
+  ],
+  "line_width_default": 1.5,
+  "line_width_closest": 2.5,
+  "line_width_active": 3.0,
+  "line_width_locked": 4.0,
+  "line_width_preview": 2.0,
+  "line_width_error": 2.5,
+  "backface_dimming": 0.9011628031730652,
+  "color_ghost_edge": [
+    0.004800000227987766,
+    0.00559999980032444,
+    0.007000000216066837,
+    0.3499999940395355
+  ],
+  "color_ghost": [
+    0.7454000115394592,
+    0.7454000115394592,
+    0.7454000115394592,
+    0.15000000596046448
+  ],
+  "color_closest_ghost": [
+    0.3278000056743622,
+    0.7990999817848206,
+    1.0,
+    0.15000000596046448
+  ],
+  "color_active_ghost": [
+    0.0,
+    1.0,
+    0.39794886112213135,
+    0.15000000596046448
+  ],
+  "color_locked_ghost": [
+    1.0,
+    0.28189632296562195,
+    0.07654174417257309,
+    0.15000000596046448
+  ],
+  "color_preview_ghost": [
+    1.0,
+    0.7986176013946533,
+    0.15332870185375214,
+    0.15000000596046448
+  ],
+  "color_error_ghost": [
+    0.8388000130653381,
+    0.3231000006198883,
+    0.3564000129699707,
+    0.3499999940395355
+  ],
+  "axis_gizmo_size": 1.0,
+  "axis_gizmo_line_width": 1.0,
+  "axis_gizmo_text_size": 12,
+  "color_hud_header": [
+    0.09529999643564224,
+    0.508899986743927,
+    0.40720000863075256,
+    1.0
+  ],
+  "color_hud_key": [
+    0.3278000056743622,
+    0.7990999817848206,
+    1.0,
+    1.0
+  ],
+  "color_hud_active_value": [
+    0.03689999878406525,
+    0.6037999987602234,
+    0.27469998598098755,
+    1.0
+  ],
+  "color_hud_label": [
+    0.46779999136924744,
+    0.48510000109672546,
+    0.5210000276565552,
+    1.0
+  ],
+  "color_hud_label_inactive": [
+    0.19460000097751617,
+    0.21220000088214874,
+    0.24619999527931213,
+    0.800000011920929
+  ],
+  "color_hud_stats_error": [
+    0.6938999891281128,
+    0.08649999648332596,
+    0.1143999993801117,
+    1.0
+  ],
+  "text_size_hud_header": 14,
+  "text_size_hud_key": 12,
+  "text_size_hud_label": 11,
+  "shadow_enabled": true,
+  "shadow_color": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "shadow_blur": 0,
+  "shadow_offset_x": 1,
+  "shadow_offset_y": -1,
+  "hud_mode": "cursor",
+  "hud_offset_x": 20,
+  "hud_offset_y": -20,
+  "hud_anchor_offset_x": 0,
+  "hud_anchor_offset_y": 0,
+  "hud_free_x": 40,
+  "hud_free_y": 40,
+  "hud_padding": 12,
+  "hud_section_spacing": 8,
+  "hud_row_spacing": 3,
+  "hud_key_label_spacing": 16,
+  "hud_anim_fps": 240,
+  "panel_bg_enabled": true,
+  "panel_bg_color": [
+    0.01782570220530033,
+    0.021024463698267937,
+    0.027170445770025253,
+    0.675000011920929
+  ],
+  "panel_bg_padding": 10,
+  "hud_smoothing": 0.699999988079071,
+  "help_corner": "left_center",
+  "help_offset_x": 8,
+  "help_offset_y": 0,
+  "help_free_x": 40,
+  "help_free_y": 40,
+  "help_anim_preset": "fade",
+  "help_anim_duration": 0.5,
+  "help_anim_slide_amount": 28,
+  "help_anim_wave_duration": 2.0,
+  "help_anim_wave_spread": 128,
+  "help_anim_wave_stagger_scale": 1.0,
+  "help_anim_wave_fade_window": 0.5,
+  "help_anim_shockwave_radius": 160,
+  "help_auto_hide": 0.0,
+  "help_hint_text": "Press {key} for help",
+  "depth_test_default": "ALWAYS",
+  "font_path": "",
+  "stats_offset_x": 8,
+  "stats_offset_y": 220,
+  "stats_text_size": 11,
+  "stats_row_spacing": 1.5,
+  "stats_column_spacing": 5.0,
+  "name": "Frigus Nox"
+}

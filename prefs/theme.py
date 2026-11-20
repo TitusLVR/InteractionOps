@@ -13,13 +13,13 @@ _STATES = ("default", "closest", "active", "locked", "preview", "error")
 
 class IOPS_Theme(bpy.types.PropertyGroup):
     # --- Point ---
-    color_point:           _color((1.000, 1.000, 1.000, 0.70), "Default")
-    color_closest_point:   _color((0.302, 0.816, 1.000, 1.00), "Closest")
-    color_active_point:    _color((0.302, 1.000, 0.620, 1.00), "Active")
-    color_locked_point:    _color((1.000, 0.098, 0.328, 1.00), "Locked")
-    color_preview_point:   _color((1.000, 0.872, 0.174, 1.00), "Result Preview")
-    color_error_point:     _color((1.000, 0.353, 0.353, 1.00), "Error")
-    color_point_outline:   _color((0.100, 0.100, 0.100, 0.75), "Outline")
+    color_point:           _color((0.745, 0.745, 0.745, 0.700), "Default")
+    color_closest_point:   _color((0.328, 0.799, 1.000, 1.000), "Closest")
+    color_active_point:    _color((0.000, 1.000, 0.398, 0.150), "Active")
+    color_locked_point:    _color((1.000, 0.282, 0.077, 0.150), "Locked")
+    color_preview_point:   _color((1.000, 0.799, 0.153, 1.000), "Result Preview")
+    color_error_point:     _color((0.694, 0.086, 0.114, 1.000), "Error")
+    color_point_outline:   _color((0.005, 0.006, 0.007, 0.750), "Outline")
     point_size_default:    FloatProperty(name="Default",        default=8.0,  min=2.0, max=48.0)
     point_size_closest:    FloatProperty(name="Closest",        default=11.0, min=2.0, max=48.0)
     point_size_active:     FloatProperty(name="Active",         default=12.0, min=2.0, max=48.0)
@@ -28,16 +28,16 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     point_size_error:      FloatProperty(name="Error",          default=13.0, min=2.0, max=48.0)
 
     # --- Line ---
-    color_line:            _color((0.650, 0.650, 0.650, 0.30), "Default")
-    color_closest_line:    _color((0.302, 0.816, 1.000, 0.85), "Closest")
-    color_active_line:     _color((0.302, 1.000, 0.620, 0.90), "Active")
-    color_locked_line:     _color((1.000, 0.098, 0.328, 0.95), "Locked")
-    color_preview_line:    _color((1.000, 0.872, 0.174, 1.00), "Result Preview")
-    color_error_line:      _color((1.000, 0.353, 0.353, 1.00), "Error")
+    color_line:            _color((0.745, 0.745, 0.745, 0.300), "Default")
+    color_closest_line:    _color((0.328, 0.799, 1.000, 0.850), "Closest")
+    color_active_line:     _color((0.000, 1.000, 0.398, 0.150), "Active")
+    color_locked_line:     _color((1.000, 0.282, 0.077, 0.150), "Locked")
+    color_preview_line:    _color((1.000, 0.799, 0.153, 1.000), "Result Preview")
+    color_error_line:      _color((0.694, 0.086, 0.114, 0.900), "Error")
     line_width_default:    FloatProperty(name="Default",        default=1.5, min=0.5, max=12.0)
     line_width_closest:    FloatProperty(name="Closest",        default=2.5, min=0.5, max=12.0)
     line_width_active:     FloatProperty(name="Active",         default=3.0, min=0.5, max=12.0)
-    line_width_locked:     FloatProperty(name="Locked",         default=3.0, min=0.5, max=12.0)
+    line_width_locked:     FloatProperty(name="Locked",         default=4.0, min=0.5, max=12.0)
     line_width_preview:    FloatProperty(name="Result Preview", default=2.0, min=0.5, max=12.0)
     line_width_error:      FloatProperty(name="Error",          default=2.5, min=0.5, max=12.0)
     backface_dimming:      FloatProperty(
@@ -54,13 +54,13 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # Point/Line colors and sizes; see ui/draw/theme.py role mapping.)
 
     # --- Ghost / Surfaces --- (per-state table like Point/Line; +edge row)
-    color_ghost_edge:      _color((0.000, 0.000, 0.000, 0.349), "Ghost Edge")
-    color_ghost:           _color((0.851, 0.851, 0.851, 0.149), "Default")
-    color_closest_ghost:   _color((0.584, 0.914, 1.000, 0.149), "Closest")
-    color_active_ghost:    _color((0.584, 1.000, 0.808, 0.149), "Active")
-    color_locked_ghost:    _color((1.000, 0.345, 0.608, 0.149), "Locked")
-    color_preview_ghost:   _color((1.000, 0.941, 0.455, 0.149), "Result Preview")
-    color_error_ghost:     _color((1.000, 0.627, 0.627, 0.502), "Error")
+    color_ghost_edge:      _color((0.005, 0.006, 0.007, 0.350), "Ghost Edge")
+    color_ghost:           _color((0.745, 0.745, 0.745, 0.150), "Default")
+    color_closest_ghost:   _color((0.328, 0.799, 1.000, 0.150), "Closest")
+    color_active_ghost:    _color((0.000, 1.000, 0.398, 0.150), "Active")
+    color_locked_ghost:    _color((1.000, 0.282, 0.077, 0.150), "Locked")
+    color_preview_ghost:   _color((1.000, 0.799, 0.153, 0.150), "Result Preview")
+    color_error_ghost:     _color((0.839, 0.323, 0.356, 0.350), "Error")
 
     # --- Axis gizmo (X/Y/Z direction vectors in operator previews) ---
     axis_gizmo_size: FloatProperty(
@@ -83,15 +83,15 @@ class IOPS_Theme(bpy.types.PropertyGroup):
     # the addon. Sizes:
     #   Header / Glyph / Label — three independent sliders.
     # Each role now has its own color pref; defaults match
-    # presets/themes/Default.itheme.
-    color_hud_header:        _color((0.302, 1.000, 0.620, 0.75), "HUD Header")
-    color_hud_key:           _color((1.000, 0.872, 0.174, 0.75), "HUD Glyph")
+    # presets/themes/Frigus Nox.itheme.
+    color_hud_header:        _color((0.095, 0.509, 0.407, 1.000), "HUD Header")
+    color_hud_key:           _color((0.328, 0.799, 1.000, 1.000), "HUD Glyph")
     # HUD Active Value also drives HUD_LABEL_ACTIVE — both convey the
     # "currently active item" highlight.
-    color_hud_active_value:  _color((1.000, 0.872, 0.174, 0.75), "HUD Active Value / Label Active")
-    color_hud_label:         _color((0.844, 0.844, 0.844, 0.75), "HUD Label")
-    color_hud_label_inactive:_color((0.466, 0.473, 0.487, 0.85), "HUD Label Inactive")
-    color_hud_stats_error:   _color((1.000, 0.339, 0.382, 0.90), "HUD Stats Error/Warning")
+    color_hud_active_value:  _color((0.037, 0.604, 0.275, 1.000), "HUD Active Value / Label Active")
+    color_hud_label:         _color((0.468, 0.485, 0.521, 1.000), "HUD Label")
+    color_hud_label_inactive:_color((0.195, 0.212, 0.246, 0.800), "HUD Label Inactive")
+    color_hud_stats_error:   _color((0.694, 0.086, 0.114, 1.000), "HUD Stats Error/Warning")
     text_size_hud_header:    IntProperty(name="Header Size", default=14, min=8, max=64)
     text_size_hud_key:       IntProperty(name="Glyph Size",  default=12, min=8, max=64)
     text_size_hud_label:     IntProperty(name="Label Size",  default=11, min=8, max=64)

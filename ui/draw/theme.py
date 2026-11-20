@@ -79,28 +79,31 @@ def state_from_role(role: Role) -> str:
     return "default"
 
 
-_C_CYAN  = (0.302, 0.816, 1.000)
-_C_GREEN = (0.302, 1.000, 0.620)
-_C_AMBER = (1.000, 0.722, 0.302)
-_C_RED   = (1.000, 0.353, 0.353)
-_C_WHITE = (1.000, 1.000, 1.000)
+# State colours of the default theme (Frigus Nox); kept equal to the
+# property defaults in prefs/theme.py.
+_C_DEFAULT = (0.745, 0.745, 0.745)
+_C_CLOSEST = (0.328, 0.799, 1.000)
+_C_ACTIVE  = (0.000, 1.000, 0.398)
+_C_LOCKED  = (1.000, 0.282, 0.077)
+_C_PREVIEW = (1.000, 0.799, 0.153)
+_C_ERROR   = (0.694, 0.086, 0.114)
 
 _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
-    Role.POINT:          (*_C_WHITE, 0.70),
-    Role.CLOSEST_POINT:  (*_C_GREEN, 1.00),
-    Role.ACTIVE_POINT:   (*_C_CYAN,  1.00),
-    Role.LOCKED_POINT:   (*_C_AMBER, 1.00),
-    Role.PREVIEW_POINT:  (*_C_CYAN,  0.50),
-    Role.ERROR_POINT:    (*_C_RED,   1.00),
+    Role.POINT:          (*_C_DEFAULT, 0.70),
+    Role.CLOSEST_POINT:  (*_C_CLOSEST, 1.00),
+    Role.ACTIVE_POINT:   (*_C_ACTIVE,  0.15),
+    Role.LOCKED_POINT:   (*_C_LOCKED,  0.15),
+    Role.PREVIEW_POINT:  (*_C_PREVIEW, 1.00),
+    Role.ERROR_POINT:    (*_C_ERROR,   1.00),
 
-    Role.LINE:           (0.650, 0.650, 0.650, 0.30),
-    Role.CLOSEST_LINE:   (*_C_GREEN, 0.85),
-    Role.ACTIVE_LINE:    (*_C_CYAN,  0.90),
-    Role.LOCKED_LINE:    (*_C_AMBER, 0.95),
-    Role.PREVIEW_LINE:   (*_C_CYAN,  0.50),
-    Role.ERROR_LINE:     (*_C_RED,   1.00),
+    Role.LINE:           (*_C_DEFAULT, 0.30),
+    Role.CLOSEST_LINE:   (*_C_CLOSEST, 0.85),
+    Role.ACTIVE_LINE:    (*_C_ACTIVE,  0.15),
+    Role.LOCKED_LINE:    (*_C_LOCKED,  0.15),
+    Role.PREVIEW_LINE:   (*_C_PREVIEW, 1.00),
+    Role.ERROR_LINE:     (*_C_ERROR,   0.90),
 
-    Role.POINT_OUTLINE:  (0.000, 0.000, 0.000, 1.00),
+    Role.POINT_OUTLINE:  (0.005, 0.006, 0.007, 0.75),
 
     Role.HANDLE:        (1.000, 1.000, 1.000, 0.85),
     Role.HANDLE_HOVER:  (0.302, 0.816, 1.000, 0.90),
@@ -108,23 +111,23 @@ _DEFAULT_COLORS: dict[Role, tuple[float, float, float, float]] = {
     Role.BBOX:          (0.650, 0.650, 0.650, 0.30),
     Role.CURSOR:        (1.000, 0.200, 0.600, 1.00),
 
-    Role.GHOST_EDGE:    (0.000, 0.000, 0.000, 0.349),  # #00000059
-    Role.GHOST_DEFAULT: (0.851, 0.851, 0.851, 0.149),  # #D9D9D926
-    Role.GHOST_ACTIVE:  (*_C_CYAN,  0.90),   # copied from the line states
-    Role.GHOST_CLOSEST: (*_C_GREEN, 0.85),
-    Role.GHOST_LOCKED:  (*_C_AMBER, 0.95),
-    Role.GHOST_PREVIEW: (*_C_CYAN,  0.50),
-    Role.GHOST_TARGET_SEL: (*_C_AMBER, 0.70),   # warm fill — easy to distinguish from cyan ref
-    Role.GHOST_MATCH_HINT: (*_C_GREEN, 0.35),   # dim green — "candidate", not yet selected
+    Role.GHOST_EDGE:    (0.005, 0.006, 0.007, 0.35),
+    Role.GHOST_DEFAULT: (*_C_DEFAULT, 0.15),
+    Role.GHOST_ACTIVE:  (*_C_ACTIVE,  0.15),
+    Role.GHOST_CLOSEST: (*_C_CLOSEST, 0.15),
+    Role.GHOST_LOCKED:  (*_C_LOCKED,  0.15),
+    Role.GHOST_PREVIEW: (*_C_PREVIEW, 0.15),
+    Role.GHOST_TARGET_SEL: (1.000, 0.722, 0.302, 0.70),   # warm fill — easy to distinguish from cyan ref
+    Role.GHOST_MATCH_HINT: (0.302, 1.000, 0.620, 0.35),   # dim green — "candidate", not yet selected
     Role.GHOST_MIRROR:     (0.850, 0.350, 1.000, 0.50),  # magenta — flipped clone preview
 
-    Role.HUD_HEADER:         (0.302, 1.000, 0.620, 0.75),
-    Role.HUD_LABEL_ACTIVE:   (0.302, 1.000, 0.620, 0.75),
-    Role.HUD_KEY:            (1.000, 0.872, 0.174, 0.75),
-    Role.HUD_ACTIVE_VALUE:   (1.000, 0.872, 0.174, 0.75),
-    Role.HUD_LABEL:          (0.844, 0.844, 0.844, 0.75),
-    Role.HUD_LABEL_INACTIVE: (0.466, 0.473, 0.487, 0.85),
-    Role.HUD_STATS_ERROR:    (1.000, 0.339, 0.382, 0.90),
+    Role.HUD_HEADER:         (0.095, 0.509, 0.407, 1.00),
+    Role.HUD_LABEL_ACTIVE:   (0.037, 0.604, 0.275, 1.00),
+    Role.HUD_KEY:            (0.328, 0.799, 1.000, 1.00),
+    Role.HUD_ACTIVE_VALUE:   (0.037, 0.604, 0.275, 1.00),
+    Role.HUD_LABEL:          (0.468, 0.485, 0.521, 1.00),
+    Role.HUD_LABEL_INACTIVE: (0.195, 0.212, 0.246, 0.80),
+    Role.HUD_STATS_ERROR:    (0.694, 0.086, 0.114, 1.00),
 }
 
 _DEFAULT_POINT_SIZES = {
@@ -133,7 +136,7 @@ _DEFAULT_POINT_SIZES = {
 }
 _DEFAULT_LINE_WIDTHS = {
     "default": 1.5, "closest": 2.5, "active": 2.5,
-    "locked": 3.0, "preview": 2.0, "error": 2.5,
+    "locked": 4.0, "preview": 2.0, "error": 2.5,
     "axis_gizmo": 1.5,
 }
 _DEFAULT_BACKFACE_DIMMING = 0.75
