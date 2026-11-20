@@ -4,7 +4,7 @@ import random
 import pytest
 
 from utils.uv_stripe_core import place_fit, strip_length, stripe_uvs
-from utils.uv_stripe_select_core import bend_cuts, face_islands, split_strip, strip_from_faces
+from utils.uv_stripe_select_core import bend_cuts, face_islands, rung_edge, rungs_at, split_strip, strip_from_faces
 
 W = 10  # grid row width in vertices
 
@@ -561,6 +561,60 @@ def test_split_strip_without_cuts_or_with_a_failing_piece_returns_the_strip():
     assert split_strip(strip, math.radians(15)) == ([strip], "a piece has no size")
     grid_strip = strip_from_faces(*grid([(x, y) for y in range(2) for x in range(4)]))
     assert split_strip(grid_strip, math.radians(1)) == ([grid_strip], None)
+
+
+def _bent_strip():
+    """The flat polyline strip bent by 22 and 38 degrees: at 15 degrees its bends tear it at (4, 5) and (8, 9)."""
+    verts, quads = polyline_strip([0, 22, 0, 38])
+    strip = strip_from_faces(verts, dict(enumerate(quads)))
+    strip.layout = "TRUE"
+    return strip
+
+
+def test_split_strip_drops_the_skipped_bend_cuts():
+    strip = _bent_strip()
+    bends = []
+    pieces, reason = split_strip(strip, math.radians(15), skip_cuts=rungs_at(strip, {(8, 9)}), bends=bends)
+    assert reason is None and [sorted(p.faces) for p in pieces] == [[0, 1], [2, 3, 4]]
+    assert [rung_edge(strip, k) for k in bends] == [(4, 5)]          # the bend cuts the strip was torn at
+
+
+def test_split_strip_with_extra_and_skipped_cuts():
+    strip = _bent_strip()
+    pieces, reason = split_strip(strip, math.radians(15), extra_cuts=rungs_at(strip, {(2, 3)}),
+                                 skip_cuts=rungs_at(strip, {(8, 9)}))
+    assert reason is None and [sorted(p.faces) for p in pieces] == [[0], [1], [2, 3, 4]]
+
+
+def test_split_strip_skipping_a_rung_that_is_no_bend_cut_changes_nothing():
+    strip = _bent_strip()
+    plain, _reason = split_strip(strip, math.radians(15))
+    pieces, reason = split_strip(strip, math.radians(15), skip_cuts=rungs_at(strip, {(2, 3)}))
+    assert reason is None and [sorted(p.faces) for p in pieces] == [sorted(p.faces) for p in plain] == [
+        [0, 1], [2, 3], [4]]
+
+
+def test_split_strip_an_extra_cut_tears_even_when_skipped():
+    strip = _bent_strip()
+    at = rungs_at(strip, {(8, 9)})
+    pieces, reason = split_strip(strip, math.radians(15), extra_cuts=at, skip_cuts=at)
+    assert reason is None and [sorted(p.faces) for p in pieces] == [[0, 1], [2, 3], [4]]
+    bends = []
+    pieces, reason = split_strip(strip, None, skip_cuts=at, bends=bends)
+    assert pieces == [strip] and reason is None and bends == []
+
+
+def test_split_strip_tears_a_ring_opened_at_its_break():
+    from uv_stripe_fixtures import flat_annulus
+    from utils.uv_stripe_select_core import open_ring
+    verts, faces = flat_annulus(8)
+    ring = strip_from_faces(verts, faces)
+    opened = open_ring(ring, rungs_at(ring, {(3, 11)})[0])
+    pieces, reason = split_strip(opened, None, rungs_at(opened, {(6, 14)}))
+    assert reason is None and [sorted(p.faces) for p in pieces] == [[3, 4, 5], [0, 1, 2, 6, 7]]
+    for piece in pieces:
+        uv = stripe_uvs(piece)
+        assert all(a > 0 for a in areas(piece.faces, uv).values())
 
 
 @pytest.mark.parametrize("pattern", ["a", "b", "alt"])

@@ -243,19 +243,26 @@ def stretched_faces(bm, faces: Iterable[BMFace], matrix, tolerance: float = core
     return out
 
 
-def _lay_piece(piece: core.Strip, layout: str) -> None:
+def _lay_piece(piece: core.Strip, layout: str, align: str = "AUTO", align_edges=()) -> None:
     """Lay one piece out under ``layout``: "STRAIGHT" through ``uv_stripe_core.straighten``, every other
-    layout as itself. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
+    layout as itself. The piece aligns by ``align`` (True Shape only), "PICKED" on the first of
+    ``align_edges`` (vertex-id pairs) that is an edge of its own faces (``uv_stripe_core.align_edge_in``).
+    Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
+    piece.align = align
+    piece.align_edge = core.align_edge_in(piece, align_edges) if align == "PICKED" else None
     if layout == "STRAIGHT":
         core.straighten(piece)
     else:
         core.stripe_uvs(piece)
 
 
-def _opened_ring(strip: core.Strip, layout: str, break_edge) -> core.Strip:
-    """``strip`` (closed) opened at the rung ``break_edge`` and laid out as one piece: "STRAIGHT" when every
-    face is a quad, else ``layout``. Raises ValueError when ``break_edge`` is no rung of it, or as
-    ``uv_stripe_select_core.open_ring`` and ``uv_stripe_core.stripe_uvs`` do."""
+def _opened_ring(strip: core.Strip, layout: str, break_edge, cut_edges=(), align: str = "AUTO",
+                 align_edges=()) -> tuple[list[core.Strip], str | None]:
+    """``strip`` (closed) opened at the rung ``break_edge`` and laid out: "STRAIGHT" when every face is a
+    quad, else ``layout``. The opened strip is torn at those of ``cut_edges`` (vertex-id pairs) that are its
+    rungs; when it cannot be torn there it stays one piece and the reason is returned. Raises ValueError
+    when ``break_edge`` is no rung of it, or as ``uv_stripe_select_core.open_ring`` and
+    ``uv_stripe_core.stripe_uvs`` do."""
     at = select_core.rungs_at(strip, [tuple(sorted(break_edge))])
     if not at:
         raise ValueError("the picked edge is not a cross edge of the ring")
@@ -263,13 +270,20 @@ def _opened_ring(strip: core.Strip, layout: str, break_edge) -> core.Strip:
     if all(len(face) == 4 for face in opened.faces.values()):
         layout = "STRAIGHT"
     opened.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
-    _lay_piece(opened, layout)
-    return opened
+    opened.align, opened.align_edge = align, None
+    pieces, reason = [opened], None
+    cuts = select_core.rungs_at(opened, cut_edges)
+    if cuts:
+        pieces, reason = select_core.split_strip(opened, None, cuts)
+    for piece in pieces:
+        _lay_piece(piece, layout, align, align_edges)
+    return pieces, reason
 
 
 def prepare_strip(
     strip: core.Strip, faces: dict[int, BMFace], layout: str, split_angle: float | None, extra_cuts=(),
-    break_edge: tuple[int, int] | None = None,
+    break_edge: tuple[int, int] | None = None, manual_cuts=(), skip_cuts=(), bend_tears=None,
+    align: str = "AUTO", align_edges=(),
 ) -> tuple[list[tuple[core.Strip, dict[int, BMFace]]], str | None]:
     """The final pieces of one built strip, with their faces by id, and why a requested tear was not made.
 
@@ -288,22 +302,37 @@ def prepare_strip(
     every face is a quad, else ``layout``. When the ring cannot be opened there it is
     laid out as without ``break_edge`` and the reason is returned. On an open strip
     ``break_edge`` is ignored.
+
+    ``manual_cuts`` (rung indices, cut edges marked by hand) tear the strip as
+    ``extra_cuts`` do, and also tear a ring opened at ``break_edge``. ``skip_cuts``
+    (rung indices) drop those bend cuts. ``bend_tears`` (a list) gets the vertex-id
+    pairs of the bend cuts the strip was torn at.
+
+    ``align`` (``uv_stripe_core.Strip.align``) tells each True Shape piece what to run
+    along; each piece aligns on its own, "PICKED" on the first of ``align_edges``
+    (vertex-id pairs) that is an edge of its faces, "AUTO" when none is.
     """
     broken = None
     if break_edge is not None and strip.closed:
+        cut_edges = [select_core.rung_edge(strip, k) for k in manual_cuts]
         try:
-            opened = _opened_ring(strip, layout, break_edge)
+            opened, reason = _opened_ring(strip, layout, break_edge, cut_edges, align, align_edges)
         except ValueError as exc:
             broken = f"the ring cannot be opened at the picked edge: {exc}"
         else:
-            return [(opened, {fid: faces[fid] for fid in opened.faces})], None
+            return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in opened], reason
     strip.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
-    if split_angle is None and not extra_cuts:
+    strip.align, strip.align_edge = align, None
+    cuts = set(extra_cuts) | set(manual_cuts)
+    if split_angle is None and not cuts:
         pieces, reason = [strip], None
     else:
-        pieces, reason = select_core.split_strip(strip, split_angle, extra_cuts)
+        bends = []
+        pieces, reason = select_core.split_strip(strip, split_angle, sorted(cuts), skip_cuts, bends)
+        if bend_tears is not None:
+            bend_tears.extend(select_core.rung_edge(strip, k) for k in bends)
     for piece in pieces:
-        _lay_piece(piece, layout)
+        _lay_piece(piece, layout, align, align_edges)
     return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in pieces], broken or reason
 
 
