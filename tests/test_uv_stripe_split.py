@@ -333,28 +333,33 @@ def _area(uv):
     return signed_area([uv[(0, k)] for k in range(4)])
 
 
-@pytest.mark.parametrize("mode, size", [("BOTH", (2.0, 0.5)), ("WIDTH", (2.0, 0.25)), ("HEIGHT", (1.0, 0.5))])
-def test_fit_to_reference_without_a_turn(mode, size):
-    piece = _rect_piece(1.0, 0.25, at=(5.0, 5.0))           # landscape, as the reference
-    reference = ((0.0, 0.0), (2.0, 0.5))
-    out = fit_to_reference(piece, reference, mode)
+@pytest.mark.parametrize("mode, size", [("BOTH", (2.0, 0.5)), ("WIDTH", (2.0, 0.5)), ("HEIGHT", (4.0, 1.0))])
+def test_fit_to_reference_scales_both_axes_by_one_factor(mode, size):
+    piece = _rect_piece(1.0, 0.25, at=(5.0, 5.0))
+    out = fit_to_reference(piece, ((0.0, 0.0), (2.0, 1.0)), mode)
     (u0, v0), (u1, v1) = bbox(out)
     assert (u1 - u0, v1 - v0) == pytest.approx(size)
-    assert ((u0 + u1) / 2, (v0 + v1) / 2) == pytest.approx((1.0, 0.25))     # centred on the reference
+    assert ((u0 + u1) / 2, (v0 + v1) / 2) == pytest.approx((1.0, 0.5))
     assert _area(out) > 0
 
 
-@pytest.mark.parametrize("mode, size", [("BOTH", (2.0, 0.5)), ("WIDTH", (2.0, 0.25)), ("HEIGHT", (1.0, 0.5))])
-def test_fit_to_reference_turns_a_transposed_piece(mode, size):
-    piece = _rect_piece(0.25, 1.0, at=(3.0, 3.0))           # portrait against a landscape reference: turned
-    reference = ((1.0, 1.0), (3.0, 1.5))
-    out = fit_to_reference(piece, reference, mode)
+@pytest.mark.parametrize("mode, size", [("BOTH", (0.125, 0.5)), ("WIDTH", (2.0, 8.0)), ("HEIGHT", (0.125, 0.5))])
+def test_fit_to_reference_never_turns_a_piece(mode, size):
+    piece = _rect_piece(0.25, 1.0, at=(3.0, 3.0))           # portrait against a landscape reference
+    out = fit_to_reference(piece, ((1.0, 1.0), (3.0, 1.5)), mode)
     (u0, v0), (u1, v1) = bbox(out)
-    assert (u1 - u0, v1 - v0) == pytest.approx(size)        # width / height measured after the turn
+    assert (u1 - u0, v1 - v0) == pytest.approx(size)
     assert ((u0 + u1) / 2, (v0 + v1) / 2) == pytest.approx((2.0, 1.25))
-    assert _area(out) > 0                                    # a rotation, never a mirror
-    # turned a quarter counter-clockwise: the first edge, along +u before, now runs along +v
-    assert out[(0, 1)][0] == pytest.approx(out[(0, 0)][0]) and out[(0, 1)][1] > out[(0, 0)][1]
+    assert out[(0, 1)][1] == pytest.approx(out[(0, 0)][1]) and out[(0, 1)][0] > out[(0, 0)][0]   # first edge still +u
+
+
+@pytest.mark.parametrize("mode", ["BOTH", "WIDTH", "HEIGHT"])
+def test_fit_to_reference_with_a_flat_piece(mode):
+    piece = {(0, 0): (1.0, 2.0), (0, 1): (3.0, 2.0)}        # no height
+    out = fit_to_reference(piece, ((0.0, 0.0), (4.0, 1.0)), mode)
+    width = out[(0, 1)][0] - out[(0, 0)][0]
+    assert width == pytest.approx(2.0 if mode == "HEIGHT" else 4.0)
+    assert out[(0, 0)][1] == pytest.approx(0.5)
 
 
 def test_fit_to_reference_keeps_the_reference():

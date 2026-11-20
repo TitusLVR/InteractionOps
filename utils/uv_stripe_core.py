@@ -14,7 +14,6 @@ import math
 import random
 from dataclasses import dataclass, field, replace
 
-from .uv_match_core import dimension_fit
 
 Vec3 = tuple[float, float, float]
 Vec2 = tuple[float, float]
@@ -681,28 +680,84 @@ def bbox(uv: dict) -> tuple[Vec2, Vec2]:
     return (min(us), min(vs)), (max(us), max(vs))
 
 
-def fit_to_reference(uv: dict, reference: tuple[Vec2, Vec2], mode: str = "BOTH") -> dict:
-    """A placed strip fitted onto a reference bounding box, as Visual UV's Fit to Active does.
+STRETCH_TOLERANCE = 1.05   # a face whose UVs stretch it more than 5 % on one axis is "stretched"
 
-    ``uv_match_core.dimension_fit`` decides: when the strip and the reference are
-    transposed (one landscape, the other portrait) the strip turns 90 degrees counter-
-    clockwise about its bounding-box centre (a rotation, never a mirror); then it is
-    scaled about that centre, "BOTH" so its box equals the reference's, "WIDTH" or
-    "HEIGHT" on that axis only (the other is kept), measured after the turn; then its
-    box centre is moved onto the reference's.
+
+def _triangle_metric(p0: Vec3, p1: Vec3, p2: Vec3, q0: Vec2, q1: Vec2, q2: Vec2) -> tuple[float, float, float] | None:
+    """Twice the 3D area times the UV-side metric ``J J^T`` of one triangle's 3D -> UV map, as (E, F, G).
+
+    ``J`` maps the triangle laid flat in its own plane onto its UVs; ``J J^T`` lives in UV
+    space, so it adds up over the triangles of a face. None for a triangle degenerate in 3D.
+    """
+    e1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+    e2 = (p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])
+    x1 = math.sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2])
+    l2 = math.sqrt(e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2])
+    if x1 <= 0.0:
+        return None
+    x2 = (e2[0] * e1[0] + e2[1] * e1[1] + e2[2] * e1[2]) / x1
+    k = x2 / x1
+    y2 = math.sqrt(sum((e2[i] - k * e1[i]) ** 2 for i in range(3)))
+    if x1 * y2 <= 1e-12 * max(x1, l2) ** 2:
+        return None
+    d1 = (q1[0] - q0[0], q1[1] - q0[1])
+    d2 = (q2[0] - q0[0], q2[1] - q0[1])
+    a = (d1[0] / x1, d1[1] / x1)
+    b = ((d2[0] - x2 * a[0]) / y2, (d2[1] - x2 * a[1]) / y2)
+    w = x1 * y2
+    return (w * (a[0] * a[0] + b[0] * b[0]), w * (a[0] * a[1] + b[0] * b[1]), w * (a[1] * a[1] + b[1] * b[1]))
+
+
+def face_stretch(points: list[Vec3], uvs: list[Vec2]) -> float:
+    """How anisotropically a face's UVs map its real shape: 1.0 is no stretch.
+
+    ``points`` and ``uvs`` are the face's corners in order. Every fan triangle (0, k, k + 1)
+    gives the UV-side metric of its 3D -> UV map; the face's stretch is the ratio of the
+    larger to the smaller singular value of their mean weighted by 3D area, so a uniform
+    scale or a turn does not count, and a sliver triangle (collinear rail corners of an
+    n-gon, rounded or single-precision coordinates) weighs by its tiny area instead of
+    deciding alone. A triangle degenerate in 3D is skipped; a face collapsed in UV gives
+    ``math.inf``; a face with no measurable triangle gives 1.0.
+    """
+    e = f = g = 0.0
+    measured = False
+    for k in range(1, len(points) - 1):
+        metric = _triangle_metric(points[0], points[k], points[k + 1], uvs[0], uvs[k], uvs[k + 1])
+        if metric is None:
+            continue
+        measured = True
+        e, f, g = e + metric[0], f + metric[1], g + metric[2]
+    if not measured:
+        return 1.0
+    r = math.sqrt(((e - g) / 2.0) ** 2 + f * f)
+    big = (e + g) / 2.0 + r
+    small = (e + g) / 2.0 - r
+    if big <= 0.0 or small <= 1e-18 * big:
+        return math.inf
+    return math.sqrt(big / small)
+
+
+def fit_to_reference(uv: dict, reference: tuple[Vec2, Vec2], mode: str = "BOTH") -> dict:
+    """A placed strip fitted onto a reference bounding box by one scale factor, never stretched or turned.
+
+    The factor scales both axes about the strip's bounding-box centre: "WIDTH" matches the
+    reference's width, "HEIGHT" its height, "BOTH" takes the smaller of the two so the strip
+    fits inside the reference box. A strip side of zero size gives no factor ("BOTH" uses the
+    other one; with none left the factor is 1). Then the box centre is moved onto the
+    reference's. Every piece of a run is laid out by the same Orientation, so it is not turned.
     """
     (u0, v0), (u1, v1) = bbox(uv)
     (r0, s0), (r1, s1) = reference
-    rotate, sx, sy = dimension_fit(u1 - u0, v1 - v0, r1 - r0, s1 - s0, mode)
+    tw, th = u1 - u0, v1 - v0
+    factors = []
+    if mode in {"BOTH", "WIDTH"} and tw > 1e-10:
+        factors.append((r1 - r0) / tw)
+    if mode in {"BOTH", "HEIGHT"} and th > 1e-10:
+        factors.append((s1 - s0) / th)
+    scale = min(factors) if factors else 1.0
     cu, cv = (u0 + u1) / 2.0, (v0 + v1) / 2.0
     ru, rv = (r0 + r1) / 2.0, (s0 + s1) / 2.0
-    out = {}
-    for key, (u, v) in uv.items():
-        du, dv = u - cu, v - cv
-        if rotate:
-            du, dv = -dv, du
-        out[key] = (ru + du * sx, rv + dv * sy)
-    return out
+    return {key: (ru + (u - cu) * scale, rv + (v - cv) * scale) for key, (u, v) in uv.items()}
 
 
 def random_offsets(count: int, axis: str, limit: float, seed: int, keep: int | None = None) -> list[Vec2]:
