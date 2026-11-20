@@ -458,9 +458,10 @@ def _grid_strip(verts, faces, loop, corners, near_ids=None) -> Strip:
     near = segs[0]
     far = segs[2][::-1]
     sides = (segs[3][::-1][1:-1], segs[1][1:-1])
-    height = (_length(verts, segs[1]) + _length(verts, segs[3])) / 2.0
     strip = Strip(verts=verts, faces=dict(faces), near=near, far=far, rungs=[], closed=False,
-                  height=height, sides=sides)
+                  height=0.0, sides=sides)
+    # the area over the length, not the end sides' lengths: a slanted end is longer than the strip is wide
+    strip.height = _mean_width(strip)
     return _orient_open(strip, near_ids)
 
 
