@@ -5,14 +5,14 @@ import math
 from mathutils import Color, Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from bpy_extras.view3d_utils import (location_3d_to_region_2d,
-                                     region_2d_to_origin_3d)
+                                     region_2d_to_origin_3d,
+                                     region_2d_to_vector_3d)
 
 from ..ui.draw.theme import get_theme, Role, axis_color
-from ..ui.draw import primitives as draw_prim, draw_scope
+from ..ui.draw import primitives as draw_prim
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+                      ItemState, capture_event)
 from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
@@ -118,6 +118,13 @@ HANDLE_OPPOSITE = {
     'BL': 'TR', 'BR': 'TL', 'TL': 'BR', 'TR': 'BL',
     'B': 'T', 'T': 'B', 'L': 'R', 'R': 'L',
 }
+
+# Anchors C snaps the UV cursor to: bbox corners, side midpoints and
+# the centre. '_C' is the centre's key in _compute_screen_handles and
+# _handle_uv_pos maps any unknown name to the bbox centre.
+CURSOR_ANCHORS = HANDLE_CORNERS + HANDLE_MIDS + ('_C',)
+# UV tolerance for "the cursor still sits on its anchor".
+CURSOR_ANCHOR_EPS = 1e-5
 
 # Per-island identification colors and widget palette live in the
 # unified IOPS_Theme (theme.island_palette). State-like edge colors
@@ -688,9 +695,13 @@ def draw_pixel_callback(op, context):
                          (hsize_hover if hovered else hsize) * 0.8,
                          role=hc_role)
 
-    # UV Cursor
+    # UV Cursor: while it still sits on the anchor it was snapped to,
+    # draw it on that handle -- cursor_3d maps the UV onto the surface
+    # and would land off the screen-space gizmo box.
     if op.cursor_3d is not None:
-        csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
+        csp = _cursor_anchor_screen(op, handles)
+        if csp is None:
+            csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
         if csp:
             csize = theme.point_size_for(Role.CURSOR)
             arm = csize * 1.25
@@ -798,11 +809,14 @@ def _build_visual_uv_hud(context):
         HUDItem('Sensitivity', 'Alt+Scroll', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Rotation step', 'Ctrl+Scroll', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Pivot', 'P', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('UV cursor', 'C', ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem('UV cursor to nearest anchor', 'C', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Scope All / Active', 'I', ItemState.ON, default_state=ItemState.OFF, always_show=True),
     ]))
     helpo.add_section(HUDSection('Islands', [
-        HUDItem('Active island', 'LMB / Tab', ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem('Select island', 'LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem('Add / remove island', 'Sh+LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem('Deselect all', 'Z', ItemState.ON, default_state=ItemState.OFF, always_show=True),
+        HUDItem('Next active island', 'Tab', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Select edge / add', 'LMB / Sh+LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Fit to active / W / H', 'D / Sh+D / Ct+D', ItemState.ON, default_state=ItemState.OFF, always_show=True),
         HUDItem('Flip H / V', 'F / Sh+F', ItemState.ON, default_state=ItemState.OFF, always_show=True),
@@ -875,6 +889,27 @@ def _handle_uv_pos(idata, name):
     }.get(name, Vector((cx, cy)))
 
 
+def _cursor_anchor_screen(op, handles):
+    """Screen position of the gizmo handle the UV cursor was snapped to
+    with C, or None once the cursor no longer sits on it (another island
+    is active, or the island moved away under the fixed cursor)."""
+    anchor = getattr(op, '_cursor_anchor', None)
+    if not anchor or not handles:
+        return None
+    ai = op.active_island_idx
+    if not (0 <= ai < len(op.islands_data)):
+        return None
+    idata = op.islands_data[ai]
+    # The island is identified by one of its faces: indices shift when
+    # the session island list changes.
+    if anchor['face'] not in idata['face_indices']:
+        return None
+    uv = _handle_uv_pos(idata, anchor['name'])
+    if (uv - op.uv_cursor).length > CURSOR_ANCHOR_EPS:
+        return None
+    return handles.get(anchor['name'])
+
+
 def _get_pivot_uv(op, idata):
     if op.pivot_mode == PIVOT_CURSOR:
         return op.uv_cursor.copy()
@@ -933,12 +968,18 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     # Data
     # ------------------------------------------------------------------
 
-    def rebuild_data(self, context):
+    def rebuild_data(self, context, reseed=False, sync=True):
+        """Rebuild the per-island data from the current UVs. reseed
+        floods the islands from the mesh face selection (invoke only);
+        afterwards the session island list is the selection and an
+        empty list stays empty."""
         obj = context.active_object
         self.bm = bmesh.from_edit_mesh(obj.data)
         self.uv_layer = get_uv_layer(self.bm)
         world = obj.matrix_world
-        if self.islands:
+        if reseed:
+            islands, _ = get_selected_face_islands(self.bm, self.uv_layer)
+        else:
             # Mid-session rebuild: keep the island partition stable.
             # Re-flood each island only within its own faces so islands
             # may split (after an unwrap) but never merge -- a stitched
@@ -950,9 +991,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     self.bm, self.uv_layer, seed_faces=old,
                     restrict_to=old)
                 islands.extend(parts)
-        else:
-            islands, _ = get_selected_face_islands(self.bm, self.uv_layer)
-        self.islands = islands
+        # islands and islands_data stay index-aligned: an island without
+        # UV data leaves the session instead of shifting every index.
+        self.islands = []
         self.islands_data = []
         for island in islands:
             idata = get_island_uv_data(self.bm, island, self.uv_layer)
@@ -962,12 +1003,16 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     self.bm, island, self.uv_layer)
                 idata['geo3d'] = get_island_3d_data(
                     self.bm, island, self.uv_layer, world)
+                self.islands.append(island)
                 self.islands_data.append(idata)
         n = len(self.islands_data)
-        if self.active_island_idx >= n:
-            self.active_island_idx = max(0, n - 1)
+        if n == 0:
+            self.active_island_idx = -1
+        elif not (0 <= self.active_island_idx < n):
+            self.active_island_idx = n - 1 if self.active_island_idx >= n else 0
         self.selected_islands = set(range(n))
-        self._sync_uv_editor(context)
+        if sync:
+            self._sync_uv_editor(context)
 
     def _align_view_to_island(self, context):
         """Point the viewport straight at the active island (view axis
@@ -1016,22 +1061,47 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         The UV editor only shows UVs of selected, visible mesh faces —
         islands expanded past the original selection (or with hidden
-        faces) would otherwise appear cut off."""
-        if not (0 <= self.active_island_idx < len(self.islands_data)):
-            return
-        face_lookup = {f.index: f for f in self.bm.faces}
+        faces) would otherwise appear cut off.
+
+        The mesh face selection mirrors the session exactly: faces of
+        islands that left it are deselected. The stitch / align target
+        pool reads unselected faces as "not in the session"."""
+        bm = self.bm
+        session = set()
         for isl in self.islands:
-            for fi in isl:
-                f = face_lookup.get(fi)
-                if f is None:
-                    continue
+            session.update(isl)
+        # Deselect first, then (re)select the session faces: deselecting
+        # a face also drops its verts / edges, which a neighbouring
+        # session face still needs, so after any deselection every
+        # session face is selected again to restore them.
+        dropped = False
+        for f in bm.faces:
+            if f.select and f.index not in session:
+                f.select_set(False)
+                dropped = True
+        for f in bm.faces:
+            if f.index in session:
                 if f.hide:
                     f.hide_set(False)
-                if not f.select:
+                if dropped or not f.select:
                     f.select_set(True)
+        bm.select_history.validate()
+        # The mesh's active face follows the active island, as a click
+        # on a face makes it active in Blender.
+        has_active = 0 <= self.active_island_idx < len(self.islands_data)
+        active_faces = (self.islands[self.active_island_idx]
+                        if has_active else set())
+        active_face = bm.faces.active
+        if active_face is None or active_face.index not in active_faces:
+            if active_faces:
+                bm.faces.ensure_lookup_table()
+                bm.faces.active = bm.faces[min(active_faces)]
+            else:
+                bm.faces.active = None
         active_loops = set()
-        for lp in self.islands_data[self.active_island_idx]['loops']:
-            active_loops.add(lp)
+        if has_active:
+            for lp in self.islands_data[self.active_island_idx]['loops']:
+                active_loops.add(lp)
         use_new = hasattr(next(iter(active_loops)), 'uv_select_vert') \
             if active_loops else False
         for f in self.bm.faces:
@@ -1051,17 +1121,217 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 if area.type == 'IMAGE_EDITOR':
                     area.tag_redraw()
 
-    def _update_cursor_3d(self):
-        best_dist, best_pos = 1e10, None
-        for idata in self.islands_data:
-            geo = idata.get('geo3d')
-            if not geo:
-                continue
-            for uv_key, pos3d in geo['verts_3d'].items():
-                d = (Vector(uv_key) - self.uv_cursor).length
-                if d < best_dist:
-                    best_dist, best_pos = d, pos3d
-        self.cursor_3d = best_pos
+    def _capture_selection(self):
+        """Mesh selection flags, select history and active face. Kept
+        as element references: geometry is fixed for the session (the
+        UV undo cache relies on the same), while vert / edge indices of
+        an edit-mode bmesh are not guaranteed to be up to date."""
+        bm = self.bm
+        act = bm.faces.active
+        return {
+            'verts': [v for v in bm.verts if v.select],
+            'edges': [e for e in bm.edges if e.select],
+            'faces': [f for f in bm.faces if f.select],
+            'history': list(bm.select_history),
+            'active_face': act.index if act is not None else -1,
+            'active': act,
+        }
+
+    def _restore_selection(self):
+        """Put back the selection captured in invoke (Esc). Everything
+        is cleared first, then verts, edges and faces are selected in
+        that order, so the flags come back exactly as they were."""
+        sel = getattr(self, '_orig_selection', None)
+        if not sel:
+            return
+        bm = self.bm
+        try:
+            for seq in (bm.faces, bm.edges, bm.verts):
+                for el in seq:
+                    if el.select:
+                        el.select_set(False)
+            for key in ('verts', 'edges', 'faces'):
+                for el in sel[key]:
+                    el.select_set(True)
+            bm.select_history.clear()
+            for el in sel['history']:
+                bm.select_history.add(el)
+            bm.faces.active = sel['active']
+        except ReferenceError:
+            # The bmesh was rebuilt under us: nothing left to restore.
+            pass
+
+    def _snap_cursor_to_anchor(self, context, mx, my):
+        """C: put the UV cursor on the active island's bbox anchor
+        (corner, side midpoint or centre) nearest to the mouse on
+        screen. Returns the anchor name, or None when there is no
+        active island or its gizmo is off screen."""
+        ai = self.active_island_idx
+        if not (0 <= ai < len(self.islands_data)):
+            return None
+        handles = _compute_screen_handles(self, context)
+        if not handles:
+            return None
+        mouse = Vector((mx, my))
+        name = min((n for n in CURSOR_ANCHORS if n in handles),
+                   key=lambda n: (handles[n] - mouse).length_squared,
+                   default=None)
+        if name is None:
+            return None
+        idata = self.islands_data[ai]
+        self.uv_cursor = _handle_uv_pos(idata, name)
+        geo = idata.get('geo3d')
+        self.cursor_3d = (_nearest_3d_for_uv(geo, self.uv_cursor.x,
+                                             self.uv_cursor.y)
+                          if geo else None)
+        # Remembered by a face, not the island index: the marker is
+        # drawn on the handle only while this island stays active.
+        self._cursor_anchor = {'face': min(self.islands[ai]), 'name': name}
+        return name
+
+    # ------------------------------------------------------------------
+    # Island selection (the session island list is the selection)
+    # ------------------------------------------------------------------
+
+    def _face_at_screen(self, context, mx, my):
+        """Index of the visible mesh face under a region pixel, or -1.
+        Hidden faces are not drawn, so the ray carries on behind them."""
+        region, rv3d = context.region, context.region_data
+        if region is None or rv3d is None:
+            return -1
+        co = (mx, my)
+        winv = self._world_inv
+        origin = winv @ region_2d_to_origin_3d(region, rv3d, co)
+        direction = winv.to_3x3() @ region_2d_to_vector_3d(region, rv3d, co)
+        if direction.length < 1e-12:
+            return -1
+        direction.normalize()
+        faces = self.bm.faces
+        faces.ensure_lookup_table()
+        for _ in range(64):
+            hit, _nrm, fi, dist = self._pick_bvh.ray_cast(origin, direction)
+            if hit is None or fi is None or not (0 <= fi < len(faces)):
+                return -1
+            if not faces[fi].hide:
+                return fi
+            # Step just past the hidden face and cast again.
+            origin = hit + direction * max(1e-5, dist * 1e-5)
+        return -1
+
+    def _session_island_of_face(self, fi):
+        for idx, isl in enumerate(self.islands):
+            if fi in isl:
+                return idx
+        return -1
+
+    def _flood_island_from_face(self, fi):
+        """Faces of the UV island around face fi, flooded only over
+        visible faces outside the session: a new island never merges
+        with a session island whose UVs coincide (stitched islands)."""
+        taken = set()
+        for isl in self.islands:
+            taken.update(isl)
+        allowed = [f.index for f in self.bm.faces
+                   if not f.hide and f.index not in taken]
+        if fi not in allowed:
+            return None
+        parts, _ = get_selected_face_islands(
+            self.bm, self.uv_layer, seed_faces=[fi], restrict_to=allowed)
+        return set(parts[0]) if parts else None
+
+    def _set_islands(self, context, islands, active_face=None):
+        """Replace the session island list. The active island becomes
+        the one holding active_face; by default the previous active
+        island stays active, or the one now at its index when it left.
+        Edge selection, pick state and caches keyed by island index
+        are remapped or reset. Not an undo step: undo is UV-only."""
+        prev = self.active_island_idx
+        if active_face is None and 0 <= prev < len(self.islands):
+            active_face = min(self.islands[prev])
+        self.islands = [set(isl) for isl in islands if isl]
+        self.rebuild_data(context, sync=False)
+        n = len(self.islands)
+        idx = (self._session_island_of_face(active_face)
+               if active_face is not None else -1)
+        if idx < 0 and n:
+            idx = min(max(prev, 0), n - 1)
+        self.active_island_idx = idx
+        kept = []
+        for e in self.sel_edges:
+            i = self._session_island_of_face(e['face'])
+            if i >= 0:
+                e['island'] = i
+                kept.append(e)
+        self.sel_edges = kept
+        self.density_ref_island = -1
+        self.stitch_pool = None
+        self.stitch_pool_view = None
+        self.hover_island_idx = -1
+        self.hover_vert_key = None
+        self.hover_edge_3d = None
+        self.hover_edge_uv = None
+        self.hover_edge_id = None
+        self.hover_rotate_handle = False
+        self.hover_handle = None
+        self._sync_uv_editor(context)
+
+    def _add_island(self, context, faces, active_face=None):
+        """Add an island (face index set) to the session, active."""
+        if active_face is None:
+            active_face = min(faces)
+        self._set_islands(context, self.islands + [set(faces)],
+                          active_face=active_face)
+
+    def _remove_island(self, context, idx):
+        """Drop session island idx; when it was the active one another
+        remaining island becomes active."""
+        if not (0 <= idx < len(self.islands)):
+            return
+        self._set_islands(context, [isl for i, isl in enumerate(self.islands)
+                                    if i != idx])
+
+    def _clear_islands(self, context):
+        """Deselect all: the session becomes empty, the modal goes on."""
+        self.sel_edges = []
+        self._set_islands(context, [])
+
+    def _click_session_island(self, context, idx, extend=False):
+        """LMB on a session island: plain = the only selected island and
+        active, edge selection cleared; extend (Shift) = remove it."""
+        if not (0 <= idx < len(self.islands)):
+            return
+        if extend:
+            self._remove_island(context, idx)
+            return
+        faces = self.islands[idx]
+        self.sel_edges = []
+        self._set_islands(context, [faces], active_face=min(faces))
+
+    def _select_island_from_face(self, context, fi, extend=False):
+        """Blender face-select semantics on whole UV islands, for the
+        island holding mesh face fi: plain = only that island, extend =
+        toggle it in the session. Returns True when anything changed."""
+        idx = self._session_island_of_face(fi)
+        if idx >= 0:
+            self._click_session_island(context, idx, extend)
+            return True
+        faces = self._flood_island_from_face(fi)
+        if not faces:
+            return False
+        if extend:
+            self._add_island(context, faces, active_face=fi)
+        else:
+            self.sel_edges = []
+            self._set_islands(context, [faces], active_face=fi)
+        return True
+
+    def _select_island_at(self, context, mx, my, extend=False):
+        """Pick the island under a region pixel (any visible island of
+        the mesh); False when no visible face is there."""
+        fi = self._face_at_screen(context, mx, my)
+        if fi < 0:
+            return False
+        return self._select_island_from_face(context, fi, extend)
 
     # ------------------------------------------------------------------
     # Mesh update helpers
@@ -1247,29 +1517,6 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     self.hover_island_idx = idx
                     return
 
-    def _screen_to_uv(self, context, mx, my):
-        """Convert a screen pixel position to a UV coordinate by finding
-        the face triangle under the mouse and interpolating UV via
-        barycentric coordinates.  Returns Vector or None."""
-        region, rv3d = context.region, context.region_data
-        for idata in self.islands_data:
-            geo = idata.get('geo3d')
-            if not geo:
-                continue
-            for (ua, ub, uc), (pa, pb, pc) in geo.get('uv_tris', []):
-                sa = location_3d_to_region_2d(region, rv3d, pa)
-                sb = location_3d_to_region_2d(region, rv3d, pb)
-                sc = location_3d_to_region_2d(region, rv3d, pc)
-                if sa is None or sb is None or sc is None:
-                    continue
-                bc = _bary_coords((mx, my),
-                                  (sa.x, sa.y), (sb.x, sb.y), (sc.x, sc.y))
-                if bc is not None:
-                    w, u, v = bc
-                    return Vector((ua[0] * w + ub[0] * u + uc[0] * v,
-                                   ua[1] * w + ub[1] * u + uc[1] * v))
-        return None
-
     # ------------------------------------------------------------------
     # Invoke / Modal
     # ------------------------------------------------------------------
@@ -1349,10 +1596,17 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.undo_stack = []
         self.redo_stack = []
 
+        # The session mirrors its islands into the mesh selection (and
+        # the active face); Esc puts the user's own selection back.
+        self._orig_selection = self._capture_selection()
+        # UV cursor anchor from C ({'face', 'name'}), see
+        # _cursor_anchor_screen.
+        self._cursor_anchor = None
+
         self.islands = []
         self.islands_data = []
         self.selected_islands = set()
-        self.rebuild_data(context)
+        self.rebuild_data(context, reseed=True, sync=False)
         if not self.islands_data:
             self.report({'WARNING'}, "No UV islands found on selected faces")
             return {'CANCELLED'}
@@ -1360,12 +1614,13 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         # The island holding the mesh's active face starts as the active
         # island, so reference-based actions (D, density, align) use the
         # face the user marked active instead of an arbitrary first island.
-        active_face = self.bm.faces.active
-        if active_face is not None:
+        active_fi = self._orig_selection['active_face']
+        if active_fi >= 0:
             for idx, idata in enumerate(self.islands_data):
-                if active_face.index in idata['face_indices']:
+                if active_fi in idata['face_indices']:
                     self.active_island_idx = idx
                     break
+        self._sync_uv_editor(context)
 
         self._overlay_was_on = context.space_data.overlay.show_overlays
         # Shift+Q pauses the edit-mode modifier stack for the session
@@ -1446,6 +1701,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         if event.type == 'ESC' and event.value == 'PRESS':
             restore_uvs(self.uv_cache, self.uv_layer)
+            self._restore_selection()
             self._push_mesh(context)
             self._cleanup(context)
             self.report({'INFO'}, "Visual UV cancelled")
@@ -1778,8 +2034,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
     def _loop_id(self, loop):
         face = loop.face
-        for i, l in enumerate(face.loops):
-            if l == loop:
+        for i, lp in enumerate(face.loops):
+            if lp == loop:
                 return (face.index, i)
         return None
 
@@ -1788,7 +2044,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         the session-pin bookkeeping in step."""
         pinned, changed = toggle_pins_uv(idata['point_loops'],
                                          self.uv_layer, keys)
-        ids = {self._loop_id(l) for l in changed}
+        ids = {self._loop_id(lp) for lp in changed}
         ids.discard(None)
         if pinned:
             self._session_pins |= ids
@@ -2486,13 +2742,18 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self._sync_uv_editor(context)
             return {'RUNNING_MODAL'}
 
-        # Click island to set active (plain click drops the edge
-        # selection, Shift keeps it)
+        # Click an island's surface: Blender face-select semantics on
+        # whole islands -- plain = only this island, Shift = toggle.
+        # Any visible island of the mesh can be picked; the ray cast
+        # also respects occlusion, which the session-only hover does
+        # not. A hover that the ray misses (vertex just past the
+        # silhouette) still counts for its session island.
+        if self._select_island_at(context, event.mouse_region_x,
+                                  event.mouse_region_y, extend=event.shift):
+            return {'RUNNING_MODAL'}
         if self.hover_island_idx >= 0:
-            if not event.shift:
-                self.sel_edges = []
-            self.active_island_idx = self.hover_island_idx
-            self._sync_uv_editor(context)
+            self._click_session_island(context, self.hover_island_idx,
+                                       extend=event.shift)
             return {'RUNNING_MODAL'}
 
         return {'PASS_THROUGH'}
@@ -2550,16 +2811,24 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         if event.type == 'C' and not event.ctrl:
-            uv_pos = self._screen_to_uv(context,
-                                         self.mouse_x, self.mouse_y)
-            if uv_pos is not None:
-                self.uv_cursor = uv_pos
-                self._update_cursor_3d()
+            if not (0 <= self.active_island_idx < len(self.islands_data)):
+                self.report({'INFO'}, "No active island")
+                return {'RUNNING_MODAL'}
+            if self._snap_cursor_to_anchor(context, self.mouse_x,
+                                           self.mouse_y) is not None:
                 self.pivot_mode = PIVOT_CURSOR
+                uv_pos = self.uv_cursor
                 self.report({'INFO'},
                             f"Cursor: ({uv_pos.x:.3f}, {uv_pos.y:.3f})")
             else:
-                self.report({'INFO'}, "No face under cursor")
+                self.report({'INFO'}, "Active island is off screen")
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'Z' and not event.ctrl:
+            # Ctrl+Z (undo) is handled in modal() before keys get here.
+            if self.state == STATE_IDLE:
+                self._clear_islands(context)
+                self.report({'INFO'}, "Deselected all islands")
             return {'RUNNING_MODAL'}
 
         if event.type == 'A':
