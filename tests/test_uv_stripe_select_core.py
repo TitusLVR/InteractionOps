@@ -575,3 +575,13 @@ def test_bend_cuts_on_a_triangulated_strip_land_on_its_quads_rungs(pattern):
     for piece in pieces:
         uv = stripe_uvs(piece)
         assert all(a > 0 for a in areas(piece.faces, uv).values())
+
+
+def test_bend_cut_at_a_fan_goes_to_the_mitre():
+    # An L-shaped flat frame corner, width 0.2: the outer rail turns at 0, the inner rail at 3. The corner is
+    # triangulated as a fan round 0, and vertex 2 only splits the inner rail's straight run: 0-2 is a diagonal,
+    # 0-3 is the mitre.
+    verts = {0: (0.0, 0.0, 0.0), 1: (0.0, 1.4, 0.0), 2: (0.2, 0.4, 0.0), 3: (0.2, 0.2, 0.0), 4: (1.2, 0.2, 0.0),
+             5: (1.2, 0.0, 0.0), 6: (0.2, 1.4, 0.0)}
+    faces = {0: (6, 1, 0, 2), 1: (2, 0, 3), 2: (4, 3, 0, 5)}
+    assert bend_cuts(verts, faces, math.radians(10)) == {(0, 3)}
