@@ -2,7 +2,7 @@ import bpy
 import blf
 import bmesh
 import math
-from mathutils import Color, Matrix, Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from bpy_extras.view3d_utils import (location_3d_to_region_2d,
                                      region_2d_to_origin_3d,
@@ -129,34 +129,19 @@ CURSOR_ANCHOR_EPS = 1e-5
 # Per-island identification colors and widget palette live in the
 # unified IOPS_Theme (theme.island_palette). State-like edge colors
 # are sourced from the 5-state Line/Point/Text roles via Role.*.
-# Island fills come from Blender's own theme (Edit Mode face select /
-# active face) so the overlay reads like native edit-mode selection.
-
-_FILL_SELECT_FALLBACK = (0.8, 0.36, 0.23, 0.4)
-_FILL_ACTIVE_FALLBACK = (1.0, 1.0, 1.0, 0.4)
+# Island fills use the theme's Ghost states the same way: Default for
+# a selected island, Closest for the one under the mouse, Active for
+# the active island.
 
 
-def _blender_fill_colors():
-    """(face_select, editmesh_active) RGBA from Blender's theme.
+def _island_roles(is_active, is_hover):
+    """(fill role, outline role) for an island in the given state."""
+    if is_active:
+        return Role.GHOST_ACTIVE, Role.ACTIVE_LINE
+    if is_hover:
+        return Role.GHOST_CLOSEST, Role.CLOSEST_LINE
+    return Role.GHOST_DEFAULT, Role.LINE
 
-    Theme stores display sRGB; POST_VIEW drawing expects scene-linear,
-    so decode RGB and keep the theme's own alpha."""
-    try:
-        v3d = bpy.context.preferences.themes[0].view_3d
-        sel, act = tuple(v3d.face_select), tuple(v3d.editmesh_active)
-    except (IndexError, AttributeError):
-        return _FILL_SELECT_FALLBACK, _FILL_ACTIVE_FALLBACK
-
-    def _lin(src, fallback):
-        if len(src) < 4:
-            return fallback
-        c = Color(src[:3]).from_srgb_to_scene_linear()
-        # Theme alphas can be fully opaque (editmesh_active is often 1.0);
-        # clamp so the mesh always stays visible under the fill.
-        return (c.r, c.g, c.b, min(float(src[3]), 0.6))
-
-    return (_lin(sel, _FILL_SELECT_FALLBACK),
-            _lin(act, _FILL_ACTIVE_FALLBACK))
 
 def _v3(p):
     """Lift a 2D pixel-space point into a Vector for primitives.*"""
@@ -479,7 +464,7 @@ def draw_3d_callback(op, context):
     gpu.state.depth_test_set('LESS_EQUAL')
     gpu.state.depth_mask_set(False)
 
-    fill_select, fill_active = _blender_fill_colors()
+    theme = get_theme(context)
     # Clean view hides the island fills and outlines so textures stay
     # readable; the hovered edge and the stitch edges are still drawn.
     # While picking a stitch source every island edge is pickable, so
@@ -497,10 +482,11 @@ def draw_3d_callback(op, context):
         is_selected = idx in op._transform_targets()
         nrm = geo['normal_avg']
 
-        # Fill mirrors native edit-mode selection: active island uses
-        # the active-face tint, the rest the face-select tint; islands
-        # outside the working set fade out.
-        fill = fill_active if is_active else fill_select
+        # Fill and outline follow the theme states; islands outside
+        # the transform scope fade out.
+        fill_role, edge_role = _island_roles(
+            is_active, idx == op.hover_island_idx)
+        fill = theme.color_for(fill_role)
         if not (is_active or is_selected):
             fill = (fill[0], fill[1], fill[2], fill[3] * 0.35)
         tv = []
@@ -523,8 +509,26 @@ def draw_3d_callback(op, context):
                                    width="default", context=context)
 
         # Outline only the island's UV boundary — inner edges stay clean.
-        edge_role = (Role.ACTIVE_LINE if is_active
-                     else Role.CLOSEST_LINE if is_selected else Role.LINE)
+        ep = []
+        for pa, pb in geo['boundary_edges_3d']:
+            ep.extend([_off(pa, nrm, nrm_off * 1.5),
+                       _off(pb, nrm, nrm_off * 1.5)])
+        if ep:
+            draw_prim.edges_3d(ep, role=edge_role, width="active",
+                               context=context)
+
+    # Island under the mouse that is not selected yet: a click picks it.
+    geo = (op.hover_pick
+           if show_fill and op.state == STATE_IDLE else None)
+    if geo:
+        nrm = geo['normal_avg']
+        fill_role, edge_role = _island_roles(False, True)
+        tv = []
+        for v0, v1, v2 in geo['face_tris']:
+            tv.extend([_off(v0, nrm, nrm_off), _off(v1, nrm, nrm_off),
+                       _off(v2, nrm, nrm_off)])
+        if tv:
+            draw_prim.tris(tv, role=fill_role, context=context)
         ep = []
         for pa, pb in geo['boundary_edges_3d']:
             ep.extend([_off(pa, nrm, nrm_off * 1.5),
@@ -1011,6 +1015,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         elif not (0 <= self.active_island_idx < n):
             self.active_island_idx = n - 1 if self.active_island_idx >= n else 0
         self.selected_islands = set(range(n))
+        # Hover geometry of unselected islands, by face index. Their
+        # flood skips session faces, so it is stale once the set changes.
+        self._hover_pick_cache = {}
+        self.hover_pick = None
         if sync:
             self._sync_uv_editor(context)
 
@@ -1217,6 +1225,41 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             # Step just past the hidden face and cast again.
             origin = hit + direction * max(1e-5, dist * 1e-5)
         return -1
+
+    def _update_hover_pick(self, context):
+        """Idle hover over an island's surface, resolved the way a click
+        resolves it (ray cast, so occlusion counts): a session island
+        becomes the hovered one, any other island is kept as hover_pick
+        for the preview. Handles, verts and edges keep their own hover."""
+        self.hover_pick = None
+        if (self.state != STATE_IDLE or self.hover_handle
+                or self.hover_rotate_handle
+                or self.hover_vert_key is not None
+                or self.hover_edge_id is not None):
+            return
+        fi = self._face_at_screen(context, self.mouse_x, self.mouse_y)
+        if fi < 0:
+            return
+        idx = self._session_island_of_face(fi)
+        if idx >= 0:
+            self.hover_island_idx = idx
+            return
+        self.hover_island_idx = -1
+        if self._clean_view:
+            # Fills are hidden: nothing to preview, skip the flood.
+            return
+        geo = self._hover_pick_cache.get(fi)
+        if geo is None:
+            faces = self._flood_island_from_face(fi)
+            if not faces:
+                return
+            geo = get_island_3d_data(self.bm, faces, self.uv_layer,
+                                     context.active_object.matrix_world)
+            if not geo:
+                return
+            for f in faces:
+                self._hover_pick_cache[f] = geo
+        self.hover_pick = geo
 
     def _session_island_of_face(self, fi):
         for idx, isl in enumerate(self.islands):
@@ -1721,6 +1764,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         self.hit_test(context, event.mouse_region_x,
                       event.mouse_region_y)
+        self._update_hover_pick(context)
 
         if event.type == 'Z' and event.value == 'PRESS' and event.ctrl:
             self._redo(context) if event.shift else self._undo(context)
