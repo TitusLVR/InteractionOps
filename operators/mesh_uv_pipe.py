@@ -189,9 +189,9 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
     )
     active_fit: EnumProperty(
         name="Fit to Active",
-        description="How Active fits the other parts onto the bounding box of the part holding the active face",
+        description="How Active sizes the other parts by the bounding box of the part holding the active face",
         items=uv_stripe_bridge.ACTIVE_FIT_ITEMS,
-        default="WIDTH",
+        default="HEIGHT",
     )
     orientation: EnumProperty(
         name="Orientation",

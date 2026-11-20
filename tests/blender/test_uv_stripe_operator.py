@@ -566,7 +566,7 @@ def test_active_fits_the_other_strip_onto_the_reference():
     in_place = _corners(obj, _low)
     patch_in_place = _size(_uv_box(obj, _high))              # 0.3 x 0.2
     assert _close(patch_in_place.x, 0.3) and _close(patch_in_place.y, 0.2)
-    for fit, expected in (("BOTH", (0.4, 0.1)), ("WIDTH", (0.4, 0.2)), ("HEIGHT", (0.3, 0.1))):
+    for fit, expected in (("BOTH", (0.15, 0.1)), ("WIDTH", (0.4, 0.8 / 3)), ("HEIGHT", (0.15, 0.1))):
         obj = _two_strips()
         assert _run(mode="ACTIVE", active_fit=fit) == {"FINISHED"}
         assert all((a[1] - b[1]).length < 1e-6 for a, b in zip(_corners(obj, _low), in_place))   # the reference
@@ -582,7 +582,9 @@ def test_active_follows_the_orientation():
     assert _run(mode="ACTIVE", orientation="VERTICAL") == {"FINISHED"}
     reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
     assert _close(_size(reference).x, 0.1) and _close(_size(reference).y, 0.4)      # the reference turned
-    assert (box[0] - reference[0]).length < 1e-6 and (box[1] - reference[1]).length < 1e-6
+    # the patch (0.2 x 0.3 turned) fitted inside the reference by one factor, 0.5: on its width, centred
+    assert _close(_size(box).x, 0.1) and _close(_size(box).y, 0.15), _size(box)
+    assert ((box[0] + box[1]) / 2 - (reference[0] + reference[1]) / 2).length < 1e-6
     assert all(a > 0 for a in _face_areas(obj))
 
 
@@ -594,7 +596,10 @@ def test_active_puts_the_other_pieces_of_a_torn_strip_on_the_active_piece():
     assert _run(mode="ACTIVE") == {"FINISHED"}
     first = _uv_box(obj, lambda c: c.x < 1.9)
     last = _uv_box(obj, lambda c: c.x > 2.1)
-    assert (first[0] - last[0]).length < 1e-6 and (first[1] - last[1]).length < 1e-6
+    # one strip height, so the shorter piece fits inside the first at the same scale: same band, same centre
+    assert abs(first[0].y - last[0].y) < 1e-6 and abs(first[1].y - last[1].y) < 1e-6
+    assert ((first[0] + first[1]) / 2 - (last[0] + last[1]) / 2).length < 1e-6
+    assert _size(last).x < _size(first).x
 
 
 def test_active_without_an_active_face_lays_out_in_place_and_says_so():
@@ -633,12 +638,12 @@ def test_random_offset_moves_the_other_strip_along_u_only():
 
 def test_modal_fit_to_active_and_random_offset_keys():
     obj = _two_strips()
-    op = _modal_on(obj)
+    op = _modal_on(obj, active_fit="HEIGHT")                 # the operator's default
     sizes = []
-    for expected in ("WIDTH", "HEIGHT", "BOTH"):
+    for expected in ("BOTH", "WIDTH", "HEIGHT"):
         assert op._modal(bpy.context, _KeyPress("D")) == {"RUNNING_MODAL"} and op.active_fit == expected
         sizes.append(tuple(round(c, 6) for c in _size(_uv_box(obj, _high))))
-    assert sizes == [(0.4, 0.2), (0.3, 0.1), (0.4, 0.1)]
+    assert sizes == [(0.15, 0.1), (0.4, round(0.8 / 3, 6)), (0.15, 0.1)]
     before = _uv_box(obj, _high)
     shift_wheel = _KeyPress("WHEELUPMOUSE")
     shift_wheel.shift = True
@@ -658,7 +663,7 @@ def test_modal_fit_to_active_and_random_offset_keys():
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
     confirmed = _uv_state(obj)
     obj = _two_strips()
-    stand = _OperatorStandIn(offset_axis="BOTH", offset_seed=1, offset_limit=0.29)
+    stand = _OperatorStandIn(active_fit="HEIGHT", offset_axis="BOTH", offset_seed=1, offset_limit=0.29)
     assert stand.execute(bpy.context) == {"FINISHED"}
     assert _uv_state(obj) == confirmed
 
@@ -785,7 +790,7 @@ def test_modal_merge_doubles():
 
 def test_operator_defaults():
     rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
-    assert rna["mode"].default == "ACTIVE" and rna["active_fit"].default == "WIDTH"
+    assert rna["mode"].default == "ACTIVE" and rna["active_fit"].default == "HEIGHT"
     assert rna["layout"].default == "TRUE" and rna["orientation"].default == "HORIZONTAL"
     assert rna["split_at_seams"].default and rna["split_at_bends"].default and rna["mark_seams"].default
     assert round(math.degrees(rna["split_angle"].default), 6) == 5.0
@@ -794,7 +799,7 @@ def test_operator_defaults():
     assert [item.identifier for item in rna["offset_axis"].enum_items] == ["NONE", "ALONG", "ACROSS", "BOTH"]
 
 
-def test_default_active_fit_matches_the_width_only_and_leaves_a_clean_mesh_alone():
+def test_default_active_fit_matches_the_height_and_leaves_a_clean_mesh_alone():
     obj = _two_strips()
     bm = bmesh.from_edit_mesh(obj.data)
     before = (len(bm.verts), len(bm.edges), len(bm.faces), sorted(f.index for f in bm.faces if f.select))
@@ -802,7 +807,63 @@ def test_default_active_fit_matches_the_width_only_and_leaves_a_clean_mesh_alone
     bm = bmesh.from_edit_mesh(obj.data)
     assert (len(bm.verts), len(bm.edges), len(bm.faces), sorted(f.index for f in bm.faces if f.select)) == before
     reference, box = _uv_box(obj, _low), _uv_box(obj, _high)
-    assert _close(_size(box).x, _size(reference).x) and _close(_size(box).y, 0.2), _size(box)
+    assert _close(_size(box).y, _size(reference).y) and _close(_size(box).x, 0.15), _size(box)
+
+
+def _selected_faces(obj):
+    return [f for f in bmesh.from_edit_mesh(obj.data).faces if f.select]
+
+
+def test_active_fit_stretches_no_face():
+    from InteractionOps.operators import uv_stripe_bridge
+    for fit in ("BOTH", "WIDTH", "HEIGHT"):
+        obj = _two_strips()
+        assert _run(mode="ACTIVE", active_fit=fit, offset_axis="NONE") == {"FINISHED"}
+        bm = bmesh.from_edit_mesh(obj.data)
+        assert uv_stripe_bridge.stretched_faces(bm, _selected_faces(obj), obj.matrix_world) == [], fit
+
+
+def test_seams_split_a_strip_whose_sides_fan_round_a_corner():
+    """A quad with a triangulated trapezoid folded back at each end: as one strip each side fans round one rail
+    vertex, so its far row is a single point and the strip cannot be torn at the seams between the quad and its
+    sides. The seams then split it by faces, and every part comes out at its true shape."""
+    from InteractionOps.operators import uv_stripe_bridge
+    points = [(0.0, 0.0, 0.0), (0.4, 0.0, 0.0), (0.4, 0.0, 0.125), (0.4, 0.15, 0.125),
+              (0.0, 0.0, 0.125), (0.0, 0.15, 0.125), (0.0, 0.5, 0.0), (0.4, 0.5, 0.0)]
+    obj = _object(points, [(4, 2, 1, 0), (5, 4, 0), (5, 0, 6), (7, 1, 3), (3, 1, 2)])
+    _edit(obj)
+    _set_seams(obj, {(0, 4), (1, 2)})
+    for layout in ("TRUE", "SHAPE"):
+        assert _run(mode="FIT", layout=layout, split_at_seams=True) == {"FINISHED"}
+        assert all(abs(a) > 1e-6 for a in _face_areas(obj)), layout       # no face collapsed onto a line
+    bm = bmesh.from_edit_mesh(obj.data)                                     # True Shape: every face at its shape
+    assert uv_stripe_bridge.stretched_faces(bm, _selected_faces(obj), obj.matrix_world) == []
+
+
+def test_stretched_faces_are_measured_in_world_space():
+    from InteractionOps.operators import uv_stripe_bridge
+    obj = _two_strips()
+    obj.scale = (3.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+    assert bpy.ops.iops.mesh_uv_stripe() == {"FINISHED"}
+    bm = bmesh.from_edit_mesh(obj.data)
+    assert uv_stripe_bridge.stretched_faces(bm, _selected_faces(obj), obj.matrix_world) == []
+    layer = bm.loops.layers.uv.active
+    selected = _selected_faces(obj)
+    for f in selected:
+        for lp in f.loops:
+            lp[layer].uv.x *= 2.0
+    assert set(uv_stripe_bridge.stretched_faces(bm, selected, obj.matrix_world)) == set(selected)
+
+
+def test_rectangles_on_a_bent_strip_reports_stretched_faces():
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    stand = _OperatorStandIn(mode="FIT", layout="STRAIGHT", split_at_bends=False)
+    result = stand._lay_out(bpy.context)
+    assert result.done == 1
+    assert result.stretched_faces > 0
+    assert len(result.stretched) % 2 == 0 and result.stretched
 
 
 def test_default_offset_runs_along_the_strip_in_both_orientations():
@@ -1382,7 +1443,11 @@ TESTS = [
     test_merge_doubles_merges_exactly_the_double,
     test_modal_merge_doubles,
     test_operator_defaults,
-    test_default_active_fit_matches_the_width_only_and_leaves_a_clean_mesh_alone,
+    test_default_active_fit_matches_the_height_and_leaves_a_clean_mesh_alone,
+    test_active_fit_stretches_no_face,
+    test_seams_split_a_strip_whose_sides_fan_round_a_corner,
+    test_stretched_faces_are_measured_in_world_space,
+    test_rectangles_on_a_bent_strip_reports_stretched_faces,
     test_default_offset_runs_along_the_strip_in_both_orientations,
     test_true_shape_follows_a_tapering_strip,
     test_active_fits_the_other_strip_onto_the_reference,

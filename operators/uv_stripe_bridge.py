@@ -9,6 +9,7 @@ pieces one built strip becomes (``prepare_strip``) and the seams that match the
 laid-out pieces (``match_piece_seams``).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from bmesh.types import BMFace
@@ -60,12 +61,13 @@ MODE_ITEMS = [
 ]
 ACTIVE_MODE_ITEM = (
     "ACTIVE", "Active",
-    "Lay the strip holding the active face out In Place, and fit every other piece onto its UV bounding box",
+    "Lay the strip holding the active face out In Place, and fit every other piece to its UV bounding box without "
+    "stretching it",
 )
 ACTIVE_FIT_ITEMS = [
-    ("BOTH", "Width and Height", "Match the reference strip's bounding box on both axes"),
-    ("WIDTH", "Width", "Match the reference's width only; the other axis keeps its size"),
-    ("HEIGHT", "Height", "Match the reference's height only; the other axis keeps its size"),
+    ("BOTH", "Width and Height", "Fit the piece inside the reference strip's bounding box, keeping its proportions"),
+    ("WIDTH", "Width", "Match the reference's width; the height is scaled by the same factor"),
+    ("HEIGHT", "Height", "Match the reference's height; the width is scaled by the same factor"),
 ]
 ACTIVE_FALLBACK = "UV Stripe: no active face to fit to; laid out In Place"
 OFFSET_ITEMS = [
@@ -129,8 +131,9 @@ def apply_stripes(
 
     ``mode`` "ACTIVE" with ``active`` (the index of the strip holding the active
     face): every strip is placed as "IN_PLACE" would place it; then every other strip
-    is fitted onto the active strip's UV bounding box (``uv_stripe_core.
-    fit_to_reference`` with ``active_fit``: "BOTH", "WIDTH" or "HEIGHT"). Without
+    is fitted to the active strip's UV bounding box by one scale factor for both axes,
+    so it is not stretched (``uv_stripe_core.fit_to_reference`` with ``active_fit``:
+    "HEIGHT" or "WIDTH" matches that axis, "BOTH" fits it inside the box). Without
     ``active``, or without a UV layer to place the active strip by, it lays out
     "IN_PLACE". Returns whether the strips were fitted to an active strip.
 
@@ -175,7 +178,7 @@ def apply_maps(
     from (0, 0) over ``lengths`` (u extent) and ``heights`` (v extent); ``faces`` maps
     every face id of the maps to its face. Placement, the vertical turn, the random
     offset, the return value and the other parameters are those of ``apply_stripes``,
-    with "strip" read as "piece". Raises ``ValueError`` before writing anything when
+    with "strip" read as "piece"; Active fits a piece by one factor, never stretching it. Raises ``ValueError`` before writing anything when
     ``contexts`` or ``fit_groups`` does not hold one entry per piece.
     """
     if contexts is None:
@@ -219,6 +222,25 @@ def apply_maps(
                 if co is not None:
                     lp[layer].uv = co
     return fitted
+
+
+def stretched_faces(bm, faces: Iterable[BMFace], matrix, tolerance: float = core.STRETCH_TOLERANCE) -> list[BMFace]:
+    """The ``faces`` whose active-layer UVs stretch them beyond ``tolerance`` (``uv_stripe_core.face_stretch``).
+
+    Each face is measured against its world-space shape (``matrix @ v.co``, as the
+    layout is built), so an object's non-uniform scale is not stretch. Empty without
+    a UV layer.
+    """
+    layer = bm.loops.layers.uv.active
+    if layer is None:
+        return []
+    out = []
+    for f in faces:
+        points = [tuple(matrix @ lp.vert.co) for lp in f.loops]
+        uvs = [tuple(lp[layer].uv) for lp in f.loops]
+        if core.face_stretch(points, uvs) > tolerance:
+            out.append(f)
+    return out
 
 
 def _lay_piece(piece: core.Strip, layout: str) -> None:

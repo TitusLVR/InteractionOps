@@ -122,8 +122,20 @@ class _Result:
     merged: int = 0               # doubled vertices merged before the layout
     outline: list = field(default_factory=list)   # world-space segment end points, two per segment
     tears: list = field(default_factory=list)
+    stretched: list = field(default_factory=list)  # world-space edges of the stretched faces, each edge once
+    stretched_faces: int = 0      # laid-out faces whose UVs stretch them beyond the tolerance
     # per object name: {edge index: ring number} for every cross edge of a selected closed ring (a break pick)
     rings: dict = field(default_factory=dict)
+
+
+def _collect_stretched(result, bm, pieces, matrix):
+    """Count the laid-out faces their final UVs stretch (``uv_stripe_bridge.stretched_faces``) and keep the
+    world-space segments of their edges, each edge once."""
+    faces = [f for _strip, piece_faces in pieces for f in piece_faces.values()]
+    stretched = uv_stripe_bridge.stretched_faces(bm, faces, matrix)
+    result.stretched_faces += len(stretched)
+    for e in dict.fromkeys(e for f in stretched for e in f.edges):
+        result.stretched.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
 
 
 def _doubles_warning(count):
@@ -171,9 +183,9 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     )
     active_fit: EnumProperty(
         name="Fit to Active",
-        description="How Active fits the other pieces onto the bounding box of the strip holding the active face",
+        description="How Active sizes the other pieces by the bounding box of the strip holding the active face",
         items=uv_stripe_bridge.ACTIVE_FIT_ITEMS,
-        default="WIDTH",
+        default="HEIGHT",
     )
     orientation: EnumProperty(
         name="Orientation",
@@ -287,8 +299,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """The laid-out pieces of one island as ([(strip, faces by id)], warning); raises ValueError.
 
         The whole island is built and torn at its bends and at the seams inside it that
-        are its rungs. An island that is no strip as a whole, or one with a seam inside
-        it that is no rung, is first split at those seams and each part built on its own.
+        are its rungs. An island that is no strip as a whole, one with a seam inside it
+        that is no rung, or one that cannot be torn at its seams, is first split at those
+        seams and each part built on its own; when a part is then no strip, the island
+        that could not be torn stays whole.
         An island that is a closed ring with a rung among ``breaks`` (vertex-id pairs, the
         picked breaks) is opened there as one piece instead, its seams and bends not
         tearing it (``uv_stripe_bridge.prepare_strip``). ``rings`` (a list) gets the rung
@@ -296,6 +310,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """
         split = self.split_angle if self.split_at_bends else None
         inner = _inner_cuts(island, seam_cuts)
+        whole = None
         try:
             strip = _build(island, verts)
         except ValueError:
@@ -310,8 +325,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 if at:
                     picked_break = uv_stripe_select_core.rung_edge(strip, at[0])
             if picked_break is not None or len(cuts) == len(inner):
-                return uv_stripe_bridge.prepare_strip(strip, picked, self.layout, split, cuts,
-                                                      break_edge=picked_break)
+                whole = uv_stripe_bridge.prepare_strip(strip, picked, self.layout, split, cuts,
+                                                       break_edge=picked_break)
+                # a strip that could not be torn at its seams (a side fanning round one rail vertex has no
+                # row of its own) is split at them by faces instead, below; failing that it stays whole
+                if whole[1] is None or picked_break is not None or not inner:
+                    return whole
         if not inner:
             _build(island, verts)          # raises the island's own reason
         out, reasons, failed = [], [], None
@@ -327,6 +346,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             out += pieces
             if reason:
                 reasons.append(reason)
+        if whole is not None and (failed or not out):
+            return whole
         if not out:
             raise ValueError(failed)
         if failed:
@@ -424,6 +445,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             result.fitted |= fitted
             result.unfitted |= holds_active and not fitted
             _collect_preview(result, pieces, matrix)
+            _collect_stretched(result, bm, pieces, matrix)
             result.done += len(strips)
         if self.mode == "ACTIVE" and result.done and (result.unfitted or not result.fitted):
             result.infos.append(uv_stripe_bridge.ACTIVE_FALLBACK)
@@ -445,6 +467,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.report({"INFO"}, message)
         for message in dict.fromkeys(result.warnings):
             self.report({"WARNING"}, message)
+        if result.stretched_faces:
+            self.report({"WARNING"}, f"UV Stripe: {result.stretched_faces} stretched face(s)")
         if result.skipped:
             self.report({"WARNING"}, f"UV Stripe: {result.done} strip(s), {result.skipped} skipped "
                                      f"({result.first_reason})")
@@ -838,7 +862,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     "[LMB] set the break | [C/Esc/RMB] stop picking | [MMB/Wheel] navigate")
         layout_names = {item[0]: item[1] for item in uv_stripe_bridge.LAYOUT_ITEMS}
         result = getattr(self, "_result", None)
-        count = f"{result.done} strip(s) | " if result is not None else ""
+        count = ""
+        if result is not None:
+            stretched = f", {result.stretched_faces} stretched" if result.stretched_faces else ""
+            count = f"{result.done} strip(s){stretched} | "
         bend = f"{math.degrees(self.split_angle):.0f}°" if self.split_at_bends else "off"
         return (
             f"UV Stripe: {count}"
@@ -861,10 +888,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         hover = getattr(self, "_hover", None) if getattr(self, "_picking", False) else None
         try:
             outline = list(result.outline) if result is not None else []
+            stretched = list(result.stretched) if result is not None else []
             tears = list(result.tears) if result is not None else []   # the picked breaks are among them
             hovered = list(hover[2]) if hover is not None else []
-            # bottom to top: the strip outlines, the tears (each opened ring's cut), the cross edge under the cursor
-            for points, role in ((outline, Role.PREVIEW_LINE), (tears, Role.ERROR_LINE), (hovered, Role.ACTIVE_LINE)):
+            # bottom to top: the strip outlines, the stretched faces' edges, the tears (each opened ring's cut),
+            # the cross edge under the cursor
+            layers = ((outline, Role.PREVIEW_LINE), (stretched, Role.LOCKED_LINE), (tears, Role.ERROR_LINE),
+                      (hovered, Role.ACTIVE_LINE))
+            for points, role in layers:
                 if points:
                     draw.edges_world(points, role=role, context=context)
         except Exception:   # a draw handler must never raise: it would repeat every frame
@@ -884,5 +915,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if getattr(self, "_picking", False):
                 hud.set_header("Break Ring: click a cross edge")
             else:
-                hud.set_header(f"{result.done if result is not None else 0} strip(s)")
+                done = result.done if result is not None else 0
+                stretched = result.stretched_faces if result is not None else 0
+                hud.set_header(f"{done} strip(s), {stretched} stretched face(s)" if stretched else f"{done} strip(s)")
             hud.draw(context, last_event)

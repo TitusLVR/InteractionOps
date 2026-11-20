@@ -1,6 +1,6 @@
 # UV Stripe
 
-Unwraps each selected strip of faces into UV without stretch: the strip is torn where it bends and every piece is laid out at its true size, its rows straight, its ends at their real slant, every face turned the same way. While it runs you switch every option with a key and watch the result in the UV editor; the viewport shows each piece's outline and, in the warning colour, where the strip is torn. No UV editor work and no seams are needed: the seams are set to match the pieces. Edit Mesh mode.
+Unwraps each selected strip of faces into UV without stretch: the strip is torn where it bends and every piece is laid out at its true size, its rows straight, its ends at their real slant, every face turned the same way. While it runs you switch every option with a key and watch the result in the UV editor; the viewport shows each piece's outline, in the warning colour where the strip is torn, and the faces whose UVs are still stretched (see *Stretched faces*). No UV editor work and no seams are needed: the seams are set to match the pieces. Edit Mesh mode.
 
 **Hotkey:** Not bound by default — assign a key in *Preferences › iOps › Keymaps*, or run it from the operator search.
 
@@ -12,7 +12,7 @@ Unwraps each selected strip of faces into UV without stretch: the strip is torn 
 | <kbd>E</kbd> | Layout: No Stretch → Rectangles → Even Rows → True Shape |
 | <kbd>A</kbd> | Split at Bends on / off |
 | <kbd>S</kbd> | Split at Seams on / off |
-| <kbd>D</kbd> | Fit to Active: Width and Height → Width → Height |
+| <kbd>D</kbd> | Fit to Active: Height → Width and Height → Width |
 | <kbd>Z</kbd> | Random Offset: None → Along Strip → Across Strip → Both |
 | <kbd>X</kbd> | Mark Seams on / off |
 | <kbd>C</kbd> | Break Ring: pick the cross edge a closed ring is opened at (see *Breaking a ring*); <kbd>C</kbd> again stops picking |
@@ -47,8 +47,8 @@ The result does not depend on how the mesh was built: an open strip runs from it
 
 ## Options
 All options are also in the redo panel. They are the settings of every UV Stripe layout in iOps: Inset and Edge Slide lay their strips out with the values UV Stripe was last used with.
-- **Mode** — *Active* (default) lays out the strip holding the active face as In Place does, then fits every other piece onto its UV bounding box, as Visual UV's Fit to Active (<kbd>D</kbd>) does: a piece lying across the reference (landscape against portrait) is turned a quarter, never mirrored, scaled to match it and centred on it. With no active face among the selected faces, or no UV map to place it by, everything is laid out In Place and a short note says so. *Fit 0–1* scales all strips by one factor so the longest spans U 0–1, keeping one texel density, and stacks them upward. *In Place* keeps each strip where its old UVs were, at the texel density of the neighbouring faces.
-- **Fit to Active** — used by Active: *Width* (default) matches the reference's width only and *Height* its height only, the other axis keeping its size (measured after the quarter turn); *Width and Height* makes each other piece's bounding box equal the reference's.
+- **Mode** — *Active* (default) lays out the strip holding the active face as In Place does, then fits every other piece to its UV bounding box without stretching it: each piece is scaled by one factor for both axes (see **Fit to Active**) and centred on the reference. A piece is never turned: every piece of a run is laid out by the same Orientation, so its length already runs along the reference's. With no active face among the selected faces, or no UV map to place it by, everything is laid out In Place and a short note says so. *Fit 0–1* scales all strips by one factor so the longest spans U 0–1, keeping one texel density, and stacks them upward. *In Place* keeps each strip where its old UVs were, at the texel density of the neighbouring faces.
+- **Fit to Active** — used by Active; every choice scales a piece by one factor, so it keeps its proportions. *Height* (default) matches the reference's height, the width following by the same factor; *Width* matches its width; *Width and Height* fits the piece inside the reference's bounding box. For trim textures: Height puts every piece on the reference's band at one texel density, running past it along U; with Orientation = Vertical the band runs along V, so use Width.
 - **Orientation** — *Horizontal* (default) runs the strip along U. *Vertical* turns it 90° counter-clockwise, never mirrored: Fit spans V 0–1 and stacks the strips to the right, In Place turns each strip about its own place. Under Active the reference strip turns and the other pieces follow it.
 - **Layout** — *No Stretch* (default) keeps every row at its true length: a flat piece between straight rails comes out at its exact shape, ends at their real slant. The rows are lined up again at every cross edge, so a slight bend below the bend angle, or a width that tapers, only distorts the faces where it happens, not the rest of the piece. *Rectangles* stands every cross edge vertical, so each quad becomes a rectangle; it stretches where the strip bends. *Even Rows* lays each row out by its own length, scaled to the strip's mean length. *True Shape* keeps the real width as well: one row (the straighter one) stays straight at its true length and every other vertex sits at its real distance from it, so a strip whose width changes maps one to one; the other row then follows the strip's real outline instead of a straight line. A ring laid out whole cannot close at true lengths and uses Even Rows; a ring with a picked break is laid out as an open strip (see *Breaking a ring*).
 - **Split at Seams** — on by default: seams already inside a strip tear it into pieces; a ring with a single seam is cut open there instead of at its sharpest corner. Off, the strip is laid out across them (and Mark Seams clears them).
@@ -58,6 +58,9 @@ All options are also in the redo panel. They are the settings of every UV Stripe
 - **Offset Limit** — the largest random shift, in UV units (0.25 by default): each piece moves by a random amount between minus and plus this.
 - **Offset Seed** — the same seed gives the same arrangement every time; change it for another.
 - **Merge Doubles** — on by default (it changes the mesh only where it finds doubles). Vertices of the strip closer than 1 % of its typical edge (an unmerged double, such as two rail vertices 0.0002 apart) are always treated as one point, so they never skew the layout, and with Merge Doubles off UV Stripe warns how many it found. On, it merges exactly those vertices before laying the strip out (in the interactive mode, on confirm; the preview already looks the same).
+
+## Stretched faces
+After the layout every laid-out face is measured against its real shape: how much more its UVs scale it along one direction than along another (a uniform scale or a turn does not count). A face stretched by more than 5 % is drawn in the viewport, the HUD and the status bar count them, and the redo panel or a script reports the count as a warning. Typical causes: *Rectangles* on a strip that bends, a bend below the Bend Angle (or Split at Bends off), and rails that curve or taper.
 
 ## Tips
 - With the defaults (No Stretch, Split at Bends) a flat strip bending in its own plane comes out as stretch-free pieces. A strip whose rails curve, or one that both bends and twists, is laid out as close as straight rows allow.

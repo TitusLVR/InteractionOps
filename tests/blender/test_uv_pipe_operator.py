@@ -244,7 +244,7 @@ def test_operator_is_registered():
     rna = bpy.ops.iops.mesh_uv_pipe.get_rna_type()
     assert rna.name == "UV Pipe"
     props = rna.properties
-    expected = {"mode": "FIT", "active_fit": "WIDTH", "orientation": "HORIZONTAL", "layout": "RECTANGLE",
+    expected = {"mode": "FIT", "active_fit": "HEIGHT", "orientation": "HORIZONTAL", "layout": "RECTANGLE",
                 "loop_source": "GEOMETRY", "split_at_bends": False, "split_at_seams": False, "mark_seams": True,
                 "pack": True, "offset_axis": "NONE", "offset_seed": 0, "merge_doubles": True, "picks": "",
                 "seam_side": "SHORTEST"}
@@ -1423,7 +1423,7 @@ def test_modal_keys_toggle_their_options():
     _edit(obj)
     op = _modal_on()
     steps = [("Q", "mode", "IN_PLACE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"), ("W", "orientation", "VERTICAL"),
-             ("D", "active_fit", "HEIGHT"), ("E", "layout", "QUADS"), ("E", "layout", "TRUE"),
+             ("D", "active_fit", "BOTH"), ("E", "layout", "QUADS"), ("E", "layout", "TRUE"),
              ("E", "layout", "RECTANGLE"), ("A", "split_at_bends", True), ("S", "split_at_seams", True),
              ("X", "mark_seams", False), ("P", "pack", False), ("Z", "offset_axis", "ALONG"), ("R", "offset_seed", 1),
              ("F", "merge_doubles", False)]
