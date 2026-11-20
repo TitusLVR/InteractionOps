@@ -633,7 +633,9 @@ def bend_cut_rungs(strip: Strip, angle: float) -> list[int]:
     that advances both rows over the last such rung, an open strip's start being the
     first (a post: a cross edge, not a fan or a triangulation's diagonal), is cut
     when the turn so far exceeds ``angle`` in size, and the turn restarts at 0
-    there. A closed strip with a single cut gets none.
+    there. When rungs fan out from that rung's end, the cut moves to the fan's rung
+    that turns most by its own two ends: a mitre, which joins the corner of both
+    rows, not the diagonal before it. A closed strip with a single cut gets none.
     """
     if not strip.rungs:
         return []
@@ -642,11 +644,24 @@ def bend_cut_rungs(strip: Strip, angle: float) -> list[int]:
     deficit = _deficits(strip, point, tol)
     near, far = strip.near, strip.far
     # an open strip's row ends are its end corners, not bends; its start is the first post
-    counted: set[int] = set() if strip.closed else {point.get(v, v) for v in (near[0], near[-1], far[0], far[-1])}
+    end_corners = set() if strip.closed else {point.get(v, v) for v in (near[0], near[-1], far[0], far[-1])}
+    counted: set[int] = set(end_corners)
     turn = 0.0
     last = (-1, -1) if strip.closed else (0, 0)
     cuts = []
+
+    def ends(k: int) -> tuple[int, int]:
+        i, j = strip.rungs[k]
+        return point.get(near[i % len(near)], near[i % len(near)]), point.get(far[j % len(far)], far[j % len(far)])
+
+    def own_turn(k: int) -> float:
+        p, q = ends(k)
+        return abs(deficit.get(q, 0.0) - deficit.get(p, 0.0)) / 2.0
+
+    skip = -1
     for k, (i, j) in enumerate(strip.rungs):
+        if k <= skip:
+            continue
         a, b = near[i % len(near)], far[j % len(far)]
         for v, sign in ((b, 1.0), (a, -1.0)):
             p = point.get(v, v)
@@ -659,7 +674,22 @@ def bend_cut_rungs(strip: Strip, angle: float) -> list[int]:
         if i > last[0] and j > last[1] and moved:
             last = (i, j)
             if abs(turn) > angle:
-                cuts.append(k)
+                # A fan: the rungs after this one that share an end with it. The tear goes to the fan's rung
+                # that turns most by its own two ends (a mitre joins the corner of both rows), the first on a tie.
+                # A diagonal that ends on the next cross edge, or on an open strip's end corner, is not one:
+                # that corner's turn belongs there.
+                m = k + 1
+                while m < len(strip.rungs) and (ends(m)[0] == ends(k)[0] or ends(m)[1] == ends(k)[1]):
+                    m += 1
+                taken = set(end_corners) | (set(ends(m)) if m < len(strip.rungs) else set())
+                best = k
+                for fan in range(k + 1, m):
+                    if not (set(ends(fan)) - set(ends(k))) & taken and own_turn(fan) > own_turn(best) + TOL:
+                        best = fan
+                for done in range(k, best + 1):
+                    counted.update(ends(done))
+                skip, last = best, strip.rungs[best]
+                cuts.append(best)
                 turn = 0.0
     if strip.closed and len(cuts) == 1:
         return []
