@@ -19,9 +19,10 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Left | **Transform & Align** | Object Aligner, Align Between Two, 3 Point Rotation, Mirror Rotate, Match Dimensions, Normalize, Change Scale, Visual Origin, Drop It! |
 | Right | **Arrange** | Object Replace, Radial Array, Grid / Grid to Center, To Grid From Active |
 | Bottom | **Vertex Color** | See below |
-| Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects, Negative Scale Overlay (drawn pressed while the overlay is on) |
+| Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects |
 | Top-left | **Modifiers** | Easy Modifier shortcuts: Array Caps, Array Curve, Curve, SHWARP |
 | Top-right | **Assets & Files** | Materials from Textures, Material Override, Render Asset Thumbnail, Reload Libraries, Reload Images |
+| Top, rightmost column | **Overlays** | Negative Scale Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Z-Fight or Hidden Faces to select the faces) |
 
 ### Edit Mesh
 
@@ -30,8 +31,9 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Left | **Mesh** | Inset, Edge Slide, Straight Bevel, Shear, Hinge, Converge, Vert Fuse, Quick Connect, Quick Snap, Tris to Quads, Cursor Bisect, To Grid, Mesh Snapshot |
 | Right | **UV** | UV Stripe, UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
 | Bottom | **Vertex Color** | See below |
-| Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face, Non-Planar Overlay (drawn pressed while the overlay is on) |
+| Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face |
 | Top-left | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
+| Top, rightmost column | **Overlays** | Non-Planar Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Non-Planar, Z-Fight or Hidden Faces to select the faces) |
 
 ### Vertex Color box
 

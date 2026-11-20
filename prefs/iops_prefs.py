@@ -308,6 +308,13 @@ def get_iops_prefs():
         "NONPLANAR_OVERLAY": {
             "nonplanar_angle": safe("nonplanar_angle", 0.5),
         },
+        "ZFIGHT_OVERLAY": {
+            "zfight_angle": safe("zfight_angle", 0.5),
+            "zfight_distance": safe("zfight_distance", 0.0001),
+        },
+        "HIDDEN_FACES_OVERLAY": {
+            "hidden_faces_rays": safe("hidden_faces_rays", 128),
+        },
         "NEGATIVE_SCALE_OVERLAY": {
             "negative_scale_color": safelist("negative_scale_color", (1.0, 0.0, 0.0, 0.35)),
         },

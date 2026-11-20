@@ -408,6 +408,8 @@ from .ui.iops_selection_sets_panel import (
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
 from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
+from .operators.mesh_zfight_overlay import IOPS_OT_MeshZFightOverlay
+from .operators.mesh_hidden_faces_overlay import IOPS_OT_MeshHiddenFacesOverlay
 from .operators.object_negative_scale_overlay import IOPS_OT_ObjectNegativeScaleOverlay
 from .operators import mesh_attribute_editor as _attr_editor
 from .ui import iops_attribute_panel as _attr_panel
@@ -779,6 +781,8 @@ classes = (
     IOPS_OT_mesh_extrude_ex,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
+    IOPS_OT_MeshZFightOverlay,
+    IOPS_OT_MeshHiddenFacesOverlay,
     IOPS_OT_ObjectNegativeScaleOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
     IOPS_OT_Mesh_UV_Stripe,
@@ -1000,6 +1004,18 @@ def unregister():
         disable_overlay()
     except Exception as e:
         print("IOPS: non-planar overlay cleanup failed:", e)
+    try:
+        from .operators.mesh_zfight_overlay import (
+            disable_overlay as disable_zfight_overlay)
+        disable_zfight_overlay()
+    except Exception as e:
+        print("IOPS: z-fight overlay cleanup failed:", e)
+    try:
+        from .operators.mesh_hidden_faces_overlay import (
+            disable_overlay as disable_hidden_faces_overlay)
+        disable_hidden_faces_overlay()
+    except Exception as e:
+        print("IOPS: hidden-faces overlay cleanup failed:", e)
     try:
         from .operators.object_negative_scale_overlay import (
             disable_overlay as disable_negative_scale_overlay)

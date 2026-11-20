@@ -306,6 +306,31 @@ def draw_iops_statistics():
         else:
             _t("- - -", role=Role.HUD_LABEL)
 
+        # Z-Fight Overlay counter — while the mode is on, in the modes it
+        # collects in (it checks several objects, so no active mesh needed).
+        from ..operators.mesh_zfight_overlay import (
+            overlay_enabled as zfight_enabled, zfight_count)
+        if zfight_enabled() and context.mode in ("OBJECT", "EDIT_MESH"):
+            count = zfight_count()
+            _t("Z-Fight:", role=Role.HUD_LABEL)
+            _t(str(count),
+               role=(Role.HUD_STATS_ERROR if count
+                     else Role.HUD_LABEL_ACTIVE),
+               x=base_column_x)
+            offset_y -= row_step
+
+        # Hidden Faces Overlay counter — same modes and scope as Z-Fight.
+        from ..operators.mesh_hidden_faces_overlay import (
+            hidden_faces_count, overlay_enabled as hidden_faces_enabled)
+        if hidden_faces_enabled() and context.mode in ("OBJECT", "EDIT_MESH"):
+            count = hidden_faces_count()
+            _t("Hidden:", role=Role.HUD_LABEL)
+            _t(str(count),
+               role=(Role.HUD_STATS_ERROR if count
+                     else Role.HUD_LABEL_ACTIVE),
+               x=base_column_x)
+            offset_y -= row_step
+
         if context.selected_objects:
             scaled_objects = []
             for obj in context.selected_objects:

@@ -69,6 +69,8 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Mesh Visual UV](operators/op_mesh_visual_uv.md) — draw the UVs on the mesh in the viewport.
 - [UV Visual Cursor](operators/op_uv_visual_cursor.md) — place the 2D cursor on a bounding-box point.
 - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md) — highlight faces that are not flat.
+- [Z-Fight Overlay](operators/op_mesh_zfight_overlay.md) — highlight faces that lie in one plane and overlap, so they flicker in the viewport.
+- [Hidden Faces Overlay](operators/op_mesh_hidden_faces_overlay.md) — highlight faces that cannot be seen from outside the model: inside a closed shell or buried in other geometry.
 - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md) — mark seams along the shortest path.
 - [UV Stripe](operators/op_mesh_uv_stripe.md) — unwrap a selected strip of faces as one straight UV rectangle.
 - [UV Pipe](operators/op_mesh_uv_pipe.md) — unwrap tubes: the wall as one straight island, cap rings as straight strips, cap centres as disks.

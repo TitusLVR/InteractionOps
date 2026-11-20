@@ -367,6 +367,8 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_cursor_place: BoolProperty(default=False)
     show_section_instance_edit: BoolProperty(default=False)
     show_section_nonplanar: BoolProperty(default=False)
+    show_section_zfight: BoolProperty(default=False)
+    show_section_hidden_faces: BoolProperty(default=False)
     show_section_negative_scale: BoolProperty(default=False)
     show_section_attributes: BoolProperty(default=False)
     show_section_snap_combo: BoolProperty(default=False)
@@ -901,6 +903,44 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         precision=2,
     )
 
+    # Z-Fight Overlay (iops.mesh_zfight_overlay)
+    zfight_angle: bpy.props.FloatProperty(
+        name="Z-Fight Angle",
+        description="Overlapping faces whose planes differ by less than "
+                    "this angle (degrees) count as one plane and are "
+                    "highlighted by the Z-Fight Overlay",
+        default=0.5,
+        min=0.0,
+        max=45.0,
+        step=10,  # 0.1 degree
+        precision=2,
+    )
+    zfight_distance: bpy.props.FloatProperty(
+        name="Z-Fight Distance",
+        description="Largest gap between two overlapping parallel faces "
+                    "that still counts as z-fighting",
+        default=0.0001,
+        min=0.0,
+        soft_max=0.1,
+        step=0.001,
+        precision=5,
+        subtype="DISTANCE",
+        unit="LENGTH",
+    )
+
+    # Hidden Faces Overlay (iops.mesh_hidden_faces_overlay)
+    hidden_faces_rays: bpy.props.IntProperty(
+        name="Rays",
+        description="Rays per sample point (the center and corners of every "
+                    "triangle of a face) cast by the Hidden Faces Overlay "
+                    "before a face is declared hidden. More rays find "
+                    "narrower openings; faces that look into a pocket "
+                    "take longer",
+        default=128,
+        min=8,
+        max=512,
+    )
+
     # Negative Scale Overlay (iops.object_negative_scale_overlay)
     negative_scale_color: FloatVectorProperty(
         name="Highlight Color",
@@ -1353,6 +1393,19 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                             "Non-Planar Overlay", icon="MOD_TRIANGULATE")
             if body is not None:
                 body.prop(self, "nonplanar_angle")
+
+            # Z-Fight Overlay
+            body = _section(column_main, self, "show_section_zfight",
+                            "Z-Fight Overlay", icon="MOD_OPACITY")
+            if body is not None:
+                body.prop(self, "zfight_angle")
+                body.prop(self, "zfight_distance")
+
+            # Hidden Faces Overlay
+            body = _section(column_main, self, "show_section_hidden_faces",
+                            "Hidden Faces Overlay", icon="HIDE_ON")
+            if body is not None:
+                body.prop(self, "hidden_faces_rays")
 
             # Negative Scale Overlay
             body = _section(column_main, self, "show_section_negative_scale",

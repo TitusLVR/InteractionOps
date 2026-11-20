@@ -311,6 +311,25 @@ def load_iops_preferences():
                                     value, "nonplanar_angle",
                                     defaults.get("nonplanar_angle", 0.5))
 
+                    case "ZFIGHT_OVERLAY":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("ZFIGHT_OVERLAY", {})
+                            for key_, default_ in (
+                                ("zfight_angle", 0.5),
+                                ("zfight_distance", 0.0001),
+                            ):
+                                if hasattr(prefs, key_):
+                                    setattr(prefs, key_,
+                                            safe_get(value, key_, defaults.get(key_, default_)))
+
+                    case "HIDDEN_FACES_OVERLAY":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("HIDDEN_FACES_OVERLAY", {})
+                            if hasattr(prefs, "hidden_faces_rays"):
+                                prefs.hidden_faces_rays = safe_get(
+                                    value, "hidden_faces_rays",
+                                    defaults.get("hidden_faces_rays", 128))
+
                     case "NEGATIVE_SCALE_OVERLAY":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("NEGATIVE_SCALE_OVERLAY", {})

@@ -33,6 +33,7 @@ from gpu_extras.batch import batch_for_shader
 
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
+from ..utils.overlay_select import report_selected, select_flagged
 from ..utils.planarity import (deviation_alpha, face_deviation_deg,
                                overlay_normal_offset)
 
@@ -127,10 +128,13 @@ def _collect(context, depsgraph=None):
         ob_eval.to_mesh_clear()
 
 
-def _collect_from_mesh(context, obj, me, threshold):
+def _nonplanar_hits(obj, me, threshold):
+    """{polygon index: deviation in degrees} of the visible faces of `me`
+    (placed at obj.matrix_world) that deviate more than `threshold`, and
+    the world-space vertex positions. foreach_get only."""
     n_poly = len(me.polygons)
     if n_poly == 0:
-        return
+        return {}, None
     loop_total = np.empty(n_poly, np.int32)
     me.polygons.foreach_get("loop_total", loop_total)
     cand_mask = loop_total > 3
@@ -141,7 +145,7 @@ def _collect_from_mesh(context, obj, me, threshold):
         cand_mask &= ~hidden
     cand = np.nonzero(cand_mask)[0]
     if not len(cand):
-        return
+        return {}, None
     loop_start = np.empty(n_poly, np.int32)
     me.polygons.foreach_get("loop_start", loop_start)
     loop_verts = np.empty(len(me.loops), np.int32)
@@ -159,9 +163,34 @@ def _collect_from_mesh(context, obj, me, threshold):
         dev = face_deviation_deg(coords)
         if dev > threshold:
             hit_devs[int(pi)] = dev
+    return hit_devs, co_w
+
+
+def flagged_faces(context) -> dict:
+    """{object: polygon indices of its original mesh} that are non-planar,
+    for every object in Edit Mode — for the Shift-click selection.
+    Operator context only (syncs the edit-mesh to the mesh first)."""
+    threshold = _threshold_deg()
+    out = {}
+    objs = [o for o in (getattr(context, "objects_in_mode", None) or ())
+            if o.type == 'MESH']
+    if not objs and context.edit_object is not None:
+        objs = [context.edit_object]
+    for obj in objs:
+        obj.update_from_editmode()
+        hit_devs, _co_w = _nonplanar_hits(obj, obj.data, threshold)
+        if hit_devs:
+            out[obj] = np.fromiter(hit_devs, np.int64, len(hit_devs))
+    return out
+
+
+def _collect_from_mesh(context, obj, me, threshold):
+    n_poly = len(me.polygons)
+    hit_devs, co_w = _nonplanar_hits(obj, me, threshold)
     _STATE["count"] = len(hit_devs)
     if not hit_devs:
         return
+    mw = np.array(obj.matrix_world, dtype=np.float64)
     # Fill with the mesh's own render tessellation (loop triangles) — a
     # generic tessellator can pick the opposite diagonal on a warped face,
     # and two differently-diagonalized saddles intersect mid-face, which
@@ -335,7 +364,8 @@ def _tag_redraw_view3d(context):
 
 class IOPS_OT_MeshNonPlanarOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of non-planar faces in Edit Mode.
-    Fill intensity scales with how far each face is from planar"""
+    Fill intensity scales with how far each face is from planar.
+    Shift-click: select the non-planar faces instead"""
     bl_idname = "iops.mesh_nonplanar_overlay"
     bl_label = "Non-Planar Faces Overlay"
     bl_options = {"REGISTER"}
@@ -345,6 +375,17 @@ class IOPS_OT_MeshNonPlanarOverlay(bpy.types.Operator):
         # Enabling needs an edit-mesh; disabling is allowed from anywhere.
         return overlay_enabled() or (context.mode == 'EDIT_MESH'
                                      and context.edit_object is not None)
+
+    def invoke(self, context, event):
+        if not event.shift:
+            return self.execute(context)
+        if context.mode != 'EDIT_MESH':
+            self.report({'WARNING'}, "Select non-planar faces: Edit Mode only")
+            return {'CANCELLED'}
+        total = select_flagged(context, flagged_faces(context), "Non-Planar")
+        report_selected(self, total)
+        _tag_redraw_view3d(context)
+        return {'FINISHED'}
 
     def execute(self, context):
         if overlay_enabled():
