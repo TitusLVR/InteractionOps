@@ -77,6 +77,7 @@ edit_pie_content_list = [
     ("iops.mesh_inset", "Inset", ""),
     ("iops.mesh_edge_slide", "Edge Slide", ""),
     ("iops.mesh_uv_stripe", "UV Stripe", ""),
+    ("iops.mesh_uv_stripe_interactive", "UV Stripe (Interactive)", ""),
     ("iops.mesh_uv_pipe", "UV Pipe", ""),
     ("iops.mesh_to_tris_to_quads", "Tris to Quads", ""),
     ("iops.object_drop_it", "Drop It!", ""),

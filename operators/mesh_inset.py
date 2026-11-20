@@ -2194,7 +2194,8 @@ class IOPS_OT_inset(bpy.types.Operator):
             loops = [loop for loop in loops if any(face is not None for _top, face in loop.walls)]
             try:
                 built = [
-                    uv_stripe_bridge.prepare_strip(*stripe_for(loop), settings.layout, settings.split)
+                    uv_stripe_bridge.prepare_strip(*stripe_for(loop), settings.layout, settings.split,
+                                                   stretch_limit=settings.stretch_limit)
                     for loop in loops
                 ]
             except ValueError as exc:

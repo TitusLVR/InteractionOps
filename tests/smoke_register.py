@@ -25,24 +25,26 @@ for op_name in (
     "instance_edit_rollback_source",
     "instance_edit_backups_cleanup",
     "mesh_edge_slide",
+    "mesh_uv_stripe",
+    "mesh_uv_stripe_interactive",
 ):
-    assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
-    if op_name.startswith("instance_edit_") or op_name == "mesh_edge_slide":
+    assert hasattr(bpy.ops.iops, op_name), f"missing operator: iops.{op_name}"
+    if op_name.startswith(("instance_edit_", "mesh_")):
         # hasattr is always True (lazy wrapper): resolve the RNA type.
         getattr(bpy.ops.iops, op_name).get_rna_type()
 
 for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node"):
-    assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
+    assert hasattr(bpy.ops.iops, op_name), f"missing operator: iops.{op_name}"
 
 assert hasattr(bpy.types, "IOPS_MT_Pie_Node"), "node pie menu not registered"
 
 prefs = bpy.context.preferences.addons["InteractionOps"].preferences
 for prop_name in ("library_master_file", "library_preview_size", "library_shader_group"):
-    assert hasattr(prefs, prop_name), "missing pref: %s" % prop_name
+    assert hasattr(prefs, prop_name), f"missing pref: {prop_name}"
 
 wm = bpy.context.window_manager
 for prop_name in ("iops_library_status", "iops_library_busy", "iops_library_placement"):
-    assert hasattr(wm, prop_name), "missing WM prop: %s" % prop_name
+    assert hasattr(wm, prop_name), f"missing WM prop: {prop_name}"
 
 assert hasattr(bpy.types, "IOPS_PT_Library"), "panel not registered"
 assert hasattr(bpy.types, "IOPS_MT_LibraryPublishSub"), "publish submenu not registered"
@@ -68,7 +70,7 @@ bpy.ops.iops.cursor_place.get_rna_type()
 for prop_name in ("cursor_place_normal_axis", "cursor_place_edge_axis",
                   "cursor_place_axis_size", "cursor_place_axis_letters",
                   "cursor_place_floor_snap", "cursor_place_floor_grid_px"):
-    assert hasattr(prefs, prop_name), "missing pref: %s" % prop_name
+    assert hasattr(prefs, prop_name), f"missing pref: {prop_name}"
 km = bpy.context.window_manager.keyconfigs.addon.keymaps.get("3D View")
 assert any(
     kmi.idname == "iops.cursor_place" and kmi.type == "RIGHTMOUSE" and kmi.shift
