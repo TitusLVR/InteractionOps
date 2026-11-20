@@ -804,6 +804,23 @@ def straighten(strip: Strip) -> bool:
     return strip.layout == "STRAIGHT"
 
 
+def lay_piece(piece: Strip, layout: str, align: str = "AUTO", align_edges=()) -> dict[tuple[int, int], Vec2]:
+    """Set ``piece`` up to be laid out under ``layout`` and return its ``stripe_uvs``.
+
+    "STRAIGHT" goes through ``straighten`` (which keeps "EVEN" where it would fold a
+    face); every other layout is set as itself. The piece aligns by ``align`` (True
+    Shape only), "PICKED" on the first of ``align_edges`` (vertex-id pairs) that is an
+    edge of its own faces (``align_edge_in``). Raises ValueError as ``stripe_uvs`` does.
+    """
+    piece.align = align
+    piece.align_edge = align_edge_in(piece, align_edges) if align == "PICKED" else None
+    if layout == "STRAIGHT":
+        straighten(piece)
+    else:
+        piece.layout = layout
+    return stripe_uvs(piece)
+
+
 def _signed_area(pts: list[Vec2]) -> float:
     """Signed area of a polygon, positive when it winds counter-clockwise."""
     return 0.5 * sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))

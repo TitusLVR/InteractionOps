@@ -1685,7 +1685,8 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
                 try:
                     strip, strip_faces = bridge.stripe_for(build, applied, width, piece)
                     pieces, reason = uv_stripe_bridge.prepare_strip(strip, strip_faces, settings.layout,
-                                                                    settings.split)
+                                                                    settings.split,
+                                                                    stretch_limit=settings.stretch_limit)
                 except ValueError as exc:
                     self.report({'WARNING'}, f"Edge Slide: UV Stripe skipped ({exc})")
                     continue

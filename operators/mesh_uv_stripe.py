@@ -8,7 +8,9 @@ seams inside it (Split at Seams). Only an island that is no strip as a whole is
 split at its seams into islands built one by one. The pieces are written into the
 active UV map through ``uv_stripe_bridge``; no ``bpy.ops.uv`` call.
 
-Invoked, the operator is modal: every option has a key, and every change restores
+Invoked, the operator lays the strips out at once with the last-used options. With
+``interactive`` (bound through ``IOPS_OT_Mesh_UV_Stripe_Interactive``, "UV Stripe
+(Interactive)") it is modal instead: every option has a key, and every change restores
 the UVs and seams the selected faces had and lays them out again, so the UV editor
 follows live; the viewport shows each piece's outline and where the strip is torn.
 Confirm keeps the result (one undo step), cancel puts the snapshot back. C picks
@@ -32,7 +34,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
 from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
-from ..utils import picking, uv_stripe_core, uv_stripe_select_core
+from ..utils import picking, uv_stripe_auto_core, uv_stripe_core, uv_stripe_select_core
 from . import uv_stripe_bridge
 
 EPS = 1e-6
@@ -46,6 +48,7 @@ FIT_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ACTIVE_FIT_ITEMS}
 OFFSET_CYCLE = [item[0] for item in uv_stripe_bridge.OFFSET_ITEMS]
 OFFSET_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.OFFSET_ITEMS}
 LIMIT_STEP, LIMIT_FINE_STEP = 0.05, 0.01
+STRETCH_STEP, STRETCH_FINE_STEP = 0.05, 0.01
 ALIGN_ITEMS = [
     ("AUTO", "Auto", "Run the piece along its straighter row: that row's one edge longer than half the row, else "
                      "the line from the row's first to its last vertex"),
@@ -233,7 +236,19 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         name="Layout",
         description="How the strip's rows are laid out along its length",
         items=uv_stripe_bridge.LAYOUT_ITEMS,
-        default="TRUE",
+        default="AUTO",
+    )
+    stretch_limit: FloatProperty(
+        name="Stretch Limit",
+        description=(
+            "Auto lays a piece out straight while no face stretches more than this, and as True Shape beyond it "
+            "when that stretches less; 1.0 makes every piece that stretches at all True Shape"
+        ),
+        default=uv_stripe_auto_core.DEFAULT_STRETCH_LIMIT,
+        min=1.0,
+        max=3.0,
+        step=5,
+        precision=2,
     )
     split_at_seams: BoolProperty(
         name="Split at Seams",
@@ -327,6 +342,20 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
+    # Invoked with it the operator starts the interactive mode; without it invoke lays the strips out at once.
+    interactive: BoolProperty(
+        name="Interactive",
+        description="Start the interactive mode, where every option has a key and the UVs follow live",
+        default=False,
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    # Whether the interactive mode's HUD lists every option or only the main ones; remembered as last used.
+    show_options: BoolProperty(
+        name="More Options",
+        description="List every option in the interactive mode's HUD, not only the main ones",
+        default=False,
+        options={"HIDDEN"},
+    )
 
     @classmethod
     def poll(cls, context):
@@ -343,13 +372,19 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         row.prop(self, "active_fit")
         layout.prop(self, "orientation")
         layout.prop(self, "layout")
+        auto = self.layout == "AUTO"
         row = layout.row()
-        row.active = self.layout == "SHAPE"   # greyed out: only True Shape is aligned
+        row.active = auto
+        row.prop(self, "stretch_limit")
+        row = layout.row()
+        row.active = self.layout in ("SHAPE", "AUTO")   # greyed out: only True Shape is aligned
         row.prop(self, "shape_align")
-        for name in ("split_at_seams", "split_at_bends"):
-            layout.prop(self, name)
+        layout.prop(self, "split_at_seams")
         row = layout.row()
-        row.enabled = self.split_at_bends
+        row.active = not auto                  # greyed out: Auto picks its own tears
+        row.prop(self, "split_at_bends")
+        row = layout.row()
+        row.enabled = self.split_at_bends and not auto
         row.prop(self, "split_angle")
         layout.prop(self, "mark_seams")
         layout.prop(self, "offset_axis")
@@ -395,7 +430,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 strip, picked, self.layout, split, cuts, break_edge=break_edge,
                 manual_cuts=uv_stripe_select_core.rungs_at(strip, manual),
                 skip_cuts=uv_stripe_select_core.rungs_at(strip, skipped), bend_tears=torn,
-                align=self.shape_align, align_edges=align_edges)
+                align=self.shape_align, align_edges=align_edges, stretch_limit=self.stretch_limit)
             return laid, ([uv_stripe_select_core.rung_edge(strip, k) for k in range(len(strip.rungs))], torn)
 
         def done(laid, marks):
@@ -539,7 +574,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             result.cross[obj.name] = {edge_of[key].index for key in cross if key in edge_of}
             result.bend_tears[obj.name] = {edge_of[key].index for key in bends if key in edge_of}
             result.seam_tears[obj.name] = {edge_of[key].index for key in seam_cuts if key in edge_of}
-            if self.split_at_bends:
+            if self.split_at_bends or self.layout == "AUTO":
                 for key in sorted(skipped & cross):
                     e = edge_of.get(key)
                     if e is not None:
@@ -847,7 +882,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._take_snapshot(context)
         self._cancel = {name: getattr(self, name) for name in (
             "mode", "active_fit", "orientation", "layout", "split_at_seams", "split_at_bends", "split_angle", "mark_seams",
-            "offset_axis", "offset_limit", "offset_seed", "merge_doubles", "shape_align")}
+            "stretch_limit", "offset_axis", "offset_limit", "offset_seed", "merge_doubles", "shape_align")}
         for name in EDGE_PROPS:
             self._cancel[name] = getattr(self, name, "")
         self._picking = False
@@ -867,6 +902,9 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         return True
 
     def invoke(self, context, event):
+        """Without ``interactive``, ``execute`` at once; with it, the interactive mode."""
+        if not self.interactive:
+            return self.execute(context)
         _purge_handles()
         self._handle = self._handle_view = None
         if not self._start(context):
@@ -886,29 +924,43 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._hud.bind_region(region)
         layout_names = {item[0]: item[1] for item in uv_stripe_bridge.LAYOUT_ITEMS}
         orientation_names = {item[0]: item[1] for item in uv_stripe_bridge.ORIENTATION_ITEMS}
-        self._hud.add_param(HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum"))
-        self._hud.add_param(HUDParam("Orientation (W)", lambda: orientation_names[self.orientation], "enum"))
-        self._hud.add_param(HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
-                                     active_getter=lambda: self.mode == "ACTIVE"))
+        # the main rows always show; the rows after More Options only while it is on (Tab), their keys work anyway
         self._hud.add_param(HUDParam("Layout (E)", lambda: layout_names[self.layout], "enum"))
+        self._hud.add_param(HUDParam("Stretch Limit (Wheel)", lambda: self.stretch_limit, "float",
+                                     fmt="{:.2f}", visible_getter=lambda: self.layout == "AUTO"))
         self._hud.add_param(HUDParam("Align (G)", lambda: ALIGN_NAMES[self.shape_align], "enum",
-                                     visible_getter=lambda: self.layout == "SHAPE"))
+                                     visible_getter=lambda: self.layout in ("SHAPE", "AUTO")))
         self._hud.add_param(HUDParam("Pick Align Edge (V)", lambda: getattr(self, "_align_picking", False), "bool",
-                                     visible_getter=lambda: self.layout == "SHAPE"))
-        self._hud.add_param(HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool"))
-        self._hud.add_param(HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool"))
-        self._hud.add_param(HUDParam("Bend Angle (Wheel)", lambda: math.degrees(self.split_angle), "float",
-                                     fmt="{:.0f}°", active_getter=lambda: self.split_at_bends))
-        self._hud.add_param(HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool"))
+                                     visible_getter=lambda: self.layout in ("SHAPE", "AUTO")))
         self._hud.add_param(HUDParam("Pick Cut Edges (C)", lambda: getattr(self, "_picking", False), "bool"))
         self._hud.add_param(HUDParam("Manual Cuts", self._manual_cut_count, "int",
                                      visible_getter=lambda: self._manual_cut_count() > 0))
-        self._hud.add_param(HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum"))
+        self._hud.add_param(HUDParam("More Options (Tab)", lambda: self.show_options, "bool"))
+
+        def more(own=None):
+            return lambda: self.show_options and (own is None or own())
+
+        self._hud.add_param(HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum", visible_getter=more()))
+        self._hud.add_param(HUDParam("Orientation (W)", lambda: orientation_names[self.orientation], "enum",
+                                     visible_getter=more()))
+        self._hud.add_param(HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
+                                     active_getter=lambda: self.mode == "ACTIVE", visible_getter=more()))
+        self._hud.add_param(HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool",
+                                     visible_getter=more(lambda: self.layout != "AUTO")))
+        self._hud.add_param(HUDParam("Bend Angle (Wheel)", lambda: math.degrees(self.split_angle), "float",
+                                     fmt="{:.0f}°", active_getter=lambda: self.split_at_bends,
+                                     visible_getter=more(lambda: self.layout != "AUTO")))
+        self._hud.add_param(HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool",
+                                     visible_getter=more()))
+        self._hud.add_param(HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool", visible_getter=more()))
+        self._hud.add_param(HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum",
+                                     visible_getter=more()))
         self._hud.add_param(HUDParam("Offset Limit (Shift + Wheel)", lambda: self.offset_limit, "float",
-                                     fmt="{:.2f}", active_getter=lambda: self.offset_axis != "NONE"))
+                                     fmt="{:.2f}", active_getter=lambda: self.offset_axis != "NONE",
+                                     visible_getter=more()))
         self._hud.add_param(HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int",
-                                     active_getter=lambda: self.offset_axis != "NONE"))
-        self._hud.add_param(HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool"))
+                                     active_getter=lambda: self.offset_axis != "NONE", visible_getter=more()))
+        self._hud.add_param(HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool", visible_getter=more()))
         self._hud.add_param(HUDParam("Doubled Vertices", lambda: getattr(self, "_result", _Result()).doubles, "int"))
 
         def item(label, key):
@@ -929,7 +981,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             item("Pick cut edges, break a ring", "C"),
             item("New offset seed", "R"),
             item("Merge doubles", "F"),
-            item("Bend angle", "Wheel / Ctrl + Wheel"),
+            item("More options in the HUD", "Tab"),
+            item("Bend angle, or stretch limit under Auto", "Wheel / Ctrl + Wheel"),
             item("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"),
             item("Confirm", "LMB / Enter / Space"),
             item("Cancel", "Esc / RMB"),
@@ -981,6 +1034,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.offset_limit = max(round(self.offset_limit + step, 6), 0.0)
             self._relayout(context)
             return {"RUNNING_MODAL"}
+        if wheel and not event.shift and self.layout == "AUTO":
+            step = STRETCH_FINE_STEP if event.ctrl else STRETCH_STEP
+            step = step if event.type == "WHEELUPMOUSE" else -step
+            self.stretch_limit = min(max(round(self.stretch_limit + step, 6), 1.0), 3.0)
+            self._relayout(context)
+            return {"RUNNING_MODAL"}
         if wheel and not event.shift and self.split_at_bends:
             step = ANGLE_FINE_STEP if event.ctrl else ANGLE_STEP
             step = step if event.type == "WHEELUPMOUSE" else -step
@@ -1017,6 +1076,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         elif event.type == "F":           # the preview is weld-aware: only the HUD and the confirm change
             self.merge_doubles = not self.merge_doubles
+            return {"RUNNING_MODAL"}
+        elif event.type == "TAB":         # only the HUD changes
+            self.show_options = not self.show_options
+            self._show_status(context)
             return {"RUNNING_MODAL"}
         elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
             result = self._result
@@ -1101,21 +1164,24 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             stretched = f", {result.stretched_faces} stretched" if result.stretched_faces else ""
             count = f"{result.done} strip(s){stretched} | {cuts}"
         bend = f"{math.degrees(self.split_angle):.0f}°" if self.split_at_bends else "off"
+        bend = (f"stretch limit = {self.stretch_limit:.2f} (Wheel) | " if self.layout == "AUTO"
+                else f"split at bends = {bend} (A, Wheel) | ")
         align = (f"align = {ALIGN_NAMES[self.shape_align].lower()} (G) | pick align edge (V) | "
-                 if self.layout == "SHAPE" else "")
+                 if self.layout in ("SHAPE", "AUTO") else "")
         return (
             f"UV Stripe: {count}"
             f"mode = {MODE_NAMES[self.mode].lower()} (Q) | "
             f"orientation = {self.orientation.lower()} (W) | "
             f"layout = {layout_names[self.layout].lower()} (E) | "
             f"{align}"
-            f"split at bends = {bend} (A, Wheel) | "
+            f"{bend}"
             f"split at seams = {'on' if self.split_at_seams else 'off'} (S) | "
             f"fit to active = {FIT_NAMES[self.active_fit].lower()} (D) | "
             f"random offset = {OFFSET_NAMES[self.offset_axis].lower()} (Z) | "
             f"mark seams = {'on' if self.mark_seams else 'off'} (X) | "
             f"merge doubles = {'on' if self.merge_doubles else 'off'} (F) | "
             "pick cut edges, break a ring (C) | new offset seed (R) | "
+            f"more options = {'on' if self.show_options else 'off'} (Tab) | "
             "[Enter/LMB/Space] confirm | [Esc/RMB] cancel"
         )
 
@@ -1165,3 +1231,24 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 stretched = result.stretched_faces if result is not None else 0
                 hud.set_header(f"{done} strip(s), {stretched} stretched face(s)" if stretched else f"{done} strip(s)")
             hud.draw(context, last_event)
+
+
+class IOPS_OT_Mesh_UV_Stripe_Interactive(bpy.types.Operator):
+    """Start UV Stripe in its interactive mode, where every option has a key and the UVs follow live"""
+
+    bl_idname = "iops.mesh_uv_stripe_interactive"
+    bl_label = "UV Stripe (Interactive)"
+    is_bindable = True
+
+    @classmethod
+    def poll(cls, context):
+        return IOPS_OT_Mesh_UV_Stripe.poll(context)
+
+    def invoke(self, context, _event):
+        return self.execute(context)
+
+    def execute(self, _context):
+        """Invoke ``iops.mesh_uv_stripe`` with ``interactive``: the options are its last-used ones, and what the
+        interactive mode confirms becomes the last-used options of the instant call."""
+        result = bpy.ops.iops.mesh_uv_stripe("INVOKE_DEFAULT", interactive=True)
+        return {"CANCELLED"} if "CANCELLED" in result else {"FINISHED"}

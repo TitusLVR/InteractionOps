@@ -120,7 +120,7 @@ def _close(a, b, tol=1e-5):
 
 
 # The defaults most tests here were written for; the operator's own defaults have their own tests.
-OLD_DEFAULTS = {"active_fit": "BOTH", "split_at_seams": False, "split_angle": math.radians(15),
+OLD_DEFAULTS = {"active_fit": "BOTH", "layout": "TRUE", "split_at_seams": False, "split_angle": math.radians(15),
                 "merge_doubles": False, "offset_axis": "NONE"}
 
 
@@ -384,8 +384,10 @@ class _OperatorStandIn:
         self.mode, self.orientation, self.layout = "ACTIVE", "HORIZONTAL", "TRUE"
         self.split_at_bends, self.mark_seams = True, True
         self.offset_limit, self.offset_seed = 0.25, 0
+        self.stretch_limit = 1.25
         self.cup_breaks = self.manual_cuts = self.skipped_cuts = self.align_edges = ""
         self.shape_align = "AUTO"
+        self.interactive = self.show_options = False
         self.__dict__.update(OLD_DEFAULTS)
         self.__dict__.update(props)
         self.reports = []
@@ -426,7 +428,8 @@ def test_modal_keys_toggle_their_options_and_the_uvs_follow():
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     steps = [("W", "orientation", "VERTICAL"), ("Q", "mode", "IN_PLACE"), ("E", "layout", "STRAIGHT"),
-             ("E", "layout", "EVEN"), ("E", "layout", "SHAPE"), ("E", "layout", "TRUE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"),
+             ("E", "layout", "EVEN"), ("E", "layout", "SHAPE"), ("E", "layout", "AUTO"), ("E", "layout", "TRUE"),
+             ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"),
              ("A", "split_at_bends", False), ("S", "split_at_seams", True), ("X", "mark_seams", False),
              ("W", "orientation", "HORIZONTAL")]
     for key, name, value in steps:
@@ -671,20 +674,26 @@ def test_modal_fit_to_active_and_random_offset_keys():
 
 
 def test_modal_hud_and_help_list_every_key():
-    op = _OperatorStandIn()
+    op = _OperatorStandIn(show_options=True)
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Layout (E)", "Align (G)", "Pick Align Edge (V)",
-        "Split at Bends (A)",
-        "Split at Seams (S)", "Bend Angle (Wheel)", "Mark Seams (X)", "Pick Cut Edges (C)", "Manual Cuts",
-        "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)",
-        "Doubled Vertices"]
+        "Layout (E)", "Stretch Limit (Wheel)", "Align (G)", "Pick Align Edge (V)", "Pick Cut Edges (C)",
+        "Manual Cuts", "More Options (Tab)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)",
+        "Split at Bends (A)", "Bend Angle (Wheel)", "Split at Seams (S)", "Mark Seams (X)", "Random Offset (Z)",
+        "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)", "Doubled Vertices"]
     assert [p.value_text() for p in params] == [
-        "Active", "Horizontal", "Width and Height", "No Stretch", "Auto", "✗", "✓", "✗", "15°", "✓", "✗", "0", "None", "0.25",
-        "0", "✗", "0"]
+        "No Stretch", "1.25", "Auto", "✗", "✗", "0", "✓", "Active", "Horizontal", "Width and Height", "✓", "15°",
+        "✗", "✓", "None", "0.25", "0", "✗", "0"]
     shown = {p.name: p.is_visible() for p in params}
     assert not shown["Manual Cuts"] and "manual cut" not in op._status_text()     # only once there are any
+    assert not shown["Stretch Limit (Wheel)"] and shown["Split at Bends (A)"] and shown["Bend Angle (Wheel)"]
+    op.layout = "AUTO"                         # Auto tears by its own measure: the bend options make way
+    shown = {p.name: p.is_visible() for p in params}
+    assert shown["Stretch Limit (Wheel)"] and not shown["Split at Bends (A)"] and not shown["Bend Angle (Wheel)"]
+    assert shown["Align (G)"] and "stretch limit = 1.25 (Wheel)" in op._status_text()
+    assert "split at bends" not in op._status_text()
+    op.layout = "TRUE"
     op.manual_cuts = '{"a": [1, 4], "b": [2]}'
     assert {p.name: p.is_visible() for p in params}["Manual Cuts"]
     assert {p.name: p.value_text() for p in params}["Manual Cuts"] == "3" and "3 manual cut(s)" in op._status_text()
@@ -705,13 +714,15 @@ def test_modal_hud_and_help_list_every_key():
         ("Mode", "Q"), ("Orientation", "W"), ("Layout", "E"), ("Align True Shape", "G"),
         ("Pick align edge", "V"), ("Split at bends", "A"), ("Split at seams", "S"),
         ("Fit to active", "D"), ("Random offset", "Z"), ("Mark seams", "X"), ("Pick cut edges, break a ring", "C"),
-        ("New offset seed", "R"), ("Merge doubles", "F"), ("Bend angle", "Wheel / Ctrl + Wheel"),
+        ("New offset seed", "R"), ("Merge doubles", "F"), ("More options in the HUD", "Tab"),
+        ("Bend angle, or stretch limit under Auto", "Wheel / Ctrl + Wheel"),
         ("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"), ("Confirm", "LMB / Enter / Space"),
         ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
     status = op._status_text()
     assert "layout = no stretch (E)" in status and "fit to active = width and height (D)" in status
     assert "random offset = both (Z)" in status and "merge doubles = off (F)" in status
     assert "pick cut edges, break a ring (C)" in status and "new offset seed (R)" in status
+    assert "more options = on (Tab)" in status
 
 
 def test_modal_old_letters_are_free():
@@ -804,12 +815,59 @@ def test_modal_merge_doubles():
 def test_operator_defaults():
     rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
     assert rna["mode"].default == "ACTIVE" and rna["active_fit"].default == "HEIGHT"
-    assert rna["layout"].default == "TRUE" and rna["orientation"].default == "HORIZONTAL"
+    assert rna["layout"].default == "AUTO" and rna["orientation"].default == "HORIZONTAL"
+    assert round(rna["stretch_limit"].default, 6) == 1.25
+    assert (rna["stretch_limit"].hard_min, rna["stretch_limit"].hard_max) == (1.0, 3.0)
     assert rna["split_at_seams"].default and rna["split_at_bends"].default and rna["mark_seams"].default
     assert round(math.degrees(rna["split_angle"].default), 6) == 5.0
     assert rna["merge_doubles"].default and rna["offset_axis"].default == "ALONG"
-    assert [item.identifier for item in rna["layout"].enum_items] == ["TRUE", "STRAIGHT", "EVEN", "SHAPE"]
+    assert [item.identifier for item in rna["layout"].enum_items] == ["AUTO", "TRUE", "STRAIGHT", "EVEN", "SHAPE"]
     assert [item.identifier for item in rna["offset_axis"].enum_items] == ["NONE", "ALONG", "ACROSS", "BOTH"]
+
+
+def _wedge():
+    """One flat quad whose far row rises by 3 over its length of 2: no straight-row layout lays it out clean."""
+    obj = _object([(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (2.0, 4.0, 0.0), (0.0, 1.0, 0.0)], [(0, 1, 2, 3)])
+    _edit(obj)
+    return obj
+
+
+def _worst_stretch(obj):
+    from InteractionOps.utils.uv_stripe_core import face_stretch
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    return max(face_stretch([tuple(lp.vert.co) for lp in f.loops], [tuple(lp[layer].uv) for lp in f.loops])
+               for f in bm.faces if f.select)
+
+
+def test_auto_lays_a_tapered_piece_out_by_the_stretch_limit():
+    obj = _wedge()
+    assert _run(mode="FIT", layout="AUTO", stretch_limit=3.0) == {"FINISHED"}
+    straight = _worst_stretch(obj)
+    assert 1.25 < straight < 3.0, straight                    # within 3.0: laid out straight
+    assert _run(mode="FIT", layout="AUTO", stretch_limit=1.25) == {"FINISHED"}
+    assert _worst_stretch(obj) < 1.0 + 1e-4                   # beyond 1.25: True Shape
+    obj = _wedge()
+    assert bpy.ops.iops.mesh_uv_stripe(mode="FIT") == {"FINISHED"}      # Auto at 1.25 by default
+    assert _worst_stretch(obj) < 1.0 + 1e-4
+
+
+def test_modal_wheel_changes_the_stretch_limit_under_auto():
+    obj = _wedge()
+    op = _modal_on(obj, mode="FIT", layout="AUTO", stretch_limit=1.25)
+    assert _worst_stretch(obj) < 1.0 + 1e-4
+    split_angle = op.split_angle
+    for _ in range(6):
+        assert op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE")) == {"RUNNING_MODAL"}
+    assert op.stretch_limit == 1.0 and op.split_angle == split_angle
+    for _ in range(5):
+        op._modal(bpy.context, _KeyPress("WHEELUPMOUSE"))
+    op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
+    assert round(op.stretch_limit, 6) == 1.26
+    for _ in range(40):
+        op._modal(bpy.context, _KeyPress("WHEELUPMOUSE"))
+    assert op.stretch_limit == 3.0 and _worst_stretch(obj) > 1.25        # laid out straight again
+    op._finish(bpy.context)
 
 
 def test_default_active_fit_matches_the_height_and_leaves_a_clean_mesh_alone():
@@ -1523,7 +1581,7 @@ def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
     _edit(obj)
     added, removed, undo = _recording_handlers(module)
     try:
-        op = _OperatorStandIn(mode="FIT")
+        op = _OperatorStandIn(mode="FIT", interactive=True)
         context = _InvokeContext()
         assert op.invoke(context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}, op.reports
         assert context.window_manager.modal == [op]
@@ -1540,7 +1598,7 @@ def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
         # a reload's purge removes both as well
         removed.clear()
         _edit(obj)
-        op = _OperatorStandIn(mode="FIT")
+        op = _OperatorStandIn(mode="FIT", interactive=True)
         assert op.invoke(_InvokeContext(), _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}
         handles = {op._handle_view, op._handle}
         module._purge_handles()
@@ -1549,6 +1607,152 @@ def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
     finally:
         undo()
         module._purge_handles()
+
+
+def test_invoke_without_interactive_lays_out_at_once():
+    from InteractionOps.operators import mesh_uv_stripe as module
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    stand = _OperatorStandIn(mode="FIT")
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    executed = _uv_state(obj), stand.reports
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    added, _removed, undo = _recording_handlers(module)
+    try:
+        op = _OperatorStandIn(mode="FIT")
+        context = _InvokeContext()
+        assert op.invoke(context, _KeyPress("LEFTMOUSE")) == {"FINISHED"}, op.reports
+        assert context.window_manager.modal == [] and not added       # no modal, nothing drawn
+        assert getattr(op, "_hud", None) is None
+    finally:
+        undo()
+    assert (_uv_state(obj), op.reports) == executed
+
+
+def test_invoke_with_interactive_starts_the_modal():
+    from InteractionOps.operators import mesh_uv_stripe as module
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    before = _uv_state(obj)
+    try:
+        op = _OperatorStandIn(mode="FIT", interactive=True)
+        context = _InvokeContext()
+        assert op.invoke(context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}, op.reports
+        assert context.window_manager.modal == [op] and op._hud is not None
+        assert _uv_state(obj) != before                   # laid out live
+        assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
+        assert _uv_state(obj) == before
+    finally:
+        module._purge_handles()
+
+
+def test_interactive_and_more_options_properties():
+    rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
+    assert rna["interactive"].name == "Interactive" and not rna["interactive"].default
+    assert rna["interactive"].is_hidden and rna["interactive"].is_skip_save
+    assert rna["show_options"].name == "More Options" and not rna["show_options"].default
+    assert rna["show_options"].is_hidden and not rna["show_options"].is_skip_save
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    for name in ("interactive", "show_options"):
+        assert name not in StripeSettings.__dataclass_fields__
+
+
+ALWAYS_ROWS = {"Layout (E)", "Pick Cut Edges (C)", "More Options (Tab)", "Doubled Vertices"}
+MORE_ROWS = {"Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Split at Seams (S)", "Mark Seams (X)",
+             "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)"}
+AUTO_ROWS = {"Stretch Limit (Wheel)", "Align (G)", "Pick Align Edge (V)"}
+BEND_ROWS = {"Split at Bends (A)", "Bend Angle (Wheel)"}
+
+
+def _shown(op):
+    return {p.name for section in op._hud.param_sections for p in section.params if p.is_visible()}
+
+
+def test_tab_toggles_more_options_and_the_hud_rows():
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    op = _modal_on(obj)                       # layout = No Stretch
+    assert not op.show_options
+    assert _shown(op) == ALWAYS_ROWS
+    assert "more options = off (Tab)" in op._status_text()
+    before = _uv_state(obj)
+    assert op._modal(bpy.context, _KeyPress("TAB")) == {"RUNNING_MODAL"} and op.show_options
+    assert _uv_state(obj) == before                       # only the HUD changes
+    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | BEND_ROWS
+    assert "more options = on (Tab)" in op._status_text()
+    op.layout = "AUTO"
+    op._relayout(bpy.context)
+    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | AUTO_ROWS          # Auto picks its own tears
+    op._modal(bpy.context, _KeyPress("TAB"))
+    assert not op.show_options and _shown(op) == ALWAYS_ROWS | AUTO_ROWS
+    op.manual_cuts = '{"a": [1]}'
+    assert "Manual Cuts" in _shown(op)
+    op.manual_cuts = ""
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+def test_keys_of_hidden_rows_work_while_collapsed():
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert not op.show_options and "Orientation (W)" not in _shown(op)
+    before = _uv_state(obj)
+    assert op._modal(bpy.context, _KeyPress("W")) == {"RUNNING_MODAL"}
+    assert op.orientation == "VERTICAL" and _uv_state(obj)[0] != before[0]
+    op._modal(bpy.context, _KeyPress("Q"))
+    op._modal(bpy.context, _KeyPress("A"))
+    assert (op.mode, op.split_at_bends) == ("IN_PLACE", False) and not op.show_options
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+class _BpyWithOps:
+    """``bpy`` with its ``ops`` replaced: a background Blender runs a Python INVOKE_DEFAULT call as EXEC, so the
+    call UV Stripe (Interactive) makes is caught and run on a stand-in instead."""
+
+    def __init__(self, ops):
+        self.ops = ops
+
+    def __getattr__(self, name):
+        return getattr(bpy, name)
+
+
+def test_interactive_operator_registers_and_starts_the_modal():
+    from types import SimpleNamespace
+
+    from InteractionOps.operators import mesh_uv_stripe as module
+    from InteractionOps.utils.functions import build_bindable_defaults, keymap_name_for_idname
+    rna = bpy.ops.iops.mesh_uv_stripe_interactive.get_rna_type()
+    assert rna.name == "UV Stripe (Interactive)"
+    assert module.IOPS_OT_Mesh_UV_Stripe_Interactive.is_bindable
+    rows = {row[0]: row for row in build_bindable_defaults()}
+    assert rows["iops.mesh_uv_stripe_interactive"][1] == "NONE" and rows["iops.mesh_uv_stripe"][1] == "NONE"
+    assert keymap_name_for_idname("iops.mesh_uv_stripe_interactive") == "Mesh"
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    assert bpy.ops.iops.mesh_uv_stripe_interactive.poll()
+    calls, started = [], []
+    context = _InvokeContext()
+
+    def mesh_uv_stripe(exec_context, **props):
+        calls.append((exec_context, props))
+        op = _OperatorStandIn(mode="FIT", **props)
+        started.append(op)
+        return op.invoke(context, _KeyPress("LEFTMOUSE"))
+
+    module.bpy = _BpyWithOps(SimpleNamespace(iops=SimpleNamespace(mesh_uv_stripe=mesh_uv_stripe)))
+    try:
+        assert module.IOPS_OT_Mesh_UV_Stripe_Interactive.execute(None, bpy.context) == {"FINISHED"}
+        assert calls == [("INVOKE_DEFAULT", {"interactive": True})]
+        assert context.window_manager.modal == started and started[0]._hud is not None
+        assert started[0]._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
+        module.bpy = _BpyWithOps(SimpleNamespace(iops=SimpleNamespace(mesh_uv_stripe=lambda *a, **k: {"CANCELLED"})))
+        assert module.IOPS_OT_Mesh_UV_Stripe_Interactive.execute(None, bpy.context) == {"CANCELLED"}
+    finally:
+        module.bpy = bpy
+        module._purge_handles()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert not bpy.ops.iops.mesh_uv_stripe_interactive.poll()
 
 
 def _operator_defaults():
@@ -1579,10 +1783,10 @@ def _step_object(active=None):
 
 
 def test_the_stepped_strip_with_the_users_defaults():
-    # Active, Fit to Active Width, No Stretch, Split at Seams and at Bends (5 degrees), Mark Seams, Random Offset
+    # Active, Fit to Active Width, Auto, Split at Seams and at Bends (5 degrees), Mark Seams, Random Offset
     # along the strip, Merge Doubles: nothing raises, nothing folds, through execute and the modal alike.
     defaults = _operator_defaults()
-    assert defaults["mode"] == "ACTIVE" and defaults["layout"] == "TRUE" and defaults["split_at_seams"]
+    assert defaults["mode"] == "ACTIVE" and defaults["layout"] == "AUTO" and defaults["split_at_seams"]
     for active in (None, 20):
         obj = _step_object(active)
         assert bpy.ops.iops.mesh_uv_stripe() == {"FINISHED"}
@@ -1593,11 +1797,11 @@ def test_the_stepped_strip_with_the_users_defaults():
         assert all(a > 1e-9 for a in _face_areas(obj))
         obj = _step_object(active)
         op = _modal_on(obj, **defaults)
-        for key in ("E", "E", "E", "E", "Q", "Q", "Q", "W", "D", "A", "A", "S", "S"):
+        for key in ("E", "E", "E", "E", "E", "Q", "Q", "Q", "W", "D", "A", "A", "S", "S"):
             assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}, key
             assert all(a > 1e-9 for a in _face_areas(obj)), (key, op.layout, op.mode)
         assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}, op.reports
-    for layout in ("TRUE", "STRAIGHT", "EVEN", "SHAPE"):
+    for layout in ("AUTO", "TRUE", "STRAIGHT", "EVEN", "SHAPE"):
         obj = _step_object(20)
         assert bpy.ops.iops.mesh_uv_stripe(layout=layout) == {"FINISHED"}
         assert all(a > 1e-9 for a in _face_areas(obj)), (layout, _face_areas(obj))
@@ -1804,6 +2008,8 @@ TESTS = [
     test_ngon_strip_with_the_captured_coordinates_is_split_too,
     test_a_requested_split_that_cannot_be_made_is_reported,
     test_layouts,
+    test_auto_lays_a_tapered_piece_out_by_the_stretch_limit,
+    test_modal_wheel_changes_the_stretch_limit_under_auto,
     test_vertical_orientation_turns_the_strip,
     test_triangulated_strip_is_its_quads_rectangle,
     test_scaled_object_follows_world_size,
@@ -1862,6 +2068,12 @@ TESTS = [
     test_confirm_after_a_skipped_bend_tear_equals_execute,
     test_malformed_cut_properties_read_as_none,
     test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top,
+    test_invoke_without_interactive_lays_out_at_once,
+    test_invoke_with_interactive_starts_the_modal,
+    test_interactive_and_more_options_properties,
+    test_tab_toggles_more_options_and_the_hud_rows,
+    test_keys_of_hidden_rows_work_while_collapsed,
+    test_interactive_operator_registers_and_starts_the_modal,
     test_the_stepped_strip_with_the_users_defaults,
     test_g_cycles_the_align_values,
     test_v_and_lmb_store_the_align_edge_and_keep_picking,
