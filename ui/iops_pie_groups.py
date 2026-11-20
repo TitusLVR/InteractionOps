@@ -9,6 +9,10 @@ means the custom Vertex Color box. A slot missing from a table is empty.
 SLOTS = ("LEFT", "RIGHT", "BOTTOM", "TOP",
          "TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT")
 
+# Group keys that are not pie slots of their own: extra columns of the top
+# panel, drawn to the right of TOP_RIGHT.
+EXTRA_COLUMNS = ("TOP_FAR_RIGHT",)
+
 VERTEX_COLOR = "VERTEX_COLOR"
 
 
@@ -45,7 +49,11 @@ PIE_GROUPS = {
             ("iops.object_select_boolean_operands", "Select Boolean Operands"),
             ("iops.object_select_boolean_targets", "Select Boolean Targets"),
             ("iops.object_select_mirror_objects", "Select Mirror Objects"),
+        )),
+        "TOP_FAR_RIGHT": ("Overlays", _col(
             ("iops.object_negative_scale_overlay", "Negative Scale Overlay"),
+            ("iops.mesh_zfight_overlay", "Z-Fight Overlay"),
+            ("iops.mesh_hidden_faces_overlay", "Hidden Faces Overlay"),
         )),
         "TOP_LEFT": ("Modifiers", _col(
             ("iops.modifier_easy_array_caps", "Easy Array Caps"),
@@ -90,7 +98,11 @@ PIE_GROUPS = {
             ("iops.mesh_copy_edges_angle", "Copy Edges Angle"),
             ("iops.mesh_align_origin_to_normal", "Align Origin to Normal"),
             ("iops.mesh_align_object_to_face", "Align Object to Face"),
+        )),
+        "TOP_FAR_RIGHT": ("Overlays", _col(
             ("iops.mesh_nonplanar_overlay", "Non-Planar Overlay"),
+            ("iops.mesh_zfight_overlay", "Z-Fight Overlay"),
+            ("iops.mesh_hidden_faces_overlay", "Hidden Faces Overlay"),
         )),
         "TOP_LEFT": ("Bevel", _col(
             ("iops.pin_unwrap_bevel", "Pin & Unwrap Bevel"),

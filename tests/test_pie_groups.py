@@ -1,7 +1,8 @@
 import os
 import re
 
-from ui.iops_pie_groups import PIE_GROUPS, SLOTS, VERTEX_COLOR, groups_for_mode
+from ui.iops_pie_groups import (EXTRA_COLUMNS, PIE_GROUPS, SLOTS,
+                                VERTEX_COLOR, groups_for_mode)
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DIAGONALS = {"TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT"}
@@ -42,7 +43,18 @@ def test_slots_order():
 def test_slot_names_valid():
     for table in PIE_GROUPS.values():
         for slot in table:
-            assert slot in SLOTS
+            assert slot in SLOTS or slot in EXTRA_COLUMNS
+
+
+def test_overlays_column_on_top_in_both_modes():
+    src = _read(os.path.join("ui", "iops_pie_menu.py"))
+    for mode in ("OBJECT", "EDIT_MESH"):
+        title, rows = PIE_GROUPS[mode]["TOP_FAR_RIGHT"]
+        assert title == "Overlays"
+        assert rows[-2][0][0] == "iops.mesh_zfight_overlay"
+        assert rows[-1][0][0] == "iops.mesh_hidden_faces_overlay"
+    assert '"TOP_RIGHT", "TOP_FAR_RIGHT")' in src
+    assert '"iops.mesh_hidden_faces_overlay": "hidden_faces_rays"' in src
 
 
 def test_diagonals_short():

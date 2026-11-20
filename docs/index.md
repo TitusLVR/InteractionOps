@@ -70,6 +70,8 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Mesh Visual UV](operators/op_mesh_visual_uv.md)
         - [UV Visual Cursor](operators/op_uv_visual_cursor.md)
         - [Non-Planar Overlay](operators/op_mesh_nonplanar_overlay.md)
+        - [Z-Fight Overlay](operators/op_mesh_zfight_overlay.md)
+        - [Hidden Faces Overlay](operators/op_mesh_hidden_faces_overlay.md)
         - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md)
         - [UV Stripe](operators/op_mesh_uv_stripe.md)
         - [UV Pipe](operators/op_mesh_uv_pipe.md)

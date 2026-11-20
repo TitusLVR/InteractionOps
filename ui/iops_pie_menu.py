@@ -1,6 +1,8 @@
 import bpy
 from bpy.types import Menu
 from ..operators.mesh_nonplanar_overlay import overlay_enabled as nonplanar_overlay_enabled
+from ..operators.mesh_zfight_overlay import overlay_enabled as zfight_overlay_enabled
+from ..operators.mesh_hidden_faces_overlay import overlay_enabled as hidden_faces_overlay_enabled
 from ..operators.object_negative_scale_overlay import overlay_enabled as negative_scale_overlay_enabled
 from .iops_pie_groups import GROUP_COLUMNS, SLOTS, VERTEX_COLOR, groups_for_mode
 from .iops_tm_panel import draw_vertex_paint_buttons
@@ -8,15 +10,24 @@ from .iops_tm_panel import draw_vertex_paint_buttons
 # Toggle operators: the button is drawn pressed while the overlay is on.
 DEPRESS_STATE = {
     "iops.mesh_nonplanar_overlay": nonplanar_overlay_enabled,
+    "iops.mesh_zfight_overlay": zfight_overlay_enabled,
+    "iops.mesh_hidden_faces_overlay": hidden_faces_overlay_enabled,
     "iops.object_negative_scale_overlay": negative_scale_overlay_enabled,
 }
+
+# Addon preference drawn as a field on the same row, right of the button.
+BESIDE_PREF = {
+    "iops.mesh_hidden_faces_overlay": "hidden_faces_rays",
+}
+# Width of that field, in UI units.
+_BESIDE_PREF_WIDTH = 4.5
 
 # Diagonal pie slots overlap the side columns, so the diagonal groups are
 # drawn as extra columns of the top / bottom panel instead.
 _PANEL_COLUMNS = {
     "LEFT": ("LEFT",),
     "RIGHT": ("RIGHT",),
-    "TOP": ("TOP_LEFT", "TOP", "TOP_RIGHT"),
+    "TOP": ("TOP_LEFT", "TOP", "TOP_RIGHT", "TOP_FAR_RIGHT"),
     "BOTTOM": ("BOTTOM_LEFT", "BOTTOM", "BOTTOM_RIGHT"),
 }
 
@@ -121,8 +132,23 @@ def draw_group(col, group):
             line = target.row(align=True) if len(row) > 1 else target
             for idname, text, props in row:
                 state = DEPRESS_STATE.get(idname)
-                op_if_poll(line, idname, text=text,
-                           depress=state() if state else None, **props)
+                pref = BESIDE_PREF.get(idname)
+                target_line = line.row(align=True) if pref else line
+                btn = op_if_poll(target_line, idname, text=text,
+                                 depress=state() if state else None, **props)
+                if pref and btn is not None:
+                    _draw_beside_pref(target_line, pref)
+
+
+def _draw_beside_pref(line, name):
+    """Addon preference `name` as a narrow field at the end of `line`."""
+    addon = bpy.context.preferences.addons.get("InteractionOps")
+    prefs = getattr(addon, "preferences", None)
+    if prefs is None or not hasattr(prefs, name):
+        return
+    field = line.row(align=True)
+    field.ui_units_x = _BESIDE_PREF_WIDTH
+    field.prop(prefs, name)
 
 
 def draw_vertex_color(col, context):
