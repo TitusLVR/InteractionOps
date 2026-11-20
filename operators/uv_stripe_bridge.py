@@ -93,8 +93,8 @@ LAYOUT_ITEMS = [
      "Stand every cross edge vertical so each quad becomes a rectangle; stretches where the strip bends"),
     ("EVEN", "Even Rows", "Lay each row out by its own length, scaled to the strip's mean length"),
     ("SHAPE", "True Shape",
-     "Keep the strip's real width as well: one row stays straight, the other follows the real shape, "
-     "for a one-to-one mapping"),
+     "Unfold the faces across their shared edges, each keeping its real shape: a strip that turns in its "
+     "surface turns in UV; it is torn only by Split at Seams and Split at Bends"),
 ]
 ORIENTATION_ITEMS = [
     ("HORIZONTAL", "Horizontal", "The strip runs along U"),

@@ -41,7 +41,7 @@ class Strip:
     corner_near: dict[tuple[int, int], int] = field(default_factory=dict)
     # How the rows are laid out: "EVEN" (each row by its own arc length, scaled to L),
     # "STRAIGHT" (between vertical posts, ``_post_u``), "TRUE" (true lengths, ``_true_u``) or
-    # "SHAPE" (true lengths and true width, ``_shape_uv``); the last two for an open strip
+    # "SHAPE" (the faces unfolded at their real shape, ``_shape_uv``); the last two for an open strip
     # only, a closed one uses "EVEN".
     layout: str = "EVEN"
     # A closed strip's seam: the index into ``rungs`` it is cut at; None picks ``sharpest_rung``.
@@ -328,8 +328,171 @@ def _row_turn(verts, row: list[int], tol: float) -> float:
     return sum(math.pi - welded_angle(verts, row, k, tol, closed=False) for k in range(1, len(row) - 1))
 
 
+def _sub(a, b) -> list[float]:
+    return [a[c] - b[c] for c in range(len(a))]
+
+
+def _cross(a, b) -> list[float]:
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def _flatten_face(verts: dict[int, Vec3], face: tuple[int, ...], tiny: float) -> list[Vec2] | None:
+    """One face laid flat on its own, counter-clockwise for its own winding: a 2D point per corner, or None.
+
+    A triangle fan from the first corner v0: v0 at the origin, every other corner at its real
+    distance from v0, turned from the last corner farther than ``tiny`` from v0 by the real 3D
+    angle between the two at v0, to the side the face's normal (its vector area) gives. So the
+    fan triangles keep their shape and every polygon edge its length, also on a planar concave
+    face. None for a face with no area.
+    """
+    pts = [verts[v] for v in face]
+    normal = [0.0, 0.0, 0.0]
+    for a, b in zip(pts, pts[1:] + pts[:1]):
+        c = _cross(a, b)
+        normal = [normal[i] + c[i] for i in range(3)]
+    if math.sqrt(sum(x * x for x in normal)) <= tiny * tiny:
+        return None
+    p0 = pts[0]
+    out: list[Vec2] = [(0.0, 0.0)]
+    ref, ref_angle = None, 0.0
+    for p in pts[1:]:
+        w = _sub(p, p0)
+        r = math.sqrt(sum(x * x for x in w))
+        if r <= tiny:
+            out.append((0.0, 0.0))
+            continue
+        if ref is None:
+            angle = 0.0
+        else:
+            c = _cross(ref, w)
+            side = sum(c[i] * normal[i] for i in range(3))
+            sine = math.sqrt(sum(x * x for x in c))
+            angle = ref_angle + math.atan2(sine if side >= 0.0 else -sine, sum(ref[i] * w[i] for i in range(3)))
+        out.append((r * math.cos(angle), r * math.sin(angle)))
+        ref, ref_angle = w, angle
+    return out
+
+
+def _unfold(strip: Strip) -> dict[int, Vec2] | None:
+    """The strip's faces unfolded across their shared edges: vertex id -> 2D point, or None.
+
+    Every face is flattened on its own (``_flatten_face``); from the first face in
+    ``strip.faces`` order the faces are walked breadth-first over shared edges, each face
+    reached across an edge turned and moved (never mirrored or scaled) so that edge's two
+    vertices land on their placed points. Faces keep their own counter-clockwise winding. None
+    when a vertex would take two positions (an interior vertex of a doubly curved patch, a
+    row that starts and ends on one vertex), when a row repeats an id, and for a face with no
+    area or a shared edge with no length.
+    """
+    if (len(set(strip.near)) != len(strip.near) or len(set(strip.far)) != len(strip.far)
+            or strip.corner_near or strip.corner_far or not strip.faces):
+        return None
+    verts = strip.verts
+    xs = [verts[v] for v in {v for face in strip.faces.values() for v in face}]
+    size = math.sqrt(sum((max(p[c] for p in xs) - min(p[c] for p in xs)) ** 2 for c in range(3)))
+    tiny = max(1e-9 * size, 1e-15)
+    tol = max(1e-6 * size, 1e-12)
+    flat = {}
+    for fid, face in strip.faces.items():
+        f = _flatten_face(verts, face, tiny)
+        if f is None:
+            return None
+        flat[fid] = dict(zip(face, f))
+    edge_faces: dict[tuple[int, int], list[int]] = {}
+    for fid, face in strip.faces.items():
+        for a, b in zip(face, face[1:] + face[:1]):
+            edge_faces.setdefault((min(a, b), max(a, b)), []).append(fid)
+
+    first = next(iter(strip.faces))
+    pos: dict[int, Vec2] = dict(flat[first])
+    done, queue = {first}, [first]
+    while queue:
+        fid = queue.pop(0)
+        face = strip.faces[fid]
+        for a, b in zip(face, face[1:] + face[:1]):
+            for other in edge_faces[(min(a, b), max(a, b))]:
+                if other in done:
+                    continue
+                local = flat[other]
+                ring = strip.faces[other]
+                if ring[(ring.index(a) + 1) % len(ring)] == b:
+                    # the neighbour runs the shared edge the same way: it winds against this face (a flipped
+                    # normal), so its own flattening is mirrored to keep it on the other side of the edge
+                    local = {v: (x, -y) for v, (x, y) in local.items()}
+                    flat[other] = local
+                pa, pb, la, lb = pos[a], pos[b], local[a], local[b]
+                d_glob, d_loc = _sub(pb, pa), _sub(lb, la)
+                if math.hypot(*d_glob) <= tiny or math.hypot(*d_loc) <= tiny:
+                    return None
+                turn = math.atan2(d_glob[1], d_glob[0]) - math.atan2(d_loc[1], d_loc[0])
+                cs, sn = math.cos(turn), math.sin(turn)
+                for v, (x, y) in local.items():
+                    x, y = x - la[0], y - la[1]
+                    p = (pa[0] + cs * x - sn * y, pa[1] + sn * x + cs * y)
+                    if v in pos:
+                        if math.dist(p, pos[v]) > tol:
+                            return None
+                    else:
+                        pos[v] = p
+                done.add(other)
+                queue.append(other)
+    if len(done) != len(strip.faces):
+        return None
+    return pos
+
+
 def _shape_uv(strip: Strip):
     """The true-shape layout of an open strip: (near (u, v), far (u, v), sides' (u, v), u extent, v extent).
+
+    The faces are unfolded across their shared edges (``_unfold``), each keeping its real
+    shape, so a strip that turns in its surface turns in UV, as Unwrap lays it out. The
+    unfold is turned so the strip runs along +u: the direction of the straighter row (the
+    near row on a tie; ``_row_turn``) is its one welded edge longer than half the row, else
+    its chord from first to last position; then turned by 180 degrees when the near row lies
+    above the far row. It is never mirrored. Shifted so the smallest u and v are 0; the sides
+    hold every vertex on neither row (end sides and inner vertices). A strip that cannot
+    unfold, or whose straighter row has no direction, takes ``_shape_uv_projected``.
+    """
+    pos = _unfold(strip)
+    if pos is None:
+        return _shape_uv_projected(strip)
+    verts = strip.verts
+    tol = weld_tolerance(strip)
+    on_far = _row_turn(verts, strip.far, tol) < _row_turn(verts, strip.near, tol) - 1e-9
+    base = strip.far if on_far else strip.near
+    welded = []                             # (start, end) positions of the base row's welded edges
+    i = 0
+    while i < len(base) - 1:
+        j = welded_neighbour(verts, base, i, 1, tol, closed=False)
+        if j is None:
+            break
+        welded.append((i, j))
+        i = j
+    row_length = sum(math.dist(verts[base[a]], verts[base[b]]) for a, b in welded)
+    direction = _sub(pos[base[-1]], pos[base[0]])
+    for a, b in welded:
+        if math.dist(verts[base[a]], verts[base[b]]) > row_length / 2.0:
+            direction = _sub(pos[base[b]], pos[base[a]])
+    if math.hypot(*direction) <= TIE_TOL:
+        return _shape_uv_projected(strip)
+    turn = -math.atan2(direction[1], direction[0])
+    cs, sn = math.cos(turn), math.sin(turn)
+    pos = {v: (cs * x - sn * y, sn * x + cs * y) for v, (x, y) in pos.items()}
+    if (sum(pos[v][1] for v in strip.near) / len(strip.near)
+            > sum(pos[v][1] for v in strip.far) / len(strip.far)):
+        pos = {v: (-x, -y) for v, (x, y) in pos.items()}
+    low_u = min(u for u, _v in pos.values())
+    low_v = min(v for _u, v in pos.values())
+    pos = {k: (u - low_u, v - low_v) for k, (u, v) in pos.items()}
+    rows = set(strip.near) | set(strip.far)
+    near_uv = [pos[v] for v in strip.near]
+    far_uv = [pos[v] for v in strip.far]
+    sides = {v: p for v, p in pos.items() if v not in rows}
+    return near_uv, far_uv, sides, max(u for u, _v in pos.values()), max(v for _u, v in pos.values())
+
+
+def _shape_uv_projected(strip: Strip):
+    """The projected true-shape layout, for a strip ``_unfold`` cannot lay out; the tuple of ``_shape_uv``.
 
     One row, the straighter of the two (the near row on a tie), is the straight line
     of its true arc length (an unmerged double, closer than ``weld_tolerance``, sits on
@@ -441,7 +604,9 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
 
     The near row lies on v = 0 and the far row on v = height, each by its own arc length
     scaled to L (``strip_length``); with ``layout`` "STRAIGHT" between vertical posts
-    (``_post_u``), with "TRUE" (open strips) at their true lengths (``_true_u``). A closed
+    (``_post_u``), with "TRUE" (open strips) at their true lengths (``_true_u``). With "SHAPE"
+    (open strips) every vertex takes its place in ``_shape_uv``, the faces unfolded at their
+    real shape, rows and ends included, and nothing is relaxed. A closed
     strip's rows are walked from its seam rung (``seam``, else ``sharpest_rung``). An open
     strip's end sides stand at u = 0 and u = L, or under "TRUE" on the line between that
     end's near and far corner; the u extent is ``strip_extent``. Every other vertex is

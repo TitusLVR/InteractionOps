@@ -54,3 +54,20 @@ def test_a_sliver_fan_triangle_does_not_decide_alone():
     points = [(0.0, 0.0, 0.0), (1.0, 0.002, 0.0), (2.0, 0.0, 0.0), (2.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
     uvs = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)]
     assert face_stretch(points, uvs) < STRETCH_TOLERANCE
+
+
+TRAPEZOID = {0: (0.0, 0.0, 0.0), 1: (0.0, 0.0, 0.125), 2: (0.0, 0.15, 0.125), 3: (0.0, 0.5, 0.0)}   # one slanted end
+
+
+@pytest.mark.parametrize("faces", [{0: (0, 1, 2, 3)}, {0: (2, 1, 0), 1: (2, 0, 3)}])
+@pytest.mark.parametrize("layout", ["TRUE", "SHAPE"])
+def test_a_slanted_end_does_not_set_the_height(faces, layout):
+    from utils.uv_stripe_core import stripe_uvs
+    from utils.uv_stripe_select_core import strip_from_faces
+
+    strip = strip_from_faces(TRAPEZOID, faces)
+    assert strip.height == pytest.approx(0.125)       # its real width, not the mean of its two ends' lengths
+    strip.layout = layout
+    uv = stripe_uvs(strip)
+    for fid, face in faces.items():
+        assert face_stretch([TRAPEZOID[v] for v in face], [uv[(fid, v)] for v in face]) == pytest.approx(1.0)
