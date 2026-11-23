@@ -52,7 +52,7 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 
 from .uv_stripe_core import (
-    WELD, Strip, Vec3, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
+    WELD, Strip, Vec3, _angle, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
 )
 
 TOL = 1e-9
@@ -242,9 +242,46 @@ def strip_from_faces(
         raise ValueError("not a strip: the selection has a hole")
     uses = Counter(v for face in faces.values() for v in face)
     corners = [v for v in loops[0] if uses[v] == 1]
+    if 2 <= len(corners) < 4:
+        corners = _lost_corners(verts, faces, loops[0], corners, uses) or corners
     if len(corners) != 4:
         raise ValueError(f"not a strip: the selection branches ({len(corners)} corners, a strip has 4)")
     return _grid_strip(verts, faces, loops[0], corners, near)
+
+
+def _surface_angle(verts, faces: dict[int, tuple[int, ...]], v: int) -> float:
+    """The angle a vertex spans within the surface: the sum of its faces' corner angles there."""
+    total = 0.0
+    for face in faces.values():
+        n = len(face)
+        for k in range(n):
+            if face[k] == v:
+                total += _angle(verts[face[k - 1]], verts[v], verts[face[(k + 1) % n]])
+    return total
+
+
+def _lost_corners(verts, faces: dict[int, tuple[int, ...]], loop: list[int], real: list[int],
+                  uses: Counter) -> list[int] | None:
+    """The four corners of a patch that lost one or two of them to a collapsed vertex, or None.
+
+    ``real`` are the boundary vertices used by one face (two or three of them). The
+    missing ones come from the boundary vertices used by two faces (a corner quad
+    merged into its neighbour leaves its corner on two faces), those with the
+    smallest in-surface angle (``_surface_angle``): each must be below
+    ``CORNER_ANGLE`` and sharper by more than ``CAP_ANGLE`` than every other
+    boundary vertex. Measured within the surface, a vertex where the patch folds
+    along its end (straight in the surface) is no corner, and one whose corner the
+    collapse has dulled still is. A disc, a cap or a patch with a kinked side gives
+    None, so it stays refused.
+    """
+    angles = sorted((round(_surface_angle(verts, faces, v), 9), _key(verts[v]), v) for v in loop if v not in real)
+    need = 4 - len(real)
+    chosen, rest = angles[:need], angles[need:]
+    if any(uses[v] != 2 or angle >= CORNER_ANGLE for angle, _k, v in chosen):
+        return None
+    if rest and chosen[-1][0] > rest[0][0] - CAP_ANGLE:
+        return None
+    return list(real) + [v for _a, _k, v in chosen]
 
 
 def _chain_order(nbrs: dict[int, list[int]], start: int) -> list[int]:

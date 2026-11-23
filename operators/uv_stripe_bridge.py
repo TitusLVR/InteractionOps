@@ -4,9 +4,10 @@ The core lays each ``Strip`` out in UV space without bpy. This module reads what
 In Place needs from the mesh before any UV changes (``uv_context``), then places
 the strips and writes their UVs onto the strip faces' corners (``apply_stripes``).
 UV Stripe, Inset and Edge Slide share the rest here, so they cannot
-drift apart: the option items (``LAYOUT_ITEMS``, ``ORIENTATION_ITEMS``), the
-pieces one built strip becomes (``prepare_strip``) and the seams that match the
-laid-out pieces (``match_piece_seams``).
+drift apart: the option items (``STRAIGHT_SIDES_ITEMS``, ``ENDS_ITEMS``,
+``BALANCE_ITEMS``, ``ORIENTATION_ITEMS``), the pieces one built strip becomes
+(``prepare_strip``) and the seams that match the laid-out pieces
+(``match_piece_seams``).
 """
 
 from collections.abc import Iterable
@@ -87,18 +88,28 @@ def offset_axis(axis: str, vertical: bool) -> str:
     if axis == "ACROSS":
         return "HORIZONTAL" if vertical else "VERTICAL"
     return axis
-LAYOUT_ITEMS = [
-    ("AUTO", "Auto",
-     "Tear the strip only where a tear lowers the stretch, and lay each piece out straight while its stretch "
-     "stays within Stretch Limit, as True Shape beyond it"),
-    ("TRUE", "No Stretch",
-     "Keep every row at its true length; the ends of the strip and of its pieces keep their real slant"),
-    ("STRAIGHT", "Rectangles",
-     "Stand every cross edge vertical so each quad becomes a rectangle; stretches where the strip bends"),
-    ("EVEN", "Even Rows", "Lay each row out by its own length, scaled to the strip's mean length"),
-    ("SHAPE", "True Shape",
-     "Unfold the faces across their shared edges, each keeping its real shape: a strip that turns in its "
-     "surface turns in UV; it is torn only by Split at Seams and Split at Bends"),
+
+
+STRAIGHT_SIDES_ITEMS = [
+    ("BOTH", "Both",
+     "Both long sides of every piece, and every line of edges running along it, straight and horizontal"),
+    ("LONGER", "Longer Side", "Only the longer long side of every piece straight; the rest follows the faces"),
+    ("SHORTER", "Shorter Side", "Only the shorter long side of every piece straight; the rest follows the faces"),
+    ("NONE", "None", "Nothing straightened: every piece unfolded at its real shape, turned by Align"),
+]
+ENDS_ITEMS = [
+    ("SLANTED", "Slanted", "Both ends of every piece keep their real slant"),
+    ("BOTH", "Both", "Both ends of every piece stand upright"),
+    ("LONGER", "Longer End", "The end with the longer cross edges stands upright, the other keeps its slant"),
+    ("SHORTER", "Shorter End", "The end with the shorter cross edges stands upright, the other keeps its slant"),
+]
+BALANCE_ITEMS = [
+    ("EVEN_TEXEL", "Even Texel",
+     "A strip several faces wide keeps every face near its real size: even texel density, some stretch left "
+     "where its rows must differ in length"),
+    ("LEAST_STRETCH", "Least Stretch",
+     "A strip several faces wide is laid out with the least stretch: far less stretch, the texel density "
+     "differing a little between faces"),
 ]
 ORIENTATION_ITEMS = [
     ("HORIZONTAL", "Horizontal", "The strip runs along U"),
@@ -247,14 +258,35 @@ def stretched_faces(bm, faces: Iterable[BMFace], matrix, tolerance: float = core
     return out
 
 
-def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, stretch_limit: float, align: str,
-                align_edges) -> tuple[list[core.Strip], str | None]:
+@dataclass(frozen=True)
+class ShapeRules:
+    """How every piece is laid out: what must be straight (``straight_sides``, ``ends``; ``STRAIGHT_SIDES_ITEMS``,
+    ``ENDS_ITEMS``), the ``stretch_limit`` that relaxes it, the ``balance`` of a strip several faces wide
+    (``BALANCE_ITEMS``), the sides picked by hand (``picks``: (face id, sorted vertex-id pair, straight), see
+    ``uv_stripe_auto_core.picked_shape``) and what a piece unfolded at its real shape runs along (``align``,
+    ``align_edges``: vertex-id pairs, ``uv_stripe_core.lay_piece``)."""
+
+    straight_sides: str = "BOTH"
+    ends: str = "SLANTED"
+    stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT
+    balance: str = "EVEN_TEXEL"
+    picks: tuple = ()
+    align: str = "AUTO"
+    align_edges: tuple = ()
+
+    def lay(self, piece: core.Strip) -> None:
+        """Lay ``piece`` out by these rules (``uv_stripe_auto_core.lay_shaped``). Raises ValueError as it does."""
+        auto_core.lay_shaped(piece, self.straight_sides, self.ends, self.stretch_limit, self.balance, self.picks,
+                             self.align, self.align_edges)
+
+
+def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, rules: ShapeRules) -> tuple[list[core.Strip], str | None]:
     """``strip`` torn at ``cuts`` (rung indices) and at its ``uv_stripe_auto_core.auto_cuts`` (but those among
-    ``skip_cuts``), each piece laid out by its own ``auto_layout`` at ``stretch_limit``. When it cannot be torn
-    there it stays one piece and the reason is returned; ``bend_tears`` (a list) gets the vertex-id pairs of
-    the auto cuts it was torn at. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
+    ``skip_cuts``), each piece laid out by ``rules``. When it cannot be torn there it stays one piece and the
+    reason is returned; ``bend_tears`` (a list) gets the vertex-id pairs of the auto cuts it was torn at.
+    Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
     strip.layout = "TRUE"
-    strip.align, strip.align_edge = align, None
+    strip.align, strip.align_edge = rules.align, None
     cuts = sorted(set(cuts))
     kept = auto_core.auto_cuts(strip, cuts, skip_cuts)
     pieces, reason = [strip], None
@@ -263,108 +295,68 @@ def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, stretch_limit: f
         if reason is None and bend_tears is not None:
             bend_tears.extend(select_core.rung_edge(strip, k) for k in kept)
     for piece in pieces:
-        core.lay_piece(piece, auto_core.auto_layout(piece, stretch_limit), align, align_edges)
+        rules.lay(piece)
     return pieces, reason
 
 
-def _opened_ring(strip: core.Strip, layout: str, break_edge, cut_edges=(), align: str = "AUTO",
-                 align_edges=(), stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT, skip_edges=(),
-                 bend_tears=None) -> tuple[list[core.Strip], str | None]:
-    """``strip`` (closed) opened at the rung ``break_edge`` and laid out: "STRAIGHT" when every face is a
-    quad, else ``layout``. The opened strip is torn at those of ``cut_edges`` (vertex-id pairs) that are its
-    rungs; when it cannot be torn there it stays one piece and the reason is returned. Raises ValueError
-    when ``break_edge`` is no rung of it, or as ``uv_stripe_select_core.open_ring`` and
-    ``uv_stripe_core.stripe_uvs`` do.
-
-    ``layout`` "AUTO" lays the opened strip out as ``_auto_split`` does, the rungs among ``skip_edges``
-    (vertex-id pairs) left out of its auto cuts and ``bend_tears`` getting the auto cuts made."""
+def _opened_ring(strip: core.Strip, break_edge, cut_edges=(), skip_edges=(), bend_tears=None,
+                 rules: ShapeRules = ShapeRules()) -> tuple[list[core.Strip], str | None]:
+    """``strip`` (closed) opened at the rung ``break_edge`` and laid out as ``_auto_split`` does: torn at those
+    of ``cut_edges`` (vertex-id pairs) that are its rungs and at its own auto cuts, the rungs among
+    ``skip_edges`` (vertex-id pairs) left out of them and ``bend_tears`` getting the auto cuts made. When it
+    cannot be torn there it stays one piece and the reason is returned. Raises ValueError when ``break_edge``
+    is no rung of it, or as ``uv_stripe_select_core.open_ring`` and ``uv_stripe_core.stripe_uvs`` do."""
     at = select_core.rungs_at(strip, [tuple(sorted(break_edge))])
     if not at:
         raise ValueError("the picked edge is not a cross edge of the ring")
     opened = select_core.open_ring(strip, at[0])
-    if layout == "AUTO":
-        return _auto_split(opened, select_core.rungs_at(opened, cut_edges), select_core.rungs_at(opened, skip_edges),
-                           bend_tears, stretch_limit, align, align_edges)
-    if all(len(face) == 4 for face in opened.faces.values()):
-        layout = "STRAIGHT"
-    opened.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
-    opened.align, opened.align_edge = align, None
-    pieces, reason = [opened], None
-    cuts = select_core.rungs_at(opened, cut_edges)
-    if cuts:
-        pieces, reason = select_core.split_strip(opened, None, cuts)
-    for piece in pieces:
-        core.lay_piece(piece, layout, align, align_edges)
-    return pieces, reason
+    return _auto_split(opened, select_core.rungs_at(opened, cut_edges), select_core.rungs_at(opened, skip_edges),
+                       bend_tears, rules)
 
 
 def prepare_strip(
-    strip: core.Strip, faces: dict[int, BMFace], layout: str, split_angle: float | None, extra_cuts=(),
-    break_edge: tuple[int, int] | None = None, manual_cuts=(), skip_cuts=(), bend_tears=None,
+    strip: core.Strip, faces: dict[int, BMFace], straight_sides: str = "BOTH", ends: str = "SLANTED",
+    extra_cuts=(), break_edge: tuple[int, int] | None = None, manual_cuts=(), skip_cuts=(), bend_tears=None,
     align: str = "AUTO", align_edges=(), stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT,
+    balance: str = "EVEN_TEXEL", side_picks=(),
 ) -> tuple[list[tuple[core.Strip, dict[int, BMFace]]], str | None]:
     """The final pieces of one built strip, with their faces by id, and why a requested tear was not made.
 
-    ``split_angle`` (None: no split) tears the strip at its bends, and ``extra_cuts``
-    (rung indices) at those rungs too (``uv_stripe_select_core.split_strip``): when
-    there are cuts but the strip cannot be torn there, it stays whole and the reason
-    is returned for a warning. ``layout`` ("TRUE", "STRAIGHT", "EVEN" or "SHAPE", see
-    ``LAYOUT_ITEMS``; "AUTO" below) is set on every piece; "STRAIGHT" goes through
-    ``uv_stripe_core.straighten``, which keeps "EVEN" for a piece where it would fold
-    a face. Raises ValueError as ``uv_stripe_core.stripe_uvs`` does.
+    The strip is torn at ``extra_cuts`` and ``manual_cuts`` (rung indices: seams and
+    cuts marked by hand) and at its ``uv_stripe_auto_core.auto_cuts``, the bend cuts
+    among ``skip_cuts`` left out; ``bend_tears`` (a list) gets the vertex-id pairs of
+    the auto cuts made. When there are cuts but the strip cannot be torn there, it
+    stays whole and the reason is returned for a warning. Every open piece is then
+    laid out by what must be straight on it (``ShapeRules.lay``): ``straight_sides``
+    and ``ends`` (``STRAIGHT_SIDES_ITEMS``, ``ENDS_ITEMS``), the sides picked on it
+    by hand on top (``side_picks``: (face id, sorted vertex-id pair, straight), in
+    order), relaxed while its worst face stretches beyond ``stretch_limit`` unless a
+    long side was picked, ``balance`` for a strip several faces wide; a closed piece
+    keeps "EVEN". Raises ValueError as ``uv_stripe_core.stripe_uvs`` does.
 
     ``break_edge`` (a vertex-id pair) is a ring's picked break: when ``strip`` is
     closed and that pair is one of its rungs, the ring is opened there
-    (``uv_stripe_select_core.open_ring``) and comes back as exactly one open piece,
-    with no tear at its bends or at ``extra_cuts``; its layout is "STRAIGHT" when
-    every face is a quad, else ``layout``. When the ring cannot be opened there it is
-    laid out as without ``break_edge`` and the reason is returned. On an open strip
-    ``break_edge`` is ignored.
+    (``uv_stripe_select_core.open_ring``) and goes through the same steps as an open
+    strip, torn at ``manual_cuts`` and its own auto cuts but not at ``extra_cuts``.
+    When the ring cannot be opened there it is laid out as without ``break_edge`` and
+    the reason is returned. On an open strip ``break_edge`` is ignored.
 
-    ``manual_cuts`` (rung indices, cut edges marked by hand) tear the strip as
-    ``extra_cuts`` do, and also tear a ring opened at ``break_edge``. ``skip_cuts``
-    (rung indices) drop those bend cuts. ``bend_tears`` (a list) gets the vertex-id
-    pairs of the bend cuts the strip was torn at.
-
-    ``align`` (``uv_stripe_core.Strip.align``) tells each True Shape piece what to run
-    along; each piece aligns on its own, "PICKED" on the first of ``align_edges``
-    (vertex-id pairs) that is an edge of its faces, "AUTO" when none is.
-
-    ``layout`` "AUTO" (``uv_stripe_auto_core``) ignores ``split_angle``: the strip is
-    torn at ``extra_cuts``, ``manual_cuts`` and its ``auto_cuts`` (the bend cuts among
-    ``skip_cuts`` left out), ``bend_tears`` gets the auto cuts made, and every piece is
-    laid out by its own ``auto_layout`` at ``stretch_limit``; a closed piece keeps
-    "EVEN". A ring opened at ``break_edge`` goes through the same steps, torn at
-    ``manual_cuts`` and its own auto cuts.
+    ``align`` (``uv_stripe_core.Strip.align``) tells each piece unfolded at its real
+    shape what to run along; each piece aligns on its own, "PICKED" on the first of
+    ``align_edges`` (vertex-id pairs) that is an edge of its faces, "AUTO" when none is.
     """
+    rules = ShapeRules(straight_sides, ends, stretch_limit, balance, tuple(side_picks), align, tuple(align_edges))
     broken = None
-    auto = layout == "AUTO"
     if break_edge is not None and strip.closed:
         cut_edges = [select_core.rung_edge(strip, k) for k in manual_cuts]
         skip_edges = [select_core.rung_edge(strip, k) for k in skip_cuts]
         try:
-            opened, reason = _opened_ring(strip, layout, break_edge, cut_edges, align, align_edges, stretch_limit,
-                                          skip_edges, bend_tears)
+            opened, reason = _opened_ring(strip, break_edge, cut_edges, skip_edges, bend_tears, rules)
         except ValueError as exc:
             broken = f"the ring cannot be opened at the picked edge: {exc}"
         else:
             return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in opened], reason
-    if auto:
-        pieces, reason = _auto_split(strip, set(extra_cuts) | set(manual_cuts), skip_cuts, bend_tears, stretch_limit,
-                                     align, align_edges)
-        return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in pieces], broken or reason
-    strip.layout = layout if layout in ("TRUE", "SHAPE") else "EVEN"
-    strip.align, strip.align_edge = align, None
-    cuts = set(extra_cuts) | set(manual_cuts)
-    if split_angle is None and not cuts:
-        pieces, reason = [strip], None
-    else:
-        bends = []
-        pieces, reason = select_core.split_strip(strip, split_angle, sorted(cuts), skip_cuts, bends)
-        if bend_tears is not None:
-            bend_tears.extend(select_core.rung_edge(strip, k) for k in bends)
-    for piece in pieces:
-        core.lay_piece(piece, layout, align, align_edges)
+    pieces, reason = _auto_split(strip, set(extra_cuts) | set(manual_cuts), skip_cuts, bend_tears, rules)
     return [(piece, {fid: faces[fid] for fid in piece.faces}) for piece in pieces], broken or reason
 
 
@@ -412,10 +404,10 @@ class StripeSettings:
     mode: str
     active_fit: str
     orientation: str
-    layout: str
-    split_at_bends: bool
-    split_angle: float
+    straight_sides: str
+    ends: str
     stretch_limit: float
+    balance: str
     split_at_seams: bool
     mark_seams: bool
     offset_axis: str
@@ -431,10 +423,10 @@ class StripeSettings:
     def from_last(cls, context) -> "StripeSettings":
         return cls.from_operator(context.window_manager.operator_properties_last("iops.mesh_uv_stripe"))
 
-    @property
-    def split(self) -> float | None:
-        """The bend angle to tear at, None without Split at Bends."""
-        return self.split_angle if self.split_at_bends else None
+    def shape_kwargs(self) -> dict:
+        """The keywords of ``prepare_strip`` these settings give (Inset and Edge Slide: no picked sides)."""
+        return {"straight_sides": self.straight_sides, "ends": self.ends, "stretch_limit": self.stretch_limit,
+                "balance": self.balance}
 
 
 def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bool:

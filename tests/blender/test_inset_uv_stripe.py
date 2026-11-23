@@ -176,8 +176,8 @@ def _uv_bbox(obj):
 
 # The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
 # before every test, and a test changes what it needs with _stripe_settings.
-STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL", "split_at_bends": True,
-                   "split_angle": math.radians(15), "mark_seams": True, "offset_axis": "NONE",
+STRIPE_BASELINE = {"mode": "FIT", "straight_sides": "BOTH", "ends": "SLANTED", "balance": "EVEN_TEXEL",
+                   "stretch_limit": 1.25, "orientation": "HORIZONTAL", "mark_seams": True, "offset_axis": "NONE",
                    "split_at_seams": False, "merge_doubles": False, "active_fit": "BOTH"}
 
 
@@ -234,17 +234,20 @@ class _KeyPress:
 def test_inset_square_fit():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.2, use_uv_stripe=True)
     us, vs = _wall_uv_ranges(obj)
-    assert us == (0.0, 1.0) and vs == (0.0, 0.027778)
-    assert _seam_vertex_has_u0_and_u1(obj)
+    # Auto tears the ring at its four corners and lays each wall out at its true shape: one Fit scale, 1 / 2
+    # (the longest wall), in place of the whole ring's 1 / 7.2 strip.
+    assert us == (0.0, 1.0) and vs == (0.0, 0.43)
+    _assert_true_walls(obj, 0.5)
 
 
 def test_outset_square_fit():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    _inset(thickness=-0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
-    assert _wall_uv_ranges(obj)[1] == (0.0, 0.022727)
+    _inset(thickness=-0.2, use_uv_stripe=True)
+    assert _wall_uv_ranges(obj)[1] == (0.0, 0.363333)
+    _assert_true_walls(obj, 1 / 2.4)
 
 
 def test_select_options_pick_the_inner_faces_and_the_walls():
@@ -282,7 +285,7 @@ def test_selected_faces_leave_the_mesh_in_face_select_mode():
 def test_collapsed_rectangle_still_a_rectangle():
     obj = _plane_rect(1.0, 4.0)
     _select_all_faces(obj)
-    _inset(thickness=99.0, use_collapse=True, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=99.0, use_collapse=True, use_uv_stripe=True)
     assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.0625))
 
 
@@ -297,8 +300,9 @@ def test_uv_stripe_off_keeps_old_behaviour():
 def test_depth_strip_height_is_the_slanted_wall():   # height hypot(0.2, 0.2) over length 7.2
     obj = _plane(2.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, depth=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False)
-    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.039284))
+    _inset(thickness=0.2, depth=0.2, use_uv_stripe=True)
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.595685))
+    _assert_true_walls(obj, 0.5)       # the slanted walls, each laid out at its true size
 
 
 def test_hole_gives_two_stacked_strips():
@@ -306,11 +310,13 @@ def test_hole_gives_two_stacked_strips():
     # region's first loop, so at the bottom. Hole strip: length 4.4, stacked 0.01 above.
     obj = _grid(3, 3, skip={(1, 1)})
     _select_all_faces(obj)
-    _inset(thickness=0.1, use_uv_stripe=True, uv_stripe_split_at_bends=False)
-    assert _wall_uv_ranges(obj, inside=(0.85, 2.15)) == ((0.0, 1.0), (0.018621, 0.041348))
+    _inset(thickness=0.1, use_uv_stripe=True)
+    assert _wall_uv_ranges(obj, inside=(0.85, 2.15)) == ((0.0, 1.0), (0.173333, 0.536667))
     outer = [uv for co, uv in _wall_corners(obj) if not all(0.85 <= c <= 2.15 for c in co[:2])]
     us, vs = [u for u, _v in outer], [v for _u, v in outer]
-    assert (min(us), max(us)) == (0.0, 1.0) and (min(vs), max(vs)) == (0.0, 0.008621)
+    assert (min(us), max(us)) == (0.0, 1.0) and (min(vs), max(vs)) == (0.0, 0.163333)
+    _assert_true_walls(obj, 1 / 3, inside=(0.85, 2.15), outside=True)      # the outer loop: Fit scale 1 / 3
+    _assert_true_walls(obj, 1 / 1.2, inside=(0.85, 2.15))   # the hole loop is a group of its own
 
 
 def test_frozen_loop_without_walls_leaves_the_others():
@@ -323,19 +329,21 @@ def test_frozen_loop_without_walls_leaves_the_others():
     next(f for f in bm.faces if _face_key(f) == middle).select_set(False)
     bmesh.update_edit_mesh(obj.data)
     _note_selection(obj)
-    op = _OperatorStandIn(thickness=0.1, use_boundary=False, use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    op = _OperatorStandIn(thickness=0.1, use_boundary=False, use_uv_stripe=True)
     assert op._run(bpy.context) == {'FINISHED'}
     assert op.reports == [], op.reports
-    assert _wall_uv_ranges(obj, inside=(0.85, 2.15)) == ((0.0, 1.0), (0.0, 0.022727))
+    assert _wall_uv_ranges(obj, inside=(0.85, 2.15)) == ((0.0, 1.0), (0.0, 0.363333))
+    _assert_true_walls(obj, 1 / 1.2, inside=(0.85, 2.15))
 
 
 def test_individual_mode_stacks_one_strip_per_face():   # each face: length 3.6, height 0.1
     obj = _grid(2, 1)
     _select_all_faces(obj)
-    _inset(thickness=0.1, mode="INDIVIDUAL", use_uv_stripe=True, uv_stripe_split_at_bends=False)
+    _inset(thickness=0.1, mode="INDIVIDUAL", use_uv_stripe=True)
     vs = sorted({uv[1] for _co, uv in _wall_corners(obj)})
-    assert vs == [0.0, 0.027778, 0.037778, 0.065556]
-    assert _wall_uv_ranges(obj)[0] == (0.0, 1.0)
+    assert vs == [0.0, 0.1, 0.11, 0.21, 0.22, 0.32, 0.33, 0.43, 0.44, 0.54, 0.55, 0.65, 0.66, 0.76, 0.77, 0.87]
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.87))
+    _assert_true_walls(obj, 1.0)
 
 
 def test_in_place_keeps_the_old_uvs_and_density():
@@ -343,8 +351,9 @@ def test_in_place_keeps_the_old_uvs_and_density():
     # The 7.2 x 0.2 strip is 3.6 x 0.1 in UV.
     obj = _plane(2.0, uv=True)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="IN_PLACE", uv_stripe_split_at_bends=False)
-    assert _wall_uv_ranges(obj) == ((-1.3, 2.3), (0.45, 0.55))
+    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="IN_PLACE")
+    assert _wall_uv_ranges(obj) == ((-0.45, 1.45), (0.0, 1.0))
+    _assert_true_walls(obj, 0.5)        # the old density, each wall at its true size
 
 
 def _wall_face_corners(obj):
@@ -366,12 +375,48 @@ def _corner_us(obj, w, h):
     return near, far
 
 
-def _wall_metrics(obj):
-    """Per wall face: (UV length / 3D length of each edge, |UV corner angle - 3D corner angle| in degrees)."""
+def _walls_by_piece(bm, name):
+    """The wall faces of ``bm`` (the edit mesh, kept alive by the caller) grouped into UV pieces: faces joined
+    across an edge that is no seam, as UV Stripe's seams say where its pieces end."""
+    walls = set(_wall_faces(bm, name))
+    pieces, seen = [], set()
+    for first in walls:
+        if first in seen:
+            continue
+        piece, todo = set(), [first]
+        while todo:
+            f = todo.pop()
+            if f in piece:
+                continue
+            piece.add(f)
+            todo += [g for e in f.edges if not e.seam for g in e.link_faces if g in walls and g not in piece]
+        seen |= piece
+        pieces.append(piece)
+    return pieces
+
+
+def _assert_true_walls(obj, scale, inside=None, outside=False):
+    """Every wall face laid out at its true shape: each UV edge is its 3D length times ``scale``, every corner
+    keeps its angle (``_wall_metrics`` says which faces)."""
+    metrics = _wall_metrics(obj, inside, outside)
+    assert metrics, "no wall faces"
+    for ratios, errors in metrics:
+        assert all(abs(r - scale) < 1e-4 for r in ratios), (scale, ratios)
+        assert max(errors) < 1e-4, errors
+
+
+def _wall_metrics(obj, inside=None, outside=False):
+    """Per wall face: (UV length / 3D length of each edge, |UV corner angle - 3D corner angle| in degrees).
+
+    ``inside=(low, high)`` keeps only the faces with every vertex in that xy box, with ``outside`` only those
+    that have not.
+    """
     bm = bmesh.from_edit_mesh(obj.data)
     layer = bm.loops.layers.uv.active
     out = []
     for f in _wall_faces(bm, obj.name):
+        if inside is not None and all(inside[0] <= c <= inside[1] for v in f.verts for c in v.co.xy) == outside:
+            continue
         loops = list(f.loops)
         n = len(loops)
         ratios, errors = [], []
@@ -385,44 +430,60 @@ def _wall_metrics(obj):
     return out
 
 
-def test_straighten_stands_the_walls_cross_edges_vertical():
-    # 4 x 1 rectangle inset by 0.2, laid out whole: the border (10 long) and the new contour (8.4) put their corners
-    # at different fractions of their lengths, so even rows lean; Rectangles stands every corner's wall edge vertical.
+def test_ends_stand_the_walls_cross_edges_vertical():
+    # 4 x 1 rectangle inset by 0.2: each wall ends in a 45 degree mitre. Ends Slanted (the default) keeps the
+    # slant, so the border and the contour put their corners at different u. Ends Both stands every cross edge
+    # upright, which shears a mitred wall far beyond the stretch limit, so it takes the limit lifted.
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_layout="EVEN",
-                                  uv_stripe_split_at_bends=False)
+    _stripe_settings(stretch_limit=100.0)
+    _inset(thickness=0.2, use_uv_stripe=True)
     near, far = _corner_us(obj, 4.0, 1.0)
     assert near != far
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_layout="STRAIGHT",
-                                  uv_stripe_split_at_bends=False)
+    _stripe_settings(ends="BOTH", stretch_limit=100.0)
+    _inset(thickness=0.2, use_uv_stripe=True)
     near, far = _corner_us(obj, 4.0, 1.0)
-    assert near == far and len(near) == 5, (near, far)      # 4 corners, the seam corner at 0 and 1
-    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.021739))     # 0.2 over L 9.2
+    assert near == far and len(near) == 3, (near, far)
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.240526))
+    for corners in _wall_face_corners(obj):         # a wall's cross edges: border corner and contour corner share u
+        by_u = {}
+        for co, uv in corners:
+            by_u.setdefault(uv[0], []).append(_on_rect_border(co, 4.0, 1.0))
+        assert all(sorted(kinds) == [False, True] for kinds in by_u.values()), corners
+    obj = _plane_rect(4.0, 1.0)
+    _select_all_faces(obj)
+    _stripe_settings(ends="BOTH", stretch_limit=1.25)    # at the default limit the mitres relax it to the true shape
+    _inset(thickness=0.2, use_uv_stripe=True)
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
+    _assert_true_walls(obj, 0.25)
 
 
-def test_defaults_give_four_stretch_free_pieces():
-    # No Stretch and Split at Bends by default: every corner turns the walls by 90 degrees, so each wall is a piece
-    # of its own, laid out at its true size with one Fit scale (1 / 4, the longest wall): every UV edge is its 3D
-    # length over 4 and every corner keeps its angle; the border lies on each piece's v = 0.
+def test_defaults_tear_a_frame_into_four_equal_pieces():
+    # Auto tears the 4 x 1 frame at every one of its four corners, so it gives four one-face pieces, each laid out
+    # at its true size with one Fit scale (1 / 4, the longest wall): every UV edge is its 3D length over 4 and every
+    # corner keeps its angle. The tears are symmetric: the two long walls' UV boxes are equal, the two short walls'
+    # too, and the border lies on the bottom of each piece's UV box.
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
     _inset(thickness=0.2, use_uv_stripe=True)
-    metrics = _wall_metrics(obj)
-    assert len(metrics) == 4
-    for ratios, errors in metrics:
-        assert all(abs(r - 0.25) < 1e-6 for r in ratios), ratios
-        assert max(errors) < 1e-4, errors
-    for corners in _wall_face_corners(obj):
-        vs = [uv[1] for _co, uv in corners]
+    _assert_true_walls(obj, 0.25)
+    bm = bmesh.from_edit_mesh(obj.data)
+    pieces = _walls_by_piece(bm, obj.name)
+    assert sorted(len(piece) for piece in pieces) == [1, 1, 1, 1]
+    layer = bm.loops.layers.uv.active
+    sizes = []
+    for piece in pieces:
+        corners = [(_key(lp.vert.co), _key(lp[layer].uv)) for f in piece for lp in f.loops]
+        us, vs = [uv[0] for _co, uv in corners], [uv[1] for _co, uv in corners]
+        sizes.append((round(max(us) - min(us), 6), round(max(vs) - min(vs), 6)))
         assert all(uv[1] == min(vs) for co, uv in corners if _on_rect_border(co, 4.0, 1.0)), corners
         assert all(uv[1] > min(vs) for co, uv in corners if not _on_rect_border(co, 4.0, 1.0)), corners
-    bm = bmesh.from_edit_mesh(obj.data)
+    assert sorted(sizes) == [(0.25, 0.05), (0.25, 0.05), (1.0, 0.05), (1.0, 0.05)], sizes
     walls = set(_wall_faces(bm, obj.name))
-    seams = {e for e in bm.edges if e.seam}
-    assert seams == {e for f in walls for e in f.edges}       # every wall edge: outline or tear
+    assert all(e.seam for f in walls for e in f.edges)         # every wall edge: outline or a corner's tear
 
 
 def test_mark_seams_match_the_walls():
@@ -432,18 +493,23 @@ def test_mark_seams_match_the_walls():
     assert not any(e.seam for e in bmesh.from_edit_mesh(obj.data).edges)
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False,
+    _inset(thickness=0.2, use_uv_stripe=True,
            uv_stripe_mark_seams=True)            # the settings persist: set back what the first run turned off
     bm = bmesh.from_edit_mesh(obj.data)
     walls = set(_wall_faces(bm, obj.name))
     outline = {e for f in walls for e in f.edges if sum(g in walls for g in e.link_faces) == 1}
     seams = {e for e in bm.edges if e.seam}
     assert outline <= seams and len(outline) == 8
-    (cut,) = seams - outline                                # the ring's UV cut: one wall side edge
-    assert sum(_on_rect_border(_key(v.co), 4.0, 1.0) for v in cut.verts) == 1
-    us = {round(lp[bm.loops.layers.uv.active].uv.x, 6) for v in cut.verts for lp in v.link_loops
-          if lp.face in walls}
-    assert us == {0.0, 1.0}
+    cuts = seams - outline                                  # the walls' UV cuts: one at each of the four corners
+    assert len(cuts) == 4
+    layer = bm.loops.layers.uv.active
+    for cut in cuts:
+        assert sum(_on_rect_border(_key(v.co), 4.0, 1.0) for v in cut.verts) == 1
+    for e in {e for f in walls for e in f.edges} - outline:     # a side edge is a seam exactly where its walls' UVs part
+        a, b = e.link_faces
+        parts = any(_key(la[layer].uv) != _key(lb[layer].uv)
+                    for la in a.loops for lb in b.loops if la.vert is lb.vert and la.vert in e.verts)
+        assert parts == (e in cuts), (_key(e.verts[0].co), _key(e.verts[1].co), parts)
 
 
 def test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole():
@@ -469,9 +535,10 @@ def test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole():
 def test_vertical_orientation():
     obj = _plane(2.0)
     _select_all_faces(obj)
-    _inset(thickness=0.2, use_uv_stripe=True, uv_stripe_split_at_bends=False,
+    _inset(thickness=0.2, use_uv_stripe=True,
                                   uv_stripe_orientation="VERTICAL")
-    assert _wall_uv_ranges(obj) == ((0.0, 0.027778), (0.0, 1.0))
+    assert _wall_uv_ranges(obj) == ((0.0, 0.43), (0.0, 1.0))
+    _assert_true_walls(obj, 0.5)
 
 
 def test_never_run_uv_stripe_gives_its_defaults():
@@ -482,24 +549,34 @@ def test_never_run_uv_stripe_gives_its_defaults():
 
 
 def test_uv_stripe_settings_drive_the_inset():
-    # Layout and split angle come from UV Stripe: Even Rows whole gives the even ring; True Shape at 15 degrees
-    # tears the four corners; Mark Seams off leaves the seams alone.
+    # Straight Sides, Ends and the Stretch Limit come from UV Stripe. With the limit lifted so that nothing
+    # relaxes: the defaults keep both rails of each piece straight and its ends slanted; Ends Both stands the
+    # ends upright; Straight Sides Longer keeps one rail; Straight Sides None unfolds every piece at its true
+    # shape. Mark Seams off leaves the seams alone.
+    for settings, v_max, true_shape in (({}, 0.23, True), ({"ends": "BOTH"}, 0.240526, False),
+                                        ({"ends": "LONGER"}, 0.235077, False),
+                                        ({"straight_sides": "LONGER"}, 0.23, True)):
+        obj = _plane_rect(4.0, 1.0)
+        _select_all_faces(obj)
+        _stripe_settings(**STRIPE_BASELINE)               # the settings persist: back to the baseline first
+        _stripe_settings(stretch_limit=100.0, **settings)
+        _inset(thickness=0.2, use_uv_stripe=True)
+        assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, v_max)), (settings, _wall_uv_ranges(obj))
+        assert (max(max(errors) for _ratios, errors in _wall_metrics(obj)) < 1e-4) == true_shape, settings
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _stripe_settings(layout="EVEN", split_at_bends=False)
+    _stripe_settings(**STRIPE_BASELINE)
+    _stripe_settings(straight_sides="NONE", stretch_limit=100.0)
     _inset(thickness=0.2, use_uv_stripe=True)
-    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.021739))
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
+    _assert_true_walls(obj, 0.25)
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _stripe_settings(layout="SHAPE", split_at_bends=True, split_angle=math.radians(15))
+    _stripe_settings(**STRIPE_BASELINE)
+    _stripe_settings(straight_sides="BOTH", ends="BOTH")      # at the default limit the mitres relax it to true shape
     _inset(thickness=0.2, use_uv_stripe=True)
-    for ratios, errors in _wall_metrics(obj):
-        assert all(abs(r - 0.25) < 1e-6 for r in ratios) and max(errors) < 1e-4, (ratios, errors)
-    obj = _plane_rect(4.0, 1.0)
-    _select_all_faces(obj)
-    _stripe_settings(split_angle=math.radians(179))           # no corner turns that much: one ring
-    _inset(thickness=0.2, use_uv_stripe=True)
-    assert _seam_vertex_has_u0_and_u1(obj)
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
+    _assert_true_walls(obj, 0.25)
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
     _stripe_settings(mark_seams=False)
@@ -522,10 +599,10 @@ def test_merge_doubles_never_touches_the_inset():
 def test_active_mode_lays_the_walls_out_in_place_without_a_report():
     obj = _plane(2.0, uv=True)
     _select_all_faces(obj)
-    op = _OperatorStandIn(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="ACTIVE", uv_stripe_split_at_bends=False)
+    op = _OperatorStandIn(thickness=0.2, use_uv_stripe=True, uv_stripe_mode="ACTIVE")
     assert op._run(bpy.context) == {'FINISHED'}
     assert op.reports == [], op.reports
-    assert _wall_uv_ranges(obj) == ((-1.3, 2.3), (0.45, 0.55))          # the In Place result
+    assert _wall_uv_ranges(obj) == ((-0.45, 1.45), (0.0, 1.0))          # the In Place result
 
 
 def test_modal_hud_and_help_list_uv_stripe():
@@ -564,8 +641,8 @@ TESTS = [
     test_frozen_loop_without_walls_leaves_the_others,
     test_individual_mode_stacks_one_strip_per_face,
     test_in_place_keeps_the_old_uvs_and_density,
-    test_straighten_stands_the_walls_cross_edges_vertical,
-    test_defaults_give_four_stretch_free_pieces,
+    test_ends_stand_the_walls_cross_edges_vertical,
+    test_defaults_tear_a_frame_into_four_equal_pieces,
     test_mark_seams_match_the_walls,
     test_a_split_that_cannot_be_made_is_reported_and_the_loop_stays_whole,
     test_vertical_orientation,

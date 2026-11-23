@@ -42,7 +42,9 @@ class Strip:
     # How the rows are laid out: "EVEN" (each row by its own arc length, scaled to L),
     # "STRAIGHT" (between vertical posts, ``_post_u``), "TRUE" (true lengths, ``_true_u``) or
     # "SHAPE" (the faces unfolded at their real shape, ``_shape_uv``); the last two for an open strip
-    # only, a closed one uses "EVEN".
+    # only, a closed one uses "EVEN". "BALANCED" (``uv_stripe_balance_core.balanced_uvs``, an open strip)
+    # lays it out with ``ends``, ``rails`` and ``balance`` below. The layouts are internal: the operator
+    # asks for what must be straight and ``uv_stripe_auto_core`` picks the layout by measured stretch.
     layout: str = "EVEN"
     # A closed strip's seam: the index into ``rungs`` it is cut at; None picks ``sharpest_rung``.
     seam: int | None = None
@@ -52,6 +54,12 @@ class Strip:
     # row edge) or "PICKED" (``align_edge``, a sorted vertex-id pair; "AUTO" when it is not in the strip).
     align: str = "AUTO"
     align_edge: tuple[int, int] | None = None
+    # The "BALANCED" layout's modes (``uv_stripe_balance_core.balanced_uvs``): which ends stand upright ("FREE",
+    # "BOTH", "START" for the end at u = 0, "END"), which rails are straight ("BOTH", "NEAR", "FAR") and how
+    # the stretch is spread ("EVEN_TEXEL", "LEAST_STRETCH").
+    ends: str = "FREE"
+    rails: str = "BOTH"
+    balance: str = "EVEN_TEXEL"
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
@@ -641,7 +649,10 @@ def _shape_uv_projected(strip: Strip):
 
 def strip_extent(strip: Strip) -> float:
     """The u extent ``stripe_uvs`` lays the strip out over: its true length span under "TRUE" or "SHAPE"
-    (an open strip), else ``strip_length``."""
+    (an open strip), its balanced length under "BALANCED" (an open strip), else ``strip_length``."""
+    if not strip.closed and strip.layout == "BALANCED":
+        from .uv_stripe_balance_core import balanced_extent
+        return balanced_extent(strip, strip.ends, strip.rails, strip.balance)[0]
     if not strip.closed and strip.layout == "SHAPE":
         shape = _shape_uv(strip)
         if shape is not None:
@@ -653,7 +664,11 @@ def strip_extent(strip: Strip) -> float:
 
 def strip_v_extent(strip: Strip) -> float:
     """The v extent ``stripe_uvs`` lays the strip out over: under "SHAPE" (an open strip) the largest real
-    distance of the far row from the near row, else ``strip.height``."""
+    distance of the far row from the near row, under "BALANCED" (an open strip) its balanced height, else
+    ``strip.height``."""
+    if not strip.closed and strip.layout == "BALANCED":
+        from .uv_stripe_balance_core import balanced_extent
+        return balanced_extent(strip, strip.ends, strip.rails, strip.balance)[1]
     if not strip.closed and strip.layout == "SHAPE":
         shape = _shape_uv(strip)
         if shape is not None:
@@ -685,7 +700,13 @@ def stripe_uvs(strip: Strip) -> dict[tuple[int, int], Vec2]:
     relaxed inside (``_tutte``). A repeated near id takes its ``corner_near``
     position at each corner listed there. Raises ValueError for rungs that run backward,
     and for a repeated far id without a ``corner_far`` entry for one of its corners.
+
+    "BALANCED" (open strips) is ``uv_stripe_balance_core.balanced_uvs`` with the strip's
+    ``ends``, ``rails`` and ``balance``, and raises as it does.
     """
+    if strip.layout == "BALANCED" and not strip.closed:
+        from .uv_stripe_balance_core import balanced_uvs
+        return balanced_uvs(strip, strip.ends, strip.rails, strip.balance)
     near, far = strip.near, strip.far
     if not strip.closed:
         start = 0
@@ -808,7 +829,7 @@ def lay_piece(piece: Strip, layout: str, align: str = "AUTO", align_edges=()) ->
     """Set ``piece`` up to be laid out under ``layout`` and return its ``stripe_uvs``.
 
     "STRAIGHT" goes through ``straighten`` (which keeps "EVEN" where it would fold a
-    face); every other layout is set as itself. The piece aligns by ``align`` (True
+    face); every other layout, "BALANCED" among them, is set as itself. The piece aligns by ``align`` (True
     Shape only), "PICKED" on the first of ``align_edges`` (vertex-id pairs) that is an
     edge of its own faces (``align_edge_in``). Raises ValueError as ``stripe_uvs`` does.
     """

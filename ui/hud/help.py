@@ -89,6 +89,13 @@ class HelpOverlay:
             state = ItemState(state)
         it.state = state
 
+    def start_collapsed(self) -> None:
+        """Open collapsed, with no animation, until H opens it: for an operator whose help is hidden by
+        default. Call before ``bind_region`` (the theme's auto-hide then has nothing left to collapse)."""
+        self.expanded = False
+        self._anim_from_expanded = False
+        self._anim_to_expanded = False
+
     def bind_region(self, region) -> None:
         self._bound_region = region.as_pointer() if region is not None else None
         self._apply_auto_hide()

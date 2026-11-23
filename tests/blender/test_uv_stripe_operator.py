@@ -120,7 +120,7 @@ def _close(a, b, tol=1e-5):
 
 
 # The defaults most tests here were written for; the operator's own defaults have their own tests.
-OLD_DEFAULTS = {"active_fit": "BOTH", "layout": "TRUE", "split_at_seams": False, "split_angle": math.radians(15),
+OLD_DEFAULTS = {"active_fit": "BOTH", "straight_sides": "BOTH", "ends": "SLANTED", "split_at_seams": False,
                 "merge_doubles": False, "offset_axis": "NONE"}
 
 
@@ -262,16 +262,22 @@ def test_ring_with_one_seam_is_cut_there():
     assert (3, 11) in _seams(obj)
 
 
-def test_split_at_bends_on_a_flat_bent_strip():
+def test_auto_tears_a_sharp_bend_and_keeps_a_gentle_one_whole():
+    # Auto tears a bend only where that lowers the stretch: the 22 and 38 degree bends go, the straight joints stay.
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    assert _run(mode="FIT") == {"FINISHED"}                 # Split at Bends is on by default, at 15 degrees
+    assert _run(mode="FIT") == {"FINISHED"}
     seams = _seams(obj)
     assert (4, 5) in seams and (8, 9) in seams
     assert (2, 3) not in seams and (6, 7) not in seams
     assert len(_vertex_us(obj, 4)) == 2 and len(_vertex_us(obj, 6)) == 1
-    assert _run(mode="FIT", split_at_bends=False) == {"FINISHED"}
-    assert len(_vertex_us(obj, 4)) == 1 and (4, 5) not in _seams(obj)
+    # an 8 degree bend costs the whole strip 3.6 % stretch only, less than a tear is worth: it is laid across
+    obj = _polyline([8, 38])
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    assert (2, 3) not in _seams(obj) and (4, 5) in _seams(obj)
+    assert len(_vertex_us(obj, 2)) == 1 and len(_vertex_us(obj, 4)) == 2
+    assert _uv_islands(obj) == 2
 
 
 def _uv_metrics(obj, only=None):
@@ -346,18 +352,16 @@ def test_a_requested_split_that_cannot_be_made_is_reported():
     assert len(_vertex_us(obj, 4)) == 1                      # laid out whole
 
 
-def test_layouts():
-    # No Stretch keeps the bent strip's pieces at their true size; Rectangles stands every cross edge vertical.
+def test_ends_slanted_keeps_the_true_size_and_ends_both_stands_every_cross_edge_vertical():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    assert _run(mode="FIT") == {"FINISHED"}
+    assert _run(mode="FIT") == {"FINISHED"}                 # Straight Sides Both, Ends Slanted
     ratios, errors = _uv_metrics(obj)
     assert max(ratios) / min(ratios) < 1 + 1e-6 and max(errors) < 1e-4
-    assert _run(mode="FIT", layout="STRAIGHT", split_at_bends=False) == {"FINISHED"}
+    assert _vertex_us(obj, 8) != _vertex_us(obj, 9)         # the mitred end at the 38 degree bend keeps its slant
+    assert _run(mode="FIT", ends="BOTH") == {"FINISHED"}
     for i in range(6):
         assert _vertex_us(obj, 2 * i) == _vertex_us(obj, 2 * i + 1), i
-    assert _run(mode="FIT", layout="EVEN", split_at_bends=False) == {"FINISHED"}
-    assert _vertex_us(obj, 8) != _vertex_us(obj, 9)
 
 
 def test_vertical_orientation_turns_the_strip():
@@ -381,8 +385,9 @@ class _OperatorStandIn:
     """Stands in for an operator instance: the operator's methods run on these props and keep its reports."""
 
     def __init__(self, **props):
-        self.mode, self.orientation, self.layout = "ACTIVE", "HORIZONTAL", "TRUE"
-        self.split_at_bends, self.mark_seams = True, True
+        self.mode, self.orientation, self.mark_seams = "ACTIVE", "HORIZONTAL", True
+        self.straight_sides, self.ends, self.balance = "BOTH", "SLANTED", "EVEN_TEXEL"
+        self.side_picks = ""
         self.offset_limit, self.offset_seed = 0.25, 0
         self.stretch_limit = 1.25
         self.cup_breaks = self.manual_cuts = self.skipped_cuts = self.align_edges = ""
@@ -427,40 +432,42 @@ def test_modal_keys_toggle_their_options_and_the_uvs_follow():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    steps = [("W", "orientation", "VERTICAL"), ("Q", "mode", "IN_PLACE"), ("E", "layout", "STRAIGHT"),
-             ("E", "layout", "EVEN"), ("E", "layout", "SHAPE"), ("E", "layout", "AUTO"), ("E", "layout", "TRUE"),
+    steps = [("W", "orientation", "VERTICAL"), ("Q", "mode", "IN_PLACE"), ("E", "straight_sides", "LONGER"),
+             ("E", "straight_sides", "SHORTER"), ("E", "straight_sides", "NONE"), ("E", "straight_sides", "BOTH"),
+             ("A", "ends", "BOTH"), ("A", "ends", "LONGER"), ("A", "ends", "SHORTER"), ("A", "ends", "SLANTED"),
+             ("B", "balance", "LEAST_STRETCH"), ("B", "balance", "EVEN_TEXEL"),
              ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"),
-             ("A", "split_at_bends", False), ("S", "split_at_seams", True), ("X", "mark_seams", False),
-             ("W", "orientation", "HORIZONTAL")]
+             ("S", "split_at_seams", True), ("X", "mark_seams", False), ("W", "orientation", "HORIZONTAL")]
     for key, name, value in steps:
         before = _uv_state(obj)
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
         assert getattr(op, name) == value, (key, name, getattr(op, name))
         if key in "WA":
             assert _uv_state(obj)[0] != before[0], key          # the UVs follow at once
-    assert len(_vertex_us(obj, 4)) == 1                        # Split at Bends off: one strip
-    op._modal(bpy.context, _KeyPress("A"))
-    assert len(_vertex_us(obj, 4)) == 2
     op._finish(bpy.context)
 
 
-def test_modal_wheel_changes_the_bend_angle_while_splitting():
+def test_modal_wheel_changes_the_stretch_limit_under_any_straight_sides():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
     op = _modal_on(obj)
-    assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"RUNNING_MODAL"}
-    assert round(math.degrees(op.split_angle)) == 20
-    op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
-    assert round(math.degrees(op.split_angle)) == 21
-    assert len(_vertex_us(obj, 4)) == 2 and len(_vertex_us(obj, 8)) == 2      # 22 and 38 degrees still tear
-    op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
-    op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
-    assert round(math.degrees(op.split_angle)) == 23 and len(_vertex_us(obj, 4)) == 1     # 22 no longer
-    op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE"))
-    assert round(math.degrees(op.split_angle)) == 18
-    op._modal(bpy.context, _KeyPress("A"))
-    assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"PASS_THROUGH"}    # zooms the view instead
-    assert round(math.degrees(op.split_angle)) == 18
+    for sides in ("BOTH", "LONGER", "SHORTER", "NONE"):
+        op.straight_sides = sides
+        op.stretch_limit = 1.25
+        assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"RUNNING_MODAL"}, sides
+        assert round(op.stretch_limit, 6) == 1.3, sides
+        op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
+        assert round(op.stretch_limit, 6) == 1.31, sides
+        op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE"))
+        op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE"))
+        assert round(op.stretch_limit, 6) == 1.21, sides
+    assert len(_vertex_us(obj, 4)) == 2 and len(_vertex_us(obj, 8)) == 2      # Auto's tears do not follow the wheel
+    op.straight_sides = "BOTH"
+    wheel = _KeyPress("WHEELUPMOUSE")
+    wheel.shift = True                       # Shift + wheel is the Offset Limit, and only while Random Offset is on
+    op.offset_axis = "NONE"
+    limit = op.stretch_limit
+    assert op._modal(bpy.context, wheel) == {"PASS_THROUGH"} and op.stretch_limit == limit   # zooms/pans the view
     op._finish(bpy.context)
 
 
@@ -471,13 +478,13 @@ def test_modal_cancel_restores_uvs_seams_and_options():
     before = _uv_state(obj)
     op = _modal_on(obj, mode="FIT")
     assert _uv_state(obj) != before                            # laid out live
-    for key in ("W", "Q", "E", "S", "X", "A"):
+    for key in ("W", "Q", "E", "A", "B", "S", "X"):
         op._modal(bpy.context, _KeyPress(key))
     op._modal(bpy.context, _KeyPress("X"))
     assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
     assert _uv_state(obj) == before
-    assert (op.mode, op.orientation, op.layout, op.split_at_seams, op.split_at_bends, op.mark_seams) == (
-        "FIT", "HORIZONTAL", "TRUE", False, True, True)
+    assert (op.mode, op.orientation, op.straight_sides, op.ends, op.balance, op.split_at_seams, op.mark_seams) == (
+        "FIT", "HORIZONTAL", "BOTH", "SLANTED", "EVEN_TEXEL", False, True)
 
 
 def test_modal_cancel_removes_a_uv_layer_it_made():
@@ -500,7 +507,7 @@ def test_modal_confirm_equals_execute():
                 op._modal(bpy.context, _KeyPress(key))
             assert op._modal(bpy.context, _KeyPress("SPACE")) == {"FINISHED"}
             return _uv_state(obj), op.reports
-        stand = _OperatorStandIn(orientation="VERTICAL", split_at_seams=True, split_angle=math.radians(20))
+        stand = _OperatorStandIn(orientation="VERTICAL", split_at_seams=True)
         assert stand.execute(bpy.context) == {"FINISHED"}
         return _uv_state(obj), stand.reports
 
@@ -674,29 +681,38 @@ def test_modal_fit_to_active_and_random_offset_keys():
 
 
 def test_modal_hud_and_help_list_every_key():
+    from InteractionOps.operators.mesh_uv_stripe import _Result
     op = _OperatorStandIn(show_options=True)
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Layout (E)", "Stretch Limit (Wheel)", "Align (G)", "Pick Align Edge (V)", "Pick Cut Edges (C)",
-        "Manual Cuts", "More Options (Tab)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)",
-        "Split at Bends (A)", "Bend Angle (Wheel)", "Split at Seams (S)", "Mark Seams (X)", "Random Offset (Z)",
-        "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)", "Doubled Vertices"]
+        "Straight Sides (E)", "Ends (A)", "Stretch Limit (Wheel)", "Align (G)", "Manual Cuts", "Doubled Vertices",
+        "More Options (Tab)", "Balance (B)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)",
+        "Split at Seams (S)", "Mark Seams (X)", "Random Offset (Z)", "Offset Limit (Shift + Wheel)",
+        "Offset Seed (R)", "Merge Doubles (F)"]
     assert [p.value_text() for p in params] == [
-        "No Stretch", "1.25", "Auto", "✗", "✗", "0", "✓", "Active", "Horizontal", "Width and Height", "✓", "15°",
-        "✗", "✓", "None", "0.25", "0", "✗", "0"]
-    shown = {p.name: p.is_visible() for p in params}
-    assert not shown["Manual Cuts"] and "manual cut" not in op._status_text()     # only once there are any
-    assert not shown["Stretch Limit (Wheel)"] and shown["Split at Bends (A)"] and shown["Bend Angle (Wheel)"]
-    op.layout = "AUTO"                         # Auto tears by its own measure: the bend options make way
-    shown = {p.name: p.is_visible() for p in params}
-    assert shown["Stretch Limit (Wheel)"] and not shown["Split at Bends (A)"] and not shown["Bend Angle (Wheel)"]
-    assert shown["Align (G)"] and "stretch limit = 1.25 (Wheel)" in op._status_text()
-    assert "split at bends" not in op._status_text()
-    op.layout = "TRUE"
+        "Both", "Slanted", "1.25", "Auto", "0", "0", "✓", "Even Texel", "Active", "Horizontal", "Width and Height",
+        "✗", "✓", "None", "0.25", "0", "✗"]
+    always = {"Straight Sides (E)", "Ends (A)", "Stretch Limit (Wheel)", "More Options (Tab)"}
+    more = {"Balance (B)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Split at Seams (S)",
+            "Mark Seams (X)", "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)",
+            "Merge Doubles (F)"}
+    assert _shown(op) == always | more                       # no Align, Manual Cuts or Doubled Vertices yet
+    op.straight_sides = "NONE"                               # Align applies to every piece; Ends do not
+    assert _shown(op) == always | more | {"Align (G)"}
+    active = {p.name: p.is_active() for p in params}
+    assert not active["Ends (A)"] and active["Straight Sides (E)"]
+    op.straight_sides = "BOTH"
+    assert "Align (G)" not in _shown(op)
+    op._result = _Result(unfolded=1)                         # a piece relaxed to its real shape
+    assert "Align (G)" in _shown(op)
+    op._result = _Result(doubles=2)
+    assert "Doubled Vertices" in _shown(op) and "Align (G)" not in _shown(op)
+    assert {p.name: p.value_text() for p in params}["Doubled Vertices"] == "2"
+    op._result = _Result()
     op.manual_cuts = '{"a": [1, 4], "b": [2]}'
-    assert {p.name: p.is_visible() for p in params}["Manual Cuts"]
-    assert {p.name: p.value_text() for p in params}["Manual Cuts"] == "3" and "3 manual cut(s)" in op._status_text()
+    assert "Manual Cuts" in _shown(op)
+    assert {p.name: p.value_text() for p in params}["Manual Cuts"] == "3" and op._manual_cut_count() == 3
     op.manual_cuts = ""
     active = {p.name: p.is_active() for p in params}
     assert active["Fit to Active (D)"] and not active["Offset Limit (Shift + Wheel)"]
@@ -704,25 +720,14 @@ def test_modal_hud_and_help_list_every_key():
     op.mode, op.offset_axis = "FIT", "BOTH"
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (R)"]
-    op._picking = True
-    assert {p.name: p.value_text() for p in params}["Pick Cut Edges (C)"] == "✓"
-    assert "pick cut edges" in op._status_text() and "a ring without a break is broken there" in op._status_text()
-    assert "[LMB] change the edge" in op._status_text() and "[C/Esc/RMB] stop picking" in op._status_text()
-    assert "[V] pick the align edge" in op._status_text()
-    op._picking = False
     assert [(it.label, it.key) for it in op._help.sections[0].items] == [
-        ("Mode", "Q"), ("Orientation", "W"), ("Layout", "E"), ("Align True Shape", "G"),
-        ("Pick align edge", "V"), ("Split at bends", "A"), ("Split at seams", "S"),
-        ("Fit to active", "D"), ("Random offset", "Z"), ("Mark seams", "X"), ("Pick cut edges, break a ring", "C"),
-        ("New offset seed", "R"), ("Merge doubles", "F"), ("More options in the HUD", "Tab"),
-        ("Bend angle, or stretch limit under Auto", "Wheel / Ctrl + Wheel"),
-        ("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"), ("Confirm", "LMB / Enter / Space"),
-        ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
-    status = op._status_text()
-    assert "layout = no stretch (E)" in status and "fit to active = width and height (D)" in status
-    assert "random offset = both (Z)" in status and "merge doubles = off (F)" in status
-    assert "pick cut edges, break a ring (C)" in status and "new offset seed (R)" in status
-    assert "more options = on (Tab)" in status
+        ("Side straight / free", "LMB on a side"), ("Pick cut edges, break a ring", "C"),
+        ("Pick the align edge", "V"), ("Confirm", "Enter / Space"), ("Cancel", "Esc / RMB")]
+    assert op._status_text() == "LMB side: straight/free · Tab: more · Enter: confirm · Esc: cancel"
+    op._picking = True
+    assert op._status_text().startswith("Picking cut edges")
+    op._picking, op._align_picking = False, True
+    assert op._status_text().startswith("Picking the align edge")
 
 
 def test_modal_old_letters_are_free():
@@ -730,12 +735,12 @@ def test_modal_old_letters_are_free():
     _edit(obj)
     op = _modal_on(obj)
     before = _uv_state(obj)
-    for key in ("M", "B", "O"):
+    for key in ("M", "O", "U"):
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
     assert op._modal(bpy.context, _KeyPress("N")) == {"PASS_THROUGH"}       # the sidebar opens again
     assert _uv_state(obj) == before
-    assert (op.mode, op.orientation, op.split_at_bends, op.offset_axis, op.offset_seed) == (
-        "ACTIVE", "HORIZONTAL", True, "NONE", 0)
+    assert (op.mode, op.orientation, op.ends, op.offset_axis, op.offset_seed) == (
+        "ACTIVE", "HORIZONTAL", "SLANTED", "NONE", 0)
     op._modal(bpy.context, _KeyPress("ESC"))
 
 
@@ -815,13 +820,18 @@ def test_modal_merge_doubles():
 def test_operator_defaults():
     rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
     assert rna["mode"].default == "ACTIVE" and rna["active_fit"].default == "HEIGHT"
-    assert rna["layout"].default == "AUTO" and rna["orientation"].default == "HORIZONTAL"
+    assert rna["orientation"].default == "HORIZONTAL"
+    assert rna["straight_sides"].default == "BOTH" and rna["ends"].default == "SLANTED"
+    assert rna["balance"].default == "EVEN_TEXEL"
     assert round(rna["stretch_limit"].default, 6) == 1.25
     assert (rna["stretch_limit"].hard_min, rna["stretch_limit"].hard_max) == (1.0, 3.0)
-    assert rna["split_at_seams"].default and rna["split_at_bends"].default and rna["mark_seams"].default
-    assert round(math.degrees(rna["split_angle"].default), 6) == 5.0
+    assert rna["split_at_seams"].default and rna["mark_seams"].default
     assert rna["merge_doubles"].default and rna["offset_axis"].default == "ALONG"
-    assert [item.identifier for item in rna["layout"].enum_items] == ["AUTO", "TRUE", "STRAIGHT", "EVEN", "SHAPE"]
+    for removed in ("layout", "split_at_bends", "split_angle"):
+        assert removed not in rna, removed
+    assert [item.identifier for item in rna["straight_sides"].enum_items] == ["BOTH", "LONGER", "SHORTER", "NONE"]
+    assert [item.identifier for item in rna["ends"].enum_items] == ["SLANTED", "BOTH", "LONGER", "SHORTER"]
+    assert [item.identifier for item in rna["balance"].enum_items] == ["EVEN_TEXEL", "LEAST_STRETCH"]
     assert [item.identifier for item in rna["offset_axis"].enum_items] == ["NONE", "ALONG", "ACROSS", "BOTH"]
 
 
@@ -842,24 +852,53 @@ def _worst_stretch(obj):
 
 def test_auto_lays_a_tapered_piece_out_by_the_stretch_limit():
     obj = _wedge()
-    assert _run(mode="FIT", layout="AUTO", stretch_limit=3.0) == {"FINISHED"}
+    assert _run(mode="FIT", stretch_limit=3.0) == {"FINISHED"}
     straight = _worst_stretch(obj)
     assert 1.25 < straight < 3.0, straight                    # within 3.0: laid out straight
-    assert _run(mode="FIT", layout="AUTO", stretch_limit=1.25) == {"FINISHED"}
+    assert _run(mode="FIT", stretch_limit=1.25) == {"FINISHED"}
     assert _worst_stretch(obj) < 1.0 + 1e-4                   # beyond 1.25: True Shape
     obj = _wedge()
     assert bpy.ops.iops.mesh_uv_stripe(mode="FIT") == {"FINISHED"}      # Auto at 1.25 by default
     assert _worst_stretch(obj) < 1.0 + 1e-4
 
 
+def _l_arc_object(cols=8, inner=0.8, outer=1.0, wall=0.2):
+    """An arc with an L profile over half a turn: a flat ledge from ``inner`` to ``outer`` and a wall hanging
+    from its inner edge. Returns the object and its three rings of vertex indices (outer edge, fold, foot)."""
+    profile = [(outer, 0.0), (inner, 0.0), (inner, -wall)]
+    points, rings = [], []
+    for r, z in profile:
+        rings.append(list(range(len(points), len(points) + cols + 1)))
+        points.extend((r * math.cos(math.pi * i / cols), r * math.sin(math.pi * i / cols), z) for i in range(cols + 1))
+    faces = [(rings[k][i], rings[k][i + 1], rings[k + 1][i + 1], rings[k + 1][i]) for k in range(2) for i in range(cols)]
+    return _object(points, faces), rings
+
+
+def test_auto_lays_a_wide_arc_out_as_one_straight_island():
+    obj, rings = _l_arc_object()
+    _edit(obj)
+    assert _run(mode="FIT", split_at_seams=True) == {"FINISHED"}
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    uv_of: dict[int, set] = {}
+    for f in bm.faces:
+        for lp in f.loops:
+            uv_of.setdefault(lp.vert.index, set()).add((round(lp[layer].uv.x, 5), round(lp[layer].uv.y, 5)))
+    assert all(len(uvs) == 1 for uvs in uv_of.values()), "the arc is torn into several islands"
+    v = {i: next(iter(uvs))[1] for i, uvs in uv_of.items()}
+    for ring in rings:                                       # both rails and the fold line run straight along U
+        assert max(v[i] for i in ring) - min(v[i] for i in ring) < 1e-4, ring
+    assert all(a > 0 for a in _face_areas(obj))
+    assert _worst_stretch(obj) < 1.25
+
+
 def test_modal_wheel_changes_the_stretch_limit_under_auto():
     obj = _wedge()
-    op = _modal_on(obj, mode="FIT", layout="AUTO", stretch_limit=1.25)
+    op = _modal_on(obj, mode="FIT", stretch_limit=1.25)
     assert _worst_stretch(obj) < 1.0 + 1e-4
-    split_angle = op.split_angle
     for _ in range(6):
         assert op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE")) == {"RUNNING_MODAL"}
-    assert op.stretch_limit == 1.0 and op.split_angle == split_angle
+    assert op.stretch_limit == 1.0
     for _ in range(5):
         op._modal(bpy.context, _KeyPress("WHEELUPMOUSE"))
     op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True))
@@ -904,9 +943,9 @@ def test_seams_split_a_strip_whose_sides_fan_round_a_corner():
     obj = _object(points, [(4, 2, 1, 0), (5, 4, 0), (5, 0, 6), (7, 1, 3), (3, 1, 2)])
     _edit(obj)
     _set_seams(obj, {(0, 4), (1, 2)})
-    for layout in ("TRUE", "SHAPE"):
-        assert _run(mode="FIT", layout=layout, split_at_seams=True) == {"FINISHED"}
-        assert all(abs(a) > 1e-6 for a in _face_areas(obj)), layout       # no face collapsed onto a line
+    for sides in ("BOTH", "NONE"):
+        assert _run(mode="FIT", straight_sides=sides, split_at_seams=True) == {"FINISHED"}
+        assert all(abs(a) > 1e-6 for a in _face_areas(obj)), sides       # no face collapsed onto a line
     bm = bmesh.from_edit_mesh(obj.data)                                     # True Shape: every face at its shape
     assert uv_stripe_bridge.stretched_faces(bm, _selected_faces(obj), obj.matrix_world) == []
 
@@ -927,13 +966,13 @@ def test_stretched_faces_are_measured_in_world_space():
     assert set(uv_stripe_bridge.stretched_faces(bm, selected, obj.matrix_world)) == set(selected)
 
 
-def test_rectangles_on_a_bent_strip_reports_stretched_faces():
+def test_ends_both_on_a_bent_strip_reports_stretched_faces():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    stand = _OperatorStandIn(mode="FIT", layout="STRAIGHT", split_at_bends=False)
+    stand = _OperatorStandIn(mode="FIT", ends="BOTH")
     result = stand._lay_out(bpy.context)
-    assert result.done == 1
-    assert result.stretched_faces > 0
+    assert result.done == 3                                  # torn at the 22 and 38 degree bends
+    assert result.stretched_faces == 4
     assert len(result.stretched) % 2 == 0 and result.stretched
 
 
@@ -959,10 +998,10 @@ def test_true_shape_follows_a_tapering_strip():
     points = [(float(x), 0.0, 0.0) for x in range(4)] + [(float(x), 1.0 - 0.1 * x, 0.0) for x in range(4)]
     obj = _object(points, [(i, i + 1, i + 5, i + 4) for i in range(3)])
     _edit(obj)
-    assert _run(mode="FIT", layout="SHAPE") == {"FINISHED"}
+    assert _run(mode="FIT", straight_sides="NONE") == {"FINISHED"}
     ratios, errors = _uv_metrics(obj)
     assert max(ratios) / min(ratios) < 1 + 1e-6 and max(errors) < 1e-4, (ratios, errors)
-    assert _run(mode="FIT", layout="TRUE") == {"FINISHED"}
+    assert _run(mode="FIT") == {"FINISHED"}
     ratios, _errors = _uv_metrics(obj)
     assert max(ratios) / min(ratios) > 1.01
 
@@ -1041,10 +1080,29 @@ def test_mesh_without_uv_gets_one():
 
 # --- cup break: a ring opened at a picked cross edge ------------------------------------
 
-def _annulus(n=8, triangle=False):
-    """A flat ring of ``n`` quads (outer vertices 0 .. n - 1, inner n .. 2n - 1, cross edge k = (k, n + k));
-    ``triangle`` splits face 0 into two triangles along (0, n + 1)."""
-    verts, faces = (flat_annulus_with_triangle if triangle else flat_annulus)(n)
+def _band(n=8, triangle=False):
+    """A ring of ``n`` quads round a cylinder, unrolling without stretch (vertices 0 .. n - 1 at z = 0, n .. 2n - 1
+    at z = 1, cross edge k = (k, n + k)): the picked break opens it as one strip, Auto has no bend to tear at.
+    ``triangle`` splits face 0 into two triangles along (0, n + 1). Returns (vertices, faces) by id."""
+    verts = {}
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        verts[i] = (math.cos(a), math.sin(a), 0.0)
+        verts[n + i] = (math.cos(a), math.sin(a), 1.0)
+    faces = {i: (i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)}
+    if triangle:
+        a, b, c, d = faces[0]
+        faces[0], faces[n] = (a, b, c), (a, c, d)
+    return verts, faces
+
+
+def _annulus(n=8, triangle=False, flat=False):
+    """A ring of ``n`` quads (vertices 0 .. n - 1 below, n .. 2n - 1 above, cross edge k = (k, n + k)): round a
+    cylinder (``_band``), or with ``flat`` a flat annulus Auto tears at every bend; ``triangle`` splits face 0."""
+    if flat:
+        verts, faces = (flat_annulus_with_triangle if triangle else flat_annulus)(n)
+    else:
+        verts, faces = _band(n, triangle)
     return _object([verts[i] for i in range(2 * n)], [faces[k] for k in sorted(faces)])
 
 
@@ -1102,24 +1160,33 @@ def _rectangles(obj):
     return True
 
 
-def test_cup_break_ring_is_one_piece_despite_bend_split():
+def test_cup_break_opens_a_ring_as_one_piece_and_auto_tears_a_flat_ring_at_every_bend():
+    obj = _annulus()                                         # round a cylinder: unrolls whole, Auto has no bend to tear
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and (3, 11) not in _seams(obj)         # the ring is cut at a rung of its own
     obj = _annulus()
     _edit(obj)
-    assert _run(mode="FIT", split_at_bends=True, split_angle=math.radians(5)) == {"FINISHED"}
-    assert _uv_islands(obj) > 1                              # without a break the flat ring is torn at its bends
-    obj = _annulus()
-    _edit(obj)
-    assert _run(mode="FIT", split_at_bends=True, split_angle=math.radians(5),
-                cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _run(mode="FIT", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
     assert _uv_islands(obj) == 1
     assert _seams(obj) & _inner_edges(obj) == {(3, 11)}
     assert all(a > 0 for a in _face_areas(obj))
+    # a flat annulus bends at every rung: Auto tears it at all eight, with or without a break
+    every_rung = {(k, 8 + k) for k in range(8)}
+    obj = _annulus(flat=True)
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    assert _uv_islands(obj) == 8 and _seams(obj) & _inner_edges(obj) == every_rung
+    obj = _annulus(flat=True)
+    _edit(obj)
+    assert _run(mode="FIT", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _uv_islands(obj) == 8 and _seams(obj) & _inner_edges(obj) == every_rung
 
 
-def test_cup_break_all_quads_is_rectangles_under_no_stretch():
+def test_cup_break_all_quads_is_rectangles_under_the_defaults():
     obj = _annulus()
     _edit(obj)
-    assert _run(mode="FIT", layout="TRUE", cup_breaks=_cup(obj, (5, 13))) == {"FINISHED"}
+    assert _run(mode="FIT", cup_breaks=_cup(obj, (5, 13))) == {"FINISHED"}
     assert _uv_islands(obj) == 1 and _rectangles(obj)
     assert all(a > 0 for a in _face_areas(obj))
 
@@ -1133,14 +1200,14 @@ def test_cup_break_replaces_an_old_seam():
     assert _seams(obj) & _inner_edges(obj) == {(3, 11)}
 
 
-def test_cup_break_with_a_triangle_follows_layout():
+def test_cup_break_with_a_triangle_follows_the_ends():
     obj = _annulus(triangle=True)
     _edit(obj)
-    assert _run(mode="FIT", layout="TRUE", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _run(mode="FIT", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
     assert _uv_islands(obj) == 1
     assert all(a > 0 for a in _face_areas(obj))
     assert not _rectangles(obj)                              # laid out by No Stretch, not forced to Rectangles
-    assert _run(mode="FIT", layout="STRAIGHT", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
+    assert _run(mode="FIT", ends="BOTH", cup_breaks=_cup(obj, (3, 11))) == {"FINISHED"}
     assert _uv_islands(obj) == 1 and all(a > 0 for a in _face_areas(obj))
 
 
@@ -1157,14 +1224,14 @@ def test_cup_break_on_an_open_strip_is_ignored():
 
 def test_cup_break_is_taken_before_doubles_are_merged():
     # The flat ring with outer vertex 5 doubled by vertex 16 inside face 4: merging renumbers the edges after it.
-    verts, faces = flat_annulus(8)
+    verts, faces = _band(8)
     points = [verts[i] for i in range(16)] + [(verts[5][0], verts[5][1] + 1e-5, 0.0)]
     faces[4] = (4, 5, 16, 13, 12)
     faces[5] = (16, 6, 14, 13)
     obj = _object(points, [faces[k] for k in sorted(faces)])
     _edit(obj)
     before = _edge_index(obj, (7, 15))
-    stand = _OperatorStandIn(mode="FIT", merge_doubles=True, split_angle=math.radians(5),
+    stand = _OperatorStandIn(mode="FIT", merge_doubles=True,
                              cup_breaks=_cup(obj, (7, 15)))
     assert stand.execute(bpy.context) == {"FINISHED"}, stand.reports
     assert "UV Stripe: merged 1 doubled vertices" in stand.reports, stand.reports
@@ -1176,9 +1243,9 @@ def test_cup_break_is_taken_before_doubles_are_merged():
 # --- cup break in the modal: C picks, LMB sets, R is the seed -------------------------------
 
 def _ring_and_strip():
-    """The 8-quad flat ring (vertices 0 - 15, below y = 2) and an open 4-quad strip at y = 3 (vertices 16 - 25),
+    """The 8-quad band (vertices 0 - 15, below y = 2) and an open 4-quad strip at y = 3 (vertices 16 - 25),
     one mesh, all selected."""
-    verts, faces = flat_annulus(8)
+    verts, faces = _band(8)
     points = [verts[i] for i in range(16)] + [(float(x), y, 0.0) for y in (3.0, 3.5) for x in range(5)]
     strip = [(16 + i, 17 + i, 22 + i, 21 + i) for i in range(4)]
     obj = _object(points, [faces[k] for k in sorted(faces)] + strip)
@@ -1187,8 +1254,8 @@ def _ring_and_strip():
 
 
 def _two_rings():
-    """Two 8-quad flat rings side by side (vertices 0 - 15 at x = 0, 16 - 31 at x = 3), one mesh, all selected."""
-    verts, faces = flat_annulus(8)
+    """Two 8-quad bands side by side (vertices 0 - 15 at x = 0, 16 - 31 at x = 3), one mesh, all selected."""
+    verts, faces = _band(8)
     points = [verts[i] for i in range(16)] + [(x + 3.0, y, z) for x, y, z in (verts[i] for i in range(16))]
     polys = [faces[k] for k in sorted(faces)]
     obj = _object(points, polys + [tuple(v + 16 for v in face) for face in polys])
@@ -1223,7 +1290,7 @@ def test_c_enters_and_leaves_picking():
     laid = _uv_state(obj)
     for leave in ("ESC", "RIGHTMOUSE", "C"):
         assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
-        assert op._modal(bpy.context, _KeyPress("E")) == {"RUNNING_MODAL"} and op.layout == "TRUE"   # swallowed
+        assert op._modal(bpy.context, _KeyPress("E")) == {"RUNNING_MODAL"} and op.straight_sides == "BOTH"   # swallowed
         assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"} and op._picking  # no edge: stays
         assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE")) == {"PASS_THROUGH"}            # the view zooms
         assert op._modal(bpy.context, _KeyPress(leave)) == {"RUNNING_MODAL"} and not op._picking, leave
@@ -1235,7 +1302,7 @@ def test_set_break_relays_out_and_keeps_picking():
     obj = _annulus()
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    assert _uv_islands(obj) > 1                              # torn at its bends until it is broken
+    assert (3, 11) not in _seams(obj)                        # the ring is cut at a rung of its own until it is broken
     index = _edge_index(obj, (3, 11))
     assert index in op._result.rings[obj.name]              # a ring's cross edge can be picked
     op._picking = True
@@ -1260,7 +1327,10 @@ def test_lmb_in_picking_sets_the_hovered_break():
     assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # not the confirm
     assert op._picking and _uv_islands(obj) == 1 and _ring_seams(obj, lambda c: True) == {(5, 13)}
     assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and not op._picking
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"FINISHED"}            # outside picking: confirm
+    laid = _uv_state(obj)
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # outside picking: no confirm
+    assert _uv_state(obj) == laid and op._side_hover is None
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}                  # Enter confirms
 
 
 def test_second_break_on_the_same_ring_replaces_the_first():
@@ -1291,7 +1361,7 @@ def test_breaks_on_two_rings_are_both_kept():
 
 def test_break_survives_option_changes():
     obj = _ring_and_strip()
-    op = _modal_on(obj, mode="FIT", split_angle=math.radians(5))
+    op = _modal_on(obj, mode="FIT")
     open_rung = _edge_index(obj, (18, 23))
     assert open_rung not in op._result.rings.get(obj.name, {})        # an open strip's cross edge is no break
     assert open_rung in op._result.cross[obj.name]                    # but it can be picked as a cut
@@ -1376,13 +1446,13 @@ def _click(op, obj, pair):
 def test_manual_cut_tears_an_open_strip_and_a_second_click_mends_it():
     obj = _grid(4, 1)
     _edit(obj)
-    op = _modal_on(obj, mode="FIT", split_at_bends=False)
+    op = _modal_on(obj, mode="FIT")
     assert _uv_islands(obj) == 1
     assert _edge_index(obj, (2, 7)) in op._result.cross[obj.name]      # an open strip's cross edge is pickable
     index = _click(op, obj, (2, 7))
     assert _uv_islands(obj) == 2 and _edges(op.manual_cuts) == {obj.name: [index]}
     assert _torn_at(op, obj, (2, 7)) and (2, 7) in _seams(obj)          # Mark Seams marks it like any tear
-    assert op._manual_cut_count() == 1 and "1 manual cut(s)" in op._status_text()
+    assert op._manual_cut_count() == 1
     _click(op, obj, (1, 6))
     assert _uv_islands(obj) == 3 and len(_edges(op.manual_cuts)[obj.name]) == 2
     _click(op, obj, (2, 7))
@@ -1414,7 +1484,7 @@ def test_a_seam_tear_is_not_changed_by_a_click():
     obj = _grid(4, 1)
     _edit(obj)
     _set_seams(obj, {(2, 7)})
-    op = _modal_on(obj, mode="FIT", split_at_seams=True, split_at_bends=False)
+    op = _modal_on(obj, mode="FIT", split_at_seams=True)
     assert _uv_islands(obj) == 2
     laid = _uv_state(obj)
     _click(op, obj, (2, 7))
@@ -1438,7 +1508,7 @@ def test_a_manual_cut_tears_a_broken_ring():
     assert all(a > 0 for a in _face_areas(obj))
     _click(op, obj, (3, 11))                                 # the break is removed; the manual cut stays
     assert op.cup_breaks == "" and op.manual_cuts != ""
-    assert _uv_islands(obj) > 2                              # torn at its bends again, and by hand
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == {(6, 14)}   # closed again, cut by hand
     op._finish(bpy.context)
 
 
@@ -1447,7 +1517,7 @@ def test_manual_cuts_tear_the_parts_of_an_island_split_at_its_seams():
     obj = _grid(3, 2, keep={(0, 0), (1, 0), (2, 0), (1, 1)})
     _edit(obj)
     _set_seams(obj, {(5, 6)})
-    op = _modal_on(obj, mode="FIT", split_at_seams=True, split_at_bends=False)
+    op = _modal_on(obj, mode="FIT", split_at_seams=True)
     assert _uv_islands(obj) == 2
     _click(op, obj, (1, 5))
     assert _uv_islands(obj) == 3 and op.manual_cuts != ""
@@ -1522,10 +1592,10 @@ def test_malformed_cut_properties_read_as_none():
     import json
     obj = _grid(4, 1)
     _edit(obj)
-    assert _run(mode="FIT", split_at_bends=False) == {"FINISHED"}
+    assert _run(mode="FIT") == {"FINISHED"}
     plain = _uv_state(obj)
     for text in ("not json", "[1, 2]", json.dumps({obj.name: 3}), json.dumps({obj.name: ["a", True, 999, -1]})):
-        assert _run(mode="FIT", split_at_bends=False, manual_cuts=text, skipped_cuts=text) == {"FINISHED"}, text
+        assert _run(mode="FIT", manual_cuts=text, skipped_cuts=text) == {"FINISHED"}, text
         assert _uv_state(obj) == plain, text
 
 
@@ -1590,7 +1660,7 @@ def test_invoke_draws_the_lines_in_the_scene_and_the_hud_on_top():
         handles = {h for h, _name, _kind in added}
         assert len(handles) == 2 and {op._handle_view, op._handle} == handles
         assert handles <= module._ACTIVE_HANDLES
-        assert op._result.outline                  # what the view handler draws: world-space outline segments
+        assert op._result.sides and not op._result.outline    # an open piece is drawn by its four sides, not an outline
         op._draw_view_callback(bpy.context)        # no GPU in the background: the draw fails inside, never raises
         assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
         assert set(removed) == handles and not handles & module._ACTIVE_HANDLES
@@ -1658,11 +1728,10 @@ def test_interactive_and_more_options_properties():
         assert name not in StripeSettings.__dataclass_fields__
 
 
-ALWAYS_ROWS = {"Layout (E)", "Pick Cut Edges (C)", "More Options (Tab)", "Doubled Vertices"}
-MORE_ROWS = {"Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Split at Seams (S)", "Mark Seams (X)",
-             "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)"}
-AUTO_ROWS = {"Stretch Limit (Wheel)", "Align (G)", "Pick Align Edge (V)"}
-BEND_ROWS = {"Split at Bends (A)", "Bend Angle (Wheel)"}
+ALWAYS_ROWS = {"Straight Sides (E)", "Ends (A)", "Stretch Limit (Wheel)", "More Options (Tab)"}
+MORE_ROWS = {"Balance (B)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Split at Seams (S)",
+             "Mark Seams (X)", "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)",
+             "Merge Doubles (F)"}
 
 
 def _shown(op):
@@ -1672,20 +1741,18 @@ def _shown(op):
 def test_tab_toggles_more_options_and_the_hud_rows():
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
-    op = _modal_on(obj)                       # layout = No Stretch
+    op = _modal_on(obj)                       # Straight Sides Both: no piece unfolded, so no Align row
     assert not op.show_options
     assert _shown(op) == ALWAYS_ROWS
-    assert "more options = off (Tab)" in op._status_text()
     before = _uv_state(obj)
     assert op._modal(bpy.context, _KeyPress("TAB")) == {"RUNNING_MODAL"} and op.show_options
     assert _uv_state(obj) == before                       # only the HUD changes
-    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | BEND_ROWS
-    assert "more options = on (Tab)" in op._status_text()
-    op.layout = "AUTO"
+    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS
+    op.straight_sides = "NONE"
     op._relayout(bpy.context)
-    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | AUTO_ROWS          # Auto picks its own tears
+    assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | {"Align (G)"}      # every piece at its real shape: Align applies
     op._modal(bpy.context, _KeyPress("TAB"))
-    assert not op.show_options and _shown(op) == ALWAYS_ROWS | AUTO_ROWS
+    assert not op.show_options and _shown(op) == ALWAYS_ROWS | {"Align (G)"}
     op.manual_cuts = '{"a": [1]}'
     assert "Manual Cuts" in _shown(op)
     op.manual_cuts = ""
@@ -1700,9 +1767,9 @@ def test_keys_of_hidden_rows_work_while_collapsed():
     before = _uv_state(obj)
     assert op._modal(bpy.context, _KeyPress("W")) == {"RUNNING_MODAL"}
     assert op.orientation == "VERTICAL" and _uv_state(obj)[0] != before[0]
-    op._modal(bpy.context, _KeyPress("Q"))
-    op._modal(bpy.context, _KeyPress("A"))
-    assert (op.mode, op.split_at_bends) == ("IN_PLACE", False) and not op.show_options
+    for key in ("Q", "A", "B"):
+        assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
+    assert (op.mode, op.ends, op.balance) == ("IN_PLACE", "BOTH", "LEAST_STRETCH") and not op.show_options
     op._modal(bpy.context, _KeyPress("ESC"))
 
 
@@ -1786,7 +1853,7 @@ def test_the_stepped_strip_with_the_users_defaults():
     # Active, Fit to Active Width, Auto, Split at Seams and at Bends (5 degrees), Mark Seams, Random Offset
     # along the strip, Merge Doubles: nothing raises, nothing folds, through execute and the modal alike.
     defaults = _operator_defaults()
-    assert defaults["mode"] == "ACTIVE" and defaults["layout"] == "AUTO" and defaults["split_at_seams"]
+    assert defaults["mode"] == "ACTIVE" and defaults["straight_sides"] == "BOTH" and defaults["split_at_seams"]
     for active in (None, 20):
         obj = _step_object(active)
         assert bpy.ops.iops.mesh_uv_stripe() == {"FINISHED"}
@@ -1799,12 +1866,13 @@ def test_the_stepped_strip_with_the_users_defaults():
         op = _modal_on(obj, **defaults)
         for key in ("E", "E", "E", "E", "E", "Q", "Q", "Q", "W", "D", "A", "A", "S", "S"):
             assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}, key
-            assert all(a > 1e-9 for a in _face_areas(obj)), (key, op.layout, op.mode)
+            assert all(a > 1e-9 for a in _face_areas(obj)), (key, op.straight_sides, op.mode)
         assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}, op.reports
-    for layout in ("AUTO", "TRUE", "STRAIGHT", "EVEN", "SHAPE"):
-        obj = _step_object(20)
-        assert bpy.ops.iops.mesh_uv_stripe(layout=layout) == {"FINISHED"}
-        assert all(a > 1e-9 for a in _face_areas(obj)), (layout, _face_areas(obj))
+    for sides in ("BOTH", "LONGER", "SHORTER", "NONE"):
+        for ends in ("SLANTED", "BOTH", "LONGER", "SHORTER"):
+            obj = _step_object(20)
+            assert bpy.ops.iops.mesh_uv_stripe(straight_sides=sides, ends=ends) == {"FINISHED"}
+            assert all(a > 1e-9 for a in _face_areas(obj)), (sides, ends, _face_areas(obj))
 
 
 # --- aligning True Shape: G cycles Align, V picks the edge a piece runs along --------------------------
@@ -1854,7 +1922,7 @@ def _click_align(op, obj, pair):
 
 def test_g_cycles_the_align_values():
     obj = _shape_strip()
-    op = _modal_on(obj, mode="FIT", layout="SHAPE")
+    op = _modal_on(obj, mode="FIT", straight_sides="NONE")
     seen = []
     for _ in range(4):
         assert op._modal(bpy.context, _KeyPress("G")) == {"RUNNING_MODAL"}
@@ -1865,7 +1933,7 @@ def test_g_cycles_the_align_values():
 
 def test_v_and_lmb_store_the_align_edge_and_keep_picking():
     obj = _shape_strip()
-    op = _modal_on(obj, mode="FIT", layout="SHAPE")
+    op = _modal_on(obj, mode="FIT", straight_sides="NONE")
     assert _uv_islands(obj) == 3
     assert _edge_index(obj, (0, 2)) in op._result.align_pieces[obj.name]       # row edges are pickable
     assert _edge_index(obj, (2, 3)) in op._result.align_pieces[obj.name]       # and cross edges
@@ -1878,7 +1946,7 @@ def test_v_and_lmb_store_the_align_edge_and_keep_picking():
     for only in (lambda c: c.x < 2.0, lambda c: 2.0 < c.x and c.y < 1.0):      # stood up on both sides of it
         a, b = (next(uv for co, uv in _corners(obj, only) if co.xy == obj.data.vertices[v].co.xy) for v in (4, 5))
         assert abs(a.x - b.x) < 1e-6, (a, b)
-    assert op._align_edge_count() == 1 and "1 align edge(s)" in op._status_text()
+    assert op._align_edge_count() == 1
     row = _click_align(op, obj, (0, 2))                      # piece 0: replaces the tear edge it shared
     assert _edges(op.align_edges) == {obj.name: [row]} and _along_u(obj, (0, 2))
     end = _click_align(op, obj, (8, 9))                      # the 38 degree tear: pieces 1 and 2, both kept
@@ -1892,7 +1960,7 @@ def test_v_and_lmb_store_the_align_edge_and_keep_picking():
 
 def test_the_two_pick_modes_are_exclusive():
     obj = _shape_strip()
-    op = _modal_on(obj, mode="FIT", layout="SHAPE")
+    op = _modal_on(obj, mode="FIT", straight_sides="NONE")
     op._modal(bpy.context, _KeyPress("C"))
     assert op._picking and not op._align_picking
     op._modal(bpy.context, _KeyPress("V"))
@@ -1909,7 +1977,7 @@ def test_the_two_pick_modes_are_exclusive():
 def test_cancel_restores_align_and_its_edges():
     obj = _shape_strip()
     before = _uv_state(obj)
-    op = _modal_on(obj, mode="FIT", layout="SHAPE")
+    op = _modal_on(obj, mode="FIT", straight_sides="NONE")
     op._modal(bpy.context, _KeyPress("G"))
     _click_align(op, obj, (2, 3))
     assert op.shape_align == "PICKED" and op.align_edges != ""
@@ -1922,13 +1990,13 @@ def test_confirm_after_align_picks_equals_execute():
     def made(confirm):
         obj = _shape_strip()
         if confirm:
-            op = _modal_on(obj, mode="FIT", layout="SHAPE")
+            op = _modal_on(obj, mode="FIT", straight_sides="NONE")
             _click_align(op, obj, (4, 5))
             _click_align(op, obj, (10, 11))
             op._modal(bpy.context, _KeyPress("V"))
             assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
             return _uv_state(obj), op.shape_align, list(_edges(op.align_edges).values())   # kept for redo
-        stand = _OperatorStandIn(mode="FIT", layout="SHAPE", shape_align="PICKED",
+        stand = _OperatorStandIn(mode="FIT", straight_sides="NONE", shape_align="PICKED",
                                  align_edges=_dump(obj, (4, 5), (10, 11)))
         assert stand.execute(bpy.context) == {"FINISHED"}
         return _uv_state(obj), stand.shape_align, list(_edges(stand.align_edges).values())
@@ -1936,51 +2004,57 @@ def test_confirm_after_align_picks_equals_execute():
     assert made(True) == made(False)
     obj = _shape_strip()
     edges = _dump(obj, (4, 5), (10, 11))
-    assert bpy.ops.iops.mesh_uv_stripe(**{**OLD_DEFAULTS, "mode": "FIT", "layout": "SHAPE", "shape_align": "PICKED",
+    assert bpy.ops.iops.mesh_uv_stripe(**{**OLD_DEFAULTS, "mode": "FIT", "straight_sides": "NONE", "shape_align": "PICKED",
                                         "align_edges": edges}) == {"FINISHED"}
     assert _along_v(obj, (4, 5)) and _along_v(obj, (10, 11))
     for align in ("LONGEST", "SHORTEST"):                  # the modal's G and the property give the same UVs
         obj = _shape_strip()
-        op = _modal_on(obj, mode="FIT", layout="SHAPE")
+        op = _modal_on(obj, mode="FIT", straight_sides="NONE")
         while op.shape_align != align:
             op._modal(bpy.context, _KeyPress("G"))
         assert op._modal(bpy.context, _KeyPress("SPACE")) == {"FINISHED"}
         confirmed = _uv_state(obj)
         obj = _shape_strip()
-        assert _OperatorStandIn(mode="FIT", layout="SHAPE", shape_align=align).execute(bpy.context) == {"FINISHED"}
+        assert _OperatorStandIn(mode="FIT", straight_sides="NONE", shape_align=align).execute(bpy.context) == {"FINISHED"}
         assert _uv_state(obj) == confirmed, align
 
 
-def test_align_rows_show_only_under_true_shape():
+def test_align_row_shows_only_where_a_piece_is_unfolded_at_its_real_shape():
     op = _OperatorStandIn()
     op._build_overlays(None)
     params = {p.name: p for section in op._hud.param_sections for p in section.params}
-    assert not params["Align (G)"].is_visible() and not params["Pick Align Edge (V)"].is_visible()
-    assert "align =" not in op._status_text() and "pick align edge" not in op._status_text()
-    op.layout = "SHAPE"
-    assert params["Align (G)"].is_visible() and params["Pick Align Edge (V)"].is_visible()
-    assert params["Align (G)"].value_text() == "Auto" and params["Pick Align Edge (V)"].value_text() == "✗"
-    status = op._status_text()
-    assert "align = auto (G)" in status and "pick align edge (V)" in status
+    assert not params["Align (G)"].is_visible()
+    assert not any(name.startswith(("Pick Align", "Pick Cut")) for name in params)     # the header says it
+    op.straight_sides = "NONE"
+    assert params["Align (G)"].is_visible() and params["Align (G)"].value_text() == "Auto"
     op.shape_align = "SHORTEST"
-    assert params["Align (G)"].value_text() == "Shortest Edge" and "align = shortest edge (G)" in op._status_text()
-    op._align_picking = True
-    assert params["Pick Align Edge (V)"].value_text() == "✓"
-    status = op._status_text()
-    assert "pick align edge" in status and "[V/Esc/RMB] stop picking" in status and "[LMB] store the edge" in status
-    op._align_picking = False
+    assert params["Align (G)"].value_text() == "Shortest Edge"
+    op.straight_sides = "BOTH"
+    assert not params["Align (G)"].is_visible()
+    obj = _grid(4, 1)                                       # a rectangle: laid out straight, nothing unfolded
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert op._result.unfolded == 0 and "Align (G)" not in _shown(op)
+    op._modal(bpy.context, _KeyPress("ESC"))
+    obj = _grid(4, 1)                                       # both long sides clicked free: unfolded at its real shape
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    op._click_side(bpy.context, obj, 0, "near")
+    op._click_side(bpy.context, obj, 0, "far")
+    assert op._result.unfolded == 1 and "Align (G)" in _shown(op)
+    op._modal(bpy.context, _KeyPress("ESC"))
 
 
 def test_other_layouts_do_not_depend_on_align():
-    for layout in ("TRUE", "STRAIGHT", "EVEN"):
+    for ends in ("SLANTED", "BOTH", "LONGER"):
         states = []
         for align in ("AUTO", "LONGEST", "SHORTEST", "PICKED"):
             obj = _shape_strip()
             edges = _dump(obj, (2, 3), (6, 8)) if align == "PICKED" else ""
-            stand = _OperatorStandIn(mode="FIT", layout=layout, shape_align=align, align_edges=edges)
+            stand = _OperatorStandIn(mode="FIT", straight_sides="BOTH", ends=ends, shape_align=align, align_edges=edges)
             assert stand.execute(bpy.context) == {"FINISHED"}
             states.append(_uv_state(obj))
-        assert all(state == states[0] for state in states), layout
+        assert all(state == states[0] for state in states), ends
 
 
 def test_align_is_no_shared_setting():
@@ -1995,6 +2069,430 @@ def test_align_is_no_shared_setting():
         assert name not in StripeSettings.__dataclass_fields__
 
 
+# --- sides: LMB on a side makes it straight or free; Straight Sides, Ends and Balance -------------------
+
+def _vertex_vs(obj, index):
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    bm.verts.ensure_lookup_table()
+    return {round(lp[layer].uv.y, 6) for lp in bm.verts[index].link_loops if lp.face.select}
+
+
+def _taper_strip(faces=3, taper=0.1):
+    """A strip of ``faces`` quads whose far rail closes in by ``taper`` per face: the defaults lay it out with both
+    long sides straight. Vertices 0 .. ``faces`` on the near rail, ``faces`` + 1 .. 2 * ``faces`` + 1 on the far one."""
+    row = faces + 1
+    points = [(float(x), 0.0, 0.0) for x in range(row)] + [(float(x), 1.0 - taper * x, 0.0) for x in range(row)]
+    obj = _object(points, [(i, i + 1, i + row + 1, i + row) for i in range(faces)])
+    _edit(obj)
+    return obj
+
+
+def _sheared_strip(faces=3, shear=0.2):
+    """A strip of ``faces`` quads sheared by ``shear``: both ends slanted, in the defaults' layout as in the faces."""
+    row = faces + 1
+    points = [(float(x), 0.0, 0.0) for x in range(row)] + [(float(x) + shear, 1.0, 0.0) for x in range(row)]
+    obj = _object(points, [(i, i + 1, i + row + 1, i + row) for i in range(faces)])
+    _edit(obj)
+    return obj
+
+
+def _side(op, obj, piece, name):
+    return op._result.sides[(obj.name, piece, name)]
+
+
+def test_click_on_a_long_side_makes_it_free_and_the_layout_follows():
+    import json
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    near, far = _side(op, obj, 0, "near"), _side(op, obj, 0, "far")
+    assert near.straight and far.straight
+    laid = _uv_state(obj)
+    assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 1       # both rails on one v each
+    assert len({v for i in range(4, 8) for v in _vertex_vs(obj, i)}) == 1
+    assert op._click_side(bpy.context, obj, 0, "near") is False
+    near, far = _side(op, obj, 0, "near"), _side(op, obj, 0, "far")
+    assert not near.straight and far.straight
+    assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 4       # the near rail follows its faces
+    assert len({v for i in range(4, 8) for v in _vertex_vs(obj, i)}) == 1    # the far rail is still straight
+    assert json.loads(op.side_picks) == {
+        obj.name: [[near.faces[0], near.edges[0], False], [far.faces[0], far.edges[0], True]]}   # both long sides
+    assert op._click_side(bpy.context, obj, 0, "near") is True
+    assert json.loads(op.side_picks) == {
+        obj.name: [[near.faces[0], near.edges[0], True], [far.faces[0], far.edges[0], True]]}
+    assert _side(op, obj, 0, "near").straight and _uv_state(obj) == laid
+    op._finish(bpy.context)
+
+
+def test_clicking_an_end_of_a_one_face_wide_strip_stands_it_upright():
+    obj = _sheared_strip()
+    op = _modal_on(obj, mode="FIT")
+    assert not _side(op, obj, 0, "end0").straight and not _side(op, obj, 0, "end1").straight
+    assert _vertex_us(obj, 3) != _vertex_us(obj, 7) and _vertex_us(obj, 0) != _vertex_us(obj, 4)   # both slanted
+    slanted = _uv_state(obj)
+    assert op._click_side(bpy.context, obj, 0, "end1") is True
+    assert _side(op, obj, 0, "end1").straight and not _side(op, obj, 0, "end0").straight
+    assert _vertex_us(obj, 3) == _vertex_us(obj, 7) == {1.0}                 # the end's cross edge is vertical
+    assert _vertex_us(obj, 0) != _vertex_us(obj, 4)                           # the other end keeps its slant
+    assert _side(op, obj, 0, "near").straight and _side(op, obj, 0, "far").straight
+    assert op._click_side(bpy.context, obj, 0, "end1") is False               # clicked again: slanted again
+    assert _uv_state(obj) == slanted
+    op._finish(bpy.context)
+
+
+def test_side_picks_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults():
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    defaults = _uv_state(obj)
+    op._click_side(bpy.context, obj, 0, "near")
+    clicked = _uv_state(obj)
+    assert clicked != defaults
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+    assert _uv_state(obj) == clicked
+    kept = op.side_picks
+    assert kept
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    stand = _OperatorStandIn(mode="FIT", side_picks=kept)
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _uv_state(obj) == clicked                                          # the confirmed picks, laid out again
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    assert _run(mode="FIT", side_picks=kept) == {"FINISHED"}                  # and through the operator itself
+    assert _uv_state(obj) == clicked
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    assert _OperatorStandIn(mode="FIT").execute(bpy.context) == {"FINISHED"}
+    assert _uv_state(obj) == defaults                                         # a fresh run starts without them
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    assert _run(mode="FIT") == {"FINISHED"} and _uv_state(obj) == defaults
+
+
+def test_lmb_off_a_side_changes_nothing_and_only_enter_confirms():
+    # A real cursor cannot hover headless: the side lookup is stood in for, the event handling is the operator's.
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    laid = _uv_state(obj)
+    for _ in range(2):
+        assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}     # no side near: not the confirm
+    assert _uv_state(obj) == laid and op.side_picks == "" and op._side_hover is None
+    op._hover_side = lambda _context, _event: (obj, 0, "near")
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}
+    assert op.side_picks != "" and not _side(op, obj, 0, "near").straight and _uv_state(obj) != laid
+    assert op._side_hover == (obj, 0, "near")                                           # kept for the preview
+    clicked = _uv_state(obj)
+    op._hover_side = lambda _context, _event: None
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"} and _uv_state(obj) == clicked
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"} and _uv_state(obj) == clicked
+    for key in ("NUMPAD_ENTER", "SPACE"):
+        obj = _taper_strip()
+        op = _modal_on(obj, mode="FIT")
+        assert op._modal(bpy.context, _KeyPress(key)) == {"FINISHED"}, key
+
+
+def test_e_and_a_keep_the_clicked_sides():
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    op._click_side(bpy.context, obj, 0, "near")
+    picks = op.side_picks
+    for key in ("E", "E", "E", "E", "A", "A", "A", "A"):                      # a full round of each
+        assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
+        assert op.side_picks == picks, key
+        assert not _side(op, obj, 0, "near").straight, (key, op.straight_sides, op.ends)    # still free
+        assert _side(op, obj, 0, "far").straight, (key, op.straight_sides, op.ends)
+        assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 4
+    assert (op.straight_sides, op.ends) == ("BOTH", "SLANTED")
+    op._finish(bpy.context)
+
+
+def test_esc_after_clicks_restores_the_side_picks_and_the_uvs():
+    obj = _taper_strip()
+    before = _uv_state(obj)
+    op = _modal_on(obj, mode="FIT")
+    op._click_side(bpy.context, obj, 0, "near")
+    op._modal(bpy.context, _KeyPress("E"))
+    assert op.side_picks != "" and _uv_state(obj) != before
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
+    assert op.side_picks == "" and op.straight_sides == "BOTH" and _uv_state(obj) == before
+    # picks the run started with come back too
+    op = _modal_on(obj, mode="FIT")
+    op._click_side(bpy.context, obj, 0, "near")
+    kept = op.side_picks
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    before = _uv_state(obj)
+    op = _modal_on(obj, mode="FIT", side_picks=kept)
+    op._click_side(bpy.context, obj, 0, "far")
+    assert op.side_picks != kept
+    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"CANCELLED"}
+    assert op.side_picks == kept and _uv_state(obj) == before
+
+
+def test_hud_rows_follow_the_state():
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert _shown(op) == ALWAYS_ROWS                                          # no Align, Manual Cuts, Doubled Vertices
+    for _ in range(3):
+        op._modal(bpy.context, _KeyPress("E"))                                # Both, Longer, Shorter, None
+    assert op.straight_sides == "NONE" and _shown(op) == ALWAYS_ROWS | {"Align (G)"}
+    op._modal(bpy.context, _KeyPress("E"))
+    assert op.straight_sides == "BOTH" and _shown(op) == ALWAYS_ROWS
+    _click(op, obj, (2, 3))
+    assert _shown(op) == ALWAYS_ROWS | {"Manual Cuts"}
+    params = {p.name: p for section in op._hud.param_sections for p in section.params}
+    assert params["Manual Cuts"].value_text() == "1"
+    op._modal(bpy.context, _KeyPress("ESC"))
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
+    obj = _grid(4, 1)                                                         # both long sides clicked free
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert _shown(op) == ALWAYS_ROWS
+    op._click_side(bpy.context, obj, 0, "near")
+    assert _shown(op) == ALWAYS_ROWS                                          # one side free: the other is straight
+    op._click_side(bpy.context, obj, 0, "far")
+    assert _shown(op) == ALWAYS_ROWS | {"Align (G)"}
+    op._modal(bpy.context, _KeyPress("ESC"))
+    obj = _double_object()
+    op = _modal_on(obj, mode="FIT")
+    assert _shown(op) == ALWAYS_ROWS | {"Doubled Vertices"}
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+def test_the_pick_modes_show_their_line_in_the_hud_header():
+    from types import SimpleNamespace
+    obj = _polyline([0, 22, 0, 38])
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    op._hud.draw = op._help.draw = lambda *_args: None                        # no GPU in the background
+    context = SimpleNamespace(region_data=object())
+    op._draw_callback(context)
+    assert op._hud._header_lines == ["3 strip(s)"]
+    op._modal(bpy.context, _KeyPress("C"))
+    op._draw_callback(context)
+    assert op._hud._header_lines == ["Picking cut edges · C to stop", "3 strip(s)"]
+    op._modal(bpy.context, _KeyPress("V"))
+    op._draw_callback(context)
+    assert op._hud._header_lines == ["Picking the align edge · V to stop", "3 strip(s)"]
+    op._modal(bpy.context, _KeyPress("ESC"))
+    op._draw_callback(context)
+    assert op._hud._header_lines == ["3 strip(s)"]
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+def test_help_starts_collapsed():
+    op = _OperatorStandIn()
+    op._build_overlays(None)
+    assert op._help.expanded is False
+    obj = _grid(4, 1)
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    assert op._help.expanded is False
+    op._modal(bpy.context, _KeyPress("ESC"))
+
+
+def test_shape_settings_are_shared_and_side_picks_are_not():
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
+    for name in ("straight_sides", "ends", "balance", "stretch_limit"):
+        assert name in StripeSettings.__dataclass_fields__, name
+    assert "side_picks" not in StripeSettings.__dataclass_fields__
+    assert rna["side_picks"].is_hidden and rna["side_picks"].is_skip_save
+    assert not rna["straight_sides"].is_skip_save and not rna["ends"].is_skip_save and not rna["balance"].is_skip_save
+    assert (rna["straight_sides"].default, rna["ends"].default, rna["balance"].default) == (
+        "BOTH", "SLANTED", "EVEN_TEXEL")
+    assert round(rna["stretch_limit"].default, 6) == 1.25
+    settings = StripeSettings.from_operator(_OperatorStandIn(straight_sides="LONGER", ends="SHORTER",
+                                                             balance="LEAST_STRETCH"))
+    assert (settings.straight_sides, settings.ends, settings.balance) == ("LONGER", "SHORTER", "LEAST_STRETCH")
+
+
+def _bent_patch(cols=6, rows=3):
+    """A ``cols`` x ``rows`` patch of quads bent over an arc (a flat annulus sector: its rows differ in length)."""
+    points = [((2.0 + 0.5 * y) * math.cos(0.2 * x), (2.0 + 0.5 * y) * math.sin(0.2 * x), 0.0)
+              for y in range(rows + 1) for x in range(cols + 1)]
+    row = cols + 1
+    faces = [(y * row + x, y * row + x + 1, (y + 1) * row + x + 1, (y + 1) * row + x)
+             for y in range(rows) for x in range(cols)]
+    obj = _object(points, faces)
+    _edit(obj)
+    return obj
+
+
+def _stretched_count(obj):
+    from InteractionOps.operators import uv_stripe_bridge
+    bm = bmesh.from_edit_mesh(obj.data)
+    return len(uv_stripe_bridge.stretched_faces(bm, _selected_faces(obj), obj.matrix_world))
+
+
+def test_every_shape_combination_finishes_on_the_bent_ngons_and_a_wide_patch():
+    import itertools
+    for sides, ends, balance in itertools.product(("BOTH", "LONGER", "SHORTER", "NONE"),
+                                                  ("SLANTED", "BOTH", "LONGER", "SHORTER"),
+                                                  ("EVEN_TEXEL", "LEAST_STRETCH")):
+        shape = {"straight_sides": sides, "ends": ends, "balance": balance}
+        obj = _ngon_object(exact_ngon_verts())
+        _edit(obj)
+        assert _run(mode="FIT", **shape) == {"FINISHED"}, shape
+        assert all(a > 0 for a in _face_areas(obj)), shape
+        # the ends stand upright on the n-gons only by stretching two faces; nothing else stretches them
+        assert _stretched_count(obj) == (0 if ends == "SLANTED" or sides == "NONE" else 2), shape
+        obj = _bent_patch()
+        assert _run(mode="FIT", **shape) == {"FINISHED"}, shape
+        assert all(a > 0 for a in _face_areas(obj)), shape
+        count = _stretched_count(obj)
+        if sides == "NONE" or balance == "LEAST_STRETCH":
+            assert count == 0, shape                       # the real shape, or the least stretch the patch allows
+        if (sides, ends, balance) == ("BOTH", "SLANTED", "EVEN_TEXEL"):
+            assert count == 6, shape                       # the defaults: even texel density, some stretch left
+
+
+def test_old_last_used_values_of_the_removed_properties_are_ignored():
+    from InteractionOps.operators.uv_stripe_bridge import StripeSettings
+    obj = _grid(4, 1)
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    props = bpy.context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
+    baseline = StripeSettings.from_last(bpy.context)
+    written = []
+    try:
+        for name, value in (("layout", 1), ("split_angle", 0.3), ("split_at_bends", True)):
+            props[name] = value
+            written.append(name)
+        assert written == ["layout", "split_angle", "split_at_bends"]
+        assert StripeSettings.from_last(bpy.context) == baseline
+        obj = _grid(4, 1)
+        _edit(obj)
+        assert bpy.ops.iops.mesh_uv_stripe() == {"FINISHED"}                  # the bare call, with the stale values
+        obj = _grid(4, 1)
+        _edit(obj)
+        assert _run(mode="FIT") == {"FINISHED"}
+        for co, uv in _corners(obj):
+            assert _close(uv.x, co.x / 4.0) and _close(uv.y, co.y / 4.0), (co, uv)
+        assert StripeSettings.from_last(bpy.context) == baseline
+    finally:
+        for name in written:
+            try:
+                del props[name]
+            except (KeyError, TypeError):
+                pass
+
+
+def _double_click(key="LEFTMOUSE"):
+    event = _KeyPress(key)
+    event.value = "DOUBLE_CLICK"
+    return event
+
+
+def test_double_click_on_a_side_toggles_it_like_a_press():
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    laid = _uv_state(obj)
+    op._hover_side = lambda _context, _event: (obj, 0, "near")
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}
+    assert not _side(op, obj, 0, "near").straight and op.side_picks != ""
+    pressed = _uv_state(obj)
+    assert pressed != laid
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}
+    assert _side(op, obj, 0, "near").straight and _uv_state(obj) == laid
+    op._hover_side = lambda _context, _event: None
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}       # off a side: nothing, no confirm
+    assert _uv_state(obj) == laid
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+    # in the cut pick mode a double click picks like a press
+    obj = _grid(4, 1)
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    index = _edge_index(obj, (2, 7))
+    op._hover_break = lambda _context, _event: (obj, index)
+    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"} and op._picking
+    assert _uv_islands(obj) == 2 and _edges(op.manual_cuts) == {obj.name: [index]}
+    op._finish(bpy.context)
+
+
+def test_a_rectangular_frame_is_four_islands_of_one_face():
+    outer = [(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0)]
+    inner = [(0.2, 0.2), (3.8, 0.2), (3.8, 1.8), (0.2, 1.8)]
+    obj = _object([(x, y, 0.0) for x, y in outer + inner], [(k, (k + 1) % 4, 4 + (k + 1) % 4, 4 + k) for k in range(4)])
+    _edit(obj)
+    assert _run(mode="FIT") == {"FINISHED"}
+    assert _uv_islands(obj) == 4
+    assert _seams(obj) & _inner_edges(obj) == {(k, 4 + k) for k in range(4)}      # every corner edge
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    sizes = []
+    for f in bm.faces:
+        pts = [lp[layer].uv for lp in f.loops]
+        sizes.append((max(p.x for p in pts) - min(p.x for p in pts), max(p.y for p in pts) - min(p.y for p in pts)))
+    assert all(a > 0 for a in _face_areas(obj))
+    assert _close(sizes[0][0], sizes[2][0]) and _close(sizes[0][1], sizes[2][1])   # the two long pieces
+    assert _close(sizes[1][0], sizes[3][0]) and _close(sizes[1][1], sizes[3][1])   # the two short ones
+    assert sizes[0][0] > sizes[1][0]
+
+
+class _HoverContext:
+    """``bpy.context`` with a region and view data (stood in for) and the edit objects, so ``_hover_side`` runs."""
+
+    def __init__(self, obj):
+        from types import SimpleNamespace
+        self.region = self.region_data = object()
+        self.preferences = SimpleNamespace(system=SimpleNamespace(ui_scale=1.0))   # 0 in a background Blender
+        self.objects_in_mode_unique_data = [obj]
+
+    def __getattr__(self, name):
+        return getattr(bpy.context, name)
+
+
+def test_hover_side_prefers_the_piece_under_the_cursor_and_skips_hidden_edges():
+    # No region headless: the raycast and the on-screen distances are stood in for, the lookup is the operator's.
+    from InteractionOps.utils import picking
+    obj = _polyline([0, 22])
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    result = op._result
+    tear = _edge_index(obj, (4, 5))
+    entries = result.side_edges[obj.name][tear]
+    assert sorted(piece for piece, _name in entries) == [0, 1]                 # the tear ends both pieces
+    face_of = {n: next(f for f, piece in result.piece_faces[obj.name].items() if piece == n) for n in (0, 1)}
+    near = {}                                                                  # on-screen distance by edge index
+    hit = {"on": False, "face": 0}
+    real_ray, real_closest = picking.raycast_edit_meshes, picking.closest_edge_screen
+
+    def raycast(*_args, **_kwargs):
+        return (hit["on"], None, None, hit["face"], obj)
+
+    def closest(_context, edges, _matrix, _coord):
+        if not edges:
+            return None, 1e9
+        if len(edges) > 1:                       # the face under the cursor: none of its edges is near
+            return 0, 1e9
+        k = min(range(len(edges)), key=lambda i: near.get(edges[i].index, 1e9))
+        return k, near.get(edges[k].index, 1e9)
+
+    picking.raycast_edit_meshes, picking.closest_edge_screen = raycast, closest
+    try:
+        context, event = _HoverContext(obj), _KeyPress("MOUSEMOVE")
+        op._edge_visible = lambda *_args: True
+        near[tear] = 1.0
+        assert op._hover_side(context, event)[1] == min(piece for piece, _name in entries)   # nothing under it
+        for under in (0, 1):                                                   # a face of piece 0 / piece 1 under it
+            hit.update(on=True, face=face_of[under])
+            found = op._hover_side(context, event)       # the tear edge is the only one near: the face's piece wins
+            assert found is not None and found[1] == under, (under, found)
+        # a nearer edge hidden behind geometry is skipped for a farther visible one
+        hit["on"] = False
+        near.clear()
+        hidden, visible = _edge_index(obj, (0, 2)), _edge_index(obj, (2, 4))
+        near.update({hidden: 1.0, visible: 5.0})
+        assert op._hover_side(context, event)[2] == result.side_edges[obj.name][hidden][0][1]
+        op._edge_visible = lambda _context, _region, _rv3d, _objects, _obj, edge, _coord: edge.index != hidden
+        found = op._hover_side(context, event)
+        assert found == (obj, *result.side_edges[obj.name][visible][0])
+        near[visible] = 1e9                                                    # beyond the pick radius: nothing
+        assert op._hover_side(context, event) is None
+    finally:
+        picking.raycast_edit_meshes, picking.closest_edge_screen = real_ray, real_closest
+    op._finish(bpy.context)
+
+
 TESTS = [
     test_fit_straight_strip,
     test_in_place_keeps_centre_and_density,
@@ -2003,12 +2501,13 @@ TESTS = [
     test_mark_seams_match_the_pieces,
     test_split_at_seams_tears_the_strip_and_keeps_its_seam,
     test_ring_with_one_seam_is_cut_there,
-    test_split_at_bends_on_a_flat_bent_strip,
+    test_auto_tears_a_sharp_bend_and_keeps_a_gentle_one_whole,
     test_ngon_strip_splits_into_stretch_free_pieces,
     test_ngon_strip_with_the_captured_coordinates_is_split_too,
     test_a_requested_split_that_cannot_be_made_is_reported,
-    test_layouts,
+    test_ends_slanted_keeps_the_true_size_and_ends_both_stands_every_cross_edge_vertical,
     test_auto_lays_a_tapered_piece_out_by_the_stretch_limit,
+    test_auto_lays_a_wide_arc_out_as_one_straight_island,
     test_modal_wheel_changes_the_stretch_limit_under_auto,
     test_vertical_orientation_turns_the_strip,
     test_triangulated_strip_is_its_quads_rectangle,
@@ -2018,7 +2517,7 @@ TESTS = [
     test_only_rejected_cancels,
     test_mesh_without_uv_gets_one,
     test_modal_keys_toggle_their_options_and_the_uvs_follow,
-    test_modal_wheel_changes_the_bend_angle_while_splitting,
+    test_modal_wheel_changes_the_stretch_limit_under_any_straight_sides,
     test_modal_cancel_restores_uvs_seams_and_options,
     test_modal_cancel_removes_a_uv_layer_it_made,
     test_modal_confirm_equals_execute,
@@ -2033,7 +2532,7 @@ TESTS = [
     test_active_fit_stretches_no_face,
     test_seams_split_a_strip_whose_sides_fan_round_a_corner,
     test_stretched_faces_are_measured_in_world_space,
-    test_rectangles_on_a_bent_strip_reports_stretched_faces,
+    test_ends_both_on_a_bent_strip_reports_stretched_faces,
     test_default_offset_runs_along_the_strip_in_both_orientations,
     test_true_shape_follows_a_tapering_strip,
     test_active_fits_the_other_strip_onto_the_reference,
@@ -2042,10 +2541,10 @@ TESTS = [
     test_active_without_an_active_face_lays_out_in_place_and_says_so,
     test_random_offset_moves_the_other_strip_along_u_only,
     test_modal_fit_to_active_and_random_offset_keys,
-    test_cup_break_ring_is_one_piece_despite_bend_split,
-    test_cup_break_all_quads_is_rectangles_under_no_stretch,
+    test_cup_break_opens_a_ring_as_one_piece_and_auto_tears_a_flat_ring_at_every_bend,
+    test_cup_break_all_quads_is_rectangles_under_the_defaults,
     test_cup_break_replaces_an_old_seam,
-    test_cup_break_with_a_triangle_follows_layout,
+    test_cup_break_with_a_triangle_follows_the_ends,
     test_cup_break_on_an_open_strip_is_ignored,
     test_cup_break_is_taken_before_doubles_are_merged,
     test_c_enters_and_leaves_picking,
@@ -2080,9 +2579,24 @@ TESTS = [
     test_the_two_pick_modes_are_exclusive,
     test_cancel_restores_align_and_its_edges,
     test_confirm_after_align_picks_equals_execute,
-    test_align_rows_show_only_under_true_shape,
+    test_align_row_shows_only_where_a_piece_is_unfolded_at_its_real_shape,
     test_other_layouts_do_not_depend_on_align,
     test_align_is_no_shared_setting,
+    test_click_on_a_long_side_makes_it_free_and_the_layout_follows,
+    test_clicking_an_end_of_a_one_face_wide_strip_stands_it_upright,
+    test_side_picks_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults,
+    test_lmb_off_a_side_changes_nothing_and_only_enter_confirms,
+    test_e_and_a_keep_the_clicked_sides,
+    test_esc_after_clicks_restores_the_side_picks_and_the_uvs,
+    test_hud_rows_follow_the_state,
+    test_the_pick_modes_show_their_line_in_the_hud_header,
+    test_help_starts_collapsed,
+    test_shape_settings_are_shared_and_side_picks_are_not,
+    test_every_shape_combination_finishes_on_the_bent_ngons_and_a_wide_patch,
+    test_old_last_used_values_of_the_removed_properties_are_ignored,
+    test_double_click_on_a_side_toggles_it_like_a_press,
+    test_a_rectangular_frame_is_four_islands_of_one_face,
+    test_hover_side_prefers_the_piece_under_the_cursor_and_skips_hidden_edges,
 ]
 
 

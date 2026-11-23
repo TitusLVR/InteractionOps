@@ -87,7 +87,6 @@ PIE_GROUPS = {
             ("iops.mesh_snapshot", "Mesh Snapshot"),
         )),
         "RIGHT": ("UV", _col(
-            ("iops.mesh_uv_stripe", "UV Stripe"),
             ("iops.mesh_uv_stripe_interactive", "UV Stripe (Interactive)"),
             ("iops.mesh_uv_pipe", "UV Pipe"),
             ("iops.mesh_uv_shortest_mark", "UV Shortest Path Mark"),

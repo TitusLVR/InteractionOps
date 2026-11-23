@@ -29,7 +29,7 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Slot | Box | Buttons |
 | --- | --- | --- |
 | Left | **Mesh** | Inset, Edge Slide, Straight Bevel, Shear, Hinge, Converge, Vert Fuse, Quick Connect, Quick Snap, Tris to Quads, Cursor Bisect, To Grid, Mesh Snapshot |
-| Right | **UV** | UV Stripe, UV Stripe (Interactive), UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
+| Right | **UV** | UV Stripe (Interactive), UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
 | Bottom | **Vertex Color** | See below |
 | Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face |
 | Top-left | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |

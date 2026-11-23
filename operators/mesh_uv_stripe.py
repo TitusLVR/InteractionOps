@@ -3,33 +3,37 @@
 Every edge-connected island of selected faces becomes a ``uv_stripe_core.Strip``
 (``uv_stripe_select_core.strip_from_faces``), built from world positions so the
 object's scale shows in the aspect. The whole island is built first and then torn
-by slicing its rows at the chosen rungs: at its bends (Split at Bends) and at the
-seams inside it (Split at Seams). Only an island that is no strip as a whole is
-split at its seams into islands built one by one. The pieces are written into the
-active UV map through ``uv_stripe_bridge``; no ``bpy.ops.uv`` call.
+by slicing its rows at the chosen rungs: where a tear lowers the stretch (Auto's
+bend cuts) and at the seams inside it (Split at Seams). Only an island that is no
+strip as a whole is split at its seams into islands built one by one. Every piece
+is laid out by what must be straight on it (Straight Sides, Ends, relaxed by
+Stretch Limit; ``uv_stripe_auto_core``), the layout picked by measured stretch.
+The pieces are written into the active UV map through ``uv_stripe_bridge``; no
+``bpy.ops.uv`` call.
 
 Invoked, the operator lays the strips out at once with the last-used options. With
 ``interactive`` (bound through ``IOPS_OT_Mesh_UV_Stripe_Interactive``, "UV Stripe
 (Interactive)") it is modal instead: every option has a key, and every change restores
 the UVs and seams the selected faces had and lays them out again, so the UV editor
-follows live; the viewport shows each piece's outline and where the strip is torn.
-Confirm keeps the result (one undo step), cancel puts the snapshot back. C picks
-cut edges among the cross edges of the laid-out strips: on a closed ring with no
-break yet the click breaks it there (``cup_breaks``), and the ring is then laid
-out as one open strip from there; elsewhere the click removes that break, marks or
-unmarks a cut by hand (``manual_cuts``, torn whatever the split options say) or
-skips or restores a tear of Split at Bends (``skipped_cuts``). Under True Shape, G
-cycles what each unfolded piece is aligned to (``shape_align``) and V picks the edge
-a piece is aligned to (``align_edges``).
+follows live; the viewport shows the four sides of every piece, straight or free,
+and LMB on a side toggles that side of that piece (``side_picks``). Enter / Space
+keep the result (one undo step), Esc / RMB put the snapshot back. C picks cut edges
+among the cross edges of the laid-out strips: on a closed ring with no break yet the
+click breaks it there (``cup_breaks``), and the ring is then laid out as one open
+strip from there; elsewhere the click removes that break, marks or unmarks a cut by
+hand (``manual_cuts``) or skips or restores one of Auto's tears (``skipped_cuts``).
+For the pieces unfolded at their real shape, G cycles what each one is aligned to
+(``shape_align``) and V picks the edge a piece is aligned to (``align_edges``).
 """
 
 import json
-import math
 from dataclasses import dataclass, field
 
 import bmesh
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
+from bpy_extras import view3d_utils
+from mathutils import Vector
 
 from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
@@ -38,9 +42,13 @@ from ..utils import picking, uv_stripe_auto_core, uv_stripe_core, uv_stripe_sele
 from . import uv_stripe_bridge
 
 EPS = 1e-6
-ANGLE_STEP = math.radians(5.0)
-ANGLE_FINE_STEP = math.radians(1.0)
-LAYOUT_CYCLE = [item[0] for item in uv_stripe_bridge.LAYOUT_ITEMS]
+SIDES_CYCLE = [item[0] for item in uv_stripe_bridge.STRAIGHT_SIDES_ITEMS]
+SIDES_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.STRAIGHT_SIDES_ITEMS}
+ENDS_CYCLE = [item[0] for item in uv_stripe_bridge.ENDS_ITEMS]
+ENDS_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ENDS_ITEMS}
+BALANCE_CYCLE = [item[0] for item in uv_stripe_bridge.BALANCE_ITEMS]
+BALANCE_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.BALANCE_ITEMS}
+SIDE_PICK_RADIUS = 30.0     # px (times the interface scale): how near a side the cursor must be to pick it
 MODE_CYCLE = ["FIT", "IN_PLACE", "ACTIVE"]
 MODE_NAMES = {"FIT": "Fit 0–1", "IN_PLACE": "In Place", "ACTIVE": "Active"}
 FIT_CYCLE = [item[0] for item in uv_stripe_bridge.ACTIVE_FIT_ITEMS]
@@ -135,6 +143,35 @@ def _dump_edges(data):
     return json.dumps(data, sort_keys=True) if data else ""
 
 
+def _parse_sides(text):
+    """``side_picks`` as {object name: [(face index, edge index, straight), ...]} in order; anything malformed
+    reads as no pick."""
+    try:
+        data = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    def number(x):
+        return isinstance(x, int) and not isinstance(x, bool)
+
+    out = {}
+    for name, picks in data.items():
+        if not isinstance(picks, list):
+            continue
+        out[str(name)] = [(p[0], p[1], bool(p[2])) for p in picks
+                          if isinstance(p, list) and len(p) == 3 and number(p[0]) and number(p[1])
+                          and isinstance(p[2], (bool, int))]
+    return out
+
+
+def _dump_sides(data):
+    """{object name: [(face index, edge index, straight), ...]} as the JSON ``side_picks`` holds; "" for none."""
+    data = {name: [[f, e, bool(s)] for f, e, s in picks] for name, picks in data.items() if picks}
+    return json.dumps(data, sort_keys=True) if data else ""
+
+
 @dataclass
 class _Result:
     """What one layout pass did, over every object in Edit Mode."""
@@ -156,15 +193,33 @@ class _Result:
     # per object name: {edge index: ring number} for every cross edge of a selected closed ring (a break pick)
     rings: dict = field(default_factory=dict)
     # per object name, sets of edge indices: every cross edge of a laid-out strip (a cut pick), the cross edges
-    # Split at Bends tore the strips at, and the seams Split at Seams tore them at
+    # Auto tore the strips at, and the seams Split at Seams tore them at
     cross: dict = field(default_factory=dict)
     bend_tears: dict = field(default_factory=dict)
     seam_tears: dict = field(default_factory=dict)
-    skipped_tears: list = field(default_factory=list)   # world-space segments of the skipped bend tears
+    skipped_tears: list = field(default_factory=list)   # world-space segments of the skipped tears
     # per object name: {edge index: set of piece numbers} for every edge of a laid-out piece's faces (an align edge
     # pick); an edge the strip is torn at lies in both its pieces
     align_pieces: dict = field(default_factory=dict)
     align_lines: list = field(default_factory=list)     # world-space segments of the picked align edges in use
+    # The sides of every open piece. ``sides``: (object name, piece number, side name) -> _Side; ``side_edges``:
+    # per object name {edge index: [(piece number, side name), ...]} (an edge the strip is torn at ends two
+    # pieces); ``piece_faces``: per object name {face index: piece number}.
+    sides: dict = field(default_factory=dict)
+    side_edges: dict = field(default_factory=dict)
+    piece_faces: dict = field(default_factory=dict)
+    unfolded: int = 0             # pieces laid out at their real shape (no long side straight): Align applies
+
+
+@dataclass
+class _Side:
+    """One side of a laid-out piece: whether it is laid out straight, its edges (indices, in order), the
+    piece's face beside each edge (index) and the world-space segment end points, two per edge."""
+
+    straight: bool
+    edges: list
+    faces: list
+    points: list
 
 
 def _collect_stretched(result, bm, pieces, matrix):
@@ -181,8 +236,45 @@ def _doubles_warning(count):
     return (f"UV Stripe: {count} doubled vertices in the strip; turn on Merge Doubles or use Merge by Distance")
 
 
+def _collect_sides(result, obj, pieces, edge_of, matrix, asked=None):
+    """Every open piece's four sides (``uv_stripe_auto_core.piece_sides``) into ``result.sides``, ``side_edges``
+    and ``piece_faces``; counts the pieces unfolded at their real shape. A long side is straight as the piece
+    is laid out (``uv_stripe_auto_core.laid_shape``: Stretch Limit may have relaxed it). An end is straight as
+    asked (``asked(strip)``, the settings and the picked sides; the laid-out shape without it): a free end is
+    not forced, though the layout that stretches least may stand it upright all the same. With no long side
+    straight both ends are free."""
+    edges = result.side_edges.setdefault(obj.name, {})
+    owners = result.piece_faces.setdefault(obj.name, {})
+    for n, (strip, faces) in enumerate(pieces):
+        for f in faces.values():
+            owners[f.index] = n
+        sides = uv_stripe_auto_core.piece_sides(strip)
+        if not sides:
+            continue
+        shape = uv_stripe_auto_core.laid_shape(strip)
+        if asked is not None:
+            want = asked(strip)
+            unfolded = shape.rails == "NONE"
+            shape = uv_stripe_auto_core.Shape(shape.near, shape.far, want.end0 and not unfolded,
+                                              want.end1 and not unfolded)
+        result.unfolded += shape.rails == "NONE"
+        for name, side in sides.items():
+            record = _Side(getattr(shape, name), [], [], [])
+            for pair, fid in side:
+                e = edge_of.get(pair)
+                if e is None:
+                    continue
+                record.edges.append(e.index)
+                record.faces.append(fid)
+                record.points.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
+                edges.setdefault(e.index, []).append((n, name))
+            if record.edges:
+                result.sides[(obj.name, n, name)] = record
+
+
 def _collect_preview(result, pieces, matrix):
-    """World-space segments of every piece's outline, and of the edges the strip is torn at."""
+    """World-space segments of every closed piece's outline (an open piece's outline is its sides,
+    ``_collect_sides``), and of the edges the strip is torn at."""
     piece_of = {}
     for n, (_strip, faces) in enumerate(pieces):
         for f in faces.values():
@@ -199,7 +291,7 @@ def _collect_preview(result, pieces, matrix):
         for e in {e for f in inside for e in f.edges}:
             linked = [piece_of[g] for g in e.link_faces if g in piece_of]
             ends = (matrix @ e.verts[0].co, matrix @ e.verts[1].co)
-            if linked.count(n) == 1:
+            if strip.closed and linked.count(n) == 1:
                 result.outline.extend(ends)
             ring_cut = bool(cut) and {v.index for v in e.verts} == cut
             between = len(set(linked)) > 1 and n == min(linked)     # each tear once
@@ -232,23 +324,36 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         items=uv_stripe_bridge.ORIENTATION_ITEMS,
         default="HORIZONTAL",
     )
-    layout: EnumProperty(
-        name="Layout",
-        description="How the strip's rows are laid out along its length",
-        items=uv_stripe_bridge.LAYOUT_ITEMS,
-        default="AUTO",
+    straight_sides: EnumProperty(
+        name="Straight Sides",
+        description="Which long sides of every piece are laid out straight and horizontal",
+        items=uv_stripe_bridge.STRAIGHT_SIDES_ITEMS,
+        default="BOTH",
+    )
+    ends: EnumProperty(
+        name="Ends",
+        description="Which ends of every piece stand upright; not used while no long side is straight",
+        items=uv_stripe_bridge.ENDS_ITEMS,
+        default="SLANTED",
     )
     stretch_limit: FloatProperty(
         name="Stretch Limit",
         description=(
-            "Auto lays a piece out straight while no face stretches more than this, and as True Shape beyond it "
-            "when that stretches less; 1.0 makes every piece that stretches at all True Shape"
+            "A piece whose worst face stretches more than this is relaxed one step at a time: both long sides "
+            "straight, the longer one only, none; it stops at the first step within the limit, else at the least "
+            "stretched. A piece whose long sides were clicked is not relaxed"
         ),
         default=uv_stripe_auto_core.DEFAULT_STRETCH_LIMIT,
         min=1.0,
         max=3.0,
         step=5,
         precision=2,
+    )
+    balance: EnumProperty(
+        name="Balance",
+        description="How a strip several faces wide spreads the stretch it cannot avoid",
+        items=uv_stripe_bridge.BALANCE_ITEMS,
+        default="EVEN_TEXEL",
     )
     split_at_seams: BoolProperty(
         name="Split at Seams",
@@ -257,19 +362,6 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             "off, the strip is laid out across them (Mark Seams then clears them)"
         ),
         default=True,
-    )
-    split_at_bends: BoolProperty(
-        name="Split at Bends",
-        description="Tear the strip at cross edges where it bends within its own surface by more than the bend angle",
-        default=True,
-    )
-    split_angle: FloatProperty(
-        name="Bend Angle",
-        description="Turn of the strip, summed since the last tear, beyond which it is torn",
-        subtype="ANGLE",
-        default=math.radians(5.0),
-        min=math.radians(1.0),
-        max=math.pi,
     )
     mark_seams: BoolProperty(
         name="Mark Seams",
@@ -304,7 +396,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
     shape_align: EnumProperty(
         name="Align",
-        description="What each piece laid out as True Shape runs along",
+        description="What each piece unfolded at its real shape (no long side straight) runs along",
         items=ALIGN_ITEMS,
         default="AUTO",
     )
@@ -321,7 +413,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
-    # The cut edges marked by hand and the bend tears skipped by hand, in the same JSON and kept the same way.
+    # The cut edges marked by hand and the tears of Auto skipped by hand, in the same JSON and kept the same way.
     manual_cuts: StringProperty(
         name="Manual Cuts",
         description="The cross edges the strips are torn at by hand, picked in the interactive mode",
@@ -329,16 +421,25 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         options={"HIDDEN", "SKIP_SAVE"},
     )
     skipped_cuts: StringProperty(
-        name="Skipped Bend Tears",
-        description="The cross edges Split at Bends no longer tears the strips at, picked in the interactive mode",
+        name="Skipped Tears",
+        description="The cross edges Auto no longer tears the strips at, picked in the interactive mode",
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
-    # The edges the True Shape pieces are aligned to, in the same JSON and kept the same way; each piece takes the
-    # first one that is an edge of its faces.
+    # The edges the pieces unfolded at their real shape are aligned to, in the same JSON and kept the same way;
+    # each piece takes the first one that is an edge of its faces.
     align_edges: StringProperty(
         name="Align Edges",
-        description="The edges the True Shape pieces are aligned to, picked in the interactive mode",
+        description="The edges the pieces unfolded at their real shape are aligned to, picked in the interactive mode",
+        default="",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    # The sides clicked straight or free in the interactive mode, as JSON {object name: [[face index, edge
+    # index, straight], ...]}: each sets the side holding that edge of the piece holding that face, later over
+    # earlier. Kept for redo like the edges above; a new run starts from Straight Sides and Ends.
+    side_picks: StringProperty(
+        name="Picked Sides",
+        description="The sides of the pieces clicked straight or free in the interactive mode",
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
@@ -371,21 +472,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         row.active = self.mode == "ACTIVE"   # greyed out: only Active fits to the active strip
         row.prop(self, "active_fit")
         layout.prop(self, "orientation")
-        layout.prop(self, "layout")
-        auto = self.layout == "AUTO"
+        layout.prop(self, "straight_sides")
         row = layout.row()
-        row.active = auto
-        row.prop(self, "stretch_limit")
-        row = layout.row()
-        row.active = self.layout in ("SHAPE", "AUTO")   # greyed out: only True Shape is aligned
-        row.prop(self, "shape_align")
+        row.active = self.straight_sides != "NONE"     # greyed out: the ends follow the faces under None
+        row.prop(self, "ends")
+        layout.prop(self, "stretch_limit")
+        layout.prop(self, "shape_align")      # pieces relaxed to their real shape use it under any Straight Sides
+        layout.prop(self, "balance")
         layout.prop(self, "split_at_seams")
-        row = layout.row()
-        row.active = not auto                  # greyed out: Auto picks its own tears
-        row.prop(self, "split_at_bends")
-        row = layout.row()
-        row.enabled = self.split_at_bends and not auto
-        row.prop(self, "split_angle")
         layout.prop(self, "mark_seams")
         layout.prop(self, "offset_axis")
         col = layout.column()
@@ -399,11 +493,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def _pieces(self, island, verts, picked, seam_cuts, breaks=frozenset(), rings=None,
-                manual=frozenset(), skipped=frozenset(), cross=None, bends=None, align_edges=()):
+                manual=frozenset(), skipped=frozenset(), cross=None, bends=None, align_edges=(), side_picks=()):
         """The laid-out pieces of one island as ([(strip, faces by id)], warning); raises ValueError.
 
-        The whole island is built and torn at its bends and at the seams inside it that
-        are its rungs. An island that is no strip as a whole, one with a seam inside it
+        The whole island is built and torn where Auto tears it and at the seams inside it
+        that are its rungs. An island that is no strip as a whole, one with a seam inside it
         that is no rung, or one that cannot be torn at its seams, is first split at those
         seams and each part built on its own; when a part is then no strip, the island
         that could not be torn stays whole.
@@ -412,13 +506,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         tearing it (``uv_stripe_bridge.prepare_strip``). ``rings`` (a list) gets the rung
         edges of an island that is a closed ring: the edges a break can be picked on.
         The rungs among ``manual`` (vertex-id pairs, cut by hand) tear the strip, or each
-        part, whatever the split options and also on an opened ring; the bend tears at
-        rungs among ``skipped`` are not made. ``cross`` (a set) gets the rung edges of the
-        laid-out strip or parts, the edges a cut can be picked on, and ``bends`` (a list)
-        the edges Split at Bends tore them at. Every piece is aligned by ``shape_align``,
-        "Picked Edge" on the first of ``align_edges`` (vertex-id pairs) that is an edge of it.
+        part, also on an opened ring; Auto's tears at rungs among ``skipped`` are not
+        made. ``cross`` (a set) gets the rung edges of the laid-out strip or parts, the
+        edges a cut can be picked on, and ``bends`` (a list) the edges Auto tore them at.
+        Every piece is laid out by Straight Sides, Ends, Stretch Limit and Balance, the
+        ``side_picks`` ((face id, vertex-id pair, straight)) on top, and aligned by
+        ``shape_align``, "Picked Edge" on the first of ``align_edges`` (vertex-id pairs)
+        that is an edge of it.
         """
-        split = self.split_angle if self.split_at_bends else None
         inner = _inner_cuts(island, seam_cuts)
         whole = None
         whole_marks = ((), ())
@@ -427,10 +522,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             """``prepare_strip`` with the hand-made cuts; (its result, (rung edges, bend tear edges))."""
             torn = []
             laid = uv_stripe_bridge.prepare_strip(
-                strip, picked, self.layout, split, cuts, break_edge=break_edge,
+                strip, picked, self.straight_sides, self.ends, cuts, break_edge=break_edge,
                 manual_cuts=uv_stripe_select_core.rungs_at(strip, manual),
                 skip_cuts=uv_stripe_select_core.rungs_at(strip, skipped), bend_tears=torn,
-                align=self.shape_align, align_edges=align_edges, stretch_limit=self.stretch_limit)
+                align=self.shape_align, align_edges=align_edges, stretch_limit=self.stretch_limit,
+                balance=self.balance, side_picks=side_picks)
             return laid, ([uv_stripe_select_core.rung_edge(strip, k) for k in range(len(strip.rungs))], torn)
 
         def done(laid, marks):
@@ -513,6 +609,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """
         result = _Result()
         stored = {name: _parse_breaks(getattr(self, name, "")) for name in EDGE_PROPS}
+        stored_sides = _parse_sides(getattr(self, "side_picks", ""))
         for obj in context.objects_in_mode_unique_data:
             if obj.type != "MESH":
                 continue
@@ -521,8 +618,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             # the picked edges are named by index: take hold of the edges before a weld renumbers them
             bm.edges.index_update()
             bm.edges.ensure_lookup_table()
+            bm.faces.index_update()
+            bm.faces.ensure_lookup_table()
             held = {name: [bm.edges[i] for i in data.get(obj.name, ()) if 0 <= i < len(bm.edges)]
                     for name, data in stored.items()}
+            held_sides = [(bm.faces[f], bm.edges[e], straight) for f, e, straight in stored_sides.get(obj.name, ())
+                          if 0 <= f < len(bm.faces) and 0 <= e < len(bm.edges)]
             found = self._merge_doubles(bm, obj, merge)
             if merge:
                 result.merged += found
@@ -535,6 +636,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                      for name, edges in held.items()}
             breaks, manual, skipped = (set(pairs[name]) for name in ("cup_breaks", "manual_cuts", "skipped_cuts"))
             align_edges = pairs["align_edges"]          # in order: a piece takes the first one in it
+            side_picks = [(f.index, tuple(sorted(v.index for v in e.verts)), straight)
+                          for f, e, straight in held_sides if f.is_valid and e.is_valid]
             picked = {f.index: f for f in bm.faces if f.select and not f.hide}
             if not picked:
                 continue
@@ -555,7 +658,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             for island in uv_stripe_select_core.face_islands(ids):
                 try:
                     laid, warning = self._pieces(island, verts, picked, seam_cuts, breaks, rings,
-                                                 manual, skipped, cross, bends, align_edges)
+                                                 manual, skipped, cross, bends, align_edges, side_picks)
                 except ValueError as exc:
                     result.skipped += 1
                     result.first_reason = result.first_reason or str(exc)
@@ -574,11 +677,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             result.cross[obj.name] = {edge_of[key].index for key in cross if key in edge_of}
             result.bend_tears[obj.name] = {edge_of[key].index for key in bends if key in edge_of}
             result.seam_tears[obj.name] = {edge_of[key].index for key in seam_cuts if key in edge_of}
-            if self.split_at_bends or self.layout == "AUTO":
-                for key in sorted(skipped & cross):
-                    e = edge_of.get(key)
-                    if e is not None:
-                        result.skipped_tears.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
+            for key in sorted(skipped & cross):
+                e = edge_of.get(key)
+                if e is not None:
+                    result.skipped_tears.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
             if not strips:
                 continue
             owners = result.align_pieces.setdefault(obj.name, {})   # a tear edge lies in both its pieces
@@ -596,6 +698,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             result.fitted |= fitted
             result.unfitted |= holds_active and not fitted
             _collect_preview(result, pieces, matrix)
+            _collect_sides(result, obj, pieces, edge_of, matrix, lambda strip: uv_stripe_auto_core.picked_shape(
+                strip, uv_stripe_auto_core.default_shape(strip, self.straight_sides, self.ends), side_picks)[0])
             _collect_stretched(result, bm, pieces, matrix)
             result.done += len(strips)
         if self.mode == "ACTIVE" and result.done and (result.unfitted or not result.fitted):
@@ -765,8 +869,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
         By the edge's state, first match: on a closed ring with no break yet the ring is
         broken there ("break"); the ring's break is removed ("unbreak"); a cut marked by
-        hand is removed ("unmark"); a skipped bend tear is restored ("restore"); a seam
-        tear is left alone (None); a bend tear is skipped ("skip"); any other edge is cut
+        hand is removed ("unmark"); a skipped tear is restored ("restore"); a seam
+        tear is left alone (None); a tear of Auto is skipped ("skip"); any other edge is cut
         by hand ("mark"). An edge that is no cross edge of a laid-out strip changes
         nothing (None). Returns what was done.
         """
@@ -825,6 +929,131 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._relayout(context)
         return action
 
+    # ------------------------------------------------------------------
+    # Sides: LMB on a side of a piece makes it straight or free
+    # ------------------------------------------------------------------
+
+    def _hover_side(self, context, event):
+        """(object, piece number, side name) of the side under the cursor, or None.
+
+        The face under the cursor names the piece: the side edge of that face nearest to the
+        cursor on screen. Off the faces (or when that face has no side edge), the side edge
+        nearest to the cursor among all pieces that is in sight (``_edge_visible``); on an edge
+        where the strip is torn, the piece whose face is under the cursor. Either way only within
+        ``SIDE_PICK_RADIUS`` pixels (times the interface scale) of the cursor.
+        """
+        result = getattr(self, "_result", None)
+        region = getattr(context, "region", None)
+        rv3d = getattr(context, "region_data", None)
+        if result is None or region is None or rv3d is None or not result.sides:
+            return None
+        objects = [o for o in context.objects_in_mode_unique_data if o.type == "MESH" and result.side_edges.get(o.name)]
+        if not objects:
+            return None
+        try:
+            scale = float(context.preferences.system.ui_scale)
+        except (AttributeError, TypeError, ValueError):
+            scale = 1.0
+        radius = SIDE_PICK_RADIUS * (scale if scale > 0.0 else 1.0)     # 0 without a window (background)
+        coord = (event.mouse_region_x, event.mouse_region_y)
+        hit = picking.raycast_edit_meshes(context, coord, objects, cache=getattr(self, "_pick_cache", None),
+                                          region=region, rv3d=rv3d)
+        if hit[0]:
+            obj, face_index = hit[4], hit[3]
+            table = result.side_edges.get(obj.name, {})
+            piece = result.piece_faces.get(obj.name, {}).get(face_index)
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            if piece is not None and 0 <= face_index < len(bm.faces):
+                edges = [e for e in bm.faces[face_index].edges
+                         if any(n == piece for n, _name in table.get(e.index, ()))]
+                k, distance = picking.closest_edge_screen(context, edges, obj.matrix_world, coord)
+                if k is not None and distance <= radius:
+                    name = next(name for n, name in table[edges[k].index] if n == piece)
+                    return obj, piece, name
+        under = None                 # (object name, piece) of the face under the cursor, if any
+        if hit[0]:
+            under = (hit[4].name, result.piece_faces.get(hit[4].name, {}).get(hit[3]))
+        near = []
+        for obj in objects:
+            table = result.side_edges[obj.name]
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.edges.ensure_lookup_table()
+            for i in table:
+                if not 0 <= i < len(bm.edges):
+                    continue
+                edge = bm.edges[i]
+                _k, distance = picking.closest_edge_screen(context, [edge], obj.matrix_world, coord)
+                if distance <= radius:
+                    near.append((distance, i, obj, edge))
+        near.sort(key=lambda item: (item[0], item[1]))
+        for _distance, i, obj, edge in near:
+            if not self._edge_visible(context, region, rv3d, objects, obj, edge, coord):
+                continue
+            entries = result.side_edges[obj.name][i]
+            own = [entry for entry in entries if under is not None and (obj.name, entry[0]) == under]
+            piece, name = (own or entries)[0]     # a tear edge: the piece whose face is under the cursor
+            return obj, piece, name
+        return None
+
+    def _edge_visible(self, context, region, rv3d, objects, obj, edge, coord):
+        """Whether the point of ``edge`` nearest to the cursor on screen is in sight: the edit meshes, raycast
+        as the operator picks (``picking.raycast_edit_meshes``) along the view ray through that point, hit
+        nothing in front of it."""
+        matrix = obj.matrix_world
+        a, b = matrix @ edge.verts[0].co, matrix @ edge.verts[1].co
+        sa = view3d_utils.location_3d_to_region_2d(region, rv3d, a)
+        sb = view3d_utils.location_3d_to_region_2d(region, rv3d, b)
+        if sa is None or sb is None:
+            return False
+        d = sb - sa
+        t = 0.0 if d.length_squared == 0.0 else max(0.0, min(1.0, (Vector(coord) - sa).dot(d) / d.length_squared))
+        point = a.lerp(b, t)
+        pixel = view3d_utils.location_3d_to_region_2d(region, rv3d, point)
+        if pixel is None:
+            return False
+        origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, pixel)
+        reach = (point - origin).length
+        hit = picking.raycast_edit_meshes(context, pixel, objects, cache=getattr(self, "_pick_cache", None),
+                                          region=region, rv3d=rv3d)
+        return not hit[0] or (hit[1] - origin).length >= reach - (1e-3 * reach + 1e-5)
+
+    def _update_side_hover(self, context, event):
+        """Keep the side under the cursor (``_hover_side``) for the preview and the click."""
+        self._side_hover = self._hover_side(context, event)
+
+    def _click_side(self, context, obj, piece, name):
+        """Toggle side ``name`` (``uv_stripe_auto_core.SIDE_NAMES``) of piece ``piece`` of ``obj`` and lay out
+        again: a long side straight / free, an end upright / slanted. Both sides of the pair (the two long
+        sides, or the two ends) are stored as they are laid out now, the clicked one turned over, so the
+        piece keeps the other one as shown; the pair's earlier picks on that piece are replaced. Returns the
+        side's new state, or None when there is no such side."""
+        result = getattr(self, "_result", None) or _Result()
+        key = (obj.name, piece, name)
+        side = result.sides.get(key)
+        if side is None:
+            return None
+        pair = ("near", "far") if name in ("near", "far") else ("end0", "end1")
+        data = _parse_sides(getattr(self, "side_picks", ""))
+        picks = data.get(obj.name, [])
+        faces = {f for f, n in result.piece_faces.get(obj.name, {}).items() if n == piece}
+        mine = set()
+        for other in pair:
+            record = result.sides.get((obj.name, piece, other))
+            if record is not None:
+                mine.update(record.edges)
+        picks = [p for p in picks if not (p[0] in faces and p[1] in mine)]
+        for other in pair:
+            record = result.sides.get((obj.name, piece, other))
+            if record is None:
+                continue
+            straight = (not record.straight) if other == name else record.straight
+            picks.append((record.faces[0], record.edges[0], straight))
+        data[obj.name] = picks
+        self.side_picks = _dump_sides(data)
+        self._relayout(context)
+        return not side.straight
+
     def _align_edge_count(self):
         return sum(len(indices) for indices in _parse_breaks(getattr(self, "align_edges", "")).values())
 
@@ -835,6 +1064,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """Enter the cut edge pick mode, or with ``align`` the align edge pick mode; the two never run at once."""
         self._picking = not align
         self._align_picking = align
+        self._side_hover = None
         self._update_hover(context, event)
         self._show_status(context)
 
@@ -852,7 +1082,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         if event.type in NAVIGATION or event.type.startswith("NDOF"):
             return {"PASS_THROUGH"}
-        if event.value != "PRESS":
+        if event.value != "PRESS" and not (event.type == "LEFTMOUSE" and event.value == "DOUBLE_CLICK"):
             return {"RUNNING_MODAL"}
         align = getattr(self, "_align_picking", False)
         own, other = ("V", "C") if align else ("C", "V")
@@ -881,13 +1111,15 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """Snapshot and first layout; False (reported, restored) when nothing can be laid out."""
         self._take_snapshot(context)
         self._cancel = {name: getattr(self, name) for name in (
-            "mode", "active_fit", "orientation", "layout", "split_at_seams", "split_at_bends", "split_angle", "mark_seams",
-            "stretch_limit", "offset_axis", "offset_limit", "offset_seed", "merge_doubles", "shape_align")}
-        for name in EDGE_PROPS:
+            "mode", "active_fit", "orientation", "straight_sides", "ends", "stretch_limit", "balance",
+            "split_at_seams", "mark_seams", "offset_axis", "offset_limit", "offset_seed", "merge_doubles",
+            "shape_align")}
+        for name in (*EDGE_PROPS, "side_picks"):
             self._cancel[name] = getattr(self, name, "")
         self._picking = False
         self._align_picking = False
         self._hover = None
+        self._side_hover = None
         self._pick_cache = {}
         self._relayout(context)
         if not self._result.done:
@@ -922,34 +1154,31 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._hud = HUDOverlay("uv_stripe")
         self._hud.title = "UV Stripe"
         self._hud.bind_region(region)
-        layout_names = {item[0]: item[1] for item in uv_stripe_bridge.LAYOUT_ITEMS}
         orientation_names = {item[0]: item[1] for item in uv_stripe_bridge.ORIENTATION_ITEMS}
-        # the main rows always show; the rows after More Options only while it is on (Tab), their keys work anyway
-        self._hud.add_param(HUDParam("Layout (E)", lambda: layout_names[self.layout], "enum"))
-        self._hud.add_param(HUDParam("Stretch Limit (Wheel)", lambda: self.stretch_limit, "float",
-                                     fmt="{:.2f}", visible_getter=lambda: self.layout == "AUTO"))
+        # Always: Straight Sides, Ends, Stretch Limit and More Options. Only when they apply: Align, Manual Cuts,
+        # Doubled Vertices. The rows after More Options only while it is on (Tab). Every key works either way.
+        self._hud.add_param(HUDParam("Straight Sides (E)", lambda: SIDES_NAMES[self.straight_sides], "enum"))
+        self._hud.add_param(HUDParam("Ends (A)", lambda: ENDS_NAMES[self.ends], "enum",
+                                     active_getter=lambda: self.straight_sides != "NONE"))
+        self._hud.add_param(HUDParam("Stretch Limit (Wheel)", lambda: self.stretch_limit, "float", fmt="{:.2f}"))
         self._hud.add_param(HUDParam("Align (G)", lambda: ALIGN_NAMES[self.shape_align], "enum",
-                                     visible_getter=lambda: self.layout in ("SHAPE", "AUTO")))
-        self._hud.add_param(HUDParam("Pick Align Edge (V)", lambda: getattr(self, "_align_picking", False), "bool",
-                                     visible_getter=lambda: self.layout in ("SHAPE", "AUTO")))
-        self._hud.add_param(HUDParam("Pick Cut Edges (C)", lambda: getattr(self, "_picking", False), "bool"))
+                                     visible_getter=self._align_applies))
         self._hud.add_param(HUDParam("Manual Cuts", self._manual_cut_count, "int",
                                      visible_getter=lambda: self._manual_cut_count() > 0))
+        self._hud.add_param(HUDParam("Doubled Vertices", lambda: getattr(self, "_result", _Result()).doubles, "int",
+                                     visible_getter=lambda: getattr(self, "_result", _Result()).doubles > 0))
         self._hud.add_param(HUDParam("More Options (Tab)", lambda: self.show_options, "bool"))
 
         def more(own=None):
             return lambda: self.show_options and (own is None or own())
 
+        self._hud.add_param(HUDParam("Balance (B)", lambda: BALANCE_NAMES[self.balance], "enum",
+                                     visible_getter=more()))
         self._hud.add_param(HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum", visible_getter=more()))
         self._hud.add_param(HUDParam("Orientation (W)", lambda: orientation_names[self.orientation], "enum",
                                      visible_getter=more()))
         self._hud.add_param(HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
                                      active_getter=lambda: self.mode == "ACTIVE", visible_getter=more()))
-        self._hud.add_param(HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool",
-                                     visible_getter=more(lambda: self.layout != "AUTO")))
-        self._hud.add_param(HUDParam("Bend Angle (Wheel)", lambda: math.degrees(self.split_angle), "float",
-                                     fmt="{:.0f}°", active_getter=lambda: self.split_at_bends,
-                                     visible_getter=more(lambda: self.layout != "AUTO")))
         self._hud.add_param(HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool",
                                      visible_getter=more()))
         self._hud.add_param(HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool", visible_getter=more()))
@@ -961,34 +1190,26 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._hud.add_param(HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int",
                                      active_getter=lambda: self.offset_axis != "NONE", visible_getter=more()))
         self._hud.add_param(HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool", visible_getter=more()))
-        self._hud.add_param(HUDParam("Doubled Vertices", lambda: getattr(self, "_result", _Result()).doubles, "int"))
 
         def item(label, key):
             return HUDItem(label, key, ItemState.ON, default_state=ItemState.OFF, always_show=True)
 
+        # Short and hidden until H: only what the HUD does not show already
         self._help = HelpOverlay("uv_stripe")
         self._help.add_section(HUDSection("UV Stripe", [
-            item("Mode", "Q"),
-            item("Orientation", "W"),
-            item("Layout", "E"),
-            item("Align True Shape", "G"),
-            item("Pick align edge", "V"),
-            item("Split at bends", "A"),
-            item("Split at seams", "S"),
-            item("Fit to active", "D"),
-            item("Random offset", "Z"),
-            item("Mark seams", "X"),
+            item("Side straight / free", "LMB on a side"),
             item("Pick cut edges, break a ring", "C"),
-            item("New offset seed", "R"),
-            item("Merge doubles", "F"),
-            item("More options in the HUD", "Tab"),
-            item("Bend angle, or stretch limit under Auto", "Wheel / Ctrl + Wheel"),
-            item("Offset limit", "Shift + Wheel / Ctrl + Shift + Wheel"),
-            item("Confirm", "LMB / Enter / Space"),
+            item("Pick the align edge", "V"),
+            item("Confirm", "Enter / Space"),
             item("Cancel", "Esc / RMB"),
-            item("Help / Toggle HUD", "H"),
         ]))
+        self._help.start_collapsed()
         self._help.bind_region(region)
+
+    def _align_applies(self):
+        """Whether Align (G, V) matters now: Straight Sides is None, or a piece is laid out at its real shape."""
+        result = getattr(self, "_result", None)
+        return self.straight_sides == "NONE" or bool(result is not None and result.unfolded)
 
     def modal(self, context, event):
         try:
@@ -1034,31 +1255,37 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.offset_limit = max(round(self.offset_limit + step, 6), 0.0)
             self._relayout(context)
             return {"RUNNING_MODAL"}
-        if wheel and not event.shift and self.layout == "AUTO":
+        if wheel and not event.shift:
             step = STRETCH_FINE_STEP if event.ctrl else STRETCH_STEP
             step = step if event.type == "WHEELUPMOUSE" else -step
             self.stretch_limit = min(max(round(self.stretch_limit + step, 6), 1.0), 3.0)
             self._relayout(context)
             return {"RUNNING_MODAL"}
-        if wheel and not event.shift and self.split_at_bends:
-            step = ANGLE_FINE_STEP if event.ctrl else ANGLE_STEP
-            step = step if event.type == "WHEELUPMOUSE" else -step
-            self.split_angle = min(max(self.split_angle + step, math.radians(1.0)), math.pi)
-            self._relayout(context)
+        if event.type == "MOUSEMOVE":
+            self._update_side_hover(context, event)
             return {"RUNNING_MODAL"}
         if event.type in NAVIGATION or event.type.startswith("NDOF"):
             return {"PASS_THROUGH"}
 
-        if event.value != "PRESS":
+        if event.value != "PRESS" and not (event.type == "LEFTMOUSE" and event.value == "DOUBLE_CLICK"):
             return {"RUNNING_MODAL"}
         if event.type == "Q":
             self.mode = MODE_CYCLE[(MODE_CYCLE.index(self.mode) + 1) % len(MODE_CYCLE)]
         elif event.type == "W":
             self.orientation = "VERTICAL" if self.orientation == "HORIZONTAL" else "HORIZONTAL"
         elif event.type == "E":
-            self.layout = LAYOUT_CYCLE[(LAYOUT_CYCLE.index(self.layout) + 1) % len(LAYOUT_CYCLE)]
+            self.straight_sides = SIDES_CYCLE[(SIDES_CYCLE.index(self.straight_sides) + 1) % len(SIDES_CYCLE)]
         elif event.type == "A":
-            self.split_at_bends = not self.split_at_bends
+            self.ends = ENDS_CYCLE[(ENDS_CYCLE.index(self.ends) + 1) % len(ENDS_CYCLE)]
+        elif event.type == "B":
+            self.balance = BALANCE_CYCLE[(BALANCE_CYCLE.index(self.balance) + 1) % len(BALANCE_CYCLE)]
+        elif event.type == "LEFTMOUSE":      # a side toggles; anywhere else nothing happens (no confirm)
+            self._update_side_hover(context, event)
+            hover = getattr(self, "_side_hover", None)
+            if hover is not None:
+                self._click_side(context, *hover)
+                self._update_side_hover(context, event)
+            return {"RUNNING_MODAL"}
         elif event.type == "S":
             self.split_at_seams = not self.split_at_seams
         elif event.type == "D":
@@ -1081,7 +1308,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.show_options = not self.show_options
             self._show_status(context)
             return {"RUNNING_MODAL"}
-        elif event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER", "SPACE"}:
+        elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
             result = self._result
             if self.merge_doubles and result.doubles:
                 # restore the snapshot first (by index, before the topology changes), then merge and lay out
@@ -1141,66 +1368,47 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._picking = False
         self._align_picking = False
         self._hover = None
+        self._side_hover = None
         self._pick_cache = {}
 
     def _status_text(self):
-        manual = self._manual_cut_count()
-        cuts = f"{manual} manual cut(s) | " if manual else ""
+        """The status bar: one short line, the pick modes' own while C or V is on."""
         if getattr(self, "_picking", False):
-            return (f"UV Stripe: pick cut edges | {cuts}click a cross edge: a ring without a break is broken there, "
-                    "a break or a manual cut is removed, a bend tear is skipped or restored, any other edge is cut | "
-                    "[LMB] change the edge | [C/Esc/RMB] stop picking | [V] pick the align edge | "
-                    "[MMB/Wheel] navigate")
+            return "Picking cut edges · LMB cross edge: cut / uncut, break a ring · C / Esc: stop"
         if getattr(self, "_align_picking", False):
-            count = self._align_edge_count()
-            edges = f"{count} align edge(s) | " if count else ""
-            return (f"UV Stripe: pick align edge | {edges}click an edge of a piece: the piece runs along a row edge "
-                    "or across any other edge, align becomes picked edge; click the stored edge again to remove it | "
-                    "[LMB] store the edge | [V/Esc/RMB] stop picking | [C] pick cut edges | [MMB/Wheel] navigate")
-        layout_names = {item[0]: item[1] for item in uv_stripe_bridge.LAYOUT_ITEMS}
-        result = getattr(self, "_result", None)
-        count = cuts
-        if result is not None:
-            stretched = f", {result.stretched_faces} stretched" if result.stretched_faces else ""
-            count = f"{result.done} strip(s){stretched} | {cuts}"
-        bend = f"{math.degrees(self.split_angle):.0f}°" if self.split_at_bends else "off"
-        bend = (f"stretch limit = {self.stretch_limit:.2f} (Wheel) | " if self.layout == "AUTO"
-                else f"split at bends = {bend} (A, Wheel) | ")
-        align = (f"align = {ALIGN_NAMES[self.shape_align].lower()} (G) | pick align edge (V) | "
-                 if self.layout in ("SHAPE", "AUTO") else "")
-        return (
-            f"UV Stripe: {count}"
-            f"mode = {MODE_NAMES[self.mode].lower()} (Q) | "
-            f"orientation = {self.orientation.lower()} (W) | "
-            f"layout = {layout_names[self.layout].lower()} (E) | "
-            f"{align}"
-            f"{bend}"
-            f"split at seams = {'on' if self.split_at_seams else 'off'} (S) | "
-            f"fit to active = {FIT_NAMES[self.active_fit].lower()} (D) | "
-            f"random offset = {OFFSET_NAMES[self.offset_axis].lower()} (Z) | "
-            f"mark seams = {'on' if self.mark_seams else 'off'} (X) | "
-            f"merge doubles = {'on' if self.merge_doubles else 'off'} (F) | "
-            "pick cut edges, break a ring (C) | new offset seed (R) | "
-            f"more options = {'on' if self.show_options else 'off'} (Tab) | "
-            "[Enter/LMB/Space] confirm | [Esc/RMB] cancel"
-        )
+            return "Picking the align edge · LMB edge: align the piece to it / remove · V / Esc: stop"
+        return "LMB side: straight/free · Tab: more · Enter: confirm · Esc: cancel"
 
     def _draw_view_callback(self, context):
         """POST_VIEW: the world-space lines, dimmed where geometry hides them (``draw.edges_world``)."""
         result = getattr(self, "_result", None)
-        picking = getattr(self, "_picking", False) or getattr(self, "_align_picking", False)
+        cutting = getattr(self, "_picking", False)
+        picking = cutting or getattr(self, "_align_picking", False)
         hover = getattr(self, "_hover", None) if picking else None
+        side_hover = None if picking else getattr(self, "_side_hover", None)
         try:
-            outline = list(result.outline) if result is not None else []
+            sides = dict(result.sides) if result is not None else {}
+            straight = [p for side in sides.values() if side.straight for p in side.points]
+            free = [p for side in sides.values() if not side.straight for p in side.points]
+            outline = list(result.outline) if result is not None else []          # the closed pieces
             stretched = list(result.stretched) if result is not None else []
             tears = list(result.tears) if result is not None else []   # the picked breaks and cuts are among them
             skipped = list(result.skipped_tears) if result is not None else []
             aligned = list(result.align_lines) if result is not None else []
             hovered = list(hover[2]) if hover is not None else []
-            # bottom to top: the strip outlines, the stretched faces' edges, the tears (each opened ring's cut and
-            # the manual cuts), the skipped bend tears and the picked align edges in use, the edge under the cursor
-            layers = ((outline, Role.PREVIEW_LINE), (stretched, Role.LOCKED_LINE), (tears, Role.ERROR_LINE),
-                      (skipped, Role.CLOSEST_LINE), (aligned, Role.CLOSEST_LINE), (hovered, Role.ACTIVE_LINE))
+            if side_hover is not None:
+                obj, piece, name = side_hover
+                record = sides.get((obj.name, piece, name))
+                hovered = list(record.points) if record is not None else []
+            # bottom to top: the free and the straight sides of the open pieces and the closed pieces' outlines,
+            # the stretched faces' edges, the tears (each opened ring's cut and the manual cuts), the skipped tears
+            # and the picked align edges in use, the side or edge under the cursor. The tears lie under the sides
+            # (so a piece's end shows straight or free where the strip is torn), over them while picking cuts.
+            outlines = ((free, Role.LINE), (straight, Role.PREVIEW_LINE), (outline, Role.PREVIEW_LINE))
+            torn = ((tears, Role.ERROR_LINE),)
+            layers = (*outlines, (stretched, Role.LOCKED_LINE), *torn) if cutting else \
+                (*torn, *outlines, (stretched, Role.LOCKED_LINE))
+            layers = (*layers, (skipped, Role.CLOSEST_LINE), (aligned, Role.CLOSEST_LINE), (hovered, Role.ACTIVE_LINE))
             for points, role in layers:
                 if points:
                     draw.edges_world(points, role=role, context=context)
@@ -1218,18 +1426,15 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         if helpo is not None:
             helpo.draw(context, last_event)
         if hud is not None:
+            done = result.done if result is not None else 0
+            stretched = result.stretched_faces if result is not None else 0
+            count = f"{done} strip(s), {stretched} stretched face(s)" if stretched else f"{done} strip(s)"
+            pick = None
             if getattr(self, "_align_picking", False):
-                count = self._align_edge_count()
-                hud.set_header("Pick Align Edge: click an edge of a piece",
-                               f"{count} align edge(s)" if count else None)
+                pick = "Picking the align edge · V to stop"
             elif getattr(self, "_picking", False):
-                manual = self._manual_cut_count()
-                hud.set_header("Pick Cut Edges: click a cross edge",
-                               f"{manual} manual cut(s)" if manual else None)
-            else:
-                done = result.done if result is not None else 0
-                stretched = result.stretched_faces if result is not None else 0
-                hud.set_header(f"{done} strip(s), {stretched} stretched face(s)" if stretched else f"{done} strip(s)")
+                pick = "Picking cut edges · C to stop"
+            hud.set_header(pick, count)
             hud.draw(context, last_event)
 
 

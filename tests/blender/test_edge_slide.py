@@ -658,8 +658,8 @@ class _KeyPress:
 
 # The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
 # before every test, and a test changes what it needs with _stripe_settings.
-STRIPE_BASELINE = {"mode": "FIT", "layout": "TRUE", "orientation": "HORIZONTAL", "split_at_bends": True,
-                   "split_angle": math.radians(15), "mark_seams": True, "offset_axis": "NONE",
+STRIPE_BASELINE = {"mode": "FIT", "straight_sides": "BOTH", "ends": "SLANTED", "balance": "EVEN_TEXEL",
+                   "stretch_limit": 1.25, "orientation": "HORIZONTAL", "mark_seams": True, "offset_axis": "NONE",
                    "split_at_seams": False, "merge_doubles": False, "active_fit": "BOTH"}
 
 
@@ -1761,7 +1761,7 @@ def test_uv_stripe_fit_strip():
 
 def test_uv_stripe_fit_pocket_is_a_rectangle():
     obj = _edit_object(_pocket(), chain=[0, 1, 2, 3])
-    _run(obj, width=0.5, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="EVEN", uv_stripe_split_at_bends=False)
+    _run(obj, width=0.5, chain_sides="+", use_uv_stripe=True, uv_stripe_straight_sides="BOTH", uv_stripe_ends="BOTH")
     us, vs = _strip_uv_ranges(obj)
     assert us == (0.0, 1.0) and vs == (0.0, 0.15873)
 
@@ -1912,15 +1912,16 @@ def _rung_lean(obj, points):
 
 
 def test_uv_stripe_straightens_a_bent_slide():
+    # Ends Slanted (the default) keeps each cross edge at its slant, so the rows lean at the bend; Ends Both
+    # stands every cross edge upright.
     bm, chain, points = _bent_strip([0, 40, 0])
     obj = _edit_object(bm, chain=chain)
-    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="EVEN",
-                uv_stripe_split_at_bends=False) == {'FINISHED'}
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True) == {'FINISHED'}
     assert _rung_lean(obj, points) > 0.005                  # arc-length rows lean at the bend
     bm, chain, points = _bent_strip([0, 40, 0])
     obj = _edit_object(bm, chain=chain)
-    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_layout="STRAIGHT",
-                uv_stripe_split_at_bends=False) == {'FINISHED'}
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_straight_sides="BOTH",
+                uv_stripe_ends="BOTH") == {'FINISHED'}
     assert _rung_lean(obj, points) < 1e-5
 
 
@@ -1939,13 +1940,13 @@ def test_uv_stripe_marks_the_strip_outline_as_seams():
     assert _read(obj, check) == (3, 8, True)
 
 
-def test_uv_stripe_split_at_bends_on_a_bent_slide():
-    # The chain turns 40 degrees at vertex 2: two pieces with one Fit scale (the first, 2 long, spans u 0-1; the
-    # second, 1 long, about half of it), the chain on each piece's v = 0.
+def test_uv_stripe_auto_tears_a_sharp_bend_and_keeps_a_gentle_one_whole():
+    # The chain turns 40 degrees at vertex 2: Auto tears it there, as a whole piece would stretch at the bend:
+    # two pieces with one Fit scale (the first, 2 long, spans u 0-1; the second, 1 long, about half of it), the
+    # chain on each piece's v = 0.
     bm, chain, points = _bent_strip([0, 40])
     obj = _edit_object(bm, chain=chain)
-    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True, uv_stripe_split_at_bends=True,
-                uv_stripe_split_angle=math.radians(15)) == {'FINISHED'}
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True) == {'FINISHED'}
     faces = _slide_strip_faces(obj, points)
     assert len(faces) == 3
     bend_us = {uv[0] for face in faces for c, _r, uv in face if c == 2}
@@ -1958,6 +1959,45 @@ def test_uv_stripe_split_at_bends_on_a_bent_slide():
     (last,) = [face for face in faces if any(c == 3 or r == 3 for c, r, _uv in face)]
     us = [uv[0] for _c, _r, uv in last]
     assert 0.3 < max(us) - min(us) < 0.75, us                # the second piece keeps the first one's scale
+    # A 5 degree bend stretches nothing: no tear, one piece, its chain on v = 0 and the rows upright.
+    bm, chain, points = _bent_strip([0, 5])
+    obj = _edit_object(bm, chain=chain)
+    assert _run(obj, width=0.2, chain_sides="+", use_uv_stripe=True) == {'FINISHED'}
+    faces = _slide_strip_faces(obj, points)
+    assert len(faces) == 3
+    assert len({uv[0] for face in faces for c, _r, uv in face if c == 2}) == 1          # whole at the bend
+    assert all(uv[1] == 0.0 for face in faces for c, _r, uv in face if c is not None)   # one piece: the chain on v = 0
+    assert abs(max(uv[0] for face in faces for _c, _r, uv in face) - 1.0) < 1e-5
+    assert _rung_lean(obj, points) < 1e-5
+
+
+def test_uv_stripe_tears_a_closed_frame_symmetrically_at_its_four_corners():
+    # The closed chain round an 8 x 2 frame slid inward by 0.3: Auto tears the strip at all four corners, so it is
+    # four one-face pieces at their true size (one Fit scale, 1 / 8, the longest side), the two long sides' UV boxes
+    # equal and the two short sides' too, every strip edge a seam.
+    outer = [(0, 0), (8, 0), (8, 2), (0, 2)]
+    inner = [(0.8, 0.8), (7.2, 0.8), (7.2, 1.2), (0.8, 1.2)]
+    bm = _mesh([(x, y, 0.0) for x, y in outer + inner], [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)])
+    obj = _edit_object(_add_uvs(bm), chain=[0, 1, 2, 3, 0])
+    assert _run(obj, width=0.3, chain_sides="+", use_uv_stripe=True) == {'FINISHED'}
+    rim = {_key((x, y, 0.0)) for x, y in outer}
+
+    def read(bm):
+        layer = bm.loops.layers.uv.active
+        faces = [f for f in bm.faces if any(_key(v.co) in rim for v in f.verts)]
+        sizes, ratios = [], []
+        for f in faces:
+            us, vs = [lp[layer].uv.x for lp in f.loops], [lp[layer].uv.y for lp in f.loops]
+            sizes.append((round(max(us) - min(us), 6), round(max(vs) - min(vs), 6)))
+            for lp in f.loops:
+                step = lp.link_loop_next
+                ratios.append((step[layer].uv - lp[layer].uv).length / (step.vert.co - lp.vert.co).length)
+        return len(faces), sorted(sizes), ratios, all(e.seam for f in faces for e in f.edges)
+
+    count, sizes, ratios, seamed = _read(obj, read)
+    assert count == 4 and seamed
+    assert sizes == [(0.25, 0.0375), (0.25, 0.0375), (1.0, 0.0375), (1.0, 0.0375)], sizes
+    assert all(abs(r - 0.125) < 1e-6 for r in ratios), ratios
 
 
 def test_apply_stripes_without_contexts_fits():   # Inset calls it Fit-only
@@ -3301,8 +3341,9 @@ def test_preview_layers_draw_nothing_for_a_refused_destructive_cut():
 
 
 def test_execute_destructive_in_place_stripes_use_each_pieces_own_uvs():
-    # u_wall at 0.47, three pieces, planar UVs. In Place centres each strip on its own faces' old UVs: three strips, at
-    # three places, each the centre of its own faces' bounding box (not of all the pieces' faces together).
+    # u_wall at 0.47, three pieces, planar UVs. Auto tears the two outer pieces at their bend, so five strips. In
+    # Place centres each strip on its own faces' old UVs: five strips, at five places, each the centre of its own
+    # faces' bounding box (not of all the pieces' faces together).
     band = fixtures.u_wall()
     bm = _band_mesh(band)
     _add_uvs(bm)
@@ -3323,16 +3364,16 @@ def test_execute_destructive_in_place_stripes_use_each_pieces_own_uvs():
     stripe_bridge.apply_stripes = spy
     try:
         op = _OperatorStandIn(width=0.47, chain_sides="+", use_destructive=True, use_uv_stripe=True,
-                              uv_stripe_mode="IN_PLACE", uv_stripe_layout="EVEN", uv_stripe_split_at_bends=False)
+                              uv_stripe_mode="IN_PLACE", uv_stripe_straight_sides="BOTH", uv_stripe_ends="BOTH")
         assert op.execute(bpy.context) == {'FINISHED'} and not op.reports, op.reports
     finally:
         stripe_bridge.apply_stripes = apply_stripes
     boxes, contexts = seen[0]
-    assert len(boxes) == 3 and len(contexts) == 3 and None not in contexts
+    assert len(boxes) == 5 and len(contexts) == 5 and None not in contexts
     for box, context in zip(boxes, contexts):
         assert abs(context.center[0] - box[0]) < 1e-6 and abs(context.center[1] - box[1]) < 1e-6, (context.center, box)
     centers = {(round(c.center[0], 3), round(c.center[1], 3)) for c in contexts}
-    assert len(centers) == 3, centers
+    assert len(centers) == 5, centers
 
 
 def _capped_cylinder(sides):
@@ -3901,7 +3942,8 @@ TESTS = [
     test_uv_stripe_skips_a_strip_its_layout_rejects,
     test_uv_stripe_straightens_a_bent_slide,
     test_uv_stripe_marks_the_strip_outline_as_seams,
-    test_uv_stripe_split_at_bends_on_a_bent_slide,
+    test_uv_stripe_auto_tears_a_sharp_bend_and_keeps_a_gentle_one_whole,
+    test_uv_stripe_tears_a_closed_frame_symmetrically_at_its_four_corners,
     test_apply_stripes_without_contexts_fits,
     test_apply_destructive_u_wall_opens_on_the_wall,
     test_apply_destructive_square_apex_fans,
