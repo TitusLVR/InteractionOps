@@ -33,6 +33,8 @@ for op_name in (
     "mesh_falloff_scale",
     "mesh_falloff_normal_offset",
     "mesh_falloff_fit",
+    "mesh_field_edge_slide",
+    "mesh_field_offset_edge_slide",
     "instance_edit_start",
     "instance_edit_stop",
     "instance_edit_restore",
@@ -43,14 +45,16 @@ for op_name in (
     "mesh_edge_slide",
 ):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
-    if op_name.startswith(("instance_edit_", "mesh_falloff_")) or op_name == "mesh_edge_slide":
+    if op_name.startswith(("instance_edit_", "mesh_falloff_", "mesh_field_")) or op_name == "mesh_edge_slide":
         # hasattr is always True (lazy wrapper): resolve the RNA type.
         getattr(bpy.ops.iops, op_name).get_rna_type()
 
-for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node"):
+for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node",
+                "call_pie_falloff"):
     assert hasattr(bpy.ops.iops, op_name), "missing operator: iops.%s" % op_name
 
 assert hasattr(bpy.types, "IOPS_MT_Pie_Node"), "node pie menu not registered"
+assert hasattr(bpy.types, "IOPS_MT_Pie_Falloff"), "falloff pie menu not registered"
 
 prefs = bpy.context.preferences.addons["InteractionOps"].preferences
 for prop_name in ("library_master_file", "library_preview_size", "library_shader_group"):

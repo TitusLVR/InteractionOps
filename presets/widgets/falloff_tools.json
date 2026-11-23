@@ -17,6 +17,10 @@
     {"type": "ROW", "show_if": {"mode": "EDIT_MESH"}, "cells": [
       {"type": "BUTTON", "label": "Normal Offset", "op": "iops.mesh_falloff_normal_offset"}
     ]},
+    {"type": "ROW", "show_if": {"mode": "EDIT_MESH"}, "cells": [
+      {"type": "BUTTON", "label": "Edge Slide",   "op": "iops.mesh_field_edge_slide"},
+      {"type": "BUTTON", "label": "Offset Slide", "op": "iops.mesh_field_offset_edge_slide"}
+    ]},
     {"type": "SECTION", "label": "Go to Edit Mesh mode", "show_if": {"mode": "OBJECT"}},
     {"type": "SECTION", "label": "Settings"},
     {"type": "DROPDOWN", "prop": "scene.IOPS.falloff.basis", "label": "Basis",

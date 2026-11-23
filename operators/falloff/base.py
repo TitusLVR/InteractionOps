@@ -95,6 +95,7 @@ class FalloffOpMixin:
     bl_options = {"REGISTER", "UNDO"}
     is_bindable = True
 
+    op_prefix = "Falloff"   # "Field" for the topology / slide operations
     op_label = "Falloff"
     snap_step = 0.1
     allow_planes = False
@@ -132,12 +133,17 @@ class FalloffOpMixin:
     def draw_amount(self, layout):
         pass
 
+    def _extra_key(self, context, event):
+        """Operation-specific modal key (pressed, not handled by the base).
+        Return True when handled; the result is then recomputed."""
+        return False
+
     # -------------------------------------------------------------- redo / script
 
     def execute(self, context):
         domain = collect_domain(context)
         if domain is None:
-            self.report({"WARNING"}, f"Falloff {self.op_label}: no visible vertices")
+            self.report({"WARNING"}, f"{self.op_prefix} {self.op_label}: no visible vertices")
             return {"CANCELLED"}
         settings = context.scene.IOPS.falloff
         try:
@@ -184,14 +190,14 @@ class FalloffOpMixin:
 
     def invoke(self, context, event):
         if context.region_data is None:
-            self.report({"WARNING"}, f"Falloff {self.op_label}: run from a 3D viewport")
+            self.report({"WARNING"}, f"{self.op_prefix} {self.op_label}: run from a 3D viewport")
             return {"CANCELLED"}
         settings = context.scene.IOPS.falloff
         if not len(settings.fields):
             ensure_field(context)
         domain = collect_domain(context)
         if domain is None:
-            self.report({"WARNING"}, f"Falloff {self.op_label}: no visible vertices")
+            self.report({"WARNING"}, f"{self.op_prefix} {self.op_label}: no visible vertices")
             return {"CANCELLED"}
         copy_stack(settings.fields, self.stack)
         self._influence0 = [(f.curve, f.invert) for f in settings.fields]
@@ -220,7 +226,7 @@ class FalloffOpMixin:
         except ReferenceError:
             self._revert_influence(context)
             self._finish(context)
-            self.report({"WARNING"}, f"Falloff {self.op_label}: mesh data became invalid")
+            self.report({"WARNING"}, f"{self.op_prefix} {self.op_label}: mesh data became invalid")
             return {"CANCELLED"}
         except Exception:
             self._revert_mesh()
@@ -278,7 +284,7 @@ class FalloffOpMixin:
             self._step_curve(context, 1 if et == "RIGHT_BRACKET" else -1)
         elif et == "I" and event.shift:
             self._toggle_invert(context)
-        else:
+        elif not self._extra_key(context, event):
             return {"RUNNING_MODAL"}
         self._live(context, event)
         return {"RUNNING_MODAL"}
@@ -433,7 +439,7 @@ class FalloffOpMixin:
         if self._input:
             amount += f" [{self._input}]"
         axis = self._axis or self.free_axis_label
-        return (f"Falloff {self.op_label} | Axis {axis} | {amount} | {name} Curve: {curve}"
+        return (f"{self.op_prefix} {self.op_label} | Axis {axis} | {amount} | {name} Curve: {curve}"
                 " — LMB/Enter confirm, Esc cancel")
 
     def _set_status(self, context):

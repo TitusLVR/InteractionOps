@@ -1,4 +1,5 @@
 import os
+import re
 import bmesh
 import bpy
 from math import radians
@@ -155,6 +156,210 @@ class IOPS_OT_ClearCustomNormals(bpy.types.Operator):
             with bpy.context.temp_override(object=obj):
                 if obj.type == "MESH":
                     bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        return {"FINISHED"}
+
+
+_ASSET_TAIL = re.compile(r"[\\/]datafiles[\\/]assets[\\/](.+)$", re.IGNORECASE)
+
+
+def _id_collections():
+    """(attribute name, collection) for every ID type an asset library may supply."""
+    for attr in (
+        "node_groups", "materials", "objects", "collections", "meshes",
+        "worlds", "images", "brushes", "texts", "actions",
+    ):
+        coll = getattr(bpy.data, attr, None)
+        if coll is not None:
+            yield attr, coll
+
+
+def stale_asset_libraries():
+    """Libraries that point into another Blender version's bundled assets.
+
+    Returns ``[(library, target_path)]`` where ``target_path`` is the same
+    asset file inside the running Blender's ``datafiles/assets`` folder.
+    Libraries whose counterpart does not exist in this version are skipped.
+    """
+    root = os.path.normcase(
+        os.path.normpath(os.path.join(bpy.utils.system_resource("DATAFILES"), "assets"))
+    )
+    result = []
+    for lib in bpy.data.libraries:
+        if lib.parent is not None:
+            continue
+        path = os.path.normpath(bpy.path.abspath(lib.filepath))
+        if os.path.normcase(path).startswith(root + os.sep):
+            continue
+        match = _ASSET_TAIL.search(path)
+        if not match:
+            continue
+        target = os.path.join(root, match.group(1))
+        if os.path.isfile(target):
+            result.append((lib, target))
+    return result
+
+
+_DUP_SUFFIX = re.compile(r"\.\d{3}$")
+
+
+def _group_signature(group):
+    sockets = []
+    for item in group.interface.items_tree:
+        if item.item_type != "SOCKET":
+            continue
+        val = getattr(item, "default_value", None)
+        if hasattr(val, "__len__") and not isinstance(val, str):
+            val = tuple(val)
+        sockets.append((item.name, item.in_out, val))
+    return (
+        sorted((n.bl_idname, n.name) for n in group.nodes),
+        len(group.links),
+        sockets,
+    )
+
+
+def local_asset_duplicates():
+    """Local node groups that are exact copies of a current-version linked
+    asset group (``Smooth by Angle.001`` next to the linked ``Smooth by
+    Angle``). Returns ``[(local_group, linked_group)]``."""
+    root = os.path.normcase(
+        os.path.normpath(os.path.join(bpy.utils.system_resource("DATAFILES"), "assets"))
+    )
+    refs = {}
+    for ng in bpy.data.node_groups:
+        if ng.library is None:
+            continue
+        path = os.path.normcase(os.path.normpath(bpy.path.abspath(ng.library.filepath)))
+        if path.startswith(root + os.sep):
+            refs.setdefault(ng.name, ng)
+    result = []
+    for ng in bpy.data.node_groups:
+        if ng.library is not None:
+            continue
+        ref = refs.get(_DUP_SUFFIX.sub("", ng.name))
+        if ref is not None and _group_signature(ng) == _group_signature(ref):
+            result.append((ng, ref))
+    return result
+
+
+def has_stale_links():
+    return bool(stale_asset_libraries() or local_asset_duplicates())
+
+
+def _find_linked(attr, name, target):
+    norm = os.path.normcase(os.path.normpath(target))
+    for idb in getattr(bpy.data, attr):
+        lib = idb.library
+        if (
+            idb.name == name
+            and lib is not None
+            and os.path.normcase(os.path.normpath(bpy.path.abspath(lib.filepath))) == norm
+        ):
+            return idb
+    return None
+
+
+def relink_stale_asset_libraries():
+    """Repoint datablocks linked from older Blender versions' bundled assets
+    to the running version. Returns (remapped, removed_libs, failed_names, merged_duplicates).
+
+    Two phases, because Blender invalidates Python references to libraries
+    when one is loaded or removed (and removing a library can take same-path
+    siblings with it): first remap every user to the current version's
+    datablock, only then drop libraries that nothing uses any more.
+    """
+    remapped = 0
+    failed = []
+    plan = [(lib.name, target) for lib, target in stale_asset_libraries()]
+    for lib_name, target in plan:
+        for attr, _ in _id_collections():
+            names = [
+                i.name
+                for i in getattr(bpy.data, attr)
+                if i.library is not None and i.library.name == lib_name
+            ]
+            for name in names:
+                old = next(
+                    (
+                        i
+                        for i in getattr(bpy.data, attr)
+                        if i.name == name
+                        and i.library is not None
+                        and i.library.name == lib_name
+                    ),
+                    None,
+                )
+                if old is None:
+                    continue
+                new = _find_linked(attr, name, target)
+                if new is None:
+                    with bpy.data.libraries.load(target, link=True) as (src, dst):
+                        if name in getattr(src, attr, []):
+                            setattr(dst, attr, [name])
+                    new = _find_linked(attr, name, target)
+                    old = next(
+                        (
+                            i
+                            for i in getattr(bpy.data, attr)
+                            if i.name == name
+                            and i.library is not None
+                            and i.library.name == lib_name
+                        ),
+                        None,
+                    )
+                if new is None or old is None:
+                    failed.append(name)
+                    continue
+                old.user_remap(new)
+                remapped += 1
+
+    removed = 0
+    for lib_name, _ in plan:
+        lib = bpy.data.libraries.get(lib_name)
+        if lib is None:
+            continue
+        if all(i.users == 0 for i in lib.users_id):
+            bpy.data.libraries.remove(lib)
+            removed += 1
+    merged = 0
+    for local, ref in [(l.name, r.name) for l, r in local_asset_duplicates()]:
+        pair = next(
+            ((l, r) for l, r in local_asset_duplicates() if l.name == local), None
+        )
+        if pair is None:
+            continue
+        pair[0].user_remap(pair[1])
+        if pair[0].users == 0:
+            bpy.data.node_groups.remove(pair[0])
+            merged += 1
+    return remapped, removed, failed, merged
+
+
+class IOPS_OT_RelinkEssentials(bpy.types.Operator):
+    bl_idname = "iops.relink_essentials"
+    bl_label = "Relink Essentials"
+    bl_description = (
+        "Linked libraries point to bundled assets of another Blender version "
+        "(e.g. Essential Geometry Nodes). Remap them to the running version"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return has_stale_links()
+
+    def execute(self, context):
+        remapped, removed, failed, merged = relink_stale_asset_libraries()
+        if failed:
+            self.report(
+                {"WARNING"},
+                "Not found in %s: %s" % (bpy.app.version_string, ", ".join(failed)),
+            )
+        self.report(
+            {"INFO"},
+            "Relinked %d datablock(s), removed %d stale librar%s, merged %d duplicate(s)"
+            % (remapped, removed, "y" if removed == 1 else "ies", merged),
+        )
         return {"FINISHED"}
 
 

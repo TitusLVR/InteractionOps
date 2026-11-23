@@ -180,6 +180,29 @@ The eight [Snap Combo](../operators/op_snap_combos.md) slots as a pie. Click a s
 
 ---
 
+## Falloff Pie
+
+Everything for [Falloff Fields](../operators/op_mesh_falloff_tools.md) in one pie: the operations that use the fields, Fit, adding and clearing fields, and the settings of the active field. Edit Mesh mode, 3D Viewport.
+
+**Hotkey:** No default key — assign one to *IOPS Pie Falloff* in *Preferences › iOps › Keymaps*.
+
+| Slot | Button | What it does |
+| --- | --- | --- |
+| Left | **Move** | Falloff Move |
+| Right | **Rotate** | Falloff Rotate |
+| Top | **Scale** | Falloff Scale |
+| Top-left | **Fit** | Fit the active field to the selection (adds one when the stack is empty); repeat to cycle the principal axis, X, Y, Z |
+| Top-right | **More** | Menu: Falloff Normal Offset, Field Edge Slide, Field Offset Edge Slide |
+| Bottom-left | **Add Field** | Menu of field types; adds a field fitted to the selection |
+| Bottom-right | **Clear** | Remove all fields and the custom pivot |
+| Bottom (box) | Field name | Opens the field stack (add, remove, reorder, enable, rename) |
+| | Type, Curve, Blend, Strength, Invert | Settings of the active field; shown when there is one |
+| | Basis, **Weights**, **Reset Pivot** | Axes and pivot of the operations, the weight dots, back to the automatic pivot |
+
+The operations start from where the pointer is when you click the slot, as they do from a key.
+
+---
+
 ## Library Popup
 
 A floating palette drawn over the 3D View that shows the assets of your iOps master library as thumbnails, grouped by category. Click a tile to insert that asset at the 3D cursor. The viewport stays fully usable around the palette.

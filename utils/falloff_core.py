@@ -336,6 +336,57 @@ def apply_scale(P0: np.ndarray, W: np.ndarray, pivot, s, basis=None) -> np.ndarr
     return C + vb @ R.T
 
 
+# ---------------------------------------------------------------- slides
+
+def pick_rail(v, side, candidates) -> int:
+    """Index of the candidate end point whose direction from `v` is closest
+    to `side` (a vector pointing into the slide side), or -1 when there are
+    no candidates. Used where a loop vertex has several edges on one side
+    (valence > 4, loop ends)."""
+    if not len(candidates):
+        return -1
+    v = np.asarray(v, dtype=np.float64)
+    d = np.asarray(candidates, dtype=np.float64) - v
+    ln = np.linalg.norm(d, axis=1)
+    sd = np.asarray(side, dtype=np.float64)
+    sl = np.linalg.norm(sd)
+    if sl < EPS:
+        return int(np.argmax(ln > EPS))
+    score = (d @ (sd / sl)) / np.maximum(ln, EPS)
+    score[ln <= EPS] = -np.inf
+    return int(np.argmax(score))
+
+
+def apply_edge_slide(P0, W, TA, TB, factor: float, *, even=False, clamp=True) -> np.ndarray:
+    """Slide each point toward its rail end: `TA` for factor > 0, `TB` for
+    factor < 0 (a point with no rail on a side has T == P0 and stays).
+
+    Not even: the point moves `|factor| * W` of its own rail.
+    Even: every point moves the same distance, `|factor| * W` times the mean
+    rail length of the side (rails of length 0 ignored).
+    Clamp: no point goes past its rail end (|factor| limited to 1 when not
+    even, distance limited to the own rail length when even)."""
+    P0 = np.asarray(P0, dtype=np.float64)
+    W = np.asarray(W, dtype=np.float64)
+    T = np.asarray(TA if factor >= 0.0 else TB, dtype=np.float64)
+    f = abs(float(factor))
+    D = T - P0
+    L = np.linalg.norm(D, axis=1)
+    has = L > EPS
+    if not has.any():
+        return P0.copy()
+    if even:
+        dist = f * W * float(L[has].mean())
+        if clamp:
+            dist = np.minimum(dist, L)
+        t = np.where(has, dist / np.maximum(L, EPS), 0.0)
+    else:
+        if clamp:
+            f = min(f, 1.0)
+        t = np.where(has, f * W, 0.0)
+    return P0 + t[:, None] * D
+
+
 def basis_from_normal(normal, tangent=None) -> np.ndarray:
     """Orthonormal (3,3) with columns X, Y, Z where Z = normalised `normal`,
     X = `tangent` made perpendicular to Z (an arbitrary perpendicular when

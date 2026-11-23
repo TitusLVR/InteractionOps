@@ -358,3 +358,57 @@ def test_basis_from_normal_parallel_tangent_and_zero_normal():
     assert np.allclose(R.T @ R, np.eye(3), atol=1e-12)
     assert R[:, 2].tolist() == pytest.approx([0.0, 0.0, 1.0])
     assert fc.basis_from_normal([0.0, 0.0, 0.0]).tolist() == np.eye(3).tolist()
+
+
+
+# ---------------------------------------------------------------- slides
+
+def _slide_fixture():
+    P0 = np.zeros((3, 3))
+    TA = np.array([[0.0, 1.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 0.0]])   # third: no rail on A
+    TB = np.array([[0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0]])
+    return P0, TA, TB
+
+
+def test_edge_slide_weight_scales_own_rail():
+    P0, TA, TB = _slide_fixture()
+    W = np.array([1.0, 0.5, 1.0])
+    out = fc.apply_edge_slide(P0, W, TA, TB, 0.5)
+    assert out[:, 1].tolist() == pytest.approx([0.5, 0.5, 0.0])
+
+
+def test_edge_slide_negative_factor_uses_other_side():
+    P0, TA, TB = _slide_fixture()
+    out = fc.apply_edge_slide(P0, np.ones(3), TA, TB, -1.0)
+    assert out[:, 1].tolist() == pytest.approx([-1.0, -1.0, -1.0])
+
+
+def test_edge_slide_weight_zero_stays():
+    P0, TA, TB = _slide_fixture()
+    out = fc.apply_edge_slide(P0, np.zeros(3), TA, TB, 1.0)
+    assert np.allclose(out, P0)
+
+
+def test_edge_slide_clamp():
+    P0, TA, TB = _slide_fixture()
+    clamped = fc.apply_edge_slide(P0, np.ones(3), TA, TB, 2.0)
+    free = fc.apply_edge_slide(P0, np.ones(3), TA, TB, 2.0, clamp=False)
+    assert clamped[:, 1].tolist() == pytest.approx([1.0, 2.0, 0.0])
+    assert free[:, 1].tolist() == pytest.approx([2.0, 4.0, 0.0])
+
+
+def test_edge_slide_even_moves_equal_distance():
+    P0, TA, TB = _slide_fixture()
+    # mean rail length on A is 1.5; first rail is only 1.0 long
+    out = fc.apply_edge_slide(P0, np.ones(3), TA, TB, 0.5, even=True)
+    assert out[:, 1].tolist() == pytest.approx([0.75, 0.75, 0.0])
+    out = fc.apply_edge_slide(P0, np.ones(3), TA, TB, 1.0, even=True)
+    assert out[:, 1].tolist() == pytest.approx([1.0, 1.5, 0.0])   # clamped to own rail
+
+
+def test_pick_rail_prefers_side_direction():
+    v = (0.0, 0.0, 0.0)
+    cands = [(1.0, 0.0, 0.0), (0.2, 1.0, 0.0), (0.0, -1.0, 0.0)]
+    assert fc.pick_rail(v, (0.0, 1.0, 0.0), cands) == 1
+    assert fc.pick_rail(v, (0.0, -1.0, 0.0), cands) == 2
+    assert fc.pick_rail(v, (0.0, 1.0, 0.0), []) == -1

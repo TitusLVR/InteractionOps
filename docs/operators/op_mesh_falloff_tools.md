@@ -92,6 +92,11 @@ The status line shows the operation, axis, amount, and the active field's name a
 - **Scale** — factor about the pivot, along the Basis axes; uniform unless an axis is set.
 - **Normal Offset** — pushes each vertex along its own normal by distance times weight.
 
+### Field Edge Slide and Field Offset Edge Slide
+`iops.mesh_field_edge_slide` slides the selected edge loops along their rails, as Blender's Edge Slide, but each vertex goes `factor × weight` of the way: with a Linear field the loop ends up slanted, with a Bidirectional one peaked. `iops.mesh_field_offset_edge_slide` first adds a loop on each side of the selected one and slides the two apart the same way, so they open as a wedge from the 0 % end. As in Blender, the new loops stay if you cancel the slide.
+
+Moving the mouse along the rails sets the factor (1 = rail end; the sign picks the side for Edge Slide). <kbd>E</kbd> toggles **Even** (every vertex slides the same distance, times its weight), <kbd>C</kbd> toggles **Clamp** (no vertex goes past the end of its rail). Shift, Ctrl, typed numbers, `[` `]`, Shift+I and F9 work as for the transforms. There are no tool keys for the slides; run them from the Falloff pie (**More**), the widget, operator search, or bind them in *Preferences › iOps › Keymaps*.
+
 ### Basis and pivot
 **Basis** (Local, Cursor, World, Normal) sets the axes for X / Y / Z. The pivot is the custom pivot if you dragged it, otherwise the automatic one for the basis (Local: centre of the selection; Cursor: the 3D cursor; World: the origin; Normal: the active element). With several objects in Edit Mode, Local means the active object's axes.
 
@@ -105,7 +110,7 @@ All meshes in Edit Mode are included and share the one field stack. With nothing
 Field edits (handle drags, adding, removing or reordering fields, Fit, curve and invert changes) are **not undoable**: Edit Mode undo restores the mesh, not scene properties. Ctrl+Z after an operation restores the mesh and leaves the fields as they are.
 
 ## Widget
-The built-in **Falloff Tools** widget has Fit, Clear, Move, Rotate, Scale and Normal Offset buttons (Edit Mesh mode), the Basis dropdown and the Weights toggle. It has no per-field controls; use the tool settings for those. If you keep your own copy of the Falloff Tools widget in your widgets folder, it still points at the old `scene.IOPS.falloff_*` properties and must be updated: the new ones are `scene.IOPS.falloff.basis` and `scene.IOPS.falloff.show_weights`.
+The built-in **Falloff Tools** widget has Fit, Clear, Move, Rotate, Scale, Normal Offset, Edge Slide and Offset Slide buttons (Edit Mesh mode), the Basis dropdown and the Weights toggle. It has no per-field controls; use the tool settings for those. If you keep your own copy of the Falloff Tools widget in your widgets folder, it still points at the old `scene.IOPS.falloff_*` properties and must be updated: the new ones are `scene.IOPS.falloff.basis` and `scene.IOPS.falloff.show_weights`.
 
 ## Removed
 - **Screen** and **Coplanar** falloff types and the **Element** (connected only) toggle.
