@@ -20,7 +20,7 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Right | **Arrange** | Object Replace, Radial Array, Grid / Grid to Center, To Grid From Active |
 | Bottom | **Vertex Color** | See below |
 | Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects, Negative Scale Overlay (drawn pressed while the overlay is on) |
-| Top-left | **Modifiers** | Easy Modifier shortcuts: Array Caps, Array Curve, Curve, SHWARP |
+| Top-left | **Modifiers** | Easy Array Caps, Easy Array Curve, Easy Curve, Easy SHWARP; stack tools: Cleanup, Collapse Stack, Sort Stack, Sync Render Vis, Safe Apply Transform, Select Mod Users |
 | Top-right | **Assets & Files** | Materials from Textures, Material Override, Render Asset Thumbnail, Reload Libraries, Reload Images |
 
 ### Edit Mesh
@@ -31,7 +31,9 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Right | **UV** | UV Stripe, UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
 | Bottom | **Vertex Color** | See below |
 | Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face, Non-Planar Overlay (drawn pressed while the overlay is on) |
-| Top-left | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
+| Top-left | **Modifiers** | Same box as in Object Mode; Collapse Stack, Safe Apply Transform and Select Mod Users need Object Mode and hide here |
+| Top-right | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
+| Bottom-right | **Assets & Files** | Same box as in Object Mode |
 
 ### Vertex Color box
 
