@@ -26,12 +26,14 @@ for op_name in (
     "instance_edit_backups_cleanup",
     "mesh_edge_slide",
     "mesh_uv_stripe",
-    "mesh_uv_stripe_interactive",
 ):
     assert hasattr(bpy.ops.iops, op_name), f"missing operator: iops.{op_name}"
     if op_name.startswith(("instance_edit_", "mesh_")):
         # hasattr is always True (lazy wrapper): resolve the RNA type.
         getattr(bpy.ops.iops, op_name).get_rna_type()
+
+# UV Stripe (Interactive) folded into UV Stripe (every invoke is the interactive mode)
+assert "IOPS_OT_mesh_uv_stripe_interactive" not in dir(bpy.types), "iops.mesh_uv_stripe_interactive still registered"
 
 for op_name in ("node_spawn_connected", "node_pie_add_search", "call_pie_node"):
     assert hasattr(bpy.ops.iops, op_name), f"missing operator: iops.{op_name}"

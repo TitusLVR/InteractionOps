@@ -98,3 +98,69 @@ STEP_FACES = {
     1: (18, 19, 13, 12),
     20: (2, 13, 19, 22, 21, 5),
 }
+
+
+def mixed_band(n=12, radii=(1.0, 1.25, 1.5, 1.75), sweep=120.0, fan=True, rounded_end=False):
+    """A flat band round an arc, three faces wide, of mixed faces (a reduced stand-in for a user's wide sample):
+    vertex i * 4 + r at column i and radius r; the line beside the inner rail (r = 1) runs through two triangles
+    (column 4, both sides of it split on a diagonal) and a hexagon (columns 7 and 8 between r = 1 and 2 merged, so
+    vertex 8 * 4 + 1 hangs on its long side); with ``fan`` the inner rail's last two columns are four triangles
+    fanned round the rail vertex (n - 1, 0), and with ``rounded_end`` the first end's two middle vertices are pushed
+    out and its three faces merged into one n-gon (an end with real corners). Returns (verts, faces) as
+    {id: (x, y, z)}, {id: vertex ids}."""
+    rows = len(radii)
+    a = math.radians(sweep)
+    verts = {i * rows + r: (rad * math.cos(a * i / n), rad * math.sin(a * i / n), 0.0)
+             for i in range(n + 1) for r, rad in enumerate(radii)}
+
+    def v(i, r):
+        return i * rows + r
+
+    quads = {(i, r): (v(i, r), v(i + 1, r), v(i + 1, r + 1), v(i, r + 1)) for i in range(n) for r in range(rows - 1)}
+    faces = []
+    for (i, r), quad in sorted(quads.items()):
+        if i == 4 and r in (0, 1):
+            faces += [(quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])]
+        elif (i, r) == (7, 1):
+            faces.append((v(7, 1), v(8, 1), v(9, 1), v(9, 2), v(8, 2), v(7, 2)))
+        elif (i, r) == (8, 1):
+            continue
+        elif fan and r == 0 and i in (n - 2, n - 1):
+            continue
+        elif rounded_end and i == 0:
+            continue
+        else:
+            faces.append(quad)
+    if fan:
+        p = v(n - 1, 0)
+        faces += [(v(n - 2, 0), p, v(n - 2, 1)), (p, v(n - 1, 1), v(n - 2, 1)), (p, v(n, 1), v(n - 1, 1)),
+                  (p, v(n, 0), v(n, 1))]
+    if rounded_end:
+        for r in (1, 2):
+            x, y, z = verts[v(0, r)]
+            verts[v(0, r)] = (x, y - 0.12, z)        # the end bulges out past u = 0: two real corners on it
+        faces.append((v(0, 0), v(1, 0), v(1, 1), v(1, 2), v(1, 3), v(0, 3), v(0, 2), v(0, 1)))
+    return verts, dict(enumerate(faces))
+
+
+def trim_strip(cols=8, rows=3, width=1.0, height=0.5, taper=0.005, notch=0.3):
+    """A flat strip several faces wide shaped like a user's trim piece (vertex (i, j) is i + j * (cols + 1)): it
+    tapers (row j shrinks by ``taper`` * j about the middle, so its ends slant), its first end's corner on the
+    near rail is chamfered (moved 0.8 of a cell along the rail, so the end turns sharply at (0, 1) and its own
+    line runs from there), and its far rail has a notch (the vertices at columns 3 and 4 pushed in by ``notch``).
+    Returns (verts, faces)."""
+    mid = cols * width / 2.0
+    verts = {}
+    for j in range(rows + 1):
+        for i in range(cols + 1):
+            verts[i + j * (cols + 1)] = (mid + (i * width - mid) * (1.0 - taper * j), j * height, 0.0)
+    verts[0] = (verts[0][0] + 0.8 * (verts[1][0] - verts[0][0]), 0.0, 0.0)
+    for i in (3, 4):
+        v = i + rows * (cols + 1)
+        verts[v] = (verts[v][0], rows * height - notch, 0.0)
+    faces = {}
+    for j in range(rows):
+        for i in range(cols):
+            a = i + j * (cols + 1)
+            faces[len(faces)] = (a, a + 1, a + cols + 2, a + cols + 1)
+    return verts, faces

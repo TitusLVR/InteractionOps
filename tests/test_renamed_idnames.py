@@ -27,6 +27,21 @@ class TestMigrateKeyRows:
         rows = [_row("iops.mesh_edge_slide", "J"), _row("iops.mesh_smart_edge_slide", "E")]
         assert migrate_key_rows(rows) == [_row("iops.mesh_edge_slide", "J")]
 
+    def test_a_bound_old_row_replaces_an_unbound_new_one(self):
+        rows = [_row("iops.mesh_uv_stripe", "NONE"), _row("iops.mesh_uv_stripe_interactive", "U", ctrl=True)]
+        assert migrate_key_rows(rows) == [_row("iops.mesh_uv_stripe", "U", ctrl=True)]
+
+    def test_both_bound_the_new_row_wins(self):
+        rows = [_row("iops.mesh_uv_stripe", "J"), _row("iops.mesh_uv_stripe_interactive", "U")]
+        assert migrate_key_rows(rows) == [_row("iops.mesh_uv_stripe", "J")]
+
+    def test_both_unbound_one_row_is_left(self):
+        rows = [_row("iops.mesh_uv_stripe_interactive", "NONE"), _row("iops.mesh_uv_stripe", "NONE")]
+        assert migrate_key_rows(rows) == [_row("iops.mesh_uv_stripe", "NONE")]
+
+    def test_the_interactive_pie_slot_call_migrates(self):
+        assert migrate_operator_call("iops.mesh_uv_stripe_interactive") == "iops.mesh_uv_stripe"
+
     def test_other_rows_untouched_and_order_kept(self):
         rows = [_row("iops.mesh_shear", "S"), _row("iops.mesh_smart_inset", "I"), _row("iops.function_f1", "F1")]
         assert migrate_key_rows(rows) == [

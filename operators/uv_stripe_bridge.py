@@ -5,7 +5,7 @@ In Place needs from the mesh before any UV changes (``uv_context``), then places
 the strips and writes their UVs onto the strip faces' corners (``apply_stripes``).
 UV Stripe, Inset and Edge Slide share the rest here, so they cannot
 drift apart: the option items (``STRAIGHT_SIDES_ITEMS``, ``ENDS_ITEMS``,
-``BALANCE_ITEMS``, ``ORIENTATION_ITEMS``), the pieces one built strip becomes
+``ORIENTATION_ITEMS``), the pieces one built strip becomes
 (``prepare_strip``) and the seams that match the laid-out pieces
 (``match_piece_seams``).
 """
@@ -16,8 +16,10 @@ from dataclasses import dataclass
 from bmesh.types import BMFace
 
 from ..utils import uv_stripe_auto_core as auto_core
+from ..utils import uv_stripe_balance_core as balance_core
 from ..utils import uv_stripe_core as core
 from ..utils import uv_stripe_select_core as select_core
+from ..utils import uv_stripe_split_core as split_core
 
 
 @dataclass
@@ -98,19 +100,18 @@ STRAIGHT_SIDES_ITEMS = [
     ("NONE", "None", "Nothing straightened: every piece unfolded at its real shape, turned by Align"),
 ]
 ENDS_ITEMS = [
+    ("AUTO", "Upright Where Cheap",
+     "On a strip several faces wide both ends stand upright unless that stretches the worst face by more than 0.05 "
+     "over keeping their slant; a strip one face wide keeps its real slant"),
     ("SLANTED", "Slanted", "Both ends of every piece keep their real slant"),
     ("BOTH", "Both", "Both ends of every piece stand upright"),
     ("LONGER", "Longer End", "The end with the longer cross edges stands upright, the other keeps its slant"),
     ("SHORTER", "Shorter End", "The end with the shorter cross edges stands upright, the other keeps its slant"),
 ]
-BALANCE_ITEMS = [
-    ("EVEN_TEXEL", "Even Texel",
-     "A strip several faces wide keeps every face near its real size: even texel density, some stretch left "
-     "where its rows must differ in length"),
-    ("LEAST_STRETCH", "Least Stretch",
-     "A strip several faces wide is laid out with the least stretch: far less stretch, the texel density "
-     "differing a little between faces"),
-]
+BALANCE_DESCRIPTION = (
+    "How a balanced piece spreads the stretch it cannot avoid: 0 the least stretch, the texel density differing "
+    "a little between faces; 1 every face near its real size (even texel density), some stretch left where its "
+    "rows must differ in length; in between, the layout slides from one to the other")
 ORIENTATION_ITEMS = [
     ("HORIZONTAL", "Horizontal", "The strip runs along U"),
     ("VERTICAL", "Vertical", "The strip runs along V: the horizontal layout turned 90 degrees counter-clockwise"),
@@ -128,6 +129,7 @@ def apply_stripes(
     active: int | None = None,
     active_fit: str = "BOTH",
     offset: tuple[str, float, int] = ("NONE", 0.0, 0),
+    units=None,
 ) -> bool:
     """Lay every strip out and write its UVs onto its faces' corners in the active UV layer.
 
@@ -169,8 +171,47 @@ def apply_stripes(
     maps = [core.stripe_uvs(s) for s in strips]
     lengths = [core.strip_extent(s) for s in strips]
     heights = [core.strip_v_extent(s) for s in strips]
+    maps, lengths, heights, contexts, fit_groups, active = assemble_units(
+        strips, maps, lengths, heights, contexts, fit_groups, active, units)
     return apply_maps(bm, maps, lengths, heights, faces, mode, contexts, fit_groups, vertical, active, active_fit,
                       offset)
+
+
+def assemble_units(strips, maps, lengths, heights, contexts, fit_groups, active, units):
+    """The laid-out strips with every unit joined into one strip (``uv_stripe_split_core.assemble``): ``units``
+    holds (strip indices in strip order, entry cut vertex sets, exit cut vertex sets), one per island cut into
+    pieces; every strip in no unit stays as it is. A unit is placed as one piece: the context and Fit group of
+    its first strip, the active index moved to the unit holding the active strip. Returns (maps, lengths,
+    heights, contexts, fit groups, active) in placement order: every unit where its first strip was."""
+    if not units:
+        return maps, lengths, heights, contexts, fit_groups, active
+    lead = {}
+    member = set()
+    for unit in units:
+        indices = list(unit[0])
+        if len(indices) < 2:
+            continue
+        lead[indices[0]] = unit
+        member.update(indices)
+    out = ([], [], [], [], [], None)
+    for i in range(len(strips)):
+        if i in member and i not in lead:
+            continue
+        if i in lead:
+            indices, entries, exits = lead[i]
+            uv, length, height = split_core.assemble(
+                [(strips[k], maps[k], lengths[k], heights[k]) for k in indices], list(entries), list(exits))
+            holds = active in indices
+        else:
+            uv, length, height, holds = maps[i], lengths[i], heights[i], active == i
+        if holds:
+            out = (*out[:5], len(out[0]))
+        out[0].append(uv)
+        out[1].append(length)
+        out[2].append(height)
+        out[3].append(contexts[i])
+        out[4].append(fit_groups[i])
+    return out
 
 
 def apply_maps(
@@ -261,21 +302,42 @@ def stretched_faces(bm, faces: Iterable[BMFace], matrix, tolerance: float = core
 @dataclass(frozen=True)
 class ShapeRules:
     """How every piece is laid out: what must be straight (``straight_sides``, ``ends``; ``STRAIGHT_SIDES_ITEMS``,
-    ``ENDS_ITEMS``), the ``stretch_limit`` that relaxes it, the ``balance`` of a strip several faces wide
-    (``BALANCE_ITEMS``), the sides picked by hand (``picks``: (face id, sorted vertex-id pair, straight), see
+    ``ENDS_ITEMS``), the ``stretch_limit`` that relaxes it, the ``balance`` of a balanced piece (0 to 1,
+    ``uv_stripe_balance_core.balance_value``), the sides picked by hand (``picks``: (face id, sorted vertex-id pair, straight), see
     ``uv_stripe_auto_core.picked_shape``) and what a piece unfolded at its real shape runs along (``align``,
-    ``align_edges``: vertex-id pairs, ``uv_stripe_core.lay_piece``)."""
+    ``align_edges``: vertex-id pairs, ``uv_stripe_core.lay_piece``) and the lines picked straight (``lines``:
+    (axis, vertex ids), ``uv_stripe_core.Strip.lines``)."""
 
     straight_sides: str = "BOTH"
     ends: str = "SLANTED"
     stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT
-    balance: str = "EVEN_TEXEL"
+    balance: float = core.DEFAULT_BALANCE
     picks: tuple = ()
     align: str = "AUTO"
     align_edges: tuple = ()
+    lines: tuple = ()
+
+    def shape(self, piece: core.Strip):
+        """What must be straight on ``piece`` by these rules: the settings, the picked sides on top
+        (``uv_stripe_auto_core.picked_shape``)."""
+        return auto_core.picked_shape(piece, auto_core.default_shape(piece, self.straight_sides, self.ends),
+                                      self.picks)[0]
+
+    def lines_in(self, piece: core.Strip) -> tuple:
+        """The picked lines as ``piece`` holds them: each cut down to the piece's own vertices, kept when two or
+        more are left."""
+        used = {v for face in piece.faces.values() for v in face}
+        out = []
+        for axis, vertices in self.lines:
+            kept = frozenset(vertices) & used
+            if len(kept) >= 2:
+                out.append((axis, kept))
+        return tuple(out)
 
     def lay(self, piece: core.Strip) -> None:
-        """Lay ``piece`` out by these rules (``uv_stripe_auto_core.lay_shaped``). Raises ValueError as it does."""
+        """Lay ``piece`` out by these rules (``uv_stripe_auto_core.lay_shaped``), the picked lines it holds kept
+        straight. Raises ValueError as it does."""
+        piece.lines = self.lines_in(piece)
         auto_core.lay_shaped(piece, self.straight_sides, self.ends, self.stretch_limit, self.balance, self.picks,
                              self.align, self.align_edges)
 
@@ -287,8 +349,14 @@ def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, rules: ShapeRule
     Raises ValueError as ``uv_stripe_core.stripe_uvs`` does."""
     strip.layout = "TRUE"
     strip.align, strip.align_edge = rules.align, None
+    strip.lines = rules.lines_in(strip)
     cuts = sorted(set(cuts))
-    kept = auto_core.auto_cuts(strip, cuts, skip_cuts)
+    # free ends (Slanted, and Upright Where Cheap on a strip one face wide: Auto never tears a wide one)
+    layouts = ("TRUE",) if rules.ends in ("SLANTED", "AUTO") else auto_core.STRAIGHT_LAYOUTS
+    if not cuts and auto_core.fits_whole(strip, rules.shape(strip), rules.stretch_limit, rules.balance):
+        kept = []          # one layout the piece will be laid out with already keeps it within the limit
+    else:
+        kept = auto_core.auto_cuts(strip, cuts, skip_cuts, layouts, rules.stretch_limit)
     pieces, reason = [strip], None
     if cuts or kept:
         pieces, reason = select_core.split_strip(strip, None, sorted(set(cuts) | set(kept)))
@@ -318,7 +386,7 @@ def prepare_strip(
     strip: core.Strip, faces: dict[int, BMFace], straight_sides: str = "BOTH", ends: str = "SLANTED",
     extra_cuts=(), break_edge: tuple[int, int] | None = None, manual_cuts=(), skip_cuts=(), bend_tears=None,
     align: str = "AUTO", align_edges=(), stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT,
-    balance: str = "EVEN_TEXEL", side_picks=(),
+    balance: float = core.DEFAULT_BALANCE, side_picks=(), lines=(),
 ) -> tuple[list[tuple[core.Strip, dict[int, BMFace]]], str | None]:
     """The final pieces of one built strip, with their faces by id, and why a requested tear was not made.
 
@@ -331,7 +399,7 @@ def prepare_strip(
     and ``ends`` (``STRAIGHT_SIDES_ITEMS``, ``ENDS_ITEMS``), the sides picked on it
     by hand on top (``side_picks``: (face id, sorted vertex-id pair, straight), in
     order), relaxed while its worst face stretches beyond ``stretch_limit`` unless a
-    long side was picked, ``balance`` for a strip several faces wide; a closed piece
+    long side was picked, ``balance`` for a balanced piece; a closed piece
     keeps "EVEN". Raises ValueError as ``uv_stripe_core.stripe_uvs`` does.
 
     ``break_edge`` (a vertex-id pair) is a ring's picked break: when ``strip`` is
@@ -344,8 +412,13 @@ def prepare_strip(
     ``align`` (``uv_stripe_core.Strip.align``) tells each piece unfolded at its real
     shape what to run along; each piece aligns on its own, "PICKED" on the first of
     ``align_edges`` (vertex-id pairs) that is an edge of its faces, "AUTO" when none is.
+
+    ``lines`` ((axis, vertex ids), ``uv_stripe_core.Strip.lines``) are the lines picked straight: every piece
+    keeps those of its vertices on one shared v ("ALONG") or u ("ACROSS") through every shape Stretch Limit
+    relaxes it to.
     """
-    rules = ShapeRules(straight_sides, ends, stretch_limit, balance, tuple(side_picks), align, tuple(align_edges))
+    rules = ShapeRules(straight_sides, ends, stretch_limit, balance, tuple(side_picks), align, tuple(align_edges),
+                       tuple((axis, frozenset(vs)) for axis, vs in lines))
     broken = None
     if break_edge is not None and strip.closed:
         cut_edges = [select_core.rung_edge(strip, k) for k in manual_cuts]
@@ -393,6 +466,27 @@ def match_piece_seams(pieces) -> None:
         e.seam = True
 
 
+SETTINGS_VERSION = 1    # 1: Ends gained "Upright Where Cheap" ("AUTO") as the default (2026-11-24)
+
+
+def migrate_settings(props) -> bool:
+    """Bring UV Stripe properties stored before ``SETTINGS_VERSION`` up to date, once: properties with no
+    ``settings_version`` set were stored under the old default Ends = Slanted, which becomes "AUTO" (the new
+    default); every other value stays. ``props`` is an operator's properties (or the last-used ones,
+    ``operator_properties_last``); the version is set on them, so a later explicit Slanted sticks. Returns
+    whether anything was changed."""
+    try:
+        if props.is_property_set("settings_version"):
+            return False
+    except (AttributeError, TypeError):
+        return False
+    changed = getattr(props, "ends", None) == "SLANTED"
+    if changed:
+        props.ends = "AUTO"
+    props.settings_version = SETTINGS_VERSION
+    return changed
+
+
 @dataclass
 class StripeSettings:
     """UV Stripe's settings: one set for UV Stripe, Inset and Edge Slide.
@@ -407,7 +501,7 @@ class StripeSettings:
     straight_sides: str
     ends: str
     stretch_limit: float
-    balance: str
+    balance: float
     split_at_seams: bool
     mark_seams: bool
     offset_axis: str
@@ -417,11 +511,22 @@ class StripeSettings:
 
     @classmethod
     def from_operator(cls, op) -> "StripeSettings":
-        return cls(**{name: getattr(op, name) for name in cls.__dataclass_fields__})
+        """The settings ``op`` holds; a Balance held as one of the old names ("EVEN_TEXEL", "LEAST_STRETCH")
+        reads as its slider value, anything unreadable as the default."""
+        values = {name: getattr(op, name) for name in cls.__dataclass_fields__}
+        try:
+            values["balance"] = balance_core.balance_value(values["balance"])
+        except ValueError:
+            values["balance"] = core.DEFAULT_BALANCE
+        return cls(**values)
 
     @classmethod
     def from_last(cls, context) -> "StripeSettings":
-        return cls.from_operator(context.window_manager.operator_properties_last("iops.mesh_uv_stripe"))
+        """UV Stripe's last-used settings, stored ones older than ``SETTINGS_VERSION`` migrated first
+        (``migrate_settings``)."""
+        props = context.window_manager.operator_properties_last("iops.mesh_uv_stripe")
+        migrate_settings(props)
+        return cls.from_operator(props)
 
     def shape_kwargs(self) -> dict:
         """The keywords of ``prepare_strip`` these settings give (Inset and Edge Slide: no picked sides)."""
@@ -429,7 +534,7 @@ class StripeSettings:
                 "balance": self.balance}
 
 
-def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bool:
+def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings, units=None) -> bool:
     """Place the prepared (strip, faces by id) pieces and set their seams, as ``settings`` say; the one
     placement step of UV Stripe, Inset and Edge Slide.
 
@@ -450,7 +555,8 @@ def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bo
     fitted = apply_stripes(
         bm, [strip for strip, _faces in pieces], faces, settings.mode, contexts, fit_groups=groups,
         vertical=vertical, active=active, active_fit=settings.active_fit,
-        offset=(offset_axis(settings.offset_axis, vertical), settings.offset_limit, settings.offset_seed))
+        offset=(offset_axis(settings.offset_axis, vertical), settings.offset_limit, settings.offset_seed),
+        units=units)
     if settings.mark_seams:
         match_piece_seams(pieces)
     return fitted

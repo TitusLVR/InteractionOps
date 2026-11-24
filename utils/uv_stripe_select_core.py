@@ -24,7 +24,11 @@ must be one of three shapes (``strip_from_faces``), tried in this order:
   Its two boundary loops are the rows, every shared edge is a rung.
 - a quad-grid patch wider than one face: the four boundary vertices used by one
   face only are the corners; the pair of opposite sides with the larger summed
-  length are the rows, the other two the ends.
+  length are the rows, the other two the ends. With more than four such vertices
+  (an end split into n-gons, a rounded end) the corners are the extremes of the two
+  runs of them that are the ends (``_end_run_corners``); with two or three, the
+  ones a collapsed vertex took are found by angle (``_lost_corners``). Four corners
+  picked by hand override both (``corners``).
 
 Points closer than ``uv_stripe_core.WELD`` of the strip's size (an unmerged double)
 count as one point wherever a direction or an angle is measured: end caps, bends.
@@ -52,12 +56,14 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 
 from .uv_stripe_core import (
-    WELD, Strip, Vec3, _angle, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
+    CACHES, WELD, Strip, Vec3, _angle, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
 )
 
 TOL = 1e-9
 CAP_ANGLE = math.radians(15.0)
 CORNER_ANGLE = math.radians(150.0)
+END_TURN_TOL = math.radians(45.0)    # an end must turn within the surface by half a turn, give or take this
+MAX_END_CANDIDATES = 16              # more sharp boundary vertices used by one face than this: no end runs tried
 
 
 def _edge(a: int, b: int) -> tuple[int, int]:
@@ -174,13 +180,71 @@ def _boundary_loops(faces: dict[int, tuple[int, ...]], edge_faces) -> list[list[
     return loops
 
 
+_BUILT: dict = {}        # strips built by ``strip_from_faces``, by their island, positions and arguments
+_BUILT_SIZE = 256
+CACHES.append(_BUILT)
+
+
+def copy_strip(strip: Strip) -> Strip:
+    """A copy of ``strip`` that can be changed without changing it: its lists and dicts copied (the positions
+    are shared, never changed)."""
+    out = replace(strip)
+    out.faces = dict(strip.faces)
+    out.near, out.far, out.rungs = list(strip.near), list(strip.far), list(strip.rungs)
+    out.sides = (list(strip.sides[0]), list(strip.sides[1]))
+    out.corner_near, out.corner_far = dict(strip.corner_near), dict(strip.corner_far)
+    return out
+
+
 def strip_from_faces(
     verts: dict[int, Vec3],
     faces: dict[int, tuple[int, ...]],
     seam_edge: tuple[int, int] | None = None,
     near: set[int] | None = None,
+    corners: list[int] | None = None,
+    seed: int | None = None,
+    start_face: int | None = None,
+    end: frozenset | None = None,
+) -> Strip:
+    """``_strip_from_faces``, remembered: the same island at the same positions with the same arguments is read
+    once (a refusal too), and every call gets its own copy (``copy_strip``)."""
+    used = sorted({v for face in faces.values() for v in face})
+    try:
+        key = (tuple(sorted(faces.items())), tuple((v, tuple(verts[v])) for v in used), seam_edge,
+               frozenset(near) if near else None, tuple(corners) if corners is not None else None, seed, start_face,
+               frozenset(end) if end else None)
+    except (KeyError, TypeError):
+        return _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end)
+    if key not in _BUILT:
+        while len(_BUILT) >= _BUILT_SIZE:
+            _BUILT.pop(next(iter(_BUILT)))
+        try:
+            _BUILT[key] = _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end)
+        except ValueError as exc:
+            _BUILT[key] = exc
+    found = _BUILT[key]
+    if isinstance(found, ValueError):
+        raise ValueError(str(found))
+    return copy_strip(found)
+
+
+def _strip_from_faces(
+    verts: dict[int, Vec3],
+    faces: dict[int, tuple[int, ...]],
+    seam_edge: tuple[int, int] | None = None,
+    near: set[int] | None = None,
+    corners: list[int] | None = None,
+    seed: int | None = None,
+    start_face: int | None = None,
+    end: frozenset | None = None,
 ) -> Strip:
     """The Strip of one edge-connected island of faces.
+
+    ``corners`` (four vertex ids on the island's one boundary loop, picked by hand) make it a patch with
+    those corners, whatever its faces would say. ``seed`` (a face id) settles a close race between two
+    readings of its corners (``_end_run_corners``); ``start_face`` (a face id) sets the direction of an
+    open strip instead of the direction rule: u grows away from it (``seed_start``). With ``corners``, ``end``
+    (vertex ids: a cut the island was cut at) lies on an end of the patch (``_grid_strip``).
 
     ``faces`` maps face ids to their vertex ids in winding order; ``verts`` holds at
     least their positions. Raises ValueError("not a strip: ...") when the island is
@@ -220,20 +284,25 @@ def strip_from_faces(
     degree = Counter(len(n) for n in nbrs.values())
     m = len(faces)
 
+    if corners is not None:
+        picked = list(dict.fromkeys(corners))
+        if len(loops) != 1 or len(picked) != 4 or any(c not in loops[0] for c in picked):
+            raise ValueError("not a strip: the picked corners are not four vertices of the island's boundary")
+        return _seeded(_grid_strip(verts, faces, loops[0], picked, near, end), start_face, near)
     if m == 1:
         (face,) = faces.values()
         if len(face) == 4:
-            return _grid_strip(verts, faces, loops[0], list(face), near)
+            return _seeded(_grid_strip(verts, faces, loops[0], list(face), near), start_face, near)
         if len(face) < 4:
             raise ValueError("not a strip: a single face must be a quad or more")
         corners = _single_ngon_corners(verts, face, island_tolerance(verts, faces))
-        return _grid_strip(verts, faces, loops[0], corners, near)
+        return _seeded(_grid_strip(verts, faces, loops[0], corners, near), start_face, near)
     if m == 2 and len(loops) == 1 and len(loops[0]) == 4:
-        return _grid_strip(verts, faces, loops[0], list(loops[0]), near)
+        return _seeded(_grid_strip(verts, faces, loops[0], list(loops[0]), near), start_face, near)
     if degree[1] == 2 and degree[2] == m - 2:
         if len(loops) != 1:
             raise ValueError("not a strip: the chain of faces has a hole")
-        return _open_chain(verts, faces, edge_faces, nbrs, loops[0], near)
+        return _seeded(_open_chain(verts, faces, edge_faces, nbrs, loops[0], near), start_face, near)
     if degree[2] == m and m >= 3:
         if len(loops) != 2:
             raise ValueError("not a strip: the ring of faces has one boundary (twisted or pinched)")
@@ -242,11 +311,144 @@ def strip_from_faces(
         raise ValueError("not a strip: the selection has a hole")
     uses = Counter(v for face in faces.values() for v in face)
     corners = [v for v in loops[0] if uses[v] == 1]
+    if len(corners) > 4:
+        corners = _end_run_corners(verts, faces, loops[0], corners, uses, seed) or corners
     if 2 <= len(corners) < 4:
         corners = _lost_corners(verts, faces, loops[0], corners, uses) or corners
     if len(corners) != 4:
         raise ValueError(f"not a strip: the selection branches ({len(corners)} corners, a strip has 4)")
-    return _grid_strip(verts, faces, loops[0], corners, near)
+    return _seeded(_grid_strip(verts, faces, loops[0], corners, near), start_face, near)
+
+
+def _seeded(strip: Strip, start_face: int | None, near_ids=None) -> Strip:
+    """``strip`` turned round when ``start_face`` asks for it (``seed_start``); unchanged without one, for a
+    closed strip, or when ``near_ids`` already decided the direction."""
+    if start_face is None or strip.closed or start_face not in strip.faces:
+        return strip
+    if near_ids and _held(near_ids, strip.near) != _held(near_ids, strip.far):
+        return strip
+    if seed_start(strip, start_face) == 1:
+        return _swap_rows(strip)
+    return strip
+
+
+def seed_start(strip: Strip, face_id: int) -> int:
+    """Which end of the open ``strip`` the seed face ``face_id`` puts at u = 0: 0 for the end at ``near[0]``,
+    1 for the one at ``near[-1]``. A seed face touching exactly one end puts that end first; otherwise u
+    grows along the seed face's longer pair of opposite edges (the end whose centroid lies lower along that
+    direction, oriented by the direction rule of the module docstring), and with no such pair along the
+    vector between the end centroids as the direction rule does."""
+    face = strip.faces[face_id]
+    ends = ([strip.near[0], *strip.sides[0], strip.far[0]], [strip.near[-1], *strip.sides[1], strip.far[-1]])
+    touch = [bool(set(face) & set(end)) for end in ends]
+    if touch[0] != touch[1]:
+        return 0 if touch[0] else 1
+    ca, cb = _centroid(strip.verts, ends[0]), _centroid(strip.verts, ends[1])
+    d = _long_direction(strip.verts, face)
+    if d is None:
+        first = _comes_first(ca, cb)
+        return 0 if first is None or first else 1
+    pa = sum(ca[i] * d[i] for i in range(3))
+    pb = sum(cb[i] * d[i] for i in range(3))
+    if abs(pa - pb) <= TOL:
+        return 0
+    return 0 if pa < pb else 1
+
+
+def _long_direction(verts, face: tuple[int, ...]) -> Vec3 | None:
+    """A quad's longer pair of opposite edges as one direction (their mean, the second turned to match the
+    first), made to point toward the positive dominant axis; None for a face that is no quad or has no
+    longer pair (both pairs within ``TOL`` of each other)."""
+    if len(face) != 4:
+        return None
+    p = [verts[v] for v in face]
+    pairs = []
+    for k in (0, 1):
+        a = [p[k + 1][i] - p[k][i] for i in range(3)]
+        b = [p[k + 2][i] - p[(k + 3) % 4][i] for i in range(3)]       # the opposite edge, same direction
+        pairs.append((math.dist(p[k], p[k + 1]) + math.dist(p[k + 2], p[(k + 3) % 4]),
+                      [a[i] + b[i] for i in range(3)]))
+    if abs(pairs[0][0] - pairs[1][0]) <= TOL * max(pairs[0][0], pairs[1][0], 1.0):
+        return None
+    d = max(pairs, key=lambda x: x[0])[1]
+    axis = _dominant_axis(tuple(d))
+    return tuple(-x for x in d) if d[axis] < 0.0 else tuple(d)
+
+
+def _end_run_corners(verts, faces: dict[int, tuple[int, ...]], loop: list[int], cands: list[int], uses: Counter,
+                     seed: int | None = None) -> list[int] | None:
+    """The four corners of a patch with more than four boundary vertices used by one face (``cands``, in loop
+    order): the extremes of the two runs of candidates that are its ends.
+
+    A candidate turning less than ``CAP_ANGLE`` within the surface (an extra vertex in line on a rail or an
+    end) is no corner; with exactly four left those are the corners, with fewer they go on to
+    ``_lost_corners``. With more, the candidates are split at two of the gaps between them into two runs,
+    each run one end: from its first to its last candidate. A split counts when every run holds two
+    candidates or more, each end turns within the surface by half a turn give or take ``END_TURN_TOL`` (its
+    corners' turns counted fully: two right-angled corners, or a fan of triangles turning as much in
+    steps), and each end is shorter than either rail. The split whose ends turn closest to half a turn
+    wins when it beats every other by more than ``CAP_ANGLE``; with ``seed`` (a face id) a closer race goes
+    to the split whose ends line up best with the seed face's longer pair of opposite edges. Returns the
+    four corners, the sharp candidates when fewer than four are left, or None when no split stands out (a
+    branch: some end would hold another arm's tip)."""
+    turn = {v: math.pi - _surface_angle(verts, faces, v) for v in loop}
+    sharp = [v for v in cands if turn[v] > CAP_ANGLE]
+    if len(sharp) <= 4:
+        return sharp
+    if len(sharp) > MAX_END_CANDIDATES:
+        return None
+    n = len(loop)
+    at = {v: i for i, v in enumerate(loop)}
+    arc = [0.0]
+    for i in range(n):
+        arc.append(arc[-1] + math.dist(verts[loop[i]], verts[loop[(i + 1) % n]]))
+
+    def span(i: int, j: int) -> float:          # boundary length from loop position i forward to j
+        return arc[j] - arc[i] if j >= i else arc[n] - arc[i] + arc[j]
+
+    def turning(i: int, j: int) -> float:
+        total, k = turn[loop[i]], i
+        while k != j:
+            k = (k + 1) % n
+            total += turn[loop[k]]
+        return total
+
+    m = len(sharp)
+    found = []
+    for g in range(m):
+        for h in range(g + 1, m):
+            runs = (sharp[g + 1:h + 1], sharp[h + 1:] + sharp[:g + 1])
+            if any(len(r) < 2 for r in runs):
+                continue
+            ends = [(at[r[0]], at[r[-1]]) for r in runs]
+            rails = [span(at[sharp[g]], at[sharp[g + 1]]), span(at[sharp[h]], at[sharp[(h + 1) % m]])]
+            lengths = [span(i, j) for i, j in ends]
+            if max(lengths) >= min(rails):
+                continue
+            off = [abs(turning(i, j) - math.pi) for i, j in ends]
+            if max(off) > END_TURN_TOL:
+                continue
+            corners = [runs[0][0], runs[0][-1], runs[1][0], runs[1][-1]]
+            found.append((sum(off), corners, ends))
+    if not found:
+        return None
+    found.sort(key=lambda x: (round(x[0], 9), sorted(x[1])))
+    close = [f for f in found if f[0] <= found[0][0] + CAP_ANGLE]
+    if len(close) == 1:
+        return close[0][1]
+    d = _long_direction(verts, faces[seed]) if seed is not None and seed in faces else None
+    if d is None:
+        return None
+
+    def alignment(item) -> float:
+        (a0, a1), (b0, b1) = item[2]
+        ca = _centroid(verts, [loop[a0], loop[a1]])
+        cb = _centroid(verts, [loop[b0], loop[b1]])
+        axis = [cb[i] - ca[i] for i in range(3)]
+        size = math.sqrt(sum(x * x for x in axis)) * math.sqrt(sum(x * x for x in d))
+        return abs(sum(axis[i] * d[i] for i in range(3))) / size if size > 0.0 else 0.0
+
+    return max(close, key=lambda x: (round(alignment(x), 9), -x[0]))[1]
 
 
 def _surface_angle(verts, faces: dict[int, tuple[int, ...]], v: int) -> float:
@@ -470,8 +672,9 @@ def _mean_width(strip: Strip) -> float:
     return sum(_area(strip.verts, face) for face in strip.faces.values()) / length
 
 
-def _grid_strip(verts, faces, loop, corners, near_ids=None) -> Strip:
-    """An open strip from a boundary loop and its four corners (in any order)."""
+def _grid_strip(verts, faces, loop, corners, near_ids=None, end=None) -> Strip:
+    """An open strip from a boundary loop and its four corners (in any order). With ``end`` (vertex ids, a cut)
+    the pair of opposite sides that holds two or more of them is made the ends, whatever the lengths say."""
     pos = sorted(loop.index(c) for c in corners)
     segs = [_walk(loop, pos[i], pos[(i + 1) % 4]) for i in range(4)]
 
@@ -485,7 +688,10 @@ def _grid_strip(verts, faces, loop, corners, near_ids=None) -> Strip:
         return total, tuple(round(abs(c), 9) for c in d), _key(verts[row_end])
 
     p0, p1 = pairing(0), pairing(1)
-    if abs(p0[0] - p1[0]) > TOL * max(p0[0], p1[0], 1.0):
+    on_end = [sum(len(set(segs[(r + k) % 4]) & set(end or ())) >= 2 for k in (1, 3)) for r in (0, 1)]
+    if end and on_end[0] != on_end[1]:
+        r = 0 if on_end[0] else 1
+    elif abs(p0[0] - p1[0]) > TOL * max(p0[0], p1[0], 1.0):
         r = 0 if p0[0] > p1[0] else 1
     elif p0[1] != p1[1]:
         r = 0 if p0[1] > p1[1] else 1

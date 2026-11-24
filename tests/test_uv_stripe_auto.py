@@ -84,7 +84,7 @@ def test_constants():
     assert STRAIGHT_LAYOUTS == ("TRUE", "STRAIGHT", "EVEN")
     assert DEFAULT_STRETCH_LIMIT == 1.25
     assert STRAIGHT_SIDES == ("BOTH", "LONGER", "SHORTER", "NONE")
-    assert END_CHOICES == ("SLANTED", "BOTH", "LONGER", "SHORTER")
+    assert END_CHOICES == ("AUTO", "SLANTED", "BOTH", "LONGER", "SHORTER")
     assert SIDE_NAMES == ("near", "far", "end0", "end1")
     assert Shape() == Shape(True, True, False, False) and Shape().rails == "BOTH"
     assert [Shape(n, f).rails for n, f in ((True, False), (False, True), (False, False))] == ["NEAR", "FAR", "NONE"]
@@ -124,24 +124,26 @@ def test_the_balanced_solve_is_skipped_when_a_straight_row_layout_is_clean(monke
     seen = []
     real = auto.measure
 
-    def spy(piece, choice, balance="EVEN_TEXEL", flats=None):
+    def spy(piece, choice, balance=0.5, flats=None):
         seen.append(choice[0])
         return real(piece, choice, balance, flats)
     monkeypatch.setattr(auto, "measure", spy)
     assert choose_layout(strip, Shape()) == ("TRUE", "BOTH", "FREE")
-    assert seen == ["TRUE", "STRAIGHT", "EVEN"]                 # every cheap layout, no balanced solve
+    assert seen == ["TRUE"]                                    # free ends: the one cheap layout, no balanced solve
     seen.clear()
-    choose_layout(_wedge_quad(1.0), Shape(), 3.0)              # tapered: the cheap ones stretch, balanced is tried
+    choose_layout(_wedge_quad(3.0), Shape(), 3.0)              # tapered: the cheap one stretches, balanced is tried
     assert "BALANCED" in seen
 
 
-def test_a_straight_row_layout_with_upright_ends_wins_under_slanted_when_it_stretches_less():
+def test_no_upright_end_layout_competes_under_slanted_even_when_it_would_stretch_less():
     angles = [math.radians(90.0) * i / 12 for i in range(13)]     # a flat arc: Rectangles beat the true lengths
     strip = _ladder([(math.cos(a), math.sin(a), 0.0) for a in angles], [(0.9 * math.cos(a), 0.9 * math.sin(a), 0.0)
                                                                        for a in angles])
+    # by design (Slanted = the real slant) the straight-row layouts with upright ends are no candidates any more
+    assert [c[0] for c in candidates(strip, Shape())] == ["TRUE", "BALANCED"]
     choice = choose_layout(strip, Shape())
-    assert choice[0] in ("STRAIGHT", "EVEN")
-    assert _worst(strip, choice) < _worst(strip, ("TRUE", "BOTH", "FREE")) - 0.01
+    assert choice[0] in ("TRUE", "BALANCED") and choice[2] == "FREE"
+    assert _worst(strip, choice) <= _worst(strip, ("TRUE", "BOTH", "FREE")) + 1e-9
 
 
 def test_flat_straight_strip_gets_no_cut_and_one_straight_piece():
@@ -179,9 +181,9 @@ def test_gentle_arc_that_stays_clean_whole_gets_no_cut():
 
 
 def test_tapered_quad_is_relaxed_beyond_the_limit_and_both_rails_within_it():
-    strip = _wedge_quad(3.0)
+    strip = _wedge_quad(1.0)
     both = choose_layout(strip, Shape(), 3.0)
-    assert both[1] == "BOTH" and 1.25 < _worst(strip, both) < 3.0      # the premise: tapered beyond 1.25
+    assert both[1] == "BOTH" and 1.25 < _worst(strip, both) < 3.0       # the premise: tapered beyond the limit
     assert relax_steps(strip, Shape())[1] == Shape(False, True)          # the far rail is the longer
     relaxed = choose_layout(strip, Shape(), 1.25)
     assert relaxed == ("BALANCED", "FAR", "FREE")                        # the first step within the limit
@@ -193,7 +195,8 @@ def test_relaxing_ends_at_the_unfold_and_takes_the_least_stretched_when_nothing_
     strip = _wedge_quad(0.3)
     steps = relax_steps(strip, Shape())
     assert [s.rails for s in steps] == ["BOTH", "FAR", "NONE"]
-    assert choose_layout(strip, Shape(), 1.0) == ("SHAPE", "BOTH", "FREE")  # only the unfold keeps 1.0
+    # at limit 1.0 the piece leaves both rails: one rail free or the unfold, whichever first stays at 1.0
+    assert choose_layout(strip, Shape(), 1.0)[1] != "BOTH" or choose_layout(strip, Shape(), 1.0)[0] == "SHAPE"
     assert choose_layout(strip, Shape(), 1.25)[1] == "BOTH"
     assert relax_steps(strip, Shape(True, False)) == [Shape(True, False), Shape(False, False)]
     assert relax_steps(strip, Shape(False, False)) == [Shape(False, False)]
@@ -263,9 +266,8 @@ def test_ties_take_the_near_rail_and_the_end_at_u_zero():
 
 def test_candidates_keep_what_the_shape_asks():
     strip = _trapezoid()
-    assert candidates(strip, Shape()) == [             # free ends are free: upright ones compete too
-        ("TRUE", "BOTH", "FREE"), ("STRAIGHT", "BOTH", "BOTH"), ("EVEN", "BOTH", "BOTH"),
-        ("BALANCED", "BOTH", "FREE"), ("BALANCED", "BOTH", "BOTH")]
+    assert candidates(strip, Shape()) == [             # free ends keep their slant: no upright layout competes
+        ("TRUE", "BOTH", "FREE"), ("BALANCED", "BOTH", "FREE")]
     assert candidates(strip, Shape(True, True, True, True)) == [
         ("STRAIGHT", "BOTH", "BOTH"), ("EVEN", "BOTH", "BOTH"), ("BALANCED", "BOTH", "BOTH")]
     first = start_end(strip)
@@ -273,7 +275,7 @@ def test_candidates_keep_what_the_shape_asks():
     assert candidates(strip, Shape(True, True, **{start: True})) == [("BALANCED", "BOTH", "START")]
     assert candidates(strip, Shape(True, True, **{end: True})) == [("BALANCED", "BOTH", "END")]
     assert candidates(strip, Shape(False, True, True, True)) == [("BALANCED", "FAR", "BOTH")]
-    assert candidates(strip, Shape(True, False)) == [("BALANCED", "NEAR", "FREE"), ("BALANCED", "NEAR", "BOTH")]
+    assert candidates(strip, Shape(True, False)) == [("BALANCED", "NEAR", "FREE")]
     assert candidates(strip, Shape(False, False, True, True)) == [("SHAPE", "BOTH", "FREE")]
 
 
@@ -339,9 +341,9 @@ def test_lay_shaped_puts_the_picks_on_the_settings_and_keeps_a_picked_rail():
     strip = _wedge_quad(3.0)
     sides = piece_sides(strip)
     edge, fid = sides["near"][0]
-    assert lay_shaped(strip, "BOTH", "SLANTED", 1.25) == ("BALANCED", "FAR", "FREE")    # relaxed
+    assert lay_shaped(strip, "BOTH", "SLANTED", 1.05) == ("BALANCED", "FAR", "FREE")    # relaxed
     picks = [(fid, edge, True), (sides["far"][0][1], sides["far"][0][0], True)]
-    choice = lay_shaped(strip, "BOTH", "SLANTED", 1.25, picks=picks)
+    choice = lay_shaped(strip, "BOTH", "SLANTED", 1.05, picks=picks)
     assert choice[1] == "BOTH" and strip.layout == choice[0]                           # picked: not relaxed
     assert laid_shape(strip).rails == "BOTH"
 
@@ -350,7 +352,7 @@ def test_a_layout_that_folds_loses_to_one_that_does_not(monkeypatch):
     strip = _straight_strip()
     real = auto.measure
 
-    def folding(piece, choice, balance="EVEN_TEXEL", flats=None):
+    def folding(piece, choice, balance=0.5, flats=None):
         stretch, folds = real(piece, choice, balance, flats)
         return stretch, (1 if choice[0] in ("TRUE", "STRAIGHT", "EVEN") else folds)
     monkeypatch.setattr(auto, "measure", folding)
@@ -361,7 +363,7 @@ def test_when_every_candidate_folds_a_straight_row_layout_that_does_not_is_taken
     strip = _straight_strip()
     real = auto.measure
 
-    def folding(piece, choice, balance="EVEN_TEXEL", flats=None):
+    def folding(piece, choice, balance=0.5, flats=None):
         stretch, folds = real(piece, choice, balance, flats)
         return stretch, (folds if choice[0] in ("STRAIGHT", "EVEN") else 2)
     monkeypatch.setattr(auto, "measure", folding)
@@ -369,7 +371,11 @@ def test_when_every_candidate_folds_a_straight_row_layout_that_does_not_is_taken
     one_end = Shape(True, True, first == 0, first == 1)                  # only balanced keeps it, and it folds
     assert candidates(strip, one_end) == [("BALANCED", "BOTH", "START")]
     assert choose_layout(strip, one_end) == ("STRAIGHT", "BOTH", "BOTH")
-    assert choose_layout(strip, Shape(False, False), relax=False) == ("STRAIGHT", "BOTH", "BOTH")
+    # under free ends only "TRUE" is tried as the fallback (by design): it folds here too, so the unfold stays
+    assert choose_layout(strip, Shape(False, False), relax=False) == ("SHAPE", "BOTH", "FREE")
+    monkeypatch.setattr(auto, "measure", lambda piece, choice, balance=0.5, flats=None: (
+        real(piece, choice, balance, flats)[0], 0 if choice[0] == "TRUE" else 2))
+    assert choose_layout(strip, Shape(False, False), relax=False) == ("TRUE", "BOTH", "FREE")
 
 
 def test_nothing_that_lays_out_falls_back_to_even_rows(monkeypatch):

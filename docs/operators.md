@@ -72,8 +72,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Z-Fight Overlay](operators/op_mesh_zfight_overlay.md) — highlight faces that lie in one plane and overlap, so they flicker in the viewport.
 - [Hidden Faces Overlay](operators/op_mesh_hidden_faces_overlay.md) — highlight faces that cannot be seen from outside the model: inside a closed shell or buried in other geometry.
 - [UV Shortest Mark](operators/op_mesh_uv_shortest_mark.md) — mark seams along the shortest path.
-- [UV Stripe](operators/op_mesh_uv_stripe.md) — unwrap a selected strip of faces as one straight UV rectangle.
-- [UV Stripe (Interactive)](operators/op_mesh_uv_stripe.md) — UV Stripe with every option on a key and the UVs following live.
+- [UV Stripe](operators/op_mesh_uv_stripe.md) — unwrap selected strips of faces as straight UV strips, every option on a key and the UVs following live.
 - [UV Pipe](operators/op_mesh_uv_pipe.md) — unwrap tubes: the wall as one straight island, cap rings as straight strips, cap centres as disks.
 - [Rename Active Group](operators/op_mesh_vertex_group_rename.md) — rename the active vertex group from the Ctrl+G menu.
 

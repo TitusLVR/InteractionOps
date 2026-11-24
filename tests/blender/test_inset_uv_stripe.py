@@ -176,7 +176,7 @@ def _uv_bbox(obj):
 
 # The settings these tests were written for (the UV Stripe options' former own defaults here); main() sets them
 # before every test, and a test changes what it needs with _stripe_settings.
-STRIPE_BASELINE = {"mode": "FIT", "straight_sides": "BOTH", "ends": "SLANTED", "balance": "EVEN_TEXEL",
+STRIPE_BASELINE = {"mode": "FIT", "straight_sides": "BOTH", "ends": "SLANTED", "balance": 1.0,
                    "stretch_limit": 1.25, "orientation": "HORIZONTAL", "mark_seams": True, "offset_axis": "NONE",
                    "split_at_seams": False, "merge_doubles": False, "active_fit": "BOTH"}
 
@@ -432,11 +432,11 @@ def _wall_metrics(obj, inside=None, outside=False):
 
 def test_ends_stand_the_walls_cross_edges_vertical():
     # 4 x 1 rectangle inset by 0.2: each wall ends in a 45 degree mitre. Ends Slanted (the default) keeps the
-    # slant, so the border and the contour put their corners at different u. Ends Both stands every cross edge
-    # upright, which shears a mitred wall far beyond the stretch limit, so it takes the limit lifted.
+    # slant, so the border and the contour put their corners at different u. Ends Both would shear a mitred wall
+    # far beyond the stretch limit: at the default limit it relaxes every piece to the true shape (as the
+    # defaults do); with the limit lifted nothing is torn or relaxed and the frame's walls are one strip.
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
-    _stripe_settings(stretch_limit=100.0)
     _inset(thickness=0.2, use_uv_stripe=True)
     near, far = _corner_us(obj, 4.0, 1.0)
     assert near != far
@@ -445,14 +445,8 @@ def test_ends_stand_the_walls_cross_edges_vertical():
     _select_all_faces(obj)
     _stripe_settings(ends="BOTH", stretch_limit=100.0)
     _inset(thickness=0.2, use_uv_stripe=True)
-    near, far = _corner_us(obj, 4.0, 1.0)
-    assert near == far and len(near) == 3, (near, far)
-    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.240526))
-    for corners in _wall_face_corners(obj):         # a wall's cross edges: border corner and contour corner share u
-        by_u = {}
-        for co, uv in corners:
-            by_u.setdefault(uv[0], []).append(_on_rect_border(co, 4.0, 1.0))
-        assert all(sorted(kinds) == [False, True] for kinds in by_u.values()), corners
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.51))     # no tear: the four walls lie end to end
+    assert max(max(errors) for _ratios, errors in _wall_metrics(obj)) < 1e-4
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
     _stripe_settings(ends="BOTH", stretch_limit=1.25)    # at the default limit the mitres relax it to the true shape
@@ -549,13 +543,13 @@ def test_never_run_uv_stripe_gives_its_defaults():
 
 
 def test_uv_stripe_settings_drive_the_inset():
-    # Straight Sides, Ends and the Stretch Limit come from UV Stripe. With the limit lifted so that nothing
-    # relaxes: the defaults keep both rails of each piece straight and its ends slanted; Ends Both stands the
-    # ends upright; Straight Sides Longer keeps one rail; Straight Sides None unfolds every piece at its true
-    # shape. Mark Seams off leaves the seams alone.
-    for settings, v_max, true_shape in (({}, 0.23, True), ({"ends": "BOTH"}, 0.240526, False),
-                                        ({"ends": "LONGER"}, 0.235077, False),
-                                        ({"straight_sides": "LONGER"}, 0.23, True)):
+    # Straight Sides, Ends and the Stretch Limit come from UV Stripe. With the limit lifted nothing relaxes and
+    # Auto tears nothing that lays out whole: the defaults keep both rails straight and the ends slanted (the walls
+    # shear, v up to 0.093); any other setting lays the four walls out end to end at their real size (v up to
+    # 0.51). Mark Seams off leaves the seams alone.
+    for settings, v_max, true_shape in (({}, 0.093333, False), ({"ends": "BOTH"}, 0.51, True),
+                                        ({"ends": "LONGER"}, 0.51, True),
+                                        ({"straight_sides": "LONGER"}, 0.51, True)):
         obj = _plane_rect(4.0, 1.0)
         _select_all_faces(obj)
         _stripe_settings(**STRIPE_BASELINE)               # the settings persist: back to the baseline first
@@ -566,7 +560,7 @@ def test_uv_stripe_settings_drive_the_inset():
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)
     _stripe_settings(**STRIPE_BASELINE)
-    _stripe_settings(straight_sides="NONE", stretch_limit=100.0)
+    _stripe_settings(straight_sides="NONE")
     _inset(thickness=0.2, use_uv_stripe=True)
     assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
     _assert_true_walls(obj, 0.25)
@@ -575,7 +569,7 @@ def test_uv_stripe_settings_drive_the_inset():
     _stripe_settings(**STRIPE_BASELINE)
     _stripe_settings(straight_sides="BOTH", ends="BOTH")      # at the default limit the mitres relax it to true shape
     _inset(thickness=0.2, use_uv_stripe=True)
-    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23))
+    assert _wall_uv_ranges(obj) == ((0.0, 1.0), (0.0, 0.23)), _wall_uv_ranges(obj)
     _assert_true_walls(obj, 0.25)
     obj = _plane_rect(4.0, 1.0)
     _select_all_faces(obj)

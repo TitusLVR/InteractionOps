@@ -21,6 +21,8 @@ Vec2 = tuple[float, float]
 TUTTE_ITERS = 1000
 TUTTE_TOL = 1e-12
 TIE_TOL = 1e-9
+CACHES: list[dict] = []   # every remembered result of the UV Stripe cores, for ``uv_stripe_balance_core.clear_caches``
+DEFAULT_BALANCE = 0.5   # the Balance slider's default: halfway from the least stretch (0) to even texels (1)
 WELD = 0.01  # points closer than this fraction of the strip height count as one point (``weld_tolerance``)
 MAX_CORNER = math.pi - 1e-6  # corner angles are capped here, so a straight corner's tan(angle / 2) stays finite
 
@@ -56,10 +58,16 @@ class Strip:
     align_edge: tuple[int, int] | None = None
     # The "BALANCED" layout's modes (``uv_stripe_balance_core.balanced_uvs``): which ends stand upright ("FREE",
     # "BOTH", "START" for the end at u = 0, "END"), which rails are straight ("BOTH", "NEAR", "FAR") and how
-    # the stretch is spread ("EVEN_TEXEL", "LEAST_STRETCH").
+    # the stretch is spread: the Balance slider, 0 the least stretch to 1 every face near its real size
+    # (``uv_stripe_balance_core.balance_value``; the old names "LEAST_STRETCH" and "EVEN_TEXEL" read as 0 and 1).
     ends: str = "FREE"
     rails: str = "BOTH"
-    balance: str = "EVEN_TEXEL"
+    balance: float = DEFAULT_BALANCE
+    # Lines picked to be straight (V in the interactive mode), each (axis, frozenset of vertex ids): "ALONG" shares
+    # one v (a horizontal line, running along the strip), "ACROSS" one u (a vertical line, across it). The balanced
+    # layout keeps them (``uv_stripe_balance_core``); any other layout is taken only when it already does
+    # (``uv_stripe_auto_core``).
+    lines: tuple = ()
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:
@@ -983,33 +991,54 @@ def _triangle_metric(p0: Vec3, p1: Vec3, p2: Vec3, q0: Vec2, q1: Vec2, q2: Vec2)
     return (w * (a[0] * a[0] + b[0] * b[0]), w * (a[0] * a[1] + b[0] * b[1]), w * (a[1] * a[1] + b[1] * b[1]))
 
 
-def face_stretch(points: list[Vec3], uvs: list[Vec2]) -> float:
-    """How anisotropically a face's UVs map its real shape: 1.0 is no stretch.
-
-    ``points`` and ``uvs`` are the face's corners in order. Every fan triangle (0, k, k + 1)
-    gives the UV-side metric of its 3D -> UV map; the face's stretch is the ratio of the
-    larger to the smaller singular value of their mean weighted by 3D area, so a uniform
-    scale or a turn does not count, and a sliver triangle (collinear rail corners of an
-    n-gon, rounded or single-precision coordinates) weighs by its tiny area instead of
-    deciding alone. A triangle degenerate in 3D is skipped; a face collapsed in UV gives
-    ``math.inf``; a face with no measurable triangle gives 1.0.
-    """
-    e = f = g = 0.0
-    measured = False
-    for k in range(1, len(points) - 1):
-        metric = _triangle_metric(points[0], points[k], points[k + 1], uvs[0], uvs[k], uvs[k + 1])
-        if metric is None:
-            continue
-        measured = True
-        e, f, g = e + metric[0], f + metric[1], g + metric[2]
-    if not measured:
-        return 1.0
+def _ratio(e: float, f: float, g: float) -> float:
+    """The larger over the smaller singular value of a map with UV-side metric (e, f, g); ``math.inf`` when it
+    collapses."""
     r = math.sqrt(((e - g) / 2.0) ** 2 + f * f)
     big = (e + g) / 2.0 + r
     small = (e + g) / 2.0 - r
     if big <= 0.0 or small <= 1e-18 * big:
         return math.inf
     return math.sqrt(big / small)
+
+
+def face_stretch(points: list[Vec3], uvs: list[Vec2]) -> float:
+    """How anisotropically a face's UVs map its real shape: 1.0 is no stretch.
+
+    ``points`` and ``uvs`` are the face's corners in order. Every fan triangle round the
+    face's virtual centre (``uv_stripe_faces_core.fan_weights``: a triangle is its own fan,
+    a larger face the triangles from the mean of its corners to each of its edges, slivers
+    left out) gives the UV-side metric of its 3D -> UV map. The face's stretch is the
+    larger of the ratio of the larger to the smaller singular value of their mean
+    weighted by 3D area, and that ratio of its worst single triangle, fan or corner
+    (``uv_stripe_faces_core.corner_weights``, slivers left out): a uniform scale or a turn
+    does not count, the same face measures the same whichever corner comes first, and a
+    corner or an edge collapsed in UV is stretch however healthy the rest of the face is
+    (a triangle collapsed in UV gives ``math.inf``). A triangle degenerate in 3D is
+    skipped; a face with no measurable triangle gives 1.0.
+    """
+    from .uv_stripe_faces_core import measured_tris
+
+    fan, corners = measured_tris(tuple(tuple(p) for p in points))
+    n = len(points)
+    pc = tuple(sum(p[i] for p in points) / n for i in range(3))
+    qc = (sum(q[0] for q in uvs) / n, sum(q[1] for q in uvs) / n)
+    e = f = g = 0.0
+    worst = 1.0
+    measured = False
+    for tris, average in ((fan, True), (corners, False)):
+        for a, b, c in tris:
+            metric = _triangle_metric(pc if a < 0 else points[a], points[b], points[c],
+                                      qc if a < 0 else uvs[a], uvs[b], uvs[c])
+            if metric is None:
+                continue
+            measured = True
+            worst = max(worst, _ratio(*metric))
+            if average:
+                e, f, g = e + metric[0], f + metric[1], g + metric[2]
+    if not measured:
+        return 1.0
+    return max(worst, _ratio(e, f, g) if e + g > 0.0 else 1.0)
 
 
 def fit_to_reference(uv: dict, reference: tuple[Vec2, Vec2], mode: str = "BOTH") -> dict:
