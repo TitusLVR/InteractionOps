@@ -1062,6 +1062,14 @@ def face_stretch(points: list[Vec3], uvs: list[Vec2]) -> float:
     return max(worst, _ratio(e, f, g) if e + g > 0.0 else 1.0)
 
 
+def fit_axis(active_fit: str, vertical: bool) -> str:
+    """The ``fit_to_reference`` mode of a Fit to Active value: "HEIGHT" is across the strip and "WIDTH" along it,
+    so they are V and U of a strip laid out horizontally and swap for one turned vertical; "BOTH" stays."""
+    if vertical and active_fit in ("WIDTH", "HEIGHT"):
+        return "HEIGHT" if active_fit == "WIDTH" else "WIDTH"
+    return active_fit
+
+
 def fit_to_reference(uv: dict, reference: tuple[Vec2, Vec2], mode: str = "BOTH") -> dict:
     """A placed strip fitted onto a reference bounding box by one scale factor, never stretched or turned.
 

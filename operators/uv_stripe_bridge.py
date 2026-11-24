@@ -74,8 +74,10 @@ STACK_MODE_ITEM = (
 )
 ACTIVE_FIT_ITEMS = [
     ("BOTH", "Width and Height", "Fit the piece inside the reference strip's bounding box, keeping its proportions"),
-    ("WIDTH", "Width", "Match the reference's width; the height is scaled by the same factor"),
-    ("HEIGHT", "Height", "Match the reference's height; the width is scaled by the same factor"),
+    ("WIDTH", "Width", "Match the reference's width, along the strip in either Orientation; the height is scaled by "
+     "the same factor"),
+    ("HEIGHT", "Height", "Match the reference's height, across the strip in either Orientation; the width is scaled "
+     "by the same factor"),
 ]
 ACTIVE_FALLBACK = "UV Stripe: no active face to fit to; laid out In Place"
 OFFSET_ITEMS = [
@@ -105,8 +107,8 @@ STRAIGHT_SIDES_ITEMS = [
 ]
 ENDS_ITEMS = [
     ("AUTO", "Upright Where Cheap",
-     "On a strip several faces wide both ends stand upright unless that stretches the worst face by more than 0.05 "
-     "over keeping their slant; a strip one face wide keeps its real slant"),
+     "On a strip several faces wide both ends stand upright while that stretches no face beyond Stretch Limit; "
+     "beyond it they may keep their slant instead. A strip one face wide keeps its real slant"),
     ("SLANTED", "Slanted", "Both ends of every piece keep their real slant"),
     ("BOTH", "Both", "Both ends of every piece stand upright"),
     ("LONGER", "Longer End", "The end with the longer cross edges stands upright, the other keeps its slant"),
@@ -153,7 +155,8 @@ def apply_stripes(
     face): every strip is placed as "IN_PLACE" would place it; then every other strip
     is fitted to the active strip's UV bounding box by one scale factor for both axes,
     so it is not stretched (``uv_stripe_core.fit_to_reference`` with ``active_fit``:
-    "HEIGHT" or "WIDTH" matches that axis, "BOTH" fits it inside the box). Without
+    "HEIGHT" matches the size across the strip, "WIDTH" along it, in either Orientation,
+    ``uv_stripe_core.fit_axis``; "BOTH" fits it inside the box). Without
     ``active``, or without a UV layer to place the active strip by, it lays out
     "IN_PLACE". Returns whether the strips were fitted to an active strip.
 
@@ -232,7 +235,8 @@ def apply_maps(
         placed[i] = uv
     if fitted:
         reference = core.bbox(placed[active])
-        placed = [uv if i == active else core.fit_to_reference(uv, reference, active_fit)
+        fit = core.fit_axis(active_fit, vertical)       # Height across the strip, Width along it
+        placed = [uv if i == active else core.fit_to_reference(uv, reference, fit)
                   for i, uv in enumerate(placed)]
     if stack:
         shifts = core.stack_shifts([core.bbox(uv) for uv in placed])
@@ -282,8 +286,10 @@ class ShapeRules:
     ``ENDS_ITEMS``), the ``stretch_limit`` that relaxes it, the ``balance`` of a balanced piece (0 to 1,
     ``uv_stripe_balance_core.balance_value``), the sides picked by hand (``picks``: (face id, sorted vertex-id pair, straight), see
     ``uv_stripe_auto_core.picked_shape``) and what a piece unfolded at its real shape runs along (``align``,
-    ``align_edges``: vertex-id pairs, ``uv_stripe_core.lay_piece``) and the lines picked straight (``lines``:
-    (axis, vertex ids), ``uv_stripe_core.Strip.lines``)."""
+    ``align_edges``: vertex-id pairs, ``uv_stripe_core.lay_piece``), the lines picked straight (``lines``:
+    (axis, vertex ids), ``uv_stripe_core.Strip.lines``) and the values set for some pieces alone (``overrides``:
+    (kind, value, face ids), kind "SIDES" a Straight Sides value or "ENDS" an Ends value, for every piece holding
+    one of those faces, later over earlier; relaxed by ``stretch_limit`` like the values set for all)."""
 
     straight_sides: str = "BOTH"
     ends: str = "SLANTED"
@@ -293,12 +299,25 @@ class ShapeRules:
     align: str = "AUTO"
     align_edges: tuple = ()
     lines: tuple = ()
+    overrides: tuple = ()
+
+    def values(self, piece: core.Strip) -> tuple[str, str]:
+        """(Straight Sides, Ends) for ``piece``: the last of ``overrides`` of each kind holding a face of it, else
+        the values set for all."""
+        sides, ends = self.straight_sides, self.ends
+        for kind, value, faces in self.overrides:
+            if not faces.isdisjoint(piece.faces):
+                if kind == "SIDES":
+                    sides = value
+                elif kind == "ENDS":
+                    ends = value
+        return sides, ends
 
     def shape(self, piece: core.Strip):
-        """What must be straight on ``piece`` by these rules: the settings, the picked sides on top
+        """What must be straight on ``piece`` by these rules: the settings (``values``), the picked sides on top
         (``uv_stripe_auto_core.picked_shape``)."""
-        return auto_core.picked_shape(piece, auto_core.default_shape(piece, self.straight_sides, self.ends),
-                                      self.picks)[0]
+        sides, ends = self.values(piece)
+        return auto_core.picked_shape(piece, auto_core.default_shape(piece, sides, ends), self.picks)[0]
 
     def lines_in(self, piece: core.Strip) -> tuple:
         """The picked lines as ``piece`` holds them: a line picked on a piece (with the id of a face of it, a
@@ -320,8 +339,9 @@ class ShapeRules:
         """Lay ``piece`` out by these rules (``uv_stripe_auto_core.lay_shaped``), the picked lines it holds kept
         straight. Raises ValueError as it does."""
         piece.lines = self.lines_in(piece)
-        auto_core.lay_shaped(piece, self.straight_sides, self.ends, self.stretch_limit, self.balance, self.picks,
-                             self.align, self.align_edges)
+        sides, ends = self.values(piece)
+        auto_core.lay_shaped(piece, sides, ends, self.stretch_limit, self.balance, self.picks, self.align,
+                             self.align_edges)
 
 
 def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, rules: ShapeRules) -> tuple[list[core.Strip], str | None]:
@@ -334,7 +354,7 @@ def _auto_split(strip: core.Strip, cuts, skip_cuts, bend_tears, rules: ShapeRule
     strip.lines = rules.lines_in(strip)
     cuts = sorted(set(cuts))
     # free ends (Slanted, and Upright Where Cheap on a strip one face wide: Auto never tears a wide one)
-    layouts = ("TRUE",) if rules.ends in ("SLANTED", "AUTO") else auto_core.STRAIGHT_LAYOUTS
+    layouts = ("TRUE",) if rules.values(strip)[1] in ("SLANTED", "AUTO") else auto_core.STRAIGHT_LAYOUTS
     if not cuts and auto_core.fits_whole(strip, rules.shape(strip), rules.stretch_limit, rules.balance):
         kept = []          # one layout the piece will be laid out with already keeps it within the limit
     else:
@@ -368,7 +388,7 @@ def prepare_strip(
     strip: core.Strip, faces: dict[int, BMFace], straight_sides: str = "BOTH", ends: str = "SLANTED",
     extra_cuts=(), break_edge: tuple[int, int] | None = None, manual_cuts=(), skip_cuts=(), bend_tears=None,
     align: str = "AUTO", align_edges=(), stretch_limit: float = auto_core.DEFAULT_STRETCH_LIMIT,
-    balance: float = core.DEFAULT_BALANCE, side_picks=(), lines=(),
+    balance: float = core.DEFAULT_BALANCE, side_picks=(), lines=(), overrides=(),
 ) -> tuple[list[tuple[core.Strip, dict[int, BMFace]]], str | None]:
     """The final pieces of one built strip, with their faces by id, and why a requested tear was not made.
 
@@ -399,9 +419,13 @@ def prepare_strip(
     are the lines picked straight (``ShapeRules.lines_in``): every piece
     keeps those of its vertices on one shared v ("ALONG") or u ("ACROSS") through every shape Stretch Limit
     relaxes it to.
+
+    ``overrides`` ((kind, value, face ids), ``ShapeRules.overrides``) set Straight Sides or Ends for the pieces
+    holding those faces alone.
     """
     rules = ShapeRules(straight_sides, ends, stretch_limit, balance, tuple(side_picks), align, tuple(align_edges),
-                       tuple((line[0], frozenset(line[1]), *line[2:]) for line in lines))
+                       tuple((line[0], frozenset(line[1]), *line[2:]) for line in lines),
+                       tuple((kind, value, frozenset(faces)) for kind, value, faces in overrides))
     broken = None
     if break_edge is not None and strip.closed:
         cut_edges = [select_core.rung_edge(strip, k) for k in manual_cuts]

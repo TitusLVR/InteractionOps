@@ -31,7 +31,8 @@ RISE = 0.01          # how much a face may stretch more without a candidate tear
 TIE = 1e-6      # stretches closer than this are equal
 STRAIGHT_SIDES = ("BOTH", "LONGER", "SHORTER", "NONE")
 END_CHOICES = ("AUTO", "SLANTED", "BOTH", "LONGER", "SHORTER")
-RELAX_MARGIN = 0.05     # on a wide strip a stricter shape stands unless a looser one stretches its worst face this less
+RELAX_MARGIN = 0.05     # on a wide strip with no shape within the limit: a stricter one stands unless a looser
+#                         one stretches its worst face this much less
 SIDE_NAMES = ("near", "far", "end0", "end1")      # a piece's four sides: its rails, then its ends
 
 
@@ -81,8 +82,8 @@ def default_shape(strip: Strip, straight_sides: str = "BOTH", ends: str = "SLANT
     or the shorter rail by 3D length (the near rail on a tie), or none. ``ends`` (``END_CHOICES``): neither
     end ("SLANTED"), both, or the end whose cross edges are longer or shorter in 3D (on a tie the end laid
     at u = 0, ``uv_stripe_balance_core.start_end``); "AUTO" both on a strip several faces wide (``is_wide``),
-    neither on one face wide (``choose_layout`` with ``soft_ends`` frees them where upright costs more than
-    ``RELAX_MARGIN``). Raises ValueError for an unknown value."""
+    neither on one face wide (``choose_layout`` with ``soft_ends`` frees them where upright stretches beyond the
+    stretch limit, ``_choose_wide``). Raises ValueError for an unknown value."""
     if straight_sides not in STRAIGHT_SIDES or ends not in END_CHOICES:
         raise ValueError(f"no shape with straight sides {straight_sides!r} and ends {ends!r}")
     near = far = straight_sides == "BOTH"
@@ -359,7 +360,7 @@ def choose_layout(piece: Strip, shape: Shape, limit: float = DEFAULT_STRETCH_LIM
     the layout taken still folds a face, a straight-row layout ("TRUE", "STRAIGHT", "EVEN", in that order) that
     folds fewer faces replaces it, even one the shape does not ask for. A closed piece, and one nothing can lay
     out, gets ``EVEN_CHOICE``. A strip several faces wide is chosen by ``_choose_wide`` (``soft_ends``: the ends
-    are upright only where that is cheap)."""
+    are upright while that stays within ``limit``)."""
     if piece.closed:
         return EVEN_CHOICE
     if is_wide(piece):
@@ -415,17 +416,17 @@ def choose_layout(piece: Strip, shape: Shape, limit: float = DEFAULT_STRETCH_LIM
 
 
 def _choose_wide(piece: Strip, shape: Shape, limit: float, relax: bool, balance: float, soft_ends: bool) -> Choice:
-    """``choose_layout`` for a strip several faces wide, where a stricter shape stands unless a looser one is
-    clearly better. The shapes are measured from the strictest (``relax_steps``: both rails, the longer rail, no
+    """``choose_layout`` for a strip several faces wide, where ``limit`` alone decides how far a shape is
+    loosened. The shapes are measured from the strictest (``relax_steps``: both rails, the longer rail, no
     rail); at every straight-sided step with upright ends, when they fold a face, each end alone is tried, and
-    with ``soft_ends`` (Ends "AUTO", no end picked by hand) free ends with the same rails are always measured
-    too. After each step: once some clean layout (no fold, finite stretch) lies within ``limit``, the strictest
-    clean one whose worst face stretches at most ``RELAX_MARGIN`` more than the least stretched of those is taken
-    (so upright ends, and both rails, stay unless freeing them gains more than that). With hard upright ends that
-    fold at every step, free ends follow the straight steps as in ``choose_layout``. With none within the limit,
-    the strictest clean layout within ``RELAX_MARGIN`` of the least stretched clean one; failing that
-    ``_settle``. Without ``relax`` only ``shape`` (and its end variants) is measured, unless nothing lays it
-    out."""
+    with ``soft_ends`` (Ends "AUTO", no end picked by hand) free ends with the same rails are measured after the
+    upright ones whenever those are not within ``limit``. After each step the strictest clean layout (no fold, finite stretch) measured so far
+    whose worst face lies within ``limit`` is taken, however much less a looser one would stretch: a looser
+    shape (a freed rail, freed ends, one end alone, the real-shape unfold) is taken only when every stricter
+    one measured before it stretches beyond the limit. With hard upright ends that fold at every step, free
+    ends follow the straight steps as in ``choose_layout``. With none within the limit, the strictest clean
+    layout within ``RELAX_MARGIN`` of the least stretched clean one; failing that ``_settle``. Without
+    ``relax`` only ``shape`` (and its end variants) is measured, unless nothing lays it out."""
     found = []        # ((folded faces, worst stretch), choice), strictest shape first
 
     def measure_step(step):
@@ -438,11 +439,8 @@ def _choose_wide(piece: Strip, shape: Shape, limit: float, relax: bool, balance:
         return best is not None and not best[2] and best[1] < math.inf
 
     def within_limit():
-        inside = [key[1] for key, _c in found if not key[0] and key[1] <= limit + TIE]
-        if not inside:
-            return None
-        least = min(inside)
-        return next(c for key, c in found if not key[0] and key[1] <= least + RELAX_MARGIN + TIE)
+        # the strictest clean layout within the limit stands, however much less a looser one would stretch
+        return next((c for key, c in found if not key[0] and key[1] <= limit + TIE), None)
 
     steps = relax_steps(piece, shape)
     straight = [s for s in steps if s.rails != "NONE"]
@@ -454,8 +452,8 @@ def _choose_wide(piece: Strip, shape: Shape, limit: float, relax: bool, balance:
         if step.end0 and step.end1 and bad:                  # each end alone before free ends
             for single in (replace(step, end1=False), replace(step, end0=False)):
                 bad = not clean(measure_step(single)) and bad
-        if soft_ends and (step.end0 or step.end1):           # upright only where it costs little
-            measure_step(replace(step, end0=False, end1=False))
+        if soft_ends and (step.end0 or step.end1) and within_limit() is None:
+            measure_step(replace(step, end0=False, end1=False))    # free ends: only when upright exceeds the limit
         collapsed = collapsed and bad
         choice = within_limit()
         if choice is not None:

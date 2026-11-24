@@ -446,7 +446,7 @@ class _OperatorStandIn:
     def __init__(self, **props):
         self.mode, self.orientation, self.mark_seams = "ACTIVE", "HORIZONTAL", True
         self.straight_sides, self.ends, self.balance = "BOTH", "SLANTED", 0.5
-        self.side_picks = self.island_cuts = self.corner_picks = self.seed_faces = self.guide_faces = ""
+        self.side_picks = self.piece_shapes = self.island_cuts = self.corner_picks = self.seed_faces = self.guide_faces = ""
         self.offset_limit, self.offset_seed = 0.25, 0
         self.stretch_limit = 1.25
         self.cup_breaks = self.manual_cuts = self.skipped_cuts = self.align_edges = self.straight_lines = ""
@@ -664,6 +664,32 @@ def test_active_follows_the_orientation():
     assert all(a > 0 for a in _face_areas(obj))
 
 
+def _long_and_short():
+    """In a 4 x 4 grid with UVs at xy / 10 + 0.5: a 4 x 1 strip (row 0, the active face in it) and a 2 x 1 strip
+    (row 2, columns 0 - 1) selected: equally thick, the active one twice as long."""
+    obj = _grid(4, 4, uv_size=10.0)
+    _edit(obj, lambda c: c.y < 1.0 or (2.0 < c.y < 3.0 and c.x < 2.0))
+    _set_active(obj, (1.5, 0.5))
+    return obj
+
+
+def test_fit_to_active_height_is_across_the_strip_and_width_along_it_in_both_orientations():
+    sizes = {}
+    for orientation in ("HORIZONTAL", "VERTICAL"):
+        for fit in ("HEIGHT", "WIDTH"):
+            obj = _long_and_short()
+            assert _run(mode="ACTIVE", orientation=orientation, active_fit=fit) == {"FINISHED"}
+            long, short = _size(_uv_box(obj, _low)), _size(_uv_box(obj, lambda c: 2.0 < c.y < 3.0 and c.x < 2.0))
+            across = 0 if orientation == "VERTICAL" else 1          # the axis across the strips in UV
+            along = 1 - across
+            sizes[orientation, fit] = (tuple(round(x, 4) for x in long), tuple(round(x, 4) for x in short))
+            if fit == "HEIGHT":       # equally thick: the same size across, the short one half as long
+                assert _close(long[across], short[across]) and _close(short[along], long[along] / 2), sizes
+            else:                     # as long as the active one: twice as thick
+                assert _close(long[along], short[along]) and _close(short[across], 2 * long[across]), sizes
+    print("  fit to active sizes (active, other):", sizes)
+
+
 def test_active_puts_the_other_pieces_of_a_torn_strip_on_the_active_piece():
     obj = _polyline([0, 40])                                 # torn at the bend: faces 0-1 and face 2
     _edit(obj)
@@ -750,12 +776,13 @@ def test_modal_hud_and_help_list_every_key():
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Straight Sides (Q)", "Ends (W)", "Balance (Ctrl + Wheel)", "Stretch Limit (Alt + Wheel)", "Seed and Guide Faces",
+        "Straight Sides (Q)", "Ends (W)", "Selected", "Balance (Ctrl + Wheel)", "Stretch Limit (Alt + Wheel)",
+        "Seed and Guide Faces",
         "Align (G)", "Manual Cuts", "Straightened Lines", "Doubled Vertices", "More Options (Tab)", "Mode (E)",
         "Orientation (A)", "Fit to Active (D)", "Split at Seams (S)", "Mark Seams (X)", "Random Offset (Z)",
         "Offset Limit (Shift + Wheel)", "Offset Seed (R)", "Merge Doubles (F)"]
     assert [p.value_text() for p in params] == [
-        "Both", "Slanted", "0.50 · Least Stretch < > Even Texel", "1.25", "0", "Auto", "0", "0", "0", "✓", "Active",
+        "Both", "Slanted", "0", "0.50 · Least Stretch < > Even Texel", "1.25", "0", "Auto", "0", "0", "0", "✓", "Active",
         "Horizontal", "Width and Height", "✗", "✓", "None", "0.25", "0", "✗"]
     always = {"Straight Sides (Q)", "Ends (W)", "Balance (Ctrl + Wheel)", "More Options (Tab)"}
     more = {"Mode (E)", "Orientation (A)", "Fit to Active (D)", "Split at Seams (S)",
@@ -801,12 +828,15 @@ def test_modal_hud_and_help_list_every_key():
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (R)"]
     assert [(section.title, [(it.label, it.key) for it in section.items]) for section in op._help.sections] == [
-        ("Shape", [("Straight Sides", "Q"), ("Ends", "W"), ("Balance", "Ctrl + Wheel"),
+        ("Shape", [("Straight Sides (selected pieces, else all)", "Q"), ("Ends (selected pieces, else all)", "W"),
+                   ("Balance", "Ctrl + Wheel"),
                    ("Balance, fine", "Ctrl + Shift + Wheel"),
                    ("Balance: 0, 0.5, 1", "B"), ("Stretch Limit (fine: Ctrl)", "Alt + Wheel"), ("Align", "G"),
-                   ("Side straight / free", "LMB on a side")]),
-        ("Picking", [("Pick cuts, break a ring, cut an island", "C"), ("Cut a loop / one edge", "LMB / Alt + LMB"),
-                     ("Pick lines to straighten", "V"), ("Straighten a loop / one edge", "LMB / Alt + LMB"),
+                   ("Select a piece / clear", "LMB on a face"),
+                   ("Add / remove a piece", "Shift + LMB on a face")]),
+        ("Picking", [("Cut / mend a loop, break a ring, cut an island", "LMB on an edge"),
+                     ("Cut / mend one edge", "Ctrl + LMB"), ("Pick lines to straighten", "V"),
+                     ("Straighten a loop / one edge", "LMB / Alt + LMB"),
                      ("Corner of an island that is no strip", "LMB on its boundary"),
                      ("Seed face of an island", "Alt + LMB on a face"),
                      ("Guide face of the main run", "Shift + Alt + LMB")]),
@@ -814,10 +844,9 @@ def test_modal_hud_and_help_list_every_key():
                        ("Mark Seams", "X"), ("Random Offset", "Z"), ("Offset Limit", "Shift + Wheel"),
                        ("Offset Seed", "R"), ("Merge Doubles", "F")]),
         ("General", [("More options in the HUD", "Tab"), ("Confirm", "Enter / Space"), ("Cancel", "Esc / RMB")])]
-    assert op._status_text() == "LMB side: straight/free · Ctrl + Wheel: balance · Tab: more · Enter: confirm · Esc: cancel"
-    op._picking = True
-    assert op._status_text().startswith("Picking cut loops")
-    op._picking, op._align_picking = False, True
+    assert op._status_text() == ("LMB face: select piece · Shift: add · LMB edge: cut / mend · Ctrl + LMB: one edge · "
+                                 "Q / W: selected, else all · Enter: confirm · Esc: cancel")
+    op._align_picking = True
     assert op._status_text().startswith("Picking lines to straighten")
 
 
@@ -1362,7 +1391,7 @@ def test_cup_break_is_taken_before_doubles_are_merged():
     assert _seams(obj) & _inner_edges(obj) == {(7, 15)}
 
 
-# --- cup break in the modal: C picks, LMB sets, R is the seed -------------------------------
+# --- cup break in the modal: LMB sets, R is the seed ----------------------------------------
 
 def _ring_and_strip():
     """The 8-quad band (vertices 0 - 15, below y = 2) and an open 4-quad strip at y = 3 (vertices 16 - 25),
@@ -1405,58 +1434,57 @@ def _ring_seams(obj, only=_ring_part):
             and sum(f.select and only(f.calc_center_median()) for f in e.link_faces) == 2}
 
 
-def test_c_enters_and_leaves_picking():
+def test_lmb_cuts_in_the_normal_state_with_no_pick_mode():
+    # cutting has no mode of its own: Q, the wheel and Esc keep their meaning, and LMB off a side cuts
     obj = _annulus()
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    laid = _uv_state(obj)
-    for leave in ("ESC", "RIGHTMOUSE", "C"):
-        assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
-        assert op._modal(bpy.context, _KeyPress("Q")) == {"RUNNING_MODAL"} and op.straight_sides == "BOTH"   # swallowed
-        assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"} and op._picking  # no edge: stays
-        balance = op.balance
-        assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True)) == {"RUNNING_MODAL"}   # Balance
-        assert op.balance == round(balance + 0.1, 6) and op._picking
-        op.balance = balance
-        op._relayout(bpy.context)
-        laid = _uv_state(obj)
-        assert op._modal(bpy.context, _KeyPress(leave)) == {"RUNNING_MODAL"} and not op._picking, leave
-        assert _uv_state(obj) == laid and getattr(op, "cup_breaks", "") == ""
+    index = _edge_index(obj, (5, 13))
+    op._hover_break = lambda _context, _event: None
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}   # over nothing: nothing, no confirm
+    assert op.cup_breaks == "" and op._hover is None and op._face_hover is None
+    balance = op.balance
+    assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True)) == {"RUNNING_MODAL"}   # Balance
+    assert op.balance == round(balance + 0.1, 6)
+    _click(op, obj, (5, 13))
+    assert _edges(op.cup_breaks) == {obj.name: [index]}
+    assert op._modal(bpy.context, _KeyPress("Q")) == {"RUNNING_MODAL"} and op.straight_sides != "BOTH"
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"} and op.cup_breaks == ""
     op._finish(bpy.context)
 
 
-def test_set_break_relays_out_and_keeps_picking():
+def test_set_break_relays_out():
     obj = _annulus()
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     assert (3, 11) not in _seams(obj)                        # the ring is cut at a rung of its own until it is broken
     index = _edge_index(obj, (3, 11))
     assert index in op._result.rings[obj.name]              # a ring's cross edge can be picked
-    op._picking = True
     assert op._set_break(bpy.context, obj, index)
-    assert op._picking and _uv_islands(obj) == 1             # picking goes on: more edges can be marked
+    assert _uv_islands(obj) == 1
     assert _torn_at(op, obj, (3, 11)) and _seams(obj) & _inner_edges(obj) == {(3, 11)}
     op._finish(bpy.context)
 
 
-def test_lmb_in_picking_sets_the_hovered_break():
+def test_lmb_sets_the_hovered_break():
     # A real cursor cannot hover headless: the hover lookup is stood in for, the event handling is the operator's.
     obj = _annulus()
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     index = _edge_index(obj, (5, 13))
     op._hover_break = lambda _context, _event: (obj, index)
-    op._modal(bpy.context, _KeyPress("C"))
     move = _KeyPress("MOUSEMOVE")
     move.value = "NOTHING"
     assert op._modal(bpy.context, move) == {"RUNNING_MODAL"} and op._hover[:2] == (obj, index)
     assert len(op._hover[2]) == 2                            # the hovered edge's end points, for the preview
+    assert not op._hover[3] and op._hover[4] is None         # a new cut: drawn in the cut colour
+    assert op._hover_outline                                 # with the outline of the piece it changes
     assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # not the confirm
-    assert op._picking and _uv_islands(obj) == 1 and _ring_seams(obj, lambda c: True) == {(5, 13)}
-    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and not op._picking
+    assert _uv_islands(obj) == 1 and _ring_seams(obj, lambda c: True) == {(5, 13)}
+    op._hover_break = lambda _context, _event: None
     laid = _uv_state(obj)
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # outside picking: no confirm
-    assert _uv_state(obj) == laid and op._side_hover is None
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}       # over nothing: no confirm
+    assert _uv_state(obj) == laid and op._face_hover is None and op._hover is None
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}                  # Enter confirms
 
 
@@ -1501,14 +1529,16 @@ def test_break_survives_option_changes():
     op._finish(bpy.context)
 
 
-def test_r_changes_seed_and_c_does_not():
+def test_r_changes_seed_and_c_does_nothing():
     obj = _annulus()
     _edit(obj)
     op = _modal_on(obj, mode="FIT", offset_axis="ALONG")
     assert op._modal(bpy.context, _KeyPress("R")) == {"RUNNING_MODAL"} and op.offset_seed == 1
-    op._modal(bpy.context, _KeyPress("C"))
-    assert op.offset_seed == 1 and op._picking
-    op._modal(bpy.context, _KeyPress("ESC"))
+    laid = _uv_state(obj)
+    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"}        # no pick mode for cuts any more
+    assert op.offset_seed == 1 and not op._align_picking and _uv_state(obj) == laid
+    assert not hasattr(op, "_picking")
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}          # Esc cancels at once
     op._finish(bpy.context)
 
 
@@ -1588,7 +1618,7 @@ def test_a_wide_closed_band_is_cut_at_its_picked_break():
     assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(5)
 
 
-def test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break():
+def test_lmb_on_a_wide_closed_band_adds_breaks_and_takes_back_one():
     obj = _wide_band()
     op = _modal_on(obj, mode="FIT")
     default = _seams(obj) & _inner_edges(obj)
@@ -1597,7 +1627,6 @@ def test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break():
     assert index in op._result.band_paths[obj.name]
     # the hover previews the whole cross path through the edge under the cursor
     op._hover_break = lambda _context, _event: (obj, index)
-    op._modal(bpy.context, _KeyPress("C"))
     move = _KeyPress("MOUSEMOVE")
     move.value = "NOTHING"
     assert op._modal(bpy.context, move) == {"RUNNING_MODAL"} and op._hover[:2] == (obj, index)
@@ -1606,10 +1635,18 @@ def test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break():
     assert _edges(op.cup_breaks) == {obj.name: [index]}
     assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(5)
     assert _torn_at(op, obj, (5, 29)) and _torn_at(op, obj, (29, 53))
-    other = _click(op, obj, (11, 24 + 11))                  # another cross path: the break moves there
-    assert _edges(op.cup_breaks) == {obj.name: [other]}
-    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(11)
-    _click(op, obj, (24 + 11, 48 + 11))                     # the break's own path: taken back
+    other = _click(op, obj, (11, 24 + 11))                  # another cross path: a second cut, the first stays
+    assert _edges(op.cup_breaks) == {obj.name: [index, other]}
+    assert _uv_islands(obj) == 2 and _seams(obj) & _inner_edges(obj) == _band_path(5) | _band_path(11)
+    third = _click(op, obj, (17, 24 + 17))
+    assert _edges(op.cup_breaks) == {obj.name: [index, other, third]} and _uv_islands(obj) == 3
+    assert all(_torn_at(op, obj, p) for k in (5, 11, 17) for p in _band_path(k))
+    assert _hover_on(op, obj, (24 + 11, 48 + 11))[3]         # on a cut: the click takes it back
+    _click(op, obj, (24 + 11, 48 + 11))                     # that path's break alone is taken back
+    assert _edges(op.cup_breaks) == {obj.name: [index, third]} and _uv_islands(obj) == 2
+    assert _seams(obj) & _inner_edges(obj) == _band_path(5) | _band_path(17)
+    _click(op, obj, (5, 29))
+    _click(op, obj, (41, 65))
     assert op.cup_breaks == "" and _seams(obj) & _inner_edges(obj) == default
     op._finish(bpy.context)
 
@@ -1636,7 +1673,6 @@ def test_confirm_after_a_wide_band_break_equals_execute():
         if confirm:
             op = _modal_on(obj, mode="FIT")
             _click(op, obj, (24 + 9, 48 + 9))
-            assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and not op._picking
             assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
             assert op.cup_breaks == brk
             return _uv_state(obj)
@@ -1647,7 +1683,7 @@ def test_confirm_after_a_wide_band_break_equals_execute():
     assert made(True) == made(False)
 
 
-# --- each cut island is its own strip; Auto tears a wide strip at its bends; C takes automatic tears back -------
+# --- each cut island is its own strip; Auto tears a wide strip at its bends; LMB takes automatic tears back -----
 
 def _mitred_l():
     """``uv_stripe_fixtures.mitred_l``: a flat L two faces wide with a mitred corner, in Edit Mode, all selected."""
@@ -1691,7 +1727,6 @@ def test_c_takes_back_and_restores_an_automatic_tear_of_a_wide_strip():
     assert _hover_on(op, obj, (1, 2))[3]                                  # a click there restores it
     _click(op, obj, (1, 2))
     assert op.skipped_cuts == "" and op._result.done == 2 and _uv_islands(obj) == 2
-    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"}
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
 
 
@@ -1751,22 +1786,23 @@ def test_cup_breaks_is_no_shared_setting():
         assert rna[name].is_hidden and rna[name].is_skip_save and name not in StripeSettings.__dataclass_fields__
 
 
-# --- cut edges in the modal: C picks, LMB marks and unmarks --------------------------------
+# --- cut edges in the modal: LMB marks and unmarks -------------------------------------------
 
 def _edges(text):
     import json
     return json.loads(text) if text else {}
 
 
-def _click(op, obj, pair):
-    """LMB in picking on cross edge ``pair``. A real cursor cannot hover headless: the hover lookup is stood in
-    for, the event handling is the operator's. Picking stays on after the click."""
+def _click(op, obj, pair, ctrl=False):
+    """LMB (Ctrl + LMB with ``ctrl``) in the normal state on edge ``pair``, off every side and corner: the cut
+    through it. A real cursor cannot hover headless: the hover lookup is stood in for (no side or corner is found
+    without a region), the event handling is the operator's."""
     index = _edge_index(obj, pair)
     op._hover_break = lambda _context, _event: (obj, index)
-    if not op._picking:
-        assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}
-    assert op._picking
+    if op._align_picking:
+        assert op._modal(bpy.context, _KeyPress("V")) == {"RUNNING_MODAL"} and not op._align_picking
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE", ctrl=ctrl)) == {"RUNNING_MODAL"}
+    assert not op._align_picking
     return index
 
 
@@ -1816,7 +1852,6 @@ def test_a_seam_tear_is_not_changed_by_a_click():
     laid = _uv_state(obj)
     _click(op, obj, (2, 7))
     assert _uv_state(obj) == laid and op.manual_cuts == "" and op.skipped_cuts == ""
-    op._modal(bpy.context, _KeyPress("C"))
     op._modal(bpy.context, _KeyPress("S"))                   # Split at Seams off: the edge can be cut by hand
     _click(op, obj, (2, 7))
     assert _uv_islands(obj) == 2 and op.manual_cuts != ""
@@ -1861,8 +1896,7 @@ def test_cancel_restores_the_cut_properties():
     _click(op, obj, (8, 9))
     _click(op, obj, (2, 3))
     assert op.manual_cuts != "" and op.skipped_cuts != ""
-    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"RUNNING_MODAL"} and not op._picking  # stops picking
-    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"CANCELLED"}
+    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"CANCELLED"}      # no pick mode to leave first
     assert _uv_state(obj) == before and op.manual_cuts == "" and op.skipped_cuts == ""
 
 
@@ -1874,7 +1908,6 @@ def test_confirm_after_cuts_equals_execute():
             _click(op, obj, (3, 11))                         # the ring's break
             _click(op, obj, (6, 14))                         # a manual cut on the broken ring
             _click(op, obj, (18, 23))                        # a manual cut on the open strip
-            op._modal(bpy.context, _KeyPress("C"))
             assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
             kept = (op.cup_breaks, op.manual_cuts, op.skipped_cuts)          # kept for redo
             assert all(kept[:2])
@@ -1900,7 +1933,6 @@ def test_confirm_after_a_skipped_bend_tear_equals_execute():
         if confirm:
             op = _modal_on(obj, mode="FIT")
             _click(op, obj, (8, 9))
-            op._modal(bpy.context, _KeyPress("C"))
             assert op._modal(bpy.context, _KeyPress("SPACE")) == {"FINISHED"}
             return _uv_state(obj), list(_edges(op.skipped_cuts).values())     # each run makes a new object
         stand = _OperatorStandIn(mode="FIT", skipped_cuts=_dump(obj, (8, 9)))
@@ -2225,7 +2257,7 @@ def _click_align(op, obj, pair):
     if not op._align_picking:
         assert op._modal(bpy.context, _KeyPress("V")) == {"RUNNING_MODAL"} and op._align_picking
     assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}
-    assert op._align_picking and not op._picking
+    assert op._align_picking
     return index
 
 
@@ -2267,19 +2299,17 @@ def test_v_and_lmb_store_the_align_edge_and_keep_picking():
     op._finish(bpy.context)
 
 
-def test_the_two_pick_modes_are_exclusive():
+def test_v_picking_takes_lmb_and_esc_rmb_or_v_leave_it():
     obj = _shape_strip()
     op = _modal_on(obj, mode="FIT")
-    op._modal(bpy.context, _KeyPress("C"))
-    assert op._picking and not op._align_picking
-    op._modal(bpy.context, _KeyPress("V"))
-    assert op._align_picking and not op._picking
-    op._modal(bpy.context, _KeyPress("C"))
-    assert op._picking and not op._align_picking
-    op._modal(bpy.context, _KeyPress("ESC"))
-    assert not op._picking and not op._align_picking
-    op._modal(bpy.context, _KeyPress("V"))
-    assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"RUNNING_MODAL"} and not op._align_picking
+    laid = _uv_state(obj)
+    for leave in ("ESC", "RIGHTMOUSE", "V"):
+        op._modal(bpy.context, _KeyPress("V"))
+        assert op._align_picking
+        assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._align_picking   # C: nothing
+        assert op._modal(bpy.context, _KeyPress(leave)) == {"RUNNING_MODAL"} and not op._align_picking, leave
+        assert _uv_state(obj) == laid
+    assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}            # out of V, Esc cancels
     op._finish(bpy.context)
 
 
@@ -2353,11 +2383,12 @@ def test_align_row_shows_only_where_a_piece_is_unfolded_at_its_real_shape():
     op = _modal_on(obj, mode="FIT")
     assert op._result.unfolded == 0 and "Align (G)" not in _shown(op)
     op._modal(bpy.context, _KeyPress("ESC"))
-    obj = _grid(4, 1)                                       # both long sides clicked free: unfolded at its real shape
+    obj = _grid(4, 1)                                       # the piece set to None: unfolded at its real shape
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    op._click_side(bpy.context, obj, 0, "near")
-    op._click_side(bpy.context, obj, 0, "far")
+    _select(op, obj, 0)
+    for _ in range(3):
+        op._modal(bpy.context, _KeyPress("Q"))
     assert op._result.unfolded == 1 and "Align (G)" in _shown(op)
     op._modal(bpy.context, _KeyPress("ESC"))
 
@@ -2421,100 +2452,177 @@ def _side(op, obj, piece, name):
     return op._result.sides[(obj.name, piece, name)]
 
 
-def test_click_on_a_long_side_makes_it_free_and_the_layout_follows():
+def _select(op, obj, face, shift=False):
+    """LMB (Shift + LMB with ``shift``) on face ``face`` of ``obj``, away from its edges: the face and the edge
+    lookups are stood in for (no region headless), the event handling is the operator's."""
+    op._face_under = lambda _context, _event: (obj, face)
+    op._hover_break = lambda _context, _event: None
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE", shift=shift)) == {"RUNNING_MODAL"}
+
+
+def _two_tapers():
+    """Two ``_taper_strip`` strips in one object, faces 0 - 2 (vertices 0 - 7) and 3 - 5 (vertices 8 - 15), the
+    second 3 m above the first, in Edit Mode, all selected."""
+    row, points = 4, []
+    for dy in (0.0, 3.0):
+        points += [(float(x), dy, 0.0) for x in range(row)] + [(float(x), dy + 1.0 - 0.1 * x, 0.0) for x in range(row)]
+    faces = [(o + i, o + i + 1, o + i + row + 1, o + i + row) for o in (0, 8) for i in range(3)]
+    obj = _object(points, faces)
+    _edit(obj)
+    return obj
+
+
+def _first(c):
+    return c.y < 2.0
+
+
+def _second(c):
+    return c.y > 2.0
+
+
+def _layout_shape(obj, only):
+    """The UVs of the faces passing ``only`` up to one scale and a shift (the pieces of a run share a texel
+    density, so one piece's layout scales the others): each corner's UV from the box's low corner over its width,
+    rounded."""
+    corners = _corners(obj, only)
+    us, vs = [uv.x for _c, uv in corners], [uv.y for _c, uv in corners]
+    width = max(us) - min(us)
+    return [(tuple(co), round((uv.x - min(us)) / width, 6), round((uv.y - min(vs)) / width, 6)) for co, uv in corners]
+
+
+def _piece(op, obj, face):
+    return op._result.piece_faces[obj.name][face]
+
+
+def _shapes(op):
     import json
-    obj = _taper_strip()
+    return json.loads(op.piece_shapes) if op.piece_shapes else {}
+
+
+def test_q_and_w_on_a_selected_piece_change_only_that_piece():
+    obj = _two_tapers()
     op = _modal_on(obj, mode="FIT")
-    near, far = _side(op, obj, 0, "near"), _side(op, obj, 0, "far")
-    assert near.straight and far.straight
-    laid = _uv_state(obj)
-    assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 1       # both rails on one v each
-    assert len({v for i in range(4, 8) for v in _vertex_vs(obj, i)}) == 1
-    assert op._click_side(bpy.context, obj, 0, "near") is False
-    near, far = _side(op, obj, 0, "near"), _side(op, obj, 0, "far")
-    assert not near.straight and far.straight
-    assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 4       # the near rail follows its faces
-    assert len({v for i in range(4, 8) for v in _vertex_vs(obj, i)}) == 1    # the far rail is still straight
-    assert json.loads(op.side_picks) == {
-        obj.name: [[near.faces[0], near.edges[0], False], [far.faces[0], far.edges[0], True]]}   # both long sides
-    assert op._click_side(bpy.context, obj, 0, "near") is True
-    assert json.loads(op.side_picks) == {
-        obj.name: [[near.faces[0], near.edges[0], True], [far.faces[0], far.edges[0], True]]}
-    assert _side(op, obj, 0, "near").straight and _uv_state(obj) == laid
+    first, second = _piece(op, obj, 0), _piece(op, obj, 3)
+    assert all(_side(op, obj, n, s).straight for n in (first, second) for s in ("near", "far"))
+    laid_second = _layout_shape(obj, _second)
+    _select(op, obj, 0)
+    assert op._selected_pieces() == [(obj.name, ("piece", first))]
+    assert "Selected" in _shown(op) and op._shape_text("SIDES") == "Both · 1 selected"
+    assert op._modal(bpy.context, _KeyPress("Q")) == {"RUNNING_MODAL"}       # Both -> Longer Side, this piece only
+    assert op.straight_sides == "BOTH" and op._shape_text("SIDES") == "Longer Side · 1 selected"
+    # the far rail closes in at a slant: it is the longer one
+    assert not _side(op, obj, first, "near").straight and _side(op, obj, first, "far").straight
+    assert _layout_shape(obj, _second) == laid_second                        # the other piece is laid out as it was
+    assert _shapes(op) == {obj.name: [["SIDES", "LONGER", [0, 1, 2]]]}
+    assert op._modal(bpy.context, _KeyPress("W")) == {"RUNNING_MODAL"}       # Slanted -> Both, this piece only
+    assert op.ends == "SLANTED" and _side(op, obj, first, "end0").straight and _side(op, obj, first, "end1").straight
+    assert _layout_shape(obj, _second) == laid_second
+    _select(op, obj, 4, shift=True)                                          # Shift: both selected
+    assert [key for _name, key in op._selected_pieces()] == [("piece", first), ("piece", _piece(op, obj, 3))]
+    op._modal(bpy.context, _KeyPress("Q"))                                   # both to the value after the first's
+    assert op._shape_text("SIDES") == "Shorter Side · 2 selected"
+    assert _side(op, obj, first, "near").straight and not _side(op, obj, first, "far").straight
+    assert _side(op, obj, _piece(op, obj, 3), "near").straight and not _side(op, obj, _piece(op, obj, 3), "far").straight
+    _select(op, obj, 4, shift=True)                                          # Shift again: removed
+    assert op._selected_pieces() == [(obj.name, ("piece", first))]
+    _select(op, obj, 1)                                                      # LMB on the only selected one: cleared
+    assert op._selected_pieces() == [] and "Selected" not in _shown(op)
+    _select(op, obj, 3)
+    op._face_under = lambda _context, _event: None
+    op._modal(bpy.context, _KeyPress("LEFTMOUSE"))                           # over nothing: cleared
+    assert op._selected_pieces() == []
+    # with nothing selected Q cycles the operator's own value for every piece and drops the pieces' own sides,
+    # W's pieces' ends stay
+    op._modal(bpy.context, _KeyPress("Q"))
+    assert op.straight_sides == "LONGER" and [e[0] for e in _shapes(op)[obj.name]] == ["ENDS"]
+    assert all(not _side(op, obj, n, "near").straight and _side(op, obj, n, "far").straight
+               for n in (_piece(op, obj, 0), _piece(op, obj, 3)))
+    op._modal(bpy.context, _KeyPress("W"))
+    assert op.ends == "BOTH" and op.piece_shapes == ""
     op._finish(bpy.context)
 
 
-def test_clicking_an_end_of_a_one_face_wide_strip_stands_it_upright():
+def test_w_on_a_selected_one_face_wide_strip_stands_its_ends_upright():
     obj = _sheared_strip()
     op = _modal_on(obj, mode="FIT")
     assert not _side(op, obj, 0, "end0").straight and not _side(op, obj, 0, "end1").straight
     assert _vertex_us(obj, 3) != _vertex_us(obj, 7) and _vertex_us(obj, 0) != _vertex_us(obj, 4)   # both slanted
     slanted = _uv_state(obj)
-    assert op._click_side(bpy.context, obj, 0, "end1") is True
-    assert _side(op, obj, 0, "end1").straight and not _side(op, obj, 0, "end0").straight
-    assert _vertex_us(obj, 3) == _vertex_us(obj, 7) == {1.0}                 # the end's cross edge is vertical
-    assert _vertex_us(obj, 0) != _vertex_us(obj, 4)                           # the other end keeps its slant
-    assert _side(op, obj, 0, "near").straight and _side(op, obj, 0, "far").straight
-    assert op._click_side(bpy.context, obj, 0, "end1") is False               # clicked again: slanted again
-    assert _uv_state(obj) == slanted
+    _select(op, obj, 1)
+    op._modal(bpy.context, _KeyPress("W"))                                   # Slanted -> Both
+    assert _side(op, obj, 0, "end0").straight and _side(op, obj, 0, "end1").straight
+    assert _vertex_us(obj, 3) == _vertex_us(obj, 7) and _vertex_us(obj, 0) == _vertex_us(obj, 4)   # upright
+    for _ in range(4):                                                       # Longer, Shorter, Upright Where Cheap
+        op._modal(bpy.context, _KeyPress("W"))                               # (slanted one face wide), Slanted
+    assert op._shape_text("ENDS") == "Slanted · 1 selected" and _uv_state(obj) == slanted
     op._finish(bpy.context)
 
 
-def test_side_picks_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults():
+def test_piece_shapes_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults():
+    import json
     obj = _taper_strip()
     op = _modal_on(obj, mode="FIT")
     defaults = _uv_state(obj)
-    op._click_side(bpy.context, obj, 0, "near")
-    clicked = _uv_state(obj)
-    assert clicked != defaults
+    near, far = _side(op, obj, 0, "near"), _side(op, obj, 0, "far")
+    _select(op, obj, 0)
+    op._modal(bpy.context, _KeyPress("Q"))
+    op._modal(bpy.context, _KeyPress("Q"))                                   # Shorter Side for this piece
+    chosen = _uv_state(obj)
+    assert chosen != defaults
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
-    assert _uv_state(obj) == clicked
-    kept = op.side_picks
-    assert kept
+    assert _uv_state(obj) == chosen
+    kept = op.piece_shapes
+    assert kept and op.straight_sides == "BOTH"
     _set_uvs(obj, lambda co: co.xy * 0.37)
-    stand = _OperatorStandIn(mode="FIT", side_picks=kept)
+    stand = _OperatorStandIn(mode="FIT", piece_shapes=kept)
     assert stand.execute(bpy.context) == {"FINISHED"}
-    assert _uv_state(obj) == clicked                                          # the confirmed picks, laid out again
+    assert _uv_state(obj) == chosen                                          # the confirmed shapes, laid out again
     _set_uvs(obj, lambda co: co.xy * 0.37)
-    assert _run(mode="FIT", side_picks=kept) == {"FINISHED"}                  # and through the operator itself
-    assert _uv_state(obj) == clicked
+    assert _run(mode="FIT", piece_shapes=kept) == {"FINISHED"}               # and through the operator itself
+    assert _uv_state(obj) == chosen
     _set_uvs(obj, lambda co: co.xy * 0.37)
     assert _OperatorStandIn(mode="FIT").execute(bpy.context) == {"FINISHED"}
-    assert _uv_state(obj) == defaults                                         # a fresh run starts without them
+    assert _uv_state(obj) == defaults                                        # a fresh run starts without them
     _set_uvs(obj, lambda co: co.xy * 0.37)
     assert _run(mode="FIT") == {"FINISHED"} and _uv_state(obj) == defaults
+    # side picks stored by an older run (a long side clicked free) still lay out as they did: the near rail free
+    old = json.dumps({obj.name: [[near.faces[0], near.edges[0], False], [far.faces[0], far.edges[0], True]]})
+    _set_uvs(obj, lambda co: co.xy * 0.37)
+    assert _run(mode="FIT", side_picks=old) == {"FINISHED"}
+    assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 4       # the near rail follows its faces
+    assert len({v for i in range(4, 8) for v in _vertex_vs(obj, i)}) == 1    # the far rail straight
 
 
-def test_lmb_off_a_side_changes_nothing_and_only_enter_confirms():
-    # A real cursor cannot hover headless: the side lookup is stood in for, the event handling is the operator's.
+def test_lmb_over_nothing_changes_nothing_and_only_enter_confirms():
+    # A real cursor cannot hover headless: the face and edge lookups are stood in for, the event handling is the
+    # operator's.
     obj = _taper_strip()
     op = _modal_on(obj, mode="FIT")
     laid = _uv_state(obj)
+    op._face_under = lambda _context, _event: None
+    op._hover_break = lambda _context, _event: None
     for _ in range(2):
-        assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}     # no side near: not the confirm
-    assert _uv_state(obj) == laid and op.side_picks == "" and op._side_hover is None
-    op._hover_side = lambda _context, _event: (obj, 0, "near")
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}
-    assert op.side_picks != "" and not _side(op, obj, 0, "near").straight and _uv_state(obj) != laid
-    assert op._side_hover == (obj, 0, "near")                                           # kept for the preview
-    clicked = _uv_state(obj)
-    op._hover_side = lambda _context, _event: None
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"} and _uv_state(obj) == clicked
-    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"} and _uv_state(obj) == clicked
+        assert op._modal(bpy.context, _KeyPress("LEFTMOUSE")) == {"RUNNING_MODAL"}     # nothing under it: no confirm
+    assert _uv_state(obj) == laid and op.piece_shapes == "" and op._face_hover is None and op._hover is None
+    _select(op, obj, 0)
+    assert op._face_hover == (obj, 0) and op._face_outline                  # kept for the preview
+    assert _uv_state(obj) == laid                                            # selecting changes no UV
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"} and _uv_state(obj) == laid
     for key in ("NUMPAD_ENTER", "SPACE"):
         obj = _taper_strip()
         op = _modal_on(obj, mode="FIT")
         assert op._modal(bpy.context, _KeyPress(key)) == {"FINISHED"}, key
 
 
-def test_e_and_a_keep_the_clicked_sides():
+def test_e_and_a_keep_the_piece_shapes():
     obj = _taper_strip()
     op = _modal_on(obj, mode="FIT")
-    op._click_side(bpy.context, obj, 0, "near")
-    picks = op.side_picks
+    _select(op, obj, 0)
+    op._modal(bpy.context, _KeyPress("Q"))                                   # Longer Side: the near rail free
+    shapes = op.piece_shapes
     for key in ("E", "E", "E", "E", "A", "A", "A", "A"):                      # a full round of each
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
-        assert op.side_picks == picks, key
+        assert op.piece_shapes == shapes, key
         assert not _side(op, obj, 0, "near").straight, (key, op.straight_sides, op.ends)    # still free
         assert _side(op, obj, 0, "far").straight, (key, op.straight_sides, op.ends)
         assert len({v for i in range(4) for v in _vertex_vs(obj, i)}) == 4
@@ -2522,27 +2630,32 @@ def test_e_and_a_keep_the_clicked_sides():
     op._finish(bpy.context)
 
 
-def test_esc_after_clicks_restores_the_side_picks_and_the_uvs():
+def test_esc_restores_the_piece_shapes_and_the_uvs():
     obj = _taper_strip()
     before = _uv_state(obj)
     op = _modal_on(obj, mode="FIT")
-    op._click_side(bpy.context, obj, 0, "near")
+    _select(op, obj, 0)
+    op._modal(bpy.context, _KeyPress("Q"))
+    op._modal(bpy.context, _KeyPress("Q"))
     op._modal(bpy.context, _KeyPress("E"))
-    assert op.side_picks != "" and _uv_state(obj) != before
+    assert op.piece_shapes != "" and _uv_state(obj) != before
     assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
-    assert op.side_picks == "" and op.straight_sides == "BOTH" and _uv_state(obj) == before
-    # picks the run started with come back too
+    assert op.piece_shapes == "" and op.straight_sides == "BOTH" and _uv_state(obj) == before
+    # shapes the run started with come back too
     op = _modal_on(obj, mode="FIT")
-    op._click_side(bpy.context, obj, 0, "near")
-    kept = op.side_picks
+    _select(op, obj, 0)
+    op._modal(bpy.context, _KeyPress("Q"))
+    op._modal(bpy.context, _KeyPress("Q"))
+    kept = op.piece_shapes
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
     _set_uvs(obj, lambda co: co.xy * 0.37)
     before = _uv_state(obj)
-    op = _modal_on(obj, mode="FIT", side_picks=kept)
-    op._click_side(bpy.context, obj, 0, "far")
-    assert op.side_picks != kept
+    op = _modal_on(obj, mode="FIT", piece_shapes=kept)
+    _select(op, obj, 0)
+    op._modal(bpy.context, _KeyPress("W"))
+    assert op.piece_shapes != kept
     assert op._modal(bpy.context, _KeyPress("RIGHTMOUSE")) == {"CANCELLED"}
-    assert op.side_picks == kept and _uv_state(obj) == before
+    assert op.piece_shapes == kept and _uv_state(obj) == before
 
 
 def test_hud_rows_follow_the_state():
@@ -2562,14 +2675,17 @@ def test_hud_rows_follow_the_state():
     assert params["Manual Cuts"].value_text() == "1"
     op._modal(bpy.context, _KeyPress("ESC"))
     assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
-    obj = _grid(4, 1)                                                         # both long sides clicked free
+    obj = _grid(4, 1)                                                         # the piece's Straight Sides to None
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     assert _shown(op) == base
-    op._click_side(bpy.context, obj, 0, "near")
-    assert _shown(op) == base                                          # one side free: the other is straight
-    op._click_side(bpy.context, obj, 0, "far")
-    assert _shown(op) == base | {"Align (G)"}
+    _select(op, obj, 0)
+    assert _shown(op) == base | {"Selected"}
+    op._modal(bpy.context, _KeyPress("Q"))
+    assert _shown(op) == base | {"Selected"}                           # one side free: the other is straight
+    op._modal(bpy.context, _KeyPress("Q"))
+    op._modal(bpy.context, _KeyPress("Q"))
+    assert _shown(op) == base | {"Selected", "Align (G)"}
     op._modal(bpy.context, _KeyPress("ESC"))
     obj = _double_object()
     op = _modal_on(obj, mode="FIT")
@@ -2577,7 +2693,7 @@ def test_hud_rows_follow_the_state():
     op._modal(bpy.context, _KeyPress("ESC"))
 
 
-def test_the_pick_modes_show_their_line_in_the_hud_header():
+def test_v_picking_shows_its_line_in_the_hud_header():
     from types import SimpleNamespace
     obj = _polyline([0, 45, 0, 38])
     _edit(obj)
@@ -2586,9 +2702,6 @@ def test_the_pick_modes_show_their_line_in_the_hud_header():
     context = SimpleNamespace(region_data=object())
     op._draw_callback(context)
     assert op._hud._header_lines == ["3 strip(s)"]
-    op._modal(bpy.context, _KeyPress("C"))
-    op._draw_callback(context)
-    assert op._hud._header_lines == ["Picking cut loops · Alt: single edge · C to stop", "3 strip(s)"]
     op._modal(bpy.context, _KeyPress("V"))
     op._draw_callback(context)
     assert op._hud._header_lines == ["Picking lines to straighten · Alt: single edge · V to stop", "3 strip(s)"]
@@ -2614,8 +2727,9 @@ def test_shape_settings_are_shared_and_side_picks_are_not():
     rna = bpy.ops.iops.mesh_uv_stripe.get_rna_type().properties
     for name in ("straight_sides", "ends", "balance", "stretch_limit"):
         assert name in StripeSettings.__dataclass_fields__, name
-    assert "side_picks" not in StripeSettings.__dataclass_fields__
-    assert rna["side_picks"].is_hidden and rna["side_picks"].is_skip_save
+    for name in ("side_picks", "piece_shapes"):
+        assert name not in StripeSettings.__dataclass_fields__
+        assert rna[name].is_hidden and rna[name].is_skip_save
     assert not rna["straight_sides"].is_skip_save and not rna["ends"].is_skip_save and not rna["balance"].is_skip_save
     assert (rna["straight_sides"].default, rna["ends"].default, rna["balance"].default) == (
         "BOTH", "AUTO", 0.5)
@@ -2704,29 +2818,24 @@ def _double_click(key="LEFTMOUSE"):
     return event
 
 
-def test_double_click_on_a_side_toggles_it_like_a_press():
+def test_double_click_selects_and_cuts_like_a_press():
     obj = _taper_strip()
     op = _modal_on(obj, mode="FIT")
-    laid = _uv_state(obj)
-    op._hover_side = lambda _context, _event: (obj, 0, "near")
+    op._face_under = lambda _context, _event: (obj, 0)
+    op._hover_break = lambda _context, _event: None
     assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}
-    assert not _side(op, obj, 0, "near").straight and op.side_picks != ""
-    pressed = _uv_state(obj)
-    assert pressed != laid
-    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}
-    assert _side(op, obj, 0, "near").straight and _uv_state(obj) == laid
-    op._hover_side = lambda _context, _event: None
-    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}       # off a side: nothing, no confirm
-    assert _uv_state(obj) == laid
+    assert op._selected_pieces() == [(obj.name, ("piece", 0))]
+    op._face_under = lambda _context, _event: None
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}       # over nothing: cleared, no confirm
+    assert op._selected_pieces() == []
     assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
-    # in the cut pick mode a double click picks like a press
+    # near an edge a double click cuts like a press
     obj = _grid(4, 1)
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     index = _edge_index(obj, (2, 7))
     op._hover_break = lambda _context, _event: (obj, index)
-    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and op._picking
-    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"} and op._picking
+    assert op._modal(bpy.context, _double_click()) == {"RUNNING_MODAL"}
     assert _uv_islands(obj) == 2 and _edges(op.manual_cuts) == {obj.name: [index]}
     op._finish(bpy.context)
 
@@ -2752,7 +2861,7 @@ def test_a_rectangular_frame_is_four_islands_of_one_face():
 
 
 class _HoverContext:
-    """``bpy.context`` with a region and view data (stood in for) and the edit objects, so ``_hover_side`` runs."""
+    """``bpy.context`` with a region and view data (stood in for) and the edit objects, so ``_hover_break`` runs."""
 
     def __init__(self, obj):
         from types import SimpleNamespace
@@ -2764,53 +2873,43 @@ class _HoverContext:
         return getattr(bpy.context, name)
 
 
-def test_hover_side_prefers_the_piece_under_the_cursor_and_skips_hidden_edges():
-    # No region headless: the raycast and the on-screen distances are stood in for, the lookup is the operator's.
+def test_lmb_cuts_only_within_the_pick_distance_of_an_edge():
+    # No region headless: the raycast and the on-screen distance are stood in for, the lookup is the operator's.
+    from InteractionOps.operators.mesh_uv_stripe import EDGE_PICK_RADIUS
     from InteractionOps.utils import picking
-    obj = _polyline([0, 45])
+    obj = _grid(4, 1)
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    result = op._result
-    tear = _edge_index(obj, (4, 5))
-    entries = result.side_edges[obj.name][tear]
-    assert sorted(piece for piece, _name in entries) == [0, 1]                 # the tear ends both pieces
-    face_of = {n: next(f for f, piece in result.piece_faces[obj.name].items() if piece == n) for n in (0, 1)}
-    near = {}                                                                  # on-screen distance by edge index
-    hit = {"on": False, "face": 0}
+    index = _edge_index(obj, (2, 7))
+    face = 1                                                                 # a face beside the edge
+    distance = {"px": 1.0}
     real_ray, real_closest = picking.raycast_edit_meshes, picking.closest_edge_screen
 
     def raycast(*_args, **_kwargs):
-        return (hit["on"], None, None, hit["face"], obj)
+        return (True, None, None, face, obj)
 
     def closest(_context, edges, _matrix, _coord):
-        if not edges:
-            return None, 1e9
-        if len(edges) > 1:                       # the face under the cursor: none of its edges is near
-            return 0, 1e9
-        k = min(range(len(edges)), key=lambda i: near.get(edges[i].index, 1e9))
-        return k, near.get(edges[k].index, 1e9)
+        k = next((i for i, e in enumerate(edges) if e.index == index), None)
+        return (k, distance["px"]) if k is not None else (None, 1e9)
 
     picking.raycast_edit_meshes, picking.closest_edge_screen = raycast, closest
+    op._face_under = lambda _context, _event: (obj, face)
     try:
-        context, event = _HoverContext(obj), _KeyPress("MOUSEMOVE")
-        op._edge_visible = lambda *_args: True
-        near[tear] = 1.0
-        assert op._hover_side(context, event)[1] == min(piece for piece, _name in entries)   # nothing under it
-        for under in (0, 1):                                                   # a face of piece 0 / piece 1 under it
-            hit.update(on=True, face=face_of[under])
-            found = op._hover_side(context, event)       # the tear edge is the only one near: the face's piece wins
-            assert found is not None and found[1] == under, (under, found)
-        # a nearer edge hidden behind geometry is skipped for a farther visible one
-        hit["on"] = False
-        near.clear()
-        hidden, visible = _edge_index(obj, (0, 2)), _edge_index(obj, (2, 4))
-        near.update({hidden: 1.0, visible: 5.0})
-        assert op._hover_side(context, event)[2] == result.side_edges[obj.name][hidden][0][1]
-        op._edge_visible = lambda _context, _region, _rv3d, _objects, _obj, edge, _coord: edge.index != hidden
-        found = op._hover_side(context, event)
-        assert found == (obj, *result.side_edges[obj.name][visible][0])
-        near[visible] = 1e9                                                    # beyond the pick radius: nothing
-        assert op._hover_side(context, event) is None
+        context, move = _HoverContext(obj), _KeyPress("MOUSEMOVE")
+        move.value = "NOTHING"
+        op._update_normal_hover(context, move)
+        assert op._hover is not None and op._hover[1] == index and op._face_hover is None   # near: the cut
+        distance["px"] = EDGE_PICK_RADIUS + 5.0
+        op._update_normal_hover(context, move)
+        assert op._hover is None and op._face_hover == (obj, face)                       # mid-face: the piece
+        distance["px"] = 1.0
+        shifted = _KeyPress("MOUSEMOVE", shift=True)
+        op._update_normal_hover(context, shifted)
+        assert op._hover is None and op._face_hover == (obj, face)                       # Shift never cuts
+        op._modal(context, _KeyPress("V"))                                               # V: no pick distance
+        distance["px"] = EDGE_PICK_RADIUS + 5.0
+        op._update_hover(context, move)
+        assert op._hover is None or op._hover[1] == index
     finally:
         picking.raycast_edit_meshes, picking.closest_edge_screen = real_ray, real_closest
     op._finish(bpy.context)
@@ -2853,8 +2952,7 @@ def _states(op):
     def nothing():
         pass
 
-    return (("normal", nothing, nothing), ("cut pick mode", pick("C"), leave("C")),
-            ("align pick mode", pick("V"), leave("V")), ("help open", help_on, help_off))
+    return (("normal", nothing, nothing), ("align pick mode", pick("V"), leave("V")), ("help open", help_on, help_off))
 
 
 def test_the_wheel_changes_balance_and_stretch_limit_in_every_state():
@@ -2865,7 +2963,7 @@ def test_the_wheel_changes_balance_and_stretch_limit_in_every_state():
         op.balance, op.stretch_limit = 0.5, 1.25
         op._relayout(bpy.context)
         enter()
-        picking = (op._picking, op._align_picking)
+        picking = op._align_picking
         before = _uv_state(obj)
         assert op._modal(bpy.context, _KeyPress("WHEELUPMOUSE", ctrl=True)) == {"RUNNING_MODAL"}, name
         assert round(op.balance, 6) == 0.6, name
@@ -2882,7 +2980,7 @@ def test_the_wheel_changes_balance_and_stretch_limit_in_every_state():
         for _ in range(8):
             assert op._modal(bpy.context, _KeyPress("WHEELDOWNMOUSE", alt=True)) == {"RUNNING_MODAL"}, name
         assert op.stretch_limit == 1.05, name                                # never below 1.05
-        assert (op._picking, op._align_picking) == picking, name             # the wheel leaves the state as it is
+        assert op._align_picking == picking, name                            # the wheel leaves the state as it is
         assert op.cup_breaks == "" and op.island_cuts == "" and op.align_edges == "", name
         leave()
     assert op._modal(bpy.context, _KeyPress("ESC")) == {"CANCELLED"}
@@ -2894,12 +2992,12 @@ def test_the_plain_wheel_zooms_the_view_in_every_state():
     op = _modal_on(obj, mode="FIT")
     for name, enter, leave in _states(op):
         enter()
-        picking = (op._picking, op._align_picking)
+        picking = op._align_picking
         before = (op.balance, op.stretch_limit, op.offset_limit, _uv_state(obj))
         for key in ("WHEELUPMOUSE", "WHEELDOWNMOUSE"):
             assert op._modal(bpy.context, _KeyPress(key)) == {"PASS_THROUGH"}, (name, key)
         assert (op.balance, op.stretch_limit, op.offset_limit, _uv_state(obj)) == before, name
-        assert (op._picking, op._align_picking) == picking, name
+        assert op._align_picking == picking, name
         leave()
     op._modal(bpy.context, _KeyPress("ESC"))
 
@@ -3205,7 +3303,7 @@ def test_an_island_waiting_for_help_reports_asks_for_corners_and_lays_out_with_f
     op._hud.draw = op._help.draw = lambda *_args: None
     from types import SimpleNamespace
     op._draw_callback(SimpleNamespace(region_data=object()))
-    assert op._hud._notes == [("Island 1 is no strip: Click four corners, or C on an edge to cut the island into "
+    assert op._hud._notes == [("Island 1 is no strip: Click four corners, or click an edge to cut the island into "
                                "strips", True)], op._hud._notes
     assert op._status_text().startswith("LMB boundary vertex: corner")
     for k, vertex in enumerate(corners):
@@ -3453,25 +3551,29 @@ def test_a_disc_of_a_ring_of_quads_round_an_ngon_is_refused():
     assert not any("interactive" in r for r in stand.reports)
 
 
-# --- C and V by loop: LMB the loop, Alt + LMB one edge; V straightens -------------------------------------
+# --- cuts and V by loop: LMB the loop (Ctrl / Alt + LMB one edge); V straightens ----------------------------
 
-def _pick(op, obj, pair, align=False, alt=False):
-    """LMB (Alt + LMB with ``alt``) while picking cuts (C) or, with ``align``, lines to straighten (V) on edge
-    ``pair``; the hover lookup stood in for, as in ``_click``. Picking stays on."""
+def _pick(op, obj, pair, align=False, single=False):
+    """LMB on edge ``pair``: a cut in the normal state, with ``align`` a line to straighten (V); ``single`` the
+    one edge (Ctrl + LMB for a cut, Alt + LMB for a line). The hover lookup stood in for, as in ``_click``; V
+    picking stays on."""
+    if not align:
+        return _click(op, obj, pair, ctrl=single)
     index = _edge_index(obj, pair)
     op._hover_break = lambda _context, _event: (obj, index)
-    if not (op._align_picking if align else op._picking):
-        assert op._modal(bpy.context, _KeyPress("V" if align else "C")) == {"RUNNING_MODAL"}
-    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE", alt=alt)) == {"RUNNING_MODAL"}
-    assert op._align_picking if align else op._picking
+    if not op._align_picking:
+        assert op._modal(bpy.context, _KeyPress("V")) == {"RUNNING_MODAL"}
+    assert op._modal(bpy.context, _KeyPress("LEFTMOUSE", alt=single)) == {"RUNNING_MODAL"}
+    assert op._align_picking
     return index
 
 
-def _hover_on(op, obj, pair, alt=False):
-    """The hover the operator keeps over edge ``pair`` (None when a click there would change nothing)."""
+def _hover_on(op, obj, pair, single=False):
+    """The hover the operator keeps over edge ``pair`` (None when a click there would change nothing); ``single``
+    holds the key for the one edge (Alt while picking lines, Ctrl while cutting)."""
     index = _edge_index(obj, pair)
     op._hover_break = lambda _context, _event: (obj, index)
-    move = _KeyPress("MOUSEMOVE", alt=alt)
+    move = _KeyPress("MOUSEMOVE", alt=single and op._align_picking, ctrl=single and not op._align_picking)
     move.value = "NOTHING"
     assert op._modal(bpy.context, move) == {"RUNNING_MODAL"}
     return op._hover
@@ -3504,11 +3606,10 @@ def test_lmb_cuts_a_cross_loop_of_a_wide_strip_and_a_second_click_mends_it():
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
     loop = [(2, 7), (7, 12), (12, 17)]                       # across the strip at x = 2, rail to rail
-    assert _hover_on(op, obj, (7, 12)) is None               # not picking: no hover
-    op._modal(bpy.context, _KeyPress("C"))
-    hover = _hover_on(op, obj, (7, 12))
+    hover = _hover_on(op, obj, (7, 12))                      # the normal state previews the cut
     assert hover[:2] == (obj, _edge_index(obj, (7, 12))) and len(hover[2]) == 6 and not hover[3]   # the whole loop
-    assert _hover_on(op, obj, (6, 7)) is None                # along the strip: no loop across it for LMB
+    along = _hover_on(op, obj, (6, 7))                       # along the strip: the loop from end to end
+    assert along is not None and len(along[2]) == 8 and not along[3]
     _pick(op, obj, (7, 12))
     assert sorted(_edges(op.island_cuts)[obj.name]) == sorted(_edge_index(obj, p) for p in loop)
     assert "into 2 strips" in op._result.split[0], op._result.split
@@ -3522,19 +3623,19 @@ def test_lmb_cuts_a_cross_loop_of_a_wide_strip_and_a_second_click_mends_it():
     op._finish(bpy.context)
 
 
-def test_alt_lmb_cuts_one_edge_as_before():
+def test_ctrl_lmb_cuts_one_edge():
     obj = _grid(4, 3)
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    index = _pick(op, obj, (7, 12), alt=True)
+    index = _pick(op, obj, (7, 12), single=True)
     assert _edges(op.island_cuts) == {obj.name: [index]}     # the one edge, cut along its cross path
     assert "into 2 strips" in op._result.split[0], op._result.split
-    _pick(op, obj, (7, 12), alt=True)
+    _pick(op, obj, (7, 12), single=True)
     assert op.island_cuts == ""
-    obj = _grid(4, 1)                                        # one face wide: LMB and Alt + LMB cut the cross edge
+    obj = _grid(4, 1)                                        # one face wide: LMB and Ctrl + LMB cut the cross edge
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    index = _pick(op, obj, (2, 7), alt=True)
+    index = _pick(op, obj, (2, 7), single=True)
     assert _edges(op.manual_cuts) == {obj.name: [index]} and _uv_islands(obj) == 2
     _pick(op, obj, (2, 7))
     assert op.manual_cuts == "" and _uv_islands(obj) == 1
@@ -3555,7 +3656,7 @@ def test_v_straightens_a_lengthwise_loop_and_a_cross_loop_under_longer_side():
     _pick(op, obj, (13, 14), align=True)                     # a cross edge of column 3: the line across the band
     assert _spread(obj, across, 0) < 1e-6 and _spread(obj, middle, 1) < 1e-6
     assert [axis for axis, _e in _parse_lines(op)[obj.name]] == ["ALONG", "ACROSS"]
-    assert _hover_on(op, obj, (12, 13), alt=True)[3]          # an edge of a picked line: a click takes it back
+    assert _hover_on(op, obj, (12, 13), single=True)[3]          # an edge of a picked line: a click takes it back
     _pick(op, obj, (12, 13), align=True)                     # clicked again: the line is free again
     assert [axis for axis, _e in _parse_lines(op)[obj.name]] == ["ALONG"] and _spread(obj, across, 0) > 1e-4
     _pick(op, obj, (9, 13), align=True)
@@ -3567,7 +3668,7 @@ def test_alt_lmb_in_v_straightens_one_edge():
     obj, rows = _arc_band()
     op = _modal_on(obj, mode="FIT", straight_sides="LONGER")
     assert _spread(obj, {5, 9}, 1) > 1e-4
-    index = _pick(op, obj, (5, 9), align=True, alt=True)     # an edge along the band: laid horizontal
+    index = _pick(op, obj, (5, 9), align=True, single=True)     # an edge along the band: laid horizontal
     assert _parse_lines(op) == {obj.name: [("ALONG", [index])]} and _spread(obj, {5, 9}, 1) < 1e-6
     assert _spread(obj, {i * rows + 1 for i in range(13)}, 1) > 1e-4    # the rest of its line stays free
     op._finish(bpy.context)
@@ -3579,7 +3680,7 @@ def test_a_hover_that_would_change_nothing_is_not_drawn():
     op = _modal_on(obj, mode="FIT")                          # Both on a flat patch: every line straight already
     op._modal(bpy.context, _KeyPress("V"))
     for pair in ((6, 7), (7, 12), (0, 1), (0, 5)):
-        assert _hover_on(op, obj, pair) is None and _hover_on(op, obj, pair, alt=True) is None, pair
+        assert _hover_on(op, obj, pair) is None and _hover_on(op, obj, pair, single=True) is None, pair
         _pick(op, obj, pair, align=True)
         assert op.straight_lines == "", pair
     op._finish(bpy.context)
@@ -3622,7 +3723,6 @@ def test_picks_survive_the_redo_and_confirm_equals_execute():
             _pick(op, obj, (5, 9), align=True)
             _pick(op, obj, (13, 14), align=True)
             _pick(op, obj, (25, 26))                             # and a cut across the band at column 6
-            assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and not op._picking
             assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}, op.reports
             return _uv_state(obj), _edges(op.straight_lines), _edges(op.island_cuts)      # kept for redo
         named = [json.dumps({obj.name: picks}, sort_keys=True) for picks in (lines, cuts)]   # this object's name
@@ -3664,23 +3764,23 @@ def test_one_lmb_straightens_a_line_through_triangles_and_ngons():
     op._finish(bpy.context)
 
 
-def test_c_offers_only_full_cuts_that_lay_out():
+def test_lmb_offers_only_full_cuts_that_lay_out():
     obj = _mixed_band(sweep=90.0)                            # with a triangle fan on a rail near the end
     op = _modal_on(obj, mode="FIT")
-    op._modal(bpy.context, _KeyPress("C"))
     offered = {}
     for index in range(len(obj.data.edges)):
         target = op._pick_target(obj.name, index)
         if target is not None:
             offered.setdefault(tuple(sorted(target[0])), index)
-    assert offered and all(len(loop) == 3 for loop in offered), offered     # side to side, never truncated
+    assert any(len(loop) == 3 for loop in offered), offered                # across: side to side
+    assert any(len(loop) > 3 for loop in offered), offered                 # and along the strip, end to end
     bm = bmesh.from_edit_mesh(obj.data)
     bm.edges.ensure_lookup_table()
     pairs = {loop: tuple(sorted(v.index for v in bm.edges[index].verts)) for loop, index in offered.items()}
     for loop, pair in pairs.items():
         _pick(op, obj, pair)
         assert op._result.done == 2 and not op._result.help, (loop, op._result.first_reason)
-        assert len(op._result.cut_lines) == 6 and "into 2 strips" in op._result.split[0], loop
+        assert len(op._result.cut_lines) == 2 * len(loop) and "into 2 strips" in op._result.split[0], loop
         _pick(op, obj, pair)
         assert op.island_cuts == "", loop
     op._finish(bpy.context)
@@ -3781,7 +3881,266 @@ def _parse_lines(op):
     return {name: [(axis, edges) for axis, edges, _face in lines] for name, lines in parse(op.straight_lines).items()}
 
 
+# --- cuts add up on every piece kind; what a click changes is shown before it ----------------------------------
+
+def _cut_state(op):
+    return {prop: _edges(getattr(op, prop)) for prop in ("manual_cuts", "island_cuts", "cup_breaks")
+            if getattr(op, prop)}
+
+
+def _points(points):
+    return {tuple(round(c, 6) for c in p) for p in points}
+
+
+def _cut_edges(op):
+    return {i for listed in _cut_state(op).values() for indices in listed.values() for i in indices}
+
+
+def test_lmb_cuts_add_up_on_every_piece_kind_and_a_click_takes_back_one():
+    def grid(nx, ny):
+        def build():
+            obj = _grid(nx, ny)
+            _edit(obj)
+            return obj
+        return build
+
+    def ring():
+        obj = _annulus()
+        _edit(obj)
+        return obj
+
+    def wide_l():
+        return _wide_l(cols=8)[0]
+
+    def tee():
+        obj = _grid(3, 2, keep={(0, 0), (1, 0), (2, 0), (1, 1)})
+        _edit(obj)
+        return obj
+
+    # (piece kind, builder, the loops cut one after the other, islands after each, the loop clicked again (on
+    # another edge of it where it has more), islands after it); a closed ring's first cut opens it (one island),
+    # every further cut adds an island
+    cases = [
+        ("open strip one face wide", grid(6, 1), [(2, 9), (3, 10), (4, 11)], [2, 3, 4], (3, 10), 3),
+        ("open strip several faces wide", grid(8, 3), [(2, 11), (4, 13), (6, 15)], [2, 3, 4], (13, 22), 3),
+        ("closed ring one face wide", ring, [(3, 11), (5, 13), (7, 15)], [1, 2, 3], (5, 13), 2),
+        ("closed band several faces wide", _wide_band, [(5, 29), (11, 35), (17, 41)], [1, 2, 3], (35, 59), 2),
+        ("wide arc", wide_l, [(2, 11), (4, 13), (6, 15)], [2, 3, 4], (4, 13), 3),
+        ("island cut at its junction", tee, [(1, 5), (2, 6)], [3, 4], (1, 5), 3),
+    ]
+    for kind, build, loops, counts, again, after in cases:
+        obj = build()
+        op = _modal_on(obj, mode="FIT")
+        for pair, count in zip(loops, counts):
+            assert not _hover_on(op, obj, pair)[3], (kind, pair)            # a new cut, not a take-back
+            before = _cut_edges(op)
+            _click(op, obj, pair)
+            assert _uv_islands(obj) == count and before < _cut_edges(op), (kind, pair, _cut_state(op))
+        made = _cut_edges(op)
+        assert all(_hover_on(op, obj, pair)[3] for pair in loops), kind      # every cut: a click takes it back
+        taken = _points(_hover_on(op, obj, again)[2])
+        _click(op, obj, again)
+        assert _uv_islands(obj) == after and _cut_edges(op) < made, (kind, _cut_state(op))
+        for pair in loops:                                                  # the others stay cut
+            hover = _hover_on(op, obj, pair)
+            assert hover[3] != (_points(hover[2]) == taken), (kind, pair)
+        op._finish(bpy.context)
+
+
+def test_near_an_edge_lmb_cuts_away_from_it_selects_and_the_hover_shows_what_it_acts_on():
+    from InteractionOps.ui.draw import Role
+    obj = _taper_strip()
+    op = _modal_on(obj, mode="FIT")
+    cross = min(op._result.cross[obj.name])
+    op._face_under = lambda _context, _event: (obj, 0)
+    op._hover_break = lambda _context, _event: None                         # away from the edges: the piece
+    move = _KeyPress("MOUSEMOVE")
+    move.value = "NOTHING"
+    op._modal(bpy.context, move)
+    assert op._face_hover == (obj, 0) and op._hover is None and op._face_outline
+    kinds = [(role, kind) for _points, role, kind in op._view_layers() if kind != "line"]
+    assert kinds == [(Role.ACTIVE_LINE, "piece")], kinds
+    laid = _uv_state(obj)
+    op._modal(bpy.context, _KeyPress("LEFTMOUSE"))                          # selected, nothing cut
+    assert op._selected_pieces() and op.manual_cuts == "" and op.island_cuts == "" and _uv_state(obj) == laid
+    kinds = [(role, kind) for _points, role, kind in op._view_layers() if kind != "line"]
+    assert kinds == [(Role.ACTIVE_LINE, "selected"), (Role.ACTIVE_LINE, "piece")], kinds
+    op._hover_break = lambda _context, _event: (obj, cross)                 # near an edge: the cut under it
+    op._modal(bpy.context, move)
+    assert op._face_hover is None and op._hover is not None and op._hover_outline
+    kinds = [(role, kind) for _points, role, kind in op._view_layers() if kind != "line"]
+    assert kinds == [(Role.ACTIVE_LINE, "selected"), (Role.ACTIVE_LINE, "piece"), (Role.PREVIEW_LINE, "hover")]
+    op._modal(bpy.context, _KeyPress("LEFTMOUSE", shift=True))              # Shift never cuts: it toggles
+    assert op.manual_cuts == "" and op._selected_pieces() == []
+    op._modal(bpy.context, _KeyPress("LEFTMOUSE"))
+    assert op.manual_cuts != ""
+    op._modal(bpy.context, move)
+    kinds = [(role, kind) for _points, role, kind in op._view_layers() if kind != "line"]
+    assert kinds[-1] == (Role.LOCKED_LINE, "hover"), kinds                  # a click there takes the cut back
+    op._hover_break = lambda _context, _event: None                         # over nothing: no highlight at all
+    op._face_under = lambda _context, _event: None
+    op._modal(bpy.context, move)
+    assert [kind for _p, _r, kind in op._view_layers() if kind != "line"] == []
+    op._finish(bpy.context)
+
+
+def test_the_lines_are_drawn_in_the_colours_of_what_they_are():
+    from InteractionOps.ui.draw import Role
+    obj, _rows = _arc_band()
+    op = _modal_on(obj, mode="FIT", straight_sides="LONGER")
+    _pick(op, obj, (21, 25), align=True)                                    # a line straightened
+    _click(op, obj, (25, 26))                                               # and a cut
+    roles = {}
+    for points, role, kind in op._view_layers():
+        roles.setdefault(role, []).append((kind, len(points)))
+    assert op._result.straight_lines and ("line", len(op._result.straight_lines)) in roles[Role.ERROR_LINE]
+    assert op._result.cut_lines and ("line", len(op._result.cut_lines)) in roles[Role.PREVIEW_LINE]
+    assert ("line", len(op._result.tears)) in roles[Role.PREVIEW_LINE]       # the tears are cuts too
+    op._modal(bpy.context, _KeyPress("V"))
+    hover = _hover_on(op, obj, (9, 10))                                     # a line across to straighten
+    assert hover is not None and hover[4] is not None
+    assert [role for _p, role, kind in op._view_layers() if kind == "hover"] == [Role.ERROR_LINE]
+    op._finish(bpy.context)
+
+
+def test_a_line_the_layout_cannot_keep_is_refused_with_a_warning():
+    from InteractionOps.operators.mesh_uv_stripe import REFUSED_LINE
+    obj, _rows = _arc_band()
+    op = _modal_on(obj, mode="FIT", straight_sides="LONGER")
+    op._line_kept = lambda *_args: False                                    # stands in for a fold or a squash
+    _pick(op, obj, (21, 25), align=True)
+    assert op.straight_lines == "" and REFUSED_LINE in op.reports, op.reports
+    assert _hover_on(op, obj, (21, 25)) is None                             # not offered again
+    op._finish(bpy.context)
+
+
+def test_the_view_draws_the_hover_wide_and_the_selection_opaque():
+    # no GPU in the background: the primitives are stood in for, everything up to them runs as in the viewport
+    from types import SimpleNamespace
+
+    from InteractionOps.operators import mesh_uv_stripe as module
+    from InteractionOps.ui.draw import Role, get_theme
+    obj = _grid(4, 1)
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    _hover_on(op, obj, (2, 7))
+    calls = []
+
+    def edges_world(points, role=None, color=None, width=None, theme=None, context=None):
+        th = theme if theme is not None else get_theme(context)
+        calls.append((role, color, th.width(width) if width else th.line_width_for(role)))
+
+    real = module.draw
+    module.draw = SimpleNamespace(edges_world=edges_world, points_world=lambda *_a, **_k: None)
+    try:
+        op._draw_view_callback(bpy.context)
+    finally:
+        module.draw = real
+    theme = get_theme(bpy.context)
+    hover = calls[-1]
+    assert hover[0] is None and hover[1][:3] == theme.color_for(Role.PREVIEW_LINE)[:3] and hover[1][3] >= 0.9
+    assert hover[2] == theme.line_width_for(Role.PREVIEW_LINE)             # the theme's own width, not widened
+    piece = calls[-2]
+    assert piece[1][:3] == theme.color_for(Role.ACTIVE_LINE)[:3] and piece[1][3] >= 0.9
+    assert piece[2] == theme.width("default")
+    assert max(width for _role, _c, width in calls) <= max(theme.line_widths.values())    # nothing widened
+    op._finish(bpy.context)
+
+
+def _fan_band():
+    """``uv_stripe_fixtures.fan_band`` (three rows round an arc, the outer one a fan of quads and triangles with one
+    pentagon) as an object in Edit Mode, every face selected; returns it and its edges across the strip at every
+    inner column (from the inner rail out) as vertex-id pairs."""
+    from uv_stripe_fixtures import fan_band
+    verts, faces = fan_band()
+    obj = _object([verts[i] for i in range(len(verts))], [faces[k] for k in sorted(faces)])
+    _edit(obj)
+    n = 8
+    across = {i: [(i, 9 + i), (9 + i, 18 + i), (18 + i, 27 + 2 * i)] for i in range(1, n)}
+    return obj, across
+
+
+def test_a_cut_loop_runs_through_triangles_and_ngons_from_rail_to_rail():
+    obj, across = _fan_band()
+    op = _modal_on(obj, mode="FIT")
+    offered, missing = 0, []
+    for i, pairs in across.items():
+        loop = {_edge_index(obj, p) for p in pairs}
+        for pair in pairs:
+            hover = _hover_on(op, obj, pair)
+            if hover is not None and op._pick_target(obj.name, hover[1])[0] and \
+                    set(op._pick_target(obj.name, hover[1])[0]) == loop:
+                offered += 1
+            else:
+                missing.append(pair)
+    print(f"  fan band: {offered} of {offered + len(missing)} edges across offer the rail-to-rail loop")
+    assert not missing, missing                                            # every edge across, also by the fan
+    for pair in ((10, 11), (19, 20)):                                      # lengthwise: a loop along the strip
+        hover = _hover_on(op, obj, pair)
+        assert hover is not None and len(hover[2]) == 2 * 8, (pair, hover and len(hover[2]))
+    assert _hover_on(op, obj, (31, 32)) is None                            # a rail edge is no cut
+    _click(op, obj, across[2][2])                                          # cut on its fan edge
+    _click(op, obj, across[6][0])                                          # cut on its inner-rail edge
+    assert _uv_islands(obj) == 3 and op._result.done == 3, (op._result.done, op._result.split)
+    assert set(_edges(op.island_cuts)[obj.name]) == {_edge_index(obj, p) for p in across[2] + across[6]}
+    assert all(_torn_at(op, obj, p) for p in across[2] + across[6])
+    assert all(_hover_on(op, obj, p)[3] for p in across[2])                # any edge of a cut takes it back
+    _click(op, obj, across[2][1])                                          # the whole cut, the other stays
+    assert _uv_islands(obj) == 2 and set(_edges(op.island_cuts)[obj.name]) == {_edge_index(obj, p)
+                                                                              for p in across[6]}
+    op._finish(bpy.context)
+
+
+
+def test_a_cut_made_after_a_piece_shape_keeps_it_on_the_pieces_holding_its_faces():
+    obj = _grid(6, 2)
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    _select(op, obj, 0)
+    for _ in range(3):
+        op._modal(bpy.context, _KeyPress("Q"))                              # None for this piece: unfolded
+    assert op._result.unfolded == 1 and op._shape_text("SIDES") == "None · 1 selected"
+    _click(op, obj, (3, 10))                                                # a cut across: two pieces
+    assert op._result.done == 2 and op._result.unfolded == 2               # both hold faces the shape was set on
+    assert op.straight_sides == "BOTH" and op._shape_text("SIDES") == "None · 1 selected"
+    op._finish(bpy.context)
+
+
+def test_confirm_after_piece_shapes_equals_execute():
+    def made(confirm, kept=""):
+        obj = _two_tapers()
+        if confirm:
+            op = _modal_on(obj, mode="FIT")
+            _select(op, obj, 0)
+            op._modal(bpy.context, _KeyPress("Q"))
+            op._modal(bpy.context, _KeyPress("W"))
+            assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+            return _uv_state(obj), op.piece_shapes
+        stand = _OperatorStandIn(mode="FIT", piece_shapes=_rename(kept, obj.name))
+        assert stand.execute(bpy.context) == {"FINISHED"}
+        return _uv_state(obj), stand.piece_shapes
+
+    confirmed, kept = made(True)
+    executed, _given = made(False, kept)
+    assert confirmed == executed
+
+
+def _rename(text, name):
+    """``piece_shapes`` (JSON) with its one object's entry under ``name``."""
+    import json
+    data = json.loads(text)
+    return json.dumps({name: next(iter(data.values()))})
+
+
 TESTS = [
+    test_a_cut_made_after_a_piece_shape_keeps_it_on_the_pieces_holding_its_faces,
+    test_confirm_after_piece_shapes_equals_execute,
+    test_a_cut_loop_runs_through_triangles_and_ngons_from_rail_to_rail,
+    test_the_view_draws_the_hover_wide_and_the_selection_opaque,
+    test_lmb_cuts_add_up_on_every_piece_kind_and_a_click_takes_back_one,
+    test_near_an_edge_lmb_cuts_away_from_it_selects_and_the_hover_shows_what_it_acts_on,
+    test_the_lines_are_drawn_in_the_colours_of_what_they_are,
+    test_a_line_the_layout_cannot_keep_is_refused_with_a_warning,
     test_fit_straight_strip,
     test_in_place_keeps_centre_and_density,
     test_in_place_on_a_scaled_object_keeps_density,
@@ -3827,6 +4186,7 @@ TESTS = [
     test_true_shape_follows_a_tapering_strip,
     test_active_fits_the_other_strip_onto_the_reference,
     test_active_follows_the_orientation,
+    test_fit_to_active_height_is_across_the_strip_and_width_along_it_in_both_orientations,
     test_active_puts_the_other_pieces_of_a_torn_strip_on_the_active_piece,
     test_active_without_an_active_face_lays_out_in_place_and_says_so,
     test_random_offset_moves_the_other_strip_along_u_only,
@@ -3837,13 +4197,13 @@ TESTS = [
     test_cup_break_with_a_triangle_follows_the_ends,
     test_cup_break_on_an_open_strip_is_ignored,
     test_cup_break_is_taken_before_doubles_are_merged,
-    test_c_enters_and_leaves_picking,
-    test_set_break_relays_out_and_keeps_picking,
-    test_lmb_in_picking_sets_the_hovered_break,
+    test_lmb_cuts_in_the_normal_state_with_no_pick_mode,
+    test_set_break_relays_out,
+    test_lmb_sets_the_hovered_break,
     test_second_break_on_the_same_ring_replaces_the_first,
     test_breaks_on_two_rings_are_both_kept,
     test_break_survives_option_changes,
-    test_r_changes_seed_and_c_does_not,
+    test_r_changes_seed_and_c_does_nothing,
     test_cancel_after_break_restores_uvs_and_seams,
     test_confirm_after_break_equals_execute,
     test_cup_breaks_is_no_shared_setting,
@@ -3866,27 +4226,27 @@ TESTS = [
     test_the_stepped_strip_with_the_users_defaults,
     test_g_cycles_the_align_values,
     test_v_and_lmb_store_the_align_edge_and_keep_picking,
-    test_the_two_pick_modes_are_exclusive,
+    test_v_picking_takes_lmb_and_esc_rmb_or_v_leave_it,
     test_cancel_restores_align_and_its_edges,
     test_confirm_after_align_picks_equals_execute,
     test_align_row_shows_only_where_a_piece_is_unfolded_at_its_real_shape,
     test_other_layouts_do_not_depend_on_align,
     test_align_is_no_shared_setting,
-    test_click_on_a_long_side_makes_it_free_and_the_layout_follows,
-    test_clicking_an_end_of_a_one_face_wide_strip_stands_it_upright,
-    test_side_picks_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults,
-    test_lmb_off_a_side_changes_nothing_and_only_enter_confirms,
-    test_e_and_a_keep_the_clicked_sides,
-    test_esc_after_clicks_restores_the_side_picks_and_the_uvs,
+    test_q_and_w_on_a_selected_piece_change_only_that_piece,
+    test_w_on_a_selected_one_face_wide_strip_stands_its_ends_upright,
+    test_piece_shapes_are_kept_for_redo_and_a_fresh_run_starts_from_the_defaults,
+    test_lmb_over_nothing_changes_nothing_and_only_enter_confirms,
+    test_e_and_a_keep_the_piece_shapes,
+    test_esc_restores_the_piece_shapes_and_the_uvs,
     test_hud_rows_follow_the_state,
-    test_the_pick_modes_show_their_line_in_the_hud_header,
+    test_v_picking_shows_its_line_in_the_hud_header,
     test_help_starts_collapsed,
     test_shape_settings_are_shared_and_side_picks_are_not,
     test_every_shape_combination_finishes_on_the_bent_ngons_and_a_wide_patch,
     test_old_last_used_values_of_the_removed_properties_are_ignored,
-    test_double_click_on_a_side_toggles_it_like_a_press,
+    test_double_click_selects_and_cuts_like_a_press,
     test_a_rectangular_frame_is_four_islands_of_one_face,
-    test_hover_side_prefers_the_piece_under_the_cursor_and_skips_hidden_edges,
+    test_lmb_cuts_only_within_the_pick_distance_of_an_edge,
     test_the_wheel_changes_balance_and_stretch_limit_in_every_state,
     test_the_plain_wheel_zooms_the_view_in_every_state,
     test_the_wheel_clamps_balance_between_zero_and_one,
@@ -3908,14 +4268,14 @@ TESTS = [
     test_a_cross_cut_near_an_end_keeps_the_short_part_along_the_strip,
     test_a_disc_of_a_ring_of_quads_round_an_ngon_is_refused,
     test_lmb_cuts_a_cross_loop_of_a_wide_strip_and_a_second_click_mends_it,
-    test_alt_lmb_cuts_one_edge_as_before,
+    test_ctrl_lmb_cuts_one_edge,
     test_v_straightens_a_lengthwise_loop_and_a_cross_loop_under_longer_side,
     test_alt_lmb_in_v_straightens_one_edge,
     test_a_hover_that_would_change_nothing_is_not_drawn,
     test_v_straightens_the_middle_line_of_a_band_with_one_straight_rail,
     test_picks_survive_the_redo_and_confirm_equals_execute,
     test_one_lmb_straightens_a_line_through_triangles_and_ngons,
-    test_c_offers_only_full_cuts_that_lay_out,
+    test_lmb_offers_only_full_cuts_that_lay_out,
     test_a_v_pick_never_loosens_the_rails,
     test_a_pick_the_layout_cannot_keep_is_not_offered_nor_stored,
     test_removing_the_last_align_line_under_none_restores_align,
@@ -3924,7 +4284,7 @@ TESTS = [
     test_a_wide_closed_band_is_cut_open_and_laid_out_as_one_strip,
     test_a_wide_closed_band_is_cut_along_a_seam_line_across_it,
     test_a_wide_closed_band_is_cut_at_its_picked_break,
-    test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break,
+    test_lmb_on_a_wide_closed_band_adds_breaks_and_takes_back_one,
     test_confirm_after_a_wide_band_break_equals_execute,
     test_a_picked_break_on_a_wide_band_wins_over_a_seam_line_across_it,
     test_auto_tears_a_wide_l_at_its_mitre_when_it_cannot_be_straight_within_the_limit,

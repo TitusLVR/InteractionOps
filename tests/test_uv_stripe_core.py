@@ -309,3 +309,10 @@ def test_stack_shifts_centre_every_box_on_one_point():
 
 def test_stack_shifts_empty():
     assert stack_shifts([]) == []
+
+
+def test_fit_axis_follows_the_orientation():
+    from utils.uv_stripe_core import fit_axis
+    # Height is across the strip, Width along it: V and U of a horizontal strip, U and V of a vertical one
+    assert [fit_axis(mode, False) for mode in ("BOTH", "WIDTH", "HEIGHT")] == ["BOTH", "WIDTH", "HEIGHT"]
+    assert [fit_axis(mode, True) for mode in ("BOTH", "WIDTH", "HEIGHT")] == ["BOTH", "HEIGHT", "WIDTH"]

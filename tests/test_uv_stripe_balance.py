@@ -760,17 +760,18 @@ def test_upright_where_cheap_keeps_the_slant_of_a_strip_one_face_wide():
     assert stripe_uvs(a) == stripe_uvs(b)
 
 
-def test_both_rails_stay_straight_unless_relaxing_one_gains_more_than_the_margin():
+def test_both_rails_stay_straight_while_within_the_limit_and_one_is_freed_beyond_it():
     from utils.uv_stripe_auto_core import RELAX_MARGIN, Shape, choice_rails, lay_shaped
     verts, faces, _rows = _band()
-    strip = strip_from_faces(verts, faces)
-    both = lay_shaped(strip, "BOTH", "SLANTED")
-    assert choice_rails(both) == "BOTH"
-    worst_both = max(_stretch(strip, stripe_uvs(strip)))
+    worst_both = max(measure(strip_from_faces(verts, faces), choose_layout(
+        strip_from_faces(verts, faces), Shape(True, True), relax=False))[0])
     one = strip_from_faces(verts, faces)
-    choose = choose_layout(one, Shape(True, False), relax=False)
-    worst_one = max(measure(one, choose)[0])
-    assert worst_both > 1.25 and worst_both - worst_one < RELAX_MARGIN, (worst_both, worst_one)
+    worst_one = max(measure(one, choose_layout(one, Shape(True, False), relax=False))[0])
+    assert worst_one < 1.25 < worst_both < worst_one + RELAX_MARGIN, (worst_both, worst_one)
+    # just beyond the limit: the longer rail alone, which is within it, is taken however little it gains
+    assert choice_rails(lay_shaped(strip_from_faces(verts, faces), "BOTH", "SLANTED", limit=1.25)) == "NEAR"
+    # within the limit: both rails stand
+    assert choice_rails(lay_shaped(strip_from_faces(verts, faces), "BOTH", "SLANTED", limit=worst_both)) == "BOTH"
 
 
 def test_a_trim_strip_stands_its_end_lines_upright_keeps_its_chamfer_and_its_notch():
@@ -803,9 +804,9 @@ def _sheared_grid(shear=0.0, taper=0.0, cols=8, rows=2):
     return verts, faces
 
 
-def test_upright_where_cheap_always_weighs_the_upright_ends_against_free_ones():
-    from utils.uv_stripe_auto_core import lay_shaped
-    for kwargs, upright in (({"shear": 0.02}, True), ({"shear": 0.05}, False), ({"shear": 0.2}, False),
+def test_upright_where_cheap_stands_the_ends_upright_while_they_stay_within_the_stretch_limit():
+    from utils.uv_stripe_auto_core import DEFAULT_STRETCH_LIMIT, lay_shaped
+    for kwargs, upright in (({"shear": 0.02}, True), ({"shear": 0.05}, True), ({"shear": 0.2}, True),
                             ({"taper": 0.4}, False)):
         verts, faces = _sheared_grid(**kwargs)
         strip = strip_from_faces(verts, faces)
@@ -813,4 +814,19 @@ def test_upright_where_cheap_always_weighs_the_upright_ends_against_free_ones():
         worst = max(_stretch(strip, stripe_uvs(strip)))
         stood = choice[0] in ("STRAIGHT", "EVEN") or choice[2] == "BOTH"
         assert stood == upright, (kwargs, choice, worst)
-        assert worst <= 1.0 + 0.05 + 1e-6, (kwargs, worst)          # never more than the margin over free ends
+        assert worst <= DEFAULT_STRETCH_LIMIT + 1e-6, (kwargs, worst)          # never beyond the limit
+
+
+def test_a_wide_strip_keeps_its_strict_shape_while_it_stays_within_the_stretch_limit():
+    from utils.uv_stripe_auto_core import RELAX_MARGIN, lay_shaped
+    verts, faces = _sheared_grid(shear=0.2)
+    strict = max(measure(strip_from_faces(verts, faces), ("STRAIGHT", "BOTH", "BOTH"))[0])
+    free = max(measure(strip_from_faces(verts, faces), ("TRUE", "BOTH", "FREE"))[0])
+    assert strict - free > RELAX_MARGIN and strict < 1.25, (strict, free)     # free ends gain more than the margin
+    within = strip_from_faces(verts, faces)
+    choice = lay_shaped(within, "BOTH", "AUTO", limit=1.25)
+    assert choice[0] in ("STRAIGHT", "EVEN") or choice[2] == "BOTH", choice   # upright: within the limit, it stands
+    assert abs(max(_stretch(within, stripe_uvs(within))) - strict) < 1e-6
+    beyond = strip_from_faces(verts, faces)
+    choice = lay_shaped(beyond, "BOTH", "AUTO", limit=strict - 0.01)
+    assert choice[2] == "FREE" and choice[0] in ("TRUE", "BALANCED"), choice  # beyond the limit: the free ends

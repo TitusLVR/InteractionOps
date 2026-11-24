@@ -15,25 +15,30 @@ Invoked (a key, a menu, a pie) the operator starts its interactive mode with the
 ``execute`` (the redo panel, scripts) lays the strips out at once with the options it holds. In the
 interactive mode every option has a key, and every change restores
 the UVs and seams the selected faces had and lays them out again, so the UV editor
-follows live; the viewport shows the four sides of every piece, straight or free,
-and LMB on a side toggles that side of that piece (``side_picks``). Enter / Space
-keep the result (one undo step), Esc / RMB put the snapshot back. C picks cuts: LMB
-the loop across the strip through the edge under the cursor (on a strip several faces
-wide the island is torn along it, ``island_cuts``), Alt + LMB that one edge. On a
-strip one face wide the loop is the cross edge itself: on a closed ring with no break
-yet the click breaks it there (``cup_breaks``), and the ring is then laid out as one
-open strip from there; elsewhere the click removes that break, marks or unmarks a cut
-by hand (``manual_cuts``) or skips or restores one of Auto's tears (``skipped_cuts``). LMB on an
-automatic junction cut or on Auto's tear of a strip several faces wide (``_tear_wide``) takes it back the
-same way, and restores it.
+follows live; the viewport shows the four sides of every piece, straight or free.
+LMB on a face selects its piece (Shift + LMB adds or removes one); Q and W then set
+Straight Sides and Ends for the selected pieces alone (``piece_shapes``), and with
+nothing selected for every piece. Enter / Space keep the result (one undo step), Esc /
+RMB put the snapshot back. LMB near an edge cuts the loop across the strip through it, or mends the
+cut it lies on; Ctrl + LMB that one edge. Cuts add up: every click on a loop not cut
+yet adds a cut, a click on a cut takes back exactly that one. On a strip several faces
+wide the island is torn along the loop (``island_cuts``). On a strip one face wide the
+loop is the cross edge itself: on a closed ring with no break yet the click breaks it
+there (``cup_breaks``), and the ring is then laid out as one open strip from there;
+elsewhere the click removes that break, marks or unmarks a cut by hand
+(``manual_cuts``) or skips or restores one of Auto's tears (``skipped_cuts``). On a
+closed band several faces wide every cut is a break of the band: the first opens it,
+every further one cuts it again. LMB on an automatic junction cut or on Auto's tear of
+a strip several faces wide (``_tear_wide``) takes it back the same way, and restores it.
 V picks lines to straighten (``straight_lines``): LMB the loop through the edge under
 the cursor, Alt + LMB that one edge; a line running along the strip is laid on one
 horizontal line in UV, one across it on one vertical line, under every Straight Sides
 and through every shape Stretch Limit relaxes a piece to. Under Straight Sides None
 the clicked edge is also the edge its piece is aligned to (``align_edges``); G cycles
 what the pieces unfolded at their real shape are aligned to (``shape_align``). The
-cuts and the straightened lines are drawn while the operator runs; while picking, the
-loop or edge a click would change is drawn before the click.
+cuts and the straightened lines are drawn while the operator runs; the loop, edge or
+side a click would change is drawn before the click, with the outline of the piece it
+changes.
 
 The plain wheel zooms the view. Ctrl + Wheel drives Balance in every state (Ctrl +
 Shift: fine; B jumps 0 / 0.5 / 1): a step lays out at once on a warm, capped solve
@@ -43,7 +48,7 @@ An island no rule reads as one strip is cut automatically at its junctions and
 slits (``uv_stripe_split_core``), every part its own strip; when that
 fails but picked corners or a cut could help, the island waits: the interactive
 mode draws its boundary and corner candidates and asks for four corners (LMB near
-a boundary vertex, ``corner_picks``) or a cut (C on an inner edge, ``island_cuts``).
+a boundary vertex, ``corner_picks``) or a cut (LMB on an inner edge, ``island_cuts``).
 Alt + LMB picks an island's seed face (``seed_faces``: its start, its main run at a
 branch), Shift + Alt + LMB its guide faces (``guide_faces``).
 """
@@ -60,12 +65,14 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from bpy_extras import view3d_utils
 from mathutils import Vector
 
-from ..ui.draw import Role, safe_handler_add, safe_handler_remove
+from ..ui.draw import Role, get_theme, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
+from ..ui.draw.theme import state_from_role
 from ..ui.hud import HUDOverlay, HUDParam, MoreOptions, build_help, capture_event, more_options_property
 from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..utils import (
-    picking, uv_stripe_auto_core, uv_stripe_balance_core, uv_stripe_core, uv_stripe_select_core, uv_stripe_split_core,
+    picking, uv_pipe_core, uv_stripe_auto_core, uv_stripe_balance_core, uv_stripe_core, uv_stripe_select_core,
+    uv_stripe_split_core,
 )
 from . import uv_stripe_bridge
 
@@ -80,7 +87,7 @@ STRETCH_WHEEL_MIN = 1.05     # Alt + Wheel stops here: at 1.0 every piece would 
 REFINE_IDLE = 0.15           # s the wheel must be still before the cold solve runs
 REFINE_SLICE = 0.03          # s of cold solve per timer event
 CORNER_PICK_RADIUS = 30.0    # px (times the interface scale): how near a boundary vertex the cursor must be
-SIDE_PICK_RADIUS = 30.0     # px (times the interface scale): how near a side the cursor must be to pick it
+EDGE_PICK_RADIUS = 30.0     # px (times the interface scale): how near an edge the cursor must be for LMB to cut
 MODE_CYCLE = ["FIT", "IN_PLACE", "ACTIVE", "STACK"]
 MODE_NAMES = {"FIT": "Fit 0–1", "IN_PLACE": "In Place", "ACTIVE": "Active", "STACK": "Stack"}
 FIT_CYCLE = [item[0] for item in uv_stripe_bridge.ACTIVE_FIT_ITEMS]
@@ -99,6 +106,12 @@ ALIGN_ITEMS = [
 ]
 ALIGN_CYCLE = [item[0] for item in ALIGN_ITEMS]
 ALIGN_NAMES = {item[0]: item[1] for item in ALIGN_ITEMS}
+# The cut loop under the cursor is traced as UV Pipe traces its loops (``uv_pipe_core.trace_loop``): on at every
+# vertex by the straightest edge while the turn keeps an angle of at least this between the edges, UV Pipe's
+# default Loop Angle (``mesh_uv_pipe`` ``loop_angle``). UV Stripe has no option for it.
+LOOP_ANGLE = math.radians(120.0)
+VIVID_ALPHA = 0.9     # the least alpha a selection or hover line is drawn with (``_vivid``)
+REFUSED_LINE = "UV Stripe: this line cannot be laid straight here (a face would fold or squash flat)"
 PASS_KEYS = {"N", "T"}   # the sidebar and the toolbar still toggle while the modal runs
 NAVIGATION = {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE", "TRACKPADPAN", "TRACKPADZOOM"}
 
@@ -299,6 +312,44 @@ def _dump_sides(data):
     return json.dumps(data, sort_keys=True) if data else ""
 
 
+SHAPE_KINDS = {"SIDES": ("straight_sides", uv_stripe_auto_core.STRAIGHT_SIDES),
+               "ENDS": ("ends", uv_stripe_auto_core.END_CHOICES)}
+
+
+def _parse_shapes(text):
+    """``piece_shapes`` as {object name: [(kind, value, [face index, ...]), ...]} in order; an entry that is
+    malformed, of an unknown kind or value, reads as none."""
+    try:
+        data = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for name, entries in data.items():
+        if not isinstance(entries, list):
+            continue
+        kept = []
+        for entry in entries:
+            if not (isinstance(entry, list) and len(entry) == 3 and entry[0] in SHAPE_KINDS
+                    and entry[1] in SHAPE_KINDS[entry[0]][1] and isinstance(entry[2], list)):
+                continue
+            faces = [f for f in entry[2] if isinstance(f, int) and not isinstance(f, bool)]
+            if faces:
+                kept.append((entry[0], entry[1], faces))
+        if kept:
+            out[name] = kept
+    return out
+
+
+def _dump_shapes(data):
+    """{object name: [(kind, value, [face index, ...]), ...]} as the JSON ``piece_shapes`` holds; "" for none."""
+    data = {name: [[kind, value, sorted(faces)] for kind, value, faces in entries if faces]
+            for name, entries in data.items()}
+    data = {name: entries for name, entries in data.items() if entries}
+    return json.dumps(data, sort_keys=True) if data else ""
+
+
 @dataclass
 class _Result:
     """What one layout pass did, over every object in Edit Mode."""
@@ -320,7 +371,7 @@ class _Result:
     # per object name: {edge index: ring number} for every cross edge of a selected closed ring (a break pick)
     rings: dict = field(default_factory=dict)
     # per object name: {edge index: the edge indices of its cross path} for every cross path of a selected closed
-    # band several faces wide, the lines its break can be picked on (C)
+    # band several faces wide, the lines its breaks can be picked on (LMB)
     band_paths: dict = field(default_factory=dict)
     # per object name: {edge index: the edge indices of its cross path} for every automatic tear of a wide strip
     # and every automatic junction cut made (``auto_tears``) or taken back by hand (``auto_skipped``)
@@ -358,7 +409,7 @@ class _Result:
     seed_lines: list = field(default_factory=list)      # world-space outline segments of the seed faces
     guide_points: list = field(default_factory=list)
     guide_lines: list = field(default_factory=list)
-    # The loop picks (C and V). ``pick_pieces``: per object name {edge index: its open piece's record,
+    # The loop picks (LMB cuts, V straightens). ``pick_pieces``: per object name {edge index: its open piece's record,
     # ``_collect_picks``}; ``cut_loops``: per object name {edge index: the edge indices of the cut made by hand it
     # lies on, mended by LMB there}; ``help_edges``: per object name {inner edge index of an island waiting for help:
     # its island number}; ``islands``: per object name (the islands as face id -> vertex ids, the world positions,
@@ -374,8 +425,12 @@ class _Result:
     islands: dict = field(default_factory=dict)
     straight_picks: dict = field(default_factory=dict)
     cut_picks: dict = field(default_factory=dict)
+    cut_stops: dict = field(default_factory=dict)       # per object name: the vertex ids ``_cut_stops`` found
     cut_lines: list = field(default_factory=list)
     straight_lines: list = field(default_factory=list)
+    # per (object name, faces key): world-space boundary segments of the piece or island a click acts on, drawn
+    # while the cursor is over something of it a click would change (``_piece_outline``)
+    piece_outlines: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -404,10 +459,10 @@ class _Help:
 
     def prompt(self) -> str:
         if len(self.picked) >= 4:
-            return "These corners make no strip: click a picked corner to remove it, or C on an edge to cut"
+            return "These corners make no strip: click a picked corner to remove it, or click an edge to cut"
         if self.picked:
-            return f"Click {4 - len(self.picked)} more corner(s), or C on an edge to cut the island"
-        return "Click four corners, or C on an edge to cut the island into strips"
+            return f"Click {4 - len(self.picked)} more corner(s), or click an edge to cut the island"
+        return "Click four corners, or click an edge to cut the island into strips"
 
 
 @dataclass
@@ -558,7 +613,7 @@ PICK_LINE_TOL = 1e-5     # a line whose UVs spread by less than this of its piec
 
 
 def _collect_picks(result, bm, obj, pieces, edge_of, vertical, island_of):
-    """What C and V can pick on the laid-out ``pieces`` of ``obj``, kept for ``_straight_record`` and ``_cut_loop``
+    """What LMB (cuts) and V can pick on the laid-out ``pieces`` of ``obj``, kept for ``_straight_record`` and ``_cut_loop``
     to work out on demand (only for the edges the cursor meets, so a relayout costs nothing more): per edge of an
     open piece (an edge in two pieces, a tear, takes the first) the piece's record in ``result.pick_pieces``: its
     strip, every vertex's place in the strip's own frame from its UVs as written (x along the strip, y across;
@@ -593,6 +648,64 @@ def _collect_picks(result, bm, obj, pieces, edge_of, vertical, island_of):
                 index = index_of.get((min(a, b), max(a, b)))
                 if index is not None:
                     records.setdefault(index, record)       # the first piece; the face under the cursor decides
+
+
+def _cut_groups(keys, verts) -> list[list[tuple[int, int]]]:
+    """The island cuts ``keys`` (vertex-id pairs) as the separate cuts they were made as: edges joined where they meet
+    at a vertex, at a vertex where more than two meet only the straightest pairs (the angle between them at least
+    ``LOOP_ANGLE``, the straightest first), so a cut that ends on another one stays its own cut. ``verts``: vertex
+    id -> position. Each group in edge-key order; the groups in the order of their first edge."""
+    keys = sorted({tuple(sorted(k)) for k in keys})
+    parent = {k: k for k in keys}
+
+    def find(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    def join(a, b):
+        parent[find(a)] = find(b)
+
+    at: dict = {}
+    for k in keys:
+        for v in k:
+            at.setdefault(v, []).append(k)
+
+    def angle(v, a, b):
+        p = verts.get(v)
+        qa, qb = verts.get(a[0] if a[1] == v else a[1]), verts.get(b[0] if b[1] == v else b[1])
+        if p is None or qa is None or qb is None:
+            return 0.0
+        u = [x - y for x, y in zip(qa, p)]
+        w = [x - y for x, y in zip(qb, p)]
+        lu, lw = math.sqrt(sum(x * x for x in u)), math.sqrt(sum(x * x for x in w))
+        if lu < 1e-12 or lw < 1e-12:
+            return 0.0
+        return math.acos(max(-1.0, min(1.0, sum(x * y for x, y in zip(u, w)) / (lu * lw))))
+
+    for v, edges in at.items():
+        if len(edges) == 2:
+            join(*edges)
+        elif len(edges) > 2:
+            pairs = sorted(((angle(v, a, b), a, b) for i, a in enumerate(edges) for b in edges[i + 1:]),
+                           reverse=True)
+            used = set()
+            for value, a, b in pairs:
+                if value >= LOOP_ANGLE - EPS and a not in used and b not in used:
+                    join(a, b)
+                    used |= {a, b}
+    groups: dict = {}
+    for k in keys:
+        groups.setdefault(find(k), []).append(k)
+    return list(groups.values())
+
+
+def _vivid(theme, role):
+    """``role``'s theme colour, its alpha raised to ``VIVID_ALPHA``: the active and locked line colours are kept
+    faint by the theme (for fills), too faint for a line that must be seen."""
+    r, g, b, a = theme.color_for(role)
+    return (r, g, b, max(a, VIVID_ALPHA))
 
 
 def _spread_in(pos, vertices, k) -> float:
@@ -642,7 +755,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         description=(
             "A piece whose worst face stretches more than this is relaxed one step at a time: both long sides "
             "straight, the longer one only, none; it stops at the first step within the limit, else at the least "
-            "stretched. A piece whose long sides were clicked is not relaxed"
+            "stretched. A piece whose long sides were picked by an older run (side picks) is not relaxed"
         ),
         default=uv_stripe_auto_core.DEFAULT_STRETCH_LIMIT,
         min=1.0,
@@ -747,12 +860,22 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
-    # The sides clicked straight or free in the interactive mode, as JSON {object name: [[face index, edge
-    # index, straight], ...]}: each sets the side holding that edge of the piece holding that face, later over
-    # earlier. Kept for redo like the edges above; a new run starts from Straight Sides and Ends.
+    # The sides set straight or free by hand, as JSON {object name: [[face index, edge index, straight], ...]}: each
+    # sets the side holding that edge of the piece holding that face, later over earlier. The interactive mode no
+    # longer sets them (pieces are selected and Q / W act on them, ``piece_shapes``); a value kept by an older run's
+    # redo still lays out as it did.
     side_picks: StringProperty(
         name="Picked Sides",
         description="The sides of the pieces clicked straight or free in the interactive mode",
+        default="",
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    # Straight Sides and Ends set for some pieces alone (Q / W with pieces selected), as JSON {object name: [[kind,
+    # value, [face index, ...]], ...]}: kind "SIDES" (a Straight Sides value) or "ENDS" (an Ends value) for every
+    # piece holding one of the faces, later over earlier. Kept for redo like the picks; a new run starts without.
+    piece_shapes: StringProperty(
+        name="Piece Shapes",
+        description="Straight Sides and Ends set for some pieces alone in the interactive mode",
         default="",
         options={"HIDDEN", "SKIP_SAVE"},
     )
@@ -869,6 +992,17 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         seed = next((f for f in guide.seeds if f in island), None)
         guides = [f for f in guide.guides if f in island]
         hand_cuts = _inner_cuts(island, guide.cuts)
+        on_band = _inner_cuts(island, breaks)
+        if on_band and (hand_cuts or len(on_band) >= 2):
+            # a closed band cut more than once: every picked break is a cut, made like the other cuts by hand
+            paths = uv_stripe_select_core.band_cut_paths(island)
+            held = [path for path in paths if len(path) > 1 and set(path) & on_band]
+            if held and (hand_cuts or len(held) >= 2):
+                if bands is not None:
+                    bands.append(paths)
+                if rings is not None:
+                    rings.append([e for path in paths for e in path])
+                hand_cuts = set(hand_cuts) | {e for path in held for e in path}
         if corners or hand_cuts:
             return self._guided(island, verts, picked, corners, hand_cuts, seed, guides, lay_args=(
                 manual, skipped, cross, bends, align_edges, side_picks))
@@ -988,7 +1122,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 continue
             try:
                 want = uv_stripe_auto_core.picked_shape(
-                    strip, uv_stripe_auto_core.default_shape(strip, self.straight_sides, self.ends), side_picks)[0]
+                    strip, uv_stripe_auto_core.default_shape(strip, *self._values_for(strip)), side_picks)[0]
             except ValueError:
                 return True
             if uv_stripe_auto_core.laid_shape(strip).rails != want.rails:
@@ -998,12 +1132,13 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     def _tear_key(self, strip, skipped, side_picks):
         """What decides the tears of ``strip`` (``_tear_wide``): the strip with its vertex positions, the settings
         that change them and the picks on it; not Balance, so a Balance step reuses the decision. None for a strip never torn so."""
-        if strip.closed or self.straight_sides == "NONE":
+        sides, ends = self._values_for(strip)
+        if strip.closed or sides == "NONE":
             return None
         edges = {(min(a, b), max(a, b)) for face in strip.faces.values() for a, b in zip(face, face[1:] + face[:1])}
         used = sorted({v for face in strip.faces.values() for v in face})
         return (tuple(sorted(strip.faces.items())), tuple((v, tuple(strip.verts[v])) for v in used), tuple(strip.near), tuple(strip.far), tuple(strip.sides[0]),
-                tuple(strip.sides[1]), self.straight_sides, self.ends, round(self.stretch_limit, 9),
+                tuple(strip.sides[1]), sides, ends, round(self.stretch_limit, 9),
                 frozenset(e for e in skipped if e in edges), tuple(side_picks),
                 tuple(sorted((line[0], tuple(sorted(line[1])), *line[2:]) for line in getattr(self, "_picked_lines", ()))))
 
@@ -1063,8 +1198,9 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """Whether every torn part (built strips) lays out straight within Stretch Limit by the cheap straight-row
         layouts (``uv_stripe_auto_core.best_straight``: "TRUE" with free ends, the straight ones with ends
         upright); no balanced solve is run for it."""
-        layouts = ("TRUE",) if self.ends in ("SLANTED", "AUTO") else uv_stripe_auto_core.STRAIGHT_LAYOUTS
         for piece in parts:
+            ends = self._values_for(piece)[1]
+            layouts = ("TRUE",) if ends in ("SLANTED", "AUTO") else uv_stripe_auto_core.STRAIGHT_LAYOUTS
             best = uv_stripe_auto_core.best_straight(dataclasses.replace(piece, lines=()), layouts)
             if best is None or max(best[1], default=1.0) > self.stretch_limit + 1e-6:
                 return False
@@ -1143,8 +1279,14 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             manual_cuts=uv_stripe_select_core.rungs_at(strip, manual),
             skip_cuts=uv_stripe_select_core.rungs_at(strip, skipped), bend_tears=torn,
             align=self.shape_align, align_edges=align_edges, stretch_limit=self.stretch_limit,
-            balance=self.balance, side_picks=side_picks, lines=lines)
+            balance=self.balance, side_picks=side_picks, lines=lines, overrides=getattr(self, "_overrides", ()))
         return laid, ([uv_stripe_select_core.rung_edge(strip, k) for k in range(len(strip.rungs))], torn)
+
+    def _values_for(self, strip):
+        """(Straight Sides, Ends) for ``strip``: the values set for its pieces alone (``piece_shapes``, the
+        object being laid out), else the operator's."""
+        return uv_stripe_bridge.ShapeRules(self.straight_sides, self.ends,
+                                           overrides=getattr(self, "_overrides", ())).values(strip)
 
     def _lay_split(self, split, verts, picked, seed, lay_args, island=None):
         """The parts of ``split`` (``uv_stripe_split_core.Split``) built and laid out in strip order, the main
@@ -1317,6 +1459,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         stored_index = {name: _parse_breaks(getattr(self, name, "")) for name in INDEX_PROPS}
         stored_sides = _parse_sides(getattr(self, "side_picks", ""))
         stored_lines = _parse_lines(getattr(self, "straight_lines", ""))
+        stored_shapes = _parse_shapes(getattr(self, "piece_shapes", ""))
         for obj in context.objects_in_mode_unique_data:
             if obj.type != "MESH":
                 continue
@@ -1339,6 +1482,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             held_lines = [(axis, [bm.edges[i] for i in indices if 0 <= i < len(bm.edges)],
                            bm.faces[face] if face is not None and 0 <= face < len(bm.faces) else None)
                           for axis, indices, face in stored_lines.get(obj.name, ())]
+            held_shapes = [(kind, value, [bm.faces[i] for i in faces if 0 <= i < len(bm.faces)])
+                           for kind, value, faces in stored_shapes.get(obj.name, ())]
             found = self._merge_doubles(bm, obj, merge)
             if merge:
                 result.merged += found
@@ -1357,6 +1502,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                       face.index if face is not None and face.is_valid else None)
                      for axis, edges, face in held_lines]
             self._picked_lines = tuple(line for line in lines if len(line[1]) >= 2)
+            self._overrides = tuple((kind, value, frozenset(f.index for f in faces if f.is_valid))
+                                    for kind, value, faces in held_shapes)
             guide = _Guide([v.index for v in held_corners if v.is_valid], set(pairs["island_cuts"]),
                            [f.index for f in held_faces["seed_faces"] if f.is_valid],
                            [f.index for f in held_faces["guide_faces"] if f.is_valid])
@@ -1379,7 +1526,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             active_face = bm.faces.active if self.mode == "ACTIVE" else None
             mesh_active = bm.faces.active
             self._active_face = mesh_active.index if mesh_active is not None and mesh_active.index in picked else None
-            self._auto_paths = []      # (path, torn) of every automatic tear offered, for C (``_tear_wide``)
+            self._auto_paths = []      # (path, torn) of every automatic tear offered, for LMB (``_tear_wide``)
             island_of = result.island_of.setdefault(obj.name, {})
             cuttable = result.cuttable.setdefault(obj.name, set())
             cuttable.update(e.index for e in held["island_cuts"] if e.is_valid)     # a cut made can be undone
@@ -1427,7 +1574,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 e = edge_of.get(key)
                 if e is not None:
                     result.skipped_tears.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
-            # the automatic tears of wide strips and the automatic junction cuts: LMB (C) takes one back or
+            # the automatic tears of wide strips and the automatic junction cuts: LMB takes one back or
             # restores it; a taken-back one is drawn as a skipped tear
             made, undone = result.auto_tears.setdefault(obj.name, {}), result.auto_skipped.setdefault(obj.name, {})
             drawn = set()
@@ -1446,26 +1593,32 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             for i in set(made) & set(undone):          # offered both ways (one part torn, another not): torn wins
                 undone.pop(i)
             # the cuts made by hand and the straightened lines, drawn also on an object whose islands all wait for
-            # help; the islands and their cuts kept for the cut loops C offers (``_cut_loop``)
+            # help; the islands and their cuts kept for the cut loops LMB offers (``_cut_loop``)
             ring_edges = {key for ring in rings for key in ring}
             band_edges = {key for paths in bands for path in paths for key in path}
             hand = [key for key in sorted((manual & cross) | (breaks & (ring_edges - band_edges))) if key in edge_of]
             for strip, _faces in pieces:          # a band's picked break: the whole line it is cut open along
                 if strip.cut_path and set(strip.cut_path) & breaks:
                     hand += [key for key in strip.cut_path if key in edge_of]
+            for paths in bands:                   # every break of a band cut more than once
+                hand += [key for path in paths if set(path) & breaks for key in path if key in edge_of]
             loops = result.cut_loops.setdefault(obj.name, {})
             island_cuts = {}
-            for key in sorted(guide.cuts):          # an island cut: along its cross path, as ``split_island`` cuts
+            for key in sorted(guide.cuts):
                 e = edge_of.get(key)
                 owner = next((island_of.get(f.index) for f in e.link_faces if f.index in island_of), None) \
                     if e is not None else None
-                if owner is None:
-                    continue
-                island_cuts.setdefault(owner, set()).add(key)
-                path = [p for p in (uv_stripe_split_core.cross_path(islands[owner], key) or [key]) if p in edge_of]
-                hand += path
-                for p in path:           # LMB on any edge of a cut mends the whole cut
-                    loops[edge_of[p].index] = tuple(edge_of[q].index for q in path)
+                if owner is not None:
+                    island_cuts.setdefault(owner, set()).add(key)
+            for owner, keys in sorted(island_cuts.items()):
+                # each cut as ``split_island`` cuts it: a line of cut edges as it is, a lone edge along its cross path
+                for group in _cut_groups(keys, verts):
+                    if len(group) == 1:
+                        group = uv_stripe_split_core.cross_path(islands[owner], group[0]) or group
+                    path = [p for p in group if p in edge_of]
+                    hand += path
+                    for p in path:           # LMB on any edge of a cut mends the whole cut
+                        loops[edge_of[p].index] = tuple(edge_of[q].index for q in path)
             result.islands[obj.name] = (islands, verts, island_cuts)
             index_of = _RealKeys((key, e.index) for key, e in edge_of.items())
             result.edge_index[obj.name] = (index_of, {i: key for key, i in index_of.items()})
@@ -1494,9 +1647,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             result.unfitted |= holds_active and not fitted
             _collect_preview(result, pieces, matrix)
             def asked(strip):
+                sides, ends = self._values_for(strip)
                 want = uv_stripe_auto_core.picked_shape(
-                    strip, uv_stripe_auto_core.default_shape(strip, self.straight_sides, self.ends), side_picks)[0]
-                if self.ends == "AUTO" and not uv_stripe_auto_core.ends_picked(strip, side_picks):
+                    strip, uv_stripe_auto_core.default_shape(strip, sides, ends), side_picks)[0]
+                if ends == "AUTO" and not uv_stripe_auto_core.ends_picked(strip, side_picks):
                     laid = uv_stripe_auto_core.laid_shape(strip)     # upright where cheap: the ends as laid out
                     want = uv_stripe_auto_core.Shape(want.near, want.far, laid.end0, laid.end1)
                 return want
@@ -1608,7 +1762,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             pass
 
     # ------------------------------------------------------------------
-    # Cut edges: pick the cross edges a strip is torn at, a closed ring's break among them (C)
+    # Cut edges: pick the cross edges a strip is torn at, a closed ring's break among them (LMB off the sides)
     # ------------------------------------------------------------------
 
     def _pickable(self):
@@ -1717,13 +1871,17 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         return frames[key]
 
     def _cut_loop(self, name, index):
-        """The cut LMB makes at edge ``index`` of object ``name`` while picking cuts, worked out on demand and kept
-        until the next layout: the edge indices of the cross path through it (``uv_stripe_split_core.cross_path``),
-        or None when there is none to offer. On a strip several faces wide the path must run from one long side to
-        the other; on an island waiting for help any path (or the edge alone) is taken. Either way it is offered
-        only when the island, cut there with the cuts already made, still reads as strips
-        (``uv_stripe_split_core.split_island``; on a wide strip without any automatic cut), so a click never leaves
-        the island without a layout."""
+        """The cut LMB makes at edge ``index`` of object ``name``, worked out on demand and kept until the next
+        layout: its edge indices, or None when there is none to offer.
+
+        First the loop UV Pipe would trace through the edge (``_traced_cut``): inside the piece the edge lies in
+        (on an island waiting for help, the island), from one cut or the piece's boundary to the next, across the
+        strip or along it, through quads, triangles and n-gons as far as the turns allow. Failing that, the cross
+        path through the edge (``uv_stripe_split_core.cross_path``): on a strip several faces wide it must run from
+        one long side to the other; on an island waiting for help any path (or the edge alone) is taken. Either way
+        it is offered only when the island, cut there with the cuts already made, still reads as strips
+        (``uv_stripe_split_core.split_island``; on a wide strip without any automatic cut, and the traced loop
+        must cut the piece in two), so a click never leaves the island without a layout."""
         result = getattr(self, "_result", None)
         if result is None:
             return None
@@ -1747,6 +1905,22 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         key = keys.get(index)
         if key is None:
             return None
+        traced = self._traced_cut(name, island if helping else record["strip"].faces,
+                                  verts if helping else record["strip"].verts, key)
+        if traced is not None:
+            try:
+                if helping:
+                    uv_stripe_split_core.split_island(verts, island, set(made.get(number, ())) | set(traced))
+                    fits = True
+                else:
+                    split = uv_stripe_split_core.split_island(record["strip"].verts, dict(record["strip"].faces),
+                                                              set(traced))
+                    fits = not split.automatic and len(split.parts) > 1
+            except ValueError:
+                fits = False
+            if fits:
+                cache[slot] = tuple(index_of[p] for p in traced if p in index_of)
+                return cache[slot]
         if helping:
             path = uv_stripe_split_core.cross_path(island, key) or [key]
         else:
@@ -1773,21 +1947,63 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         cache[slot] = tuple(index_of[p] for p in path if p in index_of)
         return cache[slot]
 
-    def _pick_target(self, name, index):
-        """What a click on edge ``index`` of object ``name`` acts on in the current pick mode: (the edge indices,
-        whether the click takes a pick back, the axis of a line to straighten or None), or None when it would
-        change nothing.
+    def _cut_stops(self, name):
+        """The vertex ids every cut and tear of object ``name`` ends a traced cut loop at (``_traced_cut``): the
+        ends of the cuts made by hand (island cuts, marked cuts, ring and band breaks), of Auto's tears and junction
+        cuts and of the tears at seams. Kept until the next layout."""
+        result = getattr(self, "_result", None)
+        if result is None:
+            return set()
+        if name in result.cut_stops:
+            return result.cut_stops[name]
+        keys = result.edge_index.get(name, ({}, {}))[1]
+        indices = set(result.auto_tears.get(name, {})) | set(result.seam_tears.get(name, ())) \
+            | set(result.bend_tears.get(name, ())) | set(result.cut_loops.get(name, {}))
+        for prop in ("island_cuts", "manual_cuts", "cup_breaks"):
+            indices |= set(_parse_breaks(getattr(self, prop, "")).get(name, ()))
+        result.cut_stops[name] = {v for i in indices if i in keys for v in keys[i]}
+        return result.cut_stops[name]
 
-        Cutting (C): LMB mends the cut made by hand the edge lies on (``_Result.cut_loops``), else cuts the cross
-        path through it (``_cut_loop``; on a strip one face wide the cross edge itself); Alt + LMB the one edge (a
-        seam tear is left alone either way). Straightening (V): a picked line holding the edge is taken back; else
-        LMB the line of edges through it, Alt + LMB the edge itself (``_straight_record``), None when it is laid
+    def _traced_cut(self, name, faces, verts, key):
+        """The loop through edge ``key`` (vertex-id pair) of ``faces`` as UV Pipe traces it
+        (``uv_pipe_core.trace_loop`` at ``LOOP_ANGLE``, then ``uv_pipe_core.limit_loop``), stopped at the boundary of
+        ``faces`` and at every cut and tear of object ``name`` (``_cut_stops``): its edges, or None when ``key`` is
+        no inner edge of ``faces``, the loop closes, or an end of it stops short of a cut or the boundary (it would
+        cut nothing)."""
+        edge_faces, _vert_edges, boundary = uv_stripe_split_core._adjacency(faces)
+        key = tuple(sorted(key))
+        if len(edge_faces.get(key, ())) != 2:
+            return None
+        stops = set(boundary) | self._cut_stops(name)
+        nbrs = uv_pipe_core.neighbours(faces)
+        try:
+            loop = uv_pipe_core.limit_loop(uv_pipe_core.trace_loop(verts, nbrs, key, LOOP_ANGLE, stops), key, stops)
+        except (KeyError, ValueError):
+            return None
+        if loop.closed or loop.verts[0] not in stops or loop.verts[-1] not in stops:
+            return None
+        edges = loop.edges()
+        if any(e not in edge_faces for e in edges):
+            return None
+        return edges
+
+    def _pick_target(self, name, index):
+        """What a click on edge ``index`` of object ``name`` acts on: (the edge indices, whether the click takes a
+        pick back, the axis of a line to straighten or None), or None when it would change nothing. ``_single``
+        (Ctrl held while cutting, Alt while picking lines) asks for the one edge instead of the loop.
+
+        Cutting (LMB off the sides, the normal state): LMB mends the cut made by hand the edge lies on
+        (``_Result.cut_loops``; on a closed band the break on its cross path), else cuts the cross path through it
+        (``_cut_loop``; on a strip one face wide the cross edge itself), so any number of cuts add up; Ctrl + LMB
+        the one edge (a seam tear is left alone either way). Straightening (V): a picked line holding the edge is
+        taken back; else LMB the line of edges through it, Alt + LMB the edge itself (``_straight_record``), None
+        when it is laid
         straight that way already, when it could not be kept (``uv_stripe_balance_core.pick_allowed``) or when a
         click on it was refused before (``_refused``)."""
         result = getattr(self, "_result", None)
         if result is None:
             return None
-        alt = getattr(self, "_alt", False)
+        single = getattr(self, "_single", False)
         if getattr(self, "_align_picking", False):
             record = self._record(name, index)
             own = set(record["strip"].faces) if record is not None else set()
@@ -1798,7 +2014,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             found = self._straight_record(name, index)
             if found is None:
                 return None
-            if alt:
+            if single:
                 edge = found.get("edge")
                 if edge is None:
                     return None
@@ -1814,20 +2030,20 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         if index in result.seam_tears.get(name, ()):
             return None
         band_path = result.band_paths.get(name, {}).get(index)
-        if not alt and band_path is not None:     # a closed band: its break moves to the cross path, or is taken back
+        if not single and band_path is not None:     # a closed band: cut there, or that cut taken back
             breaks = set(_parse_breaks(getattr(self, "cup_breaks", "")).get(name, ()))
             return band_path, bool(breaks & set(band_path)), None
         auto = result.auto_tears.get(name, {}).get(index)
-        if not alt and auto is not None:          # an automatic tear or junction cut: LMB takes it back
+        if not single and auto is not None:          # an automatic tear or junction cut: LMB takes it back
             return auto, False, None
         auto = result.auto_skipped.get(name, {}).get(index)
-        if not alt and auto is not None:          # one taken back: LMB restores it
+        if not single and auto is not None:          # one taken back: LMB restores it
             return auto, True, None
         stored ={name_: set(indices) for name_, indices in _parse_breaks(getattr(self, "island_cuts", "")).items()}
         loop = result.cut_loops.get(name, {}).get(index)
-        if not alt and loop is not None:
+        if not single and loop is not None:
             return tuple(loop), bool(stored.get(name, set()) & set(loop)), None
-        if not alt and index not in result.cross.get(name, ()):
+        if not single and index not in result.cross.get(name, ()):
             loop = self._cut_loop(name, index)
             return None if loop is None else (loop, False, None)   # LMB takes loops; none here: Alt + LMB
         if index not in result.cross.get(name, ()) and index not in result.cuttable.get(name, ()) \
@@ -1841,7 +2057,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     def _hover_break(self, context, event):
         """(object, edge index) of the edge under the cursor a click would change something at, or None.
 
-        One of the edges of the face under the cursor that the pick mode may pick (``_pickable``)
+        One of the edges of the face under the cursor that may be picked now (``_pickable``)
         and a click would change something at (``_pick_target``), the one nearest to it on screen.
         """
         region = getattr(context, "region", None)
@@ -1868,16 +2084,28 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                  if e.index in pickable and self._pick_target(obj.name, e.index) is not None]
         if not edges:
             return None
-        k, _distance = picking.closest_edge_screen(context, edges, obj.matrix_world, coord)
-        return None if k is None else (obj, edges[k].index)
+        k, distance = picking.closest_edge_screen(context, edges, obj.matrix_world, coord)
+        if k is None:
+            return None
+        if getattr(self, "_near_edges_only", False):          # the normal state: away from the edges LMB selects
+            try:
+                scale = float(context.preferences.system.ui_scale)
+            except (AttributeError, TypeError, ValueError):
+                scale = 1.0
+            if distance > EDGE_PICK_RADIUS * (scale if scale > 0.0 else 1.0):
+                return None
+        return obj, edges[k].index
 
     def _update_hover(self, context, event):
         """Keep what a click would act on (``_pick_target``) under the cursor: (object, edge index, the world-space
-        end points of the loop or edge, whether the click takes a pick back), or None when a click would change
-        nothing there. Alt (one edge, not the loop) is read from ``event``."""
-        self._alt = bool(getattr(event, "alt", False))
+        end points of the loop or edge, whether the click takes a pick back, the axis of a line to straighten or
+        None for a cut), or None when a click would change nothing there. The one edge instead of the loop
+        (``_single``) is read from ``event``: Alt while picking lines (V), Ctrl while cutting."""
+        align = getattr(self, "_align_picking", False)
+        self._single = bool(getattr(event, "alt" if align else "ctrl", False))
         found = self._hover_break(context, event)
         self._hover = None
+        self._hover_outline = []
         if found is None:
             return
         obj, index = found
@@ -1890,20 +2118,72 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         for i in target[0]:
             if 0 <= i < len(bm.edges):
                 points.extend(obj.matrix_world @ v.co for v in bm.edges[i].verts)
-        self._hover = (obj, index, points, target[1])
+        self._hover = (obj, index, points, target[1], target[2])
+        affected = self._affected_faces(obj, index)
+        self._hover_outline = self._piece_outline(obj, *affected) if affected is not None else []
+
+    def _affected_faces(self, obj, index):
+        """(key, face indices) of what a click on edge ``index`` of ``obj`` changes: the island waiting for help
+        the edge lies in, else the open piece ``_record`` resolves it to (the one under the cursor on an edge two
+        pieces share), else the island of the face under the cursor or of a face of the edge (a closed piece);
+        None when none is known."""
+        result = getattr(self, "_result", None)
+        if result is None:
+            return None
+        name = obj.name
+        number = result.help_edges.get(name, {}).get(index)
+        if number is None:
+            record = self._record(name, index)
+            if record is not None:
+                faces = [f for f, rec in result.pick_faces.get(name, {}).items() if rec is record]
+                return ("piece", id(record)), faces
+            islands = result.island_of.get(name, {})
+            number = islands.get(getattr(self, "_hover_face", None))
+            if number is None:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.edges.ensure_lookup_table()
+                if 0 <= index < len(bm.edges):
+                    number = next((islands[f.index] for f in bm.edges[index].link_faces if f.index in islands), None)
+        if number is None:
+            return None
+        return ("island", number), [f for f, n in result.island_of.get(name, {}).items() if n == number]
+
+    def _piece_outline(self, obj, key, faces):
+        """World-space boundary segments (flat [a, b, ...]) of the faces ``faces`` of ``obj``: their edges used by
+        one of them only. Kept per layout under ``key``."""
+        result = getattr(self, "_result", None)
+        cache = result.piece_outlines if result is not None else {}
+        slot = (obj.name, key)
+        if slot not in cache:
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            uses = {}
+            for f in faces:
+                if 0 <= f < len(bm.faces):
+                    for e in bm.faces[f].edges:
+                        uses[e] = uses.get(e, 0) + 1
+            matrix = obj.matrix_world
+            cache[slot] = [matrix @ v.co for e, n in sorted(uses.items(), key=lambda item: item[0].index) if n == 1
+                           for v in e.verts]
+        return cache[slot]
 
     def _set_break(self, context, obj, edge_index):
-        """Break the ring holding cross edge ``edge_index`` of ``obj`` there and re-lay out; picking goes on.
+        """Break the ring holding cross edge ``edge_index`` of ``obj`` there and re-lay out.
 
-        Any break already stored for the same ring is replaced. An edge that is no cross
-        edge of a selected closed ring changes nothing; returns whether the break was set.
+        On a closed band several faces wide (``_Result.band_paths``) the break is added to the band's breaks:
+        the first opens it, every further one cuts it again (``_pieces``). On a ring one face wide a break
+        already stored for the same ring is replaced (its further cuts are ``manual_cuts``, ``_click_cut``).
+        An edge that is no cross edge of a selected closed ring changes nothing; returns whether the break was
+        set.
         """
-        rings = getattr(self, "_result", _Result()).rings.get(obj.name, {})
+        result = getattr(self, "_result", _Result())
+        rings = result.rings.get(obj.name, {})
         ring = rings.get(edge_index)
         if ring is None:
             return False
         breaks = _parse_breaks(getattr(self, "cup_breaks", ""))
-        kept = [i for i in breaks.get(obj.name, []) if rings.get(i) != ring]
+        band = edge_index in result.band_paths.get(obj.name, {})
+        kept = [i for i in breaks.get(obj.name, []) if band or rings.get(i) != ring]
         breaks[obj.name] = kept + [edge_index]
         self.cup_breaks = _dump_edges(breaks)
         self._relayout(context)
@@ -1959,17 +2239,20 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         return action
 
     def _click_cut_loop(self, context, obj, edge_index):
-        """LMB while picking cuts on edge ``edge_index`` of ``obj``: the loop through it (``_pick_target``) cut or
-        mended as a whole, re-lay out; picking goes on. On a strip one face wide (and for Alt + LMB) it is the
-        one edge, ``_click_cut``. A loop across a wide strip or an island is stored as an island cut
-        (``island_cuts``): every edge of it, "cut"; a loop holding a stored cut edge is mended, every stored edge
-        of it dropped, "uncut". Returns what was done, None when nothing changed."""
+        """LMB on edge ``edge_index`` of ``obj`` off the sides: the loop through it (``_pick_target``) cut or
+        mended as a whole, re-lay out. Cuts add up: a click on a loop not cut yet adds a cut, a click on a cut
+        loop takes back exactly that one. On a strip one face wide (and for Ctrl + LMB) it is the one edge,
+        ``_click_cut``. On a closed band several faces wide every cut is a break of the band (``cup_breaks``,
+        ``_set_break``): "break" adds one, "unbreak" takes the one on that line back. A loop across a wide strip or
+        an island is stored as an island cut (``island_cuts``): every edge of it, "cut"; a loop holding a stored cut
+        edge is mended, every stored edge of it dropped, "uncut". Returns what was done, None when nothing
+        changed."""
         target = self._pick_target(obj.name, edge_index)
         if target is None:
             return None
         loop, mends, _axis = target
         result = getattr(self, "_result", None) or _Result()
-        if not getattr(self, "_alt", False) and edge_index in result.band_paths.get(obj.name, {}):
+        if not getattr(self, "_single", False) and edge_index in result.band_paths.get(obj.name, {}):
             if not mends:
                 return "break" if self._set_break(context, obj, edge_index) else None
             breaks = _parse_breaks(getattr(self, "cup_breaks", ""))
@@ -1977,7 +2260,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.cup_breaks = _dump_edges(breaks)
             self._relayout(context)
             return "unbreak"
-        if not getattr(self, "_alt", False) and (edge_index in result.auto_tears.get(obj.name, {})
+        if not getattr(self, "_single", False) and (edge_index in result.auto_tears.get(obj.name, {})
                                                  or edge_index in result.auto_skipped.get(obj.name, {})):
             data = _parse_breaks(getattr(self, "skipped_cuts", ""))
             indices = data.get(obj.name, [])
@@ -1989,7 +2272,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.skipped_cuts = _dump_edges(data)
             self._relayout(context)
             return action
-        if getattr(self, "_alt", False) or (edge_index in result.cross.get(obj.name, ())
+        if getattr(self, "_single", False) or (edge_index in result.cross.get(obj.name, ())
                                             and edge_index not in result.cut_loops.get(obj.name, {})):
             return self._click_cut(context, obj, edge_index)
         data = _parse_breaks(getattr(self, "island_cuts", ""))
@@ -2030,8 +2313,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         Sides None the edge is also stored as its piece's align edge, and dropped with its line; when the last
         picked align edge goes, Align goes back to what it was before V set it. A new line the layout then does not
         keep straight, or keeps only by squashing a face (infinite stretch), is taken back at once and not offered
-        again (``_refused``): no pick is stored that the layout ignores. Returns what was done, None when nothing
-        changed (a line laid straight already, or such a refused line)."""
+        again (``_refused``), and a warning says so (``REFUSED_LINE``): no pick is stored that the layout ignores.
+        Returns what was done, None when nothing changed (a line laid straight already, or such a refused line)."""
         target = self._pick_target(obj.name, edge_index)
         if target is None:
             return None
@@ -2076,6 +2359,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self._align_before = align_before
             self._refused = getattr(self, "_refused", set()) | {(name, axis, tuple(sorted(edges)))}
             self._relayout(context, live=True)
+            self.report({"WARNING"}, REFUSED_LINE)
             return None
         return action
 
@@ -2103,129 +2387,103 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         return sum(len(lines) for lines in _parse_lines(getattr(self, "straight_lines", "")).values())
 
     # ------------------------------------------------------------------
-    # Sides: LMB on a side of a piece makes it straight or free
+    # Pieces: LMB on a face selects its piece; Q and W act on the selected pieces
     # ------------------------------------------------------------------
 
-    def _hover_side(self, context, event):
-        """(object, piece number, side name) of the side under the cursor, or None.
-
-        The face under the cursor names the piece: the side edge of that face nearest to the
-        cursor on screen. Off the faces (or when that face has no side edge), the side edge
-        nearest to the cursor among all pieces that is in sight (``_edge_visible``); on an edge
-        where the strip is torn, the piece whose face is under the cursor. Either way only within
-        ``SIDE_PICK_RADIUS`` pixels (times the interface scale) of the cursor.
-        """
+    def _piece_of(self, name, face):
+        """The piece holding face ``face`` of object ``name`` in the last layout: ("piece", its number) for a
+        laid-out piece, ("island", its number) for an island waiting for help, None for a face of neither."""
         result = getattr(self, "_result", None)
-        region = getattr(context, "region", None)
-        rv3d = getattr(context, "region_data", None)
-        if result is None or region is None or rv3d is None or not result.sides:
+        if result is None or face is None:
             return None
-        objects = [o for o in context.objects_in_mode_unique_data if o.type == "MESH" and result.side_edges.get(o.name)]
-        if not objects:
-            return None
-        try:
-            scale = float(context.preferences.system.ui_scale)
-        except (AttributeError, TypeError, ValueError):
-            scale = 1.0
-        radius = SIDE_PICK_RADIUS * (scale if scale > 0.0 else 1.0)     # 0 without a window (background)
-        coord = (event.mouse_region_x, event.mouse_region_y)
-        hit = picking.raycast_edit_meshes(context, coord, objects, cache=getattr(self, "_pick_cache", None),
-                                          region=region, rv3d=rv3d)
-        if hit[0]:
-            obj, face_index = hit[4], hit[3]
-            table = result.side_edges.get(obj.name, {})
-            piece = result.piece_faces.get(obj.name, {}).get(face_index)
-            bm = bmesh.from_edit_mesh(obj.data)
-            bm.faces.ensure_lookup_table()
-            if piece is not None and 0 <= face_index < len(bm.faces):
-                edges = [e for e in bm.faces[face_index].edges
-                         if any(n == piece for n, _name in table.get(e.index, ()))]
-                k, distance = picking.closest_edge_screen(context, edges, obj.matrix_world, coord)
-                if k is not None and distance <= radius:
-                    name = next(name for n, name in table[edges[k].index] if n == piece)
-                    return obj, piece, name
-        under = None                 # (object name, piece) of the face under the cursor, if any
-        if hit[0]:
-            under = (hit[4].name, result.piece_faces.get(hit[4].name, {}).get(hit[3]))
-        near = []
-        for obj in objects:
-            table = result.side_edges[obj.name]
-            bm = bmesh.from_edit_mesh(obj.data)
-            bm.edges.ensure_lookup_table()
-            for i in table:
-                if not 0 <= i < len(bm.edges):
-                    continue
-                edge = bm.edges[i]
-                _k, distance = picking.closest_edge_screen(context, [edge], obj.matrix_world, coord)
-                if distance <= radius:
-                    near.append((distance, i, obj, edge))
-        near.sort(key=lambda item: (item[0], item[1]))
-        for _distance, i, obj, edge in near:
-            if not self._edge_visible(context, region, rv3d, objects, obj, edge, coord):
-                continue
-            entries = result.side_edges[obj.name][i]
-            own = [entry for entry in entries if under is not None and (obj.name, entry[0]) == under]
-            piece, name = (own or entries)[0]     # a tear edge: the piece whose face is under the cursor
-            return obj, piece, name
+        number = result.piece_faces.get(name, {}).get(face)
+        if number is not None:
+            return ("piece", number)
+        island = result.island_of.get(name, {}).get(face)
+        if island is not None and any(item.obj == name and face in item.faces for item in result.help):
+            return ("island", island)
         return None
 
-    def _edge_visible(self, context, region, rv3d, objects, obj, edge, coord):
-        """Whether the point of ``edge`` nearest to the cursor on screen is in sight: the edit meshes, raycast
-        as the operator picks (``picking.raycast_edit_meshes``) along the view ray through that point, hit
-        nothing in front of it."""
-        matrix = obj.matrix_world
-        a, b = matrix @ edge.verts[0].co, matrix @ edge.verts[1].co
-        sa = view3d_utils.location_3d_to_region_2d(region, rv3d, a)
-        sb = view3d_utils.location_3d_to_region_2d(region, rv3d, b)
-        if sa is None or sb is None:
-            return False
-        d = sb - sa
-        t = 0.0 if d.length_squared == 0.0 else max(0.0, min(1.0, (Vector(coord) - sa).dot(d) / d.length_squared))
-        point = a.lerp(b, t)
-        pixel = view3d_utils.location_3d_to_region_2d(region, rv3d, point)
-        if pixel is None:
-            return False
-        origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, pixel)
-        reach = (point - origin).length
-        hit = picking.raycast_edit_meshes(context, pixel, objects, cache=getattr(self, "_pick_cache", None),
-                                          region=region, rv3d=rv3d)
-        return not hit[0] or (hit[1] - origin).length >= reach - (1e-3 * reach + 1e-5)
-
-    def _update_side_hover(self, context, event):
-        """Keep the side under the cursor (``_hover_side``) for the preview and the click."""
-        self._side_hover = self._hover_side(context, event)
-
-    def _click_side(self, context, obj, piece, name):
-        """Toggle side ``name`` (``uv_stripe_auto_core.SIDE_NAMES``) of piece ``piece`` of ``obj`` and lay out
-        again: a long side straight / free, an end upright / slanted. Both sides of the pair (the two long
-        sides, or the two ends) are stored as they are laid out now, the clicked one turned over, so the
-        piece keeps the other one as shown; the pair's earlier picks on that piece are replaced. Returns the
-        side's new state, or None when there is no such side."""
+    def _faces_of(self, name, key):
+        """The face indices of the piece ``key`` (``_piece_of``) of object ``name``."""
         result = getattr(self, "_result", None) or _Result()
-        key = (obj.name, piece, name)
-        side = result.sides.get(key)
-        if side is None:
+        kind, number = key
+        table = result.piece_faces if kind == "piece" else result.island_of
+        return sorted(f for f, n in table.get(name, {}).items() if n == number)
+
+    def _selected_pieces(self):
+        """The selected pieces [(object name, piece key)], in the order they were selected, each once: every
+        anchor face (``_selected``) resolved through the last layout, so a piece stays selected while it holds
+        one of them."""
+        out = []
+        for name, face in getattr(self, "_selected", ()):
+            key = self._piece_of(name, face)
+            if key is not None and (name, key) not in out:
+                out.append((name, key))
+        return out
+
+    def _click_select(self, obj, face, toggle=False):
+        """LMB on face ``face`` of ``obj``: its piece becomes the only selected one (LMB on the only selected piece
+        clears the selection); with ``toggle`` (Shift) it is added to the selection or removed from it. Returns
+        "select", "clear", "add", "remove" or None for a face of no piece."""
+        key = self._piece_of(obj.name, face)
+        if key is None:
             return None
-        pair = ("near", "far") if name in ("near", "far") else ("end0", "end1")
-        data = _parse_sides(getattr(self, "side_picks", ""))
-        picks = data.get(obj.name, [])
-        faces = {f for f, n in result.piece_faces.get(obj.name, {}).items() if n == piece}
-        mine = set()
-        for other in pair:
-            record = result.sides.get((obj.name, piece, other))
-            if record is not None:
-                mine.update(record.edges)
-        picks = [p for p in picks if not (p[0] in faces and p[1] in mine)]
-        for other in pair:
-            record = result.sides.get((obj.name, piece, other))
-            if record is None:
-                continue
-            straight = (not record.straight) if other == name else record.straight
-            picks.append((record.faces[0], record.edges[0], straight))
-        data[obj.name] = picks
-        self.side_picks = _dump_sides(data)
-        self._relayout(context)
-        return not side.straight
+        target = (obj.name, key)
+        pieces = self._selected_pieces()
+        if toggle:
+            if target in pieces:
+                self._selected = [(n, f) for n, f in self._selected if (n, self._piece_of(n, f)) != target]
+                return "remove"
+            self._selected = list(getattr(self, "_selected", ())) + [(obj.name, face)]
+            return "add"
+        if pieces == [target]:
+            self._selected = []
+            return "clear"
+        self._selected = [(obj.name, face)]
+        return "select"
+
+    def _piece_value(self, name, key, kind):
+        """The value of ``kind`` ("SIDES": Straight Sides, "ENDS": Ends) piece ``key`` of object ``name`` is laid
+        out by: the last value set for it alone (``piece_shapes``), else the operator's."""
+        prop = SHAPE_KINDS[kind][0]
+        faces = set(self._faces_of(name, key))
+        value = getattr(self, prop)
+        for entry_kind, entry_value, entry_faces in _parse_shapes(getattr(self, "piece_shapes", "")).get(name, ()):
+            if entry_kind == kind and faces & set(entry_faces):
+                value = entry_value
+        return value
+
+    def _cycle_shape(self, kind):
+        """Q ("SIDES") or W ("ENDS"). With pieces selected: every selected piece moves to the value after the first
+        selected piece's, set for those pieces alone (``piece_shapes``). With none: the operator's own value
+        cycles for every piece, and every value of that kind set for pieces alone is dropped."""
+        prop, cycle = SHAPE_KINDS[kind]
+        cycle = list(SIDES_CYCLE if kind == "SIDES" else ENDS_CYCLE)
+        data = _parse_shapes(getattr(self, "piece_shapes", ""))
+        pieces = self._selected_pieces()
+        if not pieces:
+            setattr(self, prop, cycle[(cycle.index(getattr(self, prop)) + 1) % len(cycle)])
+            data = {name: [entry for entry in entries if entry[0] != kind] for name, entries in data.items()}
+        else:
+            value = cycle[(cycle.index(self._piece_value(*pieces[0], kind)) + 1) % len(cycle)]
+            faces = {}
+            for name, key in pieces:
+                faces.setdefault(name, set()).update(self._faces_of(name, key))
+            for name, chosen in faces.items():
+                entries = [(k, v, [f for f in fs if k != kind or f not in chosen])
+                           for k, v, fs in data.get(name, [])]
+                data[name] = [entry for entry in entries if entry[2]] + [(kind, value, sorted(chosen))]
+        self.piece_shapes = _dump_shapes(data)
+
+    def _shape_text(self, kind):
+        """The HUD value of Straight Sides ("SIDES") or Ends ("ENDS"): the first selected piece's value and how many
+        pieces are selected while any are, else the operator's value."""
+        names = SIDES_NAMES if kind == "SIDES" else ENDS_NAMES
+        pieces = self._selected_pieces()
+        if not pieces:
+            return names[getattr(self, SHAPE_KINDS[kind][0])]
+        return f"{names[self._piece_value(*pieces[0], kind)]} · {len(pieces)} selected"
 
     def _hover_corner(self, context, event):
         """(object name, vertex index) of the boundary vertex of an island waiting for help nearest to the cursor
@@ -2377,25 +2635,23 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
     def _manual_cut_count(self):
         return sum(len(indices) for indices in _parse_breaks(getattr(self, "manual_cuts", "")).values())
 
-    def _start_picking(self, context, event, align):
-        """Enter the cut pick mode (C), or with ``align`` the pick mode of the lines to straighten (V); the two never
-        run at once."""
-        self._picking = not align
-        self._align_picking = align
-        self._side_hover = None
+    def _start_picking(self, context, event):
+        """Enter the pick mode of the lines to straighten (V)."""
+        self._align_picking = True
+        self._face_hover = None
         self._update_hover(context, event)
         self._show_status(context)
 
-    def _stop_picking(self, context):
-        self._picking = False
+    def _stop_picking(self, context, event=None):
         self._align_picking = False
         self._hover = None
+        if event is not None:
+            self._update_normal_hover(context, event)
         self._show_status(context)
 
     def _pick_event(self, context, event):
-        """The modal's answer to ``event`` while picking cuts (C) or lines to straighten (V): LMB changes the
-        hovered loop, Alt + LMB the hovered edge (pressing or letting go of Alt redraws the hover), the mode's own
-        key, Esc or RMB stop picking, the other mode's key switches to it."""
+        """The modal's answer to ``event`` while picking lines to straighten (V): LMB changes the hovered line, Alt
+        + LMB the hovered edge (pressing or letting go of Alt redraws the hover); V, Esc or RMB stop picking."""
         if event.type == "MOUSEMOVE" or event.type in {"LEFT_ALT", "RIGHT_ALT"}:
             self._update_hover(context, event)
             return {"RUNNING_MODAL"}
@@ -2403,19 +2659,44 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return {"PASS_THROUGH"}
         if event.value != "PRESS" and not (event.type == "LEFTMOUSE" and event.value == "DOUBLE_CLICK"):
             return {"RUNNING_MODAL"}
-        align = getattr(self, "_align_picking", False)
-        own, other = ("V", "C") if align else ("C", "V")
         if event.type == "LEFTMOUSE":
             self._update_hover(context, event)
             if self._hover is not None:
-                click = self._click_straight if align else self._click_cut_loop
-                click(context, self._hover[0], self._hover[1])
+                self._click_straight(context, self._hover[0], self._hover[1])
                 self._update_hover(context, event)
-        elif event.type in {"RIGHTMOUSE", "ESC", own}:
-            self._stop_picking(context)
-        elif event.type == other:
-            self._start_picking(context, event, not align)
+        elif event.type in {"RIGHTMOUSE", "ESC", "V"}:
+            self._stop_picking(context, event)
         return {"RUNNING_MODAL"}
+
+    def _update_normal_hover(self, context, event):
+        """Outside V: what LMB would act on under the cursor, first match: a boundary vertex of an island that is
+        no strip (``_hover_corner``); unless Shift is held (Shift never cuts), the loop (Ctrl: the edge) through an
+        edge within ``EDGE_PICK_RADIUS`` a click would cut or mend (``_update_hover``); else the piece of the face
+        under the cursor a click would select (``_face_under``, ``_piece_of``). Keeps ``_corner_hover``, ``_hover``
+        and ``_face_hover`` (with the piece's outline, ``_face_outline``); at most one is set."""
+        self._hover = None
+        self._hover_outline = []
+        self._face_hover = None
+        self._face_outline = []
+        self._corner_hover = self._hover_corner(context, event)
+        if self._corner_hover is not None:
+            return
+        if not getattr(event, "shift", False):
+            self._near_edges_only = True
+            try:
+                self._update_hover(context, event)
+            finally:
+                self._near_edges_only = False
+            if self._hover is not None:
+                return
+        found = self._face_under(context, event)
+        if found is None:
+            return
+        obj, face = found
+        key = self._piece_of(obj.name, face)
+        if key is not None:
+            self._face_hover = (obj, face)
+            self._face_outline = self._piece_outline(obj, key, self._faces_of(obj.name, key))
 
     def _show_status(self, context):
         try:
@@ -2436,15 +2717,18 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             "shape_align")}
         self._timer = None
         self._wheel_time = 0.0
-        for name in (*EDGE_PROPS, *INDEX_PROPS, "side_picks", "straight_lines"):
+        for name in (*EDGE_PROPS, *INDEX_PROPS, "side_picks", "straight_lines", "piece_shapes"):
             self._cancel[name] = getattr(self, name, "")
-        self._picking = False
         self._align_picking = False
-        self._alt = False
+        self._single = False
         self._refused = set()          # (object name, axis, edge indices) of the lines a click could not keep
         self._align_before = None      # Align before V under None set it to Picked Edge
         self._hover = None
-        self._side_hover = None
+        self._hover_outline = []
+        self._face_hover = None
+        self._face_outline = []
+        self._corner_hover = None
+        self._selected = []            # (object name, face index) of each selected piece (``_selected_pieces``)
         self._pick_cache = {}
         self._relayout(context)
         if not self._result.done and not self._result.help:
@@ -2485,9 +2769,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         # Always: Straight Sides, Ends, Balance and More Options. Only when they apply: Stretch Limit, Seed and Guide
         # Faces, Align, Manual Cuts, Straightened Lines, Doubled Vertices. The rows after More Options while it is on
         # (Tab), or while their option is away from its default. Every key works either way.
-        self._hud.add_param(HUDParam("Straight Sides (Q)", lambda: SIDES_NAMES[self.straight_sides], "enum"))
-        self._hud.add_param(HUDParam("Ends (W)", lambda: ENDS_NAMES[self.ends], "enum",
+        self._hud.add_param(HUDParam("Straight Sides (Q)", lambda: self._shape_text("SIDES"), "str"))
+        self._hud.add_param(HUDParam("Ends (W)", lambda: self._shape_text("ENDS"), "str",
                                      active_getter=lambda: self.straight_sides != "NONE"))
+        self._hud.add_param(HUDParam("Selected", lambda: len(self._selected_pieces()), "int",
+                                     visible_getter=lambda: bool(self._selected_pieces())))
         self._hud.add_param(HUDParam("Balance (Ctrl + Wheel)", self._balance_text, "str",
                                      active_getter=lambda: getattr(self, "_result", _Result()).balanced > 0))
         self._hud.add_param(HUDParam("Stretch Limit (Alt + Wheel)", lambda: self.stretch_limit, "float", fmt="{:.2f}",
@@ -2528,18 +2814,19 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         # Every key, hidden until H (the HUD shows only what applies now)
         self._help = build_help("uv_stripe", [
             ("Shape", [
-                ("Straight Sides", "Q"),
-                ("Ends", "W"),
+                ("Straight Sides (selected pieces, else all)", "Q"),
+                ("Ends (selected pieces, else all)", "W"),
                 ("Balance", "Ctrl + Wheel"),
                 ("Balance, fine", "Ctrl + Shift + Wheel"),
                 ("Balance: 0, 0.5, 1", "B"),
                 ("Stretch Limit (fine: Ctrl)", "Alt + Wheel"),
                 ("Align", "G"),
-                ("Side straight / free", "LMB on a side"),
+                ("Select a piece / clear", "LMB on a face"),
+                ("Add / remove a piece", "Shift + LMB on a face"),
             ]),
             ("Picking", [
-                ("Pick cuts, break a ring, cut an island", "C"),
-                ("Cut a loop / one edge", "LMB / Alt + LMB"),
+                ("Cut / mend a loop, break a ring, cut an island", "LMB on an edge"),
+                ("Cut / mend one edge", "Ctrl + LMB"),
                 ("Pick lines to straighten", "V"),
                 ("Straighten a loop / one edge", "LMB / Alt + LMB"),
                 ("Corner of an island that is no strip", "LMB on its boundary"),
@@ -2608,15 +2895,15 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         if event.type == "TIMER":
             self._refine(context)
             return {"PASS_THROUGH"}
-        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:      # in every state, the pick modes too
+        if event.type in {"WHEELUPMOUSE", "WHEELDOWNMOUSE"}:      # in every state, V picking too
             # the plain wheel zooms the view; a modifier wheel steps an option
             return {"RUNNING_MODAL"} if self._wheel(context, event) else {"PASS_THROUGH"}
-        if getattr(self, "_picking", False) or getattr(self, "_align_picking", False):
-            # picking cuts or lines to straighten: LMB takes the loop (Alt: the edge) before the confirm
+        if getattr(self, "_align_picking", False):
+            # picking lines to straighten: LMB takes the line (Alt: the edge) before the confirm
             return self._pick_event(context, event)
 
-        if event.type == "MOUSEMOVE":
-            self._update_side_hover(context, event)
+        if event.type == "MOUSEMOVE" or event.type in {"LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT"}:
+            self._update_normal_hover(context, event)      # Ctrl: the one edge; Shift: the selection, never a cut
             return {"RUNNING_MODAL"}
         if event.type in NAVIGATION or event.type.startswith("NDOF"):
             return {"PASS_THROUGH"}
@@ -2630,10 +2917,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.mode = MODE_CYCLE[(MODE_CYCLE.index(self.mode) + 1) % len(MODE_CYCLE)]
         elif event.type == "A":
             self.orientation = "VERTICAL" if self.orientation == "HORIZONTAL" else "HORIZONTAL"
-        elif event.type == "Q":
-            self.straight_sides = SIDES_CYCLE[(SIDES_CYCLE.index(self.straight_sides) + 1) % len(SIDES_CYCLE)]
+        elif event.type == "Q":           # the selected pieces, else every piece
+            self._cycle_shape("SIDES")
         elif event.type == "W":
-            self.ends = ENDS_CYCLE[(ENDS_CYCLE.index(self.ends) + 1) % len(ENDS_CYCLE)]
+            self._cycle_shape("ENDS")
         elif event.type == "B":
             self.balance = next((b for b in BALANCE_JUMPS if b > self.balance + 1e-9), BALANCE_JUMPS[0])
         elif event.type == "LEFTMOUSE" and event.alt:      # a seed face, with Shift a guide face
@@ -2641,16 +2928,20 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if found is not None:
                 self._click_face(context, found[0], found[1], event.shift)
             return {"RUNNING_MODAL"}
-        elif event.type == "LEFTMOUSE":      # a corner, a side; anywhere else nothing happens (no confirm)
-            corner = self._hover_corner(context, event)
-            if corner is not None:
-                self._click_corner(context, *corner)
-                return {"RUNNING_MODAL"}
-            self._update_side_hover(context, event)
-            hover = getattr(self, "_side_hover", None)
-            if hover is not None:
-                self._click_side(context, *hover)
-                self._update_side_hover(context, event)
+        elif event.type == "LEFTMOUSE":
+            # first match: a corner; near an edge (not with Shift) the loop through it is cut or mended (Ctrl: the
+            # one edge); on a face its piece is selected (Shift: added or removed); over nothing the selection
+            # is cleared. Never the confirm.
+            self._update_normal_hover(context, event)
+            if self._corner_hover is not None:
+                self._click_corner(context, *self._corner_hover)
+            elif self._hover is not None:
+                self._click_cut_loop(context, self._hover[0], self._hover[1])
+            elif self._face_hover is not None:
+                self._click_select(*self._face_hover, toggle=bool(event.shift))
+            elif not event.shift:
+                self._selected = []
+            self._update_normal_hover(context, event)
             return {"RUNNING_MODAL"}
         elif event.type == "S":
             self.split_at_seams = not self.split_at_seams
@@ -2664,8 +2955,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             self.offset_seed += 1
         elif event.type == "G":
             self.shape_align = ALIGN_CYCLE[(ALIGN_CYCLE.index(self.shape_align) + 1) % len(ALIGN_CYCLE)]
-        elif event.type in {"C", "V"}:    # pick cuts (a ring's break among them) or lines to straighten
-            self._start_picking(context, event, event.type == "V")
+        elif event.type == "V":           # pick lines to straighten
+            self._start_picking(context, event)
             return {"RUNNING_MODAL"}
         elif event.type == "F":           # the preview is weld-aware: only the HUD and the confirm change
             self.merge_doubles = not self.merge_doubles
@@ -2730,72 +3021,93 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         self._snapshot = []
         self._hud = None
         self._help = None
-        self._picking = False
         self._align_picking = False
-        self._alt = False
+        self._single = False
         self._hover = None
-        self._side_hover = None
+        self._face_hover = None
+        self._corner_hover = None
+        self._selected = []
         self._pick_cache = {}
         self._picked_lines = ()
 
     def _status_text(self):
-        """The status bar: one short line, the pick modes' own while C or V is on."""
-        if getattr(self, "_picking", False):
-            return "Picking cut loops · LMB loop: cut / mend, break a ring · Alt + LMB: single edge · C / Esc: stop"
+        """The status bar: one short line, the pick mode's own while V is on."""
         if getattr(self, "_align_picking", False):
             return "Picking lines to straighten · LMB loop: straighten / free · Alt + LMB: single edge · V / Esc: stop"
         result = getattr(self, "_result", None)
         if result is not None and result.help:
-            return "LMB boundary vertex: corner · C: cut an island · Ctrl + Wheel: balance · Enter: confirm · Esc: cancel"
-        return "LMB side: straight/free · Ctrl + Wheel: balance · Tab: more · Enter: confirm · Esc: cancel"
+            return ("LMB boundary vertex: corner · LMB edge: cut the island · Ctrl + LMB: one edge · "
+                    "Enter: confirm · Esc: cancel")
+        return ("LMB face: select piece · Shift: add · LMB edge: cut / mend · Ctrl + LMB: one edge · "
+                "Q / W: selected, else all · Enter: confirm · Esc: cancel")
+
+    def _view_layers(self):
+        """The world-space lines the viewport draws, bottom to top: [(flat segment points, role, kind)], kind
+        "line" (drawn as its role is), "piece" (the outline of the piece a click changes) or "hover" (what is
+        under the cursor). Every width is the theme's own for the line's state.
+
+        Colours: cuts are the preview colour (the cuts made by hand, ring breaks, island cuts and Auto's tears),
+        straightened lines the error colour, the selection the active colour (the selected pieces and the
+        outline of the piece a click changes). The free sides are plain lines, the straight sides and the closed
+        pieces' outlines the closest colour. What is under the cursor is in the colour of what the click makes: a
+        cut in the preview colour, a line to straighten in the error colour, a pick the click takes back in the
+        locked colour. The selected pieces are outlined in the active colour at the theme's active width
+        ("selected"), the piece a click acts on (a cut, or a face to select) at its plain line width ("piece"). The tears and cuts lie over the sides: a cut across a
+        wide strip is the end of both its parts."""
+        result = getattr(self, "_result", None)
+        hover = getattr(self, "_hover", None)
+        face_hover = None if getattr(self, "_align_picking", False) else getattr(self, "_face_hover", None)
+        sides = dict(result.sides) if result is not None else {}
+
+        def listed(name):
+            return list(getattr(result, name)) if result is not None else []
+
+        helps = listed("help")
+        layers = [
+            ([p for side in sides.values() if not side.straight for p in side.points], Role.LINE, "line"),
+            ([p for side in sides.values() if side.straight for p in side.points], Role.CLOSEST_LINE, "line"),
+            (listed("outline"), Role.CLOSEST_LINE, "line"),                     # the closed pieces
+            (listed("stretched"), Role.LOCKED_LINE, "line"),
+            (listed("tears"), Role.PREVIEW_LINE, "line"),                      # the picked breaks and cuts too
+            (listed("cut_lines"), Role.PREVIEW_LINE, "line"),
+            (listed("straight_lines"), Role.ERROR_LINE, "line"),
+            (listed("skipped_tears"), Role.CLOSEST_LINE, "line"),
+            (listed("align_lines"), Role.CLOSEST_LINE, "line"),
+            ([p for item in helps for p in item.outline], Role.ERROR_LINE, "line"),
+            (listed("guide_lines"), Role.GHOST_EDGE, "line"),
+            (listed("seed_lines"), Role.HANDLE, "line"),
+        ]
+        for name, key in self._selected_pieces():
+            obj = bpy.data.objects.get(name)
+            if obj is not None and obj.type == "MESH":
+                layers.append((self._piece_outline(obj, key, self._faces_of(name, key)), Role.ACTIVE_LINE,
+                               "selected"))
+        if hover is not None:
+            role = Role.LOCKED_LINE if hover[3] else Role.ERROR_LINE if hover[4] else Role.PREVIEW_LINE
+            layers.append((list(getattr(self, "_hover_outline", ()) or ()), Role.ACTIVE_LINE, "piece"))
+            layers.append((list(hover[2]), role, "hover"))
+        elif face_hover is not None:
+            layers.append((list(getattr(self, "_face_outline", ()) or ()), Role.ACTIVE_LINE, "piece"))
+        return [layer for layer in layers if layer[0]]
 
     def _draw_view_callback(self, context):
-        """POST_VIEW: the world-space lines, dimmed where geometry hides them (``draw.edges_world``)."""
+        """POST_VIEW: the world-space lines (``_view_layers``), dimmed where geometry hides them
+        (``draw.edges_world``). The selection and hover lines are drawn opaque (``_vivid``: the theme keeps the
+        active and locked colours faint, for fills); every width is the theme's: the hover its role's, the selected
+        pieces the active width, the piece a click acts on the plain line width."""
         result = getattr(self, "_result", None)
-        cutting = getattr(self, "_picking", False)
-        picking = cutting or getattr(self, "_align_picking", False)
-        hover = getattr(self, "_hover", None) if picking else None
-        side_hover = None if picking else getattr(self, "_side_hover", None)
         try:
-            sides = dict(result.sides) if result is not None else {}
-            straight = [p for side in sides.values() if side.straight for p in side.points]
-            free = [p for side in sides.values() if not side.straight for p in side.points]
-            outline = list(result.outline) if result is not None else []          # the closed pieces
-            stretched = list(result.stretched) if result is not None else []
-            tears = list(result.tears) if result is not None else []   # the picked breaks and cuts are among them
-            skipped = list(result.skipped_tears) if result is not None else []
-            aligned = list(result.align_lines) if result is not None else []
-            cut = list(result.cut_lines) if result is not None else []
-            straightened = list(result.straight_lines) if result is not None else []
-            hovered = list(hover[2]) if hover is not None else []
-            # what a click on the hover does: a new cut drawn as the cuts are, a new straight line as those are, a
-            # pick taken back in the highlight colour
-            hover_role = Role.ACTIVE_LINE
-            if hover is not None:
-                hover_role = Role.CLOSEST_LINE if hover[3] else Role.PREVIEW_LINE if cutting else Role.ACTIVE_LINE
-            if side_hover is not None:
-                obj, piece, name = side_hover
-                record = sides.get((obj.name, piece, name))
-                hovered = list(record.points) if record is not None else []
-            # bottom to top: the free and the straight sides of the open pieces and the closed pieces' outlines,
-            # the stretched faces' edges, the tears (Auto's in the error colour, the cuts made by hand in the
-            # preview colour over them), the straightened lines, the skipped tears and the picked align edges in
-            # use, the loop, edge or side under the cursor. The tears lie under the sides (so a piece's end shows
-            # straight or free where the strip is torn), over them while picking cuts.
-            outlines = ((free, Role.LINE), (straight, Role.PREVIEW_LINE), (outline, Role.PREVIEW_LINE))
-            torn = ((tears, Role.ERROR_LINE), (cut, Role.PREVIEW_LINE))
-            layers = (*outlines, (stretched, Role.LOCKED_LINE), *torn) if cutting else \
-                (*torn, *outlines, (stretched, Role.LOCKED_LINE))
-            helps = list(result.help) if result is not None else []
-            outline_help = [p for item in helps for p in item.outline]
-            seeds = list(result.seed_lines) if result is not None else []
-            guides = list(result.guide_lines) if result is not None else []
-            layers = (*layers, (straightened, Role.ACTIVE_LINE), (skipped, Role.CLOSEST_LINE),
-                      (aligned, Role.CLOSEST_LINE), (outline_help, Role.ERROR_LINE),
-                      (guides, Role.GHOST_EDGE), (seeds, Role.HANDLE), (hovered, hover_role))
-            for points, role in layers:
-                if points:
+            theme = get_theme(context)
+            for points, role, kind in self._view_layers():
+                if kind == "line":
                     draw.edges_world(points, role=role, context=context)
+                elif kind == "piece":         # the piece a click acts on: the plain line width
+                    draw.edges_world(points, color=_vivid(theme, role), width="default", theme=theme)
+                elif kind == "selected":      # the selected pieces: the theme's active width
+                    draw.edges_world(points, color=_vivid(theme, role), width="active", theme=theme)
+                else:                         # what is under the cursor: its role's own width
+                    draw.edges_world(points, color=_vivid(theme, role), width=state_from_role(role), theme=theme)
+            helps = list(result.help) if result is not None else []
             for points, role in (([p for item in helps for p in item.candidates.values()], Role.POINT),
                                  ([p for item in helps for p in item.picked.values()], Role.ACTIVE_POINT),
                                  (list(result.guide_points) if result is not None else [], Role.LOCKED_POINT),
@@ -2822,8 +3134,6 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             pick = None
             if getattr(self, "_align_picking", False):
                 pick = "Picking lines to straighten · Alt: single edge · V to stop"
-            elif getattr(self, "_picking", False):
-                pick = "Picking cut loops · Alt: single edge · C to stop"
             hud.set_header(pick, count)
             notes = []
             if result is not None:

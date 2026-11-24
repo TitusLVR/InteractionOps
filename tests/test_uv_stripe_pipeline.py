@@ -553,3 +553,26 @@ def test_a_chamfered_rectangle_with_sides_longer_than_its_chamfers_gets_help():
 
     assert can_be_helped(*chamfered(4, 4)) and can_be_helped(*chamfered(12, 4))
     assert not can_be_helped(*_octagon_disc())
+
+
+# --- hand cuts: a line of cut edges is cut as it is, a lone edge along its cross path -------------------------
+
+def _grid(cols, rows):
+    verts = {y * (cols + 1) + x: (float(x), float(y), 0.0) for y in range(rows + 1) for x in range(cols + 1)}
+    faces = {y * cols + x: (y * (cols + 1) + x, y * (cols + 1) + x + 1, (y + 1) * (cols + 1) + x + 1,
+                            (y + 1) * (cols + 1) + x) for y in range(rows) for x in range(cols)}
+    return verts, faces
+
+
+def test_a_lone_hand_cut_edge_cuts_along_its_cross_path_and_a_line_of_them_as_it_is():
+    verts, faces = _grid(8, 3)                     # vertex (x, y) is y * 9 + x
+    lone = split_island(verts, faces, [(13, 22)])  # one edge across at x = 4: its whole cross path is cut
+    assert len(lone.parts) == 2
+    # a lengthwise line between rows 1 and 2 from x = 4 to the far end, its end on a cut across at x = 4: the line
+    # is cut as given (it does not run on to the near end), so it splits only the part beyond the cut across
+    across = [(4, 13), (13, 22), (22, 31)]
+    along = [(22, 23), (23, 24), (24, 25), (25, 26)]
+    split = split_island(verts, faces, across + along)
+    assert len(split.parts) == 3, [sorted(p) for p in split.parts]
+    sizes = sorted(len(p) for p in split.parts)
+    assert sizes == [4, 8, 12], sizes

@@ -287,17 +287,24 @@ def _main(parts, seed, guides) -> int:
 def split_island(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]], cuts=(), seed: int | None = None,
                  guides=(), skip=()) -> Split:
     """``faces`` (one island) cut into strips (module docstring). ``cuts`` are edges (vertex-id pairs) cut by
-    hand: each cuts along its cross path, or alone when it has none. No automatic cut runs along a cross path
+    hand: an edge that shares a vertex with another of them is part of a line cut by hand and is cut as it is; a
+    lone edge cuts along its cross path, or alone when it has none. No automatic cut runs along a cross path
     holding an edge of ``skip`` (automatic cuts taken back by hand). Raises ValueError("not a strip: ...")
     when some part cannot be cut into strips, with the reason of the first such part."""
     skip = frozenset(_edge(*e) for e in skip)
     adjacency = _adjacency(faces)
+    picked = {_edge(*e) for e in cuts}
+    picked = {e for e in picked if len(adjacency[0].get(e, ())) == 2}
+    uses: dict[int, int] = defaultdict(int)
+    for e in picked:
+        for v in e:
+            uses[v] += 1
     edges: set = set()
-    for e in cuts:
-        e = _edge(*e)
-        if len(adjacency[0].get(e, ())) != 2:
-            continue
-        edges.update(cross_path(faces, e, adjacency) or [e])
+    for e in picked:
+        if uses[e[0]] > 1 or uses[e[1]] > 1:      # on a line of cut edges: that line, as it is
+            edges.add(e)
+        else:
+            edges.update(cross_path(faces, e, adjacency) or [e])
     automatic = False
     auto: set = set()
     parts = []

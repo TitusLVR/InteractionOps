@@ -208,3 +208,34 @@ def trim_strip(cols=8, rows=3, width=1.0, height=0.5, taper=0.005, notch=0.3):
             a = i + j * (cols + 1)
             faces[len(faces)] = (a, a + 1, a + cols + 2, a + cols + 1)
     return verts, faces
+
+
+def fan_band(n=8, radii=(1.0, 1.3, 1.6, 1.9), sweep=120.0, pentagon=5):
+    """A flat C-shaped band round an arc, three faces wide, whose outer row is a fan (a reduced stand-in for a
+    user's wide strip): the inner three rings have ``n`` + 1 vertices (ring r, column i: vertex r * (n + 1) + i),
+    the outer rim twice as many columns (vertex 3 * (n + 1) + j, j = 0 .. 2n), so every outer column is a quad
+    and a triangle side by side (column ``pentagon`` one pentagon instead). Every vertex where the outer row meets
+    the middle one has five edges: no cross path (``uv_stripe_split_core.cross_path``) runs from rail to rail
+    through it. Returns (verts, faces) as {id: (x, y, z)}, {id: vertex ids}."""
+    a = math.radians(sweep)
+    verts = {}
+
+    def ring(r, count):
+        start = r * (n + 1)
+        for j in range(count + 1):
+            verts[start + j] = (radii[r] * math.cos(a * j / count), radii[r] * math.sin(a * j / count), 0.0)
+        return [start + j for j in range(count + 1)]
+
+    rings = [ring(r, n) for r in range(3)] + [ring(3, 2 * n)]
+    faces = []
+    for r in range(2):
+        for i in range(n):
+            faces.append((rings[r][i], rings[r][i + 1], rings[r + 1][i + 1], rings[r + 1][i]))
+    for i in range(n):
+        lo, hi = rings[2][i], rings[2][i + 1]
+        c, m, d = rings[3][2 * i], rings[3][2 * i + 1], rings[3][2 * i + 2]
+        if i == pentagon:
+            faces.append((lo, hi, d, m, c))
+        else:
+            faces += [(lo, hi, d, m), (lo, m, c)]
+    return verts, dict(enumerate(faces))

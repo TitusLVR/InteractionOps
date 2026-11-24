@@ -14,8 +14,9 @@ CASES = [
               ({"manual_cuts": '{"a": [1]}'}, "Manual Cuts"),
               ({"straight_lines": '{"a": [[0, 1]]}'}, "Straightened Lines"),
               ({"seed_faces": '{"a": [1]}'}, "Seed and Guide Faces")],
-        keys=["Q", "W", "Ctrl + Wheel", "Ctrl + Shift + Wheel", "B", "Alt + Wheel", "G", "LMB on a side", "C", "LMB",
-              "Alt + LMB", "V", "LMB on its boundary", "Alt + LMB on a face", "Shift + Alt + LMB", "E", "A", "D", "S",
-              "X", "Z", "Shift + Wheel", "R", "F", "Tab", "Enter", "Space", "Esc", "RMB"],
+        keys=["Q", "W", "Ctrl + Wheel", "Ctrl + Shift + Wheel", "B", "Alt + Wheel", "G", "LMB on a face",
+              "Shift + LMB on a face", "LMB on an edge", "Ctrl + LMB", "LMB", "Alt + LMB", "V", "LMB on its boundary",
+              "Alt + LMB on a face", "Shift + Alt + LMB", "E", "A", "D", "S", "X", "Z", "Shift + Wheel", "R", "F", "Tab",
+              "Enter", "Space", "Esc", "RMB"],
     ),
 ]
