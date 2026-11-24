@@ -56,7 +56,8 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 
 from .uv_stripe_core import (
-    CACHES, WELD, Strip, Vec3, _angle, ascending_rungs, strip_length, stripe_uvs, weld_tolerance, welded_angle,
+    CACHES, WELD, Strip, Vec3, _angle, ascending_rungs, real_vertex, stand_in, strip_length, stripe_uvs,
+    weld_tolerance, welded_angle,
 )
 
 TOL = 1e-9
@@ -205,21 +206,23 @@ def strip_from_faces(
     seed: int | None = None,
     start_face: int | None = None,
     end: frozenset | None = None,
+    cut=None,
 ) -> Strip:
     """``_strip_from_faces``, remembered: the same island at the same positions with the same arguments is read
     once (a refusal too), and every call gets its own copy (``copy_strip``)."""
     used = sorted({v for face in faces.values() for v in face})
+    cut = tuple(sorted(_edge(*e) for e in cut)) if cut else None
     try:
         key = (tuple(sorted(faces.items())), tuple((v, tuple(verts[v])) for v in used), seam_edge,
                frozenset(near) if near else None, tuple(corners) if corners is not None else None, seed, start_face,
-               frozenset(end) if end else None)
+               frozenset(end) if end else None, cut)
     except (KeyError, TypeError):
-        return _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end)
+        return _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end, cut)
     if key not in _BUILT:
         while len(_BUILT) >= _BUILT_SIZE:
             _BUILT.pop(next(iter(_BUILT)))
         try:
-            _BUILT[key] = _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end)
+            _BUILT[key] = _strip_from_faces(verts, faces, seam_edge, near, corners, seed, start_face, end, cut)
         except ValueError as exc:
             _BUILT[key] = exc
     found = _BUILT[key]
@@ -237,6 +240,7 @@ def _strip_from_faces(
     seed: int | None = None,
     start_face: int | None = None,
     end: frozenset | None = None,
+    cut=None,
 ) -> Strip:
     """The Strip of one edge-connected island of faces.
 
@@ -255,6 +259,11 @@ def _strip_from_faces(
     rungs are its shared edges in chain order. ``near`` (vertex ids) overrides the
     direction rule: the row holding more of them becomes the near row (v = 0); on a
     tie the direction rule decides.
+
+    A closed band several faces wide (two boundary loops, no ring of single faces) is cut open from one loop to
+    the other (``_band_cut``): along ``cut`` (edges, a seam line across it), else the cross path through
+    ``seam_edge`` (a picked break), else its wall seam as UV Pipe picks it; ``_open_band`` lays it out as one open
+    strip with the cut as its ends.
     """
     if not faces:
         raise ValueError("not a strip: no faces")
@@ -303,10 +312,15 @@ def _strip_from_faces(
         if len(loops) != 1:
             raise ValueError("not a strip: the chain of faces has a hole")
         return _seeded(_open_chain(verts, faces, edge_faces, nbrs, loops[0], near), start_face, near)
+    fan = False
     if degree[2] == m and m >= 3:
-        if len(loops) != 2:
+        if len(loops) == 2:
+            return _closed_chain(verts, faces, edge_faces, nbrs, loops, seam_edge, near)
+        if len(loops) != 1:
             raise ValueError("not a strip: the ring of faces has one boundary (twisted or pinched)")
-        return _closed_chain(verts, faces, edge_faces, nbrs, loops, seam_edge, near)
+        fan = True       # faces round an inner vertex (a fan): read as a patch below, else refused as a ring
+    if len(loops) == 2:
+        return _open_band(verts, faces, loops, _band_cut(verts, faces, loops, seam_edge, cut), near)
     if len(loops) != 1:
         raise ValueError("not a strip: the selection has a hole")
     uses = Counter(v for face in faces.values() for v in face)
@@ -316,8 +330,15 @@ def _strip_from_faces(
     if 2 <= len(corners) < 4:
         corners = _lost_corners(verts, faces, loops[0], corners, uses) or corners
     if len(corners) != 4:
+        if fan:
+            raise ValueError("not a strip: the ring of faces has one boundary (twisted or pinched)")
         raise ValueError(f"not a strip: the selection branches ({len(corners)} corners, a strip has 4)")
-    return _seeded(_grid_strip(verts, faces, loops[0], corners, near), start_face, near)
+    try:
+        return _seeded(_grid_strip(verts, faces, loops[0], corners, near), start_face, near)
+    except ValueError:
+        if fan:
+            raise ValueError("not a strip: the ring of faces has one boundary (twisted or pinched)") from None
+        raise
 
 
 def _seeded(strip: Strip, start_face: int | None, near_ids=None) -> Strip:
@@ -820,6 +841,174 @@ def _closed_chain(verts, faces, edge_faces, nbrs, loops, seam_edge=None, near_id
     strip.height = _mean_width(strip)
     if seam_edge is not None and _edge(*seam_edge) in rungs3d:
         strip.seam = 0     # the rows start at the seam rung
+    return strip
+
+
+BAND_LOOP_ANGLE = math.radians(120.0)    # the default cut of a wide closed band: UV Pipe's wall seam at its Loop Angle
+
+
+def band_cut_paths(faces: dict[int, tuple[int, ...]]) -> list[list[tuple[int, int]]]:
+    """The cross paths (``uv_stripe_split_core.cross_path``) of an island with two boundary loops that run from one
+    loop to the other: the lines a closed band several faces wide can be cut open along, each once, its edges
+    (sorted vertex-id pairs) in order from the loop holding the island's lowest boundary vertex; sorted. Empty for
+    an island with any other number of boundary loops."""
+    from .uv_stripe_split_core import _adjacency, cross_path
+
+    try:
+        loops = _boundary_loops(faces, _edge_faces(faces))
+    except ValueError:
+        return []
+    if len(loops) != 2:
+        return []
+    first = set(loops[0])
+    adjacency = _adjacency(faces)
+    edge_faces, vert_edges, _boundary = adjacency
+    seen, out = set(), []
+    for v in sorted(first):
+        for e in sorted(vert_edges[v]):
+            if len(edge_faces[e]) != 2:
+                continue
+            path = cross_path(faces, e, adjacency)
+            if path is None or frozenset(path) in seen:
+                continue
+            ends = _path_vertices(path)
+            if (ends[0] in first) == (ends[-1] in first):
+                continue
+            seen.add(frozenset(path))
+            out.append(path if ends[0] in first else path[::-1])
+    return sorted(out)
+
+
+def _path_vertices(path: list[tuple[int, int]]) -> list[int]:
+    """The vertices of a path of edges in order; raises ValueError when the edges are no simple path."""
+    if len(path) == 1:
+        return list(path[0])
+    count = Counter(v for e in path for v in e)
+    ends = sorted(v for v, c in count.items() if c == 1)
+    if len(ends) != 2 or any(c > 2 for c in count.values()):
+        raise ValueError("not a strip: the cut is not one line of edges")
+    adj: dict[int, list[int]] = defaultdict(list)
+    for a, b in path:
+        adj[a].append(b)
+        adj[b].append(a)
+    out, prev = [ends[0]], None
+    while len(out) <= len(path):
+        nxt = [w for w in adj[out[-1]] if w != prev]
+        if not nxt:
+            break
+        prev = out[-1]
+        out.append(nxt[0])
+    if len(out) != len(path) + 1:
+        raise ValueError("not a strip: the cut is not one line of edges")
+    return out
+
+
+def _band_cut(verts, faces, loops, seam_edge=None, cut=None) -> list[int]:
+    """The vertices of the line a closed band several faces wide is cut open along, from one boundary loop to the
+    other: ``cut`` (edges) when it is such a line of inner edges; else the cross path through ``seam_edge`` (a
+    vertex-id pair, a break picked on it); else the band's wall seam as UV Pipe picks it (``uv_pipe_core.wall_seam``
+    at ``BAND_LOOP_ANGLE``: the shortest line from loop to loop, a tie to the lowest position); else its first
+    cross path. Raises ValueError when there is none."""
+    from . import uv_pipe_core
+    from .uv_stripe_split_core import cross_path
+
+    edge_faces = _edge_faces(faces)
+    sets = [set(lp) for lp in loops]
+
+    def valid(path) -> list[int] | None:
+        if not path or any(len(edge_faces.get(_edge(*e), ())) != 2 for e in path):
+            return None
+        try:
+            ids = _path_vertices([_edge(*e) for e in path])
+        except ValueError:
+            return None
+        inner = ids[1:-1]
+        if any(v in sets[0] or v in sets[1] for v in inner):
+            return None
+        if not (ids[0] in sets[0] and ids[-1] in sets[1] or ids[0] in sets[1] and ids[-1] in sets[0]):
+            return None
+        return ids
+
+    for path in (list(cut) if cut else None, cross_path(faces, seam_edge) if seam_edge is not None else None):
+        ids = valid(path)
+        if ids is not None:
+            return ids
+    bounds = uv_pipe_core._boundaries(verts, faces)
+    if bounds is not None and len(bounds) == 2:
+        seam, _fallback = uv_pipe_core.wall_seam(verts, uv_pipe_core.Part("WALL", faces, bounds), BAND_LOOP_ANGLE)
+        if seam is not None:
+            ids = valid([_edge(a, b) for a, b in zip(seam.verts, seam.verts[1:])])
+            if ids is not None:
+                return ids
+    for path in band_cut_paths(faces):
+        ids = valid(path)
+        if ids is not None:
+            return ids
+    raise ValueError("not a strip: the selection has a hole")
+
+
+def _open_band(verts, faces, loops, path: list[int], near_ids=None) -> Strip:
+    """A closed band several faces wide cut open along ``path`` (vertex ids from one boundary loop to the other):
+    one open strip of all its faces whose rows are the two loops and whose ends are the two sides of the cut.
+
+    The faces on the left of the path (those holding its edges in their winding order, and the faces round each
+    of its vertices on that side) name the path's vertices by their stand-ins (``uv_stripe_core.stand_in``), at
+    the same positions, so the cut has a vertex of its own on each side. The near row (v = 0) is the loop a closed
+    ring would take (``_closed_chain``: the lower centroid, on a flat band the longer loop; ``near_ids`` override
+    it). ``Strip.cut_path`` holds the path's edges. Raises ValueError when the cut leaves no strip."""
+    edge_faces = _edge_faces(faces)
+    on_path = {_edge(a, b) for a, b in zip(path, path[1:])}
+    moved: dict[int, set] = defaultdict(set)
+    for i, p in enumerate(path):
+        a, b = (path[i], path[i + 1]) if i < len(path) - 1 else (path[i - 1], path[i])
+        left = [f for f in edge_faces[_edge(a, b)] if (a, b) in _face_edges(faces[f])]
+        if not left:
+            raise ValueError("not a strip: the faces' normals do not agree")
+        todo, fan = [left[0]], {left[0]}
+        while todo:
+            face = faces[todo.pop()]
+            k = face.index(p)
+            for e in (_edge(face[k - 1], p), _edge(p, face[(k + 1) % len(face)])):
+                if e in on_path:
+                    continue
+                for g in edge_faces[e]:
+                    if g not in fan:
+                        fan.add(g)
+                        todo.append(g)
+        for f in fan:
+            moved[f].add(p)
+    cut_faces = {fid: tuple(stand_in(v) if v in moved.get(fid, ()) else v for v in face)
+                 for fid, face in faces.items()}
+    cut_verts = dict(verts)
+    for p in path:
+        cut_verts[stand_in(p)] = verts[p]
+    cut_loops = _boundary_loops(cut_faces, _edge_faces(cut_faces))
+    if len(cut_loops) != 1:
+        raise ValueError("not a strip: the band cannot be cut open there")
+    loop = cut_loops[0]
+    corners = [path[0], stand_in(path[0]), path[-1], stand_in(path[-1])]
+    if any(c not in loop for c in corners):
+        raise ValueError("not a strip: the band cannot be cut open there")
+    pos = sorted(loop.index(c) for c in corners)
+    segs = [_walk(loop, pos[i], pos[(i + 1) % 4]) for i in range(4)]
+    on_cut = set(path) | {stand_in(p) for p in path}
+    r = 0 if set(segs[1]) <= on_cut and set(segs[3]) <= on_cut else 1
+    segs = segs[r:] + segs[:r]
+    strip = Strip(verts=cut_verts, faces=cut_faces, near=segs[0], far=segs[2][::-1], rungs=[], closed=False,
+                  height=0.0, sides=(segs[3][::-1][1:-1], segs[1][1:-1]), cut_path=tuple(sorted(on_path)))
+    strip.height = _mean_width(strip)
+    # the near row: the loop a closed ring of these faces would take
+    lens = [_length(verts, lp, closed=True) for lp in loops]
+    cents = [_centroid(verts, lp) for lp in loops]
+    first = _comes_first(cents[0], cents[1])
+    if first is None:
+        first = lens[0] >= lens[1] if abs(lens[0] - lens[1]) > TOL else _key(cents[0]) <= _key(cents[1])
+    near_i = 0 if first else 1
+    held = [_held(near_ids, lp) for lp in loops]
+    if held[0] != held[1]:
+        near_i = 0 if held[0] > held[1] else 1
+    if {real_vertex(v) for v in strip.near} != set(loops[near_i]):
+        strip = _swap_rows(strip)
     return strip
 
 

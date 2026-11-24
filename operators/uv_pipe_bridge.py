@@ -289,20 +289,25 @@ def _to_real_area(verts, part, uv: dict) -> dict:
 
 
 def _ring_uvs(verts, part, break_edge):
-    """A RING part as a straight strip (Even Rows): its UVs and the edge key its ring is cut at."""
-    strip = select_core.strip_from_faces(verts, part.faces, near=set(part.boundaries[0]) if part.boundaries else None)
+    """A RING part as a straight strip (Even Rows): its UVs and the edge keys its ring is cut at. A ring several
+    faces wide is cut open along a whole line across it (``Strip.cut_path``; the cross path through
+    ``break_edge`` when that is an edge of one), and every edge of that line is returned."""
+    near = set(part.boundaries[0]) if part.boundaries else None
+    strip = select_core.strip_from_faces(verts, part.faces, near=near)
+    if strip.cut_path and break_edge is not None:
+        strip = select_core.strip_from_faces(verts, part.faces, tuple(sorted(break_edge)), near=near)
     if not strip.closed:
         strip.layout = "EVEN"
-        return stripe_core.stripe_uvs(strip), None
+        return stripe_core.stripe_uvs(strip), set(strip.cut_path)
     if break_edge is not None:
         at = select_core.rungs_at(strip, [tuple(sorted(break_edge))])
         if at:
             opened = select_core.open_ring(strip, at[0])
             opened.layout = "EVEN"
-            return stripe_core.stripe_uvs(opened), opened.break_edge
+            return stripe_core.stripe_uvs(opened), {opened.break_edge}
     strip.layout = "EVEN"
     k = strip.seam if strip.seam is not None else stripe_core.sharpest_rung(strip)
-    return stripe_core.stripe_uvs(strip), select_core.rung_edge(strip, k)
+    return stripe_core.stripe_uvs(strip), {select_core.rung_edge(strip, k)}
 
 
 def _straight_seam_sides(verts, part, seam, uv: dict) -> dict:
@@ -371,8 +376,7 @@ def lay_out_parts(bm, analysis, verts, layout, *, mesh=None, meshes=()) -> list[
                     if layout == "QUADS" and not grid:
                         notice = QUADS_FALLBACK
             elif kind == "RING":
-                uv, cut = _ring_uvs(verts, part, analysis.breaks.get(i))
-                inner = {cut} if cut is not None else set()
+                uv, inner = _ring_uvs(verts, part, analysis.breaks.get(i))
             elif kind == "DISK":
                 uv = pipe.disk_uvs(verts, part)
         except (ValueError, KeyError, ZeroDivisionError) as exc:

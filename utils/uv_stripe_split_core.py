@@ -1,4 +1,4 @@
-"""UV Stripe: an island that is no strip, cut into strips; and the pieces of a cut island assembled into one strip.
+"""UV Stripe: an island that is no strip, cut into strips; each part is then laid out as its own strip.
 
 Pure Python (stdlib only), no bpy, so it runs under plain pytest.
 
@@ -20,8 +20,8 @@ The parts are put in strip order (``Split.parts``): the *main* part first, the
 one holding the seed face, else the most guide faces, else the most faces. When
 the cuts join the parts in a row (each part cut from at most two others) the row
 is followed from its end nearest the main part; otherwise (a branch) every other
-part follows the main one, nearest first. ``assemble`` lays the parts' UVs end to
-end along u on one band, each part starting where the one before it ended.
+part follows the main one, nearest first. Each part is its own strip (decided
+2026-11-24): the pieces are placed like any strips, not joined into one.
 """
 
 import math
@@ -36,7 +36,6 @@ from .uv_stripe_select_core import CAP_ANGLE, _boundary_loops, _edge_faces, _sur
 MAX_CUT_PATHS = 12      # at most this many concave cross paths are tried as automatic cuts
 MAX_CUT_SET = 3         # at most this many automatic cuts in one part
 GROUP_GAP = 1.2         # the four gaps between corner groups must be this much longer than any gap inside one
-BAND_TOLERANCE = 0.1    # a piece within this fraction of the band's height is stretched to it in v, else kept
 
 
 def _edge(a: int, b: int) -> tuple[int, int]:
@@ -56,6 +55,7 @@ class Split:
     exits: list = field(default_factory=list)
     cuts: set = field(default_factory=set)
     automatic: bool = False
+    auto_cuts: set = field(default_factory=set)    # the cut edges no hand-made cut asked for
 
 
 def _adjacency(faces):
@@ -207,6 +207,39 @@ def concave_paths(verts, faces) -> list[tuple[float, list[tuple[int, int]]]]:
     return out[:MAX_CUT_PATHS]
 
 
+BEND_TEAR_ANGLE = CAP_ANGLE     # a wide strip may be torn across where a rail turns within the surface by this
+
+
+def bend_paths(strip: Strip, angle: float = BEND_TEAR_ANGLE) -> list[list[tuple[int, int]]]:
+    """Where a strip several faces wide bends within its surface: its cross paths (``cross_path``) from one rail
+    to the other with an end at a rail vertex (not a corner) that turns within the surface
+    (``uv_stripe_select_core._surface_angle``) by more than ``angle``, either way. The sharpest bend first,
+    then by edges; each path once. Empty for a closed strip."""
+    if strip.closed:
+        return []
+    faces, verts = strip.faces, strip.verts
+    adjacency = _adjacency(faces)
+    edge_faces = adjacency[0]
+    corners = {strip.near[0], strip.near[-1], strip.far[0], strip.far[-1]}
+    near, far = set(strip.near) - corners, set(strip.far) - corners
+    turn = {}
+    for v in near | far:
+        turn[v] = abs(math.pi - _surface_angle(verts, faces, v))
+    seen, out = set(), []
+    for v in sorted(v for v in turn if turn[v] > angle):
+        for e in sorted(e for e in edge_faces if v in e and len(edge_faces[e]) == 2):
+            path = cross_path(faces, e, adjacency)
+            if path is None or frozenset(path) in seen:
+                continue
+            a, b = _path_ends(path)
+            if not (a in near and b in far or a in far and b in near):
+                continue
+            seen.add(frozenset(path))
+            out.append((max(turn[a], turn[b]), path))
+    out.sort(key=lambda x: (-round(x[0], 9), sorted(x[1])))
+    return [path for _score, path in out]
+
+
 def _reads(verts, part, seed) -> bool:
     try:
         strip_from_faces(verts, part, seed=seed if seed in part else None)
@@ -219,9 +252,10 @@ def _cut(faces, edges) -> list[dict]:
     return face_islands(faces, frozenset(edges))
 
 
-def _resolve(verts, part, seed, guides) -> tuple[list[dict], set] | None:
-    """The best automatic cut of ``part`` (module docstring): (its parts, the cut edges), or None."""
-    paths = concave_paths(verts, part)
+def _resolve(verts, part, seed, guides, skip=frozenset()) -> tuple[list[dict], set] | None:
+    """The best automatic cut of ``part`` (module docstring): (its parts, the cut edges), or None. A cross path
+    holding an edge of ``skip`` (an automatic cut taken back by hand) is never cut."""
+    paths = [(score, path) for score, path in concave_paths(verts, part) if not set(path) & skip]
     for size in range(1, min(MAX_CUT_SET, len(paths)) + 1):
         best = None
         for combo in combinations(range(len(paths)), size):
@@ -251,10 +285,12 @@ def _main(parts, seed, guides) -> int:
 
 
 def split_island(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]], cuts=(), seed: int | None = None,
-                 guides=()) -> Split:
+                 guides=(), skip=()) -> Split:
     """``faces`` (one island) cut into strips (module docstring). ``cuts`` are edges (vertex-id pairs) cut by
-    hand: each cuts along its cross path, or alone when it has none. Raises ValueError("not a strip: ...")
+    hand: each cuts along its cross path, or alone when it has none. No automatic cut runs along a cross path
+    holding an edge of ``skip`` (automatic cuts taken back by hand). Raises ValueError("not a strip: ...")
     when some part cannot be cut into strips, with the reason of the first such part."""
+    skip = frozenset(_edge(*e) for e in skip)
     adjacency = _adjacency(faces)
     edges: set = set()
     for e in cuts:
@@ -263,12 +299,13 @@ def split_island(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]], cuts
             continue
         edges.update(cross_path(faces, e, adjacency) or [e])
     automatic = False
+    auto: set = set()
     parts = []
     for part in _cut(faces, edges):
         if _reads(verts, part, seed):
             parts.append(part)
             continue
-        found = _resolve(verts, part, seed, guides)
+        found = _resolve(verts, part, seed, guides, skip)
         if found is None:
             try:
                 strip_from_faces(verts, part, seed=seed if seed in part else None)
@@ -277,8 +314,11 @@ def split_island(verts: dict[int, Vec3], faces: dict[int, tuple[int, ...]], cuts
             raise ValueError("not a strip: it cannot be cut into strips")
         parts.extend(found[0])
         edges |= found[1]
+        auto |= found[1]
         automatic = True
-    return _order(verts, faces, parts, edges, seed, guides, automatic)
+    out = _order(verts, faces, parts, edges, seed, guides, automatic)
+    out.auto_cuts = auto
+    return out
 
 
 def _order(verts, faces, parts, edges, seed, guides, automatic) -> Split:
@@ -357,48 +397,6 @@ def _end_holding(strip: Strip, cut) -> int | None:
     if max(hits) < 2 or hits[0] == hits[1]:
         return None
     return 0 if hits[0] > hits[1] else 1
-
-
-def assemble(pieces, entries, exits) -> tuple[dict, float, float]:
-    """One strip's UVs from the laid-out pieces of a cut island, in strip order: ``pieces`` holds (strip, uv by
-    (face id, vertex id), u extent, v extent), each laid out from (0, 0); ``entries`` / ``exits`` the cut
-    vertex sets joining each piece to the one before / after it (or None). Each piece is turned half round
-    (u to its length minus u, v to its height minus v, never mirrored) when that brings the end at its entry
-    cut to its start, or else the end at its exit cut to its far end; then it is shifted along u to start where
-    the piece before it ended, with its near rail on v = 0. A piece whose height is within ``BAND_TOLERANCE`` of
-    the first piece's is stretched in v to that height, so the band runs on unbroken; any other keeps its own.
-    Returns (uv, u extent, v extent)."""
-    out: dict = {}
-    band = pieces[0][3] if pieces else 0.0
-    start = 0.0
-    top = 0.0
-    for (strip, uv, length, height), entry, leave in zip(pieces, entries, exits):
-        turn = False
-        first_end = _first_end(strip, uv)
-        want = _end_holding(strip, entry)
-        if want is not None:
-            turn = want != first_end
-        else:
-            want = _end_holding(strip, leave)
-            if want is not None:
-                turn = want == first_end
-        scale = band / height if height > 0.0 and abs(height - band) <= BAND_TOLERANCE * band else 1.0
-        for key, (u, v) in uv.items():
-            if turn:
-                u, v = length - u, height - v
-            out[key] = (start + u, v * scale)
-        start += length
-        top = max(top, height * scale)
-    return out, start, top
-
-
-def _first_end(strip: Strip, uv) -> int:
-    """Which end of the open ``strip`` lies at the smaller u in ``uv``: 0 or 1."""
-    means = []
-    for end in _end_lists(strip):
-        us = [p[0] for (fid, vid), p in uv.items() if vid in end]
-        means.append(sum(us) / len(us) if us else 0.0)
-    return 0 if means[0] <= means[1] else 1
 
 
 def boundary_corners(verts, faces) -> tuple[list[int], list[int]]:

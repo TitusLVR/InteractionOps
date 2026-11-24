@@ -23,7 +23,9 @@ wide the island is torn along it, ``island_cuts``), Alt + LMB that one edge. On 
 strip one face wide the loop is the cross edge itself: on a closed ring with no break
 yet the click breaks it there (``cup_breaks``), and the ring is then laid out as one
 open strip from there; elsewhere the click removes that break, marks or unmarks a cut
-by hand (``manual_cuts``) or skips or restores one of Auto's tears (``skipped_cuts``).
+by hand (``manual_cuts``) or skips or restores one of Auto's tears (``skipped_cuts``). LMB on an
+automatic junction cut or on Auto's tear of a strip several faces wide (``_tear_wide``) takes it back the
+same way, and restores it.
 V picks lines to straighten (``straight_lines``): LMB the loop through the edge under
 the cursor, Alt + LMB that one edge; a line running along the strip is laid on one
 horizontal line in UV, one across it on one vertical line, under every Straight Sides
@@ -38,7 +40,7 @@ Shift: fine; B jumps 0 / 0.5 / 1): a step lays out at once on a warm, capped sol
 and a timer runs the cold one in slices once the wheel is still; Alt + Wheel is
 Stretch Limit, Shift + Wheel Offset Limit (with Random Offset on; else the view pans).
 An island no rule reads as one strip is cut automatically at its junctions and
-slits (``uv_stripe_split_core``) and its parts laid out as one strip; when that
+slits (``uv_stripe_split_core``), every part its own strip; when that
 fails but picked corners or a cut could help, the island waits: the interactive
 mode draws its boundary and corner candidates and asks for four corners (LMB near
 a boundary vertex, ``corner_picks``) or a cut (C on an inner edge, ``island_cuts``).
@@ -102,6 +104,12 @@ NAVIGATION = {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE", "TRACKPADPAN", "T
 
 _ACTIVE_HANDLES = set()
 
+# the tears ``_tear_wide`` chose for a strip (cross paths, () for none) by ``_tear_key``: a Balance step or a
+# relayout reuses them instead of trying again; forgotten with the cores' caches (``clear_caches``)
+_TEARS: dict = {}
+_TEARS_SIZE = 256
+uv_stripe_core.CACHES.append(_TEARS)
+
 
 def _purge_handles():
     """Remove any stale draw handlers left behind by a previous reload."""
@@ -140,16 +148,37 @@ def _build(piece, verts, seam_edge=None):
     return strip
 
 
-def _build_with(piece, verts, seam_edge=None, corners=None, seed=None, start=None, end=None):
-    """``_build`` with picked corners, a seed face, a start face and a cut to lie on an end
-    (``strip_from_faces``)."""
+def _build_with(piece, verts, seam_edge=None, corners=None, seed=None, start=None, end=None, cut=None):
+    """``_build`` with picked corners, a seed face, a start face, a cut to lie on an end and the line a closed band
+    several faces wide is cut open along (``strip_from_faces``)."""
     strip = uv_stripe_select_core.strip_from_faces(verts, piece, seam_edge, corners=corners, seed=seed,
-                                                   start_face=start, end=end)
+                                                   start_face=start, end=end, cut=cut)
     if uv_stripe_core.strip_length(strip) <= EPS:
         raise ValueError("the strip has no length")
     if strip.height <= EPS:
         raise ValueError("the strip has no width")
     return strip
+
+
+class _RealKeys(dict):
+    """A table keyed by sorted vertex-id pairs that also answers for a pair naming a vertex by its stand-in id
+    (``uv_stripe_core.stand_in``: a closed band cut open, ``uv_stripe_core.Strip.cut_path``), as for the pair of
+    the mesh vertices it stands for."""
+
+    def __missing__(self, key):
+        real = uv_stripe_core.real_pair(key)
+        if real == tuple(key):
+            raise KeyError(key)
+        return dict.__getitem__(self, real)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except (KeyError, TypeError, IndexError):
+            return default
+
+    def __contains__(self, key):
+        return self.get(key) is not None
 
 
 class _NeedsHelpError(ValueError):
@@ -203,8 +232,10 @@ LINE_AXIS_NAMES = ("ALONG", "ACROSS")    # a straightened line's axis as stored:
 
 
 def _parse_lines(text):
-    """``straight_lines`` as {object name: [(axis, [edge index, ...]), ...]} in order, the axis "ALONG" (a line
-    laid horizontal) or "ACROSS" (vertical); anything malformed reads as no line."""
+    """``straight_lines`` as {object name: [(axis, [edge index, ...], face index or None), ...]} in order, the axis
+    "ALONG" (a line laid horizontal) or "ACROSS" (vertical), the face the piece it was picked on holds (a line
+    is kept straight on that piece only; stored as ``[face]`` after the axis); anything malformed reads as no
+    line."""
     try:
         data = json.loads(text) if text else {}
     except ValueError:
@@ -215,19 +246,25 @@ def _parse_lines(text):
     def number(x):
         return isinstance(x, int) and not isinstance(x, bool)
 
+    def face(line):
+        tag = line[1] if len(line) > 1 else None
+        return tag[0] if isinstance(tag, list) and len(tag) == 1 and number(tag[0]) else None
+
     out = {}
     for name, lines in data.items():
         if not isinstance(lines, list):
             continue
-        out[str(name)] = [(LINE_AXIS_NAMES[line[0]], [i for i in line[1:] if number(i)]) for line in lines
+        out[str(name)] = [(LINE_AXIS_NAMES[line[0]], [i for i in line[1:] if number(i)], face(line)) for line in lines
                           if isinstance(line, list) and len(line) >= 2 and number(line[0]) and line[0] in (0, 1)
                           and any(number(i) for i in line[1:])]
     return out
 
 
 def _dump_lines(data):
-    """{object name: [(axis, [edge index, ...]), ...]} as the JSON ``straight_lines`` holds; "" for none."""
-    data = {name: [[LINE_AXIS_NAMES.index(axis), *indices] for axis, indices in lines if indices]
+    """{object name: [(axis, [edge index, ...], face index or None), ...]} as the JSON ``straight_lines`` holds;
+    "" for none."""
+    data = {name: [[LINE_AXIS_NAMES.index(line[0]), *([[line[2]]] if len(line) > 2 and line[2] is not None else []),
+                    *line[1]] for line in lines if line[1]]
             for name, lines in data.items()}
     data = {name: lines for name, lines in data.items() if lines}
     return json.dumps(data, sort_keys=True) if data else ""
@@ -282,6 +319,13 @@ class _Result:
     stretched_faces: int = 0      # laid-out faces whose UVs stretch them beyond the tolerance
     # per object name: {edge index: ring number} for every cross edge of a selected closed ring (a break pick)
     rings: dict = field(default_factory=dict)
+    # per object name: {edge index: the edge indices of its cross path} for every cross path of a selected closed
+    # band several faces wide, the lines its break can be picked on (C)
+    band_paths: dict = field(default_factory=dict)
+    # per object name: {edge index: the edge indices of its cross path} for every automatic tear of a wide strip
+    # and every automatic junction cut made (``auto_tears``) or taken back by hand (``auto_skipped``)
+    auto_tears: dict = field(default_factory=dict)
+    auto_skipped: dict = field(default_factory=dict)
     # per object name, sets of edge indices: every cross edge of a laid-out strip (a cut pick), the cross edges
     # Auto tore the strips at, and the seams Split at Seams tore them at
     cross: dict = field(default_factory=dict)
@@ -323,6 +367,7 @@ class _Result:
     # the cuts made by hand (``cut_lines``) and of the straightened lines (``straight_lines``), drawn while the
     # operator runs.
     pick_pieces: dict = field(default_factory=dict)
+    pick_faces: dict = field(default_factory=dict)      # per object name {face index: its open piece's record}
     edge_index: dict = field(default_factory=dict)      # per object name ({vertex-id pair: edge index}, the reverse)
     cut_loops: dict = field(default_factory=dict)
     help_edges: dict = field(default_factory=dict)
@@ -376,17 +421,15 @@ class _Side:
     points: list
 
 
-def _collect_stretched(result, bm, pieces, matrix, units=()):
+def _collect_stretched(result, bm, pieces, matrix):
     """Count the laid-out faces their final UVs stretch and keep the world-space segments of their edges, each
-    edge once. An open piece placed as it was laid out (no unit, ``units``: its stretch does not change with a
-    turn, a shift or one scale) takes its stretch from the measure its layout was chosen by
+    edge once. An open piece (its stretch does not change with a turn, a shift or one scale) takes its stretch from the measure its layout was chosen by
     (``uv_stripe_auto_core.measure``, remembered); any other face is measured on its final UVs
     (``uv_stripe_bridge.stretched_faces``)."""
-    in_unit = {i for unit in units for i in unit[0]}
     stretched, measure_now = [], []
     for n, (strip, piece_faces) in enumerate(pieces):
         known = None
-        if n not in in_unit and not strip.closed:
+        if not strip.closed:
             try:
                 known = uv_stripe_auto_core.measure(strip, (strip.layout, strip.rails, strip.ends), strip.balance)[0]
             except ValueError:
@@ -504,7 +547,8 @@ def _collect_preview(result, pieces, matrix):
             ends = (matrix @ e.verts[0].co, matrix @ e.verts[1].co)
             if strip.closed and linked.count(n) == 1:
                 result.outline.extend(ends)
-            ring_cut = bool(cut) and {v.index for v in e.verts} == cut
+            key = tuple(sorted(v.index for v in e.verts))
+            ring_cut = bool(cut) and set(key) == cut or key in strip.cut_path
             between = len(set(linked)) > 1 and n == min(linked)     # each tear once
             if ring_cut or between:
                 result.tears.extend(ends)
@@ -525,7 +569,8 @@ def _collect_picks(result, bm, obj, pieces, edge_of, vertical, island_of):
         return
     records = result.pick_pieces.setdefault(obj.name, {})
     along_k = 0 if vertical else 1          # the UV coordinate a line along the strip shares
-    index_of = {key: e.index for key, e in edge_of.items()}
+    index_of = _RealKeys((key, e.index) for key, e in edge_of.items())
+    by_face = result.pick_faces.setdefault(obj.name, {})
     for strip, faces in pieces:
         if strip.closed:
             continue
@@ -542,11 +587,12 @@ def _collect_picks(result, bm, obj, pieces, edge_of, vertical, island_of):
         record = {"strip": strip, "pos": pos, "tol": PICK_LINE_TOL * size, "index_of": index_of,
                   "island": next((island_of.get(fid) for fid in strip.faces), None),
                   "wide": uv_stripe_balance_core.is_wide(strip), "adjacency": None}
-        for face in strip.faces.values():
+        for fid, face in strip.faces.items():
+            by_face[fid] = record
             for a, b in zip(face, face[1:] + face[:1]):
                 index = index_of.get((min(a, b), max(a, b)))
                 if index is not None:
-                    records.setdefault(index, record)
+                    records.setdefault(index, record)       # the first piece; the face under the cursor decides
 
 
 def _spread_in(pos, vertices, k) -> float:
@@ -785,17 +831,15 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
     def _pieces(self, island, verts, picked, seam_cuts, breaks=frozenset(), rings=None,
                 manual=frozenset(), skipped=frozenset(), cross=None, bends=None, align_edges=(), side_picks=(),
-                guide=None):
-        """The laid-out pieces of one island as ([(strip, faces by id)], warning, unit, note); raises ValueError,
+                guide=None, bands=None):
+        """The laid-out pieces of one island as ([(strip, faces by id)], warning, note); raises ValueError,
         ``_NeedsHelpError`` for an island picked corners or a cut could make strips of.
 
         ``guide`` (``_Guide``) holds what was picked to read islands with: the island's picked corners (four
         make it a patch with those corners), its cut edges (it is cut along their cross paths,
         ``uv_stripe_split_core.split_island``), its seed face (the start of its strip; at a branch, the main
         run) and its guide faces. An island no rule reads as one strip is cut automatically at its junctions
-        and slits when it can be; the parts of a cut island come back as one ``unit`` (piece indices in strip
-        order, entry and exit cut vertex sets) for ``uv_stripe_bridge.finish_stripes`` to lay out as one strip,
-        and ``note`` says what was done.
+        and slits when it can be; every part of a cut island is its own strip, and ``note`` says what was done.
 
         The whole island is built and torn where Auto tears it and at the seams inside it
         that are its rungs. An island that is no strip as a whole, one with a seam inside it
@@ -806,6 +850,11 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         picked breaks) is opened there as one piece instead, its seams and bends not
         tearing it (``uv_stripe_bridge.prepare_strip``). ``rings`` (a list) gets the rung
         edges of an island that is a closed ring: the edges a break can be picked on.
+        A closed band several faces wide is cut open from one boundary loop to the other: along the cross path
+        through its picked break (an edge among ``breaks`` on one of its cross paths), else along the seams
+        inside it when they are one line from loop to loop (Split at Seams), else along its wall seam as UV Pipe
+        picks it (``uv_stripe_select_core.strip_from_faces``); ``bands`` (a list) gets its cross paths (each a
+        list of vertex-id pairs), the lines a break can be picked on, and ``rings`` all their edges.
         The rungs among ``manual`` (vertex-id pairs, cut by hand) tear the strip, or each
         part, also on an opened ring; Auto's tears at rungs among ``skipped`` are not
         made. ``cross`` (a set) gets the rung edges of the laid-out strip or parts, the
@@ -842,6 +891,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         except ValueError as exc:
             strip = None
             refusal = exc
+        if strip is not None and strip.cut_path:
+            strip, inner = self._band(island, verts, seed, strip, inner, breaks, rings, bands)
         if strip is None and not inner:
             return self._auto_split(island, verts, picked, refusal, seed, guides, (
                 manual, skipped, cross, bends, align_edges, side_picks))
@@ -859,7 +910,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 # a strip that could not be torn at its seams (a side fanning round one rail vertex has no
                 # row of its own) is split at them by faces instead, below; failing that it stays whole
                 if whole[1] is None or picked_break is not None or not inner:
-                    return (*done(whole, whole_marks), None, None)
+                    return (*done(whole, whole_marks), None)
         if not inner:
             _build(island, verts)          # raises the island's own reason
         out, reasons, failed = [], [], None
@@ -878,35 +929,232 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if reason:
                 reasons.append(reason)
         if whole is not None and (failed or not out):
-            return (*done(whole, whole_marks), None, None)
+            return (*done(whole, whole_marks), None)
         if not out:
             raise ValueError(failed)
         if failed:
             reasons.append(f"a part between the seams is skipped: {failed}")
-        return (*done((out, (reasons[0] if reasons else None)), part_marks), None, None)
+        return (*done((out, (reasons[0] if reasons else None)), part_marks), None)
+
+    def _band(self, island, verts, seed, strip, inner, breaks, rings, bands):
+        """A closed band several faces wide (``strip``: cut open at its default line) cut open where it should be,
+        as ``_pieces`` says: (the strip, the seams inside it still to tear it at)."""
+        paths = uv_stripe_select_core.band_cut_paths(island)
+        if bands is not None:
+            bands.append(paths)
+        if rings is not None:
+            rings.append([e for path in paths for e in path])
+        picked = next((path for path in paths if set(path) & set(breaks)), None)
+        if picked is not None:      # the picked break wins over a seam line across the band: that line is not cut
+            on_paths = {e for path in paths for e in path}
+            return _build_with(island, verts, start=seed, cut=picked), {e for e in inner if e not in on_paths}
+        if inner:
+            try:
+                along = _build_with(island, verts, start=seed, cut=sorted(inner))
+            except ValueError:
+                along = None
+            if along is not None and set(along.cut_path) == set(inner):
+                return along, set()
+        return strip, inner
 
     def _lay_strip(self, strip, picked, cuts=(), break_edge=None, manual=frozenset(), skipped=frozenset(),
-                   align_edges=(), side_picks=()):
+                   align_edges=(), side_picks=(), tear=True):
         """``prepare_strip`` with the hand-made cuts and the lines picked straight on the object being laid out
-        (``_picked_lines``, set by ``_lay_out``); (its result, (rung edges, bend tear edges))."""
+        (``_picked_lines``, set by ``_lay_out``); (its result, (rung edges, bend tear edges)). A strip several
+        faces wide that its layout strains (``_strained``) is torn where it bends within its surface first
+        (``_tear_wide``, with ``tear``); a strip whose tears are decided already (``_TEARS``: a Balance step, a
+        relayout) is laid out torn at once, without laying it out whole first."""
+        args = (picked, manual, skipped, align_edges, side_picks)
+        if tear and not cuts and break_edge is None:
+            key = self._tear_key(strip, skipped, side_picks)
+            kept = _TEARS.get(key) if key is not None else None
+            if kept:
+                torn = self._torn(strip, kept, *args)
+                if torn is not None:
+                    self._hold_tears(strip, kept, skipped)
+                    return torn
+        laid, marks = self._lay_strip_once(strip, picked, cuts, break_edge, manual, skipped, align_edges, side_picks)
+        if tear and not cuts and break_edge is None:
+            torn = self._tear_wide(strip, laid, *args)
+            if torn is not None:
+                laid, marks = torn
+        return laid, marks
+
+    def _strained(self, pieces, side_picks=()):
+        """Whether a laid-out piece of ``pieces`` (strip, faces) is not laid out as asked: Stretch Limit relaxed
+        a rail it was asked to keep straight, or a face stretches beyond Stretch Limit."""
+        for strip, _faces in pieces:
+            if strip.closed:
+                continue
+            try:
+                want = uv_stripe_auto_core.picked_shape(
+                    strip, uv_stripe_auto_core.default_shape(strip, self.straight_sides, self.ends), side_picks)[0]
+            except ValueError:
+                return True
+            if uv_stripe_auto_core.laid_shape(strip).rails != want.rails:
+                return True
+        return _pieces_worst(pieces) > self.stretch_limit + 1e-6
+
+    def _tear_key(self, strip, skipped, side_picks):
+        """What decides the tears of ``strip`` (``_tear_wide``): the strip with its vertex positions, the settings
+        that change them and the picks on it; not Balance, so a Balance step reuses the decision. None for a strip never torn so."""
+        if strip.closed or self.straight_sides == "NONE":
+            return None
+        edges = {(min(a, b), max(a, b)) for face in strip.faces.values() for a, b in zip(face, face[1:] + face[:1])}
+        used = sorted({v for face in strip.faces.values() for v in face})
+        return (tuple(sorted(strip.faces.items())), tuple((v, tuple(strip.verts[v])) for v in used), tuple(strip.near), tuple(strip.far), tuple(strip.sides[0]),
+                tuple(strip.sides[1]), self.straight_sides, self.ends, round(self.stretch_limit, 9),
+                frozenset(e for e in skipped if e in edges), tuple(side_picks),
+                tuple(sorted((line[0], tuple(sorted(line[1])), *line[2:]) for line in getattr(self, "_picked_lines", ()))))
+
+    def _hold_tears(self, strip, kept, skipped):
+        """Offer the tears of ``strip`` to the interactive mode (``_auto_paths``): those made (``kept``) and the
+        bends taken back by hand (a cross path holding an edge of ``skipped``)."""
+        held = getattr(self, "_auto_paths", None)
+        if held is None:
+            return
+        for path in uv_stripe_split_core.bend_paths(strip):
+            if set(path) & set(skipped):
+                held.append((path, False))
+        held.extend((path, True) for path in kept)
+
+    def _tear_parts(self, strip, chosen):
+        """The parts of ``strip`` torn along the cross paths ``chosen``, each built with its tears as its ends
+        (``uv_stripe_split_core.along_cuts``); None when a part is no strip or nothing is torn off."""
+        edges = frozenset(e for p in chosen for e in p)
+        parts = uv_stripe_select_core.face_islands(strip.faces, edges)
+        if len(parts) < 2:
+            return None
+        out = []
+        for part in parts:
+            inside = {v for face in part.values() for v in face}
+            sets = [frozenset(v for e in p for v in e) for p in chosen if {v for e in p for v in e} <= inside]
+            try:
+                piece = _build_with(part, strip.verts)
+                corners = uv_stripe_split_core.along_cuts(strip.verts, part, piece, sets) if sets else None
+                if corners is not None:
+                    piece = _build_with(part, strip.verts, corners=corners, end=frozenset().union(*sets))
+            except ValueError:
+                return None
+            out.append(piece)
+        return out
+
+    def _torn(self, strip, chosen, picked, manual, skipped, align_edges, side_picks):
+        """``strip`` torn along ``chosen`` and every part laid out (``_lay_strip`` without tearing again):
+        ((pieces, reason), (rung edges, bend tear edges)), or None when it cannot be torn there."""
+        parts = self._tear_parts(strip, chosen)
+        if parts is None:
+            return None
+        out, reasons, marks = [], [], ([], [])
+        for piece in parts:
+            try:
+                (pieces, reason), part_marks = self._lay_strip(piece, picked, (), None, manual, skipped, align_edges,
+                                                               side_picks, tear=False)
+            except ValueError:
+                return None
+            out += pieces
+            marks[0].extend(part_marks[0])
+            marks[1].extend(part_marks[1])
+            if reason:
+                reasons.append(reason)
+        return (out, reasons[0] if reasons else None), marks
+
+    def _fits(self, parts) -> bool:
+        """Whether every torn part (built strips) lays out straight within Stretch Limit by the cheap straight-row
+        layouts (``uv_stripe_auto_core.best_straight``: "TRUE" with free ends, the straight ones with ends
+        upright); no balanced solve is run for it."""
+        layouts = ("TRUE",) if self.ends in ("SLANTED", "AUTO") else uv_stripe_auto_core.STRAIGHT_LAYOUTS
+        for piece in parts:
+            best = uv_stripe_auto_core.best_straight(dataclasses.replace(piece, lines=()), layouts)
+            if best is None or max(best[1], default=1.0) > self.stretch_limit + 1e-6:
+                return False
+        return True
+
+    def _tear_wide(self, strip, laid, picked, manual, skipped, align_edges, side_picks):
+        """``strip`` (several faces wide) torn across where it bends within its surface
+        (``uv_stripe_split_core.bend_paths``), when its own layout (``laid``) is strained (``_strained``): tearing
+        comes before stretching, and stretching before the bent shape. The bends whose cross path holds an edge
+        of ``skipped`` (taken back by hand) are not torn. Every bend that leaves parts that are strips is torn
+        (all at once when that works, else one by one); when the parts then do not lay out straight within
+        Stretch Limit by the cheap straight-row layouts (``_fits``) the strip is not torn at all (it stretches
+        instead). Otherwise a tear is mended again while the parts still fit without it, so the strip is torn
+        into as few pieces as keep it within Stretch Limit. Only the tears chosen are laid out in full. The
+        decision is kept (``_TEARS``, ``_tear_key``) so a Balance step or a relayout does not try again. Each part
+        keeps its tears as its ends. Returns ((pieces, reason), (rung edges, bend tear edges) of the parts), or
+        None when nothing is torn. The bends torn and those taken back by hand go to ``_auto_paths``."""
+        key = self._tear_key(strip, skipped, side_picks)
+        if key is None or not uv_stripe_balance_core.is_wide(strip):
+            return None
+        torn = None
+        if key in _TEARS:
+            kept = _TEARS[key]
+        else:
+            if not self._strained(laid[0], side_picks):
+                return None            # not remembered: a Balance step may strain it, and then it is tried
+            kept = self._choose_tears(strip, skipped)
+            if kept:                   # the cheap layouts said the parts fit: the real layout must agree
+                torn = self._torn(strip, kept, picked, manual, skipped, align_edges, side_picks)
+                if torn is None or self._strained(torn[0][0], side_picks):
+                    kept, torn = (), None
+            while len(_TEARS) >= _TEARS_SIZE:
+                _TEARS.pop(next(iter(_TEARS)))
+            _TEARS[key] = kept
+        self._hold_tears(strip, kept, skipped)
+        if not kept:
+            return None
+        return torn or self._torn(strip, kept, picked, manual, skipped, align_edges, side_picks)
+
+    def _choose_tears(self, strip, skipped):
+        """The bends ``_tear_wide`` tears ``strip`` at (cross paths), or () for none."""
+        active = [path for path in uv_stripe_split_core.bend_paths(strip) if not set(path) & set(skipped)]
+        if not active:
+            return ()
+        kept = list(active)
+        if self._tear_parts(strip, kept) is None:
+            kept = []
+            for path in active:
+                if self._tear_parts(strip, kept + [path]) is not None:
+                    kept.append(path)
+        parts = self._tear_parts(strip, kept) if kept else None
+        if parts is None or not self._fits(parts):
+            return ()
+        changed = True
+        while changed and len(kept) > 1:
+            changed = False
+            for path in list(kept):
+                rest = [p for p in kept if p is not path]
+                parts = self._tear_parts(strip, rest)
+                if parts is not None and self._fits(parts):
+                    kept = rest
+                    changed = True
+                    break
+        return tuple(kept)
+
+    def _lay_strip_once(self, strip, picked, cuts=(), break_edge=None, manual=frozenset(), skipped=frozenset(),
+                        align_edges=(), side_picks=()):
+        """``prepare_strip`` on ``strip`` as ``_lay_strip`` calls it, without the tears of a wide strip."""
         torn = []
+        lines = getattr(self, "_picked_lines", ())
+        if strip.cut_path:       # a line along a cut-open band holds the stand-ins of its vertices on the cut too
+            lines = tuple((line[0], line[1] | {uv_stripe_core.stand_in(v) for v in line[1]} if line[0] == "ALONG"
+                           else line[1], *line[2:]) for line in lines)
         laid = uv_stripe_bridge.prepare_strip(
             strip, picked, self.straight_sides, self.ends, cuts, break_edge=break_edge,
             manual_cuts=uv_stripe_select_core.rungs_at(strip, manual),
             skip_cuts=uv_stripe_select_core.rungs_at(strip, skipped), bend_tears=torn,
             align=self.shape_align, align_edges=align_edges, stretch_limit=self.stretch_limit,
-            balance=self.balance, side_picks=side_picks, lines=getattr(self, "_picked_lines", ()))
+            balance=self.balance, side_picks=side_picks, lines=lines)
         return laid, ([uv_stripe_select_core.rung_edge(strip, k) for k in range(len(strip.rungs))], torn)
 
     def _lay_split(self, split, verts, picked, seed, lay_args, island=None):
         """The parts of ``split`` (``uv_stripe_split_core.Split``) built and laid out in strip order, the main
-        part from ``seed``: ([(strip, faces by id)], warning, unit). A part with a cut on one of its rails is read
+        part from ``seed``: ([(strip, faces by id)], warning), each piece its own strip. A part with a cut on one of its rails is read
         with its cuts as its ends instead (``uv_stripe_split_core.along_cuts``: a part cut off across the strip
         near an end) when the cut runs across the strip the whole ``island`` reads as (rail to rail), or runs
         from a rail to an end and that reading stretches its worst face less; a cut along the strip (end to end)
         leaves each part its own rails. Raises ValueError when a part is no strip."""
         manual, skipped, cross, bends, align_edges, side_picks = lay_args
-        out, reasons, unit = [], [], ([], [], [])
+        out, reasons = [], []
         whole = None
         if island is not None:
             try:
@@ -950,44 +1198,59 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 bends.extend(marks[1])
             if reason:
                 reasons.append(reason)
-            for j, piece in enumerate(pieces):
-                unit[0].append(len(out))
-                unit[1].append(split.entries[k] if j == 0 else None)
-                unit[2].append(split.exits[k] if j == len(pieces) - 1 else None)
-                out.append(piece)
-        return out, (reasons[0] if reasons else None), unit
+            out.extend(pieces)
+        return out, (reasons[0] if reasons else None)
 
     def _auto_split(self, island, verts, picked, refusal, seed, guides, lay_args):
         """An island no rule reads as one strip: cut automatically at its junctions and slits
         (``uv_stripe_split_core.split_island``, the seed face or the mesh's active face picking the main run)
-        and laid out as one unit; raises ``_NeedsHelpError`` when it cannot be and picked corners or a cut could
+        and each part laid out as its own strip; raises ``_NeedsHelpError`` when it cannot be and picked corners or a cut could
         help, else the island's own reason."""
         active = getattr(self, "_active_face", None)
         main = seed if seed is not None else (active if active in island else None)
+        skipped = lay_args[1]
         try:
-            split = uv_stripe_split_core.split_island(verts, island, (), main, guides)
+            split = uv_stripe_split_core.split_island(verts, island, (), main, guides, skip=skipped)
             laid = self._lay_split(split, verts, picked, main, lay_args, island)
         except ValueError as exc:
+            self._note_junctions(verts, island, None, skipped)
             if _helpable(verts, island, refusal):
                 raise _NeedsHelpError(str(refusal)) from exc
             raise ValueError(str(refusal)) from exc
+        self._note_junctions(verts, island, split, skipped)
         note = f"an island that branches is cut at {len(split.parts) - 1} junction(s) into {len(split.parts)} strips"
-        return laid[0], laid[1], laid[2], note
+        return laid[0], laid[1], note
+
+    def _note_junctions(self, verts, island, split, skipped):
+        """Offer the automatic junction cuts of ``island`` to the interactive mode (``_auto_paths``): the cross
+        paths ``split`` cut automatically, and the concave cross paths taken back by hand (an edge in ``skipped``),
+        so a click mends the one and restores the other."""
+        held = getattr(self, "_auto_paths", None)
+        if held is None:
+            return
+        auto = set(split.auto_cuts) if split is not None else set()
+        for _score, path in uv_stripe_split_core.concave_paths(verts, island):
+            if set(path) & set(skipped):
+                held.append((path, False))
+            elif set(path) <= auto:
+                held.append((path, True))
 
     def _guided(self, island, verts, picked, corners, hand_cuts, seed, guides, lay_args):
         """An island read with what was picked on it: four picked corners make it one patch with them; cut
-        edges cut it along their cross paths (automatic cuts added where a part is still no strip), the parts
-        laid out as one unit. Raises ``_NeedsHelpError`` while that is not enough."""
+        edges cut it along their cross paths (automatic cuts added where a part is still no strip), each part
+        laid out as its own strip. Raises ``_NeedsHelpError`` while that is not enough."""
         manual, skipped, cross, bends, align_edges, side_picks = lay_args
         if hand_cuts:
             try:
-                split = uv_stripe_split_core.split_island(verts, island, hand_cuts, seed, guides)
+                split = uv_stripe_split_core.split_island(verts, island, hand_cuts, seed, guides, skip=skipped)
                 laid = self._lay_split(split, verts, picked, seed, lay_args, island)
             except ValueError as exc:
+                self._note_junctions(verts, island, None, skipped)
                 raise _NeedsHelpError(str(exc)) from exc
+            self._note_junctions(verts, island, split, skipped)
             note = (f"an island is cut by hand into {len(split.parts)} strips" if len(split.parts) > 1 else
                     "a picked cut runs along no line of edges across the island: it does not cut it")
-            return laid[0], laid[1], laid[2], note
+            return laid[0], laid[1], note
         if len(corners) != 4:
             raise _NeedsHelpError(f"{len(corners)} of four corners picked")
         try:
@@ -1000,7 +1263,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             cross.update(marks[0])
         if bends is not None:
             bends.extend(marks[1])
-        return pieces, reason, None, "an island is read with the picked corners"
+        return pieces, reason, "an island is read with the picked corners"
 
     def _collect_help(self, result, obj, island, verts, edge_of, guide, reason):
         """Record an island waiting for help (``_Help``): its boundary, its corner candidates and picked corners
@@ -1073,8 +1336,9 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                             if 0 <= i < len(bm.verts)]
             held_faces = {name: [bm.faces[i] for i in stored_index[name].get(obj.name, ()) if 0 <= i < len(bm.faces)]
                           for name in ("seed_faces", "guide_faces")}
-            held_lines = [(axis, [bm.edges[i] for i in indices if 0 <= i < len(bm.edges)])
-                          for axis, indices in stored_lines.get(obj.name, ())]
+            held_lines = [(axis, [bm.edges[i] for i in indices if 0 <= i < len(bm.edges)],
+                           bm.faces[face] if face is not None and 0 <= face < len(bm.faces) else None)
+                          for axis, indices, face in stored_lines.get(obj.name, ())]
             found = self._merge_doubles(bm, obj, merge)
             if merge:
                 result.merged += found
@@ -1089,9 +1353,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             align_edges = pairs["align_edges"]          # in order: a piece takes the first one in it
             side_picks = [(f.index, tuple(sorted(v.index for v in e.verts)), straight)
                           for f, e, straight in held_sides if f.is_valid and e.is_valid]
-            lines = [(axis, frozenset(v.index for e in edges if e.is_valid for v in e.verts))
-                     for axis, edges in held_lines]
-            self._picked_lines = tuple((axis, vs) for axis, vs in lines if len(vs) >= 2)
+            lines = [(axis, frozenset(v.index for e in edges if e.is_valid for v in e.verts),
+                      face.index if face is not None and face.is_valid else None)
+                     for axis, edges, face in held_lines]
+            self._picked_lines = tuple(line for line in lines if len(line[1]) >= 2)
             guide = _Guide([v.index for v in held_corners if v.is_valid], set(pairs["island_cuts"]),
                            [f.index for f in held_faces["seed_faces"] if f.is_valid],
                            [f.index for f in held_faces["guide_faces"] if f.is_valid])
@@ -1110,21 +1375,23 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     for e in f.edges
                     if e.seam and sum(g.index in picked for g in e.link_faces) == 2
                 }
-            strips, contexts, pieces, rings, cross, bends, units = [], [], [], [], set(), [], []
+            strips, contexts, pieces, rings, cross, bends, bands = [], [], [], [], set(), [], []
             active_face = bm.faces.active if self.mode == "ACTIVE" else None
             mesh_active = bm.faces.active
             self._active_face = mesh_active.index if mesh_active is not None and mesh_active.index in picked else None
+            self._auto_paths = []      # (path, torn) of every automatic tear offered, for C (``_tear_wide``)
             island_of = result.island_of.setdefault(obj.name, {})
             cuttable = result.cuttable.setdefault(obj.name, set())
             cuttable.update(e.index for e in held["island_cuts"] if e.is_valid)     # a cut made can be undone
-            edge_of = {tuple(sorted(v.index for v in e.verts)): e for f in picked.values() for e in f.edges}
+            edge_of = _RealKeys((tuple(sorted(v.index for v in e.verts)), e) for f in picked.values() for e in f.edges)
             islands = uv_stripe_select_core.face_islands(ids)
             for number, island in enumerate(islands):
                 for fid in island:
                     island_of[fid] = number
                 try:
-                    laid, warning, unit, note = self._pieces(island, verts, picked, seam_cuts, breaks, rings, manual,
-                                                             skipped, cross, bends, align_edges, side_picks, guide)
+                    laid, warning, note = self._pieces(island, verts, picked, seam_cuts, breaks, rings, manual,
+                                                             skipped, cross, bends, align_edges, side_picks, guide,
+                                                             bands)
                 except _NeedsHelpError as exc:
                     self._collect_help(result, obj, island, verts, edge_of, guide, str(exc))
                     continue
@@ -1136,8 +1403,6 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                     result.warnings.append(f"UV Stripe: not split ({warning})")
                 if note:
                     result.split.append(note)
-                if unit is not None and len(unit[0]) > 1:
-                    units.append(([len(pieces) + k for k in unit[0]], unit[1], unit[2]))
                 for strip, _faces in laid:
                     if uv_stripe_balance_core.is_wide(strip) and not strip.closed:
                         cuttable.update(e.index for e in _inner_edges(strip.faces, edge_of))
@@ -1149,6 +1414,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if rings:
                 result.rings[obj.name] = {edge_of[key].index: n for n, ring in enumerate(rings)
                                           for key in ring if key in edge_of}
+            band_paths = result.band_paths.setdefault(obj.name, {})
+            for paths in bands:        # LMB on any edge of a band's cross path moves its break there
+                for path in paths:
+                    indices = tuple(edge_of[key].index for key in path if key in edge_of)
+                    for i in indices:
+                        band_paths[i] = indices
             result.cross[obj.name] = {edge_of[key].index for key in cross if key in edge_of}
             result.bend_tears[obj.name] = {edge_of[key].index for key in bends if key in edge_of}
             result.seam_tears[obj.name] = {edge_of[key].index for key in seam_cuts if key in edge_of}
@@ -1156,10 +1427,32 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 e = edge_of.get(key)
                 if e is not None:
                     result.skipped_tears.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
+            # the automatic tears of wide strips and the automatic junction cuts: LMB (C) takes one back or
+            # restores it; a taken-back one is drawn as a skipped tear
+            made, undone = result.auto_tears.setdefault(obj.name, {}), result.auto_skipped.setdefault(obj.name, {})
+            drawn = set()
+            for path, active in self._auto_paths:
+                indices = tuple(edge_of[key].index for key in path if key in edge_of)
+                if not indices:
+                    continue
+                for i in indices:
+                    (made if active else undone)[i] = indices
+                if not active and indices not in drawn:
+                    drawn.add(indices)
+                    for key in path:
+                        e = edge_of.get(key)
+                        if e is not None:
+                            result.skipped_tears.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
+            for i in set(made) & set(undone):          # offered both ways (one part torn, another not): torn wins
+                undone.pop(i)
             # the cuts made by hand and the straightened lines, drawn also on an object whose islands all wait for
             # help; the islands and their cuts kept for the cut loops C offers (``_cut_loop``)
             ring_edges = {key for ring in rings for key in ring}
-            hand = [key for key in sorted((manual & cross) | (breaks & ring_edges)) if key in edge_of]
+            band_edges = {key for paths in bands for path in paths for key in path}
+            hand = [key for key in sorted((manual & cross) | (breaks & (ring_edges - band_edges))) if key in edge_of]
+            for strip, _faces in pieces:          # a band's picked break: the whole line it is cut open along
+                if strip.cut_path and set(strip.cut_path) & breaks:
+                    hand += [key for key in strip.cut_path if key in edge_of]
             loops = result.cut_loops.setdefault(obj.name, {})
             island_cuts = {}
             for key in sorted(guide.cuts):          # an island cut: along its cross path, as ``split_island`` cuts
@@ -1174,12 +1467,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 for p in path:           # LMB on any edge of a cut mends the whole cut
                     loops[edge_of[p].index] = tuple(edge_of[q].index for q in path)
             result.islands[obj.name] = (islands, verts, island_cuts)
-            index_of = {key: e.index for key, e in edge_of.items()}
+            index_of = _RealKeys((key, e.index) for key, e in edge_of.items())
             result.edge_index[obj.name] = (index_of, {i: key for key, i in index_of.items()})
             for key in dict.fromkeys(hand):
                 e = edge_of[key]
                 result.cut_lines.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
-            for _axis, edges in held_lines:
+            for _axis, edges, _face in held_lines:
                 for e in edges:
                     if e.is_valid and tuple(sorted(v.index for v in e.verts)) in edge_of:
                         result.straight_lines.extend((matrix @ e.verts[0].co, matrix @ e.verts[1].co))
@@ -1196,7 +1489,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             holds_active = any(active_face is not None and faces.get(active_face.index) is active_face
                                for _s, faces in pieces)
             fitted = uv_stripe_bridge.finish_stripes(
-                bm, pieces, contexts, [0] * len(strips), uv_stripe_bridge.StripeSettings.from_operator(self), units)
+                bm, pieces, contexts, [0] * len(strips), uv_stripe_bridge.StripeSettings.from_operator(self))
             result.fitted |= fitted
             result.unfitted |= holds_active and not fitted
             _collect_preview(result, pieces, matrix)
@@ -1209,10 +1502,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 return want
 
             _collect_sides(result, obj, pieces, edge_of, matrix, asked)
-            _collect_stretched(result, bm, pieces, matrix, units)
+            _collect_stretched(result, bm, pieces, matrix)
             _collect_guides(result, bm, guide, matrix)
             _collect_picks(result, bm, obj, pieces, edge_of, self.orientation == "VERTICAL", island_of)
-            result.done += len(strips) - sum(len(unit[0]) - 1 for unit in units)
+            result.done += len(strips)
         result.refining = uv_stripe_balance_core.pending() > 0
         if self.mode == "ACTIVE" and result.done and (result.unfitted or not result.fitted):
             result.infos.append(uv_stripe_bridge.ACTIVE_FALLBACK)
@@ -1329,9 +1622,30 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return {}
         if getattr(self, "_align_picking", False):
             return {name: set(table) for name, table in result.pick_pieces.items()}
-        names = set(result.cross) | set(result.cuttable) | set(result.cut_loops) | set(result.pick_pieces)
+        names = set(result.cross) | set(result.cuttable) | set(result.cut_loops) | set(result.pick_pieces) \
+            | set(result.band_paths) | set(result.auto_tears) | set(result.auto_skipped)
         return {name: set(result.cross.get(name, ())) | set(result.cuttable.get(name, ()))
-                | set(result.cut_loops.get(name, ())) | set(result.pick_pieces.get(name, ())) for name in names}
+                | set(result.cut_loops.get(name, ())) | set(result.pick_pieces.get(name, ()))
+                | set(result.band_paths.get(name, ())) | set(result.auto_tears.get(name, ()))
+                | set(result.auto_skipped.get(name, ())) for name in names}
+
+    def _record(self, name, index):
+        """The open piece's record (``_collect_picks``) edge ``index`` of object ``name`` is picked on: the piece
+        holding the face under the cursor (``_hover_face``) when it has the edge (an edge a strip is torn at lies
+        in two pieces), else the first piece holding it; None for an edge of no open piece."""
+        result = getattr(self, "_result", None)
+        if result is None:
+            return None
+        record = result.pick_pieces.get(name, {}).get(index)
+        face = getattr(self, "_hover_face", None)
+        under = result.pick_faces.get(name, {}).get(face) if face is not None else None
+        if under is not None and under is not record:
+            keys = result.edge_index.get(name, ({}, {}))[1]
+            key = keys.get(index)
+            if key is not None and any(uv_stripe_core.real_pair((a, b)) == key for f in under["strip"].faces.values()
+                                       for a, b in zip(f, f[1:] + f[:1])):
+                return under
+        return record
 
     def _straight_record(self, name, index):
         """What V would straighten at edge ``index`` of object ``name``, worked out on demand from its piece's
@@ -1345,11 +1659,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         if result is None:
             return None
         cache = result.straight_picks.setdefault(name, {})
-        if index in cache:
-            return cache[index]
-        record = result.pick_pieces.get(name, {}).get(index)
+        record = self._record(name, index)
+        slot = (index, id(record))
+        if slot in cache:
+            return cache[slot]
         if record is None:
-            cache[index] = None
+            cache[slot] = None
             return None
         strip, pos, tol, index_of = record["strip"], record["pos"], record["tol"], record["index_of"]
         if record["adjacency"] is None:
@@ -1380,7 +1695,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 k = 1 if axis == "ALONG" else 0
                 found["loop"] = (axis, indices, _spread_in(pos, vertices, k) <= tol,
                                  uv_stripe_balance_core.pick_allowed(strip, axis, vertices))
-        cache[index] = found
+        cache[slot] = found
         return found
 
     def _chain_frame(self, strip):
@@ -1413,11 +1728,12 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         if result is None:
             return None
         cache = result.cut_picks.setdefault(name, {})
-        if index in cache:
-            return cache[index]
-        cache[index] = None
+        record = self._record(name, index)
+        slot = (index, id(record))
+        if slot in cache:
+            return cache[slot]
+        cache[slot] = None
         islands, verts, made = result.islands.get(name, ([], {}, {}))
-        record = result.pick_pieces.get(name, {}).get(index)
         number = result.help_edges.get(name, {}).get(index)
         helping = number is not None
         if not helping and (record is None or not record["wide"]):
@@ -1445,13 +1761,17 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             if not (ends[0] in near and ends[1] in far or ends[0] in far and ends[1] in near):
                 return None
         try:
-            split = uv_stripe_split_core.split_island(verts, island, set(made.get(number, ())) | set(path))
+            if helping:
+                uv_stripe_split_core.split_island(verts, island, set(made.get(number, ())) | set(path))
+            else:     # the piece it lies on, cut there, must still read as strips without an automatic cut
+                split = uv_stripe_split_core.split_island(record["strip"].verts, dict(record["strip"].faces),
+                                                          set(path))
+                if split.automatic:
+                    return None
         except ValueError:
             return None
-        if not helping and split.automatic:
-            return None
-        cache[index] = tuple(index_of[p] for p in path if p in index_of)
-        return cache[index]
+        cache[slot] = tuple(index_of[p] for p in path if p in index_of)
+        return cache[slot]
 
     def _pick_target(self, name, index):
         """What a click on edge ``index`` of object ``name`` acts on in the current pick mode: (the edge indices,
@@ -1469,8 +1789,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return None
         alt = getattr(self, "_alt", False)
         if getattr(self, "_align_picking", False):
-            held = [i for _axis, line in _parse_lines(getattr(self, "straight_lines", "")).get(name, ())
-                    if index in line for i in line]
+            record = self._record(name, index)
+            own = set(record["strip"].faces) if record is not None else set()
+            held = [i for _axis, line, face in _parse_lines(getattr(self, "straight_lines", "")).get(name, ())
+                    if index in line and (face is None or face in own or not own) for i in line]
             if held:
                 return tuple(dict.fromkeys(held)), True, None
             found = self._straight_record(name, index)
@@ -1491,7 +1813,17 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return tuple(edges), False, axis
         if index in result.seam_tears.get(name, ()):
             return None
-        stored = {name_: set(indices) for name_, indices in _parse_breaks(getattr(self, "island_cuts", "")).items()}
+        band_path = result.band_paths.get(name, {}).get(index)
+        if not alt and band_path is not None:     # a closed band: its break moves to the cross path, or is taken back
+            breaks = set(_parse_breaks(getattr(self, "cup_breaks", "")).get(name, ()))
+            return band_path, bool(breaks & set(band_path)), None
+        auto = result.auto_tears.get(name, {}).get(index)
+        if not alt and auto is not None:          # an automatic tear or junction cut: LMB takes it back
+            return auto, False, None
+        auto = result.auto_skipped.get(name, {}).get(index)
+        if not alt and auto is not None:          # one taken back: LMB restores it
+            return auto, True, None
+        stored ={name_: set(indices) for name_, indices in _parse_breaks(getattr(self, "island_cuts", "")).items()}
         loop = result.cut_loops.get(name, {}).get(index)
         if not alt and loop is not None:
             return tuple(loop), bool(stored.get(name, set()) & set(loop)), None
@@ -1531,6 +1863,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         bm.faces.ensure_lookup_table()
         if not 0 <= face_index < len(bm.faces):
             return None
+        self._hover_face = face_index      # the piece a pick acts on, where an edge lies in two (``_record``)
         edges = [e for e in bm.faces[face_index].edges
                  if e.index in pickable and self._pick_target(obj.name, e.index) is not None]
         if not edges:
@@ -1636,6 +1969,26 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return None
         loop, mends, _axis = target
         result = getattr(self, "_result", None) or _Result()
+        if not getattr(self, "_alt", False) and edge_index in result.band_paths.get(obj.name, {}):
+            if not mends:
+                return "break" if self._set_break(context, obj, edge_index) else None
+            breaks = _parse_breaks(getattr(self, "cup_breaks", ""))
+            breaks[obj.name] = [i for i in breaks.get(obj.name, []) if i not in loop]
+            self.cup_breaks = _dump_edges(breaks)
+            self._relayout(context)
+            return "unbreak"
+        if not getattr(self, "_alt", False) and (edge_index in result.auto_tears.get(obj.name, {})
+                                                 or edge_index in result.auto_skipped.get(obj.name, {})):
+            data = _parse_breaks(getattr(self, "skipped_cuts", ""))
+            indices = data.get(obj.name, [])
+            if mends:
+                action, indices = "restore", [i for i in indices if i not in loop]
+            else:
+                action, indices = "skip", indices + [i for i in loop if i not in indices]
+            data[obj.name] = indices
+            self.skipped_cuts = _dump_edges(data)
+            self._relayout(context)
+            return action
         if getattr(self, "_alt", False) or (edge_index in result.cross.get(obj.name, ())
                                             and edge_index not in result.cut_loops.get(obj.name, {})):
             return self._click_cut(context, obj, edge_index)
@@ -1688,9 +2041,15 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         align_before = getattr(self, "_align_before", None)
         data = _parse_lines(getattr(self, "straight_lines", ""))
         lines = data.get(name, [])
+        record = self._record(name, edge_index)
+        own = set(record["strip"].faces) if record is not None else set()
+
+        def mine(line):
+            return edge_index in line[1] and (line[2] is None or line[2] in own or not own)
+
         if remove:
-            gone = [indices for _a, indices in lines if edge_index in indices]
-            data[name] = [(a, indices) for a, indices in lines if edge_index not in indices]
+            gone = [line[1] for line in lines if mine(line)]
+            data[name] = [line for line in lines if not mine(line)]
             for i in {i for indices in gone for i in indices}:
                 if i in _parse_breaks(getattr(self, "align_edges", "")).get(name, ()):
                     self._set_align_edge(name, i, remove=True)
@@ -1698,7 +2057,10 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                 self.shape_align, self._align_before = align_before, None
             action = "remove"
         else:
-            data[name] = lines + [(axis, list(edges))]
+            face = getattr(self, "_hover_face", None)
+            if record is not None and face not in record["strip"].faces:
+                face = min(f for f in record["strip"].faces if f >= 0) if record["strip"].faces else None
+            data[name] = lines + [(axis, list(edges), face)]
             if self.straight_sides == "NONE":
                 if not _parse_breaks(getattr(self, "align_edges", "")) and align_before is None:
                     self._align_before = self.shape_align
@@ -1721,7 +2083,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         """Whether the last layout keeps the line ``edges`` (edge indices, ``axis``) of object ``name`` straight on
         the piece holding edge ``edge_index`` without squashing any of its faces (every face's stretch finite)."""
         result = getattr(self, "_result", None)
-        record = result.pick_pieces.get(name, {}).get(edge_index) if result is not None else None
+        record = self._record(name, edge_index) if result is not None else None
         if record is None:
             return False
         keys = result.edge_index.get(name, ({}, {}))[1]

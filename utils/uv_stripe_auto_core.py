@@ -21,7 +21,7 @@ import math
 from dataclasses import dataclass, replace
 
 from .uv_stripe_balance_core import DEFAULT_BALANCE, balance_value, folded_faces, is_wide, line_key, start_end
-from .uv_stripe_core import CACHES, STRETCH_TOLERANCE, Strip, align_edge_in, face_stretch, lay_piece
+from .uv_stripe_core import CACHES, STRETCH_TOLERANCE, Strip, align_edge_in, face_stretch, lay_piece, real_pair
 from .uv_stripe_select_core import bend_cut_rungs, slice_strip
 
 AUTO_ANGLE = math.radians(0.5)
@@ -126,6 +126,17 @@ def piece_sides(strip: Strip) -> dict[str, list[tuple[tuple[int, int], int]]]:
     return out
 
 
+def _picked_side(sides, fid: int, edge) -> str | None:
+    """The side (``piece_sides``) a pick of edge ``edge`` (mesh vertex ids) beside face ``fid`` lies on: the side
+    whose edge is that edge of that face, its vertices by their stand-ins on a cut-open band
+    (``uv_stripe_core.real_pair``: both sides of the cut are one mesh edge), else any side with that edge."""
+    edge = tuple(sorted(edge))
+    for name, edges in sides.items():
+        if any(owner == fid and real_pair(key) == edge for key, owner in edges):
+            return name
+    return next((name for name, edges in sides.items() if any(key == edge for key, _owner in edges)), None)
+
+
 def picked_shape(strip: Strip, shape: Shape, picks=()) -> tuple[Shape, bool]:
     """``shape`` with the sides picked on ``strip`` set: ``picks`` holds (face id, sorted vertex-id pair,
     straight) in order, and a pick whose face is one of the piece's and whose edge lies on one of its sides
@@ -134,11 +145,10 @@ def picked_shape(strip: Strip, shape: Shape, picks=()) -> tuple[Shape, bool]:
     sides = piece_sides(strip)
     if not sides:
         return shape, False
-    where = {edge: name for name, edges in sides.items() for edge, _fid in edges}
     values = {name: getattr(shape, name) for name in SIDE_NAMES}
     rails = False
     for fid, edge, straight in picks:
-        name = where.get(tuple(sorted(edge)))
+        name = _picked_side(sides, fid, edge)
         if fid not in strip.faces or name is None:
             continue
         values[name] = bool(straight)
@@ -538,8 +548,8 @@ def lay_shaped(piece: Strip, straight_sides: str = "BOTH", ends: str = "SLANTED"
 def ends_picked(strip: Strip, picks=()) -> bool:
     """Whether one of ``picks`` (as ``picked_shape`` reads them) sets an end of ``strip``."""
     sides = piece_sides(strip)
-    ends = {edge for name in ("end0", "end1") for edge, _fid in sides.get(name, ())}
-    return any(fid in strip.faces and tuple(sorted(edge)) in ends for fid, edge, _straight in picks)
+    return any(fid in strip.faces and _picked_side(sides, fid, edge) in ("end0", "end1")
+               for fid, edge, _straight in picks)
 
 
 _RAIL_SIDES = {"BOTH": (True, True), "NEAR": (True, False), "FAR": (False, True), "NONE": (False, False)}

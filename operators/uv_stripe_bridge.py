@@ -19,7 +19,6 @@ from ..utils import uv_stripe_auto_core as auto_core
 from ..utils import uv_stripe_balance_core as balance_core
 from ..utils import uv_stripe_core as core
 from ..utils import uv_stripe_select_core as select_core
-from ..utils import uv_stripe_split_core as split_core
 
 
 @dataclass
@@ -129,7 +128,6 @@ def apply_stripes(
     active: int | None = None,
     active_fit: str = "BOTH",
     offset: tuple[str, float, int] = ("NONE", 0.0, 0),
-    units=None,
 ) -> bool:
     """Lay every strip out and write its UVs onto its faces' corners in the active UV layer.
 
@@ -171,47 +169,8 @@ def apply_stripes(
     maps = [core.stripe_uvs(s) for s in strips]
     lengths = [core.strip_extent(s) for s in strips]
     heights = [core.strip_v_extent(s) for s in strips]
-    maps, lengths, heights, contexts, fit_groups, active = assemble_units(
-        strips, maps, lengths, heights, contexts, fit_groups, active, units)
     return apply_maps(bm, maps, lengths, heights, faces, mode, contexts, fit_groups, vertical, active, active_fit,
                       offset)
-
-
-def assemble_units(strips, maps, lengths, heights, contexts, fit_groups, active, units):
-    """The laid-out strips with every unit joined into one strip (``uv_stripe_split_core.assemble``): ``units``
-    holds (strip indices in strip order, entry cut vertex sets, exit cut vertex sets), one per island cut into
-    pieces; every strip in no unit stays as it is. A unit is placed as one piece: the context and Fit group of
-    its first strip, the active index moved to the unit holding the active strip. Returns (maps, lengths,
-    heights, contexts, fit groups, active) in placement order: every unit where its first strip was."""
-    if not units:
-        return maps, lengths, heights, contexts, fit_groups, active
-    lead = {}
-    member = set()
-    for unit in units:
-        indices = list(unit[0])
-        if len(indices) < 2:
-            continue
-        lead[indices[0]] = unit
-        member.update(indices)
-    out = ([], [], [], [], [], None)
-    for i in range(len(strips)):
-        if i in member and i not in lead:
-            continue
-        if i in lead:
-            indices, entries, exits = lead[i]
-            uv, length, height = split_core.assemble(
-                [(strips[k], maps[k], lengths[k], heights[k]) for k in indices], list(entries), list(exits))
-            holds = active in indices
-        else:
-            uv, length, height, holds = maps[i], lengths[i], heights[i], active == i
-        if holds:
-            out = (*out[:5], len(out[0]))
-        out[0].append(uv)
-        out[1].append(length)
-        out[2].append(height)
-        out[3].append(contexts[i])
-        out[4].append(fit_groups[i])
-    return out
 
 
 def apply_maps(
@@ -272,6 +231,9 @@ def apply_maps(
     if layer is None:
         layer = bm.loops.layers.uv.new("UVMap")
     for uv in placed:
+        # a cut-open band names the vertices of its cut by stand-in ids on one side (``core.real_vertex``); a face
+        # holds a vertex once, so its corner is still found
+        uv = {(fid, core.real_vertex(vid)): co for (fid, vid), co in uv.items()}
         for fid in dict.fromkeys(fid for fid, _vid in uv):
             for lp in faces[fid].loops:
                 co = uv.get((fid, lp.vert.index))
@@ -324,11 +286,16 @@ class ShapeRules:
                                       self.picks)[0]
 
     def lines_in(self, piece: core.Strip) -> tuple:
-        """The picked lines as ``piece`` holds them: each cut down to the piece's own vertices, kept when two or
-        more are left."""
+        """The picked lines as ``piece`` holds them: a line picked on a piece (with the id of a face of it, a
+        third item) only on the piece holding that face; each cut down to the piece's own vertices, kept when two
+        or more are left."""
         used = {v for face in piece.faces.values() for v in face}
         out = []
-        for axis, vertices in self.lines:
+        for line in self.lines:
+            axis, vertices = line[0], line[1]
+            owner = line[2] if len(line) > 2 else None
+            if owner is not None and owner not in piece.faces:
+                continue
             kept = frozenset(vertices) & used
             if len(kept) >= 2:
                 out.append((axis, kept))
@@ -413,12 +380,13 @@ def prepare_strip(
     shape what to run along; each piece aligns on its own, "PICKED" on the first of
     ``align_edges`` (vertex-id pairs) that is an edge of its faces, "AUTO" when none is.
 
-    ``lines`` ((axis, vertex ids), ``uv_stripe_core.Strip.lines``) are the lines picked straight: every piece
+    ``lines`` ((axis, vertex ids[, the id of a face of the piece it was picked on]), ``uv_stripe_core.Strip.lines``)
+    are the lines picked straight (``ShapeRules.lines_in``): every piece
     keeps those of its vertices on one shared v ("ALONG") or u ("ACROSS") through every shape Stretch Limit
     relaxes it to.
     """
     rules = ShapeRules(straight_sides, ends, stretch_limit, balance, tuple(side_picks), align, tuple(align_edges),
-                       tuple((axis, frozenset(vs)) for axis, vs in lines))
+                       tuple((line[0], frozenset(line[1]), *line[2:]) for line in lines))
     broken = None
     if break_edge is not None and strip.closed:
         cut_edges = [select_core.rung_edge(strip, k) for k in manual_cuts]
@@ -438,7 +406,8 @@ def match_piece_seams(pieces) -> None:
 
     Marked: every edge with one face in its piece, a closed strip's cut rung (the
     seam ``uv_stripe_core.stripe_uvs`` opens it at) and an opened ring's
-    ``break_edge``, when that rung is an edge of its faces. Cleared: every other edge
+    ``break_edge``, when that rung is an edge of its faces, and the line a closed band
+    several faces wide is cut open along (``Strip.cut_path``). Cleared: every other edge
     with both its faces in one piece, so a seam the strip was laid across goes. Edges
     outside the pieces are not touched.
     """
@@ -454,9 +423,11 @@ def match_piece_seams(pieces) -> None:
             k = strip.seam if strip.seam is not None else core.sharpest_rung(strip)
             ni, fi = strip.rungs[k]
             cut = {strip.near[ni % len(strip.near)], strip.far[fi % len(strip.far)]}
+        along = set(strip.cut_path)
         for e in edges:
             inner = sum(g in inside for g in e.link_faces)
-            if inner == 1 or (cut and {v.index for v in e.verts} == cut):
+            key = tuple(sorted(v.index for v in e.verts))
+            if inner == 1 or (cut and set(key) == cut) or key in along:
                 marked.add(e)
             elif inner >= 2:
                 cleared.add(e)
@@ -534,9 +505,10 @@ class StripeSettings:
                 "balance": self.balance}
 
 
-def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings, units=None) -> bool:
+def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings) -> bool:
     """Place the prepared (strip, faces by id) pieces and set their seams, as ``settings`` say; the one
-    placement step of UV Stripe, Inset and Edge Slide.
+    placement step of UV Stripe, Inset and Edge Slide. Every piece is its own strip, also the parts of an island
+    cut into strips: Fit stacks them like any strips.
 
     ``contexts`` holds each piece's ``uv_context`` and ``groups`` its Fit group. In
     Active mode the reference is the piece holding the mesh's active face (In Place
@@ -555,8 +527,7 @@ def finish_stripes(bm, pieces, contexts, groups, settings: StripeSettings, units
     fitted = apply_stripes(
         bm, [strip for strip, _faces in pieces], faces, settings.mode, contexts, fit_groups=groups,
         vertical=vertical, active=active, active_fit=settings.active_fit,
-        offset=(offset_axis(settings.offset_axis, vertical), settings.offset_limit, settings.offset_seed),
-        units=units)
+        offset=(offset_axis(settings.offset_axis, vertical), settings.offset_limit, settings.offset_seed))
     if settings.mark_seams:
         match_piece_seams(pieces)
     return fitted

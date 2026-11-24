@@ -1284,6 +1284,48 @@ def test_a_slit_opens_a_curved_part():
     assert not _flipped(obj, range(48))
 
 
+def test_a_hand_cut_inside_a_wall_still_unwraps_it():
+    # C on one edge inside a tube's wall (a slit that reaches neither end): the wall is unwrapped as a free part
+    # with the slit as a seam, and with its own lengthwise seam too, so the tube opens instead of folding flat
+    from InteractionOps.utils.uv_stripe_core import face_stretch
+    for cut in ((27, 28), (15, 27), (3, 15)):
+        obj = _object(open_tube(12, 4))
+        _edit(obj)
+        op = _modal_on()
+        key = _key(obj, *cut)
+        _press_c(op, obj, key)
+        assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, {key})], cut
+        assert op._result.kinds == {"FREE": 1}, cut
+        assert {key} | _column_edges(obj, 12, 4, 6) <= _inner_seams(obj, range(48)), cut
+        bm = _bm(obj)
+        layer = bm.loops.layers.uv.active
+        worst = max(face_stretch([tuple(lp.vert.co) for lp in f.loops], [tuple(lp[layer].uv) for lp in f.loops])
+                    for f in bm.faces)
+        assert worst < 1.15, (cut, worst)
+        assert len(_islands(obj)) == 1 and not _flipped(obj, range(48)), cut
+        op._finish(bpy.context)
+
+
+def test_a_ring_part_two_faces_wide_records_its_whole_cut_as_the_seam():
+    # UV Pipe peels rings one face wide; a RING part two faces wide is built here by hand: it is cut open along a
+    # whole line across it, and every edge of that line is the part's seam (marked like a ring's cut)
+    from InteractionOps.operators.uv_pipe_bridge import _ring_uvs
+    from InteractionOps.utils.uv_pipe_core import Part, _boundaries
+    from InteractionOps.utils.uv_stripe_core import real_vertex
+    from uv_stripe_fixtures import wide_band
+    verts, faces = wide_band(24)
+    part = Part("RING", faces, _boundaries(verts, faces))
+    for break_edge, line in ((None, None), ((24 + 5, 48 + 5), {(5, 29), (29, 53)})):
+        uv, seams = _ring_uvs(verts, part, break_edge)
+        assert len(seams) == 2 and all(len(e) == 2 for e in seams), seams
+        ids = {v for e in seams for v in e}
+        assert len(ids & set(range(24))) == 1 and len(ids & set(range(48, 72))) == 1   # loop to loop
+        if line is not None:
+            assert seams == line
+        corners = {(fid, real_vertex(v)) for fid, v in uv}
+        assert corners == {(fid, v) for fid, face in faces.items() for v in face}
+
+
 def test_break_click_on_a_ring_strip_sets_its_break():
     obj = _object(capped_cylinder())
     _edit(obj)
@@ -1575,6 +1617,8 @@ TESTS = [
     test_every_hovered_edge_of_a_cube_can_be_cut,
     test_a_slit_in_a_flat_frame_is_a_seam_and_toggles,
     test_a_slit_opens_a_curved_part,
+    test_a_hand_cut_inside_a_wall_still_unwraps_it,
+    test_a_ring_part_two_faces_wide_records_its_whole_cut_as_the_seam,
     test_an_open_loop_runs_through_a_seam,
     test_cube_loops_follow_the_loop_angle,
     test_alt_c_unmarks_the_loop_under_the_cursor,

@@ -58,6 +58,50 @@ def flat_annulus(segments=8, outer=1.0, inner=0.5):
     return verts, faces
 
 
+def wide_band(segments=24, radii=(1.0, 0.8, 0.6), heights=(0.0, 0.1, 0.2)):
+    """A closed band several faces wide: ``len(radii) - 1`` rings of ``segments`` quads round the Z axis (a cone
+    band; a flat annulus with equal heights). Ring r's vertex i is ``r * segments + i``; face ``r * segments + i``
+    lies between angles i and i + 1 and rings r and r + 1, wound counter-clockwise seen from +Z."""
+    verts, faces = {}, {}
+    for r, (radius, z) in enumerate(zip(radii, heights)):
+        for i in range(segments):
+            a = 2 * math.pi * i / segments
+            verts[r * segments + i] = (radius * math.cos(a), radius * math.sin(a), z)
+    for r in range(len(radii) - 1):
+        for i in range(segments):
+            j = (i + 1) % segments
+            faces[r * segments + i] = (r * segments + i, r * segments + j, (r + 1) * segments + j,
+                                       (r + 1) * segments + i)
+    return verts, faces
+
+
+def mitred_l(arm=4):
+    """A flat L strip two faces wide with a mitred corner, like a picture frame's corner: the outer rail runs from
+    (arm + 2, 0) to the corner (0, 0) and up to (0, arm + 2), the inner rail from (arm + 2, 2) to (2, 2) and up to
+    (2, arm + 2); the mitre is the line (0, 0) - (1, 1) - (2, 2). Vertex ids: the mitre 0 .. 2, then each arm's
+    columns away from the corner, three vertices (rows 0, 1, 2) each. Returns (vertices, faces)."""
+    verts = {k: (float(k), float(k), 0.0) for k in range(3)}
+    columns = {"x": [[0, 1, 2]], "y": [[0, 1, 2]]}
+    nxt = 3
+    for c in range(arm):
+        for axis in ("x", "y"):
+            ids = []
+            for k in range(3):
+                verts[nxt] = (3.0 + c, float(k), 0.0) if axis == "x" else (float(k), 3.0 + c, 0.0)
+                ids.append(nxt)
+                nxt += 1
+            columns[axis].append(ids)
+    faces, fid = {}, 0
+    for axis in ("x", "y"):
+        cols = columns[axis]
+        for c in range(arm):
+            for k in range(2):
+                a, b, d, e = cols[c][k], cols[c + 1][k], cols[c + 1][k + 1], cols[c][k + 1]
+                faces[fid] = (a, b, d, e) if axis == "x" else (a, e, d, b)
+                fid += 1
+    return verts, faces
+
+
 def flat_annulus_with_triangle(segments=8, outer=1.0, inner=0.5):
     """``flat_annulus`` with face 0 split into two triangles, faces 0 and ``segments``."""
     verts, faces = flat_annulus(segments, outer, inner)

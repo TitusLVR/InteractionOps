@@ -648,7 +648,9 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
     pass (``_hard_pieces``, with ``sharp``: the edges marked sharp): each is replaced in place by its pieces and the
     hard edges join the cuts. Last, a part with ``added`` edges inside it (a cut that does not separate it: a slit)
     becomes FREE whatever its kind, its seam or break dropped, and records them in ``slits``; it is unwrapped with
-    them as seams. The slits play no part in the decisions before. Every other FREE part left adds one warning
+    them as seams. A WALL's seam stays among its slits unless the slits themselves run from one of its boundary
+    loops to another (``existing_wall_seam``): a slit alone leaves a tube closed, and the unwrap would fold it flat.
+    The slits play no part in the decisions before. Every other FREE part left adds one warning
     naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
     """
     removed = frozenset(_edge(*e) for e in removed)
@@ -713,6 +715,10 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
         for i, part in enumerate(parts):
             inside = _inner_edges(part) & added_edges
             if inside:
+                seam = seams.get(i) if part.kind == "WALL" else None
+                if seam is not None and existing_wall_seam(part, inside) is None:
+                    # a slit alone does not open a tube: its wall seam opens it, or the unwrap folds it flat
+                    inside = inside | set(seam.edges())
                 part.kind = "FREE"
                 slits[i] = inside
                 seams.pop(i, None)

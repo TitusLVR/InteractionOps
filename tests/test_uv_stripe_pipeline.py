@@ -1,5 +1,5 @@
 """UV Stripe's pipeline on synthetic meshes: the corner rule on rounded and n-gon ends, an island cut into strips
-and assembled again, the Balance slider, fan measures and the live (capped) solve."""
+(each its own strip), the Balance slider, fan measures and the live (capped) solve."""
 import math
 
 import pytest
@@ -8,7 +8,7 @@ from utils import uv_stripe_balance_core as balance
 from utils.uv_stripe_balance_core import balance_value, balanced_uvs, folded_faces
 from utils.uv_stripe_core import face_stretch
 from utils.uv_stripe_select_core import strip_from_faces
-from utils.uv_stripe_split_core import assemble, split_island
+from utils.uv_stripe_split_core import split_island
 
 
 @pytest.fixture(autouse=True)
@@ -313,7 +313,7 @@ def test_a_ledge_and_a_wall_that_both_split_off_make_three_arms():
         strip_from_faces(verts, part)
 
 
-# --- d. a hand-made cut, laid out and assembled -------------------------------------------------------------
+# --- d. a hand-made cut, each part laid out -----------------------------------------------------------------
 
 def _laid(verts, part):
     strip = strip_from_faces(verts, part)
@@ -322,7 +322,24 @@ def _laid(verts, part):
     return strip, uv, length, height
 
 
-def test_an_l_arc_cut_across_the_middle_is_two_parts_that_assemble_into_one_strip():
+def test_an_automatic_junction_cut_taken_back_is_not_cut_again():
+    # a T of four cells: cut automatically at its junction; that cut skipped, another one is taken or none
+    verts = {y * 4 + x: (float(x), float(y), 0.0) for y in range(3) for x in range(4)}
+    cells = [(0, 0), (1, 0), (2, 0), (1, 1)]
+    faces = {k: (y * 4 + x, y * 4 + x + 1, (y + 1) * 4 + x + 1, (y + 1) * 4 + x) for k, (x, y) in enumerate(cells)}
+    split = split_island(verts, faces)
+    assert split.automatic and split.auto_cuts and split.auto_cuts == split.cuts
+    try:
+        again = split_island(verts, faces, skip=split.auto_cuts)
+    except ValueError:
+        return                                              # no other cut: the island cannot be read
+    assert not set(again.auto_cuts) & set(split.auto_cuts)
+    hand = split_island(verts, faces, cuts=sorted(split.auto_cuts))
+    assert not hand.automatic and hand.auto_cuts == set()   # a hand-made cut is no automatic one
+
+
+def test_an_l_arc_cut_across_the_middle_is_two_parts_each_its_own_strip():
+    # each cut part is laid out as its own strip (decided 2026-11-24): no part is joined to another
     verts, faces, rings = _l_arc()
     split = split_island(verts, faces, cuts=[(rings[0][4], rings[1][4])])
     assert not split.automatic and len(split.parts) == 2
@@ -330,23 +347,12 @@ def test_an_l_arc_cut_across_the_middle_is_two_parts_that_assemble_into_one_stri
     assert split.exits[0] is not None and split.exits[1] is None
     cut = {rings[k][4] for k in range(3)}
     assert set(split.entries[1]) == cut == set(split.exits[0])
-    pieces = [_laid(verts, part) for part in split.parts]
-    uv, length, height = assemble(pieces, split.entries, split.exits)
-    assert len(uv) == sum(len(f) for f in faces.values())
-    part_uv = [{k: uv[k] for k in uv if k[0] in part} for part in split.parts]
-    for v in cut:                                           # the parts meet at the cut
-        us = [{p[0] for (fid, vid), p in puv.items() if vid == v} for puv in part_uv]
-        assert len(us[0]) == len(us[1]) == 1
-        assert abs(us[0].pop() - us[1].pop()) < 1e-9
-    for puv in part_uv:                                     # one band: both span 0 to the same height
-        vs = [p[1] for p in puv.values()]
-        assert min(vs) == pytest.approx(0.0, abs=1e-9) and max(vs) == pytest.approx(height, abs=1e-9)
-    mid = [sum(p[0] for p in puv.values()) / len(puv) for puv in part_uv]
-    assert mid[0] < mid[1]                                  # u grows from the main part across the cut
-    assert min(p[0] for p in uv.values()) == pytest.approx(0.0, abs=1e-9)
-    assert max(p[0] for p in uv.values()) == pytest.approx(length, abs=1e-9)
-    for fid, face in faces.items():
-        assert _area([uv[(fid, v)] for v in face]) > 0.0
+    for part in split.parts:
+        strip, uv, length, height = _laid(verts, part)
+        assert {k[0] for k in uv} == set(part)
+        assert min(p[0] for p in uv.values()) == pytest.approx(0.0, abs=1e-9)
+        for fid, face in part.items():
+            assert _area([uv[(fid, v)] for v in face]) > 0.0
 
 
 # --- e. the slider ------------------------------------------------------------------------------------------

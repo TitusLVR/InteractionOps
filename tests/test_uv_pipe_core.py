@@ -937,7 +937,8 @@ def test_a_slit_in_a_wall_makes_it_a_free_part():
     for hard in (None, H30):                            # a tube with a slit is still no hard-surface part
         result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(slit), hard_angle=hard)
         assert _kinds(result) == ["FREE"] and len(result.parts[0].faces) == 48
-        assert result.slits == {0: slit} and slit <= result.cuts
+        # the slit alone leaves the tube closed: the wall's own seam (column 6) stays to open it
+        assert result.slits == {0: slit | _column(6)} and slit <= result.cuts
         assert result.seams == {} and result.fallback == set() and result.warnings == []
         again = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(slit), hard_angle=hard)
         assert _summary(again) == _summary(result) and again.slits == result.slits

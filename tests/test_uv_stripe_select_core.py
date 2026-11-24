@@ -639,3 +639,83 @@ def test_bend_cut_at_a_fan_goes_to_the_mitre():
              5: (1.2, 0.0, 0.0), 6: (0.2, 1.4, 0.0)}
     faces = {0: (6, 1, 0, 2), 1: (2, 0, 3), 2: (4, 3, 0, 5)}
     assert bend_cuts(verts, faces, math.radians(10)) == {(0, 3)}
+
+
+def _band_checks(verts, faces, strip, n=24):
+    from utils.uv_stripe_core import real_pair, real_vertex
+    assert not strip.closed and sorted(strip.faces) == sorted(faces)
+    assert len(strip.cut_path) == 2 and len(strip.near) == len(strip.far) == n + 1
+    rows = [{real_vertex(v) for v in row} for row in (strip.near, strip.far)]
+    assert sorted(map(sorted, rows)) == [list(range(n)), list(range(2 * n, 3 * n))]
+    # the ends are the cut path: one side by the mesh's vertices, the other by their stand-ins
+    ends = [[strip.near[0], *strip.sides[0], strip.far[0]], [strip.near[-1], *strip.sides[1], strip.far[-1]]]
+    path_vertices = {v for e in strip.cut_path for v in e}
+    assert [{real_vertex(v) for v in end} for end in ends] == [path_vertices, path_vertices]
+    assert len({v for end in ends for v in end}) == 6
+    # every face keeps its own corners, a vertex of the cut by its stand-in on one side only
+    for fid, face in strip.faces.items():
+        assert tuple(real_vertex(v) for v in face) == faces[fid]
+    uv = stripe_uvs(strip)
+    assert all(a > 0 for a in areas(strip.faces, uv).values())
+    assert {real_pair(e) for e in strip.cut_path} == set(strip.cut_path)
+
+
+def test_a_closed_band_two_faces_wide_is_cut_open_across_it():
+    from uv_stripe_fixtures import wide_band
+    verts, faces = wide_band(24)
+    strip = strip_from_faces(verts, faces)
+    _band_checks(verts, faces, strip)
+
+
+def test_a_closed_band_opens_along_the_cross_path_through_the_given_edge():
+    from uv_stripe_fixtures import wide_band
+    verts, faces = wide_band(24)
+    for k in (5, 17):
+        strip = strip_from_faces(verts, faces, seam_edge=(24 + k, 48 + k))
+        _band_checks(verts, faces, strip)
+        assert set(strip.cut_path) == {(k, 24 + k), (24 + k, 48 + k)}
+
+
+def test_a_closed_band_opens_along_a_given_cut_line_before_a_picked_edge():
+    from uv_stripe_fixtures import wide_band
+    verts, faces = wide_band(24)
+    strip = strip_from_faces(verts, faces, seam_edge=(29, 53), cut=[(33, 57), (9, 33)])
+    _band_checks(verts, faces, strip)
+    assert set(strip.cut_path) == {(9, 33), (33, 57)}
+    # a cut that is no line from loop to loop is not taken: the picked edge decides
+    strip = strip_from_faces(verts, faces, seam_edge=(29, 53), cut=[(33, 57)])
+    assert set(strip.cut_path) == {(5, 29), (29, 53)}
+
+
+def test_faces_round_an_inner_vertex_read_as_a_patch_not_a_twisted_ring():
+    # a 2 x 2 grid: every face shares an edge with two others, but it has one boundary loop (a fan round the
+    # middle vertex): it is the patch with the grid's four corners, not a ring
+    verts = {y * 3 + x: (float(x), float(y), 0.0) for y in range(3) for x in range(3)}
+    faces = {y * 2 + x: (y * 3 + x, y * 3 + x + 1, (y + 1) * 3 + x + 1, (y + 1) * 3 + x) for y in range(2) for x in range(2)}
+    strip = strip_from_faces(verts, faces)
+    assert not strip.closed and sorted(strip.faces) == [0, 1, 2, 3]
+    assert {strip.near[0], strip.near[-1], strip.far[0], strip.far[-1]} == {0, 2, 6, 8}
+    # a fan of triangles round a centre (a disc) is still refused as a ring with one boundary
+    disc = {0: (0.0, 0.0, 0.0), **{1 + i: (math.cos(i), math.sin(i), 0.0) for i in range(6)}}
+    fan = {i: (0, 1 + i, 1 + (i + 1) % 6) for i in range(6)}
+    with pytest.raises(ValueError, match="one boundary"):
+        strip_from_faces(disc, fan)
+
+
+def test_a_mitred_wide_l_bends_only_at_its_mitre():
+    from uv_stripe_fixtures import mitred_l
+    from utils.uv_stripe_split_core import bend_paths
+    verts, faces = mitred_l()
+    strip = strip_from_faces(verts, faces)
+    assert not strip.closed and len(strip.faces) == 16
+    assert bend_paths(strip) == [[(0, 1), (1, 2)]]
+    assert bend_paths(strip, angle=math.radians(95.0)) == []
+
+
+def test_band_cut_paths_lists_every_path_from_loop_to_loop():
+    from uv_stripe_fixtures import wide_band
+    from utils.uv_stripe_select_core import band_cut_paths
+    verts, faces = wide_band(24)
+    paths = band_cut_paths(faces)
+    assert sorted(sorted(p) for p in paths) == [[(k, 24 + k), (24 + k, 48 + k)] for k in range(24)]
+    assert band_cut_paths({0: (0, 1, 2, 3)}) == []

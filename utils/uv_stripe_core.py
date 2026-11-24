@@ -52,6 +52,10 @@ class Strip:
     seam: int | None = None
     # A ring opened at a rung (``uv_stripe_select_core.open_ring``): that rung's edge, a sorted vertex-id pair.
     break_edge: tuple[int, int] | None = None
+    # A closed band several faces wide cut open along a cross path (``uv_stripe_select_core``): that path's edges,
+    # sorted pairs of real vertex ids. The faces on one side of the cut name its vertices by their stand-in ids
+    # (``real_vertex``), so each side of the cut has vertices of its own.
+    cut_path: tuple = ()
     # What "SHAPE" turns the unfold to run along +u (``_shape_direction``): "AUTO", "LONGEST" or "SHORTEST" (that
     # row edge) or "PICKED" (``align_edge``, a sorted vertex-id pair; "AUTO" when it is not in the strip).
     align: str = "AUTO"
@@ -68,6 +72,23 @@ class Strip:
     # layout keeps them (``uv_stripe_balance_core``); any other layout is taken only when it already does
     # (``uv_stripe_auto_core``).
     lines: tuple = ()
+
+
+def stand_in(v: int) -> int:
+    """The stand-in id of vertex ``v`` on the far side of a cut a closed band is opened along (``Strip.cut_path``):
+    a negative id, so it never meets a mesh vertex index."""
+    return -1 - v
+
+
+def real_vertex(v: int) -> int:
+    """The mesh vertex a strip's vertex id stands for: itself, or the vertex a stand-in id (``stand_in``) copies."""
+    return v if v >= 0 else -1 - v
+
+
+def real_pair(edge) -> tuple[int, int]:
+    """A vertex-id pair with stand-in ids (``stand_in``) replaced by their vertices, sorted."""
+    a, b = real_vertex(edge[0]), real_vertex(edge[1])
+    return (a, b) if a < b else (b, a)
 
 
 def _angle(a: Vec3, b: Vec3, c: Vec3) -> float:

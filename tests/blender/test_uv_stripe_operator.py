@@ -1121,7 +1121,7 @@ def test_rejected_island_leaves_the_other():
 
 
 def test_a_branching_island_is_cut_and_laid_out_with_the_other():
-    # A T of four cells (a branch) used to be refused: it is cut at its junction and laid out as one strip.
+    # A T of four cells (a branch) used to be refused: it is cut at its junction, each part its own strip.
     t_shape = {(0, 0), (1, 0), (2, 0), (1, 1)}
     strip = {(x, 4) for x in range(4)}
     obj = _grid(4, 5, keep=t_shape | strip, uv_size=10.0)
@@ -1129,7 +1129,7 @@ def test_a_branching_island_is_cut_and_laid_out_with_the_other():
     t_before = [uv.copy() for _c, uv in _corners(obj, lambda c: c.y < 2.0)]
     stand = _OperatorStandIn(mode="FIT")
     result = stand._lay_out(bpy.context)
-    assert (result.done, result.skipped, result.help) == (2, 0, [])
+    assert (result.done, result.skipped, result.help) == (3, 0, [])
     assert len(result.split) == 1 and "branches" in result.split[0], result.split
     t_after = [uv for _c, uv in _corners(obj, lambda c: c.y < 2.0)]
     assert any((a - b).length > 1e-6 for a, b in zip(t_before, t_after)), "the T was not laid out"
@@ -1508,6 +1508,206 @@ def test_confirm_after_break_equals_execute():
         return _uv_state(obj)
 
     assert made(True) == made(False)
+
+
+# --- a closed band several faces wide: cut open from loop to loop ------------------------------
+
+def _wide_band(**kwargs):
+    """``uv_stripe_fixtures.wide_band`` (2 x 24 quads round Z, a cone band) as an object in Edit Mode, all selected."""
+    from uv_stripe_fixtures import wide_band
+    verts, faces = wide_band(**kwargs)
+    obj = _object([verts[i] for i in range(len(verts))], [faces[k] for k in sorted(faces)], name="wide_band")
+    _edit(obj)
+    return obj
+
+
+def _band_path(k, n=24):
+    return {(k, n + k), (n + k, 2 * n + k)}
+
+
+def _cut_paths(n=24):
+    return [_band_path(k, n) for k in range(n)]
+
+
+def test_a_wide_closed_band_is_cut_open_and_laid_out_as_one_strip():
+    for props in ({}, {"straight_sides": "NONE"}, {"ends": "AUTO"}, {"ends": "BOTH", "balance": 1.0}):
+        obj = _wide_band()
+        assert _run(mode="FIT", mark_seams=True, **props) == {"FINISHED"}, props
+        assert _uv_islands(obj) == 1 and all(a > 0 for a in _face_areas(obj)), props
+        assert _seams(obj) & _inner_edges(obj) in _cut_paths(), props   # one cross path, loop to loop
+    # a flat washer (the user's case: rows 1.66 x apart) too
+    obj = _wide_band(segments=32, radii=(0.923, 0.732, 0.555), heights=(0.0, 0.0, 0.0))
+    assert _run(mode="FIT", mark_seams=True, straight_sides="BOTH", ends="AUTO") == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and all(a > 0 for a in _face_areas(obj))
+    assert _seams(obj) & _inner_edges(obj) in _cut_paths(32)
+
+
+def test_a_wide_closed_band_is_cut_along_a_seam_line_across_it():
+    obj = _wide_band()
+    _set_seams(obj, _band_path(7))
+    assert _run(mode="FIT", split_at_seams=True, mark_seams=True) == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and all(a > 0 for a in _face_areas(obj))
+    assert _seams(obj) & _inner_edges(obj) == _band_path(7)
+
+
+def test_a_wide_closed_band_is_cut_at_its_picked_break():
+    obj = _wide_band()
+    assert _run(mode="FIT", mark_seams=True, cup_breaks=_cup(obj, (24 + 5, 48 + 5))) == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(5)
+
+
+def test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break():
+    obj = _wide_band()
+    op = _modal_on(obj, mode="FIT")
+    default = _seams(obj) & _inner_edges(obj)
+    assert default in _cut_paths()
+    index = _edge_index(obj, (24 + 5, 48 + 5))
+    assert index in op._result.band_paths[obj.name]
+    # the hover previews the whole cross path through the edge under the cursor
+    op._hover_break = lambda _context, _event: (obj, index)
+    op._modal(bpy.context, _KeyPress("C"))
+    move = _KeyPress("MOUSEMOVE")
+    move.value = "NOTHING"
+    assert op._modal(bpy.context, move) == {"RUNNING_MODAL"} and op._hover[:2] == (obj, index)
+    assert len(op._hover[2]) == 4 and not op._hover[3]
+    _click(op, obj, (24 + 5, 48 + 5))
+    assert _edges(op.cup_breaks) == {obj.name: [index]}
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(5)
+    assert _torn_at(op, obj, (5, 29)) and _torn_at(op, obj, (29, 53))
+    other = _click(op, obj, (11, 24 + 11))                  # another cross path: the break moves there
+    assert _edges(op.cup_breaks) == {obj.name: [other]}
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(11)
+    _click(op, obj, (24 + 11, 48 + 11))                     # the break's own path: taken back
+    assert op.cup_breaks == "" and _seams(obj) & _inner_edges(obj) == default
+    op._finish(bpy.context)
+
+
+def test_a_picked_break_on_a_wide_band_wins_over_a_seam_line_across_it():
+    obj = _wide_band()
+    _set_seams(obj, _band_path(7))
+    op = _modal_on(obj, mode="FIT", split_at_seams=True, mark_seams=True)
+    assert _seams(obj) & _inner_edges(obj) == _band_path(7)              # cut along the seam line
+    before = _uv_state(obj)
+    _click(op, obj, (24 + 5, 48 + 5))
+    assert _edges(op.cup_breaks) == {obj.name: [_edge_index(obj, (24 + 5, 48 + 5))]}
+    assert _uv_islands(obj) == 1 and _seams(obj) & _inner_edges(obj) == _band_path(5)   # the old line cleared
+    assert _uv_state(obj) != before and len(op._result.cut_lines) == 4  # the break's whole line drawn as a cut
+    _click(op, obj, (24 + 5, 48 + 5))                                    # taken back: the seam line again
+    assert op.cup_breaks == "" and _seams(obj) & _inner_edges(obj) == _band_path(7)
+    op._finish(bpy.context)
+
+
+def test_confirm_after_a_wide_band_break_equals_execute():
+    def made(confirm):
+        obj = _wide_band()
+        brk = _cup(obj, (24 + 9, 48 + 9))
+        if confirm:
+            op = _modal_on(obj, mode="FIT")
+            _click(op, obj, (24 + 9, 48 + 9))
+            assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"} and not op._picking
+            assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+            assert op.cup_breaks == brk
+            return _uv_state(obj)
+        stand = _OperatorStandIn(mode="FIT", cup_breaks=brk)
+        assert stand.execute(bpy.context) == {"FINISHED"}
+        return _uv_state(obj)
+
+    assert made(True) == made(False)
+
+
+# --- each cut island is its own strip; Auto tears a wide strip at its bends; C takes automatic tears back -------
+
+def _mitred_l():
+    """``uv_stripe_fixtures.mitred_l``: a flat L two faces wide with a mitred corner, in Edit Mode, all selected."""
+    from uv_stripe_fixtures import mitred_l
+    verts, faces = mitred_l()
+    obj = _object([verts[i] for i in range(len(verts))], [faces[k] for k in sorted(faces)], name="mitred_l")
+    _edit(obj)
+    return obj
+
+
+MITRE = {(0, 1), (1, 2)}
+
+
+def test_auto_tears_a_wide_l_at_its_mitre_when_it_cannot_be_straight_within_the_limit():
+    obj = _mitred_l()
+    assert _run(mode="FIT", mark_seams=True, stretch_limit=1.25) == {"FINISHED"}
+    assert _uv_islands(obj) == 2 and _seams(obj) & _inner_edges(obj) == MITRE
+    assert _worst_stretch(obj) < 1.0 + 1e-4 and all(a > 0 for a in _face_areas(obj))
+    # a Stretch Limit the straight L keeps (its worst face stretches 3.24): no tear
+    obj = _mitred_l()
+    stand = _OperatorStandIn(mode="FIT", mark_seams=True, stretch_limit=10.0)   # beyond the property's own range
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert _uv_islands(obj) == 1 and not _seams(obj) & _inner_edges(obj)
+    # Straight Sides None unfolds it whole: nothing to straighten, nothing torn
+    obj = _mitred_l()
+    assert _run(mode="FIT", mark_seams=True, straight_sides="NONE") == {"FINISHED"}
+    assert _uv_islands(obj) == 1
+
+
+def test_c_takes_back_and_restores_an_automatic_tear_of_a_wide_strip():
+    obj = _mitred_l()
+    op = _modal_on(obj, mode="FIT")
+    index = _edge_index(obj, (0, 1))
+    assert op._result.done == 2 and index in op._result.auto_tears[obj.name]
+    assert len(op._result.auto_tears[obj.name][index]) == 2               # the whole mitre line
+    assert not op._result.skipped_tears
+    _click(op, obj, (0, 1))                                               # LMB on the tear: taken back
+    assert _edges(op.skipped_cuts) == {obj.name: sorted(op._result.auto_skipped[obj.name][index])}
+    assert op._result.done == 1 and _uv_islands(obj) == 1                 # whole again, it stretches instead
+    assert len(op._result.skipped_tears) == 4                             # drawn as a skipped tear (two edges)
+    assert _hover_on(op, obj, (1, 2))[3]                                  # a click there restores it
+    _click(op, obj, (1, 2))
+    assert op.skipped_cuts == "" and op._result.done == 2 and _uv_islands(obj) == 2
+    assert op._modal(bpy.context, _KeyPress("C")) == {"RUNNING_MODAL"}
+    assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
+
+
+def test_c_takes_back_an_automatic_junction_cut():
+    t_shape = {(0, 0), (1, 0), (2, 0), (1, 1)}
+    obj = _grid(3, 2, keep=t_shape)
+    _edit(obj)
+    op = _modal_on(obj, mode="FIT")
+    made = op._result.auto_tears.get(obj.name, {})
+    assert made and op._result.done >= 2                                 # the junction cut is offered
+    cut = next(iter(made.values()))
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.edges.ensure_lookup_table()
+    pair = tuple(sorted(v.index for v in bm.edges[cut[0]].verts))
+    _click(op, obj, pair)
+    assert set(_edges(op.skipped_cuts)[obj.name]) == set(cut)
+    assert cut[0] in op._result.auto_skipped[obj.name] and cut[0] not in op._result.auto_tears.get(obj.name, {})
+    _click(op, obj, pair)                                                # restored: the same cut again
+    assert op.skipped_cuts == "" and op._result.auto_tears[obj.name].get(cut[0]) == cut
+    op._finish(bpy.context)
+
+
+def test_a_straight_line_is_picked_on_the_piece_under_the_cursor():
+    import json
+    from InteractionOps.operators.uv_stripe_bridge import ShapeRules
+    from InteractionOps.utils.uv_stripe_core import Strip
+    # the rules keep a line with an owning face on that face's piece only
+    piece = Strip(verts={}, faces={4: (1, 2, 3, 0)}, near=[], far=[], rungs=[], closed=False, height=1.0)
+    rules = ShapeRules(lines=(("ALONG", frozenset({0, 1}), 4), ("ALONG", frozenset({2, 3}), 9),
+                              ("ACROSS", frozenset({1, 2}))))
+    assert rules.lines_in(piece) == (("ALONG", frozenset({0, 1})), ("ACROSS", frozenset({1, 2})))
+    # the mitre edge lies in both arms: the face under the cursor picks the arm, and the line keeps its face
+    obj = _mitred_l()
+    op = _modal_on(obj, mode="FIT", straight_sides="LONGER")
+    index = _edge_index(obj, (0, 1))
+    arms = {id(rec): rec for rec in op._result.pick_faces[obj.name].values()}
+    assert len(arms) == 2
+    for rec in arms.values():
+        face = min(rec["strip"].faces)
+        op._hover_face = face
+        assert op._record(obj.name, index) is rec
+    op._hover_face = None
+    op._finish(bpy.context)
+    stored = json.dumps({obj.name: [[0, [5], 3, 4]]})
+    from InteractionOps.operators.mesh_uv_stripe import _dump_lines, _parse_lines as parse
+    assert parse(stored) == {obj.name: [("ALONG", [3, 4], 5)]}
+    assert parse(_dump_lines(parse(stored))) == parse(stored)
+    assert parse(json.dumps({obj.name: [[1, 7, 8]]})) == {obj.name: [("ACROSS", [7, 8], None)]}   # an older pick
 
 
 def test_cup_breaks_is_no_shared_setting():
@@ -2076,14 +2276,14 @@ def test_confirm_after_align_picks_equals_execute():
             op._modal(bpy.context, _KeyPress("V"))
             assert op._modal(bpy.context, _KeyPress("RET")) == {"FINISHED"}
             return (_uv_state(obj), op.shape_align, list(_edges(op.align_edges).values()),     # kept for redo
-                    list(_edges(op.straight_lines).values()))
+                    list(_parse_lines(op).values()))
         # V under None also lays each clicked edge straight: the end edges across the strip, vertical
         lines = json.dumps({obj.name: [[1, _edge_index(obj, (4, 5))]]}, sort_keys=True)
         stand = _OperatorStandIn(mode="FIT", shape_align="PICKED", align_edges=_dump(obj, (4, 5)),
                                  straight_lines=lines, **_shape_props(obj))
         assert stand.execute(bpy.context) == {"FINISHED"}
         return (_uv_state(obj), stand.shape_align, list(_edges(stand.align_edges).values()),
-                list(_edges(stand.straight_lines).values()))
+                list(_parse_lines(stand).values()))
 
     assert made(True) == made(False)
     obj = _shape_strip()
@@ -2800,18 +3000,14 @@ def test_a_forked_l_ledge_with_a_slit_is_cut_and_the_active_face_picks_the_main_
         assert not any("skipped" in r or "need the interactive" in r for r in stand.reports), stand.reports
         assert any("branches" in r for r in stand.reports), stand.reports
         result = stand._lay_out(bpy.context)
-        assert (result.done, result.skipped, result.help) == (1, 0, [])
+        assert result.done >= 2 and (result.skipped, result.help) == (0, [])     # every part its own strip
         assert len(result.split) == 1 and "branches" in result.split[0], result.split
         assert len(_selected_faces(obj)) == len(rows)
         assert all(abs(a) > 1e-9 for a in _face_areas(obj)), "a face has no UVs"
-        ranges = {r: _face_u_range(obj, rows, r) for r in range(3)}
-        every = [u for rng in ranges.values() for u in rng]
-        assert min(every) == 0.0 or abs(min(every)) < 1e-9
-        firsts[row] = [r for r in range(3) if abs(ranges[r][0] - min(every)) < 1e-6]
-        other = 2 - row                                # the other end arm comes last along u
-        assert abs(ranges[other][1] - max(every)) < 1e-6, ranges
-        assert ranges[row][1] < ranges[other][1]
-    assert firsts == {0: [0], 2: [2]}, firsts           # the part with the active face starts at the smallest u
+        active = bmesh.from_edit_mesh(obj.data).faces.active.index
+        # Fit stacks the strips upward in V in strip order: the part with the active face (the main run) first
+        firsts[row] = abs(_face_v_min(obj, active) - _all_v_min(obj)) < 1e-6
+    assert firsts == {0: True, 2: True}, firsts
 
 
 def test_a_seed_face_chooses_the_main_arm_too():
@@ -2822,8 +3018,22 @@ def test_a_seed_face_chooses_the_main_arm_too():
     seed = next(f.index for f in bm.faces if rows[f.index] == 0 and f.calc_center_median().x > 5.0)
     stand = _OperatorStandIn(mode="FIT", seed_faces=_json_picks({obj.name: [seed]}))
     assert stand.execute(bpy.context) == {"FINISHED"}
-    ranges = {r: _face_u_range(obj, rows, r) for r in range(3)}
-    assert ranges[0][0] < ranges[2][0], ranges        # ... but the seed on the ledge arm wins
+    active = bmesh.from_edit_mesh(obj.data).faces.active.index
+    assert abs(_face_v_min(obj, seed) - _all_v_min(obj)) < 1e-6      # ... but the seed's part comes first
+    assert _face_v_min(obj, active) > _all_v_min(obj) + 1e-6
+
+
+def _face_v_min(obj, index):
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    layer = bm.loops.layers.uv.active
+    return min(lp[layer].uv.y for lp in bm.faces[index].loops)
+
+
+def _all_v_min(obj):
+    bm = bmesh.from_edit_mesh(obj.data)
+    layer = bm.loops.layers.uv.active
+    return min(lp[layer].uv.y for f in bm.faces if f.select for lp in f.loops)
 
 
 def _picks(text):
@@ -2854,37 +3064,32 @@ def _l_straight(cols=8):
 
 def _cut_through_the_middle(obj, rings, **props):
     """A modal on the wide L with the cross edge of its ledge in the middle cut by hand; returns the operator, the
-    edge index and the (u, v) of each ring's cut vertex in the part before the cut and in the part after it."""
+    edge index and, per part (before the cut, after it), its (u range, v range)."""
     op = _modal_on(obj, mode="FIT", **props)
     assert op._result.done == 1 and op._result.split == []
     index = _edge_index(obj, (rings[0][4], rings[1][4]))              # a cross edge of the ledge, in the middle
     assert index in op._result.cuttable[obj.name]
     assert op._click_cut(bpy.context, obj, index) == "cut"
     assert _picks(op.island_cuts) == {obj.name: [index]}
-    assert op._result.done == 1                                       # two parts, laid out as one strip
+    assert op._result.done == 2                                       # two parts, each its own strip
     assert len(op._result.split) == 1 and "by hand" in op._result.split[0], op._result.split
     bm = bmesh.from_edit_mesh(obj.data)
     layer = bm.loops.layers.uv.active
-    bm.verts.ensure_lookup_table()
     left = set(range(4)) | {8 + i for i in range(4)}          # columns 0 .. 3 of both rows of faces
-    at = []
-    for ring in rings:
-        uvs = {True: set(), False: set()}
-        for lp in bm.verts[ring[4]].link_loops:
-            uvs[lp.face.index in left].add((round(lp[layer].uv.x, 7), round(lp[layer].uv.y, 7)))
-        assert len(uvs[True]) == 1 and len(uvs[False]) == 1, (ring[4], uvs)
-        at.append((next(iter(uvs[True])), next(iter(uvs[False]))))
-    vs = {side: [lp[layer].uv.y for f in bm.faces if (f.index in left) == side for lp in f.loops]
-          for side in (True, False)}
-    assert abs(min(vs[True]) - min(vs[False])) < 1e-6 and abs(max(vs[True]) - max(vs[False])) < 1e-6   # one v range
-    return op, index, at
+    ranges = []
+    for side in (True, False):
+        uvs = [lp[layer].uv for f in bm.faces if f.select and (f.index in left) == side for lp in f.loops]
+        ranges.append(((min(p.x for p in uvs), max(p.x for p in uvs)), (min(p.y for p in uvs), max(p.y for p in uvs))))
+    assert ranges[0][1][1] <= ranges[1][1][0] + 1e-6 or ranges[1][1][1] <= ranges[0][1][0] + 1e-6, ranges  # stacked
+    assert all(a > 0 for a in _face_areas(obj))
+    return op, index, ranges
 
 
-def test_a_cut_by_hand_through_a_wide_l_makes_one_strip_of_two_parts():
+def test_a_cut_by_hand_through_a_wide_l_makes_two_strips():
     obj, rings = _l_straight()
-    op, index, at = _cut_through_the_middle(obj, rings)
-    for before, after in at:                                          # the parts meet at the cut
-        assert abs(before[0] - after[0]) < 1e-6 and abs(before[1] - after[1]) < 1e-6, at
+    op, index, ranges = _cut_through_the_middle(obj, rings)
+    for (u0, u1), _v in ranges:                                       # both halves equally long: one texel density
+        assert abs(u0) < 1e-6 and abs(u1 - ranges[0][0][1]) < 1e-6, ranges
     assert op._click_cut(bpy.context, obj, index) == "uncut"          # a second click removes the cut
     assert op.island_cuts == "" and op._result.split == []
     assert op._click_cut(bpy.context, obj, index) == "cut"
@@ -2892,16 +3097,12 @@ def test_a_cut_by_hand_through_a_wide_l_makes_one_strip_of_two_parts():
     assert op.island_cuts == ""                                       # cancel restores the pick
 
 
-def test_a_cut_by_hand_through_a_wide_l_arc_keeps_one_v_range_and_meets_at_the_near_rail():
-    # The arc's rows differ in length: the cut line fans out in UV, so only the near rail's vertex is shared and
-    # the parts do not overlap (the far vertices open a wedge that is the arc's own fan).
+def test_a_cut_by_hand_through_a_wide_l_arc_gives_two_stacked_strips():
+    # the arc's halves are two strips stacked in V at one texel density, at every Balance
     for balance in (0.0, 0.5, 1.0):
         obj, rings = _wide_l(cols=8)
-        op, _index, at = _cut_through_the_middle(obj, rings, balance=balance)
-        assert abs(at[0][0][0] - at[0][1][0]) < 1e-6, (balance, at)
-        for before, after in at:
-            assert abs(before[1] - after[1]) < 1e-6, (balance, at)       # the same v on both sides
-            assert before[0] <= after[0] + 1e-6 and after[0] - before[0] < 0.06, (balance, at)
+        op, _index, ranges = _cut_through_the_middle(obj, rings, balance=balance)
+        assert all(abs(u0) < 1e-6 for (u0, _u1), _v in ranges), (balance, ranges)
         op._modal(bpy.context, _KeyPress("ESC"))
 
 
@@ -3161,7 +3362,10 @@ def test_a_lengthwise_hand_cut_makes_two_parts_and_no_more():
         assert index in op._result.cuttable[obj.name]
         assert op._click_cut(bpy.context, obj, index) == "cut"
         assert json.loads(op.island_cuts) == {obj.name: [index]}
-        assert op._result.done == 1 and len(op._result.split) == 1, op._result.split
+        # two parts, each its own strip; a half one face wide round the arc is torn at its bends like any strip
+        done = op._result.done
+        assert (done == 2 if build is flat else done >= 2) and len(op._result.split) == 1, (build.__name__, done,
+                                                                                            op._result.split)
         assert "into 2 strips" in op._result.split[0], op._result.split     # no Auto tears inside the halves
         assert all(a > 0 for a in _face_areas(obj)) and _worst_stretch(obj) <= 1.3
         # each half keeps its own rails: it runs along U, never turned across (its v span far below its u span)
@@ -3443,7 +3647,7 @@ def test_c_offers_only_full_cuts_that_lay_out():
     pairs = {loop: tuple(sorted(v.index for v in bm.edges[index].verts)) for loop, index in offered.items()}
     for loop, pair in pairs.items():
         _pick(op, obj, pair)
-        assert op._result.done == 1 and not op._result.help, (loop, op._result.first_reason)
+        assert op._result.done == 2 and not op._result.help, (loop, op._result.first_reason)
         assert len(op._result.cut_lines) == 6 and "into 2 strips" in op._result.split[0], loop
         _pick(op, obj, pair)
         assert op.island_cuts == "", loop
@@ -3539,8 +3743,10 @@ def test_old_last_used_slanted_ends_migrate_once_to_upright_where_cheap():
 
 
 def _parse_lines(op):
+    """The straight lines ``op`` holds as {object name: [(axis, edge indices)]}, without the face of the piece each
+    was picked on."""
     from InteractionOps.operators.mesh_uv_stripe import _parse_lines as parse
-    return parse(op.straight_lines)
+    return {name: [(axis, edges) for axis, edges, _face in lines] for name, lines in parse(op.straight_lines).items()}
 
 
 TESTS = [
@@ -3656,8 +3862,8 @@ TESTS = [
     test_a_wheel_step_then_enter_equals_execute_with_the_same_balance,
     test_a_forked_l_ledge_with_a_slit_is_cut_and_the_active_face_picks_the_main_arm,
     test_a_seed_face_chooses_the_main_arm_too,
-    test_a_cut_by_hand_through_a_wide_l_makes_one_strip_of_two_parts,
-    test_a_cut_by_hand_through_a_wide_l_arc_keeps_one_v_range_and_meets_at_the_near_rail,
+    test_a_cut_by_hand_through_a_wide_l_makes_two_strips,
+    test_a_cut_by_hand_through_a_wide_l_arc_gives_two_stacked_strips,
     test_an_island_waiting_for_help_reports_asks_for_corners_and_lays_out_with_four,
     test_corner_clicks_through_the_modal_events_toggle_and_cancel_restores,
     test_a_disc_alone_still_cancels_the_modal,
@@ -3682,6 +3888,16 @@ TESTS = [
     test_removing_the_last_align_line_under_none_restores_align,
     test_the_default_stands_a_wide_trim_strips_end_lines_upright,
     test_old_last_used_slanted_ends_migrate_once_to_upright_where_cheap,
+    test_a_wide_closed_band_is_cut_open_and_laid_out_as_one_strip,
+    test_a_wide_closed_band_is_cut_along_a_seam_line_across_it,
+    test_a_wide_closed_band_is_cut_at_its_picked_break,
+    test_c_on_a_wide_closed_band_sets_moves_and_takes_back_its_break,
+    test_confirm_after_a_wide_band_break_equals_execute,
+    test_a_picked_break_on_a_wide_band_wins_over_a_seam_line_across_it,
+    test_auto_tears_a_wide_l_at_its_mitre_when_it_cannot_be_straight_within_the_limit,
+    test_c_takes_back_and_restores_an_automatic_tear_of_a_wide_strip,
+    test_c_takes_back_an_automatic_junction_cut,
+    test_a_straight_line_is_picked_on_the_piece_under_the_cursor,
 ]
 
 
