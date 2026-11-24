@@ -32,10 +32,13 @@ Modo-style soft transforms: every vertex of the selection moves, rotates or scal
 | <kbd>Shift</kbd> / <kbd>Ctrl</kbd> while dragging | Precise / snap |
 | <kbd>0</kbd>–<kbd>9</kbd>, <kbd>.</kbd>, <kbd>-</kbd>, <kbd>Backspace</kbd> | Type an amount (units along the axis constraint or object X, degrees, or factor). It applies live as you type and replaces the mouse value; <kbd>Enter</kbd> confirms |
 | <kbd>MMB</kbd> / <kbd>Wheel</kbd> | Navigate |
-| <kbd>H</kbd> | Help legend |
+| <kbd>H</kbd> | Help: the full key list, hidden until pressed |
 | <kbd>/</kbd> | Toggle HUD parameter rows |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm (one undo step) |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel every drag of this session |
+
+## HUD
+Always shown: Falloff (L / R / S / C) as one row, Shape (F), the size of the current falloff (Radius, Length, Screen Radius or Coplanar Angle, Shift + Wheel) and the amount (Offset, Angle or Scale). A dimmed Coplanar (C) row says when Coplanar needs selected faces or edges. Connected Only (E), Invert (I) and Show Weights (V) appear while on; Axis while set; Basis (N) while it is not Local or the pivot was moved; Typing while a number is typed. There is no Tab section.
 
 ## Tips
 - Nothing selected = the whole mesh is affected.

@@ -610,11 +610,13 @@ def test_modal_hud_and_help_list_uv_stripe():
     op._build_overlays(None if bpy.app.background else bpy.context.region)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Thickness", "Depth", "Mode (I)", "Collapse (C)", "Boundary (B)", "UV Stripe (U)"]
-    assert [(it.label, it.key) for it in op._help.sections[0].items] == [
-        ("Adjust thickness", "Mouse / Type"), ("Depth", "Ctrl + Mouse"), ("Mode", "I"),
+        "Thickness", "Mode (I)", "Collapse (C)", "Boundary (B)", "Depth (Ctrl + Mouse)", "UV Stripe (U)"]
+    assert [p.name for p in params if p.is_visible()] == ["Thickness", "Mode (I)", "Collapse (C)", "Boundary (B)"]
+    assert [(it.label, it.key) for sec in op._help.sections for it in sec.items] == [
+        ("Thickness", "Mouse"), ("Type the thickness", "Digits / Period / Minus / Backspace"),
+        ("Precise thickness", "Shift"), ("Depth", "Ctrl + Mouse"), ("Mode", "I"),
         ("Collapse", "C"), ("Boundary", "B"), ("UV Stripe", "U"),
-        ("Confirm", "LMB / Enter"), ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
+        ("Confirm", "LMB / Enter"), ("Cancel", "Esc / RMB")]
 
 
 def test_modal_u_toggles_uv_stripe_and_cancel_restores():

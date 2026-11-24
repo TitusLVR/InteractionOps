@@ -23,8 +23,8 @@ import bmesh
 from mathutils import Vector, kdtree
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 RESTORE_GROUP_NAME = "Bevel Edge Data Restore"
 EDGE_ATTRS = (
@@ -237,27 +237,24 @@ def collapse_fix(context, obj, restore_mod, src):
 # Modal operator
 # --------------------------------------------------------------------------- #
 
-def _build_bedf_hud(context, op):
+def _build_bedf_hud(region, op):
     hud = HUDOverlay("bevel_edge_data_fix")
     hud.title = "Bevel Edge Data Fix"
-    hud.add_param(HUDParam("UV Projection", lambda: op.unwrap, kind="bool"))
-    hud.add_param(HUDParam("Seams out", lambda: op.seam_count, kind="int"))
-    hud.add_param(HUDParam("Helper", lambda: op.src.name if op.src else "-"))
-    hud.bind_region(context.region)
+    hud.add_param(HUDParam("UV Projection (U)", lambda: op.unwrap, kind="bool"))
+    hud.add_param(HUDParam("Seams Out", lambda: op.seam_count, kind="int"))
+    hud.bind_region(region)
     return hud
 
 
-def _build_bedf_help(context):
-    helpo = HelpOverlay("bevel_edge_data_fix")
-    helpo.add_section(HUDSection("Bevel Edge Data Fix", [
-        HUDItem("Keep live setup",        "Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Collapse + pin-unwrap + cleanup", "C",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle UV projection",   "U",                   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / Toggle HUD",      "H",                   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Revert",                 "ESC",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
+def _build_bedf_help(region):
+    return build_help("bevel_edge_data_fix", [
+        ("Bevel Edge Data Fix", [
+            ("Keep live setup (Confirm)", "Enter / Space"),
+            ("Collapse + pin-unwrap + cleanup", "C"),
+            ("Toggle UV projection", "U"),
+            ("Revert (Cancel)", "Esc"),
+        ]),
+    ], region)
 
 
 def _draw_bedf_hud(op, context):
@@ -329,6 +326,10 @@ then: ENTER keep live, C collapse + cleanup, U toggle UV projection, ESC revert"
         a = eme.attributes.get("uv_seam")
         self.seam_count = sum(1 for d in a.data if d.value) if a else 0
 
+    def _build_overlays(self, region):
+        self._hud = _build_bedf_hud(region, self)
+        self._help = _build_bedf_help(region)
+
     def _teardown_hud(self, context):
         handle = getattr(self, "_handle_iops_text", None)
         if handle is not None:
@@ -367,8 +368,7 @@ then: ENTER keep live, C collapse + cleanup, U toggle UV projection, ESC revert"
         self._setup(context)
         self._count_seams(context)
         if context.area and context.area.type == 'VIEW_3D':
-            self._hud = _build_bedf_hud(context, self)
-            self._help = _build_bedf_help(context)
+            self._build_overlays(context.region)
             self._last_event = capture_event(event, None)
             self._handle_iops_text = safe_handler_add(
                 bpy.types.SpaceView3D, _draw_bedf_hud, (self, context),

@@ -5,54 +5,15 @@ from mathutils import Vector, Matrix
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme, Role
 from ..ui.hud import (
-    HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-    HUDParam, ItemState,
-    handle_hud_toggle, handle_help_toggle, capture_event,
+    HUDOverlay, HUDParam,
+    MoreOptions, build_help, more_options_property,
+    capture_event,
 )
+from ..ui.hud.more import MORE_OPTIONS_HELP
 
 
-# --- HUD / Help builders ---------------------------------------------------
-
-def _build_hud(context):
-    hud = HUDOverlay("object_radial_array")
-    hud.title = "Radial Array"
-    hud.bind_region(context.region)
-    return hud
-
-
-def _build_help(context):
-    helpo = HelpOverlay("object_radial_array")
-    helpo.add_section(HUDSection("Radial Array", [
-        HUDItem("Pivot mode",     "Q",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Arc mode (360/180/90/45/Cursor)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Axis offset mode (drag point)", "E",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Orientation (Align / Rotate / Random …)", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Local rot step (1°/5°/15°/45°/90°)", "1..5", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Nudge local X / Y / Z",  "← / → / ↑ (Shift = reverse)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset local rotation",   "↓",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Clone type",     "D",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Start point clone", "S",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("End point inclusive", "F",              ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Axis (toggle Global / pivot frame)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Source mode (Active/Hier/Group/Pool)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match from origins", "A (toggle)",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reroll pool seed",   "G",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Lock clones out (hover + LMB) · N = Show/Hide locked", "N", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Lock ALL clones (then click to keep a few)", "M", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("View axis",      "V",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset to defaults", "B",                ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Count +/-",      "+ / -  or  Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Radius drag (360/180/90/45)", "LMB on ring + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Move arc center (Active→Cursor)", "LMB on center + drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Flip arc apex", "I",                 ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Undo / Redo",    "Ctrl+Z / Ctrl+Shift+Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply",          "Space / Enter",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel",         "Esc / RMB",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD",     "H",                  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
+# --- HUD / Help ------------------------------------------------------------
+# (built by IOPS_OT_Object_Radial_Array._build_overlays)
 
 
 def _draw_callback(op, context):
@@ -1140,6 +1101,8 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
     bl_label = "OBJECT: Radial Array"
     bl_options = {"REGISTER", "UNDO"}
 
+    show_options: more_options_property()
+
     @classmethod
     def poll(cls, context):
         return (
@@ -1202,39 +1165,7 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         self._history = [self._snapshot()]   # seed undo history with the initial state
         self._hist_i = 0
 
-        def _local_rot_used():
-            return any(abs(a) > 1e-9 for a in self.local_rot)
-
-        self._hud = _build_hud(context)
-        # Always-on core params.
-        self._hud.add_param(HUDParam("Count",      lambda: self.count, "int"))
-        self._hud.add_param(HUDParam("Pivot",      lambda: _pivot_label(self.pivot_mode), "str"))
-        self._hud.add_param(HUDParam("Type",       lambda: self.arc_mode, "str"))
-        self._hud.add_param(HUDParam("Alignment",  lambda: _align_label(self.align_mode), "str"))
-        self._hud.add_param(HUDParam("Axis",       lambda: _axis_label(self.axis_mode), "str"))
-        # Contextual params — only shown once touched / relevant.
-        self._hud.add_param(HUDParam("Axis offset", lambda: self.axis_offset, "float", fmt="{:.3f}",
-                                     visible_getter=lambda: self.axis_offset_mode or abs(self.axis_offset) > 1e-6))
-        self._hud.add_param(HUDParam("Start point", lambda: self.skip_first, "bool",
-                                     visible_getter=lambda: self.skip_first))
-        self._hud.add_param(HUDParam("End point",   lambda: self.end_inclusive, "bool",
-                                     visible_getter=lambda: self.arc_mode != ARC_FULL))
-        self._hud.add_param(HUDParam("Rot step",    lambda: math.degrees(self.local_rot_step), "float", fmt="{:.0f}°",
-                                     visible_getter=_local_rot_used))
-        self._hud.add_param(HUDParam("Local Rot",
-                                     lambda: "{:.0f}°/{:.0f}°/{:.0f}°".format(
-                                         math.degrees(self.local_rot[0]),
-                                         math.degrees(self.local_rot[1]),
-                                         math.degrees(self.local_rot[2])), "str",
-                                     visible_getter=_local_rot_used))
-        self._hud.add_param(HUDParam("Skip/delete", lambda: f"{self.skip_mode} · {len(self.locked_slots)} locked", "str",
-                                     visible_getter=lambda: bool(self.locked_slots) or self.skip_mode == SKIP_HIDE))
-        self._hud.add_param(HUDParam("Match",       lambda: self.match_active, "bool",
-                                     visible_getter=lambda: self.match_active))
-        self._hud.add_param(HUDParam("Clone type",  lambda: self.clone_mode, "str",
-                                     visible_getter=lambda: self.clone_mode != CLONE_DUP))
-        self._hud.add_param(HUDParam("Source",      lambda: self.source_mode, "str"))
-        self._help = _build_help(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_callback, (self, context),
@@ -1246,6 +1177,84 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
         )
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+
+    def _local_rot_used(self):
+        return any(abs(a) > 1e-9 for a in self.local_rot)
+
+    def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
+        hud = self._hud = HUDOverlay("object_radial_array")
+        hud.title = "Radial Array"
+        hud.bind_region(region)
+        # Always: Count, Pivot, Arc, Axis and More Options. The rows after More Options only while it is on (Tab),
+        # and with Tab off while their option is in use. Every key works either way.
+        hud.add_param(HUDParam("Count (Ctrl + Wheel)", lambda: self.count, "int"))
+        hud.add_param(HUDParam("Pivot (Q)", lambda: _pivot_label(self.pivot_mode), "str"))
+        hud.add_param(HUDParam("Arc (W)", lambda: self.arc_mode, "str"))
+        hud.add_param(HUDParam("Axis (X / Y / Z)", lambda: _axis_label(self.axis_mode), "str"))
+        hud.add_param(HUDParam("Axis Offset (E)", lambda: self.axis_offset, "float", fmt="{:.3f}",
+                               visible_getter=lambda: self.axis_offset_mode or abs(self.axis_offset) > 1e-6))
+        hud.add_param(HUDParam("Locked Clones (N)", lambda: f"{self.skip_mode} · {len(self.locked_slots)} locked", "str",
+                               visible_getter=lambda: bool(self.locked_slots) or self.skip_mode == SKIP_HIDE))
+        hud.add_param(HUDParam("Match (A)", lambda: self.match_active, "bool",
+                               visible_getter=lambda: self.match_active))
+        hud.add_param(more.row())
+
+        def tab(name, getter, kind, also, fmt=None):
+            hud.add_param(HUDParam(name, getter, kind, fmt=fmt, visible_getter=more.when(also=also)))
+
+        tab("Alignment (R)", lambda: _align_label(self.align_mode), "str",
+            lambda: self.align_mode != ALIGN_ALIGN)
+        tab("Source (T)", lambda: self.source_mode, "str", lambda: self.source_mode != SOURCE_GROUP)
+        tab("Clone Type (D)", lambda: self.clone_mode, "str", lambda: self.clone_mode != CLONE_DUP)
+        tab("Start Point (S)", lambda: self.skip_first, "bool", lambda: self.skip_first)
+        tab("End Point (F)", lambda: self.end_inclusive, "bool", lambda: self.arc_mode != ARC_FULL)
+        tab("Rotation Step (1 to 5)", lambda: math.degrees(self.local_rot_step), "float",
+            self._local_rot_used, fmt="{:.0f}°")
+        tab("Local Rotation (Arrows)",
+            lambda: "{:.0f}°/{:.0f}°/{:.0f}°".format(*(math.degrees(a) for a in self.local_rot)), "str",
+            self._local_rot_used)
+
+        # Every key, hidden until H
+        self._help = build_help("object_radial_array", [
+            ("Array", [
+                ("Count", "+ / - / Ctrl + Wheel"),
+                ("Count by 10", "Ctrl + Shift + Wheel"),
+                ("Pivot mode", "Q"),
+                ("Arc mode (360 / 180 / 90 / 45 / Cursor)", "W"),
+                ("Flip arc apex (Active to Cursor arc)", "I"),
+                ("Radius drag", "LMB on ring + drag"),
+                ("Move arc center (Active to Cursor arc)", "LMB on center + drag"),
+                ("Axis (toggle global / pivot frame)", "X / Y / Z"),
+                ("View axis", "V"),
+                ("Axis offset mode (drag the point)", "E"),
+                ("Snap cursor to a face (Z = normal)", "C + LMB"),
+            ]),
+            ("Clones", [
+                ("Alignment (Align / Rotate / Random)", "R"),
+                ("Source mode (Active / Hierarchy / Group / Pool)", "T"),
+                ("Reroll pool seed", "G"),
+                ("Clone type", "D"),
+                ("Start point clone", "S"),
+                ("End point inclusive", "F"),
+                ("Match from origins", "A"),
+                ("Lock a clone out (hover)", "LMB"),
+                ("Show / hide locked clones", "N"),
+                ("Lock all clones", "M"),
+            ]),
+            ("Local Rotation", [
+                ("Rotation step (1 / 5 / 15 / 45 / 90 degrees)", "1 / 2 / 3 / 4 / 5"),
+                ("Nudge local X / Y / Z (Shift = reverse)", "Left / Right / Up Arrow"),
+                ("Reset local rotation", "Down Arrow"),
+            ]),
+            ("General", [
+                MORE_OPTIONS_HELP,
+                ("Reset to defaults", "B"),
+                ("Undo / Redo", "Ctrl + Z / Ctrl + Shift + Z"),
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -1301,6 +1310,10 @@ class IOPS_OT_Object_Radial_Array(bpy.types.Operator):
                 self.report({"INFO"}, "Undo")
             else:
                 self.report({"INFO"}, "Nothing to undo")
+            return {"RUNNING_MODAL"}
+
+        # --- More Options (Tab): only the HUD changes ---
+        if self._more.handle(event):
             return {"RUNNING_MODAL"}
 
         # --- mode cycles (QWER cluster) ---

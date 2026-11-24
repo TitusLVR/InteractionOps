@@ -2,10 +2,8 @@ import bpy
 from bpy.props import BoolProperty
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 class IOPS_OT_CurveSplineType(bpy.types.Operator):
@@ -37,34 +35,29 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
         bpy.ops.curve.spline_type_set(type=self.spl_type, use_handles=self.handles)
         return {"FINISHED"}
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("curve_spline_type")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("curve_spline_type")
         hud.title = "Curve Spline Type"
-        hud.bind_region(context.region)
-        return hud
-
-    def _build_help(self, context):
-        helpo = HelpOverlay("curve_spline_type")
-        helpo.add_section(HUDSection("Curve Spline Type", [
-            HUDItem("Use handles",    "H",   ItemState.ON if self.handles else ItemState.OFF),
-            HUDItem("Spline POLY",    "F1",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Spline BEZIER",  "F2",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Spline NURBS",   "F3",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return helpo
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Spline Type (F1 / F2 / F3)", lambda: self.curv_spline_type, "str"))
+        hud.add_param(HUDParam("Handles (A)", lambda: self.handles, "bool"))
+        self._help = build_help("curve_spline_type", [
+            ("Curve Spline Type", [
+                ("Poly Spline, Confirm", "F1"),
+                ("Bezier Spline, Confirm", "F2"),
+                ("NURBS Spline, Confirm", "F3"),
+                ("Use handles", "A"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
-            helpo.set_state("H", ItemState.ON if self.handles else ItemState.OFF)
             helpo.draw(context, last_event)
         if hud is not None:
-            hud.set_header(f"Current type: {self.curv_spline_type}")
             hud.draw(context, last_event)
 
     def modal(self, context, event):
@@ -108,7 +101,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
             self.execute(context)
             return {"FINISHED"}
 
-        elif event.type in {"H"} and event.value == "PRESS":
+        elif event.type in {"A"} and event.value == "PRESS":
             self.handles = not self.handles
 
         elif event.type in {"RIGHTMOUSE", "ESC"}:
@@ -125,9 +118,7 @@ class IOPS_OT_CurveSplineType(bpy.types.Operator):
         self.spl_type = "POLY"
         self.curv_spline_type = self.get_curve_active_spline_type(context)
 
-        self._hud = self._build_hud(context)
-        self._help = self._build_help(context)
-        self._hud.mirror_help(self._help)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._handle_text = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)

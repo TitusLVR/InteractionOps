@@ -10,9 +10,14 @@ Convert the selected spline points to Poly, Bezier or NURBS with one keypress. T
 | <kbd>F1</kbd> | Convert to Poly |
 | <kbd>F2</kbd> | Convert to Bezier |
 | <kbd>F3</kbd> | Convert to NURBS |
-| <kbd>H</kbd> | Toggle *Use handles* (keep handle shapes on conversion); also shows / hides the help legend |
+| <kbd>A</kbd> | Toggle *Use handles* (keep handle shapes on conversion); moved here from <kbd>H</kbd> |
+| <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>MMB</kbd> / Wheel | Navigate the viewport |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 
+## HUD
+
+Rows: Spline Type (F1 / F2 / F3) (the current type) and Handles (A). Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
-- Toggle *Use handles* before pressing F1–F3; the conversion happens immediately.
+- Toggle *Use handles* (A) before pressing F1–F3; the conversion happens immediately.

@@ -31,7 +31,7 @@ from mathutils import Vector
 
 from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
-from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
+from ..ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 from ..utils import picking
 from ..utils import edge_slide_core as core
 from ..utils import edge_slide_wave as wave
@@ -557,32 +557,43 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
         self._hud = HUDOverlay("edge_slide")
         self._hud.title = "Edge Slide"
         self._hud.bind_region(region)
+        # Always: Width, Exact Width, Allow Collapse. A toggle only while it is on, Clamped while a chain is clamped.
         self._hud.add_param(HUDParam("Width", lambda: self.width, "float", fmt="{:.4f}"))
         self._hud.add_param(HUDParam("Exact Width (E)", lambda: self.use_exact, "bool"))
         # D implies collapse: C reads as on and greyed while D is on, and its own value comes back with D off.
         self._hud.add_param(HUDParam(
-            "Allow Collapse / Unclamp (C)", lambda: self.use_collapse or self.use_destructive, "bool",
+            "Allow Collapse (C)", lambda: self.use_collapse or self.use_destructive, "bool",
             active_getter=lambda: not self.use_destructive))
-        self._hud.add_param(HUDParam("Destructive (D)", lambda: self.use_destructive, "bool"))
-        self._hud.add_param(HUDParam("Auto Adjust (Q)", lambda: self.use_auto_adjust, "bool"))
-        self._hud.add_param(HUDParam("UV Stripe (U)", lambda: self.use_uv_stripe, "bool"))
-        self._hud.add_param(HUDParam("Clamped", lambda: self._clamped, "bool"))
+        self._hud.add_param(HUDParam("Destructive (D)", lambda: self.use_destructive, "bool",
+                                     visible_getter=lambda: self.use_destructive))
+        self._hud.add_param(HUDParam("Auto Adjust (Q)", lambda: self.use_auto_adjust, "bool",
+                                     visible_getter=lambda: self.use_auto_adjust))
+        self._hud.add_param(HUDParam("UV Stripe (U)", lambda: self.use_uv_stripe, "bool",
+                                     visible_getter=lambda: self.use_uv_stripe))
+        self._hud.add_param(HUDParam("Clamped", lambda: self._clamped, "bool",
+                                     visible_getter=lambda: self._clamped))
 
-        self._help = HelpOverlay("edge_slide")
-        self._help.add_section(HUDSection("Edge Slide", [
-            HUDItem("Adjust width",      "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Snap to vertex",    "Ctrl",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Exact width",       "E",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Allow collapse",    "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Destructive",       "D",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Auto adjust",       "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("UV Stripe",         "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip chain side",   "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",           "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",            "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(region)
+        # Every key, hidden until H
+        self._help = build_help("edge_slide", [
+            ("Slide", [
+                ("Width", "Mouse"),
+                ("Type the width", "Digits / Period / Minus / Backspace"),
+                ("Precise width", "Shift"),
+                ("Snap to vertex", "Ctrl"),
+                ("Flip chain side", "F"),
+            ]),
+            ("Options", [
+                ("Exact Width", "E"),
+                ("Allow Collapse", "C"),
+                ("Destructive", "D"),
+                ("Auto Adjust", "Q"),
+                ("UV Stripe", "U"),
+            ]),
+            ("General", [
+                ("Confirm", "LMB / Enter"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def modal(self, context, event):
         try:
@@ -1518,7 +1529,7 @@ class IOPS_OT_edge_slide(bpy.types.Operator):
             if helpo is not None:
                 helpo.draw(context, last_event)
             if hud is not None:
-                hud.set_header(f"Width: {self.width:.4f}")
+                hud.set_header(f"Typing: {self._input_str}" if self._input_str else None)
                 self._update_hints()
                 hud.set_notes(*self._hint_notes(), *self._auto_notes())
                 hud.draw(context, last_event)

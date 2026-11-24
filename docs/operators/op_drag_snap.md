@@ -23,6 +23,10 @@ Every visible mesh is a snap target, including collection instances and the geom
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
 
+## HUD
+
+Rows: Action (C) (Move or Measure), Snap To (the element for the held modifier); Source and Distance appear once a source is picked. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 - Click the same vertex twice to place the 3D cursor there instead of moving anything.
 - The modifier is read at each click on its own: pick the source on an edge with <kbd>Shift</kbd> and the target as a plain vertex, for example.

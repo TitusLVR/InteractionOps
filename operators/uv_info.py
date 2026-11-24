@@ -9,8 +9,8 @@ from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..utils.uv_info import uv_rect_bounds, format_uv_rect
 
 
@@ -32,19 +32,32 @@ class IOPS_OT_UVInfoRect(bpy.types.Operator):
         for handler in self.sd_handlers:
             safe_handler_remove(handler, bpy.types.SpaceImageEditor, "WINDOW")
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("uv_info_rect")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("uv_info_rect")
         hud.title = "UV Info Rect"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("uv_info_rect")
-        helpo.add_section(HUDSection("UV Info Rect", [
-            HUDItem("Draw rectangle", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Copy bounds",    "LMB release", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        hud.bind_region(region)
+
+        def pair(index):
+            def text():
+                bounds = self._bounds
+                if bounds is None:
+                    return "-"
+                return f"({bounds[index][0]:.4f}, {bounds[index][1]:.4f})"
+            return text
+
+        def has_rect():
+            return self._bounds is not None
+
+        hud.add_param(HUDParam("Minimum", pair(0), "str", visible_getter=has_rect))
+        hud.add_param(HUDParam("Maximum", pair(1), "str", visible_getter=has_rect))
+        hud.add_param(HUDParam("Size", pair(2), "str", visible_getter=has_rect))
+        self._help = build_help("uv_info_rect", [
+            ("UV Info Rect", [
+                ("Draw rectangle", "LMB"),
+                ("Copy bounds to the clipboard", "LMB release"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _bounds_uv(self, context):
         """Current rectangle bounds in UV space, or None if no rectangle."""
@@ -76,17 +89,12 @@ class IOPS_OT_UVInfoRect(bpy.types.Operator):
                         role=Role.ACTIVE_POINT, context=context)
 
     def _draw_hud(self, context):
-        bounds = self._bounds_uv(context)
-        if bounds is not None and getattr(self, "hud", None) is not None:
-            uv_min, uv_max, size = bounds
-            self.hud.title = (f"min ({uv_min[0]:.4f}, {uv_min[1]:.4f})  "
-                              f"max ({uv_max[0]:.4f}, {uv_max[1]:.4f})  "
-                              f"size ({size[0]:.4f}, {size[1]:.4f})")
-        helpo = getattr(self, "help", None)
+        self._bounds = self._bounds_uv(context)
+        helpo = getattr(self, "_help", None)
         if helpo is not None:
             helpo.draw(context, getattr(self, "_last_event", None))
-        if getattr(self, "hud", None) is not None:
-            self.hud.draw(context, getattr(self, "_last_event", None))
+        if getattr(self, "_hud", None) is not None:
+            self._hud.draw(context, getattr(self, "_last_event", None))
 
     def _copy_bounds(self, context):
         bounds = self._bounds_uv(context)
@@ -105,8 +113,8 @@ class IOPS_OT_UVInfoRect(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "help", None)
-            hud = getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -150,7 +158,8 @@ class IOPS_OT_UVInfoRect(bpy.types.Operator):
         self.end = None
         self.dragging = False
 
-        self.hud, self.help = self._build_hud(context)
+        self._bounds = None
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
 
         self.handle_rect = safe_handler_add(bpy.types.SpaceImageEditor,

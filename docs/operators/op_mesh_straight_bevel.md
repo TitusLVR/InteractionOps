@@ -25,6 +25,17 @@ Bevels selected edges with perfectly straight, perpendicular cuts across the nei
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Offset, Percent Bevel (B), Cleanup (C), Snap to Endpoint (S) | always |
+| Percent Segments (Wheel) | while Percent Bevel is on |
+
+The header shows `Typing: ...` while you type an offset.
+
 ## Options
 - **Offset** — perpendicular distance from the ridge to the new cut.
 - **Mode** — Straight, Percent or Flat Fan.

@@ -37,3 +37,6 @@ Hold <kbd>Shift</kbd> + <kbd>RMB</kbd> and the 3D Cursor follows the surface und
 - Right-click-select keymaps keep their Shift+RMB extend-select: the operator passes the click through. Bind it to another key in that case.
 - Defaults for the two axes (normal Z, edge Y), the preview size and the axis letters live in *Preferences › iOps › Cursor Place*. Key presses during the drag override them for that placement only.
 - The next pivot tool (Object Rotate, Mirror Rotate, Cursor Bisect, Three Point Rotation) now starts from a cursor that is already aligned to the surface.
+
+## HUD
+Always shown: **Mode**, **Element**, **Normal Axis** (<kbd>X</kbd> / <kbd>Y</kbd> / <kbd>Z</kbd>, <kbd>F</kbd>) and **Edge Axis** (Wheel). Shown only while they apply: **Marked Points** (any marked), **Grid** (<kbd>G</kbd>) and **Grid Step** (<kbd>Alt</kbd> + Wheel) while the grid is on, **Active Only** (<kbd>A</kbd>) while on, **Ignore Triangulation** (<kbd>T</kbd>) while on. The operator runs while its key is held, so there is no More Options section. The help legend (<kbd>H</kbd>) lists every key, hidden until you press it.

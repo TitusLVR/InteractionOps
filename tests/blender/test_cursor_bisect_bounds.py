@@ -16,6 +16,7 @@ import math
 import os
 import sys
 import traceback
+from types import SimpleNamespace
 
 import bmesh
 import bpy
@@ -293,6 +294,14 @@ def test_bounds_split_distances_and_snap_points_local_to_hit_object():
     assert _close(world[0], (2.0, 0.0, 2.0)) and _close(world[1], (2.0, 1.0, 2.0)), world
     info = op._bounds_split_distances(ctx)
     assert info['label'] == 'Bounds' and abs(info['total'] - 4.0) < 1e-6 and abs(info['split'] - 1.0) < 1e-6, info
+    # the HUD's length row is named after the info's label, as the old header line was
+    op.show_distance_info, op._length_row = True, SimpleNamespace(name="Edge Length")
+    op._distance_info = lambda: info
+    op._sync_hud_state()
+    assert op._length_row.name == "Bounds Length"
+    op.show_distance_info = False
+    op._sync_hud_state()
+    assert op._length_row.name == "Edge Length"
     op.snapping_enabled = False
     op._update_bounds_snapping(ctx, ctx.scene.cursor.location)
     assert op.snap_points == [] and op._bounds_layout is not None

@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import traceback
+from types import SimpleNamespace
 
 import bmesh
 import bpy
@@ -396,6 +397,8 @@ class _OperatorStandIn:
         self.__dict__.update(OLD_DEFAULTS)
         self.__dict__.update(props)
         self.reports = []
+        # like a real instance: its own property type at .properties.bl_rna (More Options reads the defaults)
+        self.properties = SimpleNamespace(bl_rna=bpy.ops.iops.mesh_uv_stripe.get_rna_type())
 
     def report(self, _kinds, message):
         self.reports.append(message)
@@ -720,9 +723,10 @@ def test_modal_hud_and_help_list_every_key():
     op.mode, op.offset_axis = "FIT", "BOTH"
     active = {p.name: p.is_active() for p in params}
     assert not active["Fit to Active (D)"] and active["Offset Limit (Shift + Wheel)"] and active["Offset Seed (R)"]
-    assert [(it.label, it.key) for it in op._help.sections[0].items] == [
-        ("Side straight / free", "LMB on a side"), ("Pick cut edges, break a ring", "C"),
-        ("Pick the align edge", "V"), ("Confirm", "Enter / Space"), ("Cancel", "Esc / RMB")]
+    assert [(section.title, [it.key for it in section.items]) for section in op._help.sections] == [
+        ("Shape", ["E", "A", "Wheel", "LMB on a side", "G", "V", "B"]),
+        ("Layout", ["Q", "W", "D", "C", "S", "X", "Z", "Shift + Wheel", "R", "F"]),
+        ("General", ["Tab", "Enter / Space", "Esc / RMB"])]
     assert op._status_text() == "LMB side: straight/free · Tab: more · Enter: confirm · Esc: cancel"
     op._picking = True
     assert op._status_text().startswith("Picking cut edges")
@@ -1729,6 +1733,8 @@ def test_interactive_and_more_options_properties():
 
 
 ALWAYS_ROWS = {"Straight Sides (E)", "Ends (A)", "Stretch Limit (Wheel)", "More Options (Tab)"}
+# The Tab rows whose option is away from its default under the test's OLD_DEFAULTS: shown with Tab off too
+IN_USE_ROWS = {"Fit to Active (D)", "Split at Seams (S)", "Random Offset (Z)", "Merge Doubles (F)"}
 MORE_ROWS = {"Balance (B)", "Mode (Q)", "Orientation (W)", "Fit to Active (D)", "Split at Seams (S)",
              "Mark Seams (X)", "Random Offset (Z)", "Offset Limit (Shift + Wheel)", "Offset Seed (R)",
              "Merge Doubles (F)"}
@@ -1743,7 +1749,7 @@ def test_tab_toggles_more_options_and_the_hud_rows():
     _edit(obj)
     op = _modal_on(obj)                       # Straight Sides Both: no piece unfolded, so no Align row
     assert not op.show_options
-    assert _shown(op) == ALWAYS_ROWS
+    assert _shown(op) == ALWAYS_ROWS | IN_USE_ROWS
     before = _uv_state(obj)
     assert op._modal(bpy.context, _KeyPress("TAB")) == {"RUNNING_MODAL"} and op.show_options
     assert _uv_state(obj) == before                       # only the HUD changes
@@ -1752,7 +1758,7 @@ def test_tab_toggles_more_options_and_the_hud_rows():
     op._relayout(bpy.context)
     assert _shown(op) == ALWAYS_ROWS | MORE_ROWS | {"Align (G)"}      # every piece at its real shape: Align applies
     op._modal(bpy.context, _KeyPress("TAB"))
-    assert not op.show_options and _shown(op) == ALWAYS_ROWS | {"Align (G)"}
+    assert not op.show_options and _shown(op) == ALWAYS_ROWS | IN_USE_ROWS | {"Align (G)"}
     op.manual_cuts = '{"a": [1]}'
     assert "Manual Cuts" in _shown(op)
     op.manual_cuts = ""
@@ -1767,6 +1773,7 @@ def test_keys_of_hidden_rows_work_while_collapsed():
     before = _uv_state(obj)
     assert op._modal(bpy.context, _KeyPress("W")) == {"RUNNING_MODAL"}
     assert op.orientation == "VERTICAL" and _uv_state(obj)[0] != before[0]
+    assert "Orientation (W)" in _shown(op)                 # away from its default: shown with Tab off
     for key in ("Q", "A", "B"):
         assert op._modal(bpy.context, _KeyPress(key)) == {"RUNNING_MODAL"}
     assert (op.mode, op.ends, op.balance) == ("IN_PLACE", "BOTH", "LEAST_STRETCH") and not op.show_options
@@ -2226,17 +2233,18 @@ def test_esc_after_clicks_restores_the_side_picks_and_the_uvs():
 
 
 def test_hud_rows_follow_the_state():
+    base = ALWAYS_ROWS | IN_USE_ROWS | {"Mode (Q)"}         # Mode Fit and the other options in use show with Tab off
     obj = _polyline([0, 22, 0, 38])
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    assert _shown(op) == ALWAYS_ROWS                                          # no Align, Manual Cuts, Doubled Vertices
+    assert _shown(op) == base                                          # no Align, Manual Cuts, Doubled Vertices
     for _ in range(3):
         op._modal(bpy.context, _KeyPress("E"))                                # Both, Longer, Shorter, None
-    assert op.straight_sides == "NONE" and _shown(op) == ALWAYS_ROWS | {"Align (G)"}
+    assert op.straight_sides == "NONE" and _shown(op) == base | {"Align (G)"}
     op._modal(bpy.context, _KeyPress("E"))
-    assert op.straight_sides == "BOTH" and _shown(op) == ALWAYS_ROWS
+    assert op.straight_sides == "BOTH" and _shown(op) == base
     _click(op, obj, (2, 3))
-    assert _shown(op) == ALWAYS_ROWS | {"Manual Cuts"}
+    assert _shown(op) == base | {"Manual Cuts"}
     params = {p.name: p for section in op._hud.param_sections for p in section.params}
     assert params["Manual Cuts"].value_text() == "1"
     op._modal(bpy.context, _KeyPress("ESC"))
@@ -2244,15 +2252,15 @@ def test_hud_rows_follow_the_state():
     obj = _grid(4, 1)                                                         # both long sides clicked free
     _edit(obj)
     op = _modal_on(obj, mode="FIT")
-    assert _shown(op) == ALWAYS_ROWS
+    assert _shown(op) == base
     op._click_side(bpy.context, obj, 0, "near")
-    assert _shown(op) == ALWAYS_ROWS                                          # one side free: the other is straight
+    assert _shown(op) == base                                          # one side free: the other is straight
     op._click_side(bpy.context, obj, 0, "far")
-    assert _shown(op) == ALWAYS_ROWS | {"Align (G)"}
+    assert _shown(op) == base | {"Align (G)"}
     op._modal(bpy.context, _KeyPress("ESC"))
     obj = _double_object()
     op = _modal_on(obj, mode="FIT")
-    assert _shown(op) == ALWAYS_ROWS | {"Doubled Vertices"}
+    assert _shown(op) == base | {"Doubled Vertices"}
     op._modal(bpy.context, _KeyPress("ESC"))
 
 

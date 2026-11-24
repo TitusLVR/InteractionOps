@@ -10,10 +10,8 @@ from bpy.props import BoolProperty
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 _BBOX_EDGES_8 = (
@@ -84,41 +82,34 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
             and len(context.view_layer.objects.selected) > 0
         )
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("visual_origin")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("visual_origin")
         hud.title = "Visual Origin"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("visual_origin")
-        helpo.add_section(HUDSection("Visual Origin", [
-            HUDItem("World space group",         "F1",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Local space for active",    "F2",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("World space for active",    "F3",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Oriented box for active (aligns rotation)", "F4", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Origin → World center",     "W",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Selected → World center",   "M",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Pick active object",        "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Offset instances",          "I",         ItemState.ON if self.offset_instances else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Confirm",                   "LMB/Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",                    "Esc/RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        hud.mirror_help(helpo)
-        return hud, helpo
-
-    def _sync_hud(self):
-        helpo = getattr(self, "help", None)
-        if helpo is None:
-            return
-        helpo.set_state("I", ItemState.ON if self.offset_instances else ItemState.OFF)
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Offset Instances (I)", lambda: self.offset_instances, "bool",
+                               visible_getter=lambda: self.offset_instances))
+        self._help = build_help("visual_origin", [
+            ("Visual Origin", [
+                ("World space group", "F1"),
+                ("Local space for active", "F2"),
+                ("World space for active", "F3"),
+                ("Oriented box for active (aligns rotation)", "F4"),
+                ("Origin to world center", "W"),
+                ("Selected to world center", "M"),
+                ("Pick active object", "Shift + LMB"),
+                ("Offset instances", "I"),
+                ("Confirm", "LMB / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
-        helpo = getattr(self, "help", None)
+        helpo = getattr(self, "_help", None)
         if helpo is not None:
             helpo.draw(context, getattr(self, "_last_event", None))
-        if getattr(self, "hud", None) is None:
+        if getattr(self, "_hud", None) is None:
             return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        self._hud.draw(context, getattr(self, "_last_event", None))
 
     def _draw_cage_lines(self, context):
         coords3d = self.pos_batch_3d
@@ -556,8 +547,8 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
-            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -655,7 +646,6 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
 
         elif event.type == "I" and event.value == "PRESS":
             self.offset_instances = not self.offset_instances
-            self._sync_hud()
 
         elif event.type == "MOUSEMOVE":
             self.mouse_pos = event.mouse_region_x, event.mouse_region_y
@@ -698,7 +688,7 @@ class IOPS_OT_VisualOrigin(bpy.types.Operator):
         self.object_bbox(context)
         self.calc_distance(context)
 
-        self.hud, self.help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,

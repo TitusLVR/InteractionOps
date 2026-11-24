@@ -14,10 +14,8 @@ from mathutils import Euler, Matrix, Vector
 from ...ui.draw import draw_scope, safe_handler_add, safe_handler_remove
 from ...ui.draw import primitives as iops_draw
 from ...ui.draw.theme import Role
-from ...ui.hud import (
-    HUDOverlay, HelpOverlay, HUDSection, HUDItem, HUDParam, ItemState,
-    capture_event,
-)
+from ...ui.hud import HUDOverlay, HUDParam, capture_event
+from ...ui.hud.more import build_help
 from ...utils.picking import raycast_from_mouse
 from ..object_mirror_rotate import _draw_tpick, _tpick_update
 from . import iops_mod_registry
@@ -59,33 +57,32 @@ def _build_hud(op, region):
     hud.add_param(HUDParam(
         "Modifier", lambda: op._hud_modifier_label(), "str"))
     hud.add_param(HUDParam(
-        "Mode", lambda: "Empty at cursor" if op.cursor_pick else "Object",
+        "Mode (C)", lambda: "Empty at cursor" if op.cursor_pick else "Object",
         "str"))
     hud.add_param(HUDParam(
         "Target", lambda: op._hud_target_label(), "str"))
     hud.add_param(HUDParam(
-        "On selection", lambda: op._on_selection(), "bool"))
+        "On Selection (Alt)", lambda: op._on_selection(), "bool",
+        visible_getter=lambda: op._on_selection()))
     hud.add_param(HUDParam(
-        "Parent empty", lambda: op.parent_empty, "bool",
+        "Parent Empty (P)", lambda: op.parent_empty, "bool",
         visible_getter=lambda: op.cursor_pick))
     hud.bind_region(region)
     return hud
 
 
 def _build_help(region):
-    helpo = HelpOverlay("mod_pick_target")
-    helpo.add_section(HUDSection("Pick Modifier Target", [
-        HUDItem("Pick target object (highlighted)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Empty target at 3D cursor / back to object pick", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Snap empty to vert / edge-mid / center (cursor mode)", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Keep empty at cursor (cursor mode)", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Parent the empty to the object (cursor mode)", "P", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Also set on selected objects' matching modifier", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(region)
-    return helpo
+    return build_help("mod_pick_target", [
+        ("Pick Modifier Target", [
+            ("Pick target object (highlighted)", "LMB"),
+            ("Empty target at 3D cursor / back to object pick", "C"),
+            ("Snap the empty to a vertex, edge middle or face center (cursor mode)", "LMB"),
+            ("Keep empty at cursor (cursor mode)", "Space / Enter"),
+            ("Parent the empty to the object (cursor mode)", "P"),
+            ("Also set on selected objects' matching modifier", "Alt"),
+            ("Cancel", "Esc / RMB"),
+        ]),
+    ], region)
 
 
 def _draw_hud(op, context):
@@ -602,6 +599,10 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
                          else "Target cleared")
         layout.prop(self, "on_selection")
 
+    def _build_overlays(self, region):
+        self._hud = _build_hud(self, region)
+        self._help = _build_help(region)
+
     def _hud_modifier_label(self):
         md = self._modifier()
         return md.name if md is not None else "<gone>"
@@ -643,8 +644,7 @@ class IOPS_OT_ModPickTarget(bpy.types.Operator):
         self._fill_cache = None          # (key, coords) for _fill_coords
         self.cursor_pick = False
         self._tpick = None
-        self._hud = _build_hud(self, region)
-        self._help = _build_help(region)
+        self._build_overlays(region)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_pick, (self, context),

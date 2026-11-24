@@ -1,0 +1,43 @@
+"""HUD cases of tests/blender/test_hud_more_options.py, batch b: UV Shortest Mark and Visual UV."""
+from hud_case import HudCase
+
+CASES = [
+    HudCase(
+        name="UV Shortest Mark",
+        module="operators.mesh_uv_shortest_mark",
+        cls="IOPS_OT_Mesh_UV_Shortest_Mark",
+        always={"Barrier (E)", "Mark Type (R)", "Path Mode (Ctrl + Q)", "Edges", "More Options (Tab)"},
+        tab_rows={"Algorithm (A)", "Flow Angle (Ctrl + Wheel)", "Smooth (Shift + Wheel)",
+                  "Curvature (Ctrl + Shift + Wheel)", "Arch (Ctrl + Alt + Wheel)", "Mark Angle (Alt + Wheel)"},
+        also=[({"algorithm_idx": 1}, "Algorithm (A)"), ({"flow_angle": 90}, "Flow Angle (Ctrl + Wheel)"),
+              ({"smooth_level": 2}, "Smooth (Shift + Wheel)"), ({"curvature": 10}, "Curvature (Ctrl + Shift + Wheel)"),
+              ({"arch_strength": -1}, "Arch (Ctrl + Alt + Wheel)"), ({"sharp_angle": 45}, "Mark Angle (Alt + Wheel)")],
+        keys=["E", "R", "Ctrl + Q", "A", "Ctrl + Wheel", "Shift + Wheel", "Ctrl + Shift + Wheel",
+              "Ctrl + Alt + Wheel", "Alt + Wheel", "LMB", "Q", "D", "S", "F", "Ctrl + Z", "Tab", "Space", "Esc"],
+        state={"path_edge_indices": [], "_smooth_mode": False, "_smooth_magnet": 0, "_smooth_iterations": 1,
+               "_smooth_preview_edges": [], "_smooth_original_marks": set(), "barrier_type_idx": 0,
+               "mark_type_idx": 0, "algorithm_idx": 0, "path_mode_idx": 1, "flow_angle": 180, "smooth_level": 0,
+               "curvature": 0, "arch_strength": 0, "sharp_angle": 30},
+    ),
+    HudCase(
+        name="Visual UV",
+        module="operators.mesh_visual_uv",
+        cls="IOPS_OT_MeshVisualUV",
+        always={"Pivot (P)", "Scope (I)", "Islands", "More Options (Tab)"},
+        tab_rows={"UV Map", "Sensitivity (Alt + Wheel)", "Rotation Step (Ctrl + Wheel)", "Unwrap Method (Shift + U)",
+                  "Keep Mirror (Shift + M)"},
+        also=[({"grab_sensitivity": 2.0}, "Sensitivity (Alt + Wheel)"),
+              ({"rotation_step_idx": 2}, "Rotation Step (Ctrl + Wheel)"),
+              ({"unwrap_method": "CONFORMAL"}, "Unwrap Method (Shift + U)"),
+              ({"unwrap_keep_flip": False}, "Keep Mirror (Shift + M)"),
+              ({"state": "GRAB"}, "Axis Lock (X / Y)"),
+              ({"_suspended_mods": [object()]}, "Modifiers Paused (Shift + Q)")],
+        keys=["G", "R", "S", "X", "Y", "Alt + Wheel", "Ctrl + Wheel", "P", "C", "I", "LMB", "Shift + LMB", "Z", "W",
+              "D", "Shift + D", "Ctrl + D", "F", "Shift + F", "N", "Shift + N", "Ctrl + N", "T", "V", "A", "E",
+              "Shift", "Ctrl", "M", "Alt + M", "U", "Ctrl + U", "Shift + U", "Shift + M", "Alt + U", "Q",
+              "Shift + Q", "Ctrl + Z", "Ctrl + Shift + Z", "Tab", "Enter", "Space", "Esc"],
+        state={"state": "IDLE", "pivot_mode": "CENTER", "transform_scope": "ALL", "islands_data": [1, 2, 3],
+               "grab_axis": None, "_suspended_mods": [], "uv_layer": None, "grab_sensitivity": 1.0,
+               "rotation_step_idx": 6, "unwrap_method": "ANGLE_BASED", "unwrap_keep_flip": True},
+    ),
+]

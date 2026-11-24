@@ -5,10 +5,8 @@ from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..utils.picking import build_uv_kdtree
 
 
@@ -44,31 +42,33 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         for handler in self.sd_handlers:
             safe_handler_remove(handler, bpy.types.SpaceImageEditor, "WINDOW")
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("drag_snap_uv")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("drag_snap_uv")
         hud.title = "Drag Snap UV"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("drag_snap_uv")
-        helpo.add_section(HUDSection("Drag Snap UV", [
-            HUDItem("Move sel → 2D Cursor (highlighted)", "1",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Move sel → 2D Cursor (nearest)",     "2",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("2D Cursor → Highlighted",            "4",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Pick / Snap",                        "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Constrain X",                        "X",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Constrain Y",                        "Y",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",                             "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Constraint (X / Y)",
+                               lambda: "X only" if not self.y else ("Y only" if not self.x else "-"), "str",
+                               visible_getter=lambda: not (self.x and self.y)))
+        self._help = build_help("drag_snap_uv", [
+            ("Drag Snap UV", [
+                ("Move selection to 2D Cursor (highlighted)", "1"),
+                ("Move selection to 2D Cursor (nearest)", "2"),
+                ("2D Cursor to highlighted", "4"),
+                ("Pick source / snap target (Confirm)", "LMB"),
+                ("Copy distance instead of moving", "Ctrl + LMB"),
+                ("Constrain to X", "X"),
+                ("Constrain to Y", "Y"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
-        helpo = getattr(self, "help", None)
+        helpo = getattr(self, "_help", None)
         if helpo is not None:
             helpo.draw(context, getattr(self, "_last_event", None))
-        if getattr(self, "hud", None) is None:
+        if getattr(self, "_hud", None) is None:
             return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        self._hud.draw(context, getattr(self, "_last_event", None))
 
     def _draw_snap_points(self, context):
         coords = []
@@ -172,8 +172,8 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
-            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -296,7 +296,7 @@ class IOPS_OT_DragSnapUV(bpy.types.Operator):
         self.update_distances(context, event, self.kd)
         self.lmb = False
 
-        self.hud, self.help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self.handle_snap_line = safe_handler_add(bpy.types.SpaceImageEditor,

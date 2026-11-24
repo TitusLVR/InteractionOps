@@ -44,8 +44,7 @@ from mathutils.geometry import normal as poly_normal
 from ..ui.draw import primitives as draw_prim, Role, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 from ..utils.hinge_core import flush_angle
 from ..utils.picking import closest_edge_screen
 from .mesh_shear import (DIGIT_TYPES, _face_normal_safe, _gather_double_verts,
@@ -225,29 +224,7 @@ mouse, baking the sweep as segments"""
         # by the first LMB click (and toggled by Q); cleared after each
         # bake so the new cap starts back in live axis-picking.
         self._axis_locked = False
-        self._hud = HUDOverlay("mesh_hinge")
-        self._hud.title = "Hinge"
-        self._hud.bind_region(context.region)
-        self._help = HelpOverlay("mesh_hinge")
-        self._help.add_section(HUDSection("Hinge", [
-            HUDItem("Axis = edge under mouse", "Move",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Lock picked axis (toggle)", "Q",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Type angle",     "0-9 . -",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Angle ±5°",      "Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Segments",       "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip direction", "D",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flush to face under mouse (toggle)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bbox sides as axes (toggle)", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bbox space (OBB/Local/World/Cursor)", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Move hinge line (drag handle)", "LMB drag", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Reset hinge line offset", "X",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Lock axis under mouse", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Apply hinge, stay in modal", "LMB / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel lock / Finish", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._add_handlers(context)
@@ -256,6 +233,56 @@ mouse, baking the sweep as segments"""
         if context.area:
             context.area.tag_redraw()
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("mesh_hinge")
+        self._hud.title = "Hinge"
+        self._hud.bind_region(region)
+        # Always: Mode, Angle, Segments. The rest only while it applies.
+        self._hud.add_param(HUDParam("Mode", lambda: self.mode.capitalize(), "enum"))
+        self._hud.add_param(HUDParam("Angle (Type / Alt + Wheel)", self._effective_angle, "float", fmt="{:.2f}°"))
+        self._hud.add_param(HUDParam("Segments (Ctrl + Wheel)", lambda: self._steps, "int"))
+        self._hud.add_param(HUDParam("Axis Locked (Q)", lambda: self._axis_locked, "bool",
+                                     visible_getter=lambda: self._axis_locked))
+        self._hud.add_param(HUDParam(
+            "Hinge Offset", lambda: f"{self._pivot_off[0]:.4f} / {self._pivot_off[1]:.4f}", "str",
+            visible_getter=self._pivot_offset_active))
+        self._hud.add_param(HUDParam("Flush to Face (A)", lambda: self._flush_active, "bool",
+                                     visible_getter=lambda: self._flush_active))
+        self._hud.add_param(HUDParam("Bounding Box Sides (B)", lambda: self._bbox_mode, "bool",
+                                     visible_getter=lambda: self._bbox_mode))
+        self._hud.add_param(HUDParam("Bounding Box Space (S)", lambda: BBOX_SPACE_LABELS[self._bbox_space], "enum",
+                                     visible_getter=lambda: self._bbox_mode))
+
+        # Every key, hidden until H
+        self._help = build_help("mesh_hinge", [
+            ("Axis", [
+                ("Axis = edge under the mouse", "Move"),
+                ("Lock the picked axis", "Q"),
+                ("Lock the axis under the mouse", "LMB"),
+                ("Move the hinge line (drag a handle)", "LMB drag"),
+                ("Reset the hinge line offset", "X"),
+            ]),
+            ("Angle", [
+                ("Type the angle", "Digits / Period / Minus / Backspace"),
+                ("Angle by 5 degrees", "Alt + Wheel"),
+                ("Segments", "Ctrl + Wheel"),
+                ("Flip the direction", "D"),
+                ("Flush to the face under the mouse", "A"),
+            ]),
+            ("Bounding Box", [
+                ("Bounding box sides as axes", "B"),
+                ("Bounding box space", "S"),
+            ]),
+            ("Extrude", [
+                ("Extrude (drag the arrow)", "E"),
+                ("Precise extrude distance", "Shift"),
+            ]),
+            ("General", [
+                ("Apply the hinge, stay in the modal", "LMB / Enter / Space"),
+                ("Release the lock, leave flush, finish", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _after_extrude_confirm(self):
         """Extrude confirmed: the extruded cap / chain is now selected —
@@ -1248,15 +1275,5 @@ mouse, baking the sweep as segments"""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        lines = [f"Mode: {self.mode}",
-                 f"Angle: {self._effective_angle():.2f}°",
-                 f"Steps: {self._steps}",
-                 f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
-        if self._axis_locked:
-            lines.append("Axis: LOCKED")
-        if self._pivot_offset_active():
-            lines.append(f"Hinge offset: {self._pivot_off[0]:.4f} / {self._pivot_off[1]:.4f}")
-        if self.input_str:
-            lines.append(f"Typing: {self.input_str}")
-        hud.set_header(*lines)
+        hud.set_header(f"Typing: {self.input_str}" if self.input_str else None)
         hud.draw(context, last_event)

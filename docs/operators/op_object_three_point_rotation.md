@@ -37,3 +37,6 @@ The HUD next to the cursor is a checklist: the row marked ▸ is what to do now,
 - Everything in the viewport is drawn in the iOps theme roles, like Cursor Place: the face and snap point under the cursor are *Closest*, a pick you have made (the sticky point, A′, the A′→B′ axis) is *Locked*, where a pick is going to land is *Preview*, and the moving selection is the *Ghost Preview* tint with a wire that shows through the target, so you see where it goes even inside geometry.
 - The HUD lists the steps, the align mode and the total rotation angle. A degenerate pick (a point on the pivot or on the roll axis) is reported as an error and leaves the ghost where it was.
 - Works on collection instances (kitbash): hovering instanced geometry picks the instancing Empty.
+
+## HUD
+Rows next to the step checklist: **Align** (<kbd>R</kbd>), **Snap** (<kbd>S</kbd>) and **Rotation** always; **Facing** (<kbd>F</kbd>) and **Roll Edge** (<kbd>Alt</kbd> + Wheel) in the Align step of the normals modes; **Error** when a pick is degenerate. The help legend (<kbd>H</kbd>) lists every key, hidden until you press it.

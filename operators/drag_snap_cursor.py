@@ -1,10 +1,8 @@
 import bpy
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, capture_event
+from ..ui.hud.more import build_help
 
 
 class IOPS_OT_DragSnapCursor(bpy.types.Operator):
@@ -35,30 +33,25 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
             and len(context.view_layer.objects.selected) != 0
         )
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("drag_snap_cursor")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("drag_snap_cursor")
         hud.title = "Drag Snap (Cursor)"
-        hud.bind_region(context.region)
-        return hud
-
-    def _build_help(self, context):
-        helpo = HelpOverlay("drag_snap_cursor")
-        helpo.add_section(HUDSection("Drag Snap (Cursor)", [
-            HUDItem("Place point",  "Q",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Snap target",  "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",       "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return helpo
+        hud.bind_region(region)
+        self._help = build_help("drag_snap_cursor", [
+            ("Drag Snap (Cursor)", [
+                ("Place point (Confirm)", "Q"),
+                ("Snap target", "LMB"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
             helpo.draw(context, last_event)
-        if getattr(self, "hud", None) is not None:
-            self.hud.draw(context, last_event)
+        if getattr(self, "_hud", None) is not None:
+            self._hud.draw(context, last_event)
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -70,7 +63,7 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
             theme_prefs = None
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None)
-            hud = getattr(self, "hud", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -133,8 +126,7 @@ class IOPS_OT_DragSnapCursor(bpy.types.Operator):
             self.report({"WARNING"}, "Active space must be a View3d")
             return {"CANCELLED"}
 
-        self.hud = self._build_hud(context)
-        self._help = self._build_help(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._handle_iops_text = safe_handler_add(
             bpy.types.SpaceView3D, self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)

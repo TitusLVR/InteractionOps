@@ -5,8 +5,8 @@ from mathutils import Vector
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, HUDParamSection, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, HUDParamSection, capture_event
+from ..ui.hud.more import build_help
 from ..utils.uv_utils import (get_uv_selected_islands, get_island_uv_data,
                               move_island_uv)
 
@@ -136,41 +136,45 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         )
 
     # --- HUD -----------------------------------------------------------
-    def _build_hud(self, context):
-        hud = HUDOverlay("uv_visual_cursor")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("uv_visual_cursor")
         hud.title = "Visual Cursor UV"
         hud.add_param_section(HUDParamSection("State", [
-            HUDParam("Islands selected", lambda: len(self.islands), kind="int"),
-            HUDParam("Axis lock", self._axis_lock_label, kind="str",
-                     active_getter=lambda: self.axis_lock is not None),
+            HUDParam("Islands Selected", lambda: len(self.islands), kind="int"),
+            HUDParam("Axis Lock (X / Y)", self._axis_lock_label, kind="str",
+                     visible_getter=lambda: self.axis_lock is not None),
+            HUDParam("Tile Mode (Alt)", lambda: self.tile_mode, kind="bool",
+                     visible_getter=lambda: self.tile_mode),
         ]))
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("uv_visual_cursor")
-        helpo.add_section(HUDSection("Visual Cursor UV", [
-            HUDItem("Set 2D cursor to highlighted", "LMB/Space",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Set 2D cursor to point",       "NUM 1-9",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip selection over highlighted", "LMB drag",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align islands to highlighted", "Shift+LMB",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align islands to point",       "Shift+NUM 1-9", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Offset selected UVs by 1 tile", "Arrows",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Freeze U / Freeze V",          "X / Y",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Tile mode (hover tile)",       "Hold Alt",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",                       "Esc/RMB",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD",            "H",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        hud.bind_region(region)
+        self._help = build_help("uv_visual_cursor", [
+            ("Place the 2D Cursor", [
+                ("Set 2D cursor to highlighted (Confirm)", "LMB / Space"),
+                ("Set 2D cursor to point", "Numpad 1 - 9"),
+                ("Tile mode (hover tile)", "Hold Alt"),
+            ]),
+            ("Edit the UVs", [
+                ("Flip selection over highlighted", "LMB drag"),
+                ("Align islands to highlighted", "Shift + LMB"),
+                ("Align islands to point", "Shift + Numpad 1 - 9"),
+                ("Offset selected UVs by 1 tile", "Arrows"),
+                ("Freeze U / Freeze V", "X / Y"),
+            ]),
+            ("Exit", [
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _axis_lock_label(self):
         return {"X": "Freeze U", "Y": "Freeze V"}.get(self.axis_lock, "None")
 
     def _draw_hud(self, context):
-        helpo = getattr(self, "help", None)
+        helpo = getattr(self, "_help", None)
         if helpo is not None:
             helpo.draw(context, getattr(self, "_last_event", None))
-        if getattr(self, "hud", None) is None:
+        if getattr(self, "_hud", None) is None:
             return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        self._hud.draw(context, getattr(self, "_last_event", None))
 
     # --- Geometry / picking -------------------------------------------
     def _update(self, context, event):
@@ -364,8 +368,8 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "help", None)
-            hud = getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -502,7 +506,7 @@ class IOPS_OT_VisualCursorUV(bpy.types.Operator):
         self.mouse_pos = (event.mouse_region_x, event.mouse_region_y)
         self._update(context, event)
 
-        self.hud, self.help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
 
         h_lines = safe_handler_add(bpy.types.SpaceImageEditor,

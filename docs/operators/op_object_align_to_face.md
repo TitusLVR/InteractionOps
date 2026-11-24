@@ -17,6 +17,10 @@ Rotates the whole object so the active face's normal lines up with a world axis,
 | <kbd>LMB</kbd> / <kbd>Space</kbd> | Confirm |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel and restore the original rotation |
 
+## HUD
+
+Rows: Edge (Wheel) (the reference edge number) and Axis (X / Y / Z). Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 
 - The current reference edge is highlighted in the viewport; the HUD shows the edge number and target axis.

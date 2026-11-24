@@ -4,8 +4,8 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..utils.picking import (
     build_vertex_snap_cache,
     nearest_element_scene,
@@ -68,30 +68,27 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
     # --- HUD -----------------------------------------------------------
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("drag_snap")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("drag_snap")
         hud.title = "Drag Snap"
-        hud.bind_region(context.region)
-        hud.add_param(HUDParam("Action", lambda: "Measure" if self._measure else "Move", "str"))
-        hud.add_param(HUDParam("Snap to", lambda: _MODE_LABELS[self._mode], "str"))
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Action (C)", lambda: "Measure" if self._measure else "Move", "str"))
+        hud.add_param(HUDParam("Snap To", lambda: _MODE_LABELS[self._mode], "str"))
         hud.add_param(HUDParam("Source", lambda: _MODE_LABELS.get(self._source_mode, "-"), "str",
                                visible_getter=lambda: self.source[0] is not None))
         hud.add_param(HUDParam("Distance", lambda: self._distance_label(), "str",
                                visible_getter=lambda: self.source[0] is not None
                                and self.preview[0] is not None))
-        helpo = HelpOverlay("drag_snap")
-        helpo.add_section(HUDSection("Drag Snap", [
-            HUDItem("Pick source / snap target", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Point on edge", "Shift", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Face center", "Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Edge middle", "Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Measure: copy distance instead of moving", "C", ItemState.OFF,
-                    default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        self._help = build_help("drag_snap", [
+            ("Drag Snap", [
+                ("Pick source / snap target (Confirm)", "LMB"),
+                ("Point on edge", "Shift"),
+                ("Face center", "Ctrl"),
+                ("Edge middle", "Alt"),
+                ("Measure: copy distance instead of moving", "C"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _distance_label(self):
         if self.source[0] is None or self.preview[0] is None:
@@ -99,12 +96,12 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         return f"{(self.preview[0] - self.source[0]).length:.4f}"
 
     def _draw_hud(self, context):
-        helpo = getattr(self, "help", None)
+        helpo = getattr(self, "_help", None)
         if helpo is not None:
             helpo.draw(context, getattr(self, "_last_event", None))
-        if getattr(self, "hud", None) is None:
+        if getattr(self, "_hud", None) is None:
             return
-        self.hud.draw(context, getattr(self, "_last_event", None))
+        self._hud.draw(context, getattr(self, "_last_event", None))
 
     # --- Viewport preview --------------------------------------------------
 
@@ -202,9 +199,6 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
 
     def _toggle_measure(self):
         self._measure = not self._measure
-        helpo = getattr(self, "help", None)
-        if helpo is not None:
-            helpo.set_state("C", ItemState.ON if self._measure else ItemState.OFF)
         self.report({"INFO"}, "Drag Snap: measure (the target click copies the distance)"
                     if self._measure else "Drag Snap: move")
 
@@ -217,8 +211,8 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "_help", None) or getattr(self, "help", None)
-            hud = getattr(self, "_hud", None) or getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -297,7 +291,7 @@ class IOPS_OT_DragSnap(bpy.types.Operator):
         self._take_preview()
         self.lmb = False
 
-        self.hud, self.help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self.handle_snap_line = safe_handler_add(bpy.types.SpaceView3D,

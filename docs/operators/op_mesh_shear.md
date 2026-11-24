@@ -27,6 +27,18 @@ Extrude (after <kbd>E</kbd>): move the mouse to set the distance, <kbd>Shift</kb
 
 Hinge (after <kbd>Q</kbd>): type the angle, <kbd>Ctrl</kbd>+<kbd>Wheel</kbd> for segments, <kbd>D</kbd> to flip, <kbd>A</kbd> to land flush on the face under the cursor, <kbd>Enter</kbd> / <kbd>Space</kbd> to bake and return to shear, <kbd>Esc</kbd> / <kbd>RMB</kbd> to go back.
 
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Mode, Angle (Type / Alt + Wheel) | always |
+| Bounding Box Space (S) | while the axis comes from the bounding box (the start, <kbd>B</kbd>, <kbd>S</kbd>, <kbd>F</kbd>, <kbd>D</kbd>) |
+| Perpendicular to Rails (R) | after <kbd>R</kbd> reset the axis, until another axis key |
+
+The header shows `Typing: ...` while you type an angle.
+
 ## Tips
 - The typed angle is the real resulting tilt, also on slanted chamfer rails.
 - The last selected edge or vertex seeds the axis / moving endpoint.

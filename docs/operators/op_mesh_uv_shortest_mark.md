@@ -26,11 +26,15 @@ Marks seams, sharp edges, crease or bevel weight along the shortest path across 
 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Wheel</kbd> | Arch strength (Build mode) |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo the last mark |
 | <kbd>MMB</kbd> / <kbd>Wheel</kbd> | Navigate the viewport |
-| <kbd>H</kbd> | Show / hide the help legend |
+| <kbd>Tab</kbd> | Show / hide More Options in the HUD |
+| <kbd>H</kbd> | Show / hide the help legend (every key of the tool, collapsed at the start) |
 | <kbd>Space</kbd> / <kbd>Enter</kbd> | Finish |
 | <kbd>Esc</kbd> | Cancel |
 
-Smooth Marked (after <kbd>F</kbd>): <kbd>Alt</kbd>+<kbd>Wheel</kbd> magnet, <kbd>Shift</kbd>+<kbd>Wheel</kbd> iterations, <kbd>Space</kbd> / <kbd>Enter</kbd> accept the proposed route, <kbd>F</kbd> / <kbd>Esc</kbd> back without changes.
+## HUD
+The HUD always shows Barrier (E), Mark Type (R), Path Mode (Ctrl + Q) and the edge count. <kbd>Tab</kbd> adds Algorithm (A), Flow Angle, Smooth, Curvature, Arch and Mark Angle (the wheel combinations above). With Tab off such a row still appears while its value is away from its default. Every key works whether its row is shown or not; the help (<kbd>H</kbd>) lists them all.
+
+Smooth Marked (after <kbd>F</kbd>), where the HUD rows switch to Magnet, Iterations and Proposed / Original: <kbd>Alt</kbd>+<kbd>Wheel</kbd> magnet, <kbd>Shift</kbd>+<kbd>Wheel</kbd> iterations, <kbd>Space</kbd> / <kbd>Enter</kbd> accept the proposed route, <kbd>F</kbd> / <kbd>Esc</kbd> back without changes.
 
 ## Tips
 - Your barrier, mark, algorithm and tuning settings are remembered for the next run.

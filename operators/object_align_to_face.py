@@ -10,10 +10,8 @@ from mathutils import Vector, Matrix
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
@@ -41,44 +39,36 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
             and context.view_layer.objects.active.type == "MESH"
         )
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("align_to_face")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("align_to_face")
         hud.title = "Align to Face"
-        hud.bind_region(context.region)
-        return hud
-
-    def _build_help(self, context):
-        helpo = HelpOverlay("align_to_face")
-        helpo.add_section(HUDSection("Align to Face", [
-            HUDItem("Cycle edge",    "Wheel",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align axis",    "X / Y / Z",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Move (Shift)",  "Shift + X/Y/Z",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",       "LMB / Space",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",        "RMB / Esc",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return helpo
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Edge (Wheel)", lambda: self._edge_shown, "int"))
+        hud.add_param(HUDParam("Axis (X / Y / Z)", lambda: self.axis_rotate, "str"))
+        self._help = build_help("align_to_face", [
+            ("Align to Face", [
+                ("Cycle edge", "Wheel"),
+                ("Align axis", "X / Y / Z"),
+                ("Move along axis", "Shift + X / Y / Z"),
+                ("Move step", "Shift + Wheel"),
+                ("Confirm", "LMB / Space"),
+                ("Cancel", "RMB / Esc"),
+            ]),
+        ], region)
 
     def _sync_hud_header(self):
-        if getattr(self, "hud", None) is None:
-            return
         try:
-            edge_idx = self.get_edge_idx(self.counter)
+            self._edge_shown = self.get_edge_idx(self.counter)
         except Exception:
-            edge_idx = "?"
-        self.hud.set_header(
-            f"Edge: {edge_idx}",
-            f"Axis: {self.axis_rotate}",
-        )
+            self._edge_shown = "?"
 
     def _draw_hud(self, context):
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
             helpo.draw(context, last_event)
-        if getattr(self, "hud", None) is not None:
-            self.hud.draw(context, last_event)
+        if getattr(self, "_hud", None) is not None:
+            self._hud.draw(context, last_event)
 
     def _draw_edge(self, context):
         if not getattr(self, "edge_co", None):
@@ -170,7 +160,7 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
             theme_prefs = None
         if theme_prefs is not None:
             helpo = getattr(self, "_help", None)
-            hud = getattr(self, "hud", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -237,8 +227,8 @@ class IOPS_OT_AlignObjectToFace(bpy.types.Operator):
         self.counter = 0
         self.align_to_face(self.edge_idx, self.axis_rotate, self.flip)
 
-        self.hud = self._build_hud(context)
-        self._help = self._build_help(context)
+        self._edge_shown = 0
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._sync_hud_header()
 

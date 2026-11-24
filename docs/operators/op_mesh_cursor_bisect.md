@@ -34,15 +34,19 @@ Cuts the mesh with a plane anchored to the 3D cursor and aligned to the face and
 | <kbd>Z</kbd> | Deselect all |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo the last cut |
 | <kbd>MMB</kbd> / <kbd>Wheel</kbd> | Navigate the viewport |
-| <kbd>H</kbd> | Show / hide the help legend |
+| <kbd>Tab</kbd> | More Options: list every option in the HUD, or only the main ones |
+| <kbd>H</kbd> | Show / hide the help legend: every key of the tool, hidden until you press it |
 | <kbd>Space</kbd> | Finish |
 | <kbd>Esc</kbd> | Cancel |
+
+## HUD
+The HUD always lists **Snap (S)**, **Subdivisions (Ctrl + Wheel)**, **Fill Cut (F)** and **More Options (Tab)**. These rows appear only while they apply: *Edge Length* and *Split Length* (with Distance Info on and an edge under the cursor), *Mark Type (N)* while marking is on, *Delimit Type (Shift + L)* while the delimiter is on, *Inset Distance* and *Bevel Distance* while those modes are on. With <kbd>Tab</kbd> on it also lists Hold Points (D), Inset Points (V), Bevel Points (B), Mark Cut Edges (M), Delimiter (L), Lock Orientation (A), Preview (P), Distance Info (I) and Snap Source (Shift + S); a row of that list stays visible while its option is on (Distance Info: while it is off). Every key works whether its row is shown or not; the help legend (<kbd>H</kbd>) lists them all, the axis and selection keys included.
 
 ## Options
 - **Merge Doubles** — merge vertices left close together after the cut, using the merge distance from the preferences.
 
 ## Snap source
-<kbd>Shift</kbd>+<kbd>S</kbd> picks where the snap points come from (the HUD header shows *Snap Source: Selection Bounds* while it is on):
+<kbd>Shift</kbd>+<kbd>S</kbd> picks where the snap points come from (the HUD lists *Snap Source: Selection Bounds* while it is on):
 
 - **Face Edge** (default) — the vertices, edge subdivisions and center of the face under the mouse; Fill Cut divides the highlighted edge.
 - **Selection Bounds** — an oriented box around the faces the cut works on (the selected faces, or every visible face when nothing is selected, narrowed by the delimiter when it is on), across every mesh in Edit Mode, aligned to the current cut orientation. The box sides that run along the cut normal are divided into equal parts (<kbd>Ctrl</kbd>+<kbd>Wheel</kbd> sets how many; at least the midpoint), and those divisions are the snap points. Fill Cut (<kbd>F</kbd>) then cuts at every division, so the selection is sliced into equal parts from one side of the box to the other regardless of topology. Inset points (<kbd>V</kbd>) sit at the typed distance from both ends of those box sides and replace the midpoint, as on an edge. The box follows the orientation (<kbd>A</kbd>, <kbd>W</kbd>, <kbd>X</kbd>, <kbd>Alt</kbd>+<kbd>Wheel</kbd>), the selection and the delimiter; <kbd>D</kbd> freezes it with its points. Distance info shows the box side length (*Bounds*) and the cursor's distance to its nearer end (*Split*). Switching to Selection Bounds turns snapping on.

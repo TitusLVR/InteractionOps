@@ -43,8 +43,8 @@ from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme, axis_color
 from ..ui.hud import text as hud_text
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..utils.picking import raycast_from_mouse, px_world_at, SNAP_THRESHOLD_PX
 from ..utils.cursor_place_core import (
     AXES, Pick, pick_element, slide_element, build_frame, set_normal_axis,
@@ -66,39 +66,6 @@ _SURFACE_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META", "CURVES", "POINTCL
 # otherwise `face_index` indexes some other geometry (e.g. a geometry-nodes
 # instance) and the raw hit point/normal are used instead.
 _PLANE_TOLERANCE = 1e-3
-
-
-# --- HUD / Help builders ---------------------------------------------------
-
-def _build_hud(context):
-    hud = HUDOverlay("cursor_place")
-    hud.title = "Cursor Place"
-    hud.bind_region(context.region)
-    return hud
-
-
-def _build_help(context):
-    helpo = HelpOverlay("cursor_place")
-    helpo.add_section(HUDSection("Cursor Place", [
-        HUDItem("Slide along the face / edge under the mouse", "Move", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Snap to nearest vertex / edge mid / face centre", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Aim the edge axis at the mouse (position locked)", "Shift (toggle)", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Move, keep the current orientation", "Hold Alt", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Mark / unmark the snapped point, cursor at their centre (Ctrl held)", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Adaptive grid on the polygon under the mouse (Ctrl held)", "G", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Grid step: half / double (grid on)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Over empty space: snap to the floor grid when it is shown", "Hold Ctrl", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Active object only", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Ignore triangulation (pick the source n-gon)", "T", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Normal axis", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Flip normal", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Edge axis", "Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Confirm", "Release", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel", "Esc", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
 
 
 # --- Draw callbacks ----------------------------------------------------------
@@ -395,19 +362,7 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._mouse = (event.mouse_region_x, event.mouse_region_y)
         self._handles = []
 
-        self._hud = _build_hud(context)
-        self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
-        self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
-        self._hud.add_param(HUDParam("Marked points", lambda: len(self._marks), "int"))
-        self._hud.add_param(HUDParam("Grid", lambda: self._grid, "bool",
-                                     active_getter=lambda: self._snap))
-        self._hud.add_param(HUDParam("Grid step", lambda: self._grid_step_label(), "str",
-                                     visible_getter=lambda: self._grid))
-        self._hud.add_param(HUDParam("Active only", lambda: self._active_only, "bool"))
-        self._hud.add_param(HUDParam("Ignore Triangulate", lambda: self._ignore_tri, "bool"))
-        self._hud.add_param(HUDParam("Normal axis", lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
-        self._hud.add_param(HUDParam("Edge axis", lambda: self._edge_axis, "str"))
-        self._help = _build_help(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
 
         self._handles.append(safe_handler_add(
@@ -420,6 +375,54 @@ class IOPS_OT_CursorPlace(bpy.types.Operator):
         self._update(context, event)
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("cursor_place")
+        self._hud.title = "Cursor Place"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam("Mode", lambda: self._mode_label(), "str"))
+        self._hud.add_param(HUDParam("Element", lambda: self._snap_label(), "str"))
+        self._hud.add_param(HUDParam("Normal Axis (X / Y / Z, F)",
+                                     lambda: ("-" if self._flip else "") + self._normal_axis, "str"))
+        self._hud.add_param(HUDParam("Edge Axis (Wheel)", lambda: self._edge_axis, "str"))
+        self._hud.add_param(HUDParam("Marked Points", lambda: len(self._marks), "int",
+                                     visible_getter=lambda: len(self._marks) > 0))
+        self._hud.add_param(HUDParam("Grid (G)", lambda: self._grid, "bool",
+                                     active_getter=lambda: self._snap,
+                                     visible_getter=lambda: bool(self._grid)))
+        self._hud.add_param(HUDParam("Grid Step (Alt + Wheel)", lambda: self._grid_step_label(), "str",
+                                     visible_getter=lambda: bool(self._grid)))
+        self._hud.add_param(HUDParam("Active Only (A)", lambda: self._active_only, "bool",
+                                     visible_getter=lambda: bool(self._active_only)))
+        self._hud.add_param(HUDParam("Ignore Triangulation (T)", lambda: self._ignore_tri, "bool",
+                                     visible_getter=lambda: bool(self._ignore_tri)))
+        self._help = build_help("cursor_place", [
+            ("Place", [
+                ("Slide along the face / edge under the mouse", "Move"),
+                ("Hold to snap to the nearest vertex, edge middle or face center", "Ctrl"),
+                ("Toggle: aim the edge axis at the mouse (position locked)", "Shift"),
+                ("Hold to move and keep the current orientation", "Alt"),
+                ("Over empty space: snap to the floor grid when it is shown", "Ctrl"),
+            ]),
+            ("Marks and grid", [
+                ("Mark / unmark the snapped point, cursor at their center (Ctrl held)", "A"),
+                ("Adaptive grid on the polygon under the mouse (Ctrl held)", "G"),
+                ("Grid step: half / double (grid on)", "Alt + Wheel"),
+            ]),
+            ("Source", [
+                ("Active object only", "A"),
+                ("Ignore triangulation (pick the source n-gon)", "T"),
+            ]),
+            ("Axes", [
+                ("Normal axis", "X / Y / Z"),
+                ("Flip normal", "F"),
+                ("Edge axis", "Wheel"),
+            ]),
+            ("Finish", [
+                ("Confirm", "Release"),
+                ("Cancel", "Esc"),
+            ]),
+        ], region)
 
     def _mode_label(self):
         base = "Snap" if self._snap else "Slide"

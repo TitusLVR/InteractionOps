@@ -17,3 +17,6 @@ Finds pairs of selected edges that cross or lie in one plane and welds their nea
 ## Options
 - **Strategy** — *Greedy*: nearest pairs first, each edge used once. *All*: collapse every selected edge into the meeting point of the two outer rails. *Order*: pair edges by selection order (1st+2nd, 3rd+4th…).
 - **Interactive** — show the preview before applying; turn off to apply immediately.
+
+## HUD
+Rows: **Strategy** (<kbd>Wheel</kbd> / <kbd>S</kbd>) and **Pairs** (pairs found / candidate edges). The header carries only the title. The full key list is in the help legend (<kbd>H</kbd>), hidden until you press it; <kbd>/</kbd> hides the HUD rows.

@@ -8,10 +8,8 @@ from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as iops_draw
 from ..ui.draw import draw_scope
 from ..ui.draw.theme import Role
-from ..ui.hud import (
-    HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-    HUDParam, ItemState, capture_event,
-)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..utils.alignment_fit import solve_fit
 
 
@@ -591,84 +589,6 @@ def _draw_preview_3d(op, context):
                         op, context, t_matrix,
                         role=Role.GHOST_MIRROR if is_mirror else Role.GHOST_PREVIEW)
 
-# --- HUD / Help builders ---------------------------------------------------
-
-def _build_hud(context, op):
-    hud = HUDOverlay("object_aligner")
-    hud.title = "Object Aligner"
-    hud.bind_region(context.region)
-
-    def _mode_label():
-        return {
-            MODE_PICK_REF: "Pick reference",
-            MODE_PICK_TGT_OBJS: "Pick targets",
-            MODE_PICK_REF_POLY: "Pick ref polys",
-            MODE_PICK_TGT_POLY: "Pick target polys",
-        }.get(op.mode, op.mode)
-
-    hud.add_param(HUDParam("Mode", _mode_label))
-    hud.add_param(HUDParam("Reference", lambda: op.ref_name or "—",
-                           visible_getter=lambda: bool(op.ref_name)))
-    hud.add_param(HUDParam("Ref polys",
-                           lambda: sum(len(s) for s in op.ref_polys.values()),
-                           kind="int",
-                           visible_getter=lambda: bool(op.ref_polys)))
-    hud.add_param(HUDParam("Target polys",
-                           lambda: sum(len(s) for s in op.target_polys.values()),
-                           kind="int",
-                           visible_getter=lambda: bool(op.target_polys)))
-    hud.add_param(HUDParam("Targets",
-                           lambda: len(op.target_objs),
-                           kind="int",
-                           visible_getter=lambda: bool(op.target_objs)))
-    hud.add_param(HUDParam("Clone", lambda: op.clone_mode))
-    hud.add_param(HUDParam("Scale", lambda: SCALE_LABELS.get(op.scale_mode, op.scale_mode)))
-    hud.add_param(HUDParam("Tolerance",
-                           lambda: f"{getattr(op, 'match_fit_rmse', 0.15):.2f}",
-                           visible_getter=lambda: op.mode in (
-                               MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY)))
-
-    def _matches_label():
-        total = sum(len(c) for c in op.match_hints.values())
-        n_mir = sum(sum(1 for m in v if m) for v in op.match_mirrors.values())
-        return f"{total} ({n_mir} mirror)" if n_mir else str(total)
-
-    hud.add_param(HUDParam("Matches", _matches_label,
-                           visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
-    hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
-                           visible_getter=lambda: bool(op.last_fit)))
-    hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int"))
-    hud.add_param(HUDParam("Rig hidden",
-                           lambda: "yes" if op.rig_hidden else "no",
-                           visible_getter=lambda: op.rig_hidden))
-    return hud
-
-
-def _build_help(context):
-    helpo = HelpOverlay("object_aligner")
-    helpo.add_section(HUDSection("Object Aligner", [
-        HUDItem("Pick / paint polys (LMB drag)", "LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Mark face island",        "Shift+LMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Mark similar faces",      "Ctrl+LMB",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Pick ref object",         "Q",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Pick target objects",     "W",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("All visible / clear targets", "A / Alt+A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Ref-poly mode / commit",  "E",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset stage / all",       "R / Shift+R",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Toggle rig visibility",   "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Skip all matches",        "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Invert match selection",  "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Clone type (Duplicate/Instance)", "D",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Scale (Uniform/Keep/Stretch)",    "S",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Match tolerance",         "Alt+Wheel",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply",                   "Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel",                  "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD",              "H",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
-
-
 def _draw_callback(op, context):
     helpo = getattr(op, "_help", None)
     hud = getattr(op, "_hud", None)
@@ -770,8 +690,7 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         self._paint_active = False
         self._paint_adding = True
 
-        self._hud = _build_hud(context, self)
-        self._help = _build_help(context)
+        self._build_overlays(context.region)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_callback, (self, context),
             "WINDOW", "POST_PIXEL", tick=True,
@@ -783,6 +702,80 @@ class IOPS_OT_Object_Aligner(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        op = self
+        hud = self._hud = HUDOverlay("object_aligner")
+        hud.title = "Object Aligner"
+        hud.bind_region(region)
+
+        def _mode_label():
+            return {
+                MODE_PICK_REF: "Pick reference",
+                MODE_PICK_TGT_OBJS: "Pick targets",
+                MODE_PICK_REF_POLY: "Pick reference polygons",
+                MODE_PICK_TGT_POLY: "Pick target polygons",
+            }.get(op.mode, op.mode)
+
+        def _matches_label():
+            total = sum(len(c) for c in op.match_hints.values())
+            n_mir = sum(sum(1 for m in v if m) for v in op.match_mirrors.values())
+            return f"{total} ({n_mir} mirror)" if n_mir else str(total)
+
+        hud.add_param(HUDParam("Mode (Q / W / E)", _mode_label))
+        hud.add_param(HUDParam("Reference", lambda: op.ref_name or "—",
+                               visible_getter=lambda: bool(op.ref_name)))
+        hud.add_param(HUDParam("Reference Polygons",
+                               lambda: sum(len(s) for s in op.ref_polys.values()),
+                               kind="int",
+                               visible_getter=lambda: bool(op.ref_polys)))
+        hud.add_param(HUDParam("Target Polygons",
+                               lambda: sum(len(s) for s in op.target_polys.values()),
+                               kind="int",
+                               visible_getter=lambda: bool(op.target_polys)))
+        hud.add_param(HUDParam("Targets",
+                               lambda: len(op.target_objs),
+                               kind="int",
+                               visible_getter=lambda: bool(op.target_objs)))
+        hud.add_param(HUDParam("Clone (D)", lambda: op.clone_mode))
+        hud.add_param(HUDParam("Scale (S)", lambda: SCALE_LABELS.get(op.scale_mode, op.scale_mode)))
+        hud.add_param(HUDParam("Tolerance (Alt + Wheel)",
+                               lambda: f"{getattr(op, 'match_fit_rmse', 0.15):.2f}",
+                               visible_getter=lambda: op.mode in (
+                                   MODE_PICK_REF_POLY, MODE_PICK_TGT_POLY)))
+        hud.add_param(HUDParam("Matches", _matches_label,
+                               visible_getter=lambda: op.mode == MODE_PICK_TGT_POLY))
+        hud.add_param(HUDParam("Fit", lambda: op.last_fit or "—",
+                               visible_getter=lambda: bool(op.last_fit)))
+        hud.add_param(HUDParam("Stamped", lambda: op.stamped_count, kind="int",
+                               visible_getter=lambda: op.stamped_count > 0))
+        hud.add_param(HUDParam("Rig Hidden (X)",
+                               lambda: "yes" if op.rig_hidden else "no",
+                               visible_getter=lambda: op.rig_hidden))
+        self._help = build_help("object_aligner", [
+            ("Pick", [
+                ("Pick / paint polygons (drag)", "LMB"),
+                ("Mark face island", "Shift + LMB"),
+                ("Mark similar faces", "Ctrl + LMB"),
+                ("Pick the reference object", "Q"),
+                ("Pick target objects", "W"),
+                ("All visible / clear targets", "A / Alt + A"),
+                ("Reference polygon mode / commit", "E"),
+            ]),
+            ("Matches", [
+                ("Skip all matches", "C"),
+                ("Invert match selection", "I"),
+                ("Match tolerance", "Alt + Wheel"),
+            ]),
+            ("Result", [
+                ("Clone type (Duplicate / Instance)", "D"),
+                ("Scale (Uniform / Keep / Stretch)", "S"),
+                ("Toggle rig visibility", "X"),
+                ("Reset stage / all", "R / Shift + R"),
+                ("Apply", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _finish(self, context):
         for bm in getattr(self, "_bmesh_cache", {}).values():

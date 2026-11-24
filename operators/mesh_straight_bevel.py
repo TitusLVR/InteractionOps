@@ -8,9 +8,7 @@ from mathutils.geometry import intersect_line_line
 from ..ui.draw import primitives as draw, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 
 
 EPS = 1e-5
@@ -336,31 +334,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
 
         _purge_handles()
 
-        self._hud = HUDOverlay("straight_bevel")
-        self._hud.title = "Straight Bevel"
-        self._hud.bind_region(context.region)
-        # Live toggle params — show current state in dynamic HUD.
-        self._hud.add_param(HUDParam(
-            "Pct bevel (B)", lambda: self._pct_active, "bool"))
-        self._hud.add_param(HUDParam(
-            "Pct segs", lambda: self._pct_segments, "int",
-            active_getter=lambda: self._pct_active))
-        self._hud.add_param(HUDParam(
-            "Cleanup (C)", lambda: self._cleanup_mode, "bool"))
-        self._hud.add_param(HUDParam(
-            "Snap to endpoint (S)", lambda: self._snap_to_endpoint, "bool"))
-        self._help = HelpOverlay("straight_bevel")
-        self._help.add_section(HUDSection("Straight Bevel", [
-            HUDItem("Adjust offset", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Percent bevel", "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cleanup (limited dissolve on align faces)", "C", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Snap cut to chain endpoint vert", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Segments",      "Wheel",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",       "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",        "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._add_handlers(context)
@@ -370,6 +344,42 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if context.area:
             context.area.tag_redraw()
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("straight_bevel")
+        self._hud.title = "Straight Bevel"
+        self._hud.bind_region(region)
+        # Always: Offset, Percent Bevel, Cleanup, Snap to Endpoint. Percent Segments only while Percent Bevel is on.
+        self._hud.add_param(HUDParam("Offset", lambda: self.offset, "float", fmt="{:.4f}"))
+        self._hud.add_param(HUDParam(
+            "Percent Bevel (B)", lambda: self._pct_active, "bool"))
+        self._hud.add_param(HUDParam(
+            "Cleanup (C)", lambda: self._cleanup_mode, "bool"))
+        self._hud.add_param(HUDParam(
+            "Snap to Endpoint (S)", lambda: self._snap_to_endpoint, "bool"))
+        self._hud.add_param(HUDParam(
+            "Percent Segments (Wheel)", lambda: self._pct_segments, "int",
+            visible_getter=lambda: self._pct_active))
+
+        # Every key, hidden until H
+        self._help = build_help("straight_bevel", [
+            ("Bevel", [
+                ("Offset", "Mouse"),
+                ("Type the offset", "Digits / Period / Backspace"),
+                ("Offset in steps of 0.1", "Ctrl"),
+                ("Precise offset", "Shift"),
+                ("Percent Segments (while Percent Bevel is on)", "Wheel"),
+            ]),
+            ("Options", [
+                ("Percent Bevel", "B"),
+                ("Cleanup (limited dissolve on align faces)", "C"),
+                ("Snap to Endpoint (cut to the chain endpoint vertex)", "S"),
+            ]),
+            ("General", [
+                ("Confirm", "LMB / Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def modal(self, context, event):
         if context.area:
@@ -1560,10 +1570,7 @@ class IOPS_OT_straight_bevel(bpy.types.Operator):
         if helpo is not None:
             helpo.draw(context, last_event)
         if hud is not None:
-            lines = [f"Offset: {self.offset:.4f}"]
-            if self._input_str:
-                lines.append(f"Typing: {self._input_str}")
-            hud.set_header(*lines)
+            hud.set_header(f"Typing: {self._input_str}" if self._input_str else None)
             hud.draw(context, last_event)
 
     # ------------------------------------------------------------------

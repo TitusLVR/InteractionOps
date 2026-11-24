@@ -33,7 +33,8 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>X</kbd> | Mark Seams on / off |
 | <kbd>MMB</kbd> (with any modifier) / <kbd>Wheel</kbd> | Navigate the viewport: orbit, pan, zoom |
 | <kbd>N</kbd> | Sidebar, as usual |
-| <kbd>H</kbd> | Show / hide the help legend |
+| <kbd>Tab</kbd> | More Options: list every option in the HUD, or only the main ones (remembered) |
+| <kbd>H</kbd> | Show / hide the help legend: every key of the tool, hidden until you press it |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Finish |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel: UVs, seams and options go back exactly as they were |
 
@@ -45,7 +46,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | Preview Line colour | Every seam the layout has now — automatic or marked by you, the part outlines, each wall's seam and each ring strip's cut: exactly the edges Mark Seams marks. It is drawn over the loop under the cursor, so a marked loop keeps the seam colour and takes the loop colour as soon as you unmark it |
 | Error Line colour | A wall's fallback seam (no lengthwise loop was found) |
 
-The HUD is kept short: its **Loop (LMB)** row says what <kbd>LMB</kbd> will do to the loop under the cursor — *Add ring seam*, *Add seam*, *Remove seam*, *Set wall seam*, *Automatic wall seam*, *Set ring break* or *Remove ring break* — and its **Edge (C)** row what <kbd>C</kbd> will do to the edge under the cursor. Rows that do not apply are hidden: Fit to Active outside Active mode, Pack outside Fit 0–1, Random Offset while packing (Offset Limit and Seed also while it is None), Bend Angle while Split at Bends is off, Loop Source when the mesh had no UV map. The wheel keys of the angles are listed in the help legend (<kbd>H</kbd>) and the table above. Notices and warnings are reported when the tool finishes.
+The HUD is kept short. It always lists **Mode (Q)**, **Layout (E)**, **Loop (LMB)** (what <kbd>LMB</kbd> will do to the loop under the cursor: *Add ring seam*, *Add seam*, *Remove seam*, *Set wall seam*, *Automatic wall seam*, *Set ring break* or *Remove ring break*), **Edge (C)** (what <kbd>C</kbd> will do to the edge under the cursor) and **More Options (Tab)**. Three rows appear only when they apply: Fit to Active in Active mode, Loop Source when the mesh had a UV map, Pack in Fit 0–1. The other options (Orientation, Seam Side, the four angles with their wheel keys, Split at Bends, Bend Angle, Split at Seams, Mark Seams, Random Offset, Offset Limit, Offset Seed, Merge Doubles) are listed only while <kbd>Tab</kbd> has More Options on, or while their option is away from its default. Rows that do not apply stay hidden: Bend Angle while Split at Bends is off, Random Offset while packing, Offset Limit and Seed while Random Offset is None. Every key works whether its row is shown or not; the help legend (<kbd>H</kbd>) lists them all. Notices and warnings are reported when the tool finishes.
 
 The automatic result is laid out as soon as the tool starts, so <kbd>Enter</kbd> right away accepts it. Run from the redo panel or a script, it gives the same result without the interactive mode, the loops you committed included.
 

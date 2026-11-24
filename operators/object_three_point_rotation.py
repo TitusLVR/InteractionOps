@@ -24,8 +24,8 @@ from bpy_extras.view3d_utils import (
 from ..ui.draw import primitives as iops_draw
 from ..ui.draw import draw_scope, safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import Role
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDSection, HUDItem, HUDParam, ItemState, capture_event
+from ..ui.hud.more import build_help
 from ..utils.picking import raycast_from_mouse, hit_owner, SNAP_THRESHOLD_PX
 from ..utils.three_point_core import (
     DegenerateFrame, frame_from_face, align_matrix, rotation_angle_deg,
@@ -609,40 +609,36 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
 
     # --- HUD ---
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("three_point_rotation")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("three_point_rotation")
         hud.title = "3 Point Rotation"
-        hud.bind_region(context.region)
+        hud.bind_region(region)
         self._steps = HUDSection("", [])
         hud.add_section(self._steps)
-        hud.add_param(HUDParam("Align", lambda: ROT_LABELS[self.rot_mode], "str",
+        hud.add_param(HUDParam("Align (R)", lambda: ROT_LABELS[self.rot_mode], "str",
                                active_getter=lambda: self.step == STEP_ALIGN))
-        hud.add_param(HUDParam("Facing", lambda: "face to face" if self.face_to_face else "same side", "str",
+        hud.add_param(HUDParam("Facing (F)", lambda: "face to face" if self.face_to_face else "same side", "str",
                                visible_getter=lambda: self.step == STEP_ALIGN and self.rot_mode != ROT_POINTS))
-        hud.add_param(HUDParam("Roll edge", lambda: "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}", "str",
+        hud.add_param(HUDParam("Roll Edge (Alt + Wheel)",
+                               lambda: "nearest" if self.roll_shift == 0 else f"nearest {self.roll_shift:+d}", "str",
                                visible_getter=lambda: self.step == STEP_ALIGN and self.rot_mode == ROT_EDGE))
-        hud.add_param(HUDParam("Snap", lambda: self.snap, "bool"))
+        hud.add_param(HUDParam("Snap (S)", lambda: self.snap, "bool"))
         hud.add_param(HUDParam("Rotation", lambda: f"{rotation_angle_deg(self._total()):.1f}°", "str"))
         hud.add_param(HUDParam("Error", lambda: self._error, "str",
                                visible_getter=lambda: bool(self._error)))
-        return hud
-
-    def _build_help(self, context):
-        helpo = HelpOverlay("three_point_rotation")
-        helpo.add_section(HUDSection("3 Point Rotation", [
-            HUDItem("On your object: lock the point. On the target: commit the step", "LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align by: normals + edge / points / normals", "R", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Facing: meet / same side (normals)", "F", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Roll edge: next / previous (normals + edge)", "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Snap to verts / edge mids / center", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Step back", "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Reset", "0", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Apply", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return helpo
+        self._help = build_help("three_point_rotation", [
+            ("3 Point Rotation", [
+                ("On your object: lock the point. On the target: commit the step", "LMB"),
+                ("Align by: normals + edge / points / normals", "R"),
+                ("Facing: meet / same side (normals)", "F"),
+                ("Roll edge: next / previous (normals + edge)", "Alt + Wheel"),
+                ("Snap to vertices, edge middles or centers", "S"),
+                ("Step back", "Backspace"),
+                ("Reset", "0"),
+                ("Apply", "Space / Enter"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     # --- lifecycle ---
 
@@ -667,9 +663,8 @@ class IOPS_OT_ThreePointRotation(bpy.types.Operator):
         self._gizmo_len = max(dims) * 0.35 if dims else 1.0
         self._reset()
 
-        self._hud = self._build_hud(context)
+        self._build_overlays(context.region)
         self._sync_hud()
-        self._help = self._build_help(context)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_pixel, (self, context),

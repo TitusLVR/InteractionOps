@@ -37,8 +37,7 @@ from ..utils import uv_stripe_core
 from . import uv_stripe_bridge
 from ..ui.draw import primitives as draw, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 
 
 EPS = 1e-9
@@ -1530,31 +1529,40 @@ class IOPS_OT_inset(bpy.types.Operator):
         self._hud = HUDOverlay("inset")
         self._hud.title = "Inset"
         self._hud.bind_region(region)
+        # Always: Thickness, Mode, Collapse, Boundary. Depth and UV Stripe only while they are in use.
         self._hud.add_param(HUDParam(
             "Thickness", self._hud_thickness, "float", fmt="{:.4f}"))
-        self._hud.add_param(HUDParam(
-            "Depth", lambda: self.depth, "float", fmt="{:.4f}"))
         self._hud.add_param(HUDParam("Mode (I)", lambda: self.mode, "enum"))
         self._hud.add_param(HUDParam(
             "Collapse (C)", lambda: self.use_collapse, "bool"))
         self._hud.add_param(HUDParam(
             "Boundary (B)", lambda: self.use_boundary, "bool"))
         self._hud.add_param(HUDParam(
-            "UV Stripe (U)", lambda: self.use_uv_stripe, "bool"))
+            "Depth (Ctrl + Mouse)", lambda: self.depth, "float", fmt="{:.4f}",
+            visible_getter=lambda: self.depth != 0.0))
+        self._hud.add_param(HUDParam(
+            "UV Stripe (U)", lambda: self.use_uv_stripe, "bool",
+            visible_getter=lambda: self.use_uv_stripe))
 
-        self._help = HelpOverlay("inset")
-        self._help.add_section(HUDSection("Inset", [
-            HUDItem("Adjust thickness", "Mouse / Type", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Depth",            "Ctrl + Mouse", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mode",             "I",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Collapse",         "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Boundary",         "B",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("UV Stripe",        "U",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",          "LMB / Enter",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",           "Esc / RMB",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(region)
+        # Every key, hidden until H
+        self._help = build_help("inset", [
+            ("Inset", [
+                ("Thickness", "Mouse"),
+                ("Type the thickness", "Digits / Period / Minus / Backspace"),
+                ("Precise thickness", "Shift"),
+                ("Depth", "Ctrl + Mouse"),
+            ]),
+            ("Options", [
+                ("Mode", "I"),
+                ("Collapse", "C"),
+                ("Boundary", "B"),
+                ("UV Stripe", "U"),
+            ]),
+            ("General", [
+                ("Confirm", "LMB / Enter"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _build_timelines(self, regions):
         """Pair every usable region with its wavefront timeline.
@@ -2090,7 +2098,7 @@ class IOPS_OT_inset(bpy.types.Operator):
         if helpo is not None:
             helpo.draw(context, last_event)
         if hud is not None:
-            hud.set_header(f"Thickness: {self.thickness:.4f}")
+            hud.set_header(f"Typing: {self._input_str}" if self._input_str else None)
             hud.draw(context, last_event)
 
     # ------------------------------------------------------------------

@@ -25,8 +25,7 @@ from mathutils import Vector
 from ...ui.draw import primitives as draw_prim, Role, draw_scope, axis_color
 from ...ui.draw import safe_handler_add, safe_handler_remove
 from ...ui.draw.theme import get_theme
-from ...ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                       HUDParam, ItemState, capture_event)
+from ...ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 from ...ui.hud import text as hud_text
 from ...utils import falloff_core as fc
 from ..mesh_shear import DIGIT_TYPES
@@ -143,7 +142,7 @@ class FalloffToolMixin:
         self._face_data = None
         self._dirty = set()
 
-        self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, self._draw_pixel, (context,),
@@ -905,82 +904,76 @@ class FalloffToolMixin:
     # HUD
     # ------------------------------------------------------------------
 
-    def _build_hud(self, context):
-        self._hud = HUDOverlay(f"mesh_falloff_{self.tool_label.lower()}")
-        self._hud.title = f"Falloff {self.tool_label}"
-        self._hud.bind_region(context.region)
-        self._items = {
-            "LINEAR": HUDItem("Linear", "L", always_show=True),
-            "RADIAL": HUDItem("Radial", "R", always_show=True),
-            "SCREEN": HUDItem("Screen", "S", always_show=True),
-            "COPLANAR": HUDItem("Coplanar", "C", always_show=True),
-            "E": HUDItem("Element (connected only)", "E", always_show=True),
-            "I": HUDItem("Invert", "I", always_show=True),
-            "V": HUDItem("Show weights", "V", always_show=True),
-        }
-        self._hud.add_section(HUDSection("Falloff", [
-            self._items["LINEAR"], self._items["RADIAL"], self._items["SCREEN"],
-            self._items["COPLANAR"], self._items["E"], self._items["I"],
-            self._items["V"],
-        ]))
-        self._hud.add_param(HUDParam("Shape", lambda: self._shape.replace("_", " ").title(), "str"))
-        self._hud.add_param(HUDParam("Radius", lambda: self._r, "float", fmt="{:.4f}",
-                                     visible_getter=lambda: self._ftype == "RADIAL"))
-        self._hud.add_param(HUDParam("Length", lambda: float(np.linalg.norm(self._E - self._S)), "float",
-                                     fmt="{:.4f}", visible_getter=lambda: self._ftype == "LINEAR"))
-        self._hud.add_param(HUDParam("Radius px", lambda: self._screen_px, "int",
-                                     visible_getter=lambda: self._ftype == "SCREEN"))
-        self._hud.add_param(HUDParam("Angle", lambda: math.degrees(self._coplanar_angle), "float",
-                                     fmt="{:.1f}°", visible_getter=lambda: self._ftype == "COPLANAR"))
-        self._hud.add_param(HUDParam(
-            "Basis",
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay(f"mesh_falloff_{self.tool_label.lower()}")
+        hud.title = f"Falloff {self.tool_label}"
+        hud.bind_region(region)
+        # Always: Falloff, Shape, the size of the current falloff and the amount. Only while in effect:
+        # Coplanar unavailable, Connected Only, Invert, Show Weights, Axis, Basis (not Local, or moved) and Typing.
+        hud.add_param(HUDParam("Falloff (L / R / S / C)", lambda: TYPE_LABELS[self._ftype], "str"))
+        # C does nothing without selected faces or edges: say so, dimmed, as the Coplanar key once was
+        hud.add_param(HUDParam("Coplanar (C)", lambda: "Needs Selected Faces or Edges", "str",
+                               active_getter=lambda: False,
+                               visible_getter=lambda: not getattr(self, "_coplanar_ok", True)))
+        hud.add_param(HUDParam("Shape (F)", lambda: self._shape.replace("_", " ").title(), "str"))
+        hud.add_param(HUDParam("Radius (Shift + Wheel)", lambda: self._r, "float", fmt="{:.4f}",
+                               visible_getter=lambda: self._ftype == "RADIAL"))
+        hud.add_param(HUDParam("Length (Shift + Wheel)", lambda: float(np.linalg.norm(self._E - self._S)), "float",
+                               fmt="{:.4f}", visible_getter=lambda: self._ftype == "LINEAR"))
+        hud.add_param(HUDParam("Screen Radius (Shift + Wheel)", lambda: self._screen_px, "int",
+                               visible_getter=lambda: self._ftype == "SCREEN"))
+        hud.add_param(HUDParam("Coplanar Angle (Shift + Wheel)", lambda: math.degrees(self._coplanar_angle), "float",
+                               fmt="{:.1f}°", visible_getter=lambda: self._ftype == "COPLANAR"))
+        hud.add_param(HUDParam("Connected Only (E)", lambda: self._connected, "bool",
+                               visible_getter=lambda: self._connected))
+        hud.add_param(HUDParam("Invert (I)", lambda: self._invert, "bool", visible_getter=lambda: self._invert))
+        hud.add_param(HUDParam("Show Weights (V)", lambda: self._preview, "bool",
+                               visible_getter=lambda: self._preview))
+        hud.add_param(HUDParam(
+            "Basis (N)",
             lambda: BASIS_LABELS[self._basis_mode] + (" (moved)" if self._pivot_moved else ""),
-            "str"))
-        self._hud.add_param(HUDParam("Axis", lambda: self._axis or "—", "str"))
-        self._hud.add_param(HUDParam(self.amount_label, self._hud_amount, "str"))
-        self._hud.add_param(HUDParam("Typing", lambda: self.input_str, "str",
-                                     visible_getter=lambda: bool(self.input_str)))
+            "str", visible_getter=lambda: self._basis_mode != BASIS_MODES[0] or self._pivot_moved))
+        hud.add_param(HUDParam("Axis (X / Y / Z)", lambda: self._axis or "—", "str",
+                               visible_getter=lambda: bool(self._axis)))
+        hud.add_param(HUDParam(self.amount_label, self._hud_amount, "str"))
+        hud.add_param(HUDParam("Typing", lambda: self.input_str, "str",
+                               visible_getter=lambda: bool(self.input_str)))
 
-        self._help = HelpOverlay(f"mesh_falloff_{self.tool_label.lower()}")
-        self._help.add_section(HUDSection(f"Falloff {self.tool_label}", [
-            HUDItem("Drag = transform, drag handle = edit falloff", "LMB", ItemState.ON, always_show=True),
-            HUDItem("Falloff type", "L / R / S / C", ItemState.ON, always_show=True),
-            HUDItem("Element: connected only", "E", ItemState.ON, always_show=True),
-            HUDItem("Cycle shape", "F", ItemState.ON, always_show=True),
-            HUDItem("Invert", "I", ItemState.ON, always_show=True),
-            HUDItem("Auto-size to selection", "A", ItemState.ON, always_show=True),
-            HUDItem("Show weights", "V", ItemState.ON, always_show=True),
-            HUDItem("Axis constraint (Shift = plane)", "X / Y / Z", ItemState.ON, always_show=True),
-            HUDItem("Basis: Local / Cursor / World / Normal", "N", ItemState.ON, always_show=True),
-            HUDItem("Drag origin gizmo = move pivot (Ctrl snap, X/Y/Z lock)", "LMB", ItemState.ON, always_show=True),
-            HUDItem("Drag gizmo arrow / ring / square = transform on that axis", "LMB", ItemState.ON, always_show=True),
-            HUDItem("Handle drag: snap to original selection", "Ctrl", ItemState.ON, always_show=True),
-            HUDItem("Handle drag: axis lock (Shift = plane)", "X / Y / Z", ItemState.ON, always_show=True),
-            HUDItem("Falloff size (fine: +Ctrl)", "Shift+Wheel", ItemState.ON, always_show=True),
-            HUDItem("Precise / Snap", "Shift / Ctrl", ItemState.ON, always_show=True),
-            HUDItem("Type amount", "0-9 . -", ItemState.ON, always_show=True),
-            HUDItem("Confirm", "Enter / Space", ItemState.ON, always_show=True),
-            HUDItem("Cancel", "Esc / RMB", ItemState.ON, always_show=True),
-            HUDItem("Help legend", "H", ItemState.ON, always_show=True),
-            HUDItem("Toggle HUD params", "/", ItemState.ON, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        # Every key, hidden until H
+        self._help = build_help(f"mesh_falloff_{self.tool_label.lower()}", [
+            ("Falloff", [
+                ("Falloff type (Linear / Radial / Screen / Coplanar)", "L / R / S / C"),
+                ("Cycle shape", "F"),
+                ("Falloff size (fine: Ctrl)", "Shift + Wheel"),
+                ("Auto-size to selection", "A"),
+                ("Element: connected only", "E"),
+                ("Invert", "I"),
+                ("Show weights", "V"),
+            ]),
+            ("Transform", [
+                ("Drag = transform, drag handle = edit falloff", "LMB"),
+                ("Axis constraint (Shift = plane)", "X / Y / Z"),
+                ("Basis: Local / Cursor / World / Normal", "N"),
+                ("Type amount", "0 - 9 / . / - / Backspace"),
+                ("Precise", "Shift"),
+                ("Snap", "Ctrl"),
+            ]),
+            ("Gizmo and Handles", [
+                ("Drag origin gizmo = move pivot (Ctrl snap, X / Y / Z lock)", "LMB on the origin"),
+                ("Drag gizmo arrow / ring / square = transform on that axis", "LMB on a gizmo axis"),
+                ("Handle drag: snap to original selection", "Ctrl"),
+                ("Handle drag: axis lock (Shift = plane)", "X / Y / Z"),
+            ]),
+            ("General", [
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _hud_amount(self):
         if self._current_amount is None:
             return "—"
         return self._amount_text(self._current_amount)
-
-    def _sync_hud_states(self):
-        for t in fc.FALLOFF_TYPES:
-            it = self._items[t]
-            if t == "COPLANAR" and not self._coplanar_ok:
-                it.state = ItemState.DISABLED
-            else:
-                it.state = ItemState.ON if self._ftype == t else ItemState.OFF
-        self._items["E"].state = ItemState.ON if self._connected else ItemState.OFF
-        self._items["I"].state = ItemState.ON if self._invert else ItemState.OFF
-        self._items["V"].state = ItemState.ON if self._preview else ItemState.OFF
 
     def _status_text(self):
         typed = f" | typing: {self.input_str}" if self.input_str else ""
@@ -1214,7 +1207,6 @@ class FalloffToolMixin:
                 draw_prim.points([self._hotspots[self._hover_idx]["region_pt"]],
                                  role=Role.HANDLE_HOVER, context=context, theme=theme)
 
-        self._sync_hud_states()
         with hud_text.isolated(theme):
             self._help.draw(context, self._last_event)
             self._hud.draw(context, self._last_event)

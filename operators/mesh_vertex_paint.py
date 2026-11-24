@@ -36,8 +36,9 @@ from mathutils.kdtree import KDTree
 from ..ui.draw import primitives as draw_prim, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      ItemState, capture_event)
+from ..ui.hud import (HUDOverlay, HUDParam, MoreOptions, build_help,
+                      capture_event, more_options_property)
+from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..utils.vertex_paint_core import (QUICK_COLORS, QUICK_COLORS_SHIFT,
                                        StrokeHistory,
                                        blend_color, falloff_weight,
@@ -479,6 +480,8 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
     bl_label = "Vertex Paint Brush"
     bl_options = {"REGISTER", "UNDO"}
 
+    show_options: more_options_property()
+
     use_start_color: BoolProperty(
         name="Use Start Color",
         description="Set the brush color to Start Color when the brush starts",
@@ -559,7 +562,8 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         if context.scene.IOPS.iops_vp_mute_modifiers:
             self._mute_modifiers(True)
 
-        self._build_hud(context, event)
+        self._build_overlays(context.region)
+        self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, self._draw_callback, (context,),
             "WINDOW", "POST_PIXEL", tick=True)
@@ -568,50 +572,83 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         context.area.tag_redraw()
         return {"RUNNING_MODAL"}
 
-    def _build_hud(self, context, event):
-        self._hud = HUDOverlay("mesh_vertex_paint")
-        self._hud.title = "Vertex Paint"
-        self._hud.bind_region(context.region)
-        self._help = HelpOverlay("mesh_vertex_paint")
-        def item(label, key):
-            return HUDItem(label, key, ItemState.ON, default_state=ItemState.OFF,
-                           always_show=True)
+    @staticmethod
+    def _props():
+        return bpy.context.scene.IOPS
 
-        self._help.add_section(HUDSection("Brush", [
-            item("Radius / Strength (radial)", "F / Shift+F"),
-            item("Radius / Strength", "Ctrl+Wheel / Shift+Wheel"),
-            item("Radius", "[ / ]"),
-            item("Falloff preset", "Alt+Wheel"),
-            item("Front faces only (toggle)", "N"),
-            item("Mute modifiers (toggle)", "M"),
-            item("Preview VC (toggle)", "P"),
-            item("Wireframe overlay (toggle)", "V"),
-        ]))
-        self._help.add_section(HUDSection("Element", [
-            item("Vert / Edge / Face", "1 / 2 / 3"),
-        ]))
-        self._help.add_section(HUDSection("Color", [
-            item("Red / Green / Blue", "R / G / B"),
-            item("Yellow / Cyan / Magenta", "Shift+R / Shift+G / Shift+B"),
-            item("Black / White", "K / W"),
-            item("Custom color picker", "C"),
-            item("RGB / Alpha channel (toggle)", "A"),
-            item("Alpha 0 / 1", "Shift+0 / Shift+1"),
-        ]))
-        self._help.add_section(HUDSection("Paint", [
-            item("Paint", "LMB drag"),
-            item("Erase (restore original)", "Ctrl+LMB / E"),
-            item("Paint / Blur tool (toggle)", "T"),
-            item("Undo / Redo stroke", "Ctrl+Z / Ctrl+Shift+Z"),
-        ]))
-        self._help.add_section(HUDSection("Session", [
-            item("Finish", "Enter / Space / RMB"),
-            item("Cancel (restore all)", "Esc"),
-            item("Orbit / Zoom / Views", "MMB / Wheel / Numpad"),
-            item("Help / Toggle HUD", "H"),
-        ]))
-        self._help.bind_region(context.region)
-        self._last_event = capture_event(event, None)
+    @staticmethod
+    def _wireframe_on():
+        overlay = getattr(getattr(bpy.context, "space_data", None), "overlay", None)
+        return bool(getattr(overlay, "show_wireframes", False))
+
+    def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
+        hud = self._hud = HUDOverlay("mesh_vertex_paint")
+        hud.title = "Vertex Paint"
+        hud.bind_region(region)
+        # Always: Tool, Element, Color, Radius, Strength and More Options. The rows after More Options only while
+        # it is on (Tab), Channel and Alpha also while away from their defaults. The switches (modifiers muted,
+        # back faces, preview, wireframe) only while they are in effect. Every key works either way.
+        hud.add_param(HUDParam("Tool (T / E)", lambda: "ERASE" if self._props().iops_vp_eraser
+                               else self._props().iops_vp_tool, "str"))
+        hud.add_param(HUDParam("Element (1 / 2 / 3)", lambda: self._props().iops_vp_element, "str"))
+        hud.add_param(HUDParam("Color (C)", lambda: "{:.2f} {:.2f} {:.2f}".format(*tuple(self.ba.color)[:3]), "str"))
+        hud.add_param(HUDParam("Radius (Ctrl + Wheel)", lambda: f"{self.ba.size}px", "str"))
+        hud.add_param(HUDParam("Strength (Shift + Wheel)", lambda: self.ba.strength, "float", fmt="{:.2f}"))
+        hud.add_param(HUDParam("Modifiers Muted (M)", lambda: len(self._muted_mods), "int",
+                               visible_getter=lambda: bool(self._muted_mods)))
+        hud.add_param(HUDParam("Back Faces Painted (N)", lambda: not self._props().iops_vp_front_only, "bool",
+                               visible_getter=lambda: not self._props().iops_vp_front_only))
+        hud.add_param(HUDParam("Preview Vertex Colors (P)", lambda: self._props().iops_vc_preview, "bool",
+                               visible_getter=lambda: bool(self._props().iops_vc_preview)))
+        hud.add_param(HUDParam("Wireframe (V)", self._wireframe_on, "bool", visible_getter=self._wireframe_on))
+        hud.add_param(more.row())
+        hud.add_param(HUDParam("Channel (A)", lambda: self._props().iops_vp_channel, "str",
+                               visible_getter=more.when(also=lambda: self._props().iops_vp_channel != "RGB")))
+        hud.add_param(HUDParam("Alpha (Shift + 0 / 1)", lambda: self._props().iops_vp_alpha, "float", fmt="{:.2f}",
+                               visible_getter=more.when(also=lambda: self._props().iops_vp_alpha != 1.0)))
+        hud.add_param(HUDParam("Falloff (Alt + Wheel)", lambda: self.ba.preset, "str",
+                               visible_getter=more.when()))
+        hud.add_param(HUDParam("Strokes", lambda: f"{len(self._hist)}" + (
+            f" (redo {self._hist.redo_depth})" if self._hist.redo_depth else ""), "str",
+            visible_getter=more.when()))
+
+        # Every key, hidden until H
+        self._help = build_help("mesh_vertex_paint", [
+            ("Brush", [
+                ("Radius / Strength (radial)", "F / Shift + F"),
+                ("Radius", "Ctrl + Wheel"),
+                ("Strength", "Shift + Wheel"),
+                ("Radius", "[ / ]"),
+                ("Falloff preset", "Alt + Wheel"),
+                ("Front faces only (toggle)", "N"),
+                ("Mute modifiers (toggle)", "M"),
+                ("Preview vertex colors (toggle)", "P"),
+                ("Wireframe overlay (toggle)", "V"),
+            ]),
+            ("Element", [
+                ("Vertex / Edge / Face", "1 / 2 / 3"),
+            ]),
+            ("Color", [
+                ("Red / Green / Blue", "R / G / B"),
+                ("Yellow / Cyan / Magenta", "Shift + R / Shift + G / Shift + B"),
+                ("Black / White", "K / W"),
+                ("Custom color picker", "C"),
+                ("RGB / Alpha channel (toggle)", "A"),
+                ("Alpha 0 / 1", "Shift + 0 / Shift + 1"),
+            ]),
+            ("Paint", [
+                ("Paint", "LMB"),
+                ("Erase (restore original)", "Ctrl + LMB / E"),
+                ("Paint / Blur tool (toggle)", "T"),
+                ("Undo / Redo stroke", "Ctrl + Z / Ctrl + Shift + Z"),
+            ]),
+            ("Session", [
+                MORE_OPTIONS_HELP,
+                ("Confirm", "Enter / Space / RMB"),
+                ("Cancel (restore all)", "Esc"),
+            ]),
+        ], region)
 
     # ------------------------------------------------------------------
     # Modifiers
@@ -972,6 +1009,9 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
         if event.value != "PRESS":
             return {"RUNNING_MODAL"}
 
+        if self._more.handle(event):      # Tab: only the HUD changes
+            return {"RUNNING_MODAL"}
+
         # -- keys --
         if event.type == "F":
             path = self.ba.strength_path if event.shift else self.ba.size_path
@@ -1109,7 +1149,7 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
                 f"Radius {self.ba.size}px  Strength {self.ba.strength:.2f}  "
                 f"Falloff {self.ba.preset} | LMB paint  Ctrl+LMB erase  "
                 f"F/Shift+F radius/strength  R G B K W colors  A alpha  "
-                f"Ctrl+Z undo  Enter finish  Esc cancel")
+                f"Ctrl+Z undo  Tab: more  Enter finish  Esc cancel")
 
     def _set_status(self, context):
         try:
@@ -1192,22 +1232,6 @@ class IOPS_OT_MeshVertexPaint(bpy.types.Operator):
     def _draw_hud(self, context, props):
         last_event = getattr(self, "_last_event", None)
         self._help.draw(context, last_event)
-        rgb = self.ba.color
-        lines = [
-            "Mode: " + ("ERASE" if props.iops_vp_eraser else props.iops_vp_tool),
-            f"Element: {props.iops_vp_element}   Channel: {props.iops_vp_channel}",
-            f"Color: {rgb[0]:.2f} {rgb[1]:.2f} {rgb[2]:.2f}  A {props.iops_vp_alpha:.2f}",
-            f"Radius: {self.ba.size}px  Strength: {self.ba.strength:.2f}",
-            f"Falloff: {self.ba.preset}",
-            f"Strokes: {len(self._hist)}" + (f"  (redo {self._hist.redo_depth})" if self._hist.redo_depth else ""),
-        ]
-        if self._muted_mods:
-            lines.append(f"Modifiers muted: {len(self._muted_mods)}")
-        if not props.iops_vp_front_only:
-            lines.append("Back faces: painted")
-        if props.iops_vc_preview:
-            lines.append("Preview VC: ON")
-        self._hud.set_header(*lines)
         self._hud.draw(context, last_event)
 
 

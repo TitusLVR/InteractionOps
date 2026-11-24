@@ -22,6 +22,18 @@ Insets the selected faces without the flipped or overlapping geometry the regula
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> | Confirm |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Thickness, Mode (I), Collapse (C), Boundary (B) | always |
+| Depth (Ctrl + Mouse) | while it is not zero |
+| UV Stripe (U) | while on |
+
+The header shows `Typing: ...` while you type a thickness.
+
 ## Options
 - **Thickness** — inward offset; negative values outset.
 - **Depth** — push the new inner faces along the normal.

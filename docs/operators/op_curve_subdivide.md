@@ -15,6 +15,10 @@ Subdivide the selected bezier segments with a live preview. Scroll the wheel to 
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
 
+## HUD
+
+Row: Cuts (Wheel). Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 - Select at least two neighbouring control points; only connected selected segments are cut.
 - The number of cuts can still be changed in the redo panel afterwards.

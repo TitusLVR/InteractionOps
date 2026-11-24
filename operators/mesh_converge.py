@@ -24,8 +24,8 @@ from bpy.props import EnumProperty, BoolProperty
 from ..ui.draw import primitives as draw_prim, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..ui.hud import text as hud_text
 from ..utils.converge_core import candidate_pairs, STRATEGIES, TOL
 
@@ -281,25 +281,7 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
 
         _purge_handles()
 
-        self._hud = HUDOverlay("converge")
-        self._hud.title = "Converge"
-        self._hud.bind_region(context.region)
-        self._hud.add_param(HUDParam(
-            "Strategy", lambda: self._current_key(), "str"))
-        self._hud.add_param(HUDParam(
-            "Pairs", lambda: len(self._pairs), "int"))
-        self._hud.add_param(HUDParam(
-            "Candidates", lambda: len(self._candidates), "int"))
-        self._help = HelpOverlay("converge")
-        self._help.add_section(HUDSection("Converge", [
-            HUDItem("Cycle strategy", "Wheel / S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Add edge",       "Shift+LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",        "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Navigate",       "MMB",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         # Two handlers: world-space preview geometry in POST_VIEW, HUD /
@@ -404,6 +386,22 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
         context.workspace.status_text_set(self._status_text())
         if context.area:
             context.area.tag_redraw()
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("converge")
+        self._hud.title = "Converge"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam("Strategy (Wheel / S)", lambda: self._current_key(), "str"))
+        self._hud.add_param(HUDParam(
+            "Pairs", lambda: f"{len(self._pairs)} / {len(self._candidates)}", "str"))
+        self._help = build_help("converge", [
+            ("Converge", [
+                ("Cycle strategy", "Wheel / S"),
+                ("Add edge", "Shift + LMB"),
+                ("Confirm", "LMB / Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _status_text(self):
         return (
@@ -751,12 +749,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             if hud is None and helpo is None:
                 return
             last_event = getattr(self, "_last_event", None)
-            header = None
-            if hud is not None:
-                header = (
-                    f"Strategy: {self._current_key()}",
-                    f"Pairs: {len(self._pairs)} / {len(self._candidates)}",
-                )
         except (ReferenceError, AttributeError):
             _purge_handles()
             return
@@ -766,7 +758,6 @@ class IOPS_OT_mesh_converge(bpy.types.Operator):
             if helpo is not None:
                 helpo.draw(context, last_event)
             if hud is not None:
-                hud.set_header(*header)
                 hud.draw(context, last_event)
 
     # ------------------------------------------------------------------

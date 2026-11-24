@@ -10,6 +10,7 @@ import math
 import os
 import sys
 import traceback
+from types import SimpleNamespace
 
 import bmesh
 import bpy
@@ -104,6 +105,8 @@ class _OperatorStandIn:
                 self.__dict__[prop.identifier] = prop.default
         self.__dict__.update(props)
         self.reports = []
+        # like a real instance: its own property type at .properties.bl_rna (More Options reads the defaults)
+        self.properties = SimpleNamespace(bl_rna=bpy.ops.iops.mesh_uv_pipe.get_rna_type())
 
     def report(self, kinds, message):
         self.reports.append((set(kinds), message))
@@ -1383,39 +1386,60 @@ def test_modal_hud_and_help_list_every_key():
     op._build_overlays(None)
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Mode (Q)", "Fit to Active (D)", "Orientation (W)", "Layout (E)", "Loop (LMB)", "Edge (C)", "Seam Side (T)",
-        "Loop Source (G)", "Loop Angle", "Sharp Angle", "Hard Edge Angle", "Split at Bends (A)", "Bend Angle",
-        "Split at Seams (S)", "Mark Seams (X)", "Pack (P)", "Random Offset (Z)", "Offset Limit", "Offset Seed (R)",
-        "Merge Doubles (F)"]
+        "Mode (Q)", "Fit to Active (D)", "Layout (E)", "Loop (LMB)", "Edge (C)", "Loop Source (G)", "Pack (P)",
+        "More Options (Tab)", "Orientation (W)", "Seam Side (T)", "Loop Angle (Ctrl + Wheel)",
+        "Sharp Angle (Shift + Wheel)", "Hard Edge Angle (Ctrl + Alt + Wheel)", "Split at Bends (A)",
+        "Bend Angle (Shift + Alt + Wheel)", "Split at Seams (S)", "Mark Seams (X)", "Random Offset (Z)",
+        "Offset Limit", "Offset Seed (R)", "Merge Doubles (F)"]
 
     def visible():
         return [(p.name, p.value_text()) for p in params if p.is_visible()]
 
     assert visible() == [
-        ("Mode (Q)", "Fit 0–1"), ("Orientation (W)", "Horizontal"), ("Layout (E)", "Rectangle"),
-        ("Loop (LMB)", "None"), ("Edge (C)", "None"), ("Seam Side (T)", "Shortest"), ("Loop Angle", "120°"), ("Sharp Angle", "60°"),
-        ("Hard Edge Angle", "30°"), ("Split at Bends (A)", "✗"), ("Split at Seams (S)", "✗"),
-        ("Mark Seams (X)", "✓"), ("Pack (P)", "✓"), ("Merge Doubles (F)", "✓")]
+        ("Mode (Q)", "Fit 0–1"), ("Layout (E)", "Rectangle"), ("Loop (LMB)", "None"), ("Edge (C)", "None"),
+        ("Pack (P)", "✓"), ("More Options (Tab)", "✗")]
+    op.show_options = True                              # Tab: the options of the second group
+    assert [name for name, _value in visible()] == [
+        "Mode (Q)", "Layout (E)", "Loop (LMB)", "Edge (C)", "Pack (P)", "More Options (Tab)", "Orientation (W)",
+        "Seam Side (T)", "Loop Angle (Ctrl + Wheel)", "Sharp Angle (Shift + Wheel)",
+        "Hard Edge Angle (Ctrl + Alt + Wheel)", "Split at Bends (A)", "Split at Seams (S)", "Mark Seams (X)",
+        "Merge Doubles (F)"]       # Random Offset hides while Pack packs; Bend Angle while Split at Bends is off
     op.mode, op.split_at_bends = "ACTIVE", True          # Active shows Fit to Active and hides Pack; bends show
     names = [name for name, _value in visible()]
-    assert "Fit to Active (D)" in names and "Pack (P)" not in names and "Bend Angle" in names
+    assert "Fit to Active (D)" in names and "Pack (P)" not in names and "Bend Angle (Shift + Alt + Wheel)" in names
     assert "Random Offset (Z)" in names and "Offset Limit" not in names        # no axis: no limit, no seed
     op.offset_axis = "ALONG"
     assert {"Offset Limit", "Offset Seed (R)"} <= {name for name, _value in visible()}
+    op.show_options = False                              # the offset rows stay while the offset is in use
+    assert {"Bend Angle (Shift + Alt + Wheel)", "Offset Limit", "Offset Seed (R)"} <= {
+        name for name, _value in visible()}
     op.mode, op.split_at_bends, op.offset_axis = "FIT", False, "NONE"
-    labels = [it.label for it in op._help.sections[0].items]
+    labels = [it.label for section in op._help.sections for it in section.items]
     for label in ("Mark / unmark the loop under the cursor", "Mark / unmark the edge under the cursor",
                   "Unmark the whole loop under the cursor", "Cancel"):
         assert label in labels, (label, labels)
-    keys = [it.key for it in op._help.sections[0].items]
+    keys = [it.key for section in op._help.sections for it in section.items]
     for key in ("LMB", "C", "Alt + C", "Alt + Wheel", "Ctrl + Wheel", "Shift + Wheel / Ctrl + Shift + Wheel",
-                "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "Ctrl + Alt + Wheel", "G", "A", "S", "Z", "R", "F", "P", "Q", "D", "W",
-                "E", "X", "T / Shift + T", "Enter / Space", "Esc / RMB", "H"):
+                "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel", "Ctrl + Alt + Wheel", "G", "A", "S", "Z", "R", "F",
+                "P", "Q", "D", "W", "E", "X", "T / Shift + T", "Tab", "Enter / Space", "Esc / RMB"):
         assert key in keys, key
-    assert len(keys) == 24
+    assert "H" not in keys and len(keys) == 24 and op._help.expanded is False
     text = op._status_text()
     assert "[Enter/Space] finish" in text and "[Esc/RMB] cancel" in text and "(Ctrl+Wheel)" in text
+    assert "[Tab] more" in text
     assert "[LMB] mark / unmark the loop | [C] mark / unmark the edge | [Alt+C] unmark the loop" in text
+
+
+def test_tab_toggles_more_options_only():
+    obj = _object(open_tube(12, 4))
+    _edit(obj)
+    op = _modal_on()
+    result = op._result
+    assert not op.show_options
+    assert op._modal(bpy.context, _Event("TAB")) == {"RUNNING_MODAL"} and op.show_options
+    assert op._result is result                          # only the HUD changes
+    assert op._modal(bpy.context, _Event("TAB")) == {"RUNNING_MODAL"} and not op.show_options
+    assert op._modal(bpy.context, _Event("ESC")) == {"CANCELLED"}
 
 
 def test_modal_keys_toggle_their_options():
@@ -1560,6 +1584,7 @@ TESTS = [
     test_relayout_starts_from_the_snapshot,
     test_redo_reproduces_the_modal_result,
     test_modal_hud_and_help_list_every_key,
+    test_tab_toggles_more_options_only,
     test_modal_keys_toggle_their_options,
     test_t_cycles_the_seam_side,
     test_t_drops_the_picked_wall_seam_but_keeps_ring_breaks,

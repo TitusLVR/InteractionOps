@@ -11,8 +11,9 @@ from bpy_extras.view3d_utils import (location_3d_to_region_2d,
 from ..ui.draw.theme import get_theme, Role, axis_color
 from ..ui.draw import primitives as draw_prim
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      ItemState, capture_event)
+from ..ui.hud import (HUDOverlay, HUDParam, MoreOptions, build_help,
+                      capture_event, more_options_property)
+from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..ui.hud.text import draw as hud_text_draw
 
 from ..utils.uv_utils import (
@@ -803,51 +804,6 @@ def _draw_transform_feedback(op):
             _t(f"G Move  [{sens_pct}%]", role=Role.HUD_ACTIVE_VALUE)
 
 
-def _build_visual_uv_hud(context):
-    hud = HUDOverlay("visual_uv")
-    hud.title = "Visual UV"
-    helpo = HelpOverlay("visual_uv")
-    helpo.add_section(HUDSection('Transform', [
-        HUDItem('Move / Rotate / Scale', 'G / R / S', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Axis lock', 'X / Y', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Sensitivity', 'Alt+Scroll', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Rotation step', 'Ctrl+Scroll', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Pivot', 'P', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('UV cursor to nearest anchor', 'C', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Scope All / Active', 'I', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.add_section(HUDSection('Islands', [
-        HUDItem('Select island', 'LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Add / remove island', 'Sh+LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Deselect all', 'Z', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Next active island', 'Tab', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Select edge / add', 'LMB / Sh+LMB', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Fit to active / W / H', 'D / Sh+D / Ct+D', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Flip H / V', 'F / Sh+F', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Randomize UV / U / V', 'N / Sh+N / Ct+N', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Straighten chain', 'T', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Align view', 'V', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.add_section(HUDSection('Edge tools', [
-        HUDItem('Align to edge', 'A', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Stitch to edge', 'E', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Flip side / keep scale', 'Shift / Ctrl', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.add_section(HUDSection('Pins & Unwrap', [
-        HUDItem('Pin edges / clear', 'M / Alt+M', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Unwrap active / all', 'U / Ct+U', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Method / keep mirror', 'Sh+U / Sh+M', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Flip across pins', 'Alt+U', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.add_section(HUDSection('View & Session', [
-        HUDItem('Overlays / modifiers', 'Q / Sh+Q', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Undo / Redo', 'Ct+Z / Ct+Sh+Z', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Confirm / Cancel', 'Enter / Esc', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem('Help / HUD', 'H', ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    return hud, helpo
-
-
 def draw_shortcuts_callback(op, context):
     if context.area != op._area:
         return
@@ -857,23 +813,7 @@ def draw_shortcuts_callback(op, context):
         helpo.draw(context, getattr(op, "_last_event", None))
     if hud is None:
         return
-    st = op.state.replace('_', ' ').title()
-    pv = op.pivot_mode
-    sens_pct = int(op.grab_sensitivity / GRAB_SENS_DEFAULT * 100)
-    rot_step = ROTATION_STEPS[op.rotation_step_idx]
-    uv_name = getattr(op.uv_layer, 'name', '?')
-    hud.set_header(
-        f"Visual UV  [{st}]",
-        f"UV map: {uv_name}",
-        f"Pivot: {pv}",
-        f"Scope: {op.transform_scope.title()}",
-        f"Sens: {sens_pct}%",
-        f"Islands: {len(op.islands_data)}",
-        f"RotStep: {rot_step}\u00b0",
-        f"Unwrap: {UNWRAP_METHOD_NAMES.get(op.unwrap_method, '?')}"
-        + ("  [keep mirror]" if op.unwrap_keep_flip else ""),
-        ("Modifiers: PAUSED" if op._suspended_mods else None),
-    )
+    hud.set_header(f"State: {op.state.replace('_', ' ').title()}")
     hud.draw(context, getattr(op, "_last_event", None))
 
 
@@ -950,6 +890,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         name="Unwrap Method",
         description="Algorithm used by U (pinned UVs stay put)",
         items=UNWRAP_METHODS, default='ANGLE_BASED')
+    show_options: more_options_property()
     unwrap_keep_flip_prop: bpy.props.BoolProperty(
         name="Unwrap Keeps Mirroring",
         description="After U, flip the result back across the pins when "
@@ -1564,6 +1505,81 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     # Invoke / Modal
     # ------------------------------------------------------------------
 
+    def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
+        hud = self._hud = HUDOverlay("visual_uv")
+        hud.title = "Visual UV"
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Pivot (P)", lambda: self.pivot_mode.title(), "enum"))
+        hud.add_param(HUDParam("Scope (I)", lambda: self.transform_scope.title(), "enum"))
+        hud.add_param(HUDParam("Islands", lambda: len(self.islands_data), "int"))
+        hud.add_param(HUDParam(
+            "Axis Lock (X / Y)", lambda: self.grab_axis or "None", "enum",
+            visible_getter=lambda: self.state in (STATE_GRAB, STATE_SCALE, STATE_HANDLE_SCALE)))
+        hud.add_param(HUDParam("Modifiers Paused (Shift + Q)", lambda: bool(self._suspended_mods), "bool",
+                               visible_getter=lambda: bool(self._suspended_mods)))
+        hud.add_param(more.row())
+
+        def tab(name, getter, kind, away=None):
+            hud.add_param(HUDParam(name, getter, kind, visible_getter=more.when(also=away)))
+
+        tab("UV Map", lambda: getattr(self.uv_layer, "name", "None"), "str")
+        tab("Sensitivity (Alt + Wheel)", lambda: f"{int(self.grab_sensitivity / GRAB_SENS_DEFAULT * 100)}%", "str",
+            lambda: self.grab_sensitivity != GRAB_SENS_DEFAULT)
+        tab("Rotation Step (Ctrl + Wheel)", lambda: f"{ROTATION_STEPS[self.rotation_step_idx]}\u00b0", "str",
+            lambda: self.rotation_step_idx != ROTATION_STEP_DEFAULT_IDX)
+        tab("Unwrap Method (Shift + U)", lambda: UNWRAP_METHOD_NAMES.get(self.unwrap_method, "None"), "enum",
+            lambda: self.unwrap_method != UNWRAP_METHODS[0][0])
+        tab("Keep Mirror (Shift + M)", lambda: self.unwrap_keep_flip, "bool",
+            lambda: not self.unwrap_keep_flip)
+
+        # Every key, hidden until H
+        self._help = build_help("visual_uv", [
+            ("Transform", [
+                ("Move / Rotate / Scale", "G / R / S"),
+                ("Axis Lock (while moving or scaling)", "X / Y"),
+                ("Sensitivity", "Alt + Wheel"),
+                ("Rotation Step (while rotating)", "Ctrl + Wheel"),
+                ("Pivot", "P"),
+                ("UV Cursor to Nearest Anchor", "C"),
+                ("Scope All / Active", "I"),
+            ]),
+            ("Islands", [
+                ("Select Island", "LMB"),
+                ("Add / Remove Island", "Shift + LMB"),
+                ("Deselect All", "Z"),
+                ("Next Active Island", "W"),
+                ("Fit to Active", "D"),
+                ("Fit Width / Height to Active", "Shift + D / Ctrl + D"),
+                ("Flip Horizontal / Vertical", "F / Shift + F"),
+                ("Randomize UV / U / V", "N / Shift + N / Ctrl + N"),
+                ("Straighten Chain", "T"),
+                ("Align View", "V"),
+            ]),
+            ("Edge Tools", [
+                ("Align to Edge", "A"),
+                ("Stitch to Edge", "E"),
+                ("Flip Side / Keep Scale (while stitching)", "Shift / Ctrl"),
+            ]),
+            ("Pins and Unwrap", [
+                ("Pin Edges", "M"),
+                ("Clear Pins", "Alt + M"),
+                ("Unwrap Active / All", "U / Ctrl + U"),
+                ("Unwrap Method", "Shift + U"),
+                ("Keep Mirror", "Shift + M"),
+                ("Flip Across Pins", "Alt + U"),
+            ]),
+            ("View and Session", [
+                MORE_OPTIONS_HELP,
+                ("Clean View", "Q"),
+                ("Pause Modifiers", "Shift + Q"),
+                ("Undo / Redo", "Ctrl + Z / Ctrl + Shift + Z"),
+                ("Confirm", "Enter / Space"),
+                ("Stop picking or dragging", "Esc / RMB"),
+                ("Cancel", "Esc"),
+            ]),
+        ], region)
+
     def invoke(self, context, event):
         obj = context.active_object
         if not obj or obj.type != 'MESH' or obj.mode != 'EDIT':
@@ -1676,9 +1692,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self._clean_view = True
         context.space_data.overlay.show_overlays = False
 
-        self._hud, self._help = _build_visual_uv_hud(context)
-        self._hud.bind_region(context.region)
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle_3d = safe_handler_add(
@@ -1693,8 +1707,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
             "Visual UV | G: Grab | R: Rotate | S: Scale | "
-            "X/Y: Axis | Alt+Scroll: Sensitivity | "
-            "Enter / Space: Confirm | Esc: Cancel")
+            "X/Y: Axis | Alt+Scroll: Sensitivity | W: Next island | "
+            "Tab: more | Enter / Space: Confirm | Esc: Cancel")
         context.area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -1731,6 +1745,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_param_toggle_event(event, theme_prefs):
                 return {'RUNNING_MODAL'}
+
+        if self._more.handle(event):   # Tab: only the HUD changes
+            return {'RUNNING_MODAL'}
 
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE,
@@ -3111,7 +3128,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.report({'INFO'}, f"Pivot: {self.pivot_mode}")
             return {'RUNNING_MODAL'}
 
-        if event.type == 'TAB':
+        if event.type == 'W':
             if self.islands_data:
                 self.active_island_idx = (
                     (self.active_island_idx + 1) % len(self.islands_data))

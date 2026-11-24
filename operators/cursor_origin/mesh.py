@@ -5,10 +5,7 @@ from ..iops import IOPS_OT_Main
 from ...ui.draw import primitives as draw, draw_scope, Role
 from ...ui.draw import safe_handler_add, safe_handler_remove
 from ...ui.draw.theme import get_theme
-from ...ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                        HUDParam, ItemState,
-                        handle_hud_toggle, handle_help_toggle,
-                        capture_event)
+from ...ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 
 
 class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
@@ -57,48 +54,43 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
                 rot_mx = v.to_track_quat(axis[0], axis[1]).to_matrix().to_4x4()
             o.matrix_world @= rot_mx
 
-    def _target_name(self, context):
-        if self.target == context.scene.cursor:
-            return "3D Cursor"
-        elif self.target == context.view_layer.objects.active:
-            return "Active object"
-        return "?"
+    def _target_name(self):
+        return "3D Cursor" if self.target == bpy.context.scene.cursor else "Active Object"
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("cursor_origin_mesh")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("cursor_origin_mesh")
         hud.title = "Cursor / Origin"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("cursor_origin_mesh")
-        helpo.add_section(HUDSection("Cursor / Origin", [
-            HUDItem("Look at: Cursor",          "F1", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Look at: Active object",   "F2", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align to cursor pos",      "F3", ItemState.ON if self.rotate else ItemState.OFF),
-            HUDItem("Visual origin helper",     "F4", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis X",                   "X",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis Y",                   "Y",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis Z",                   "Z",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",                  "LMB / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",                   "Esc / RMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        hud.mirror_help(helpo)
-        return hud, helpo
+        hud.bind_region(region)
+        # Always: Target and Axis. Only while on: Align to Cursor.
+        hud.add_param(HUDParam("Target (F1 / F2)", self._target_name, "enum"))
+        hud.add_param(HUDParam("Axis (X / Y / Z)", lambda: self.look_axis[0], "enum"))
+        hud.add_param(HUDParam("Align to Cursor (F3)", lambda: self.rotate, "bool",
+                               visible_getter=lambda: self.rotate))
+        # Every key, hidden until H
+        self._help = build_help("cursor_origin_mesh", [
+            ("Look At", [
+                ("Look at the 3D Cursor", "F1"),
+                ("Look at the Active Object", "F2"),
+                ("Axis", "X / Y / Z"),
+            ]),
+            ("Origin", [
+                ("Align to Cursor", "F3"),
+                ("Visual Origin", "F4"),
+            ]),
+            ("General", [
+                ("Confirm", "LMB / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
         helpo = getattr(self, "_help", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
-            helpo.set_state("F3", ItemState.ON if self.rotate else ItemState.OFF)
             helpo.draw(context, last_event)
-        if hud is None:
-            return
-        hud.set_header(
-            f"Target: {self._target_name(context)}",
-            f"Axis: {self.look_axis[0]}",
-        )
-        hud.draw(context, last_event)
+        if hud is not None:
+            hud.draw(context, last_event)
 
     def _draw_line(self, context):
         if not self.gpu_verts:
@@ -196,7 +188,7 @@ class IOPS_OT_CursorOrigin_Mesh(IOPS_OT_Main):
             self.report({"WARNING"}, "No active object, could not finish")
             return {"CANCELLED"}
 
-        self._hud, self._help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)

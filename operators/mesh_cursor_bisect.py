@@ -20,9 +20,9 @@ from ..utils.cursor_bisect_core import (walk_island, normals_split, DELIMIT_LABE
                                         SNAP_SOURCE_LABELS, next_snap_source,
                                         oriented_extents, bounds_layout,
                                         bounds_split, AXES)
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import (HUDOverlay, HUDParam, MoreOptions, build_help, capture_event,
+                      more_options_property)
+from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..ui.hud.text import draw as draw_text, measure as measure_text
 
 # Constants
@@ -262,6 +262,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     merge_doubles: bpy.props.BoolProperty(name="Merge Doubles", default=True)
+    # Whether the interactive mode's HUD lists every option or only the main ones; remembered as last used.
+    show_options: more_options_property()
 
     _handle = None
     hit_location = None
@@ -325,6 +327,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
     # piece of mesh under the mouse. See utils.cursor_bisect_core.
     delimit_active = False
     delimit_type = 'ISLAND'
+    _distance_cache = None   # distance info of the hovered edge, refreshed by _sync_hud_state each draw
     hover_valid = False      # True after a MOUSEMOVE hit, False after a miss
     _mesh_version = 0        # Bumped on every cut / selection change; keys the island cache
     _island_cache = None     # (key, frozenset) of the last delimited face set
@@ -556,7 +559,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
                       f"[Shift+S] Snap Source({snap_source}) | "
                       f"[D] Hold Points | [F] Fill Cut({fill_cut_status}) | [V] Inset({inset_info}) | [B] Bevel({bevel_info}) | [M] Mark({mark_status}) | [N] Mark Type | [L] Delimit({delimit_status}) | [P] Preview({preview_mode}) | [I] Distance Info({distance_status}) | [X] Axis({self.normal_axis}) | [W] World({self.world_axis}) | [RMB] Select Face | "
                       f"[Shift+RMB] Select Coplanar | [Ctrl+Wheel] Subdivisions({self.edge_subdivisions}) | "
-                      f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel")
+                      f"[Alt+Wheel] Rotate Z | [Z] Deselect | [Ctrl+Z] Undo | [Tab] More Options | [Space] Finish | [Esc] Cancel")
 
         # Set workspace status text
         context.workspace.status_text_set(status_text)
@@ -795,8 +798,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         except (KeyError, AttributeError):
             theme_prefs = None
         if theme_prefs is not None:
-            helpo = getattr(self, "help", None)
-            hud = getattr(self, "hud", None)
+            helpo = getattr(self, "_help", None)
+            hud = getattr(self, "_hud", None)
             if helpo is not None and helpo.handle_drag_event(context, event, theme_prefs):
                 return {'RUNNING_MODAL'}
             if hud is not None and hud.handle_drag_event(context, event, theme_prefs):
@@ -809,14 +812,18 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # every nav-related event; once events stop coming, the HUD resumes
         # cursor-follow automatically. Warp detection inside HUDOverlay
         # handles drift between explicit pin events.
-        if getattr(self, "hud", None) is not None:
+        if getattr(self, "_hud", None) is not None:
             if event.type == 'MIDDLEMOUSE':
-                self.hud.pin_for(0.5)
+                self._hud.pin_for(0.5)
             elif event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-                self.hud.pin_for(0.3)
+                self._hud.pin_for(0.3)
             elif event.type == 'TRACKPADPAN':
-                self.hud.pin_for(0.3)
-        # Keep HUD item states in sync with operator state every frame
+                self._hud.pin_for(0.3)
+        # Tab: More Options in the HUD
+        if getattr(self, "_more", None) is not None and self._more.handle(event):
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        # Keep the HUD's distance readout in sync with operator state every frame
         self._sync_hud_state()
         # Handle timer events
         if event.type == 'TIMER':
@@ -2482,8 +2489,8 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # BEFORE the input handlers, so a same-frame state change isn't
         # reflected without this draw-time refresh.
         self._sync_hud_state()
-        helpo = getattr(self, "help", None)
-        hud = getattr(self, "hud", None)
+        helpo = getattr(self, "_help", None)
+        hud = getattr(self, "_hud", None)
         last_event = getattr(self, "_last_event", None)
         if helpo is not None:
             helpo.draw(context, last_event)
@@ -2491,101 +2498,117 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
             hud.draw(context, last_event)
 
     def _sync_hud_state(self):
-        """Reflect current operator state in the HUD overlay items."""
-        if getattr(self, "help", None) is None:
-            return
-        s = self.help.set_state
-        s("S", ItemState.ON if self.snapping_enabled else ItemState.OFF)
-        s("Shift+S", ItemState.ON if self.snap_source == 'BOUNDS' else ItemState.OFF)
-        s("D", ItemState.ON if self.hold_snap_points else ItemState.OFF)
-        if self.normal_axis == 'Z':
-            s("F", ItemState.DISABLED)
-            s("V", ItemState.DISABLED)
-            s("B", ItemState.DISABLED)
-        else:
-            s("F", ItemState.ON if self.fill_cut_mode else ItemState.OFF)
-            s("V", ItemState.ON if self.inset_active else ItemState.OFF)
-            s("B", ItemState.ON if self.bevel_active else ItemState.OFF)
-        s("M", ItemState.ON if self.mark_edges_active else ItemState.OFF)
-        s("A", ItemState.ON if self.lock_orientation else ItemState.OFF)
-        s("P", ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF)
-        s("I", ItemState.ON if self.show_distance_info else ItemState.OFF)
-        s("L", ItemState.ON if self.delimit_active else ItemState.OFF)
-        self._sync_hud_header()
+        """Refresh what the HUD rows read that is costly to compute: the distance info of the hovered edge."""
+        self._distance_cache = self._distance_info() if self.show_distance_info else None
+        row = getattr(self, "_length_row", None)
+        if row is not None:
+            row.name = f"{(self._distance_cache or {}).get('label', 'Edge')} Length"
 
-    def _sync_hud_header(self):
-        """Update HUD header lines: distance info, mark type (while M is on), inset/bevel prompt."""
-        if getattr(self, "hud", None) is None:
-            return
-        lines = []
-        if self.show_distance_info:
-            try:
-                info = self.get_edge_split_distances(bpy.context)
-            except Exception:
-                info = None
-            if info:
-                unit = info.get("unit", "")
-                total = self._fmt(info["total"])
-                split = self._fmt(info["split"])
-                lines.append(f"{info.get('label', 'Edge')}: {total}{unit}")
-                lines.append(f"Split: {split}{unit}")
+    def _distance_info(self):
+        try:
+            return self.get_edge_split_distances(bpy.context)
+        except Exception:
+            return None
 
-        if self.snap_source == 'BOUNDS':
-            lines.append(f"Snap Source: {SNAP_SOURCE_LABELS['BOUNDS']}")
+    def _distance_text(self, key):
+        info = getattr(self, "_distance_cache", None)
+        if not info:
+            return "-"
+        return f"{self._fmt(info[key])}{info.get('unit', '')}"
 
-        if self.mark_edges_active:
-            lines.append(f"Mark: {self._current_mark_type()}")
+    def _offset_distance_text(self):
+        """The typed inset / bevel distance, else the current one, in the scene's display units."""
+        if self.inset_input_string:
+            return self.inset_input_string
+        scale = bpy.context.scene.unit_settings.scale_length or 1.0
+        return self._fmt(self.inset_distance_bu * scale)
 
-        if self.delimit_active:
-            lines.append(f"Delimit: {DELIMIT_LABELS[self.delimit_type]}")
-
-        if self.inset_active or self.bevel_active:
-            scale = bpy.context.scene.unit_settings.scale_length or 1.0
-            if self.inset_input_string:
-                val = self.inset_input_string
-            else:
-                val = self._fmt(self.inset_distance_bu * scale)
-            if self.inset_active:
-                lines.append(f"Inset: {val}")
-            if self.bevel_active:
-                lines.append(f"Bevel: {val}")
-
-        self.hud.set_header(*lines)
-
-    def _build_hud(self, context):
-        from ..ui.draw.theme import get_theme
-        hud = HUDOverlay("cursor_bisect")
+    def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
+        hud = self._hud = HUDOverlay("cursor_bisect")
         hud.title = "Bisect"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("cursor_bisect")
-        helpo.add_section(HUDSection("Bisect", [
-            HUDItem("Snap",             "S",          ItemState.ON if self.snapping_enabled else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Snap Source",      "Shift+S",    ItemState.ON if self.snap_source == 'BOUNDS' else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Subdivide",        "Ctrl+Wheel", ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Hold Points",      "D",          ItemState.ON if self.hold_snap_points else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Fill Cut",         "F",          ItemState.ON if self.fill_cut_mode else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Inset Points",     "V",          ItemState.ON if self.inset_active else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Bevel Points",     "B",          ItemState.ON if self.bevel_active else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Mark Cut Edges",   "M",          ItemState.ON if self.mark_edges_active else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Mark Type",        "N",          ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Delimiter",        "L",          ItemState.ON if self.delimit_active else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Delimit Type",     "Shift+L",    ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Select Face",      "RMB",        ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Coplanar Select",  "Shift+RMB",  ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Rotate",           "Alt+Wheel",  ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Lock Orientation", "A",          ItemState.ON if self.lock_orientation else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Select Direction", "X",          ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("World Align",      "W",          ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Preview",          "P",          ItemState.ON if self.cut_preview_mode == 'PLANE' else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Distance Info",    "I",          ItemState.ON if self.show_distance_info else ItemState.OFF, default_state=ItemState.OFF),
-            HUDItem("Help / Toggle HUD","H",          ItemState.ON,  default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bisect",           "LMB",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
-            HUDItem("Finish",           "Space",      ItemState.ON,  default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",           "Esc",        ItemState.ON,  default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        hud.mirror_help(helpo)
-        return hud, helpo
+        hud.bind_region(region)
+
+        def z_free():
+            return self.normal_axis != 'Z'
+
+        def has_distance():
+            return bool(self.show_distance_info and getattr(self, "_distance_cache", None))
+
+        def add(name, getter, kind, visible_getter=None, active_getter=None):
+            hud.add_param(HUDParam(name, getter, kind, visible_getter=visible_getter, active_getter=active_getter))
+
+        def tab(name, getter, kind, also, active_getter=None):
+            # a More Options row: shown under Tab, and with Tab off while its option is on
+            add(name, getter, kind, more.when(also=also), active_getter)
+
+        # Always: Snap, Subdivisions, Fill Cut and More Options. Only while they apply: the distances of the hovered
+        # edge, Mark Type, Delimit Type, the Inset and Bevel distance. The rest only while More Options is on (Tab).
+        add("Snap (S)", lambda: self.snapping_enabled, "bool")
+        add("Subdivisions (Ctrl + Wheel)", lambda: self.edge_subdivisions, "int",
+            active_getter=lambda: self.snapping_enabled)
+        add("Fill Cut (F)", lambda: self.fill_cut_mode, "bool", active_getter=z_free)
+        add("Edge Length", lambda: self._distance_text("total"), "str", has_distance)
+        # named after the distance info's own label: "Edge Length", "Bounds Length" (Selection Bounds snap source)
+        self._length_row = hud.param_sections[-1].params[-1]
+        add("Split Length", lambda: self._distance_text("split"), "str", has_distance)
+        add("Mark Type (N)", lambda: self._current_mark_type().title(), "enum", lambda: self.mark_edges_active)
+        add("Delimit Type (Shift + L)", lambda: DELIMIT_LABELS[self.delimit_type], "enum",
+            lambda: self.delimit_active)
+        add("Inset Distance", self._offset_distance_text, "str", lambda: self.inset_active)
+        add("Bevel Distance", self._offset_distance_text, "str", lambda: self.bevel_active)
+        hud.add_param(more.row())
+        tab("Hold Points (D)", lambda: self.hold_snap_points, "bool", lambda: self.hold_snap_points,
+            lambda: self.snapping_enabled)
+        tab("Inset Points (V)", lambda: self.inset_active, "bool", lambda: self.inset_active, z_free)
+        tab("Bevel Points (B)", lambda: self.bevel_active, "bool", lambda: self.bevel_active, z_free)
+        tab("Mark Cut Edges (M)", lambda: self.mark_edges_active, "bool", lambda: self.mark_edges_active)
+        tab("Delimiter (L)", lambda: self.delimit_active, "bool", lambda: self.delimit_active)
+        tab("Lock Orientation (A)", lambda: self.lock_orientation, "bool", lambda: self.lock_orientation)
+        tab("Preview (P)", lambda: "Plane" if self.cut_preview_mode == 'PLANE' else "Lines", "enum",
+            lambda: self.cut_preview_mode != 'LINES')
+        tab("Distance Info (I)", lambda: self.show_distance_info, "bool", lambda: not self.show_distance_info)
+        tab("Snap Source (Shift + S)", lambda: SNAP_SOURCE_LABELS.get(self.snap_source, self.snap_source), "enum",
+            lambda: self.snap_source != 'EDGE')
+
+        # Every key, hidden until H
+        self._help = build_help("cursor_bisect", [
+            ("Cut", [
+                ("Bisect (Fill Cut: at every snap point)", "LMB"),
+                ("Snap", "S"),
+                ("Snap Source", "Shift + S"),
+                ("Subdivisions", "Ctrl + Wheel"),
+                ("Hold Points", "D"),
+                ("Fill Cut", "F"),
+                ("Inset Points", "V"),
+                ("Bevel Points", "B"),
+                ("Type the inset or bevel distance", "Digits / Period / Backspace"),
+                ("Apply the typed distance", "Enter"),
+                ("Mark Cut Edges", "M"),
+                ("Mark Type", "N"),
+                ("Delimiter", "L"),
+                ("Delimit Type", "Shift + L"),
+            ]),
+            ("Cursor", [
+                ("Lock Orientation", "A"),
+                ("Cut Axis", "X"),
+                ("World Align", "W"),
+                ("Rotate around the cut normal", "Alt + Wheel"),
+                ("Preview", "P"),
+                ("Distance Info", "I"),
+            ]),
+            ("Selection", [
+                ("Select Face", "RMB"),
+                ("Select Coplanar Faces", "Shift + RMB"),
+                ("Deselect All", "Z"),
+                ("Undo", "Ctrl + Z"),
+            ]),
+            ("General", [
+                MORE_OPTIONS_HELP,
+                ("Confirm", "Space"),
+                ("Cancel", "Esc"),
+            ]),
+        ], region)
 
     # Part 11: Distance Text Drawing
 
@@ -2964,7 +2987,7 @@ class IOPS_OT_Mesh_Cursor_Bisect(bpy.types.Operator):
         # Build unified HUD overlay
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._modal_region = context.region.as_pointer()
-        self.hud, self.help = self._build_hud(context)
+        self._build_overlays(context.region)
 
         # Drop any leftover draw handlers from prior invocations whose Python
         # operator was destroyed before invoke->modal cleanup ran (e.g. when

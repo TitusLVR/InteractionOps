@@ -5,10 +5,8 @@ from bpy.props import (
 
 from ..ui.draw import primitives as draw, draw_scope, Role
 from ..ui.draw import safe_handler_add, safe_handler_remove
-from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 class IOPS_OT_CurveSubdivide(bpy.types.Operator):
@@ -66,19 +64,18 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
                 sequence.append(point)
         return sequence
 
-    def _build_hud(self, context):
-        hud = HUDOverlay("curve_subdivide")
+    def _build_overlays(self, region):
+        hud = self._hud = HUDOverlay("curve_subdivide")
         hud.title = "Curve Subdivide"
-        hud.bind_region(context.region)
-        helpo = HelpOverlay("curve_subdivide")
-        helpo.add_section(HUDSection("Curve Subdivide", [
-            HUDItem("Cuts",     "Wheel",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",  "LMB / Space",    ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",   "Esc / RMB",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        hud.bind_region(region)
+        hud.add_param(HUDParam("Cuts (Wheel)", lambda: self.points_num, "int"))
+        self._help = build_help("curve_subdivide", [
+            ("Curve Subdivide", [
+                ("Cuts", "Wheel"),
+                ("Confirm", "LMB / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _draw_hud(self, context):
         hud = getattr(self, "_hud", None)
@@ -88,7 +85,6 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
             helpo.draw(context, last_event)
         if hud is None:
             return
-        hud.set_header(f"Cuts: {self.points_num}")
         hud.draw(context, last_event)
 
     def _draw_curve_pts(self, context):
@@ -146,7 +142,7 @@ class IOPS_OT_CurveSubdivide(bpy.types.Operator):
             return {"CANCELLED"}
 
         self.points_num = 1
-        self._hud, self._help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         self._handle_ui = safe_handler_add(bpy.types.SpaceView3D,
             self._draw_hud, (context,), "WINDOW", "POST_PIXEL", tick=True)

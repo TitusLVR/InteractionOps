@@ -24,6 +24,18 @@ Cuts a new edge loop beside each selected chain of edges, at a set distance from
 | <kbd>LMB</kbd> / <kbd>Enter</kbd> | Confirm |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Width, Exact Width (E), Allow Collapse (C) | always (Allow Collapse shows on and greyed while Destructive is on) |
+| Destructive (D), Auto Adjust (Q), UV Stripe (U) | while on |
+| Clamped | while a chain is clamped at its limit |
+
+The header shows `Typing: ...` while you type a width.
+
 ## Options
 - **Width** — distance of the new loop from the selected edges, measured in the surface beside them. Negative values cut on the other side. Each new launch starts at 0; the redo panel keeps the width you confirmed.
 - **Exact Width** — keep every new vertex at the exact width. Where a vertex's edge would miss it, the vertex goes to the exact corner instead, which adds cut points.

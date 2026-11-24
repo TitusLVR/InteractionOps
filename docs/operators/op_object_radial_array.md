@@ -12,6 +12,7 @@ Arranges copies of the selected objects around a pivot with a live preview in th
 | <kbd>Space</kbd> / <kbd>Enter</kbd> | Apply |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
+| <kbd>Tab</kbd> | More Options: show or hide the rest of the HUD rows |
 | <kbd>Q</kbd> | Cycle pivot: Active-Cursor / Cursor / Active |
 | <kbd>W</kbd> | Cycle arc: 360 / 180 / 90 / 45 / Active to Cursor |
 | <kbd>E</kbd> | Axis-offset mode — then drag to slide the array along the axis |
@@ -39,6 +40,9 @@ Arranges copies of the selected objects around a pivot with a live preview in th
 | <kbd>LMB</kbd> drag on the center | Move the arc center (Active to Cursor) |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo a parameter change inside the tool |
 | <kbd>MMB</kbd> / Wheel | Navigate the viewport as usual |
+
+## HUD
+Always shown: Count, Pivot (Q), Arc (W), Axis (X / Y / Z). Axis Offset (E), Locked Clones (N) and Match (A) appear while they are in use. **More Options (Tab)** adds Alignment (R), Source (T), Clone Type (D), Start Point (S), End Point (F), Rotation Step (1 to 5) and Local Rotation (Arrows); with More Options off, such a row still shows while its option is away from the default (an alignment other than Align, a source other than Group, a clone type other than Duplicate, Start Point on, an arc that is not a full circle for End Point, a local rotation in use). The setting is remembered. <kbd>H</kbd> opens the help: the full key list, hidden until you press it. <kbd>/</kbd> hides all rows.
 
 ## Tips
 - The result goes into a new collection named after the source object.

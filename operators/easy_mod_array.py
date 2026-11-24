@@ -8,33 +8,8 @@ from bpy.props import (
 
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState,
-                      handle_hud_toggle, handle_help_toggle, capture_event)
-
-
-def _build_easy_array_hud(context):
-    hud = HUDOverlay("easy_mod_array")
-    hud.title = "Easy Array"
-    hud.bind_region(context.region)
-    return hud
-
-
-def _build_easy_array_help(context):
-    helpo = HelpOverlay("easy_mod_array")
-    helpo.add_section(HUDSection("Easy Array", [
-        HUDItem("Flip Start/End",      "F",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("X-Axis",              "X",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Y-Axis",              "Y",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Z-Axis",              "Z",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Add Array modifier",  "A",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Duplicates count",    "+ / -",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Add Curve modifier",  "C",            ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply",               "LMB / Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 def _draw_easy_array_hud(op, context):
@@ -99,6 +74,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
 
         elif event.type in {"F"} and event.value == "PRESS":
             if len(cap_objs) != 1:
+                self._flipped = not self._flipped
                 cap_objs[0], cap_objs[1] = cap_objs[1], cap_objs[0]
                 start_obj = cap_objs[0]
                 end_obj = cap_objs[1]
@@ -115,6 +91,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                     arr_mod.end_cap = end_obj
 
         elif event.type in {"X"} and event.value == "PRESS":
+            self._axis = "X"
 
             # Set X start
             bpy.ops.object.select_all(action="DESELECT")
@@ -136,6 +113,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
             bpy.context.view_layer.objects.active = start_obj
 
         elif event.type in {"Y"} and event.value == "PRESS":
+            self._axis = "Y"
             # Set Y Start
             bpy.ops.object.select_all(action="DESELECT")
             bpy.data.objects[start_obj.name].select_set(True)
@@ -156,6 +134,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
             bpy.context.view_layer.objects.active = start_obj
 
         elif event.type in {"Z"} and event.value == "PRESS":
+            self._axis = "Z"
             # Set Z start
             bpy.ops.object.select_all(action="DESELECT")
             bpy.data.objects[start_obj.name].select_set(True)
@@ -233,7 +212,7 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                     arr_mod.fit_type = "FIT_CURVE"
                     arr_mod.curve = curve
 
-        elif event.type in {"LEFTMOUSE", "SPACE", "ENTER"}:
+        elif event.type in {"LEFTMOUSE", "SPACE", "RET", "NUMPAD_ENTER"}:
             bpy.ops.object.select_all(action="DESELECT")
             bpy.data.objects[mid_obj.name].select_set(True)
             bpy.context.view_layer.objects.active = mid_obj
@@ -248,6 +227,33 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
+
+    def _array_count(self):
+        mid_obj = getattr(self, "mid_obj", None)
+        arr_mod = mid_obj.modifiers.get("CappedArray") if mid_obj is not None else None
+        return str(arr_mod.count) if arr_mod else "—"
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("easy_mod_array")
+        self._hud.title = "Easy Array"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam("Axis (X / Y / Z)", lambda: self._axis or "—", "str"))
+        self._hud.add_param(HUDParam("Count (+ / -)", lambda: self._array_count(), "str"))
+        self._hud.add_param(HUDParam("Flipped (F)", lambda: self._flipped, "bool",
+                                     visible_getter=lambda: bool(self._flipped)))
+        self._help = build_help("easy_mod_array", [
+            ("Easy Array", [
+                ("Flip Start/End", "F"),
+                ("Place the cap origins along the X axis", "X"),
+                ("Place the cap origins along the Y axis", "Y"),
+                ("Place the cap origins along the Z axis", "Z"),
+                ("Add / remove the Array modifier", "A"),
+                ("Duplicates count", "+ / -"),
+                ("Add / remove the Curve modifier", "C"),
+                ("Apply", "LMB / Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def invoke(self, context, event):
         if context.object and context.area.type == "VIEW_3D":
@@ -280,8 +286,9 @@ class IOPS_OT_Easy_Mod_Array_Caps(bpy.types.Operator):
                 else:
                     self.curve = None
 
-                self._hud = _build_easy_array_hud(context)
-                self._help = _build_easy_array_help(context)
+                self._axis = ""
+                self._flipped = False
+                self._build_overlays(context.region)
                 self._last_event = capture_event(event, getattr(self, "_last_event", None))
                 self._handle_iops_text = safe_handler_add(bpy.types.SpaceView3D,
                     _draw_easy_array_hud, (self, context), "WINDOW", "POST_PIXEL", tick=True)

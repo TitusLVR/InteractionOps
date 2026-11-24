@@ -22,3 +22,6 @@ Closes T-junctions: for each selected vertex lying on or near another edge, spli
 - **Tolerance** — maximum gap between a vertex and the edge it fuses into.
 - **Interactive** — show the preview before applying.
 - **Cross Island** — let auto-detect fuse vertices into edges of a different mesh island (manual picks always can).
+
+## HUD
+Rows: **Position** (<kbd>Wheel</kbd> / <kbd>S</kbd>), **Candidates** and **Tolerance** (<kbd>Ctrl</kbd>+<kbd>Wheel</kbd>); **Cross Islands** appears only while that option is on. The full key list is in the help legend (<kbd>H</kbd>), hidden until you press it; <kbd>/</kbd> hides the HUD rows.

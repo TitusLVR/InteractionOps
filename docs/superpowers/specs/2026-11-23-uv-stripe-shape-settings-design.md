@@ -64,8 +64,8 @@ Nothing is removed: every option keeps its key and its row; the HUD only folds w
 - Always: the header with the stretched-face count; Straight Sides (E), Ends (A), Stretch Limit (Wheel), More Options (Tab).
 - Only when it applies: Align (G) under Straight Sides = None; Manual Cuts when there is one; Doubled Vertices when there are any.
 - C and V are no rows: while one is on, a line "Picking cut edges · C to stop" / "Picking the align edge · V to stop" shows at the top.
-- More Options (Tab): Balance, Mode, Orientation, Fit to Active, Split at Seams, Mark Seams, Random Offset, Offset Limit, Offset Seed, Merge Doubles. Remembered as last used, so a user who keeps it open sees everything every time.
-- Help (H), hidden by default: LMB on a side (straight / free), C, V, Enter / Space confirm, Esc / RMB cancel. No navigation, MMB, N / T or wheel lines, and no keys already shown in the HUD.
+- More Options (Tab): Balance, Mode, Orientation, Fit to Active, Split at Seams, Mark Seams, Random Offset, Offset Limit, Offset Seed, Merge Doubles. Remembered as last used, so a user who keeps it open sees everything every time. With Tab off, a row of this section still shows while its option is away from its default (revised 2026-11-24, for every iOps modal HUD).
+- Help (H), hidden by default: every key of the modal, grouped (Shape, Layout, General), the keys of the HUD rows included, so a key whose row is folded or hidden is still listed. No navigation, MMB, N / T lines, and no H or `/` line (revised 2026-11-24, for every iOps modal HUD; it replaces the earlier rule of listing only keys with no row).
 - Status bar: one line "LMB side: straight/free · Tab: more · Enter: confirm · Esc: cancel".
 
 ## Follow-up: correcting the corners in the modal (agreed 2026-11-23, build only if detection fails on real meshes)

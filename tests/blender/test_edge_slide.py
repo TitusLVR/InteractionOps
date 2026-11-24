@@ -1475,14 +1475,15 @@ def test_modal_invoke_path_smoke():
     assert op._hud.title == "Edge Slide"
     params = [p for section in op._hud.param_sections for p in section.params]
     assert [p.name for p in params] == [
-        "Width", "Exact Width (E)", "Allow Collapse / Unclamp (C)", "Destructive (D)", "Auto Adjust (Q)",
+        "Width", "Exact Width (E)", "Allow Collapse (C)", "Destructive (D)", "Auto Adjust (Q)",
         "UV Stripe (U)", "Clamped"]                                                  # the angles and Tolerance: redo panel only
     assert all(p.value_text() != "?" for p in params)              # every getter runs
-    assert [(it.label, it.key) for it in op._help.sections[0].items] == [
-        ("Adjust width", "Mouse / Type"), ("Snap to vertex", "Ctrl"), ("Exact width", "E"),
-        ("Allow collapse", "C"), ("Destructive", "D"), ("Auto adjust", "Q"), ("UV Stripe", "U"),
-        ("Flip chain side", "F"),
-        ("Confirm", "LMB / Enter"), ("Cancel", "Esc / RMB"), ("Help / Toggle HUD", "H")]
+    legend = [(it.label, it.key) for sec in op._help.sections for it in sec.items]
+    assert legend == [
+        ("Width", "Mouse"), ("Type the width", "Digits / Period / Minus / Backspace"), ("Precise width", "Shift"), ("Snap to vertex", "Ctrl"),
+        ("Flip chain side", "F"), ("Exact Width", "E"), ("Allow Collapse", "C"), ("Destructive", "D"),
+        ("Auto Adjust", "Q"), ("UV Stripe", "U"), ("Confirm", "LMB / Enter"), ("Cancel", "Esc / RMB")]
+    assert op._help.expanded is False
     assert op._status_text().startswith("Edge Slide: width = -0.5000")
 
     strip = _edit_object(_strip(rows=2), chain=[0, 1, 2, 3])
@@ -2902,16 +2903,17 @@ def test_modal_d_hud_help_status_and_cancel():
     op, ctx = _invoke(x=0, width=0.25)
     params = {p.name: p for section in op._hud.param_sections for p in section.params}
     assert list(params)[:6] == [
-        "Width", "Exact Width (E)", "Allow Collapse / Unclamp (C)", "Destructive (D)", "Auto Adjust (Q)", "UV Stripe (U)"]
-    legend = [(it.label, it.key) for it in op._help.sections[0].items]
-    assert legend.index(("Destructive", "D")) == legend.index(("Allow collapse", "C")) + 1
+        "Width", "Exact Width (E)", "Allow Collapse (C)", "Destructive (D)", "Auto Adjust (Q)", "UV Stripe (U)"]
+    legend = [(it.label, it.key) for sec in op._help.sections for it in sec.items]
+    assert legend.index(("Destructive", "D")) == legend.index(("Allow Collapse", "C")) + 1
+    assert [n for n, p in params.items() if p.is_visible()] == ["Width", "Exact Width (E)", "Allow Collapse (C)"]
     assert "destructive = off (D)" in op._status_text()
-    assert params["Destructive (D)"].value_text() == "✗" and params["Allow Collapse / Unclamp (C)"].is_active()
+    assert params["Destructive (D)"].value_text() == "✗" and params["Allow Collapse (C)"].is_active()
     _keys(op, ctx, "D")
     assert "destructive = on (D)" in op._status_text()
     assert "allow collapse = on (C)" in op._status_text()            # as the HUD shows it, though C is off
     assert params["Destructive (D)"].value_text() == "✓"
-    assert params["Allow Collapse / Unclamp (C)"].value_text() == "✓" and not params["Allow Collapse / Unclamp (C)"].is_active()
+    assert params["Allow Collapse (C)"].value_text() == "✓" and not params["Allow Collapse (C)"].is_active()
     _keys(op, ctx, "D")
     assert "allow collapse = off (C)" in op._status_text()           # C's own value comes back
     _keys(op, ctx, "D")

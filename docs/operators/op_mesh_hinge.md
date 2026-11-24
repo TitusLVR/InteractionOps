@@ -24,5 +24,20 @@ Rotates the selected faces (or edges) around the edge under the mouse, baking th
 | <kbd>Q</kbd> | Lock / unlock the hinge axis |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel: release the axis lock, then finish (leaves Flush mode first if it is on) |
 
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Mode, Angle (Type / Alt + Wheel), Segments (Ctrl + Wheel) | always |
+| Axis Locked (Q) | while the axis is locked |
+| Hinge Offset | while the hinge line is moved off the edge |
+| Flush to Face (A) | while on |
+| Bounding Box Sides (B) | while on |
+| Bounding Box Space (S) | while Bounding Box Sides is on |
+
+The header shows `Typing: ...` while you type an angle. <kbd>D</kbd>, <kbd>X</kbd>, <kbd>E</kbd> and the mouse buttons are actions and appear in the help only.
+
 ## Tips
 - The preview is a ghost; the mesh only changes when you bake.

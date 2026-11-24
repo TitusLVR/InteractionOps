@@ -17,3 +17,13 @@ Cuts an edge between two vertices in one drag: press on the first vertex, drag t
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>Space</kbd> | Finish, keep changes |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel and undo all connects from this session |
+
+## HUD
+
+The HUD lists the main options always. Every key works whether its row is shown or not. <kbd>H</kbd> opens the help: the full key list of the operator, collapsed until you press it. <kbd>/</kbd> hides the rows.
+
+| Row | Shown |
+| --- | --- |
+| Snap Midpoint (S), Screen Space (W) | always |
+
+The help lists every key: connect (<kbd>LMB</kbd> drag), split an edge (hold <kbd>A</kbd>), <kbd>S</kbd>, <kbd>W</kbd>, finish and cancel.

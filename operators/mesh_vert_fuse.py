@@ -27,8 +27,8 @@ from bpy.props import EnumProperty, BoolProperty, FloatProperty
 from ..ui.draw import primitives as draw_prim, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      HUDParam, ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 from ..ui.hud import text as hud_text
 from ..utils.vert_fuse_core import (fuse_candidates, MERGE_POSITIONS, TOL,
                                     EPS)
@@ -299,31 +299,7 @@ class IOPS_OT_mesh_vert_fuse(bpy.types.Operator):
 
         _purge_handles()
 
-        self._hud = HUDOverlay("vert_fuse")
-        self._hud.title = "Vert Fuse"
-        self._hud.bind_region(context.region)
-        self._hud.add_param(HUDParam(
-            "Position", lambda: self._current_key(), "str"))
-        self._hud.add_param(HUDParam(
-            "Candidates", lambda: len(self._candidates), "int"))
-        self._hud.add_param(HUDParam(
-            "Tolerance", lambda: self._tol, "float", fmt="{:g}"))
-        self._hud.add_param(HUDParam(
-            "Island Filter",
-            lambda: "OFF" if self.cross_island else "ON", "str"))
-        self._help = HelpOverlay("vert_fuse")
-        self._help.add_section(HUDSection("Vert Fuse", [
-            HUDItem("Cycle position", "Wheel / S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Tolerance x2 / /2", "Ctrl+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Add vert",       "LMB",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Remove vert",    "Ctrl+LMB",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Auto detect",    "A",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm",        "Enter / Space", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc / RMB",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Navigate",       "MMB",        ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         # Two handlers: world-space preview geometry in POST_VIEW, HUD /
@@ -421,6 +397,27 @@ class IOPS_OT_mesh_vert_fuse(bpy.types.Operator):
         context.workspace.status_text_set(self._status_text())
         if context.area:
             context.area.tag_redraw()
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("vert_fuse")
+        self._hud.title = "Vert Fuse"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam("Position (Wheel / S)", lambda: self._current_key(), "str"))
+        self._hud.add_param(HUDParam("Candidates", lambda: len(self._candidates), "int"))
+        self._hud.add_param(HUDParam("Tolerance (Ctrl + Wheel)", lambda: self._tol, "float", fmt="{:g}"))
+        self._hud.add_param(HUDParam("Cross Islands", lambda: self.cross_island, "bool",
+                                     visible_getter=lambda: bool(self.cross_island)))
+        self._help = build_help("vert_fuse", [
+            ("Vert Fuse", [
+                ("Cycle position", "Wheel / S"),
+                ("Tolerance x2 / /2", "Ctrl + Wheel"),
+                ("Add Vertex", "LMB"),
+                ("Remove Vertex", "Ctrl + LMB"),
+                ("Auto detect", "A"),
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _status_text(self):
         return (
@@ -834,12 +831,6 @@ class IOPS_OT_mesh_vert_fuse(bpy.types.Operator):
             if hud is None and helpo is None:
                 return
             last_event = getattr(self, "_last_event", None)
-            header = None
-            if hud is not None:
-                header = (
-                    f"Position: {self._current_key()}",
-                    f"Candidates: {len(self._candidates)}",
-                )
         except (ReferenceError, AttributeError):
             _purge_handles()
             return
@@ -849,7 +840,6 @@ class IOPS_OT_mesh_vert_fuse(bpy.types.Operator):
             if helpo is not None:
                 helpo.draw(context, last_event)
             if hud is not None:
-                hud.set_header(*header)
                 hud.draw(context, last_event)
 
     # ------------------------------------------------------------------

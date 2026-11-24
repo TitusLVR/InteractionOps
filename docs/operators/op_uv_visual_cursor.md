@@ -21,6 +21,10 @@ Place the UV Editor's 2D cursor on a snap point of the selection's bounding box 
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
 
+## HUD
+
+Row: Islands Selected. Axis Lock (X / Y) appears while a freeze is set, and Tile Mode (Alt) while the cage follows a tile. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 - With nothing selected the tool starts in tile mode.
 - Setting the cursor only moves the cursor; use [Drag Snap UV](op_drag_snap_uv.md) to move the UVs themselves.

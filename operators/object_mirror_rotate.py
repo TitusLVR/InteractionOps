@@ -6,40 +6,8 @@ from mathutils import Vector, Matrix
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme, axis_color, Role
 from ..ui.hud import text as hud_text
-from ..ui.hud import (
-    HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-    HUDParam, ItemState,
-    capture_event,
-)
-
-
-# --- HUD / Help builders ---------------------------------------------------
-
-def _build_hud(context):
-    hud = HUDOverlay("object_mirror_rotate")
-    hud.title = "Mirror Rotate"
-    hud.bind_region(context.region)
-    return hud
-
-
-def _build_help(context):
-    helpo = HelpOverlay("object_mirror_rotate")
-    helpo.add_section(HUDSection("Mirror Rotate", [
-        HUDItem("Pivot (Cursor / Active / Pick object)", "Q", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Mirror axes: +axis / −axis / off (combos multiply)", "X / Y / Z", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Orientation (Global / Pivot frame)", "W", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Method (Mirror / Rotate / Reflect = mirror by rotation, positive scale)", "E", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Rotate angle (Rotate method)", "0–9 / Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Clone type (Duplicate / Instance / In place)", "D", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply transforms on confirm", "A", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Snap cursor to face (vert/edge-mid/center, Z=normal)", "C + LMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Reset to defaults", "B", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Apply", "Space / Enter", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Cancel", "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        HUDItem("Help / HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-    ]))
-    helpo.bind_region(context.region)
-    return helpo
+from ..ui.hud import HUDOverlay, HUDParam, capture_event
+from ..ui.hud.more import build_help
 
 
 def _draw_callback(op, context):
@@ -641,15 +609,7 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
             self.report({"WARNING"}, "Select at least one source object")
             return {"CANCELLED"}
 
-        self._hud = _build_hud(context)
-        self._hud.add_param(HUDParam("Pivot",  lambda: self._pivot_hud_label(), "str"))
-        self._hud.add_param(HUDParam("Axes",   lambda: _axes_label(self), "str"))
-        self._hud.add_param(HUDParam("Orientation", lambda: "Global" if self.orient_mode == ORIENT_GLOBAL else "Pivot", "str"))
-        self._hud.add_param(HUDParam("Method", lambda: _method_label(self), "str"))
-        self._hud.add_param(HUDParam("Angle",  lambda: self._angle_hud_label(), "str"))
-        self._hud.add_param(HUDParam("Clone",  lambda: CLONE_LABELS[self.clone_mode], "str"))
-        self._hud.add_param(HUDParam("Apply transforms", lambda: self.apply_transforms, "bool"))
-        self._help = _build_help(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, None)
         self._handle = safe_handler_add(
             bpy.types.SpaceView3D, _draw_callback, (self, context),
@@ -661,6 +621,41 @@ class IOPS_OT_Object_Mirror_Rotate(bpy.types.Operator):
         )
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("object_mirror_rotate")
+        self._hud.title = "Mirror Rotate"
+        self._hud.bind_region(region)
+        self._hud.add_param(HUDParam("Pivot (Q)", lambda: self._pivot_hud_label(), "str"))
+        self._hud.add_param(HUDParam("Axes (X / Y / Z)", lambda: _axes_label(self), "str"))
+        self._hud.add_param(HUDParam("Orientation (W)",
+                                     lambda: "Global" if self.orient_mode == ORIENT_GLOBAL else "Pivot", "str"))
+        self._hud.add_param(HUDParam("Method (E)", lambda: _method_label(self), "str"))
+        self._hud.add_param(HUDParam("Angle (Alt + Wheel)", lambda: self._angle_hud_label(), "str",
+                                     visible_getter=lambda: self.method == METHOD_ROTATE))
+        self._hud.add_param(HUDParam("Clone (D)", lambda: CLONE_LABELS[self.clone_mode], "str"))
+        self._hud.add_param(HUDParam("Apply Transforms (A)", lambda: self.apply_transforms, "bool",
+                                     visible_getter=lambda: bool(self.apply_transforms)))
+        self._help = build_help("object_mirror_rotate", [
+            ("Mirror", [
+                ("Pivot (Cursor / Active / Pick object)", "Q"),
+                ("Mirror axes: +axis / -axis / off (combos multiply)", "X / Y / Z"),
+                ("Orientation (Global / Pivot frame)", "W"),
+                ("Method (Mirror / Rotate / Reflect = mirror by rotation, positive scale)", "E"),
+            ]),
+            ("Rotate angle", [
+                ("Type the angle (Rotate method)", "Digits / Period / Minus / Backspace"),
+                ("Angle step of 5 degrees (Rotate method)", "Alt + Wheel"),
+            ]),
+            ("Result", [
+                ("Clone type (Duplicate / Instance / In place)", "D"),
+                ("Apply transforms on confirm", "A"),
+                ("Snap the cursor to a face (vertex, edge middle or center; Z along the normal)", "C + LMB"),
+                ("Reset to defaults", "B"),
+                ("Confirm", "Space / Enter"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _pivot_hud_label(self):
         if self.pivot_mode == PIVOT_PICK:

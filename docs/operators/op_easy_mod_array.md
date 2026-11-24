@@ -29,3 +29,6 @@ Two shortcuts for setting up Array modifiers in Object Mode. **Array Caps** is i
 ## Tips
 - Array Caps needs exactly 3 or 4 selected objects: middle (active), caps, optional curve.
 - Run Array Curve with only the arrayed mesh selected to jump to the curve that drives it.
+
+## HUD (Array Caps)
+Rows: **Axis** (<kbd>X</kbd> / <kbd>Y</kbd> / <kbd>Z</kbd>, the axis the cap origins were last placed along), **Count** (<kbd>+</kbd> / <kbd>-</kbd>, the Array modifier's count) and **Flipped** (<kbd>F</kbd>) while the caps are swapped. The help legend (<kbd>H</kbd>) lists every key, hidden until you press it.

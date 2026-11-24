@@ -23,6 +23,10 @@ Sets the origin of the selected objects by picking a point on a bounding cage. R
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>MMB</kbd> / Wheel | Navigate the viewport as usual |
 
+## HUD
+
+Only the title; an Offset Instances (I) row appears while it is on. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Options
 - **Hold Cursor** — restore the 3D cursor to where it was after confirming (on by default).
 - **Offset Instances** — when objects share mesh data, shift the linked copies back so they stay in place.

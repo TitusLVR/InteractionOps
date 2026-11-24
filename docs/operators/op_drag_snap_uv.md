@@ -21,5 +21,9 @@ The UV Editor version of Drag Snap. Hover a UV vertex, click it as the source, t
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
 
+## HUD
+
+Only the title; a Constraint (X / Y) row appears while a constraint is set. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 - The 2D cursor itself can be picked as a source or target.

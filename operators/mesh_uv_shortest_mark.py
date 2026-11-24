@@ -3,7 +3,9 @@ import bmesh
 import math
 from ..ui.draw import safe_handler_add, safe_handler_remove, draw_scope, Role
 from ..ui.draw import primitives as draw_prim
-from ..ui.hud import handle_hud_toggle, handle_help_toggle, capture_event
+from ..ui.hud import (HUDOverlay, HUDParam, MoreOptions, build_help, capture_event,
+                      more_options_property)
+from ..ui.hud.more import MORE_OPTIONS_HELP
 import bpy_extras
 import blf
 from mathutils import Vector
@@ -86,6 +88,8 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         "E-cycle barrier type, R-cycle mark type, A-cycle algorithm, LMB-apply"
     )
     bl_options = {'REGISTER', 'UNDO'}
+
+    show_options: more_options_property()
 
     # Draw handlers
     _handle = None
@@ -1737,7 +1741,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             f"{' (set)' if anchor_set else ''} | "
             f"[LMB] {'Click Start/End' if self.path_mode == 'BUILD' else 'Apply'}"
             f"({n} edges) | [D] Clear Path | "
-            f"[Ctrl+Z] Undo | [Space] Finish | [Esc] Cancel"
+            f"[Ctrl+Z] Undo | [Tab] More | [Space] Finish | [Esc] Cancel"
         )
 
     # ─── Scene property persistence ──────────────────────────────────
@@ -1836,35 +1840,79 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
         except (ReferenceError, AttributeError, ValueError):
             pass
 
-    def _build_hud(self, context):
-        from ..ui.hud import HUDOverlay, HelpOverlay, HUDSection, HUDItem, ItemState
-        hud = HUDOverlay("uv_shortest_mark")
+    def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
+        hud = self._hud = HUDOverlay("uv_shortest_mark")
         hud.title = "UV Shortest Mark"
-        hud.bind_region(context.region)
-        items = [
-            HUDItem("Barrier",        "E",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mark type",      "R",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Algorithm",      "A",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flow",           "Ctrl+Wheel",      ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Smooth",         "Shift+Wheel",     ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Curvature",      "Ctrl+Shift+Wheel",ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Arch",           "Ctrl+Alt+Wheel",  ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mark angle",     "Alt+Wheel",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Mark by angle",  "S",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Smooth marked",  "F",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Path mode",      "Ctrl+Q",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("New mark",       "Q",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Apply / Pick",   "LMB",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Clear path",     "D",               ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Undo",           "Ctrl+Z",          ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Finish",         "Space",           ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",         "Esc",             ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]
-        helpo = HelpOverlay("uv_shortest_mark")
-        helpo.add_section(HUDSection("UV Shortest Mark", items))
-        helpo.bind_region(context.region)
-        return hud, helpo
+        hud.bind_region(region)
+
+        def normal():
+            return not self._smooth_mode
+
+        # Always (outside the smooth mode): Barrier, Mark Type, Path Mode, Edges and More Options. The rows after
+        # More Options only while it is on (Tab), and with Tab off while their value is away from the default.
+        hud.add_param(HUDParam("Barrier (E)", lambda: BARRIER_LABELS[self.barrier_type], "enum",
+                               visible_getter=normal))
+        hud.add_param(HUDParam("Mark Type (R)", lambda: BARRIER_LABELS[self.mark_type], "enum",
+                               visible_getter=normal))
+        hud.add_param(HUDParam("Path Mode (Ctrl + Q)", lambda: PATH_MODE_LABELS[self.path_mode], "enum",
+                               visible_getter=normal))
+        hud.add_param(HUDParam("Edges", lambda: len(self.path_edge_indices), "int", visible_getter=normal))
+        more_row = more.row()
+        more_row.visible_getter = normal
+        hud.add_param(more_row)
+
+        def tab(name, getter, kind, away, fmt=None):
+            hud.add_param(HUDParam(name, getter, kind, fmt=fmt,
+                                   visible_getter=more.when(own=normal, also=away)))
+
+        tab("Algorithm (A)", lambda: ALGORITHM_LABELS[self.algorithm], "enum",
+            lambda: self.algorithm_idx != 0)
+        tab("Flow Angle (Ctrl + Wheel)", lambda: self.flow_angle, "int",
+            lambda: self.flow_angle != DEFAULT_FLOW_ANGLE)
+        tab("Smooth (Shift + Wheel)", lambda: self.smooth_level, "int", lambda: self.smooth_level != 0)
+        tab("Curvature (Ctrl + Shift + Wheel)", lambda: self.curvature, "int", lambda: self.curvature != 0)
+        tab("Arch (Ctrl + Alt + Wheel)", lambda: self.arch_strength, "int", lambda: self.arch_strength != 0)
+        tab("Mark Angle (Alt + Wheel)", lambda: self.sharp_angle, "int",
+            lambda: self.sharp_angle != DEFAULT_SHARP_ANGLE)
+
+        # Smooth Marked (F) replaces the rows above with its own
+        hud.add_param(HUDParam("Magnet (Alt + Wheel)", lambda: f"{self._smooth_magnet:+d}", "str",
+                               visible_getter=lambda: self._smooth_mode))
+        hud.add_param(HUDParam("Iterations (Shift + Wheel)", lambda: self._smooth_iterations, "int",
+                               visible_getter=lambda: self._smooth_mode))
+        hud.add_param(HUDParam("Proposed / Original",
+                               lambda: f"{len(self._smooth_preview_edges)} / {len(self._smooth_original_marks)}",
+                               "str", visible_getter=lambda: self._smooth_mode))
+
+        # Every key, hidden until H
+        self._help = build_help("uv_shortest_mark", [
+            ("Path", [
+                ("Barrier", "E"),
+                ("Mark Type", "R"),
+                ("Path Mode", "Ctrl + Q"),
+                ("Algorithm", "A"),
+                ("Flow Angle", "Ctrl + Wheel"),
+                ("Smooth", "Shift + Wheel"),
+                ("Curvature", "Ctrl + Shift + Wheel"),
+                ("Arch", "Ctrl + Alt + Wheel"),
+            ]),
+            ("Mark", [
+                ("Apply / Pick Start and End", "LMB"),
+                ("New Mark", "Q"),
+                ("Clear Path", "D"),
+                ("Mark by Angle", "S"),
+                ("Mark Angle", "Alt + Wheel"),
+                ("Smooth Marked (Magnet: Alt + Wheel, Iterations: Shift + Wheel)", "F"),
+                ("Keep the smoothing (while smoothing)", "Space / Enter"),
+                ("Undo", "Ctrl + Z"),
+            ]),
+            ("General", [
+                MORE_OPTIONS_HELP,
+                ("Confirm", "Space"),
+                ("Cancel", "Esc"),
+            ]),
+        ], region)
 
     def _draw_text(self, context):
         hud = getattr(self, "_hud", None)
@@ -1873,32 +1921,10 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             helpo.draw(context, getattr(self, "_last_event", None))
         if hud is None:
             return
-        bl = BARRIER_LABELS[self.barrier_type]
-        ml = BARRIER_LABELS[self.mark_type]
-        al = ALGORITHM_LABELS[self.algorithm]
-        pm = PATH_MODE_LABELS[self.path_mode]
-        n = len(self.path_edge_indices)
         if self._smooth_mode:
-            n_prop = len(self._smooth_preview_edges)
-            n_orig = len(self._smooth_original_marks)
-            hud.set_header(
-                f"Smooth: {ml}",
-                f"Magnet: {self._smooth_magnet:+d}",
-                f"Iter: {self._smooth_iterations}",
-                f"Prop / Orig: {n_prop} / {n_orig}",
-            )
+            hud.set_header(f"Smooth Marked: {BARRIER_LABELS[self.mark_type]}")
         else:
-            hud.set_header(
-                f"Barrier \u2192 Mark: {bl} \u2192 {ml}",
-                f"Algo: {al}",
-                f"Mode: {pm}",
-                f"Flow: {self.flow_angle}\u00b0",
-                f"Smooth: {self.smooth_level}",
-                f"Curv: {self.curvature}",
-                f"Arch: {self.arch_strength:+d}",
-                f"Angle: {self.sharp_angle}\u00b0",
-                f"Edges: {n}",
-            )
+            hud.set_header()
         hud.draw(context, getattr(self, "_last_event", None))
 
     # ─── Invoke / Modal / Cleanup ────────────────────────────────────
@@ -1939,7 +1965,7 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
                 mod.show_viewport = False
                 break
 
-        self._hud, self._help = self._build_hud(context)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._handle = safe_handler_add(
@@ -2020,6 +2046,11 @@ class IOPS_OT_Mesh_UV_Shortest_Mark(bpy.types.Operator):
             if event.type == 'MOUSEMOVE':
                 return {'PASS_THROUGH'}
             # Swallow all other keys while in sub-mode
+            return {'RUNNING_MODAL'}
+
+        # Tab: only the HUD changes
+        if self._more.handle(event):
+            context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
         # Enter smooth-marked sub-mode

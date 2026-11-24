@@ -15,6 +15,10 @@ Point-to-point move driven by the 3D Cursor. Press <kbd>Q</kbd> and drag the cur
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel |
 | <kbd>H</kbd> | Show / hide the help legend |
 
+## HUD
+
+Only the title: the tool has no options. The help lists Q, LMB and Esc / RMB. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Tips
 - The status bar tells you which step you are on (point A, confirm, point B).
 - Cancelling after the first point leaves the 3D Cursor where you snapped it.

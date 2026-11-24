@@ -28,8 +28,12 @@ Paints vertex colors with a brush directly in Edit Mesh or Object mode — no sw
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo one stroke inside the brush session |
 | Enter / Space / RMB | Finish — the whole session becomes one global undo step |
 | Esc | Cancel — restores every color to the state before the brush started |
-| H | Help / HUD toggle |
+| Tab | More Options: show or hide the rest of the HUD rows |
+| H | Help: the full key list, hidden until pressed |
 | MMB / Wheel / Numpad / NDOF | Viewport navigation passes through: orbit, pan, zoom and numpad views work while the brush is up |
+
+## HUD
+Always shown: Tool (T / E), Element (1 / 2 / 3), Color (C), Radius (Ctrl + Wheel), Strength (Shift + Wheel). **More Options (Tab)** adds Channel (A), Alpha (Shift + 0 / 1), Falloff (Alt + Wheel) and Strokes; Channel and Alpha also show while they differ from RGB / 1.0. Switches appear only while in effect: Modifiers Muted (M), Back Faces Painted (N, front-only off), Preview Vertex Colors (P) and Wireframe (V). The More Options setting is remembered.
 
 Strokes do not accumulate: dragging back and forth over the same spot within one stroke never exceeds brush strength, like Blender's default brushes. Each new stroke blends on top of the previous one.
 

@@ -24,12 +24,12 @@ The keys of the interactive mode (*UV Stripe (Interactive)*):
 | <kbd>C</kbd> | Pick Cut Edges: click cross edges to break a closed ring, or to mark and unmark where a strip is torn (see *Breaking a ring* and *Marking cuts*); <kbd>C</kbd> again stops picking |
 | <kbd>R</kbd> | New offset seed |
 | <kbd>F</kbd> | Merge Doubles on / off (applied on confirm) |
-| <kbd>Tab</kbd> | More Options on / off: the HUD always lists Straight Sides, Ends and Stretch Limit, and Align, Manual Cuts and Doubled Vertices only while they apply; More Options adds Balance, Mode, Orientation, Fit to Active, Split at Seams, Mark Seams, Random Offset, Offset Limit, Offset Seed and Merge Doubles. Every key works either way, and the choice is remembered |
+| <kbd>Tab</kbd> | More Options on / off: the HUD always lists Straight Sides, Ends and Stretch Limit, and Align, Manual Cuts and Doubled Vertices only while they apply; More Options adds Balance, Mode, Orientation, Fit to Active, Split at Seams, Mark Seams, Random Offset, Offset Limit, Offset Seed and Merge Doubles. With More Options off, one of these rows still shows while its option is away from its default. Every key works either way, and the choice is remembered |
 | <kbd>Wheel</kbd> | Stretch Limit ±0.05 (<kbd>Ctrl</kbd>: ±0.01) |
 | <kbd>Shift</kbd>+<kbd>Wheel</kbd> | Offset Limit ±0.05 while Random Offset is on (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>: ±0.01); with it off the view pans |
 | <kbd>MMB</kbd> | Navigate the viewport |
 | <kbd>N</kbd> / <kbd>T</kbd> | Sidebar / toolbar, as usual |
-| <kbd>H</kbd> | Show / hide the help legend (hidden at the start; it lists only what the HUD does not) |
+| <kbd>H</kbd> | Show / hide the help legend: hidden at the start, it lists every key of the modal, grouped as Shape, Layout and General |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Confirm |
 | <kbd>Esc</kbd> / <kbd>RMB</kbd> | Cancel: the UVs and seams go back exactly as they were; while picking cut edges or the align edge, they only stop picking |
 

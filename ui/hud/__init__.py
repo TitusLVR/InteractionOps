@@ -3,6 +3,8 @@ from .items import (HUDItem, HUDSection, HUDParam, HUDParamSection,
 from .overlay import HUDOverlay
 from .help import HelpOverlay
 from .event_snap import EventSnapshot, capture_event
+from .more import (MORE_OPTIONS_LABEL, MoreOptions, build_help, help_item,
+                   help_keys, more_options_property)
 
 
 def handle_hud_toggle(hud, context, event) -> bool:
@@ -47,4 +49,6 @@ def handle_help_toggle(help_overlay, context, event, *, hud=None) -> bool:
 __all__ = ["HUDItem", "HUDSection", "HUDParam", "HUDParamSection",
            "ItemState", "HUDOverlay", "HelpOverlay",
            "EventSnapshot", "capture_event",
-           "handle_hud_toggle", "handle_help_toggle"]
+           "handle_hud_toggle", "handle_help_toggle",
+           "MORE_OPTIONS_LABEL", "MoreOptions", "build_help", "help_item",
+           "help_keys", "more_options_property"]

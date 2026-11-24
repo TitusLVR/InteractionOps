@@ -37,7 +37,8 @@ from mathutils import Vector
 
 from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
-from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
+from ..ui.hud import HUDOverlay, HUDParam, MoreOptions, build_help, capture_event, more_options_property
+from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..utils import picking, uv_stripe_auto_core, uv_stripe_core, uv_stripe_select_core
 from . import uv_stripe_bridge
 
@@ -451,12 +452,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
         options={"HIDDEN", "SKIP_SAVE"},
     )
     # Whether the interactive mode's HUD lists every option or only the main ones; remembered as last used.
-    show_options: BoolProperty(
-        name="More Options",
-        description="List every option in the interactive mode's HUD, not only the main ones",
-        default=False,
-        options={"HIDDEN"},
-    )
+    show_options: more_options_property()
 
     @classmethod
     def poll(cls, context):
@@ -1167,44 +1163,57 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
                                      visible_getter=lambda: self._manual_cut_count() > 0))
         self._hud.add_param(HUDParam("Doubled Vertices", lambda: getattr(self, "_result", _Result()).doubles, "int",
                                      visible_getter=lambda: getattr(self, "_result", _Result()).doubles > 0))
-        self._hud.add_param(HUDParam("More Options (Tab)", lambda: self.show_options, "bool"))
+        more = self._more = MoreOptions(self)
+        self._hud.add_param(more.row())
 
-        def more(own=None):
-            return lambda: self.show_options and (own is None or own())
+        def tab(name, getter, kind, *props, fmt=None, active_getter=None):
+            # a More Options row: shown under Tab, and with Tab off while its option is away from the default
+            self._hud.add_param(HUDParam(name, getter, kind, fmt=fmt, active_getter=active_getter,
+                                         visible_getter=more.when(also=more.changed(*props))))
 
-        self._hud.add_param(HUDParam("Balance (B)", lambda: BALANCE_NAMES[self.balance], "enum",
-                                     visible_getter=more()))
-        self._hud.add_param(HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum", visible_getter=more()))
-        self._hud.add_param(HUDParam("Orientation (W)", lambda: orientation_names[self.orientation], "enum",
-                                     visible_getter=more()))
-        self._hud.add_param(HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
-                                     active_getter=lambda: self.mode == "ACTIVE", visible_getter=more()))
-        self._hud.add_param(HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool",
-                                     visible_getter=more()))
-        self._hud.add_param(HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool", visible_getter=more()))
-        self._hud.add_param(HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum",
-                                     visible_getter=more()))
-        self._hud.add_param(HUDParam("Offset Limit (Shift + Wheel)", lambda: self.offset_limit, "float",
-                                     fmt="{:.2f}", active_getter=lambda: self.offset_axis != "NONE",
-                                     visible_getter=more()))
-        self._hud.add_param(HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int",
-                                     active_getter=lambda: self.offset_axis != "NONE", visible_getter=more()))
-        self._hud.add_param(HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool", visible_getter=more()))
+        tab("Balance (B)", lambda: BALANCE_NAMES[self.balance], "enum", "balance")
+        tab("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum", "mode")
+        tab("Orientation (W)", lambda: orientation_names[self.orientation], "enum", "orientation")
+        tab("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum", "active_fit",
+            active_getter=lambda: self.mode == "ACTIVE")
+        tab("Split at Seams (S)", lambda: self.split_at_seams, "bool", "split_at_seams")
+        tab("Mark Seams (X)", lambda: self.mark_seams, "bool", "mark_seams")
+        tab("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum", "offset_axis")
+        tab("Offset Limit (Shift + Wheel)", lambda: self.offset_limit, "float", "offset_limit", fmt="{:.2f}",
+            active_getter=lambda: self.offset_axis != "NONE")
+        tab("Offset Seed (R)", lambda: self.offset_seed, "int", "offset_seed",
+            active_getter=lambda: self.offset_axis != "NONE")
+        tab("Merge Doubles (F)", lambda: self.merge_doubles, "bool", "merge_doubles")
 
-        def item(label, key):
-            return HUDItem(label, key, ItemState.ON, default_state=ItemState.OFF, always_show=True)
-
-        # Short and hidden until H: only what the HUD does not show already
-        self._help = HelpOverlay("uv_stripe")
-        self._help.add_section(HUDSection("UV Stripe", [
-            item("Side straight / free", "LMB on a side"),
-            item("Pick cut edges, break a ring", "C"),
-            item("Pick the align edge", "V"),
-            item("Confirm", "Enter / Space"),
-            item("Cancel", "Esc / RMB"),
-        ]))
-        self._help.start_collapsed()
-        self._help.bind_region(region)
+        # Every key, hidden until H
+        self._help = build_help("uv_stripe", [
+            ("Shape", [
+                ("Straight Sides", "E"),
+                ("Ends", "A"),
+                ("Stretch Limit (fine: Ctrl)", "Wheel"),
+                ("Side straight / free", "LMB on a side"),
+                ("Align", "G"),
+                ("Pick the align edge", "V"),
+                ("Balance", "B"),
+            ]),
+            ("Layout", [
+                ("Mode", "Q"),
+                ("Orientation", "W"),
+                ("Fit to Active", "D"),
+                ("Pick cut edges, break a ring", "C"),
+                ("Split at Seams", "S"),
+                ("Mark Seams", "X"),
+                ("Random Offset", "Z"),
+                ("Offset Limit (fine: Ctrl)", "Shift + Wheel"),
+                ("Offset Seed", "R"),
+                ("Merge Doubles", "F"),
+            ]),
+            ("General", [
+                MORE_OPTIONS_HELP,
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def _align_applies(self):
         """Whether Align (G, V) matters now: Straight Sides is None, or a piece is laid out at its real shape."""
@@ -1269,6 +1278,8 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
         if event.value != "PRESS" and not (event.type == "LEFTMOUSE" and event.value == "DOUBLE_CLICK"):
             return {"RUNNING_MODAL"}
+        if self._more.handle(event):      # Tab: only the HUD changes
+            return {"RUNNING_MODAL"}
         if event.type == "Q":
             self.mode = MODE_CYCLE[(MODE_CYCLE.index(self.mode) + 1) % len(MODE_CYCLE)]
         elif event.type == "W":
@@ -1303,10 +1314,6 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         elif event.type == "F":           # the preview is weld-aware: only the HUD and the confirm change
             self.merge_doubles = not self.merge_doubles
-            return {"RUNNING_MODAL"}
-        elif event.type == "TAB":         # only the HUD changes
-            self.show_options = not self.show_options
-            self._show_status(context)
             return {"RUNNING_MODAL"}
         elif event.type in {"RET", "NUMPAD_ENTER", "SPACE"}:
             result = self._result

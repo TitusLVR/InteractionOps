@@ -31,8 +31,7 @@ import gpu
 from ..ui.draw import primitives as draw_prim, Role, draw_scope
 from ..ui.draw import safe_handler_add, safe_handler_remove
 from ..ui.draw.theme import get_theme
-from ..ui.hud import (HUDOverlay, HelpOverlay, HUDSection, HUDItem,
-                      ItemState, capture_event)
+from ..ui.hud import HUDOverlay, HUDParam, build_help, capture_event
 from bpy_extras import view3d_utils
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
@@ -1475,6 +1474,8 @@ cancels. LMB clicks only pick widget handles."""
         if self._bbox_space not in BBOX_SPACES:
             self._bbox_space = "OBB"
         self._bbox_basis = bbox_basis(context, obj, self._bbox_space)
+        # Where the axis came from, for the HUD: the bounding box at first, a picked face (A) or the rails (R) later.
+        self._axis_source = "bbox"
 
         if selected_faces:
             self.mode = "face"
@@ -1536,28 +1537,7 @@ cancels. LMB clicks only pick widget handles."""
         # AFTER the shear changes, so they land in their own step.
         # (shader managed by draw_prim — no inline shader needed)
 
-        self._hud = HUDOverlay("mesh_shear")
-        self._hud.title = "Shear"
-        self._hud.bind_region(context.region)
-        self._help = HelpOverlay("mesh_shear")
-        items = [
-            HUDItem("Type angle",         "0-9 . -",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Angle ±5°",          "Alt+Wheel", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Delete digit",       "Backspace", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cycle bbox side",    "F",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Flip direction",     "D",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Perp to rails",      "R",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Extrude (drag arrow)", "E",       ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm + Hinge",    "Q",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Align axis to face", "A",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Axis to bbox",       "B",         ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Bbox space (OBB/Local/World/Cursor)", "S", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Confirm", "Enter",   ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Cancel",  "Esc / RMB", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-            HUDItem("Help / Toggle HUD", "H", ItemState.ON, default_state=ItemState.OFF, always_show=True),
-        ]
-        self._help.add_section(HUDSection("Shear", items))
-        self._help.bind_region(context.region)
+        self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
         self._add_handlers(context)
@@ -1568,6 +1548,44 @@ cancels. LMB clicks only pick widget handles."""
         if context.area:
             context.area.tag_redraw()
         return {"RUNNING_MODAL"}
+
+    def _build_overlays(self, region):
+        self._hud = HUDOverlay("mesh_shear")
+        self._hud.title = "Shear"
+        self._hud.bind_region(region)
+        # Always: Mode, Angle. The bounding box space while the axis comes from the bounding box, Perpendicular to
+        # Rails while the axis was reset to it.
+        self._hud.add_param(HUDParam("Mode", lambda: self.mode.capitalize(), "enum"))
+        self._hud.add_param(HUDParam("Angle (Type / Alt + Wheel)", self._effective_angle, "float", fmt="{:.2f}°"))
+        self._hud.add_param(HUDParam("Bounding Box Space (S)", lambda: BBOX_SPACE_LABELS[self._bbox_space], "enum",
+                                     visible_getter=lambda: self._axis_source == "bbox"))
+        self._hud.add_param(HUDParam("Perpendicular to Rails (R)", lambda: self._axis_source == "perpendicular",
+                                     "bool", visible_getter=lambda: self._axis_source == "perpendicular"))
+
+        # Every key, hidden until H
+        self._help = build_help("mesh_shear", [
+            ("Angle", [
+                ("Type the angle", "Digits / Period / Minus / Backspace"),
+                ("Angle by 5 degrees", "Alt + Wheel"),
+                ("Flip the direction", "D"),
+            ]),
+            ("Axis", [
+                ("Cycle the bounding box side", "F"),
+                ("Perpendicular to the rails", "R"),
+                ("Align the axis to a face", "A"),
+                ("Axis to the bounding box", "B"),
+                ("Bounding box space", "S"),
+            ]),
+            ("Tools", [
+                ("Extrude (drag the arrow)", "E"),
+                ("Confirm and hinge", "Q"),
+            ]),
+            ("General", [
+                ("Pick a hotspot; confirm the extrude (while extruding)", "LMB"),
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     # ----------------------------------------------------------------------
     # Math wrappers
@@ -1739,6 +1757,7 @@ cancels. LMB clicks only pick widget handles."""
             self._apply()
             self.report({"INFO"}, f"align failed: {err}")
             return
+        self._axis_source = "align"
         self.records = [new_rec]
         self.angle_deg = 0.0
         self.input_str = ""
@@ -1773,6 +1792,7 @@ cancels. LMB clicks only pick widget handles."""
             self._apply()
             self.report({"INFO"}, f"bbox rebuild failed: {err}")
             return
+        self._axis_source = "bbox"
         self.records = [new_rec]
         self.angle_deg = 0.0
         self.input_str = ""
@@ -1799,6 +1819,7 @@ cancels. LMB clicks only pick widget handles."""
             new_records.append(new_rec if new_rec is not None else r)
         self.records = new_records
         self._bbox_space = space
+        self._axis_source = "bbox"
         self._bbox_basis = basis
         self._hotspots = []
         self._hover_idx = None
@@ -1836,6 +1857,7 @@ cancels. LMB clicks only pick widget handles."""
         if rec_idx >= len(self.records):
             return
         if kind == "axis_pick":
+            self._axis_source = "bbox"
             restore_records(self.records)
             self.bm.normal_update()
             new_rec, _ = rebuild_record(self.records[rec_idx], h["axis"])
@@ -1847,6 +1869,7 @@ cancels. LMB clicks only pick widget handles."""
                 self.angle_deg = 45.0
             self._apply()
         elif kind == "reset":
+            self._axis_source = "perpendicular"
             self.input_str = ""
             r = self.records[rec_idx]
             restore_records([r])
@@ -1869,6 +1892,7 @@ cancels. LMB clicks only pick widget handles."""
         profile's OBB: axis +a, +b, -a, -b (the pivot is the side the
         axis points away from). Starts from whichever side the current
         axis is closest to."""
+        self._axis_source = "bbox"
         restore_records(self.records)
         self.bm.normal_update()
         new_records = []
@@ -2041,6 +2065,7 @@ cancels. LMB clicks only pick widget handles."""
                 return {"RUNNING_MODAL"}
 
             if event.type == "R":
+                self._axis_source = "perpendicular"
                 self.input_str = ""
                 if True:
                     # R may pick an axis different from the current one
@@ -2088,6 +2113,7 @@ cancels. LMB clicks only pick widget handles."""
                 else:
                     # Saw-off semantics: flipping axis_dir moves the
                     # pivot to the opposite bbox side.
+                    self._axis_source = "bbox"
                     restore_records(self.records)
                     self.bm.normal_update()
                     new_records = []
@@ -2456,10 +2482,5 @@ cancels. LMB clicks only pick widget handles."""
             helpo.draw(context, last_event)
         if hud is None:
             return
-        lines = [f"Mode: {self.mode}",
-                 f"Angle: {self._effective_angle():.2f}°",
-                 f"Bbox: {BBOX_SPACE_LABELS[self._bbox_space]}"]
-        if self.input_str:
-            lines.append(f"Typing: {self.input_str}")
-        hud.set_header(*lines)
+        hud.set_header(f"Typing: {self.input_str}" if self.input_str else None)
         hud.draw(context, last_event)

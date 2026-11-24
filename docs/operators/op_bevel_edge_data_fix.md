@@ -13,6 +13,10 @@ Restores seams, sharp edges, creases and bevel weights that a Bevel modifier des
 | <kbd>H</kbd> | Show / hide the help legend |
 | <kbd>Esc</kbd> | Revert everything |
 
+## HUD
+
+Rows: UV Projection (U) and Seams Out. The helper object name is no longer listed. Help (<kbd>H</kbd>) is collapsed at the start and lists every key of the tool; <kbd>/</kbd> hides the HUD rows.
+
 ## Options
 - **Collapse** — apply the stack through the fix and remove the helper.
 - **Unwrap (project UVs)** — rebuild the UV map pinned to the pre-bevel layout.

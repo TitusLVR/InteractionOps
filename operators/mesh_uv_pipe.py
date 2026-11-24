@@ -32,7 +32,8 @@ from mathutils import Vector
 
 from ..ui.draw import Role, safe_handler_add, safe_handler_remove
 from ..ui.draw import primitives as draw
-from ..ui.hud import HelpOverlay, HUDItem, HUDOverlay, HUDParam, HUDSection, ItemState, capture_event
+from ..ui.hud import HUDOverlay, HUDParam, MoreOptions, build_help, capture_event, more_options_property
+from ..ui.hud.more import MORE_OPTIONS_HELP
 from ..utils import picking, uv_pipe_core, uv_stripe_select_core
 from . import uv_pipe_bridge, uv_stripe_bridge
 from .mesh_uv_stripe import _world_context
@@ -297,6 +298,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         description="Merge the doubled vertices found in the faces before laying them out",
         default=True,
     )
+    # Whether the interactive mode's HUD lists every option or only the main ones; remembered as last used.
+    show_options: more_options_property()
     # The loops committed in the interactive mode, as JSON {object name: {"added": [[edge index, ...], ...],
     # "removed": [...], "picked": [...]}}: kept for redo, never saved as a last-used value.
     picks: StringProperty(
@@ -891,75 +894,89 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         return f"{kinds.get('WALL', 0)} wall(s), {kinds.get('RING', 0)} ring(s), {kinds.get('DISK', 0)} disk(s)"
 
     def _build_overlays(self, region):
+        more = self._more = MoreOptions(self)
         self._hud = HUDOverlay("uv_pipe")
         self._hud.title = "UV Pipe"
         self._hud.bind_region(region)
         degrees = "{:.0f}°"
 
+        def offset_applies():
+            return not (self.mode == "FIT" and self.pack)
+
         def offset_matters():
-            return self.offset_axis != "NONE" and not (self.mode == "FIT" and self.pack)
+            return self.offset_axis != "NONE" and offset_applies()
 
-        # compact: the wheel combinations are in the help overlay, rows that do not apply are hidden
-        rows = [
-            HUDParam("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum"),
-            HUDParam("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum",
-                     visible_getter=lambda: self.mode == "ACTIVE"),
-            HUDParam("Orientation (W)", lambda: ORIENTATION_NAMES[self.orientation], "enum"),
-            HUDParam("Layout (E)", lambda: LAYOUT_NAMES[self.layout], "enum"),
-            HUDParam("Loop (LMB)", lambda: self._loop_text(getattr(self, "_hover", None)), "str"),
-            HUDParam("Edge (C)", self._edge_text, "str"),
-            HUDParam("Seam Side (T)", lambda: SEAM_SIDE_NAMES[self.seam_side], "enum"),
-            HUDParam("Loop Source (G)", lambda: SOURCE_NAMES[self.loop_source], "enum",
-                     visible_getter=self._has_uv_source),
-            HUDParam("Loop Angle", lambda: math.degrees(self.loop_angle), "float", fmt=degrees),
-            HUDParam("Sharp Angle", lambda: math.degrees(self.sharp_angle), "float", fmt=degrees),
-            HUDParam("Hard Edge Angle", lambda: math.degrees(self.hard_angle), "float", fmt=degrees),
-            HUDParam("Split at Bends (A)", lambda: self.split_at_bends, "bool"),
-            HUDParam("Bend Angle", lambda: math.degrees(self.bend_angle), "float", fmt=degrees,
-                     visible_getter=lambda: self.split_at_bends),
-            HUDParam("Split at Seams (S)", lambda: self.split_at_seams, "bool"),
-            HUDParam("Mark Seams (X)", lambda: self.mark_seams, "bool"),
-            HUDParam("Pack (P)", lambda: self.pack, "bool", visible_getter=lambda: self.mode == "FIT"),
-            HUDParam("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum",
-                     visible_getter=lambda: not (self.mode == "FIT" and self.pack)),
-            HUDParam("Offset Limit", lambda: self.offset_limit, "float", fmt="{:.2f}", visible_getter=offset_matters),
-            HUDParam("Offset Seed (R)", lambda: self.offset_seed, "int", visible_getter=offset_matters),
-            HUDParam("Merge Doubles (F)", lambda: self.merge_doubles, "bool"),
-        ]
-        for row in rows:
-            self._hud.add_param(row)
+        def add(name, getter, kind, visible_getter=None, fmt=None):
+            self._hud.add_param(HUDParam(name, getter, kind, fmt=fmt, visible_getter=visible_getter))
 
-        def item(label, key):
-            return HUDItem(label, key, ItemState.ON, default_state=ItemState.OFF, always_show=True)
+        def tab(name, getter, kind, *props, own=None, fmt=None, used=None):
+            # a More Options row: shown under Tab, and with Tab off while its option is away from the default
+            # (or, with ``used``, while it applies: the Bend Angle and the Offset Limit and Seed)
+            add(name, getter, kind, more.when(own=own, also=used or more.changed(*props)), fmt)
 
-        self._help = HelpOverlay("uv_pipe")
-        self._help.add_section(HUDSection("UV Pipe", [
-            item("Mark / unmark the loop under the cursor", "LMB"),
-            item("Mark / unmark the edge under the cursor", "C"),
-            item("Unmark the whole loop under the cursor", "Alt + C"),
-            item("Step the wall seam under the cursor", "Alt + Wheel"),
-            item("Loop angle", "Ctrl + Wheel"),
-            item("Sharp angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
-            item("Bend angle", "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel"),
-            item("Hard edge angle", "Ctrl + Alt + Wheel"),
-            item("Seam side", "T / Shift + T"),
-            item("Loop source", "G"),
-            item("Split at bends", "A"),
-            item("Split at seams", "S"),
-            item("Random offset", "Z"),
-            item("New offset seed", "R"),
-            item("Merge doubles", "F"),
-            item("Pack", "P"),
-            item("Mode", "Q"),
-            item("Fit to active", "D"),
-            item("Orientation", "W"),
-            item("Layout", "E"),
-            item("Mark seams", "X"),
-            item("Finish", "Enter / Space"),
-            item("Cancel", "Esc / RMB"),
-            item("Help / Toggle HUD", "H"),
-        ]))
-        self._help.bind_region(region)
+        # Always: Mode, Layout, Loop, Edge and More Options. Only when they apply: Fit to Active, Loop Source, Pack.
+        # The rest only while More Options is on (Tab). The wheel combinations and every key are in the help.
+        add("Mode (Q)", lambda: MODE_NAMES[self.mode], "enum")
+        add("Fit to Active (D)", lambda: FIT_NAMES[self.active_fit], "enum", lambda: self.mode == "ACTIVE")
+        add("Layout (E)", lambda: LAYOUT_NAMES[self.layout], "enum")
+        add("Loop (LMB)", lambda: self._loop_text(getattr(self, "_hover", None)), "str")
+        add("Edge (C)", self._edge_text, "str")
+        add("Loop Source (G)", lambda: SOURCE_NAMES[self.loop_source], "enum", self._has_uv_source)
+        add("Pack (P)", lambda: self.pack, "bool", lambda: self.mode == "FIT")
+        self._hud.add_param(more.row())
+        tab("Orientation (W)", lambda: ORIENTATION_NAMES[self.orientation], "enum", "orientation")
+        tab("Seam Side (T)", lambda: SEAM_SIDE_NAMES[self.seam_side], "enum", "seam_side")
+        tab("Loop Angle (Ctrl + Wheel)", lambda: math.degrees(self.loop_angle), "float", "loop_angle", fmt=degrees)
+        tab("Sharp Angle (Shift + Wheel)", lambda: math.degrees(self.sharp_angle), "float", "sharp_angle",
+            fmt=degrees)
+        tab("Hard Edge Angle (Ctrl + Alt + Wheel)", lambda: math.degrees(self.hard_angle), "float", "hard_angle",
+            fmt=degrees)
+        tab("Split at Bends (A)", lambda: self.split_at_bends, "bool", "split_at_bends")
+        tab("Bend Angle (Shift + Alt + Wheel)", lambda: math.degrees(self.bend_angle), "float", "bend_angle",
+            own=lambda: self.split_at_bends, fmt=degrees, used=lambda: True)
+        tab("Split at Seams (S)", lambda: self.split_at_seams, "bool", "split_at_seams")
+        tab("Mark Seams (X)", lambda: self.mark_seams, "bool", "mark_seams")
+        tab("Random Offset (Z)", lambda: OFFSET_NAMES[self.offset_axis], "enum", "offset_axis", own=offset_applies)
+        tab("Offset Limit", lambda: self.offset_limit, "float", "offset_limit", own=offset_matters, fmt="{:.2f}",
+            used=lambda: True)
+        tab("Offset Seed (R)", lambda: self.offset_seed, "int", "offset_seed", own=offset_matters, used=lambda: True)
+        tab("Merge Doubles (F)", lambda: self.merge_doubles, "bool", "merge_doubles")
+
+        # Every key, hidden until H
+        self._help = build_help("uv_pipe", [
+            ("Seams", [
+                ("Mark / unmark the loop under the cursor", "LMB"),
+                ("Mark / unmark the edge under the cursor", "C"),
+                ("Unmark the whole loop under the cursor", "Alt + C"),
+                ("Step the wall seam under the cursor", "Alt + Wheel"),
+                ("Seam Side", "T / Shift + T"),
+                ("Loop Source", "G"),
+            ]),
+            ("Angles", [
+                ("Loop Angle", "Ctrl + Wheel"),
+                ("Sharp Angle", "Shift + Wheel / Ctrl + Shift + Wheel"),
+                ("Bend Angle", "Shift + Alt + Wheel / Ctrl + Shift + Alt + Wheel"),
+                ("Hard Edge Angle", "Ctrl + Alt + Wheel"),
+                ("Split at Bends", "A"),
+            ]),
+            ("Layout", [
+                ("Mode", "Q"),
+                ("Fit to Active", "D"),
+                ("Orientation", "W"),
+                ("Layout", "E"),
+                ("Pack", "P"),
+                ("Split at Seams", "S"),
+                ("Mark Seams", "X"),
+                ("Random Offset", "Z"),
+                ("Offset Seed", "R"),
+                ("Merge Doubles", "F"),
+            ]),
+            ("General", [
+                MORE_OPTIONS_HELP,
+                ("Confirm", "Enter / Space"),
+                ("Cancel", "Esc / RMB"),
+            ]),
+        ], region)
 
     def modal(self, context, event):
         try:
@@ -1030,6 +1047,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             return self._wheel(context, event)
         if event.type == "MOUSEMOVE":
             self._update_hover(context, event)
+            return {"RUNNING_MODAL"}
+        if self._more.handle(event):      # Tab: only the HUD changes
             return {"RUNNING_MODAL"}
         if event.type in NAVIGATION or event.type in MODIFIER_KEYS or event.type.startswith("NDOF"):
             return {"PASS_THROUGH"}     # the viewport keeps its navigation, modifier combinations included
@@ -1154,7 +1173,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
             f"layout = {LAYOUT_NAMES[self.layout].lower()} (E) | "
             f"mode = {MODE_NAMES[self.mode].lower()} (Q) | "
             f"pack = {'on' if self.pack else 'off'} (P) | "
-            "[Enter/Space] finish | [Esc/RMB] cancel"
+            "[Tab] more | [Enter/Space] finish | [Esc/RMB] cancel"
         )
 
     def _draw_view_callback(self, context):

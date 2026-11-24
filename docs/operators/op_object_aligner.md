@@ -29,3 +29,6 @@ Takes an assembly you have placed correctly on one object and stamps copies onto
 - Select the objects to stamp first; they are ignored by picking so you can click through them.
 - Whole-object flow: <kbd>Q</kbd> click reference, click targets, <kbd>Enter</kbd>. Pattern flow: pick reference and targets, <kbd>E</kbd>, click faces, <kbd>E</kbd> again, then click matches to keep or skip.
 - Picking uses the evaluated mesh, so Mirror, Array and Subdivision results count as surfaces.
+
+## HUD
+Always shown: **Mode** (<kbd>Q</kbd> / <kbd>W</kbd> / <kbd>E</kbd>), **Clone** (<kbd>D</kbd>) and **Scale** (<kbd>S</kbd>). Shown only while they apply: **Reference**, **Reference Polygons**, **Target Polygons**, **Targets**, **Tolerance** (<kbd>Alt</kbd> + Wheel, in the polygon modes), **Matches**, **Fit**, **Stamped** (once something was stamped) and **Rig Hidden** (<kbd>X</kbd>). The help legend (<kbd>H</kbd>) lists every key, hidden until you press it, including <kbd>Shift</kbd>+<kbd>LMB</kbd>, <kbd>Ctrl</kbd>+<kbd>LMB</kbd>, <kbd>A</kbd> / <kbd>Alt</kbd>+<kbd>A</kbd> and <kbd>Shift</kbd>+<kbd>R</kbd>.
