@@ -274,6 +274,7 @@ def test_operator_is_registered():
     assert abs(props["offset_limit"].default - 0.25) < 1e-6
     assert props["picks"].is_hidden and props["picks"].is_skip_save
     assert {"REGISTER", "UNDO"} <= set(operator.bl_options)
+    assert [item.identifier for item in props["mode"].enum_items] == ["FIT", "IN_PLACE", "ACTIVE", "STACK"]
 
 
 def test_reference_a_gives_six_islands():
@@ -319,6 +320,46 @@ def test_pack_off_stacks_like_uv_stripe():
         assert abs(hi[1] - lo[3] - 0.01) < 1e-6, (lo, hi)
     densities = [_density(obj, g) for g in A_GROUPS]
     assert max(densities) / min(densities) - 1.0 < 1e-3, densities
+
+
+def _centre(box):
+    return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+
+
+def _size(box):
+    return (box[2] - box[0], box[3] - box[1])
+
+
+def _close(a, b, tol=1e-5):
+    return all(abs(x - y) < tol for x, y in zip(a, b))
+
+
+def _boxes_after(**props):
+    """The A part boxes after a run with ``props`` on a fresh capped cylinder (UVs at uv_size 10)."""
+    obj = _object(capped_cylinder(), uv_size=10.0)
+    _edit(obj)
+    assert _run(**props) == {"FINISHED"}
+    assert _islands(obj) == sorted(sorted(g) for g in A_GROUPS)
+    boxes = [_bbox(obj, g) for g in A_GROUPS]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return boxes
+
+
+def test_stack_mode_centres_every_part_on_the_middle():
+    # Fit 0-1's scale (as with Pack off: one texel density, the longest part spanning U 0-1), never packed
+    unpacked = _boxes_after(mode="FIT", pack=False)
+    for pack in (True, False):                          # Pack does nothing in Stack
+        stacked = _boxes_after(mode="STACK", pack=pack)
+        for off, on in zip(unpacked, stacked):
+            assert _close(_size(off), _size(on)), (off, on)
+            assert _close(_centre(on), (0.5, 0.5)), on
+
+
+def test_stack_mode_then_random_offset_along_the_strip():
+    stacked = _boxes_after(mode="STACK", offset_axis="ALONG", offset_limit=0.25, offset_seed=3)
+    us = [_centre(b)[0] for b in stacked]
+    assert all(abs(_centre(b)[1] - 0.5) < 1e-5 for b in stacked)          # horizontal strips: shifted in U only
+    assert max(us) - min(us) > 1e-3 and all(abs(u - 0.5) <= 0.25 + 1e-5 for u in us), us
 
 
 def _wall_seam_corner_us(obj, wall):
@@ -1542,7 +1583,8 @@ def test_modal_keys_toggle_their_options():
     obj = _object(open_tube(12, 4))
     _edit(obj)
     op = _modal_on()
-    steps = [("Q", "mode", "IN_PLACE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "FIT"), ("W", "orientation", "VERTICAL"),
+    steps = [("Q", "mode", "IN_PLACE"), ("Q", "mode", "ACTIVE"), ("Q", "mode", "STACK"),
+             ("Q", "mode", "FIT"), ("W", "orientation", "VERTICAL"),
              ("D", "active_fit", "BOTH"), ("E", "layout", "QUADS"), ("E", "layout", "TRUE"),
              ("E", "layout", "RECTANGLE"), ("A", "split_at_bends", True), ("S", "split_at_seams", True),
              ("X", "mark_seams", False), ("P", "pack", False), ("Z", "offset_axis", "ALONG"), ("R", "offset_seed", 1),
@@ -1640,6 +1682,8 @@ TESTS = [
     test_reference_a_gives_six_islands,
     test_reference_a_packs_inside_zero_one,
     test_pack_off_stacks_like_uv_stripe,
+    test_stack_mode_centres_every_part_on_the_middle,
+    test_stack_mode_then_random_offset_along_the_strip,
     test_reference_b_wall_is_one_island,
     test_quads_layout_on_a_clean_tube,
     test_no_stretch_layout_keeps_the_seam_sides_straight,

@@ -67,6 +67,11 @@ ACTIVE_MODE_ITEM = (
     "Lay the strip holding the active face out In Place, and fit every other piece to its UV bounding box without "
     "stretching it",
 )
+# Appended after Active, so the stored values of the other items keep their numbers.
+STACK_MODE_ITEM = (
+    "STACK", "Stack",
+    "Lay every piece out as Fit 0–1 does, then center them all on the middle of 0–1, one on top of the other",
+)
 ACTIVE_FIT_ITEMS = [
     ("BOTH", "Width and Height", "Fit the piece inside the reference strip's bounding box, keeping its proportions"),
     ("WIDTH", "Width", "Match the reference's width; the height is scaled by the same factor"),
@@ -152,6 +157,10 @@ def apply_stripes(
     ``active``, or without a UV layer to place the active strip by, it lays out
     "IN_PLACE". Returns whether the strips were fitted to an active strip.
 
+    ``mode`` "STACK" places every strip as "FIT" does (the same scale per group), then
+    moves each one, at that size, so its UV bounding box is centred on (0.5, 0.5)
+    (``uv_stripe_core.stack_shifts``): the strips lie one on top of the other.
+
     ``offset`` (axis, limit, seed) then shifts every strip but the active one by a
     random amount (``uv_stripe_core.random_offsets``), the same for the same seed.
 
@@ -206,6 +215,9 @@ def apply_maps(
         raise ValueError(f"{len(fit_groups)} fit groups for {len(maps)} pieces")
     placed: list[dict | None] = [None] * len(maps)
     fitted = mode == "ACTIVE" and active is not None and bm.loops.layers.uv.active is not None
+    stack = mode == "STACK"
+    if stack:
+        mode = "FIT"
     if mode == "ACTIVE":
         mode = "IN_PLACE"
     fit = []
@@ -222,6 +234,9 @@ def apply_maps(
         reference = core.bbox(placed[active])
         placed = [uv if i == active else core.fit_to_reference(uv, reference, active_fit)
                   for i, uv in enumerate(placed)]
+    if stack:
+        shifts = core.stack_shifts([core.bbox(uv) for uv in placed])
+        placed = [core.shifted(uv, d) for uv, d in zip(placed, shifts)]
     axis, limit, seed = offset
     if axis != "NONE":
         shifts = core.random_offsets(len(placed), axis, limit, seed, active if fitted else None)

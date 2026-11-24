@@ -26,7 +26,7 @@ Unwraps tubes and their caps in one go: the tube's wall becomes one island with 
 | <kbd>R</kbd> | New offset seed |
 | <kbd>F</kbd> | Merge Doubles on / off (applied on finish) |
 | <kbd>P</kbd> | Pack on / off |
-| <kbd>Q</kbd> | Mode: Fit 0–1 → In Place → Active |
+| <kbd>Q</kbd> | Mode: Fit 0–1 → In Place → Active → Stack |
 | <kbd>D</kbd> | Fit to Active: Height → Width and Height → Width |
 | <kbd>W</kbd> | Orientation: Horizontal / Vertical |
 | <kbd>E</kbd> | Layout: Rectangle → Quads → No Stretch |
@@ -75,7 +75,7 @@ Every loop below is marked with <kbd>LMB</kbd> on it, and a second <kbd>LMB</kbd
 
 ## Options
 All options are also in the redo panel.
-- **Mode** — *Fit 0–1* (default): all parts of an object share one texel density; with **Pack** (on by default) Blender's island packer fits them into 0–1 without rotating them and without changing their relative size. With Pack off they are stacked upward with a small gap, the longest spanning U 0–1, as UV Stripe does. *In Place* keeps each part where its old UVs were, at the neighbouring faces' texel density. *Active* fits the other parts to the part holding the active face without stretching them, as UV Stripe does.
+- **Mode** — *Fit 0–1* (default): all parts of an object share one texel density; with **Pack** (on by default) Blender's island packer fits them into 0–1 without rotating them and without changing their relative size. With Pack off they are stacked upward with a small gap, the longest spanning U 0–1, as UV Stripe does. *In Place* keeps each part where its old UVs were, at the neighbouring faces' texel density. *Active* fits the other parts to the part holding the active face without stretching them, as UV Stripe does. *Stack* lays the parts out at Fit 0–1's size (one texel density, the longest spanning U 0–1, as with Pack off), then centres every part on the middle of 0–1, so the islands lie on top of each other instead of side by side; nothing is packed (Pack is hidden), and Random Offset, when set, shifts the parts after they are stacked.
 - **Fit to Active** — used by Active, as in UV Stripe: every choice scales a part by one factor, so it keeps its proportions. *Height* (default) matches the reference part's height, *Width* its width, *Width and Height* fits the part inside the reference's bounding box. With Orientation = Vertical use Width to match a trim band.
 - **Orientation** — *Horizontal* (default) runs a wall's circumference and a ring's or strip's length along U; *Vertical* turns them 90°.
 - **Layout** (walls) — *Rectangle* (default): the two seam sides are straight and parallel, each end is a straight line; width = the mean length of the two ends, height = the seam's length; the inside is relaxed. *Quads*: on a regular quad grid every quad becomes a rectangle; any other wall falls back to Rectangle with a notice. *No Stretch*: Blender's unwrap of the wall, then only the seam sides are made straight; the ends keep their natural shape.

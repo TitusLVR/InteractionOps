@@ -483,8 +483,10 @@ def finish_pipe(bm, layouts, settings: PipeSettings, contexts, *, mesh=None, mes
     Placement is ``uv_stripe_bridge.apply_maps`` with every part in one Fit group (one texel density per object).
     In Fit 0-1 with ``pack`` the parts are then packed into 0-1 by Blender's packer (``PACK_ARGS``: no rotation,
     one shared scale, margin 0.005), and Random Offset is not applied; otherwise Random Offset is applied as in UV
-    Stripe. With ``mark_seams`` the seams follow the part outlines, each wall's seam and each ring's cut. Returns
-    whether the parts were fitted to an active one. Packing needs ``mesh`` and ``meshes`` (see ``lay_out_parts``).
+    Stripe. Stack places the parts as Fit 0-1 with Pack off and centres each one on (0.5, 0.5) (``apply_maps``),
+    never packed; Random Offset is applied after that. With ``mark_seams`` the seams follow the part outlines, each
+    wall's seam and each ring's cut. Returns whether the parts were fitted to an active one. Packing needs ``mesh``
+    and ``meshes`` (see ``lay_out_parts``).
     """
     if not layouts:
         return False

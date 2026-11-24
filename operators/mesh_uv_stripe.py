@@ -81,8 +81,8 @@ REFINE_IDLE = 0.15           # s the wheel must be still before the cold solve r
 REFINE_SLICE = 0.03          # s of cold solve per timer event
 CORNER_PICK_RADIUS = 30.0    # px (times the interface scale): how near a boundary vertex the cursor must be
 SIDE_PICK_RADIUS = 30.0     # px (times the interface scale): how near a side the cursor must be to pick it
-MODE_CYCLE = ["FIT", "IN_PLACE", "ACTIVE"]
-MODE_NAMES = {"FIT": "Fit 0–1", "IN_PLACE": "In Place", "ACTIVE": "Active"}
+MODE_CYCLE = ["FIT", "IN_PLACE", "ACTIVE", "STACK"]
+MODE_NAMES = {"FIT": "Fit 0–1", "IN_PLACE": "In Place", "ACTIVE": "Active", "STACK": "Stack"}
 FIT_CYCLE = [item[0] for item in uv_stripe_bridge.ACTIVE_FIT_ITEMS]
 FIT_NAMES = {item[0]: item[1] for item in uv_stripe_bridge.ACTIVE_FIT_ITEMS}
 OFFSET_CYCLE = [item[0] for item in uv_stripe_bridge.OFFSET_ITEMS]
@@ -610,7 +610,7 @@ class IOPS_OT_Mesh_UV_Stripe(bpy.types.Operator):
 
     mode: EnumProperty(
         name="Mode",
-        items=[*uv_stripe_bridge.MODE_ITEMS, uv_stripe_bridge.ACTIVE_MODE_ITEM],
+        items=[*uv_stripe_bridge.MODE_ITEMS, uv_stripe_bridge.ACTIVE_MODE_ITEM, uv_stripe_bridge.STACK_MODE_ITEM],
         default="ACTIVE",
     )
     active_fit: EnumProperty(

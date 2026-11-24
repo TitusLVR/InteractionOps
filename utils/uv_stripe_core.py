@@ -1107,3 +1107,9 @@ def shifted(uv: dict, offset: Vec2) -> dict:
     """A placed strip moved by ``offset``."""
     du, dv = offset
     return {k: (u + du, v + dv) for k, (u, v) in uv.items()}
+
+
+def stack_shifts(boxes: list[tuple[Vec2, Vec2]], point: Vec2 = (0.5, 0.5)) -> list[Vec2]:
+    """One (du, dv) per piece that moves its UV bounding box ``((u0, v0), (u1, v1))`` so its centre lands on
+    ``point``: the Stack mode puts every piece's centre on the middle of 0-1, the pieces one on top of the other."""
+    return [(point[0] - (lo[0] + hi[0]) / 2, point[1] - (lo[1] + hi[1]) / 2) for lo, hi in boxes]

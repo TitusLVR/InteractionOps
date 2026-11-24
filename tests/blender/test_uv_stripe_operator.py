@@ -192,6 +192,37 @@ def test_two_strips_stack_in_fit_with_one_density():
     assert _close(max(uv.y for _c, uv in high) - min(uv.y for _c, uv in high), 0.25)
 
 
+def _strip_boxes(obj):
+    """(u0, v0, u1, v1) of the low and the high strip of the two-strip grid."""
+    out = []
+    for only in (lambda c: c.y < 1.0, lambda c: c.y > 3.0):
+        uvs = [uv for _c, uv in _corners(obj, only)]
+        out.append((min(uv.x for uv in uvs), min(uv.y for uv in uvs), max(uv.x for uv in uvs),
+                    max(uv.y for uv in uvs)))
+    return out
+
+
+def test_stack_centres_every_strip_on_the_middle_at_the_fit_size():
+    keep = {(x, 0) for x in range(4)} | {(x, 3) for x in range(2)}
+    boxes = {}
+    for mode in ("FIT", "STACK"):
+        obj = _grid(4, 4, keep=keep)
+        _edit(obj)
+        assert _run(mode=mode) == {"FINISHED"}
+        boxes[mode] = _strip_boxes(obj)
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for fit, stack in zip(boxes["FIT"], boxes["STACK"]):
+        assert _close(fit[2] - fit[0], stack[2] - stack[0]) and _close(fit[3] - fit[1], stack[3] - stack[1])
+        assert _close((stack[0] + stack[2]) / 2, 0.5) and _close((stack[1] + stack[3]) / 2, 0.5), stack
+    obj = _grid(4, 4, keep=keep)                       # Random Offset after stacking: along the strip, U only
+    _edit(obj)
+    assert _run(mode="STACK", offset_axis="ALONG", offset_limit=0.25, offset_seed=3) == {"FINISHED"}
+    shifted = _strip_boxes(obj)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert all(_close((b[1] + b[3]) / 2, 0.5) for b in shifted)
+    assert any(not _close((b[0] + b[2]) / 2, 0.5) for b in shifted), shifted
+
+
 def _polyline(turns_deg, width=0.4):
     """A flat quad strip along unit segments turning by ``turns_deg``; vertex 2i left, 2i + 1 right of joint i."""
     heading, pts, dirs = 0.0, [(0.0, 0.0)], []
@@ -466,7 +497,7 @@ def test_modal_keys_toggle_their_options_and_the_uvs_follow():
              ("Q", "straight_sides", "SHORTER"), ("Q", "straight_sides", "NONE"), ("Q", "straight_sides", "BOTH"),
              ("W", "ends", "BOTH"), ("W", "ends", "LONGER"), ("W", "ends", "SHORTER"), ("W", "ends", "AUTO"),
              ("B", "balance", 1.0), ("B", "balance", 0.0), ("B", "balance", 0.5),
-             ("E", "mode", "ACTIVE"), ("E", "mode", "FIT"),
+             ("E", "mode", "ACTIVE"), ("E", "mode", "STACK"), ("E", "mode", "FIT"),
              ("S", "split_at_seams", True), ("X", "mark_seams", False), ("A", "orientation", "HORIZONTAL")]
     for key, name, value in steps:
         before = _uv_state(obj)
@@ -892,6 +923,7 @@ def test_operator_defaults():
     assert [item.identifier for item in rna["straight_sides"].enum_items] == ["BOTH", "LONGER", "SHORTER", "NONE"]
     assert [item.identifier for item in rna["ends"].enum_items] == ["AUTO", "SLANTED", "BOTH", "LONGER", "SHORTER"]
     assert [item.identifier for item in rna["offset_axis"].enum_items] == ["NONE", "ALONG", "ACROSS", "BOTH"]
+    assert [item.identifier for item in rna["mode"].enum_items] == ["FIT", "IN_PLACE", "ACTIVE", "STACK"]
 
 
 def _wedge():
@@ -3754,6 +3786,7 @@ TESTS = [
     test_in_place_keeps_centre_and_density,
     test_in_place_on_a_scaled_object_keeps_density,
     test_two_strips_stack_in_fit_with_one_density,
+    test_stack_centres_every_strip_on_the_middle_at_the_fit_size,
     test_mark_seams_match_the_pieces,
     test_split_at_seams_tears_the_strip_and_keeps_its_seam,
     test_ring_with_one_seam_is_cut_there,

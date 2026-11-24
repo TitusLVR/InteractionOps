@@ -6,6 +6,7 @@ from utils.uv_stripe_core import (
     place_fit,
     place_in_place,
     sharpest_rung,
+    stack_shifts,
     strip_length,
     stripe_uvs,
 )
@@ -291,3 +292,20 @@ def test_flat_interior_keeps_its_place():
     uv = stripe_uvs(s)
     assert all(uv[(fid, 4)] == pytest.approx((0.5, 0.3)) for fid in (0, 2, 3))
     assert all(uv[(fid, 5)] == pytest.approx((1.5, 0.3)) for fid in (0, 1, 2))
+
+
+
+# --- Stack mode ------------------------------------------------------------------------------------------------------
+
+
+def test_stack_shifts_centre_every_box_on_one_point():
+    boxes = [((0.0, 0.0), (1.0, 0.2)), ((0.0, 0.25), (0.4, 0.6)), ((2.0, -1.0), (3.0, 0.0))]
+    for point in ((0.5, 0.5), (1.5, -0.2)):
+        shifts = stack_shifts(boxes) if point == (0.5, 0.5) else stack_shifts(boxes, point)
+        for ((u0, v0), (u1, v1)), (du, dv) in zip(boxes, shifts):
+            assert (u0 + u1) / 2 + du == pytest.approx(point[0])
+            assert (v0 + v1) / 2 + dv == pytest.approx(point[1])
+
+
+def test_stack_shifts_empty():
+    assert stack_shifts([]) == []
