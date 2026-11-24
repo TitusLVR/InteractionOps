@@ -116,6 +116,14 @@ def draw_nodes_params(col, md, popover=False):
     group = md.node_group
     if group is None:
         return
+    if group.is_missing:
+        # placeholder for a linked group whose library file is gone: no
+        # nodes, empty interface — say so instead of drawing nothing
+        col.label(text="Linked node group is missing", icon="ERROR")
+        if group.library is not None:
+            col.label(text=group.library.filepath,
+                      icon="LIBRARY_DATA_BROKEN")
+        return
     inputs = getattr(getattr(md, "properties", None), "inputs", None)
     root = [i for i in group.interface.items_tree
             if i.parent is not None and i.parent.parent is None]
