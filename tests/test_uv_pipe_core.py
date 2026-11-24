@@ -3,10 +3,10 @@ import math
 from collections import Counter
 from math import radians
 
-from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, framed_box, open_tube, torus
+from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, dome, framed_box, open_tube, torus
 from utils.uv_pipe_core import (
     Loop, Part, analyse, bend_seams, dihedrals, existing_wall_seam, loop_kind, neighbours, ring_seams, split_parts, trace_loop,
-    disk_uvs, wall_candidates, wall_seam, wall_uvs,
+    disk_uvs, limit_loop, wall_candidates, wall_seam, wall_uvs,
 )
 from utils.uv_stripe_select_core import _edge
 
@@ -944,13 +944,29 @@ def test_a_slit_in_a_wall_makes_it_a_free_part():
         assert _summary(again) == _summary(result) and again.slits == result.slits
 
 
-def test_an_added_full_column_is_a_slit_not_the_wall_seam():
+def test_an_added_full_column_tears_the_wall_open_and_is_its_seam():
     verts, faces = open_tube(12, 4)
     result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(_column(3)))
-    assert _kinds(result) == ["FREE"] and result.slits == {0: _column(3)}
-    assert result.seams == {} and result.warnings == []
+    assert _kinds(result) == ["WALL"] and result.slits == {} and _column(3) <= result.cuts
+    assert set(result.seams[0].edges()) == _column(3) and result.warnings == []
     picked = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, picked=(tuple(sorted(_column(3))),))
     assert _kinds(picked) == ["WALL"] and set(picked.seams[0].edges()) == _column(3) and picked.slits == {}
+    # the cut wins over a picked seam: the band is torn open there
+    both = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(_column(3)),
+                   picked=(tuple(sorted(_column(6))),))
+    assert _kinds(both) == ["WALL"] and set(both.seams[0].edges()) == _column(3)
+
+
+def test_a_cut_across_a_curved_hard_surface_band_makes_it_a_wall():
+    # the 2-row band of a ball next to its tube: split off as a hard-surface piece (free, two boundary loops); a cut
+    # across it from loop to loop tears the ring open, and it is laid out as a wall with the cut as its seam
+    verts, faces = open_tube(12, 4, twist=math.radians(5.0))
+    # no lengthwise loop at 179 degrees on the twisted tube: a free part
+    options = {"loop_angle": math.radians(179.0), "sharp_angle": S60, "hard_angle": math.pi}
+    assert _kinds(analyse(verts, faces, **options)) == ["FREE"]
+    result = analyse(verts, faces, added=frozenset(_column(3)), **options)
+    assert _kinds(result) == ["WALL"] and set(result.seams[0].edges()) == _column(3)
+    assert result.slits == {} and result.warnings == [] and result.fallback == set()
 
 
 def test_an_added_ring_still_cuts_a_wall_in_two():
@@ -980,3 +996,97 @@ def test_a_slit_in_a_hard_surface_piece_keeps_the_rest_flat():
     assert result.parts[piece].kind == "FREE" and result.slits == {piece: slit}
     assert sorted(p.kind for i, p in enumerate(result.parts) if i != piece) == ["DISK"] * 5
     assert result.warnings == [] and slit <= result.cuts
+
+
+# --- The loop under the cursor, limited by the seams it meets ------------------------------------------------------
+
+
+def test_limit_loop_trims_an_open_loop_at_the_nearest_stops():
+    loop = Loop([1, 2, 3, 4, 5, 6, 7], False)
+    assert limit_loop(loop, (3, 4), set()).verts == [1, 2, 3, 4, 5, 6, 7]
+    assert limit_loop(loop, (3, 4), {2, 6, 1, 7}).verts == [2, 3, 4, 5, 6]
+    assert limit_loop(loop, (4, 3), {6}).verts == [1, 2, 3, 4, 5, 6]          # the edge either way round
+    assert limit_loop(loop, (3, 4), {3}).verts == [3, 4, 5, 6, 7]             # an end of the edge: that side ends
+    assert limit_loop(loop, (3, 4), {3, 4}).verts == [3, 4]
+    assert not limit_loop(loop, (3, 4), {2, 6}).closed
+
+
+def test_limit_loop_keeps_a_closed_loop_with_fewer_than_two_stops():
+    loop = Loop([0, 1, 2, 3, 4, 5], True)
+    for stops in (set(), {3}, {9, 3}):
+        out = limit_loop(loop, (1, 2), stops)
+        assert out.closed and out.verts == [0, 1, 2, 3, 4, 5]
+
+
+def test_limit_loop_opens_a_closed_loop_between_the_nearest_stops():
+    loop = Loop([0, 1, 2, 3, 4, 5], True)
+    assert limit_loop(loop, (1, 2), {0, 4}) == Loop([0, 1, 2, 3, 4], False)
+    assert limit_loop(loop, (1, 2), {4, 5}) == Loop([5, 0, 1, 2, 3, 4], False)   # the arc round the closing edge
+    assert limit_loop(loop, (0, 5), {1, 3}) == Loop([3, 4, 5, 0, 1], False)      # the closing edge itself
+    assert limit_loop(loop, (1, 2), {2, 4}) == Loop([4, 5, 0, 1, 2], False)      # an end of the edge is a stop
+    assert limit_loop(loop, (1, 2), {1, 2}) == Loop([1, 2], False)
+
+
+# --- Strips: open strips cut out by the user's cuts ------------------------------------------------------------------
+
+DOME_SIDES, DOME_ROWS = 32, 10
+
+
+def _meridian(i, sides=DOME_SIDES, rows=DOME_ROWS):
+    """The dome's meridian at column ``i``, from the equator up to the pole."""
+    ids = [k * sides + i for k in range(rows)] + [sides * rows]
+    return {_edge(a, b) for a, b in zip(ids, ids[1:])}
+
+
+def _dome_ring(k, sides=DOME_SIDES):
+    return {_edge(k * sides + i, k * sides + (i + 1) % sides) for i in range(sides)}
+
+
+def test_a_band_cut_across_by_the_user_is_laid_out_as_strips():
+    # the ball on a tube's end: a ring two rows above the equator and two meridian loops over the pole, all marked by
+    # the user, cut the 2-row band into four open strips (2 x 8 quads) and the cap above into four gores
+    verts, faces = dome()
+    added = _dome_ring(2) | _meridian(0) | _meridian(8) | _meridian(16) | _meridian(24)
+    for hard in (None, H30):
+        result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(added), hard_angle=hard)
+        _covers_once(result, faces)
+        strips = [p for p in result.parts if p.kind == "STRIP"]
+        assert len(strips) == 4 and all(len(p.faces) == 16 for p in strips)
+        # a gore (quads and a triangle fan at the pole) is no strip: it stays free, with its warning
+        free = [p for p in result.parts if p.kind == "FREE"]
+        assert len(free) == 4 and all(len(p.faces) == 64 for p in free)
+        assert len(result.warnings) == 4 and all("64 faces" in w for w in result.warnings)
+        assert result.slits == {} and result.seams == {} and added <= result.cuts
+
+
+def test_whole_gores_stay_free():
+    verts, faces = dome()
+    added = _meridian(0) | _meridian(8) | _meridian(16) | _meridian(24)
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(added), hard_angle=H30)
+    assert _kinds(result) == ["FREE"] * 4 and all(len(p.faces) == 80 for p in result.parts)
+
+
+def test_a_tube_cut_lengthwise_twice_is_two_strips():
+    verts, faces = open_tube(32, 2)
+    cuts = _column(0, 32, 2) | _column(16, 32, 2)
+    result = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(cuts), hard_angle=H30)
+    assert _kinds(result) == ["STRIP", "STRIP"] and result.warnings == [] and result.slits == {}
+    # Split at Seams: the mesh's own seams count as the user's cuts too
+    seams = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, existing=frozenset(cuts), hard_angle=H30)
+    assert _kinds(seams) == ["STRIP", "STRIP"] and seams.warnings == []
+    # an added cut that is removed again is no cut of the user's: the tube is the one wall it was
+    gone = analyse(verts, faces, loop_angle=A120, sharp_angle=S60, added=frozenset(cuts), removed=frozenset(cuts),
+                   hard_angle=H30)
+    assert _kinds(gone) == ["WALL"]
+
+
+def test_a_strip_with_no_user_cut_on_its_boundary_stays_free():
+    # half a tube on its own: an open strip, but nothing the user cut bounds it: unwrapped freely, as before
+    verts, faces = open_tube(32, 2)
+    half = {fid: face for fid, face in faces.items() if fid % 32 < 16}
+    result = analyse(verts, half, loop_angle=A120, sharp_angle=S60, hard_angle=H30)
+    assert _kinds(result) == ["FREE"] and len(result.warnings) == 1
+    # a cut inside it that does not separate it is a slit: still free, the slit its seam
+    slit = {_edge(4, 36)}
+    result = analyse(verts, half, loop_angle=A120, sharp_angle=S60, added=frozenset(slit), hard_angle=H30)
+    assert _kinds(result) == ["FREE"] and result.slits == {0: slit}

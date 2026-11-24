@@ -3,16 +3,17 @@
 The faces are split into parts by ``utils/uv_pipe_core.analyse``: ring seams where
 the tube ends or breaks (closed loops sharper than Sharp Angle), cap rings peeled off
 flat caps, the disk left in a cap's middle, walls between, and free parts that are
-none of these. Each wall gets one lengthwise seam. ``uv_pipe_bridge`` lays every part
-out (a wall inside a straight rectangle, a ring as a straight strip, a disk at real
-size, a free part by Blender's unwrap), places them with one texel density per
-object, packs them into 0-1 and marks the seams.
+none of these. Each wall gets one lengthwise seam. A free part the user's cuts make
+an open strip of is a strip. ``uv_pipe_bridge`` lays every part out (a wall inside a
+straight rectangle, a ring or a strip as a straight strip, a disk at real size, a free
+part by Blender's unwrap), places them with one texel density per object, packs them
+into 0-1 and marks the seams.
 
 Scope: the selected faces; with no face selected, every visible face of the meshes
 in Edit Mode.
 
 Invoked, the operator is modal and opens with the automatic layout already done.
-The edge under the cursor shows the seam loop it would make; a click marks or
+The edge under the cursor shows the seam loop it would make, from seam to seam; a click marks or
 unmarks that loop: a lengthwise loop becomes its wall's seam (or goes back to
 automatic), a ring or open loop toggles a seam, a cross edge of a ring strip is
 that ring's break (or no longer). C does the same for the single edge under the
@@ -120,6 +121,13 @@ def _parse_picks(text):
                            for loop in raw if isinstance(loop, list)]
         out[str(name)] = loops
     return out
+
+
+def _count_text(kinds):
+    """The parts laid out, by kind: walls, rings and disks always, the strips cut out by the user only when there
+    are any."""
+    strips = f"{kinds['STRIP']} strip(s), " if kinds.get("STRIP") else ""
+    return f"{kinds.get('WALL', 0)} wall(s), {kinds.get('RING', 0)} ring(s), {strips}{kinds.get('DISK', 0)} disk(s)"
 
 
 @dataclass
@@ -464,7 +472,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
 
     def _summary(self, result):
         k = result.kinds
-        text = f"{k.get('WALL', 0)} wall(s), {k.get('RING', 0)} ring(s), {k.get('DISK', 0)} disk(s)"
+        text = _count_text(k)
         if k.get("FREE"):
             text += f", {k['FREE']} free part(s)"
         return text
@@ -558,12 +566,14 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
     def _classify(self, obj, key):
         """The loop through edge ``key`` (sorted vertex-index pair) of ``obj`` and its kind, from the last pass.
 
-        "BREAK" when the edge lies between two faces of a ring strip; else the loop traced on all faces in scope
-        is "RING" when it closes; else, on an edge inside a wall, the loop traced in that wall up to its
-        boundaries is "LENGTH" when it joins two of them; any other loop is an open "CUT": the loop traced on all
-        faces in scope by Loop Angle alone, so it runs through the seams it crosses and a seam's own edges all give
-        the whole seam. Every kind can be committed. Returns (loop, kind, part index or None), or None when the
-        edge is not in scope."""
+        "BREAK" when the edge lies between two faces of a ring strip. Otherwise the loop is traced on all faces in
+        scope by Loop Angle, then limited by the seams it meets (``uv_pipe_core.limit_loop``): its stop vertices are
+        the ends of the edges the last pass made seams or cuts, the loop's own edges left out, so the loop runs from
+        seam to seam, and a seam's own edges give it back in the stretches between the seams that cross it. The
+        limited loop is "RING" when it is still closed; else, on an edge inside a wall, the loop traced in that wall
+        up to its boundaries is "LENGTH" when it joins two of them; any other is an open "CUT" (the limited loop).
+        An edge inside a strip the user cut out is no break: its loop is a RING or a CUT. Every kind can be
+        committed. Returns (loop, kind, part index or None), or None when the edge is not in scope."""
         cache = getattr(self, "_result", None) or _Result()
         cache = cache.objects.get(obj.name)
         if cache is None or key not in cache.edge_faces:
@@ -574,6 +584,8 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
         if part is not None and cache.analysis.parts[part].kind == "RING":
             return uv_pipe_core.Loop(list(key), False), "BREAK", part
         loop = uv_pipe_core.trace_loop(cache.verts, cache.nbrs, key, self.loop_angle, uv=cache.uv)
+        crossing = (cache.seam_edges | cache.analysis.cuts) - set(loop.edges())
+        loop = uv_pipe_core.limit_loop(loop, key, {v for e in crossing for v in e})
         if loop.closed:
             return loop, "RING", None
         if part is not None and cache.analysis.parts[part].kind == "WALL":
@@ -890,8 +902,7 @@ class IOPS_OT_Mesh_UV_Pipe(bpy.types.Operator):
                 "errors": result.error_lines if result is not None else [], "edge": edge}
 
     def _header(self):
-        kinds = (getattr(self, "_result", None) or _Result()).kinds
-        return f"{kinds.get('WALL', 0)} wall(s), {kinds.get('RING', 0)} ring(s), {kinds.get('DISK', 0)} disk(s)"
+        return _count_text((getattr(self, "_result", None) or _Result()).kinds)
 
     def _build_overlays(self, region):
         more = self._more = MoreOptions(self)

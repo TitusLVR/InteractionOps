@@ -19,7 +19,7 @@ from mathutils import Vector
 ADDON = "InteractionOps"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/: shared fixtures
-from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, framed_box, open_tube  # noqa: E402
+from uv_pipe_fixtures import bent_pipe, box_tube, capped_cylinder, clean_bend, dome, framed_box, open_tube  # noqa: E402
 
 operator = None
 
@@ -225,6 +225,21 @@ A_GROUPS = (A_WALL, *A_RINGS, A_FAN, A_NGON)
 def _column_edges(obj, sides, rows, column):
     """Edge keys (mesh indices) of open_tube's lengthwise column ``column``."""
     return {tuple(sorted((_vid(obj, k * sides + column), _vid(obj, (k + 1) * sides + column)))) for k in range(rows)}
+
+
+DOME_SIDES, DOME_ROWS = 32, 10
+DOME_POLE = DOME_SIDES * DOME_ROWS            # the pole's fixture id
+
+
+def _meridian(obj, column):
+    """Edge keys (mesh indices) of the dome's meridian ``column``, from the equator up to the pole."""
+    ids = [k * DOME_SIDES + column for k in range(DOME_ROWS)] + [DOME_POLE]
+    return {_key(obj, a, b) for a, b in zip(ids, ids[1:])}
+
+
+def _dome_ring(obj, k):
+    """Edge keys (mesh indices) of the dome's ring ``k`` (0 = the equator)."""
+    return {_key(obj, k * DOME_SIDES + i, k * DOME_SIDES + (i + 1) % DOME_SIDES) for i in range(DOME_SIDES)}
 
 
 def _edge_indices(obj, keys):
@@ -874,16 +889,16 @@ def test_lmb_marks_and_unmarks_every_kind():
     assert op._modal(bpy.context, _Event("LEFTMOUSE")) == {"RUNNING_MODAL"}
     assert op._result is same and op._loop_text(op._hover) == "None" and op._edge_text() == "None"
     op._finish(bpy.context)
-    # CUT: an open loop on the framed box
-    obj = _object(framed_box())
+    # CUT: an open loop over the dome's pole, from the equator to the equator
+    obj = _object(dome())
     _edit(obj)
     op = _modal_on()
     start = _state(obj)
-    column = {_key(obj, 1, 5), _key(obj, 5, 9), _key(obj, 9, 13)}
-    assert _commit_by_clicks(op, obj, _key(obj, 1, 5)) == "CUT"
-    assert json.loads(op.picks)[obj.name] == {**EMPTY, "added": [_edge_indices(obj, column)]}
-    assert column <= _seams(obj)
-    assert _commit_by_clicks(op, obj, _key(obj, 9, 13)) == "CUT"           # from another of its edges
+    meridian = _meridian(obj, 0) | _meridian(obj, 16)
+    assert _commit_by_clicks(op, obj, _key(obj, 0, 32)) == "CUT"
+    assert json.loads(op.picks)[obj.name] == {**EMPTY, "added": [_edge_indices(obj, meridian)]}
+    assert meridian <= _seams(obj)
+    assert _commit_by_clicks(op, obj, _key(obj, 16, 48)) == "CUT"           # from another of its edges
     assert _state(obj) == start and json.loads(op.picks)[obj.name] == EMPTY
     op._finish(bpy.context)
     # BREAK: a cross edge of a cap ring
@@ -900,17 +915,17 @@ def test_lmb_marks_and_unmarks_every_kind():
 
 
 def test_c_marks_and_unmarks_one_edge():
-    # one edge of a 3-edge open loop
-    obj = _object(framed_box())
+    # one edge of the open loop over the dome's pole
+    obj = _object(dome())
     _edit(obj)
     op = _modal_on()
     start = _state(obj)
-    key = _key(obj, 1, 5)
+    key = _key(obj, 0, 32)
     _hover(op, obj, key)
     assert op._edge_text() == "Add seam"
     _press_c(op, obj, key)
     assert json.loads(op.picks)[obj.name] == {**EMPTY, "added": [_edge_indices(obj, {key})]}
-    assert key in _seams(obj) and _key(obj, 9, 13) not in _seams(obj)       # only that edge (5-9 is the hole's rim)
+    assert key in _seams(obj) and _key(obj, 32, 64) not in _seams(obj)     # only that edge
     assert op._edge_text() == "Remove seam" and op._loop_text(op._hover) == "Add seam"   # the loop is only partly cut
     _press_c(op, obj, key)
     assert _state(obj) == start and json.loads(op.picks)[obj.name] == EMPTY
@@ -1163,7 +1178,7 @@ def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
     assert op._result.kinds == {"DISK": 6}, op._result.kinds
     start = _state(obj)
     key = _key(obj, 1, 5)                      # between two frame quads, from the rim to the hole
-    column = {key, _key(obj, 5, 9), _key(obj, 9, 13)}      # on along the hole's side to the far rim
+    column = {key}                             # the frame's outer rim and the hole's rim are seams: it ends on both
     assert key not in _seams(obj) and not _opened(obj, key)
     loop, kind, _part = op._classify(obj, key)
     assert kind == "CUT" and set(loop.edges()) == column, loop.verts
@@ -1171,10 +1186,9 @@ def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
     assert _commit_by_clicks(op, obj, key) == "CUT"
     assert json.loads(op.picks)[obj.name]["added"] == [_edge_indices(obj, column)]
     assert column <= _seams(obj) and op._result.objects[obj.name].analysis.slits
-    for edge in sorted(column):                # every edge of the marked seam gives the whole seam back
-        loop, kind, _part = op._classify(obj, edge)
-        assert kind == "CUT" and set(loop.edges()) == column, (edge, loop.verts)
-        assert op._loop_text((obj, loop, kind)) == "Remove seam"
+    loop, kind, _part = op._classify(obj, key)
+    assert kind == "CUT" and set(loop.edges()) == column, loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Remove seam"
     # the frame is now unwrapped by Blender with the slit as a seam; a flat piece unwraps to its own plane, so the
     # slit's two sides land on the same UVs (a slit opens only where the surface is curved: see the tube below)
     assert op._result.kinds == {"DISK": 5, "FREE": 1}
@@ -1186,19 +1200,27 @@ def test_a_slit_in_a_flat_frame_is_a_seam_and_toggles():
     op._finish(bpy.context)
 
 
-def test_an_open_loop_runs_through_a_seam():
-    obj = _object(framed_box())
+def test_the_loop_under_the_cursor_runs_from_seam_to_seam():
+    obj = _object(dome())
     _edit(obj)
     op = _modal_on()
-    row = {_key(obj, 4, 5), _key(obj, 5, 6), _key(obj, 6, 7)}      # across the frame through the hole's side
-    loop, kind, _part = op._classify(obj, _key(obj, 4, 5))
-    assert kind == "CUT" and set(loop.edges()) == row, loop.verts
-    _commit_by_clicks(op, obj, _key(obj, 4, 5))
-    assert row <= op._result.objects[obj.name].analysis.cuts
-    # vertex 5 is on that seam now: the loop through 1-5 does not stop there
-    loop, kind, _part = op._classify(obj, _key(obj, 1, 5))
-    assert kind == "CUT" and set(loop.edges()) == {_key(obj, 1, 5), _key(obj, 5, 9), _key(obj, 9, 13)}, loop.verts
-    assert op._loop_text((obj, loop, kind)) == "Add seam"                # only partly a seam: it adds
+    ring = _dome_ring(obj, 5)
+    loop, kind, _part = op._classify(obj, _key(obj, 5 * 32 + 4, 5 * 32 + 5))
+    assert kind == "RING" and set(loop.edges()) == ring, loop.verts           # no seam crosses it yet
+    _commit_by_clicks(op, obj, _key(obj, 0, 32))                               # the meridian 0 - pole - 16
+    # the meridian at column 8 ends at the pole, where the marked one crosses it
+    loop, kind, _part = op._classify(obj, _key(obj, 8, 40))
+    assert kind == "CUT" and set(loop.edges()) == _meridian(obj, 8), loop.verts
+    assert _vid(obj, DOME_POLE) in (loop.verts[0], loop.verts[-1])
+    # the ring is cut open where the meridian crosses it: the half between columns 0 and 16 holding the edge
+    loop, kind, _part = op._classify(obj, _key(obj, 5 * 32 + 4, 5 * 32 + 5))
+    half = {_key(obj, 5 * 32 + i, 5 * 32 + i + 1) for i in range(16)}
+    assert kind == "CUT" and set(loop.edges()) == half, loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Add seam"
+    # the marked loop's own edges do not stop it: hovered again it is the whole meridian
+    loop, kind, _part = op._classify(obj, _key(obj, 16, 48))
+    assert kind == "CUT" and set(loop.edges()) == _meridian(obj, 0) | _meridian(obj, 16), loop.verts
+    assert op._loop_text((obj, loop, kind)) == "Remove seam"
     op._finish(bpy.context)
     # inside a wall a lengthwise loop still ends at the wall's ends: an added ring seam splits the tube in two
     obj = _object(open_tube(12, 4))
@@ -1218,23 +1240,26 @@ def test_cube_loops_follow_the_loop_angle():
     assert kind == "CUT" and loop.edges() == [_key(obj, 0, 1)]          # the corners turn 90 degrees: one edge
     op._finish(bpy.context)
     _edit(obj)
+    # at 80 degrees the loop goes round the cube and is a ring seam, but the cube's two other rings cross it at
+    # every corner: the loop under the cursor runs from seam to seam, one edge
     op = _modal_on(loop_angle=math.radians(80.0))
+    assert len(op._result.objects[obj.name].analysis.cuts) == 12
     loop, kind, _part = op._classify(obj, _key(obj, 0, 1))
-    assert kind == "RING" and len(loop.edges()) == 4 and _key(obj, 0, 1) in loop.edges()    # round the cube
+    assert kind == "CUT" and loop.edges() == [_key(obj, 0, 1)], loop.verts
     op._finish(bpy.context)
 
 
 def test_alt_c_unmarks_the_loop_under_the_cursor():
     # a seam the user marked, unmarked from another of its edges in one go
-    obj = _object(framed_box())
+    obj = _object(dome())
     _edit(obj)
     op = _modal_on()
     start = _state(obj)
     first = op._result
-    _press_c(op, obj, _key(obj, 1, 5), alt=True)                        # no cut edge on it: nothing at all
+    _press_c(op, obj, _key(obj, 0, 32), alt=True)                       # no cut edge on it: nothing at all
     assert op._result is first and op.picks == ""
-    _commit_by_clicks(op, obj, _key(obj, 1, 5))
-    _press_c(op, obj, _key(obj, 9, 13), alt=True)
+    _commit_by_clicks(op, obj, _key(obj, 0, 32))
+    _press_c(op, obj, _key(obj, 16, 48), alt=True)
     assert json.loads(op.picks)[obj.name] == EMPTY and _state(obj) == start
     op._finish(bpy.context)
     # an automatic hard edge of the cube: removed, and not found again on a later pass
@@ -1268,20 +1293,49 @@ def test_alt_c_unmarks_the_loop_under_the_cursor():
 
 
 def test_a_slit_opens_a_curved_part():
-    # a full column added as a cut (not picked as the wall seam): the tube is one free part unwrapped with the column
+    # a full column added as a cut (not picked as the wall seam) tears the tube open: it is a wall with the column
     # as its only seam, so both sides of every column edge get different UVs
     obj = _object(open_tube(12, 4))
     _edit(obj)
     column = _column_edges(obj, 12, 4, 3)
     stand = _OperatorStandIn(picks=json.dumps({obj.name: {"added": [_edge_indices(obj, column)]}}))
     assert stand.execute(bpy.context) == {"FINISHED"}
-    assert any("0 wall(s), 0 ring(s), 0 disk(s), 1 free part(s)" in m for _k, m in stand.reports), stand.reports
+    assert any(m.endswith("1 wall(s), 0 ring(s), 0 disk(s)") for _k, m in stand.reports), stand.reports
     assert not any("faces are no tube" in m for _k, m in stand.reports), stand.reports
     assert _inner_seams(obj, range(48)) == column
     for key in column:
         assert _opened(obj, key), (key, _corner_uvs(obj, key))
     assert len(_islands(obj)) == 1
     assert not _flipped(obj, range(48))
+
+
+def test_a_band_cut_across_is_laid_out_as_straight_strips():
+    # the ball on a tube's end: a ring two rows above the equator and two meridian loops over the pole, marked by
+    # the user, cut the 2-row band into four open strips, each laid out straight; the gores stay free parts
+    obj = _object(dome())
+    _edit(obj)
+    added = _dome_ring(obj, 2) | _meridian(obj, 0) | _meridian(obj, 8) | _meridian(obj, 16) | _meridian(obj, 24)
+    stand = _OperatorStandIn(picks=json.dumps({obj.name: {"added": [_edge_indices(obj, added)]}}))
+    assert stand.execute(bpy.context) == {"FINISHED"}
+    assert any("0 wall(s), 0 ring(s), 4 strip(s), 0 disk(s), 4 free part(s)" in m for _k, m in stand.reports), \
+        stand.reports
+    warnings = [m for kinds, m in stand.reports if "WARNING" in kinds]
+    assert len(warnings) == 1 and "64 faces are no tube" in warnings[0], warnings      # the gores, one message
+    assert added <= _seams(obj)
+    band = [k * 32 + i for k in range(2) for i in range(32)]
+    islands = _islands(obj, band)
+    assert len(islands) == 4 and all(len(g) == 16 for g in islands), islands
+    bm = _bm(obj)
+    layer = bm.loops.layers.uv.active
+    for island in islands:
+        u0, v0, u1, v1 = _bbox(obj, island)
+        for k, tolerance in ((0, 1e-6), (2, 1e-6), (1, 0.01 * (v1 - v0))):
+            # the band's edges straight lines (its middle row relaxed between them, as a ring strip's is)
+            row = {_vid(obj, k * 32 + i) for i in range(32)}
+            vs = [lp[layer].uv.y for i in island for lp in bm.faces[i].loops if lp.vert.index in row]
+            assert vs and max(vs) - min(vs) < tolerance, (island, k, vs)
+        assert (u1 - u0) > 3.0 * (v1 - v0), (u0, v0, u1, v1)   # along the band, as long as a quarter of it
+    assert not _flipped(obj, range(len(bm.faces)))
 
 
 def test_a_hand_cut_inside_a_wall_still_unwraps_it():
@@ -1617,9 +1671,10 @@ TESTS = [
     test_every_hovered_edge_of_a_cube_can_be_cut,
     test_a_slit_in_a_flat_frame_is_a_seam_and_toggles,
     test_a_slit_opens_a_curved_part,
+    test_a_band_cut_across_is_laid_out_as_straight_strips,
     test_a_hand_cut_inside_a_wall_still_unwraps_it,
     test_a_ring_part_two_faces_wide_records_its_whole_cut_as_the_seam,
-    test_an_open_loop_runs_through_a_seam,
+    test_the_loop_under_the_cursor_runs_from_seam_to_seam,
     test_cube_loops_follow_the_loop_angle,
     test_alt_c_unmarks_the_loop_under_the_cursor,
     test_break_click_on_a_ring_strip_sets_its_break,

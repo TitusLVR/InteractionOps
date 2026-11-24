@@ -139,6 +139,25 @@ def bent_pipe(sides=12):
     return verts, out
 
 
+def dome(sides=32, rows=10, radius=1.0):
+    """An open hemisphere over the XY plane, like the ball on a tube's end: ``rows`` rows from the equator (z = 0,
+    the boundary) up to the pole, ``rows - 1`` quad rows and a triangle fan round the pole at (0, 0, radius). Ring k
+    (k = 0 the equator) holds ids ``k * sides .. k * sides + sides - 1``; the pole is the last id."""
+    verts, faces = {}, {}
+    x, y = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+    rings = []
+    for k in range(rows):
+        a = 0.5 * math.pi * k / rows
+        rings.append(_ring(verts, sides, (0.0, 0.0, radius * math.sin(a)), x, y, radius * math.cos(a)))
+    _wall(faces, rings)
+    pole = len(verts)
+    verts[pole] = (0.0, 0.0, radius)
+    top = rings[-1]
+    for i in range(sides):
+        _add(faces, (top[i], top[(i + 1) % sides], pole))
+    return verts, faces
+
+
 def torus(major=12, minor=8):
     """A closed torus round the Z axis: ring radius 2, tube radius 0.5, vertex (i, j) has id ``i * minor + j``."""
     verts, faces = {}, {}

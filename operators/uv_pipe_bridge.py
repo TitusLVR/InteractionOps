@@ -1,6 +1,6 @@
 """UV Pipe bridge: bmesh to the pure ``utils/uv_pipe_core`` dicts and back.
 
-The core splits the faces into parts (walls, ring strips, disks, free parts) and
+The core splits the faces into parts (walls, ring strips, strips cut out by the user, disks, free parts) and
 proposes every seam. This module reads what it needs from the mesh (``mesh_dicts``,
 ``single_uvs``, ``seam_edges``, ``sharp_edges``), lays each part out (``lay_out_parts``) and places,
 packs and seams the result (``finish_pipe``). Placement is UV Stripe's own
@@ -310,6 +310,16 @@ def _ring_uvs(verts, part, break_edge):
     return stripe_core.stripe_uvs(strip), {select_core.rung_edge(strip, k)}
 
 
+def _strip_uvs(verts, part):
+    """A STRIP part (an open strip the user cut out) as a straight strip under Even Rows, as ``_ring_uvs`` lays out
+    an open strip, in world units. Raises ValueError when its faces are no open strip."""
+    strip = select_core.strip_from_faces(verts, part.faces)
+    if strip.closed:
+        raise ValueError("not an open strip")
+    strip.layout = "EVEN"
+    return stripe_core.stripe_uvs(strip)
+
+
 def _straight_seam_sides(verts, part, seam, uv: dict) -> dict:
     """A Blender-unwrapped wall turned so its seam runs along +V, both seam sides then snapped onto straight
     vertical lines (each at its side's mean u, v by 3D arc length along the seam), the rest relaxed inside with the
@@ -353,7 +363,8 @@ def lay_out_parts(bm, analysis, verts, layout, *, mesh=None, meshes=()) -> list[
     WALL: ``wall_uvs`` under "RECTANGLE" and "QUADS" (with ``QUADS_FALLBACK`` as the notice when it is no regular
     grid); under "TRUE" Blender's unwrap with the wall's seam, its seam sides then made straight and parallel to V
     (``_straight_seam_sides``). RING: a straight strip under Even Rows, opened at the analysis' break, else cut as
-    UV Stripe cuts a ring. DISK: ``disk_uvs``. FREE: Blender's unwrap scaled to the real area, cut at the cuts
+    UV Stripe cuts a ring. STRIP: a straight strip under Even Rows (``_strip_uvs``), no cut inside it. DISK:
+    ``disk_uvs``. FREE: Blender's unwrap scaled to the real area, cut at the cuts
     inside it, the user's slits (``analysis.slits``) among them, which stay marked as seams. A part whose own
     layout fails is unwrapped as a FREE part, with the reason as its notice. ``verts`` are the core's world-space
     vertices; face ids are ``BMFace.index``. Blender's unwrap needs ``mesh`` (``bm``'s mesh) and ``meshes`` (every
@@ -377,6 +388,8 @@ def lay_out_parts(bm, analysis, verts, layout, *, mesh=None, meshes=()) -> list[
                         notice = QUADS_FALLBACK
             elif kind == "RING":
                 uv, inner = _ring_uvs(verts, part, analysis.breaks.get(i))
+            elif kind == "STRIP":
+                uv = _strip_uvs(verts, part)
             elif kind == "DISK":
                 uv = pipe.disk_uvs(verts, part)
         except (ValueError, KeyError, ZeroDivisionError) as exc:

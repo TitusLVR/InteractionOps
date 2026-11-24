@@ -180,6 +180,32 @@ def trace_loop(verts, nbrs, edge, min_angle, stop_verts=frozenset(), uv=None) ->
     return Loop(back[::-1] + path, False)
 
 
+def limit_loop(loop: Loop, edge, stops) -> Loop:
+    """``loop`` cut back to the stretch through ``edge`` (a vertex-id pair, an edge of the loop) between the stop
+    vertices nearest to it on each side.
+
+    ``stops`` is a set of vertex ids. Each side is walked from its end of ``edge`` outward and ends on the first
+    stop vertex it meets, which is kept as the end; an end of ``edge`` that is itself a stop ends its side at once.
+    An open loop keeps its own end on a side with no stop. A closed loop with fewer than two of its vertices in
+    ``stops`` is returned whole and closed; with two or more it becomes the open arc holding ``edge`` between the
+    nearest stop on each side. Raises ValueError when ``edge`` is no edge of ``loop``."""
+    ids, n = loop.verts, len(loop.verts)
+    pair = set(edge)
+    count = n if loop.closed else n - 1
+    at = next((i for i in range(count) if {ids[i], ids[(i + 1) % n]} == pair), None)
+    if at is None:
+        raise ValueError(f"edge {tuple(edge)} is not on the loop")
+    if not loop.closed:
+        start = next((i for i in range(at, -1, -1) if ids[i] in stops), 0)
+        end = next((i for i in range(at + 1, n) if ids[i] in stops), n - 1)
+        return Loop(ids[start:end + 1], False)
+    if sum(v in stops for v in ids) < 2:
+        return loop
+    back = next(k for k in range(n) if ids[(at - k) % n] in stops)
+    ahead = next(k for k in range(n) if ids[(at + 1 + k) % n] in stops)
+    return Loop([ids[(at - back + k) % n] for k in range(back + ahead + 2)], False)
+
+
 # --- Ring seams and parts -----------------------------------------------------------------------------------------
 
 
@@ -211,7 +237,7 @@ def ring_seams(verts, faces, sharp_angle, loop_angle) -> list[Loop]:
 
 @dataclass
 class Part:
-    kind: str                       # "WALL" | "RING" | "DISK" | "FREE"
+    kind: str                       # "WALL" | "RING" | "STRIP" | "DISK" | "FREE"
     faces: dict[int, tuple]
     boundaries: list[list[int]]     # boundary vertex loops, longest first
 
@@ -630,6 +656,22 @@ def _replace_parts(parts, seams, breaks, fallback, pieces):
             {moved[i] for i in fallback})
 
 
+def _outline_edges(part: Part) -> set:
+    """Edges used by one of the part's faces."""
+    return {e for e, fs in _edge_faces(part.faces).items() if len(fs) == 1}
+
+
+def _cut_out_strip(verts, part: Part, user_cuts) -> bool:
+    """Whether ``part`` is an open strip cut out by the user: an edge of its outline is in ``user_cuts`` and
+    ``strip_from_faces`` reads its faces as a strip that is not closed."""
+    if not user_cuts or not _outline_edges(part) & user_cuts:
+        return False
+    try:
+        return not strip_from_faces(verts, part.faces).closed
+    except ValueError:
+        return False
+
+
 def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=frozenset(),
             added=frozenset(), removed=frozenset(), picked=(), uv=None, seam_side=None, sharp=frozenset(),
             hard_angle=None) -> Analysis:
@@ -650,8 +692,13 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
     becomes FREE whatever its kind, its seam or break dropped, and records them in ``slits``; it is unwrapped with
     them as seams. A WALL's seam stays among its slits unless the slits themselves run from one of its boundary
     loops to another (``existing_wall_seam``): a slit alone leaves a tube closed, and the unwrap would fold it flat.
-    The slits play no part in the decisions before. Every other FREE part left adds one warning
-    naming its face count. ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
+    A part that is not flat and whose added edges inside it are one path from one of its boundary loops to another
+    (a band torn open) is no slit part: it is a WALL with that path as its seam, whatever its kind and seam before.
+    The slits play no part in the decisions before. Then a FREE part with no slits whose outline holds a cut of the
+    user's (an ``added`` edge not in ``removed``, or an ``existing`` one) and that ``strip_from_faces`` reads as an
+    open strip (``_cut_out_strip``) becomes a STRIP: a band the user cut across, laid out straight. A part that no
+    cut of the user's bounds is never a STRIP. Every other FREE part left adds one warning naming its face count.
+    ``picked`` holds edge-key tuples; edge sets are sorted edge keys.
     """
     removed = frozenset(_edge(*e) for e in removed)
     existing = frozenset(_edge(*e) for e in existing)
@@ -715,8 +762,16 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
         for i, part in enumerate(parts):
             inside = _inner_edges(part) & added_edges
             if inside:
+                across = existing_wall_seam(part, inside)
+                if across is not None and not _is_flat(verts, part.faces):
+                    # the cut tears a curved band open from one boundary loop to another: a wall, the cut its seam
+                    part.kind = "WALL"
+                    seams[i] = across
+                    breaks.pop(i, None)
+                    fallback.discard(i)
+                    continue
                 seam = seams.get(i) if part.kind == "WALL" else None
-                if seam is not None and existing_wall_seam(part, inside) is None:
+                if seam is not None and across is None:
                     # a slit alone does not open a tube: its wall seam opens it, or the unwrap folds it flat
                     inside = inside | set(seam.edges())
                 part.kind = "FREE"
@@ -724,6 +779,11 @@ def analyse(verts, faces, *, loop_angle, sharp_angle, bend_angle=None, existing=
                 seams.pop(i, None)
                 breaks.pop(i, None)
                 fallback.discard(i)
+
+    user_cuts = added_edges | (existing - removed)
+    for i, part in enumerate(parts):
+        if part.kind == "FREE" and i not in slits and _cut_out_strip(verts, part, user_cuts):
+            part.kind = "STRIP"
 
     warnings: list[str] = []
     for i, part in enumerate(parts):
