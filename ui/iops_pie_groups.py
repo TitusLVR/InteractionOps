@@ -21,6 +21,31 @@ def _col(*entries):
     return [[(e[0], e[1], e[2] if len(e) > 2 else {})] for e in entries]
 
 
+# Shared by Object Mode and Edit Mesh. Two buttons a row keeps the group
+# within the diagonal row limit; the stack tools that need Object Mode hide
+# themselves in Edit Mesh through their poll().
+MODIFIERS = ("Modifiers", [
+    [("iops.modifier_easy_array_caps", "Easy Array Caps", {}),
+     ("iops.modifier_easy_array_curve", "Easy Array Curve", {})],
+    [("iops.modifier_easy_curve", "Easy Curve", {}),
+     ("iops.modifier_easy_shwarp", "Easy SHWARP", {})],
+    [("iops.mod_cleanup", "Cleanup", {}),
+     ("iops.mod_collapse_stack", "Collapse Stack", {})],
+    [("iops.mod_sort_stack", "Sort Stack", {}),
+     ("iops.mod_sync_vis", "Sync Render Vis", {})],
+    [("iops.mod_safe_apply_transform", "Safe Apply Transform", {}),
+     ("iops.mod_select_target_users", "Select Mod Users", {})],
+])
+
+ASSETS_AND_FILES = ("Assets & Files", _col(
+    ("iops.materials_from_textures", "Materials from Textures"),
+    ("iops.call_panel_material_override", "Material Override"),
+    ("iops.assets_render_asset_thumbnail", "Render Asset Thumbnail"),
+    ("iops.reload_libraries", "Reload Libraries"),
+    ("iops.reload_images", "Reload Images"),
+))
+
+
 PIE_GROUPS = {
     "OBJECT": {
         "LEFT": ("Transform & Align", _col(
@@ -55,19 +80,8 @@ PIE_GROUPS = {
             ("iops.mesh_zfight_overlay", "Z-Fight Overlay"),
             ("iops.mesh_hidden_faces_overlay", "Hidden Faces Overlay"),
         )),
-        "TOP_LEFT": ("Modifiers", _col(
-            ("iops.modifier_easy_array_caps", "Easy Array Caps"),
-            ("iops.modifier_easy_array_curve", "Easy Array Curve"),
-            ("iops.modifier_easy_curve", "Easy Curve"),
-            ("iops.modifier_easy_shwarp", "Easy SHWARP"),
-        )),
-        "TOP_RIGHT": ("Assets & Files", _col(
-            ("iops.materials_from_textures", "Materials from Textures"),
-            ("iops.call_panel_material_override", "Material Override"),
-            ("iops.assets_render_asset_thumbnail", "Render Asset Thumbnail"),
-            ("iops.reload_libraries", "Reload Libraries"),
-            ("iops.reload_images", "Reload Images"),
-        )),
+        "TOP_LEFT": MODIFIERS,
+        "TOP_RIGHT": ASSETS_AND_FILES,
     },
     "EDIT_MESH": {
         "BOTTOM": ("Vertex Color", VERTEX_COLOR),
@@ -104,10 +118,12 @@ PIE_GROUPS = {
             ("iops.mesh_zfight_overlay", "Z-Fight Overlay"),
             ("iops.mesh_hidden_faces_overlay", "Hidden Faces Overlay"),
         )),
-        "TOP_LEFT": ("Bevel", _col(
+        "TOP_LEFT": MODIFIERS,
+        "TOP_RIGHT": ("Bevel", _col(
             ("iops.pin_unwrap_bevel", "Pin & Unwrap Bevel"),
             ("iops.bevel_edge_data_fix", "Bevel Edge Data Fix"),
         )),
+        "BOTTOM_RIGHT": ASSETS_AND_FILES,
     },
 }
 

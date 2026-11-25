@@ -1,23 +1,29 @@
 """Pure-numpy falloff math (no bpy) so pytest can cover it.
 
 Weights are floats in [0, 1]: 1 = fully affected, 0 = untouched.
-Every function takes and returns numpy arrays; `P` is (N, 3) object-space
+Every function takes and returns numpy arrays; `P` is (N, 3) world-space
 coordinates, `W` is (N,).
+
+A falloff is a stack of plain-data fields (dicts with keys type, start, end,
+radii, roll, curve, invert, strength, blend, enabled). `field_weight` turns one
+field into weights, `stack_weights` blends the enabled fields top to bottom.
+The core never sees bpy: operators snapshot property groups into these dicts.
 
 Shape curves and formulas follow Blender's proportional-editing table
 (source/blender/editors/transform/transform_generics.cc), minus RANDOM.
 """
 from __future__ import annotations
 
-from collections import deque
-
 import numpy as np
 
-FALLOFF_TYPES = ("LINEAR", "RADIAL", "SCREEN", "COPLANAR")
+FALLOFF_TYPES = ("LINEAR", "RADIAL", "ELLIPTICAL", "BIDIRECTIONAL")
+BLEND_MODES = ("REPLACE", "ADD", "SUBTRACT", "MULTIPLY", "MIN", "MAX")
+FIT_MODES = ("PCA", "X", "Y", "Z")
 SHAPES = ("LINEAR", "SMOOTH", "SHARP", "ROOT", "SPHERE", "INVERSE_SQUARE",
           "CONSTANT")
 
 EPS = 1e-9
+MIN_SIZE = 1e-4
 
 
 # ---------------------------------------------------------------- shapes
@@ -73,20 +79,36 @@ def apply_invert(w: np.ndarray) -> np.ndarray:
     return 1.0 - np.asarray(w, dtype=np.float64)
 
 
+
 # ---------------------------------------------------------------- weights
 
-def weight_linear(P: np.ndarray, S, E) -> np.ndarray:
-    """1 at Start, 0 at End, linear in between, clamped beyond either.
-    A degenerate axis (S == E) gives full weight everywhere."""
+def _axis_t(P, S, E):
+    """Projection parameter of each point on S->E (0 at S, 1 at E), or None
+    for a degenerate axis."""
     P = np.asarray(P, dtype=np.float64)
     S = np.asarray(S, dtype=np.float64)
-    E = np.asarray(E, dtype=np.float64)
-    d = E - S
+    d = np.asarray(E, dtype=np.float64) - S
     L2 = float(d @ d)
     if L2 < EPS:
-        return np.ones(P.shape[0], dtype=np.float64)
-    t = ((P - S) @ d) / L2
-    return 1.0 - np.clip(t, 0.0, 1.0)
+        return None
+    return ((P - S) @ d) / L2
+
+
+def weight_linear(P: np.ndarray, S, E) -> np.ndarray:
+    """0 at Start, 1 at End, linear in between, clamped beyond either.
+    A degenerate axis (S == E) gives full weight everywhere."""
+    t = _axis_t(P, S, E)
+    if t is None:
+        return np.ones(np.asarray(P).shape[0], dtype=np.float64)
+    return np.clip(t, 0.0, 1.0)
+
+
+def weight_bidirectional(P: np.ndarray, S, E) -> np.ndarray:
+    """0 at both Start and End, 1 at the midpoint. Degenerate axis -> ones."""
+    t = _axis_t(P, S, E)
+    if t is None:
+        return np.ones(np.asarray(P).shape[0], dtype=np.float64)
+    return 1.0 - np.abs(2.0 * np.clip(t, 0.0, 1.0) - 1.0)
 
 
 def weight_radial(P: np.ndarray, C, r: float) -> np.ndarray:
@@ -99,148 +121,171 @@ def weight_radial(P: np.ndarray, C, r: float) -> np.ndarray:
     return 1.0 - np.clip(dist / r, 0.0, 1.0)
 
 
-def weight_screen(P2: np.ndarray, center2, r_px: float,
-                  valid: np.ndarray | None = None) -> np.ndarray:
-    """Screen-space disc. `P2` are region pixel coords; rows where `valid`
-    is False (behind the camera) get 0."""
-    P2 = np.asarray(P2, dtype=np.float64)
-    c = np.asarray(center2, dtype=np.float64)
-    dist = np.linalg.norm(P2 - c, axis=1)
-    if r_px < EPS:
-        w = (dist < EPS).astype(np.float64)
+def ellipsoid_frame(start, end, radii2, roll: float):
+    """(axes (3,3) with columns = frame axes, radii (3,)). Axis 0 runs
+    start->end, axes 1 and 2 are perpendicular to it and rotated by `roll`
+    radians about it; radii = (|end - start|, radii2[0], radii2[1]), each
+    floored at MIN_SIZE."""
+    s = np.asarray(start, dtype=np.float64)
+    e = np.asarray(end, dtype=np.float64)
+    d = e - s
+    B = basis_from_normal(d)                     # columns X, Y, Z with Z along d
+    a0, a1, a2 = B[:, 2], B[:, 0], B[:, 1]       # a0 x a1 == a2
+    c, sn = np.cos(roll), np.sin(roll)
+    axes = np.stack([a0, a1 * c + a2 * sn, -a1 * sn + a2 * c], axis=1)
+    radii = np.maximum(
+        np.array([np.linalg.norm(d), float(radii2[0]), float(radii2[1])]),
+        MIN_SIZE)
+    return axes, radii
+
+
+def weight_elliptical(P: np.ndarray, C, axes, radii) -> np.ndarray:
+    """1 at the centre C, falling to 0 on the ellipsoid surface
+    (|local / radii| = 1); local coordinates are taken in `axes`."""
+    P = np.asarray(P, dtype=np.float64)
+    C = np.asarray(C, dtype=np.float64)
+    local = (P - C) @ np.asarray(axes, dtype=np.float64)
+    q = np.linalg.norm(local / np.asarray(radii, dtype=np.float64), axis=1)
+    return 1.0 - np.clip(q, 0.0, 1.0)
+
+
+def field_weight(P: np.ndarray, field: dict) -> np.ndarray:
+    """Weights of one field: geometry -> curve -> invert."""
+    ftype = field["type"]
+    s = np.asarray(field["start"], dtype=np.float64)
+    e = np.asarray(field["end"], dtype=np.float64)
+    if ftype == "LINEAR":
+        t = weight_linear(P, s, e)
+    elif ftype == "BIDIRECTIONAL":
+        t = weight_bidirectional(P, s, e)
+    elif ftype == "RADIAL":
+        t = weight_radial(P, s, max(float(np.linalg.norm(e - s)), MIN_SIZE))
+    elif ftype == "ELLIPTICAL":
+        axes, radii = ellipsoid_frame(s, e, field["radii"], field["roll"])
+        t = weight_elliptical(P, s, axes, radii)
     else:
-        w = 1.0 - np.clip(dist / r_px, 0.0, 1.0)
-    if valid is not None:
-        w = np.where(np.asarray(valid, dtype=bool), w, 0.0)
+        raise KeyError(ftype)
+    w = shape_curve(field["curve"], t)
+    if field["invert"]:
+        w = apply_invert(w)
     return w
 
 
-def project_points(Pw: np.ndarray, persp: np.ndarray, width: int,
-                   height: int) -> tuple[np.ndarray, np.ndarray]:
-    """World → region pixels through a 4x4 world-to-clip matrix (Blender's
-    `rv3d.perspective_matrix`). Returns (P2 (N,2), valid (N,)). Rows with
-    clip w <= 0 are invalid; their pixel coords are set to 0 (finite)."""
-    Pw = np.asarray(Pw, dtype=np.float64)
-    M = np.asarray(persp, dtype=np.float64)
-    n = Pw.shape[0]
-    Ph = np.concatenate([Pw, np.ones((n, 1))], axis=1)
-    clip = Ph @ M.T
-    w = clip[:, 3]
-    valid = w > EPS
-    w_safe = np.where(valid, w, 1.0)
-    ndc = clip[:, :2] / w_safe[:, None]
-    px = np.empty((n, 2), dtype=np.float64)
-    px[:, 0] = (ndc[:, 0] + 1.0) * 0.5 * float(width)
-    px[:, 1] = (ndc[:, 1] + 1.0) * 0.5 * float(height)
-    px[~valid] = 0.0
-    return px, valid
-
-
-# ---------------------------------------------------------------- coplanar
-
-def weight_coplanar_faces(FN: np.ndarray, n_ref, angle_rad: float) -> np.ndarray:
-    """Per-face weight from the angle between each face normal and n_ref:
-    1 when parallel, 0 at `angle_rad` and beyond. angle_rad == 0 keeps only
-    exact (within 1e-6 rad) matches."""
-    FN = np.asarray(FN, dtype=np.float64)
-    n = np.asarray(n_ref, dtype=np.float64)
-    nl = np.linalg.norm(n)
-    if nl < EPS:
-        return np.zeros(FN.shape[0], dtype=np.float64)
-    n = n / nl
-    fl = np.linalg.norm(FN, axis=1)
-    fl = np.where(fl < EPS, 1.0, fl)
-    cosang = np.clip((FN @ n) / fl, -1.0, 1.0)
-    ang = np.arccos(cosang)
-    if angle_rad < 1e-9:
-        return (ang < 1e-6).astype(np.float64)
-    return 1.0 - np.clip(ang / angle_rad, 0.0, 1.0)
-
-
-def vertex_weights_from_faces(face_rows, wf: np.ndarray, n_verts: int) -> np.ndarray:
-    """Vertex weight = max weight of its incident faces (0 if none)."""
-    wf = np.asarray(wf, dtype=np.float64)
-    out = np.zeros(n_verts, dtype=np.float64)
-    for fi, rows in enumerate(face_rows):
-        w = wf[fi]
-        if w <= 0.0:
+def stack_weights(P: np.ndarray, stack: list) -> np.ndarray:
+    """Blend the enabled fields top to bottom. No enabled field -> ones."""
+    w = None
+    for f in stack:
+        if not f["enabled"]:
             continue
-        for r in rows:
-            if w > out[r]:
-                out[r] = w
-    return out
+        st = float(f["strength"])
+        s = st * field_weight(P, f)
+        if w is None:
+            w = s
+        else:
+            b = f["blend"]
+            if b == "REPLACE":
+                w = s
+            elif b == "ADD":
+                w = w + s
+            elif b == "SUBTRACT":
+                w = w - s
+            elif b == "MULTIPLY":
+                w = w * (1.0 - st + s)
+            elif b == "MIN":
+                w = np.minimum(w, s)
+            elif b == "MAX":
+                w = np.maximum(w, s)
+            else:
+                raise KeyError(b)
+        w = np.clip(w, 0.0, 1.0)
+    if w is None:
+        return np.ones(np.asarray(P).shape[0], dtype=np.float64)
+    return w
 
 
-# ---------------------------------------------------------------- connectivity
-
-def connected_mask(adj, seeds, n: int) -> np.ndarray:
-    """BFS over vertex adjacency from `seeds`; True for every reached row."""
-    mask = np.zeros(n, dtype=bool)
-    q = deque()
-    for s in seeds:
-        if not mask[s]:
-            mask[s] = True
-            q.append(s)
-    while q:
-        u = q.popleft()
-        for v in adj[u]:
-            if not mask[v]:
-                mask[v] = True
-                q.append(v)
-    return mask
-
-
-def coplanar_grow(face_adj, wf: np.ndarray, seed_faces) -> np.ndarray:
-    """BFS over face adjacency from `seed_faces`, stepping only onto faces
-    with wf > 0. Seeds are always kept."""
-    wf = np.asarray(wf, dtype=np.float64)
-    keep = np.zeros(wf.shape[0], dtype=bool)
-    q = deque()
-    for s in seed_faces:
-        if not keep[s]:
-            keep[s] = True
-            q.append(s)
-    while q:
-        u = q.popleft()
-        for f in face_adj[u]:
-            if not keep[f] and wf[f] > 0.0:
-                keep[f] = True
-                q.append(f)
-    return keep
-
-
-# ---------------------------------------------------------------- autofit
+# ---------------------------------------------------------------- fits
 
 def bbox_center(P: np.ndarray) -> np.ndarray:
     P = np.asarray(P, dtype=np.float64)
     return (P.min(axis=0) + P.max(axis=0)) * 0.5
 
 
-def autofit_linear(P: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Start/End along the longest bbox axis through the bbox centre.
-    Degenerate extent → E = S + (1, 0, 0)."""
+def _axis_dir(P: np.ndarray, mode: str) -> np.ndarray:
+    if mode in ("X", "Y", "Z"):
+        d = np.zeros(3)
+        d["XYZ".index(mode)] = 1.0
+        return d
     P = np.asarray(P, dtype=np.float64)
-    mn = P.min(axis=0)
-    mx = P.max(axis=0)
-    ext = mx - mn
-    axis = int(np.argmax(ext))
-    c = (mn + mx) * 0.5
-    S = c.copy()
-    E = c.copy()
-    if ext[axis] < 1e-6:
-        E[0] += 1.0
-        return S, E
-    S[axis] = mn[axis]
-    E[axis] = mx[axis]
-    return S, E
+    if P.shape[0] < 2 or float((P.max(axis=0) - P.min(axis=0)).max()) < 1e-9:
+        return _axis_dir(P, "X")
+    _, sv, vt = np.linalg.svd(P - P.mean(axis=0), full_matrices=False)
+    if sv[0] < 1e-12:
+        return _axis_dir(P, "X")
+    d = vt[0]
+    if d[int(np.argmax(np.abs(d)))] < 0.0:
+        d = -d
+    return d
 
 
-def autofit_radial(P: np.ndarray) -> tuple[np.ndarray, float]:
+# An axis along which the points spread less than this fraction of their
+# largest bbox extent counts as having no extent (Fit Z on a flat selection).
+DEGENERATE_EXTENT = 1e-3
+# A fitted ellipsoid radius along a degenerate axis (see DEGENERATE_EXTENT)
+# is floored at this fraction of the largest radius.
+RADIUS_FLOOR = 0.25
+
+
+def fit_axis(P: np.ndarray, mode: str):
+    """(S, E) through the bbox centre along the PCA / X / Y / Z direction,
+    at the extents of the points' projection onto it.
+
+    An axis with (near) zero extent would give a zero-length field; it gets
+    a usable one instead: centred on the bbox centre, as long as the
+    largest bbox extent (at least MIN_SIZE)."""
     P = np.asarray(P, dtype=np.float64)
-    mn = P.min(axis=0)
-    mx = P.max(axis=0)
-    r = 0.5 * float(np.linalg.norm(mx - mn))
-    return (mn + mx) * 0.5, max(r, 1e-4)
+    c = bbox_center(P)
+    d = _axis_dir(P, mode)
+    proj = (P - c) @ d
+    lo, hi = float(proj.min()), float(proj.max())
+    largest = float((P.max(axis=0) - P.min(axis=0)).max())
+    if hi - lo < max(MIN_SIZE, DEGENERATE_EXTENT * largest):
+        half = 0.5 * max(largest, MIN_SIZE)
+        return c - d * half, c + d * half
+    return c + d * lo, c + d * hi
+
+
+def fit_field(P: np.ndarray, ftype: str, mode: str) -> dict:
+    """Geometry keys (start, end, radii, roll) fitted to the points."""
+    P = np.asarray(P, dtype=np.float64)
+    if ftype in ("LINEAR", "BIDIRECTIONAL"):
+        S, E = fit_axis(P, mode)
+        return dict(start=S, end=E, radii=(1.0, 1.0), roll=0.0)
+    c = bbox_center(P)
+    d = _axis_dir(P, mode)
+    if ftype == "RADIAL":
+        half_diag = max(0.5 * float(np.linalg.norm(P.max(axis=0) - P.min(axis=0))),
+                        MIN_SIZE)
+        return dict(start=c, end=c + d * half_diag, radii=(1.0, 1.0), roll=0.0)
+    if ftype == "ELLIPTICAL":
+        axes, _ = ellipsoid_frame(c, c + d, (1.0, 1.0), 0.0)
+        proj = (P - c) @ axes
+        ext = proj.max(axis=0) - proj.min(axis=0)
+        half = np.maximum(0.5 * ext, MIN_SIZE)
+        # a flat selection must not collapse the ellipsoid to a disc: only the
+        # axes with (near) zero extent get the floor, as in fit_axis
+        degenerate = ext < max(MIN_SIZE, DEGENERATE_EXTENT * float(ext.max()))
+        half = np.where(degenerate,
+                        np.maximum(half, RADIUS_FLOOR * float(half.max())), half)
+        return dict(start=c, end=c + d * half[0],
+                    radii=(float(half[1]), float(half[2])), roll=0.0)
+    raise KeyError(ftype)
+
+
+def apply_normal_offset(P0: np.ndarray, W: np.ndarray, N: np.ndarray, d: float) -> np.ndarray:
+    """P0 + W * d * N (move each point along its normal by a weighted amount)."""
+    P0 = np.asarray(P0, dtype=np.float64)
+    W = np.asarray(W, dtype=np.float64)[:, None]
+    return P0 + W * float(d) * np.asarray(N, dtype=np.float64)
 
 
 # ---------------------------------------------------------------- apply
@@ -289,6 +334,57 @@ def apply_scale(P0: np.ndarray, W: np.ndarray, pivot, s, basis=None) -> np.ndarr
     vb = v @ R                       # coordinates in the basis (columns = axes)
     vb = (1.0 + W * (sv - 1.0)) * vb
     return C + vb @ R.T
+
+
+# ---------------------------------------------------------------- slides
+
+def pick_rail(v, side, candidates) -> int:
+    """Index of the candidate end point whose direction from `v` is closest
+    to `side` (a vector pointing into the slide side), or -1 when there are
+    no candidates. Used where a loop vertex has several edges on one side
+    (valence > 4, loop ends)."""
+    if not len(candidates):
+        return -1
+    v = np.asarray(v, dtype=np.float64)
+    d = np.asarray(candidates, dtype=np.float64) - v
+    ln = np.linalg.norm(d, axis=1)
+    sd = np.asarray(side, dtype=np.float64)
+    sl = np.linalg.norm(sd)
+    if sl < EPS:
+        return int(np.argmax(ln > EPS))
+    score = (d @ (sd / sl)) / np.maximum(ln, EPS)
+    score[ln <= EPS] = -np.inf
+    return int(np.argmax(score))
+
+
+def apply_edge_slide(P0, W, TA, TB, factor: float, *, even=False, clamp=True) -> np.ndarray:
+    """Slide each point toward its rail end: `TA` for factor > 0, `TB` for
+    factor < 0 (a point with no rail on a side has T == P0 and stays).
+
+    Not even: the point moves `|factor| * W` of its own rail.
+    Even: every point moves the same distance, `|factor| * W` times the mean
+    rail length of the side (rails of length 0 ignored).
+    Clamp: no point goes past its rail end (|factor| limited to 1 when not
+    even, distance limited to the own rail length when even)."""
+    P0 = np.asarray(P0, dtype=np.float64)
+    W = np.asarray(W, dtype=np.float64)
+    T = np.asarray(TA if factor >= 0.0 else TB, dtype=np.float64)
+    f = abs(float(factor))
+    D = T - P0
+    L = np.linalg.norm(D, axis=1)
+    has = L > EPS
+    if not has.any():
+        return P0.copy()
+    if even:
+        dist = f * W * float(L[has].mean())
+        if clamp:
+            dist = np.minimum(dist, L)
+        t = np.where(has, dist / np.maximum(L, EPS), 0.0)
+    else:
+        if clamp:
+            f = min(f, 1.0)
+        t = np.where(has, f * W, 0.0)
+    return P0 + t[:, None] * D
 
 
 def basis_from_normal(normal, tangent=None) -> np.ndarray:

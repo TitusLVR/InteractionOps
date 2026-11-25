@@ -97,6 +97,15 @@ def test_backface_dimming_gives_the_opacity_of_what_is_hidden():
 
 # --- bias ---------------------------------------------------------------------------------------------------------
 
+def test_occluded_opacity_floor_keeps_hidden_parts_at_least_that_visible():
+    assert occluded_opacity(0.75, floor=0.5) == pytest.approx(0.5)      # theme dimmer than the floor
+    assert occluded_opacity(0.25, floor=0.5) == pytest.approx(0.75)     # theme brighter: theme wins
+    assert occluded_opacity(1.0, floor=0.5) == pytest.approx(0.5)       # even "hidden" stays visible
+    assert occluded_opacity(0.0, floor=0.5) == 1.0
+    assert occluded_opacity(0.75, floor=2.0) == 1.0                     # floor clamped to 0..1
+    assert occluded_opacity(0.75) == pytest.approx(0.25)                # no floor: unchanged
+
+
 def test_matrices_are_told_apart():
     assert is_perspective(perspective())
     assert not is_perspective(orthographic())

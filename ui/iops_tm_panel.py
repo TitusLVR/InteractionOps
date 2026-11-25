@@ -1,5 +1,8 @@
 import bpy
-from ..operators.object_auto_smooth import get_auto_smooth_modifiers
+from ..operators.object_auto_smooth import (
+    get_auto_smooth_modifiers,
+    has_stale_links,
+)
 
 
 class IOPS_OT_transform_orientation_create(bpy.types.Operator):
@@ -303,6 +306,12 @@ class IOPS_PT_TPS_Panel(bpy.types.Panel):
 
                 row.separator()
                 active = context.active_object
+                if has_stale_links():
+                    alert = row.row(align=True)
+                    alert.alert = True
+                    alert.operator(
+                        "iops.relink_essentials", text="", icon="LIBRARY_DATA_BROKEN"
+                    )
                 row.operator("iops.object_shade", text="", icon="NODE_MATERIAL").shade_type = "SMOOTH"
                 row.operator("iops.object_shade", text="", icon="MATCUBE").shade_type = "FLAT"
                 if active and active.type == "MESH":

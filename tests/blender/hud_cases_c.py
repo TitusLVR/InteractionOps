@@ -1,8 +1,6 @@
-"""HUD cases of tests/blender/test_hud_more_options.py, batch c: Radial Array, Vertex Paint, Falloff Move / Rotate /
-Scale (one case per class: the HUD is built by the shared mixin, the amount row differs)."""
+"""HUD cases of tests/blender/test_hud_more_options.py, batch c: Radial Array, Vertex Paint."""
 import math
 
-import numpy as np
 from types import SimpleNamespace
 
 from hud_case import HudCase
@@ -15,27 +13,6 @@ def _vertex_paint_state():
         "_muted_mods": [],
         "_hist": StrokeHistory(limit=8),
     }
-
-
-def _falloff_state():
-    return {
-        "_ftype": "RADIAL", "_shape": "SMOOTH", "_r": 1.0, "_screen_px": 100, "_coplanar_angle": math.radians(20),
-        "_coplanar_ok": True, "_connected": False, "_invert": False, "_preview": False, "_basis_mode": "LOCAL", "_pivot_moved": False,
-        "_axis": None, "input_str": "", "_current_amount": None, "_S": np.zeros(3), "_E": np.array([0.0, 0.0, 1.0]),
-    }
-
-
-def _falloff_case(name, cls, amount):
-    return HudCase(
-        name=name,
-        module="operators.falloff.ops",
-        cls=cls,
-        always={"Falloff (L / R / S / C)", "Shape (F)", "Radius (Shift + Wheel)", amount},
-        state=_falloff_state(),
-        also=[({"_coplanar_ok": False}, "Coplanar (C)")],
-        keys=["L", "R", "S", "C", "F", "Shift + Wheel", "A", "E", "I", "V", "LMB", "X", "Y", "Z", "N", "Backspace",
-              "0 - 9", ".", "-", "Shift", "Ctrl", "Enter", "Space", "Esc", "RMB"],
-    )
 
 
 CASES = [
@@ -76,7 +53,4 @@ CASES = [
               "Shift + 1", "LMB", "Ctrl + LMB", "E", "T", "Ctrl + Z", "Ctrl + Shift + Z", "Tab", "Enter", "Space",
               "RMB", "Esc"],
     ),
-    _falloff_case("Falloff Move", "IOPS_OT_mesh_falloff_move", "Offset"),
-    _falloff_case("Falloff Rotate", "IOPS_OT_mesh_falloff_rotate", "Angle"),
-    _falloff_case("Falloff Scale", "IOPS_OT_mesh_falloff_scale", "Scale"),
 ]

@@ -101,3 +101,18 @@ def test_main_pie_has_no_external_ops():
     src = _read(os.path.join("ui", "iops_pie_menu.py"))
     for needle in ("bmax.", "bmoi3d.", "b2ruvl.", "mesh.optiloops", "B2RUVL"):
         assert needle not in src, needle
+
+
+def test_modifiers_group_in_both_modes():
+    for mode in ("OBJECT", "EDIT_MESH"):
+        title, rows = PIE_GROUPS[mode]["TOP_LEFT"]
+        assert title == "Modifiers"
+        idnames = {e[0] for row in rows for e in row}
+        assert "iops.modifier_easy_shwarp" in idnames
+        assert "iops.mod_cleanup" in idnames
+
+
+def test_assets_group_in_both_modes():
+    for mode in ("OBJECT", "EDIT_MESH"):
+        titles = [g[0] for g in PIE_GROUPS[mode].values()]
+        assert "Assets & Files" in titles

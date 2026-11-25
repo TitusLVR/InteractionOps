@@ -20,7 +20,7 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Right | **Arrange** | Object Replace, Radial Array, Grid / Grid to Center, To Grid From Active |
 | Bottom | **Vertex Color** | See below |
 | Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects |
-| Top-left | **Modifiers** | Easy Modifier shortcuts: Array Caps, Array Curve, Curve, SHWARP |
+| Top-left | **Modifiers** | Easy Array Caps, Easy Array Curve, Easy Curve, Easy SHWARP; stack tools: Cleanup, Collapse Stack, Sort Stack, Sync Render Vis, Safe Apply Transform, Select Mod Users |
 | Top-right | **Assets & Files** | Materials from Textures, Material Override, Render Asset Thumbnail, Reload Libraries, Reload Images |
 | Top, rightmost column | **Overlays** | Negative Scale Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Z-Fight or Hidden Faces to select the faces) |
 
@@ -32,8 +32,10 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Right | **UV** | UV Stripe, UV Pipe, UV Shortest Path Mark, UV Channel Hop, Visual UV |
 | Bottom | **Vertex Color** | See below |
 | Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face |
-| Top-left | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
+| Top-left | **Modifiers** | Same box as in Object Mode; Collapse Stack, Safe Apply Transform and Select Mod Users need Object Mode and hide here |
+| Top-right | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
 | Top, rightmost column | **Overlays** | Non-Planar Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Non-Planar, Z-Fight or Hidden Faces to select the faces) |
+| Bottom-right | **Assets & Files** | Same box as in Object Mode |
 
 ### Vertex Color box
 
@@ -177,6 +179,29 @@ The eight [Snap Combo](../operators/op_snap_combos.md) slots as a pie. Click a s
 | Top-right | **B - Closest** | 2 |
 | Bottom-left | **F - Face Normal** | 6 |
 | Bottom-right | **D - Center** | 4 |
+
+---
+
+## Falloff Pie
+
+Everything for [Falloff Fields](../operators/op_mesh_falloff_tools.md) in one pie: the operations that use the fields, Fit, adding and clearing fields, and the settings of the active field. Edit Mesh mode, 3D Viewport.
+
+**Hotkey:** No default key — assign one to *IOPS Pie Falloff* in *Preferences › iOps › Keymaps*.
+
+| Slot | Button | What it does |
+| --- | --- | --- |
+| Left | **Move** | Falloff Move |
+| Right | **Rotate** | Falloff Rotate |
+| Top | **Scale** | Falloff Scale |
+| Top-left | **Fit** | Fit the active field to the selection (adds one when the stack is empty); repeat to cycle the principal axis, X, Y, Z |
+| Top-right | **More** | Menu: Falloff Normal Offset, Field Edge Slide, Field Offset Edge Slide |
+| Bottom-left | **Add Field** | Menu of field types; adds a field fitted to the selection |
+| Bottom-right | **Clear** | Remove all fields and the custom pivot |
+| Bottom (box) | Field name | Opens the field stack (add, remove, reorder, enable, rename) |
+| | Type, Curve, Blend, Strength, Invert | Settings of the active field; shown when there is one |
+| | Basis, **Weights**, **Reset Pivot** | Axes and pivot of the operations, the weight dots, back to the automatic pivot |
+
+The operations start from where the pointer is when you click the slot, as they do from a key.
 
 ---
 

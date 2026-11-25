@@ -11,7 +11,7 @@ from bpy.props import (
     EnumProperty,
 )
 
-from ..utils.falloff_core import FALLOFF_TYPES, SHAPES
+from ..operators.falloff.props import IOPS_FalloffSettings
 from ..utils.cursor_bisect_core import (DELIMIT_TYPES, DELIMIT_LABELS,
                                         SNAP_SOURCES, SNAP_SOURCE_LABELS)
 
@@ -653,34 +653,8 @@ class IOPS_SceneProperties(PropertyGroup):
         default="OBB",
     )
 
-    # Falloff tools (iops.mesh_falloff_move / _rotate / _scale) — last-used
-    falloff_type: EnumProperty(
-        name="Falloff Type",
-        items=[(t, t.title(), "") for t in FALLOFF_TYPES],
-        default="RADIAL",
-    )
-    falloff_shape: EnumProperty(
-        name="Falloff Shape",
-        items=[(s, s.replace("_", " ").title(), "") for s in SHAPES],
-        default="SMOOTH",
-    )
-    falloff_invert: BoolProperty(name="Invert Falloff", default=False)
-    falloff_connected: BoolProperty(name="Connected Only (Element)", default=False)
-    falloff_preview: BoolProperty(name="Show Weights", default=False)
-    falloff_screen_radius_px: IntProperty(name="Screen Radius (px)", default=150, min=5, max=4000)
-    falloff_coplanar_angle: FloatProperty(
-        name="Coplanar Angle", default=0.0872665, min=0.0, max=1.5707963,
-        subtype="ANGLE",
-    )
-    falloff_basis: EnumProperty(
-        name="Falloff Basis",
-        description="Pivot and axes the falloff transforms work in",
-        items=[("LOCAL", "Local", "Selection centre, object axes"),
-               ("CURSOR", "Cursor", "3D cursor location and rotation"),
-               ("WORLD", "World", "World origin and axes"),
-               ("NORMAL", "Normal", "Active element centre, Z along its normal")],
-        default="LOCAL",
-    )
+    # Falloff fields (iops.mesh_falloff_*): scene-level field stack and settings
+    falloff: bpy.props.PointerProperty(type=IOPS_FalloffSettings)
 
     # Shortest Path Mark persistent properties
     shortest_mark_barrier_idx: IntProperty(name="Barrier Type Index", default=0, min=0, max=3)
