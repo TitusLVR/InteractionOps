@@ -2,7 +2,8 @@ import math
 
 import numpy as np
 
-from utils.zfight_core import candidate_pairs, zfight_faces
+from utils.zfight_core import (candidate_pairs, cross_pair_faces,
+                               degenerate_floor, zfight_faces)
 
 ANGLE = 0.5
 DIST = 0.0001
@@ -216,3 +217,132 @@ def test_two_objects_touching_along_an_edge():
     co, tv, tp = _soup(a, b)
     assert len(co) == 8
     assert len(zfight_faces(co, tv, tp, ANGLE, DIST)) == 0
+
+
+# --- incremental use: per-object + per-pair runs == the whole soup -------
+
+
+def box(x0, y0, z0, x1, y1, z1, n=2, flip=False):
+    """Axis-aligned box, each side split n x n, outward normals (inward
+    winding with flip, like a mirrored object)."""
+    polys = []
+    lo = (x0, y0, z0)
+    hi = (x1, y1, z1)
+    for axis in range(3):
+        u, v = (axis + 1) % 3, (axis + 2) % 3
+        for side, w in ((0, lo[axis]), (1, hi[axis])):
+            for i in range(n):
+                for j in range(n):
+                    ua = lo[u] + (hi[u] - lo[u]) * i / n
+                    ub = lo[u] + (hi[u] - lo[u]) * (i + 1) / n
+                    va = lo[v] + (hi[v] - lo[v]) * j / n
+                    vb = lo[v] + (hi[v] - lo[v]) * (j + 1) / n
+                    quad_uv = [(ua, va), (ub, va), (ub, vb), (ua, vb)]
+                    pts = []
+                    for qu, qv in quad_uv:
+                        p = [0.0, 0.0, 0.0]
+                        p[axis], p[u], p[v] = w, qu, qv
+                        pts.append(tuple(p))
+                    if side == 0:
+                        pts = pts[::-1]
+                    if flip:
+                        pts = pts[::-1]
+                    polys.append(pts)
+    return polys
+
+
+def split_result(objects, angle=ANGLE, dist=DIST, floor=None):
+    """The whole soup's result rebuilt from per-object runs and
+    cross-objects-only runs of every pair, in soup polygon indices."""
+    allco = np.concatenate([o[0] for o in objects])
+    if floor is None:
+        floor = degenerate_floor(
+            float((allco.max(axis=0) - allco.min(axis=0)).max()))
+    offs = np.cumsum([0] + [int(o[2].max()) + 1 for o in objects])
+    hits = []
+    for k, (co, tv, tp) in enumerate(objects):
+        hits.append(zfight_faces(co, tv, tp, angle, dist, area_floor=floor)
+                    + offs[k])
+    for a in range(len(objects)):
+        for b in range(a + 1, len(objects)):
+            ha, hb = cross_pair_faces(*objects[a], *objects[b], angle, dist,
+                                      floor)
+            hits.append(ha + offs[a])
+            hits.append(hb + offs[b])
+    return sorted(set(np.concatenate(hits).tolist()))
+
+
+def whole_result(objects, angle=ANGLE, dist=DIST):
+    co, tv, tp = _soup(*objects)
+    return sorted(zfight_faces(co, tv, tp, angle, dist).tolist())
+
+
+def test_split_equals_whole_boxes_on_a_lattice():
+    # Boxes on a half-unit lattice: many coplanar, same-facing overlaps
+    # between objects, a mirrored (inward-wound) box and a slab that
+    # touches several boxes.
+    rng = np.random.default_rng(11)
+    objects = []
+    for k in range(9):
+        x, y = rng.integers(0, 6, 2) * 0.5
+        sx, sy, sz = rng.integers(1, 4, 3) * 0.5
+        objects.append(build(box(x, y, 0.0, x + sx, y + sy, sz,
+                                 n=int(rng.integers(1, 4)),
+                                 flip=(k == 4))))
+    objects.append(build(box(0.0, 0.0, 0.0, 4.0, 4.0, 0.5, n=3)))   # slab
+    whole = whole_result(objects)
+    assert len(whole) > 20
+    assert split_result(objects) == whole
+
+
+def test_split_equals_whole_tilted_and_offset():
+    # Near-coplanar quads inside the angle and distance tolerances, some
+    # just outside, spread over several objects.
+    rng = np.random.default_rng(5)
+    objects = []
+    for _k in range(6):
+        polys = []
+        for _q in range(8):
+            x, y = rng.uniform(0, 3, 2)
+            z = rng.choice([0.0, 0.00005, 0.0002])
+            a = math.radians(rng.choice([0.0, 0.2, 2.0]))
+            polys.append([(x + px * math.cos(a), y + py, z + px * math.sin(a))
+                          for (px, py, _pz) in quad(0, 0, 1, 1)])
+        objects.append(build(polys))
+    for dist in (DIST, 0.001):
+        whole = whole_result(objects, dist=dist)
+        assert whole
+        assert split_result(objects, dist=dist) == whole
+
+
+def test_split_equals_whole_two_object_cases():
+    a = build([quad(0, 0, 1, 1), quad(1, 0, 2, 1)])
+    for b in (build([quad(1, 0, 2, 1)]), build([quad(1, 0, 2, 1)[::-1]]),
+              build([quad(2, 0, 3, 1)])):
+        assert split_result([a, b]) == whole_result([a, b])
+
+
+def test_split_needs_the_whole_soups_area_floor():
+    # A tiny duplicated triangle pair is above its own object's zero-area
+    # floor but below the floor of the whole soup (which spans 1000
+    # units): the whole soup drops it, and so must the split runs.
+    s = 1e-6
+    tiny = [(0, 0, 0), (s, 0, 0), (0, s, 0)]
+    a = build([tiny, list(tiny)])
+    far = build([quad(1000, 0, 1001, 1)])
+    assert whole_result([a, far]) == []
+    assert split_result([a, far]) == []
+    assert zfight_faces(*a, ANGLE, DIST).tolist() == [0, 1]
+
+
+def test_cross_pair_reports_only_cross_conflicts():
+    # Each object has its own duplicate pair; the objects do not touch
+    # each other's faces, so the cross run finds nothing.
+    a = build([quad(0, 0, 1, 1), quad(0, 0, 1, 1)])
+    b = build([quad(0, 0, 1, 1, z=0.5), quad(0, 0, 1, 1, z=0.5)])
+    floor = degenerate_floor(1.0)
+    ha, hb = cross_pair_faces(*a, *b, ANGLE, DIST, floor)
+    assert len(ha) == 0 and len(hb) == 0
+    c = build([quad(0.5, 0, 1.5, 1)])
+    ha, hc = cross_pair_faces(*a, *c, ANGLE, DIST, floor)
+    assert ha.tolist() == [0, 1] and hc.tolist() == [0]

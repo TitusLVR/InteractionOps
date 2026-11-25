@@ -19,6 +19,11 @@ the soup occludes. The fill is depth-tested unless the "In Front"
 preference is on (default off). The overlay NEVER touches the edit-bmesh: geometry comes
 from the EVALUATED mesh through `foreach_get` bulk copies only.
 
+Occlusion is global (any object can hide any face), so detection always
+runs over the whole scope. When it runs is the Z-Fight overlay's
+`Refresh`: live while detection is cheap, otherwise once the movement
+stops (the last result stays drawn meanwhile).
+
 The `Hidden: N` counter is a row in the iOps statistics overlay
 (utils/draw_stats.py), which reads it via `hidden_faces_count()`.
 """
@@ -37,11 +42,12 @@ from ..utils.overlay_select import report_selected, select_flagged
 # Same depth-shrink fill shader as the Non-Planar overlay.
 from .mesh_nonplanar_overlay import DEPTH_SHRINK, _get_shader
 # Same scope, mesh reading and world soup as the Z-Fight overlay.
-from .mesh_zfight_overlay import (_same_content, _scope, _tag_redraw_view3d,
-                                  context_view_space, fill_geometry,
-                                  find_view_space, in_front, mesh_arrays,
-                                  original_items, split_hits,
-                                  view_area_pointer, world_soup)
+from .mesh_zfight_overlay import (Refresh, _same_content, _scope,
+                                  _tag_redraw_view3d, context_view_space,
+                                  fill_geometry, find_view_space, in_front,
+                                  invalidate_entries, mesh_arrays,
+                                  original_items, scan_updates, scope_items,
+                                  split_hits, view_area_pointer, world_soup)
 
 FILL_ALPHA = 0.5
 MODES = ('OBJECT', 'EDIT_MESH')
@@ -120,25 +126,18 @@ def _entry_for(obj, depsgraph, edit_mode):
     entry = cache.get(ptr)
     if (entry is not None and entry["name"] == obj.name
             and entry["data_ptr"] == obj.data.as_pointer()
-            and "version" in entry):
+            and not entry.get("stale")):
         return entry
     new = _read_entry(obj, depsgraph, edit_mode)
-    if entry is not None and "version" in entry and _same_content(entry, new):
+    # Same content (a pure re-evaluation, an undo step that left this mesh
+    # alone): keep the version, so results cached by it stay valid.
+    if entry is not None and _same_content(entry, new):
         new["version"] = entry["version"]
     else:
         _VERSION[0] += 1
         new["version"] = _VERSION[0]
     cache[ptr] = new
     return new
-
-
-def _invalidate(changed_objects=(), changed_meshes=()):
-    """Mark cache entries stale (kept for the same-content check)."""
-    cache = _STATE["cache"]
-    meshes = set(changed_meshes)
-    for ptr, entry in cache.items():
-        if ptr in changed_objects or entry["data_ptr"] in meshes:
-            entry.pop("version", None)
 
 
 def _clear_result():
@@ -182,10 +181,11 @@ def _detect(soup, rays):
                         rays, cast, winding=winding, test=soup["visible"])
 
 
-def _collect(context, depsgraph=None):
+def _collect(context, depsgraph=None) -> bool:
     """Read the scoped objects into one world-space soup, detect, cache
     CPU arrays. Main-thread, between-evaluations contexts only (operator
-    execute, app handlers, timers) — and never via bmesh."""
+    execute, app handlers, timers) — and never via bmesh. True when
+    detection ran (inputs changed)."""
     mode = context.mode
     if _STATE["cache_mode"] != mode:
         _STATE["cache"] = {}
@@ -195,39 +195,28 @@ def _collect(context, depsgraph=None):
     _STATE["scope_key"] = _scope_key(context, objs)
     if not objs:
         _clear_result()
-        return
-    if depsgraph is None:
-        depsgraph = context.evaluated_depsgraph_get()
-    edit_mode = mode == 'EDIT_MESH'
-    items = []
-    for obj in objs:
-        entry = _entry_for(obj, depsgraph, edit_mode)
-        if entry["n_poly"]:
-            items.append((entry, np.array(obj.matrix_world, np.float64)))
-    # Drop entries of objects that left the scene or the scope's mode.
-    live = {o.as_pointer() for o in objs}
-    if len(_STATE["cache"]) > 4 * max(len(live), 64):
-        _STATE["cache"] = {p: e for p, e in _STATE["cache"].items()
-                           if p in live}
+        return False
+    items = [(e, mw) for _p, e, mw in scope_items(
+        context, objs, depsgraph, _entry_for, _STATE["cache"])]
     rgb = tuple(get_theme(context).color_for(FILL_ROLE)[:3])
     # Selection clicks, view changes and unrelated edits also fire
     # depsgraph updates; skip detection when nothing it reads changed.
     signature = (mode, params, rgb,
                  tuple((e["version"], mw.tobytes()) for e, mw in items))
     if signature == _STATE["signature"]:
-        return
+        return False
     _STATE["signature"] = signature
-    _STATE["geom"] = None
-    _STATE["count"] = 0
     _STATE["batch_dirty"] = True
     if not items:
-        return
+        _STATE["geom"] = None
+        _STATE["count"] = 0
+        return True
     soup = world_soup(items)
     hits = _detect(soup, params[0])
     _STATE["count"] = len(hits)
-    if not len(hits):
-        return
-    _STATE["geom"] = fill_geometry(soup, hits, rgb, FILL_ALPHA)
+    _STATE["geom"] = (fill_geometry(soup, hits, rgb, FILL_ALPHA)
+                      if len(hits) else None)
+    return True
 
 
 def flagged_faces(context) -> dict:
@@ -241,27 +230,12 @@ def flagged_faces(context) -> dict:
     return split_hits(_detect(soup, _params()[0]), items, soup)
 
 
-def _apply_updates(depsgraph):
-    """Invalidate cache entries the depsgraph reports geometry changes for."""
-    objects = set()
-    meshes = set()
-    for u in depsgraph.updates:
-        if not u.is_updated_geometry:
-            continue
-        idv = u.id
-        if isinstance(idv, bpy.types.Object):
-            objects.add(idv.original.as_pointer())
-        elif isinstance(idv, bpy.types.Mesh):
-            meshes.add(idv.original.as_pointer())
-    if objects or meshes:
-        _invalidate(objects, meshes)
-
-
 @persistent
 def _on_change(scene=None, depsgraph=None, *_args):
-    """depsgraph_update_post gets the depsgraph (incremental geometry
-    re-reads); undo/redo/load don't, and their pointers may all be stale,
-    so the cache is dropped."""
+    """depsgraph_update_post gets the depsgraph: only the changes it lists
+    are looked at; `Refresh` decides whether a change re-collects live or
+    once the movement stops. Undo/redo/load pass no depsgraph and any
+    pointer may be stale: every entry is re-read."""
     if not overlay_enabled():
         return
     context = bpy.context
@@ -269,47 +243,30 @@ def _on_change(scene=None, depsgraph=None, *_args):
         return
     try:
         if isinstance(depsgraph, bpy.types.Depsgraph):
-            _apply_updates(depsgraph)
-            _collect(context, depsgraph)
+            changed, scope, objects, meshes = scan_updates(depsgraph)
+            if objects or meshes:
+                invalidate_entries(_STATE["cache"], objects, meshes)
+            if changed:
+                _REFRESH.request(context, depsgraph)
+            if scope:
+                # Hiding, adding, deleting: re-collect soon, not deferred.
+                _REFRESH.check_scope(context)
         else:
-            _STATE["cache"] = {}
-            _collect(context)
+            invalidate_entries(_STATE["cache"])
+            _REFRESH.request(context)
     except Exception as e:
         # A raising app handler gets called every depsgraph update.
         print("IOPS Hidden Faces overlay: collect failed:", e)
 
 
-_TIMER_PENDING = False
-
-
-def _deferred_collect():
-    """One-shot timer body: re-collect outside the draw callback for
-    changes no app handler reports (preferences, scope)."""
-    global _TIMER_PENDING
-    _TIMER_PENDING = False
-    if overlay_enabled():
-        context = bpy.context
-        if context.mode in MODES:
-            try:
-                _collect(context)
-            except Exception as e:
-                print("IOPS Hidden Faces overlay: collect failed:", e)
-            _tag_redraw_view3d(context)
-    return None
-
-
-def _schedule_collect():
-    # Registering a timer is safe from the draw callback; its body runs
-    # later on the main thread.
-    global _TIMER_PENDING
-    if not _TIMER_PENDING:
-        _TIMER_PENDING = True
-        bpy.app.timers.register(_deferred_collect)
-
-
 def _cache_stale(context) -> bool:
     """Scope (mode, viewport visibility, objects) or prefs changed."""
     return _scope_key(context, _overlay_scope(context)) != _STATE["scope_key"]
+
+
+_REFRESH = Refresh("Hidden Faces", _STATE, _collect,
+                   lambda context: _scope_key(context, _overlay_scope(context)),
+                   _params)
 
 
 def _build_batch():
@@ -330,8 +287,7 @@ def _draw_view():
     context = bpy.context
     if context.mode not in MODES:
         return
-    if _cache_stale(context):
-        _schedule_collect()
+    _REFRESH.draw_check(context)
     if _STATE["batch_dirty"]:
         try:
             _build_batch()
@@ -377,6 +333,7 @@ def disable_overlay():
     for lst in _app_handler_lists():
         while _on_change in lst:
             lst.remove(_on_change)
+    _REFRESH.reset()
     _STATE.update(handle_view=None, geom=None, batch_dirty=False,
                   batch=None, count=0, scope_key=None, signature=None,
                   cache={}, cache_mode=None, view_area=None)
@@ -419,7 +376,7 @@ class IOPS_OT_MeshHiddenFacesOverlay(bpy.types.Operator):
         else:
             _enable()
             _STATE["view_area"] = view_area_pointer(context)
-            _collect(context)
+            _REFRESH.run(context)
             self.report({'INFO'},
                         f"Hidden Faces overlay: ON "
                         f"({_STATE['count']} hidden faces)")

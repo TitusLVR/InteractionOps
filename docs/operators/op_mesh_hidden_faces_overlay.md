@@ -24,4 +24,4 @@ A face counts as hidden when, from its front side (the side its normal points to
 
 ## Tips
 - To check only some objects, isolate them (Local View): an object outside it does not block the view of the isolated ones.
-- The overlay recalculates when geometry changes; on dense scenes with many faces in pockets, lower **Rays** or isolate a part of the scene instead of checking all of it.
+- The overlay recalculates when geometry changes; on heavy scenes the highlight refreshes when the movement stops. On dense scenes with many faces in pockets, lower **Rays** or isolate a part of the scene instead of checking all of it.

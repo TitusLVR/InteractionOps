@@ -22,6 +22,16 @@ Works on the mesh's render triangles (loop triangles) in world space:
 
 Triangles are compared, not polygons, so the plane test follows the
 geometry the viewport actually renders, including warped quads.
+
+Incremental use (the overlay caches results per object and per object
+pair): every flagged polygon comes from one conflicting triangle pair,
+either inside one object or between two. So the result of a soup of
+several objects is the union of each object's own result and, for every
+pair of objects whose world AABBs come within `distance`, the
+cross-objects-only result of that pair (`cross_pair_faces`). The only
+soup-wide input is the zero-area floor; pass `area_floor` (from
+`degenerate_floor` of the whole soup's extent) to every run and the union
+is exactly the whole soup's result.
 """
 from __future__ import annotations
 
@@ -180,7 +190,28 @@ def _narrow(tri_co, normals, areas, cents, sat, ia, ib, cos_min, distance):
     return result
 
 
-def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance):
+def degenerate_floor(span):
+    """Twice the triangle area at or below which a triangle counts as
+    zero-area, for a soup whose bounding box's longest side is `span`."""
+    return max(span * span * 1e-14, 1e-30)
+
+
+def _cross_and_double_area(tri_co):
+    cross = np.cross(tri_co[:, 1] - tri_co[:, 0], tri_co[:, 2] - tri_co[:, 0])
+    return cross, np.linalg.norm(cross, axis=1)
+
+
+def tri_double_areas(co, tri_verts):
+    """Twice the area of each triangle (T,), computed exactly as
+    `zfight_faces` does, so a caller can predict which triangles a given
+    `area_floor` drops."""
+    co = np.asarray(co, np.float64).reshape(-1, 3)
+    tri_verts = np.asarray(tri_verts, np.int64).reshape(-1, 3)
+    return _cross_and_double_area(co[tri_verts])[1]
+
+
+def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance, *,
+                 tri_group=None, cross_only=False, area_floor=None):
     """Polygon indices that z-fight with at least one other polygon.
 
     co: (V, 3) world-space vertex positions.
@@ -190,6 +221,10 @@ def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance):
     angle_deg: planes whose normals differ by less than this are parallel
         (same direction only; opposite normals never conflict).
     distance: max gap between the two planes.
+    tri_group, cross_only: with cross_only, only triangle pairs of
+        different groups (tri_group: (T,) ints, e.g. the object) count.
+    area_floor: zero-area floor (`degenerate_floor`); default from the
+        extent of `co`.
 
     Returns a sorted int64 array of unique polygon indices."""
     co = np.asarray(co, np.float64).reshape(-1, 3)
@@ -199,11 +234,13 @@ def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance):
     if len(tri_verts) < 2:
         return none
     tri_co = co[tri_verts]                                       # (T, 3, 3)
-    cross = np.cross(tri_co[:, 1] - tri_co[:, 0], tri_co[:, 2] - tri_co[:, 0])
-    dbl_area = np.linalg.norm(cross, axis=1)
-    span = float((co.max(axis=0) - co.min(axis=0)).max()) if len(co) else 0.0
+    cross, dbl_area = _cross_and_double_area(tri_co)
+    if area_floor is None:
+        span = (float((co.max(axis=0) - co.min(axis=0)).max())
+                if len(co) else 0.0)
+        area_floor = degenerate_floor(span)
     # Zero-area triangles have no plane and cannot cover anything.
-    good = dbl_area > max(span * span * 1e-14, 1e-30)
+    good = dbl_area > area_floor
     keep = np.nonzero(good)[0]
     if len(keep) < 2:
         return none
@@ -218,6 +255,9 @@ def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance):
     hi = tri_co.max(axis=1) + pad
     ia, ib = candidate_pairs(lo, hi)
     other = tri_poly[ia] != tri_poly[ib]
+    if cross_only and tri_group is not None:
+        group = np.asarray(tri_group).ravel()[keep]
+        other &= group[ia] != group[ib]
     ia = ia[other]
     ib = ib[other]
     if not len(ia):
@@ -236,3 +276,66 @@ def zfight_faces(co, tri_verts, tri_poly, angle_deg, distance):
     if not hits:
         return none
     return np.unique(np.concatenate(hits))
+
+
+def triangle_boxes(co, tri_verts):
+    """(lo, hi): per-triangle AABB minima and maxima, (T, 3) each."""
+    tri_co = np.asarray(co, np.float64)[np.asarray(tri_verts, np.int64)]
+    return tri_co.min(axis=1), tri_co.max(axis=1)
+
+
+def _near_box(tri_lo, tri_hi, lo, hi, pad):
+    """Triangles whose AABB, grown by `pad`, touches the box lo..hi grown
+    by `pad`: a superset of those that can pair with a triangle inside
+    that box (the box contains the other triangles' AABBs)."""
+    return np.all((tri_lo - pad <= hi + pad) & (lo - pad <= tri_hi + pad),
+                  axis=1)
+
+
+def _compact(co, tri_verts):
+    """Only the vertices the triangles use, triangles re-indexed."""
+    used, inv = np.unique(tri_verts, return_inverse=True)
+    return co[used], inv.reshape(-1, 3)
+
+
+def cross_pair_faces(co_a, tv_a, tp_a, co_b, tv_b, tp_b, angle_deg,
+                     distance, area_floor, box_a=None, box_b=None):
+    """(hits_a, hits_b): polygons of object A and of object B, in their own
+    indices, that z-fight with a polygon of the OTHER object. Conflicts
+    inside one object are not reported (that is `zfight_faces` on the
+    object alone).
+
+    co_*, tv_*, tp_*: each object's world-space vertices, triangles to
+    test and their polygon indices, as for `zfight_faces`.
+    area_floor: the zero-area floor of the whole soup the pair belongs to.
+    box_*: optional `triangle_boxes` of the object (saves recomputing)."""
+    none = np.empty(0, np.int64)
+    co_a = np.asarray(co_a, np.float64).reshape(-1, 3)
+    co_b = np.asarray(co_b, np.float64).reshape(-1, 3)
+    tv_a = np.asarray(tv_a, np.int64).reshape(-1, 3)
+    tv_b = np.asarray(tv_b, np.int64).reshape(-1, 3)
+    tp_a = np.asarray(tp_a, np.int64).ravel()
+    tp_b = np.asarray(tp_b, np.int64).ravel()
+    if not len(tv_a) or not len(tv_b):
+        return none, none
+    lo_a, hi_a = box_a if box_a is not None else triangle_boxes(co_a, tv_a)
+    lo_b, hi_b = box_b if box_b is not None else triangle_boxes(co_b, tv_b)
+    pad = max(float(distance), 0.0)
+    # Only triangles near the other object can be in a cross pair.
+    sel_a = np.nonzero(_near_box(lo_a, hi_a, lo_b.min(axis=0),
+                                 hi_b.max(axis=0), pad))[0]
+    sel_b = np.nonzero(_near_box(lo_b, hi_b, lo_a.min(axis=0),
+                                 hi_a.max(axis=0), pad))[0]
+    if not len(sel_a) or not len(sel_b):
+        return none, none
+    ca, ta = _compact(co_a, tv_a[sel_a])
+    cb, tb = _compact(co_b, tv_b[sel_b])
+    pa = tp_a[sel_a]
+    off = int(pa.max()) + 1
+    hits = zfight_faces(np.concatenate((ca, cb)),
+                        np.concatenate((ta, tb + len(ca))),
+                        np.concatenate((pa, tp_b[sel_b] + off)),
+                        angle_deg, distance,
+                        tri_group=np.repeat((0, 1), (len(sel_a), len(sel_b))),
+                        cross_only=True, area_floor=area_floor)
+    return hits[hits < off], hits[hits >= off] - off
