@@ -427,3 +427,22 @@ def zigzag_ladder(rows=4, n=4, tilt=0.0):
     faces = {r * n + i: (r * (n + 1) + i, r * (n + 1) + i + 1, (r + 1) * (n + 1) + i + 1, (r + 1) * (n + 1) + i)
              for r in range(rows) for i in range(n)}
     return _band(pts, faces, list(range(n + 1)), list(range(n)), end_edges=(n + 1, 2 * n + 1))
+
+
+TRAPEZOID_BOX_HEIGHT = 1.8854   # the trapezoid's height, from its top edge 4-0 down to its bottom edge 5-1
+
+
+def trapezoid_box(end_edges=(5, 1)):
+    # A closed box (8 vertices, 6 quads) whose +y face 3 = (4, 0, 1, 5) is a trapezoid in the plane y = 0.6278: top
+    # edge 4-0 at z = 0.9427, slanted edge 0-1, bottom edge 1-5 at z = -0.9427 and upright edge 5-4. The open chain
+    # 1-0-4-5 runs round three of its four edges, side -1 inside it: the band floods on over the fourth edge, 1-5,
+    # which joins the chain's two ends, onto the whole box. At vertex 5 edge 5-1 leaves the chain at 90 degrees, a
+    # proper end edge; at vertex 1 it leaves the chain edge 1-0 at only 33.57 degrees, under the End Edge Angle (60).
+    # The end edges must agree on 1-5: the loop slides inside the trapezoid, its ends down 1-5 from either side, up
+    # to the trapezoid's height (``TRAPEZOID_BOX_HEIGHT``). ``end_edges=(3, 1)`` is the band the end fan at 1 gave
+    # when it crossed 1-5 into the bottom face 5 regardless: its wall 1-3 lies past the other end's wall 5-1.
+    pts = [(0.9231, 0.6278, 0.9427), (3.7644, 0.6278, -0.9427), (0.9231, -0.6278, 0.9427),
+           (3.7644, -0.6278, -0.9427), (-3.7644, 0.6278, 0.9427), (-3.7644, 0.6278, -0.9427),
+           (-3.7644, -0.6278, 0.9427), (-3.7644, -0.6278, -0.9427)]
+    faces = {0: (0, 2, 3, 1), 1: (2, 6, 7, 3), 2: (6, 4, 5, 7), 3: (4, 0, 1, 5), 4: (2, 0, 4, 6), 5: (7, 5, 1, 3)}
+    return _band(pts, faces, [1, 0, 4, 5], [3, 3, 3], end_edges=end_edges)

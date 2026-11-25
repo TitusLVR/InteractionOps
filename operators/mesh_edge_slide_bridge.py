@@ -78,6 +78,9 @@ END_SHALLOW = math.pi / 2.0 - core.RAIL_MAX_DEV  # the default end_edge angle (6
 # An end edge the fan reaches only past 180 degrees from the chain edge, by more than this, lies on the other side of
 # the chain's extension: it is never the end edge (``_fan``). One along the extension itself still is.
 END_OWN_SIDE_TOL = 1e-3  # radians: float32 coordinates put a straight corner off 180 degrees by 1e-6 and more
+# A side whose loop does not fit even at this fraction of its band's size cannot move at all: ``build_band`` then
+# falls back to the end edges its end leans name (``_end_fallback``).
+END_FALLBACK_ROOM = 1e-4
 LID_TOL = 1e-5
 # The destructive mode's wave and trial build grow fast with the sides of a face in the band: next to a face with
 # more sides than this a chain is cut as with Allow Collapse instead (``destructive_allowed``).
@@ -153,6 +156,9 @@ class BandBuild:
     # Per open end (start, end): the unfolded angle of the steepest edge its fan passed under the End Edge Angle
     # (``_fan``), at or under which the End Edge Angle would take that edge as the end edge; None without one.
     end_leans: tuple[float | None, float | None] = (None, None)
+    # Per open end (start, end): the End Edge Angle it was built with in place of the one given, where the side could
+    # not move at all with that (``build_band``'s fallback to the end lean); None where the given one holds.
+    end_fallback: tuple[float | None, float | None] = (None, None)
 
     @cached_property
     def max_face_sides(self) -> int:
@@ -337,7 +343,7 @@ def _across(edge: BMEdge, face: BMFace) -> BMFace | None:
 
 def _fan(
     v: BMVert, face: BMFace, came: BMVert, stop: BMVert | None, chain_edges: set,
-    angles: core.Angles | None = None, lean: list | None = None,
+    angles: core.Angles | None = None, lean: list | None = None, wall: BMEdge | None = None,
 ) -> tuple[list[BMFace], bool, BMVert | None]:
     """Faces around ``v`` from ``face`` (which holds edge (v, came)), unfolding away from ``came``.
 
@@ -364,6 +370,9 @@ def _fan(
     An end fan appends to ``lean`` (when given) the unfolded angle of the steepest edge it passed under
     ``angles.end_edge`` on its own side: the last one it crossed before its end edge, or the one it could not cross
     where it ends without one. ``angles.end_edge`` at or under that angle would make that edge the end edge.
+
+    ``wall`` is an edge an end fan ends on as its end edge at any angle: the other chain end's end edge, where that
+    joins the two ends (``_joint_end_edge``).
     """
     faces, angle = [face], 0.0
     shallow = END_SHALLOW if angles is None else angles.end_edge
@@ -380,7 +389,7 @@ def _fan(
                     return faces, False, None
                 _angle, end, count = min(crossed, key=lambda c: abs(c[0] - math.pi / 2.0))
                 return faces[:count], False, end
-            if angle >= shallow:
+            if angle >= shallow or edge is wall:
                 if lean is not None and crossed:
                     lean.append(crossed[-1][0])
                 return faces, False, far
@@ -640,7 +649,78 @@ def build_band(
     - ``WEDGE_INTERRUPTED`` when the finished band cannot develop a chain
       vertex's wedge, or an end wall cannot leave its end vertex's wedge
       (``core.wedges`` raises).
+
+    A side that cannot move at all with ``angles`` falls back, at each open end
+    with an end lean (``BandBuild.end_leans``), to the shallower end edge that
+    lean names, when that gives the slide room (``_end_fallback``). Wherever the
+    slide has room the End Edge Angle holds as given. Every band the operator
+    cuts comes from here: preview, confirm, redo and the relays cut the same.
     """
+    build, err = _build_band(bm, src, side, tris, angles)
+    if build is None or build.end_leans == (None, None):
+        return build, err
+    fallback = _end_fallback(bm, src, side, tris, angles, build)
+    return (build, err) if fallback is None else (fallback, None)
+
+
+def _no_room(band: core.Band) -> bool:
+    """Whether the slide of ``band`` cannot move at all: even with Allow Collapse, the loop does not fit at
+    ``END_FALLBACK_ROOM`` of the band's size. One solve, so a band with room pays little for the check."""
+    width = END_FALLBACK_ROOM * core._band_scale(band)
+    try:
+        core.Slider(band)._solve(width, False, True)
+    except core.OutOfRoom:
+        return True
+    except (ValueError, ArithmeticError, RuntimeError):
+        return False  # some other failure: no fallback, the band is cut or skipped as it is
+    return False
+
+
+def _end_fallback(bm, src: ChainSrc, side: int, tris, angles: core.Angles | None,
+                  build: BandBuild) -> BandBuild | None:
+    """``build`` again with an open end that has an end lean taking the end edge that lean names, where ``build``
+    cannot move at all (``_no_room``) and the band so made can; else None.
+
+    The lean is the unfolded angle of the steepest edge an end fan crossed under the End Edge Angle (``_fan``): an
+    End Edge Angle at or under it would end the fan there. That end alone gets the lean as its End Edge Angle, this
+    chain on this side alone: ``angles`` stays as given, in the band too. With a lean at both ends each end is tried
+    alone first, then both. It is what Auto Adjust (Q) would find for the zero reach, taken without the key, since a
+    slide that cannot start shows nothing to adjust from.
+    """
+    if not _no_room(build.band):
+        return None
+    start, end = build.end_leans
+    tries = [(start, None), (None, end), (start, end)] if start is not None and end is not None else [(start, end)]
+    for end_angles in tries:
+        try:
+            trial, _err = _build_band(bm, src, side, tris, angles, end_angles)
+        except (ValueError, ArithmeticError, RuntimeError):
+            continue
+        if trial is not None and not _no_room(trial.band):
+            trial.end_fallback = end_angles
+            return trial
+    return None
+
+
+def _joint_end_edge(bm, chain: list[BMVert], end_edges: list) -> BMEdge | None:
+    """The edge joining an open chain's two ends when one end's end edge is that edge; else None.
+
+    That end's wall is the edge, and no trace crosses a wall: an end fan at the other end that crossed it as too
+    shallow would put its own wall past it, cut off from the chain (the side could not move at all). Both ends end on
+    it instead, whatever its angle at either end.
+    """
+    first, last = chain[0], chain[-1]
+    if len(chain) < 3 or (end_edges[0] is not last and end_edges[1] is not first):
+        return None
+    return bm.edges.get((first, last))
+
+
+def _build_band(
+    bm, src: ChainSrc, side: int, tris: dict[int, list[tuple[int, int, int]]] | None = None,
+    angles: core.Angles | None = None, end_angles: tuple[float | None, float | None] = (None, None),
+) -> tuple[BandBuild | None, str | None]:
+    """``build_band`` with ``angles`` as given; ``end_angles`` (start, end) replaces the End Edge Angle at an end
+    where it is not None."""
     bm.verts.index_update()
     bm.faces.index_update()
     bm.faces.ensure_lookup_table()
@@ -669,16 +749,25 @@ def build_band(
     # A middle fan that gets round must end on the incoming side face; a fan that
     # ends early is judged once the lids are in, since a lid may bridge the gap.
     wedges, end_edges, leans = [], [None, None], ([], [])
+    at_end = [angles if a is None else replace(angles, end_edge=a) for a in end_angles]
+
+    def end_fan(e: int, wall: BMEdge | None = None) -> list[BMFace]:
+        """The fan of open end ``e`` (0 the start, 1 the end); it sets that end's end edge and lean."""
+        k, face, came = (0, side_faces[0], chain[1]) if e == 0 else (n - 1, side_faces[n - 2], chain[n - 2])
+        del leans[e][:]
+        fan, _reached, end_edges[e] = _fan(chain[k], face, came, None, walls, at_end[e], leans[e], wall)
+        return fan
+
     for k in range(n):
         if closed or 0 < k < n - 1:
             fan, reached, _end = _fan(chain[k], side_faces[k], chain[(k + 1) % n], chain[k - 1], walls, angles)
             if reached and fan[-1] is not side_faces[k - 1]:
                 return None, MIXED_SECTORS
-        elif k == 0:
-            fan, _reached, end_edges[0] = _fan(chain[0], side_faces[0], chain[1], None, walls, angles, leans[0])
         else:
-            fan, _reached, end_edges[1] = _fan(chain[k], side_faces[k - 1], chain[k - 1], None, walls, angles, leans[1])
+            fan = end_fan(0 if k == 0 else 1)
         wedges.append(fan)
+    if not closed and (joint := _joint_end_edge(bm, chain, end_edges)) is not None:
+        wedges[0], wedges[-1] = end_fan(0, joint), end_fan(1, joint)
 
     away = [
         _normal(f).cross((chain[(i + 1) % n].co - chain[i].co) * side).normalized()

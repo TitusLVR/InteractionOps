@@ -2,7 +2,7 @@ import math
 import random
 
 import pytest
-from edge_slide_fixtures import _band, chamfer_ring, jittered_grid, ring, u_in_grid
+from edge_slide_fixtures import TRAPEZOID_BOX_HEIGHT, _band, chamfer_ring, jittered_grid, ring, trapezoid_box, u_in_grid
 
 from utils.edge_slide_core import (
     RAIL_MAX_DEV,
@@ -721,6 +721,24 @@ def test_end_turns_onto_the_other_wall_where_the_walls_meet():
     # on y = 0, overtakes vertex 1's new vertex (1, 1 - w / h1) on its rail, h1 the balanced width at 5.
     h1 = (1.0 + 1.0 / math.sqrt(1.49)) / 2.0
     assert s.limit() == pytest.approx((1.7 + 0.3 / 0.7) / (math.sqrt(1.49) / 0.7 + 0.7 / h1), abs=1e-6)
+
+
+def test_trapezoid_box_slides_between_end_walls_on_one_edge():
+    # Both ends slide down 1-5, the edge that joins them: the loop stays inside the trapezoid up to its height.
+    b = trapezoid_box()
+    assert end_paths(b) == ([1, 5], [5, 1])
+    assert Slider(b).limit() == pytest.approx(TRAPEZOID_BOX_HEIGHT, abs=1e-5)
+    assert Slider(b).limit(collapse=True) == pytest.approx(TRAPEZOID_BOX_HEIGHT, abs=1e-5)
+
+
+def test_trapezoid_box_end_wall_past_the_other_walls_edge_has_no_room():
+    # The band the bridge built before its end fans agreed on 1-5: the start's wall 1-3 lies in the bottom face, past
+    # the end's wall 5-1. Segment 0 runs from that wall along chain edge 1-0, in the trapezoid, so it must cross 5-1,
+    # which no trace crosses: the slide cannot start at any width.
+    b = trapezoid_box(end_edges=(3, 1))
+    with pytest.raises(OutOfRoom, match="segment 0 leaves the band"):
+        Slider(b)._solve(0.5, False, True)
+    assert Slider(b).limit(collapse=True) < 1e-5
 
 
 def _grid_points(ids, verts):

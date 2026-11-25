@@ -1046,6 +1046,84 @@ def test_end_edge_never_comes_from_the_other_side():
     bm.free()
 
 
+def _trapezoid_box():
+    """The core's trapezoid_box() as a mesh, the chain 1-0-4-5 round its trapezoid face 3 (side -1 inside it)."""
+    return _band_mesh(fixtures.trapezoid_box())
+
+
+def test_trapezoid_box_slides_on_both_sides():
+    # Side -1: the end fan at 1 must not cross 1-5, the end edge of the chain's other end, at its 33.57 degrees:
+    # both ends end on 1-5, and the loop slides inside the trapezoid, up to its height.
+    bm = _trapezoid_box()
+    outside, err = bridge.build_band(bm, _chain(bm, [1, 0, 4, 5]), +1)
+    assert err is None and outside.band.end_edges == (3, 7), (err, outside and outside.band.end_edges)
+    slider = wave.WaveSlider(outside.band, tolerance=0.0)
+    _close(slider.limit(), 1.25560, 1e-4)
+    inside, err = bridge.build_band(bm, _chain(bm, [1, 0, 4, 5]), -1)
+    assert err is None and inside.band.end_edges == (5, 1), (err, inside and inside.band.end_edges)
+    assert inside.end_fallback == (None, None)                    # the fans agree by themselves: no fallback
+    slider = wave.WaveSlider(inside.band, tolerance=0.0)
+    height = fixtures.TRAPEZOID_BOX_HEIGHT
+    for limit in (slider.limit(), slider.limit(collapse=True), slider.limit(destructive=True)):
+        _close(limit, height, 1e-4)
+    bm.free()
+
+
+def test_execute_trapezoid_box_cuts_both_sides():
+    for width, destructive in ((1.0, False), (-1.0, False), (-1.0, True)):
+        obj = _edit_object(_trapezoid_box(), chain=[1, 0, 4, 5])
+        assert _run(obj, width=width, chain_sides="+", use_destructive=destructive) == {'FINISHED'}, width
+        new = sorted(_new_coords(obj))
+        if width < 0.0:   # inside the trapezoid, 1 from its top and upright edges, its ends on its bottom edge 1-5
+            top, left = 0.9427 - 1.0, -3.7644 + 1.0
+            assert len(new) == 4 and all(abs(y - 0.6278) < 1e-4 for _x, y, _z in new), new
+            assert sum(abs(z + 0.9427) < 1e-4 for _x, _y, z in new) == 2, new
+            assert any(math.dist((x, z), (left, top)) < 1e-4 for x, _y, z in new), new
+        else:
+            assert len(new) >= 4, new
+        assert not _validate_fixed_something(obj), (width, destructive)
+
+
+def test_end_fallback_takes_the_lean_where_the_side_cannot_move():
+    # The safety net, on the band the fans gave before they agreed on 1-5 (``_joint_end_edge`` left out): side -1
+    # cannot move at all, and the lean at vertex 1 names the shallower end edge 1-5. build_band takes it for that end
+    # by itself, the End Edge Angle it was given left as it is.
+    bm = _trapezoid_box()
+    joint = bridge._joint_end_edge
+    bridge._joint_end_edge = lambda *_args: None
+    try:
+        build, err = bridge.build_band(bm, _chain(bm, [1, 0, 4, 5]), -1)
+    finally:
+        bridge._joint_end_edge = joint
+    assert err is None and build.band.end_edges == (5, 1), (err, build and build.band.end_edges)
+    lean = math.atan2(2 * 0.9427, 3.7644 - 0.9231)
+    assert build.end_fallback[1] is None and abs(build.end_fallback[0] - lean) < 1e-5, build.end_fallback
+    assert build.band.angles == core.Angles()
+    _close(wave.WaveSlider(build.band, tolerance=0.0).limit(), fixtures.TRAPEZOID_BOX_HEIGHT, 1e-4)
+    bm.free()
+
+
+def test_end_fallback_leaves_a_side_that_moves():
+    # The start fan of _shallow_end_wall passes a 40-degree edge (its lean) but the slide has room up to 0.47: the
+    # End Edge Angle keeps its meaning there.
+    bm = _shallow_end_wall()
+    build, err = bridge.build_band(bm, _chain(bm, [0, 1, 2, 3]), +1)
+    assert err is None and build.end_leans[0] is not None and build.end_fallback == (None, None)
+    assert build.band.end_edges[0] == 5
+    bm.free()
+
+
+def test_preview_and_redo_cut_the_trapezoid_box_inside():
+    # The modal preview slides side -1 as execute does: not clamped at width -1, and confirming cuts what it showed.
+    _edit_object(_trapezoid_box(), chain=[1, 0, 4, 5])
+    op, ctx = _invoke(x=0, width=-1.0)
+    op.chain_sides = "+"
+    op._rebuild_preview()
+    assert not op._clamped and op._preview_segs
+    assert all(abs(p.y - 0.6278) < 1e-4 for p in op._preview_segs), op._preview_segs
+    op._finish(ctx)
+
+
 def test_angle_props_reach_execute():
     def new(**props):
         obj = _edit_object(_bent_rows(20.0), chain=[0, 1, 2, 3])
@@ -3859,6 +3937,11 @@ TESTS = [
     test_build_band_strip_side,
     test_end_edge_angle_admits_a_shallower_end_edge,
     test_end_edge_never_comes_from_the_other_side,
+    test_trapezoid_box_slides_on_both_sides,
+    test_execute_trapezoid_box_cuts_both_sides,
+    test_end_fallback_takes_the_lean_where_the_side_cannot_move,
+    test_end_fallback_leaves_a_side_that_moves,
+    test_preview_and_redo_cut_the_trapezoid_box_inside,
     test_angle_props_reach_execute,
     test_angles_at_the_defaults_are_exactly_the_core_defaults,
     test_step_agreement_stays_under_step_difference,
