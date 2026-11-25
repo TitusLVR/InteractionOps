@@ -129,11 +129,10 @@ def draw_group(col, group):
         parts = [(col, rows)]
     for target, part in parts:
         for row in part:
-            line = target.row(align=True) if len(row) > 1 else target
-            for idname, text, props in row:
+            for cell, (idname, text, props) in zip(_even_cells(target, len(row)), row):
                 state = DEPRESS_STATE.get(idname)
                 pref = BESIDE_PREF.get(idname)
-                target_line = line.row(align=True) if pref else line
+                target_line = cell.row(align=True) if pref else cell
                 btn = op_if_poll(target_line, idname, text=text,
                                  depress=state() if state else None, **props)
                 if pref and btn is not None:
@@ -149,6 +148,21 @@ def _draw_beside_pref(line, name):
     field = line.row(align=True)
     field.ui_units_x = _BESIDE_PREF_WIDTH
     field.prop(prefs, name)
+
+
+def _even_cells(layout, count):
+    """`count` equal-width cells side by side. A plain row sizes buttons by
+    their text, so two-button rows would not line up into columns."""
+    if count <= 1:
+        return [layout]
+    cells = []
+    rest = layout
+    for remaining in range(count, 1, -1):
+        split = rest.split(factor=1.0 / remaining, align=True)
+        cells.append(split.column(align=True))
+        rest = split.column(align=True)
+    cells.append(rest)
+    return cells
 
 
 def draw_vertex_color(col, context):
