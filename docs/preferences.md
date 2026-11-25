@@ -12,8 +12,8 @@ Collapsible sections, top to bottom:
 - **Cursor Bisect** — preview depth, snap distance, subdivisions, merge distance, rotation step and delimit angle for [Cursor Bisect](operators/op_mesh_cursor_bisect.md).
 - **Cursor Place** — default normal axis (Z) and edge axis (Y), preview axis size (pixels), whether the X / Y / Z letters are drawn, and the floor-grid snap over empty space (on/off and the minimum on-screen cell size in pixels), for [Cursor Place](operators/op_cursor_place.md).
 - **Non-Planar Overlay** — thresholds for the [non-planar face overlay](operators/op_mesh_nonplanar_overlay.md).
-- **Z-Fight Overlay** — angle and distance tolerances for the [z-fight overlay](operators/op_mesh_zfight_overlay.md).
-- **Hidden Faces Overlay** — rays per sample point of the [hidden faces overlay](operators/op_mesh_hidden_faces_overlay.md).
+- **Z-Fight Overlay** — angle and distance tolerances for the [z-fight overlay](operators/op_mesh_zfight_overlay.md), and **In Front** (draw its highlight on top of all geometry, on by default).
+- **Hidden Faces Overlay** — rays per sample point of the [hidden faces overlay](operators/op_mesh_hidden_faces_overlay.md), and **In Front** (draw its highlight on top of all geometry, off by default).
 - **Snap Combo** — which modifier key saves a slot in [Snap Combos](operators/op_snap_combos.md).
 - **Modifier Window** — how the floating modifier window is created.
 - **Modifiers Panel** — grid layout, per-type defaults and stack options for the [Modifiers panel](ui/ui_menus.md#modifiers).

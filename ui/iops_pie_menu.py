@@ -15,12 +15,14 @@ DEPRESS_STATE = {
     "iops.object_negative_scale_overlay": negative_scale_overlay_enabled,
 }
 
-# Addon preference drawn as a field on the same row, right of the button.
+# Addon preferences drawn as fields on the same row, right of the button.
 BESIDE_PREF = {
-    "iops.mesh_hidden_faces_overlay": "hidden_faces_rays",
+    "iops.mesh_zfight_overlay": ("zfight_in_front",),
+    "iops.mesh_hidden_faces_overlay": ("hidden_faces_rays", "hidden_faces_in_front"),
 }
-# Width of that field, in UI units.
+# Width of a number field and of a checkbox with its label, in UI units.
 _BESIDE_PREF_WIDTH = 4.5
+_BESIDE_CHECKBOX_WIDTH = 3.5
 
 # Diagonal pie slots overlap the side columns, so the diagonal groups are
 # drawn as extra columns of the top / bottom panel instead.
@@ -131,22 +133,25 @@ def draw_group(col, group):
         for row in part:
             for cell, (idname, text, props) in zip(_even_cells(target, len(row)), row):
                 state = DEPRESS_STATE.get(idname)
-                pref = BESIDE_PREF.get(idname)
-                target_line = cell.row(align=True) if pref else cell
+                names = BESIDE_PREF.get(idname, ())
+                target_line = cell.row(align=True) if names else cell
                 btn = op_if_poll(target_line, idname, text=text,
                                  depress=state() if state else None, **props)
-                if pref and btn is not None:
-                    _draw_beside_pref(target_line, pref)
+                if btn is not None:
+                    for name in names:
+                        _draw_beside_pref(target_line, name)
 
 
 def _draw_beside_pref(line, name):
-    """Addon preference `name` as a narrow field at the end of `line`."""
+    """Addon preference `name` as a narrow field at the end of `line`: a
+    checkbox with its label for a bool, a number field otherwise."""
     addon = bpy.context.preferences.addons.get("InteractionOps")
     prefs = getattr(addon, "preferences", None)
     if prefs is None or not hasattr(prefs, name):
         return
+    is_bool = isinstance(getattr(prefs, name), bool)
     field = line.row(align=True)
-    field.ui_units_x = _BESIDE_PREF_WIDTH
+    field.ui_units_x = _BESIDE_CHECKBOX_WIDTH if is_bool else _BESIDE_PREF_WIDTH
     field.prop(prefs, name)
 
 

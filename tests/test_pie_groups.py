@@ -54,7 +54,16 @@ def test_overlays_column_on_top_in_both_modes():
         assert rows[-2][0][0] == "iops.mesh_zfight_overlay"
         assert rows[-1][0][0] == "iops.mesh_hidden_faces_overlay"
     assert '"TOP_RIGHT", "TOP_FAR_RIGHT")' in src
-    assert '"iops.mesh_hidden_faces_overlay": "hidden_faces_rays"' in src
+    assert ('"iops.mesh_hidden_faces_overlay": ("hidden_faces_rays", '
+            '"hidden_faces_in_front")') in src
+    assert '"iops.mesh_zfight_overlay": ("zfight_in_front",)' in src
+    prefs_src = _read(os.path.join("prefs", "addon_preferences.py"))
+    for name in ("zfight_in_front", "hidden_faces_in_front"):
+        assert f"{name}: BoolProperty(" in prefs_src
+        assert f'"{name}": safe("{name}",' in _read(
+            os.path.join("prefs", "iops_prefs.py"))
+        assert f'("{name}",' in _read(os.path.join(
+            "operators", "preferences", "io_addon_preferences.py"))
 
 
 def test_diagonals_short():

@@ -4,9 +4,12 @@ by area, inside one object or between different objects. Faces that only
 share an edge or a vertex are not a conflict.
 
 Scope:
-- Object Mode: the selected visible mesh objects; with no mesh object
-  selected, every visible mesh object of the view layer.
-- Edit Mode: every mesh object in edit mode.
+- Object Mode: every mesh object visible in the reference 3D viewport (the
+  one the overlay was turned on in), selected or not, so Local View and the
+  viewport's own hiding are respected. Selection never changes the scope.
+- Edit Mode: every mesh object in edit mode that is visible there.
+Every viewport draws the same result. The fill is drawn on top of all
+geometry while the "In Front" preference is on (default), else depth-tested.
 All scoped objects go into one world-space triangle soup, so faces of two
 objects placed flush against each other are caught too. Two objects that
 share one mesh are separate entries (each at its own matrix).
@@ -56,6 +59,7 @@ _STATE = {
     "signature": None,      # inputs of the last detection run
     "cache": {},            # object as_pointer() -> local-space entry
     "cache_mode": None,     # mode the cache was read in
+    "view_area": None,      # as_pointer() of the reference 3D viewport area
 }
 
 _VERSION = [0]   # bumped whenever a cache entry gets new content
@@ -63,6 +67,63 @@ _VERSION = [0]   # bumped whenever a cache entry gets new content
 
 def overlay_enabled() -> bool:
     return _STATE["handle_view"] is not None
+
+
+def in_front(pref="zfight_in_front", default=True) -> bool:
+    """The overlay's "In Front" preference: fill drawn over all geometry."""
+    try:
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        return bool(getattr(prefs, pref))
+    except (KeyError, AttributeError):
+        return default
+
+
+def view_area_pointer(context):
+    """as_pointer() of the context's 3D viewport area, else None. Only an
+    integer is kept, never the RNA struct: it is compared against live
+    areas later and never dereferenced, so a closed area or a loaded file
+    cannot leave a dangling reference behind."""
+    area = getattr(context, "area", None)
+    if area is not None and area.type == 'VIEW_3D':
+        return area.as_pointer()
+    return None
+
+
+def find_view_space(area_ptr=None):
+    """SpaceView3D of the 3D viewport area `area_ptr`, else of the first 3D
+    viewport found; None without any (background mode)."""
+    wm = getattr(bpy.context, "window_manager", None)
+    if wm is None and bpy.data.window_managers:
+        wm = bpy.data.window_managers[0]
+    first = None
+    for window in (wm.windows if wm is not None else ()):
+        screen = window.screen
+        if screen is None:
+            continue
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            if area_ptr is not None and area.as_pointer() == area_ptr:
+                return area.spaces.active
+            if first is None:
+                first = area.spaces.active
+    return first
+
+
+def context_view_space(context):
+    """The context's 3D viewport (an operator run from it), else the first."""
+    space = getattr(context, "space_data", None)
+    if space is not None and space.type == 'VIEW_3D':
+        return space
+    return find_view_space()
+
+
+def _visible(obj, view_layer, space) -> bool:
+    """Visible in the view layer and, with a viewport, in that viewport too
+    (Local View, the viewport's own hiding)."""
+    if space is None:
+        return obj.visible_get(view_layer=view_layer)
+    return obj.visible_get(view_layer=view_layer, viewport=space)
 
 
 def _app_handler_lists():
@@ -79,26 +140,30 @@ def _params() -> tuple:
         return (0.5, 0.0001)
 
 
-def _scope(context) -> list:
-    """Mesh objects to check, in a stable order."""
+def _scope(context, space) -> list:
+    """Mesh objects to check, in a stable order: those visible in the 3D
+    viewport `space` (None: view layer visibility only). Selection does not
+    matter, so selecting an object never drops conflicts with the others."""
     mode = context.mode
+    view_layer = context.view_layer
+    if view_layer is None or mode not in MODES:
+        return []
     if mode == 'EDIT_MESH':
         objs = [o for o in (getattr(context, "objects_in_mode", None) or ())
                 if o.type == 'MESH']
         if not objs and context.edit_object is not None:
             objs = [context.edit_object]
-        return objs
-    if mode != 'OBJECT':
-        return []
-    view_layer = context.view_layer
-    if view_layer is None:
-        return []
+        return [o for o in objs if _visible(o, view_layer, space)]
     # A just-removed object can leave a None in the list until the view
     # layer syncs.
-    visible = [o for o in view_layer.objects
-               if o is not None and o.type == 'MESH' and o.visible_get()]
-    selected = [o for o in visible if o.select_get()]
-    return selected or visible
+    return [o for o in view_layer.objects
+            if o is not None and o.type == 'MESH'
+            and _visible(o, view_layer, space)]
+
+
+def _overlay_scope(context) -> list:
+    """Scope in the viewport the overlay was turned on in."""
+    return _scope(context, find_view_space(_STATE["view_area"]))
 
 
 def _scope_key(context, objs) -> tuple:
@@ -238,7 +303,7 @@ def split_hits(hits, objs_items, soup):
 def flagged_faces(context) -> dict:
     """{object: polygon indices of its original mesh} the Z-Fight check
     flags in the current scope — for the Shift-click selection."""
-    objs = _scope(context)
+    objs = _scope(context, context_view_space(context))
     edit_mode = context.mode == 'EDIT_MESH'
     items = original_items(objs, edit_mode)
     if not items:
@@ -316,7 +381,7 @@ def _collect(context, depsgraph=None):
     if _STATE["cache_mode"] != mode:
         _STATE["cache"] = {}
         _STATE["cache_mode"] = mode
-    objs = _scope(context)
+    objs = _overlay_scope(context)
     params = _params()
     _STATE["scope_key"] = _scope_key(context, objs)
     if not objs:
@@ -426,8 +491,8 @@ def _schedule_collect():
 
 
 def _cache_stale(context) -> bool:
-    """Scope (mode, selection, visibility, objects) or prefs changed."""
-    return _scope_key(context, _scope(context)) != _STATE["scope_key"]
+    """Scope (mode, viewport visibility, objects) or prefs changed."""
+    return _scope_key(context, _overlay_scope(context)) != _STATE["scope_key"]
 
 
 def _build_batch():
@@ -461,7 +526,9 @@ def _draw_view():
     if _STATE["batch"] is None:
         return
     shader, batch = _STATE["batch"]
-    with draw_scope(blend='ALPHA', depth='LESS_EQUAL', depth_mask=False):
+    # "In Front" is read per redraw: no re-detection, no batch rebuild.
+    depth = 'ALWAYS' if in_front() else 'LESS_EQUAL'
+    with draw_scope(blend='ALPHA', depth=depth, depth_mask=False):
         shader.bind()
         shader.uniform_float("viewMat", gpu.matrix.get_model_view_matrix())
         shader.uniform_float("projMat", gpu.matrix.get_projection_matrix())
@@ -494,24 +561,32 @@ def disable_overlay():
             lst.remove(_on_change)
     _STATE.update(handle_view=None, geom=None, batch_dirty=False,
                   batch=None, count=0, scope_key=None, signature=None,
-                  cache={}, cache_mode=None)
+                  cache={}, cache_mode=None, view_area=None)
 
 
 def _tag_redraw_view3d(context):
-    screen = getattr(context, "screen", None)
-    if screen is None:
-        return
-    for area in screen.areas:
-        if area.type == 'VIEW_3D':
-            area.tag_redraw()
+    """Redraw every 3D viewport of every window: a timer has no screen in
+    its context, and all viewports draw the overlay."""
+    wm = getattr(context, "window_manager", None)
+    if wm is not None:
+        screens = [w.screen for w in wm.windows]
+    else:
+        screens = [getattr(context, "screen", None)]
+    for screen in screens:
+        if screen is None:
+            continue
+        for area in screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
 
 
 class IOPS_OT_MeshZFightOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of faces that z-fight: faces that lie
     in the same plane, face the same way and overlap, inside one object or
     between objects.
-    Object Mode checks the selected objects (all visible ones when nothing
-    is selected); Edit Mode checks every object being edited.
+    Object Mode checks every mesh object visible in the viewport (Local
+    View respected); Edit Mode checks every object being edited.
+    In Front draws the highlight on top of all geometry.
     Shift-click: select those faces instead (Object Mode selects their
     objects and marks the faces for Edit Mode)"""
     bl_idname = "iops.mesh_zfight_overlay"
@@ -541,6 +616,7 @@ class IOPS_OT_MeshZFightOverlay(bpy.types.Operator):
             self.report({'INFO'}, "Z-Fight overlay: OFF")
         else:
             _enable()
+            _STATE["view_area"] = view_area_pointer(context)
             _collect(context)
             self.report({'INFO'},
                         f"Z-Fight overlay: ON "

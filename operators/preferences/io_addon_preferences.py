@@ -317,6 +317,7 @@ def load_iops_preferences():
                             for key_, default_ in (
                                 ("zfight_angle", 0.5),
                                 ("zfight_distance", 0.0001),
+                                ("zfight_in_front", True),
                             ):
                                 if hasattr(prefs, key_):
                                     setattr(prefs, key_,
@@ -325,10 +326,13 @@ def load_iops_preferences():
                     case "HIDDEN_FACES_OVERLAY":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("HIDDEN_FACES_OVERLAY", {})
-                            if hasattr(prefs, "hidden_faces_rays"):
-                                prefs.hidden_faces_rays = safe_get(
-                                    value, "hidden_faces_rays",
-                                    defaults.get("hidden_faces_rays", 128))
+                            for key_, default_ in (
+                                ("hidden_faces_rays", 128),
+                                ("hidden_faces_in_front", False),
+                            ):
+                                if hasattr(prefs, key_):
+                                    setattr(prefs, key_,
+                                            safe_get(value, key_, defaults.get(key_, default_)))
 
                     case "NEGATIVE_SCALE_OVERLAY":
                         if isinstance(value, dict):

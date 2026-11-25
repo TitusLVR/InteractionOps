@@ -22,7 +22,7 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Top | **Select & Name** | Select Similar Name, Name From Active, Search & Replace, Select Boolean Operands, Select Boolean Targets, Select Mirror Objects |
 | Top-left | **Modifiers** | Easy Array Caps, Easy Array Curve, Easy Curve, Easy SHWARP; stack tools: Cleanup, Collapse Stack, Sort Stack, Sync Render Vis, Safe Apply Transform, Select Mod Users |
 | Top-right | **Assets & Files** | Materials from Textures, Material Override, Render Asset Thumbnail, Reload Libraries, Reload Images |
-| Top, rightmost column | **Overlays** | Negative Scale Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Z-Fight or Hidden Faces to select the faces) |
+| Top, rightmost column | **Overlays** | Negative Scale Overlay, Z-Fight Overlay with its In Front checkbox, Hidden Faces Overlay with its Rays field and In Front checkbox (each drawn pressed while its overlay is on; Shift-click Z-Fight or Hidden Faces to select the faces) |
 
 ### Edit Mesh
 
@@ -34,7 +34,7 @@ The everyday toolbox of iOps operators, sorted into titled group boxes. Object M
 | Top | **Measure & Align** | Copy Edge Length, Copy Edges Angle, Align Origin to Normal, Align Object to Face |
 | Top-left | **Modifiers** | Same box as in Object Mode; Collapse Stack, Safe Apply Transform and Select Mod Users need Object Mode and hide here |
 | Top-right | **Bevel** | Pin & Unwrap Bevel, Bevel Edge Data Fix |
-| Top, rightmost column | **Overlays** | Non-Planar Overlay, Z-Fight Overlay, Hidden Faces Overlay with its Rays field (each drawn pressed while its overlay is on; Shift-click Non-Planar, Z-Fight or Hidden Faces to select the faces) |
+| Top, rightmost column | **Overlays** | Non-Planar Overlay, Z-Fight Overlay with its In Front checkbox, Hidden Faces Overlay with its Rays field and In Front checkbox (each drawn pressed while its overlay is on; Shift-click Non-Planar, Z-Fight or Hidden Faces to select the faces) |
 | Bottom-right | **Assets & Files** | Same box as in Object Mode |
 
 ### Vertex Color box

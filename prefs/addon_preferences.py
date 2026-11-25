@@ -126,6 +126,17 @@ def _cursor_place_edge_axis_update(self, context):
     _cursor_place_swap(self, "cursor_place_edge_axis", "cursor_place_normal_axis")
 
 
+def _redraw_view3d(self, context):
+    """Redraw every 3D viewport: overlay drawing options are read at draw time."""
+    wm = getattr(context, "window_manager", None)
+    for window in (wm.windows if wm is not None else ()):
+        if window.screen is None:
+            continue
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+
+
 def update_category(self, context):
     message = "Panel Update Failed"
     try:
@@ -927,6 +938,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         subtype="DISTANCE",
         unit="LENGTH",
     )
+    zfight_in_front: BoolProperty(
+        name="In Front",
+        description="Draw the highlight on top of all geometry",
+        default=True,
+        update=_redraw_view3d,
+    )
 
     # Hidden Faces Overlay (iops.mesh_hidden_faces_overlay)
     hidden_faces_rays: bpy.props.IntProperty(
@@ -939,6 +956,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=128,
         min=8,
         max=512,
+    )
+    hidden_faces_in_front: BoolProperty(
+        name="In Front",
+        description="Draw the highlight on top of all geometry",
+        default=False,
+        update=_redraw_view3d,
     )
 
     # Negative Scale Overlay (iops.object_negative_scale_overlay)
@@ -1400,12 +1423,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
             if body is not None:
                 body.prop(self, "zfight_angle")
                 body.prop(self, "zfight_distance")
+                body.prop(self, "zfight_in_front")
 
             # Hidden Faces Overlay
             body = _section(column_main, self, "show_section_hidden_faces",
                             "Hidden Faces Overlay", icon="HIDE_ON")
             if body is not None:
                 body.prop(self, "hidden_faces_rays")
+                body.prop(self, "hidden_faces_in_front")
 
             # Negative Scale Overlay
             body = _section(column_main, self, "show_section_negative_scale",

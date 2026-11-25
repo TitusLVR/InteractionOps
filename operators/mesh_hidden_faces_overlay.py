@@ -10,11 +10,13 @@ against a mathutils BVHTree of the whole scope).
 
 Scope, reading and caching are the Z-Fight Overlay's
 (operators/mesh_zfight_overlay.py) — read that module's docstring first:
-- Object Mode: the selected visible mesh objects; with no mesh object
-  selected, every visible mesh object of the view layer.
-- Edit Mode: every mesh object in edit mode.
+- Object Mode: every mesh object visible in the reference 3D viewport (the
+  one the overlay was turned on in), selected or not; Local View and the
+  viewport's own hiding are respected.
+- Edit Mode: every mesh object in edit mode that is visible there.
 All scoped objects go into one world-space triangle soup, and every face of
-the soup occludes. The overlay NEVER touches the edit-bmesh: geometry comes
+the soup occludes. The fill is depth-tested unless the "In Front"
+preference is on (default off). The overlay NEVER touches the edit-bmesh: geometry comes
 from the EVALUATED mesh through `foreach_get` bulk copies only.
 
 The `Hidden: N` counter is a row in the iOps statistics overlay
@@ -36,8 +38,10 @@ from ..utils.overlay_select import report_selected, select_flagged
 from .mesh_nonplanar_overlay import DEPTH_SHRINK, _get_shader
 # Same scope, mesh reading and world soup as the Z-Fight overlay.
 from .mesh_zfight_overlay import (_same_content, _scope, _tag_redraw_view3d,
-                                  fill_geometry, mesh_arrays, original_items,
-                                  split_hits, world_soup)
+                                  context_view_space, fill_geometry,
+                                  find_view_space, in_front, mesh_arrays,
+                                  original_items, split_hits,
+                                  view_area_pointer, world_soup)
 
 FILL_ALPHA = 0.5
 MODES = ('OBJECT', 'EDIT_MESH')
@@ -55,6 +59,7 @@ _STATE = {
     "signature": None,      # inputs of the last detection run
     "cache": {},            # object as_pointer() -> local-space entry
     "cache_mode": None,     # mode the cache was read in
+    "view_area": None,      # as_pointer() of the reference 3D viewport area
 }
 
 _VERSION = [0]   # bumped whenever a cache entry gets new content
@@ -76,6 +81,11 @@ def _params() -> tuple:
         return (int(prefs.hidden_faces_rays),)
     except (KeyError, AttributeError):
         return (DEFAULT_RAYS,)
+
+
+def _overlay_scope(context) -> list:
+    """Scope in the viewport the overlay was turned on in."""
+    return _scope(context, find_view_space(_STATE["view_area"]))
 
 
 def _scope_key(context, objs) -> tuple:
@@ -180,7 +190,7 @@ def _collect(context, depsgraph=None):
     if _STATE["cache_mode"] != mode:
         _STATE["cache"] = {}
         _STATE["cache_mode"] = mode
-    objs = _scope(context)
+    objs = _overlay_scope(context)
     params = _params()
     _STATE["scope_key"] = _scope_key(context, objs)
     if not objs:
@@ -223,7 +233,7 @@ def _collect(context, depsgraph=None):
 def flagged_faces(context) -> dict:
     """{object: polygon indices of its original mesh} the hidden-face check
     flags in the current scope — for the Shift-click selection."""
-    objs = _scope(context)
+    objs = _scope(context, context_view_space(context))
     items = original_items(objs, context.mode == 'EDIT_MESH')
     if not items:
         return {}
@@ -298,8 +308,8 @@ def _schedule_collect():
 
 
 def _cache_stale(context) -> bool:
-    """Scope (mode, selection, visibility, objects) or prefs changed."""
-    return _scope_key(context, _scope(context)) != _STATE["scope_key"]
+    """Scope (mode, viewport visibility, objects) or prefs changed."""
+    return _scope_key(context, _overlay_scope(context)) != _STATE["scope_key"]
 
 
 def _build_batch():
@@ -333,7 +343,10 @@ def _draw_view():
     if _STATE["batch"] is None:
         return
     shader, batch = _STATE["batch"]
-    with draw_scope(blend='ALPHA', depth='LESS_EQUAL', depth_mask=False):
+    # "In Front" is read per redraw: no re-detection, no batch rebuild.
+    on_top = in_front("hidden_faces_in_front", False)
+    depth = 'ALWAYS' if on_top else 'LESS_EQUAL'
+    with draw_scope(blend='ALPHA', depth=depth, depth_mask=False):
         shader.bind()
         shader.uniform_float("viewMat", gpu.matrix.get_model_view_matrix())
         shader.uniform_float("projMat", gpu.matrix.get_projection_matrix())
@@ -366,15 +379,16 @@ def disable_overlay():
             lst.remove(_on_change)
     _STATE.update(handle_view=None, geom=None, batch_dirty=False,
                   batch=None, count=0, scope_key=None, signature=None,
-                  cache={}, cache_mode=None)
+                  cache={}, cache_mode=None, view_area=None)
 
 
 class IOPS_OT_MeshHiddenFacesOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of faces that cannot be seen from
     outside the model: faces inside a closed shell or buried in other
     geometry.
-    Object Mode checks the selected objects (all visible ones when nothing
-    is selected); Edit Mode checks every object being edited.
+    Object Mode checks every mesh object visible in the viewport (Local
+    View respected); Edit Mode checks every object being edited.
+    In Front draws the highlight on top of all geometry.
     Shift-click: select those faces instead (Object Mode selects their
     objects and marks the faces for Edit Mode)"""
     bl_idname = "iops.mesh_hidden_faces_overlay"
@@ -404,6 +418,7 @@ class IOPS_OT_MeshHiddenFacesOverlay(bpy.types.Operator):
             self.report({'INFO'}, "Hidden Faces overlay: OFF")
         else:
             _enable()
+            _STATE["view_area"] = view_area_pointer(context)
             _collect(context)
             self.report({'INFO'},
                         f"Hidden Faces overlay: ON "
