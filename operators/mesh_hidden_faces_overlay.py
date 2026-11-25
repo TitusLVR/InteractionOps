@@ -38,7 +38,7 @@ from mathutils.bvhtree import BVHTree
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
 from ..utils.hidden_faces_core import hidden_faces
-from ..utils.overlay_select import report_selected, select_flagged
+from ..utils.overlay_select import run_select
 # Same depth-shrink fill shader as the Non-Planar overlay.
 from .mesh_nonplanar_overlay import DEPTH_SHRINK, _get_shader
 # Same scope, mesh reading and world soup as the Z-Fight overlay.
@@ -221,7 +221,7 @@ def _collect(context, depsgraph=None) -> bool:
 
 def flagged_faces(context) -> dict:
     """{object: polygon indices of its original mesh} the hidden-face check
-    flags in the current scope — for the Shift-click selection."""
+    flags in the current scope — for the Select button."""
     objs = _scope(context, context_view_space(context))
     items = original_items(objs, context.mode == 'EDIT_MESH')
     if not items:
@@ -339,15 +339,29 @@ def disable_overlay():
                   cache={}, cache_mode=None, view_area=None)
 
 
+class IOPS_OT_MeshHiddenFacesSelect(bpy.types.Operator):
+    """Select the faces that cannot be seen from
+    outside the model, with the overlay on or off.
+    From Object Mode their objects enter Edit Mode with the faces selected"""
+    bl_idname = "iops.mesh_hidden_faces_select"
+    bl_label = "Select Hidden Faces"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in MODES
+
+    def execute(self, context):
+        return run_select(self, context, flagged_faces, "Hidden", MODES)
+
+
 class IOPS_OT_MeshHiddenFacesOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of faces that cannot be seen from
     outside the model: faces inside a closed shell or buried in other
     geometry.
     Object Mode checks every mesh object visible in the viewport (Local
     View respected); Edit Mode checks every object being edited.
-    In Front draws the highlight on top of all geometry.
-    Shift-click: select those faces instead (Object Mode selects their
-    objects and marks the faces for Edit Mode)"""
+    In Front draws the highlight on top of all geometry"""
     bl_idname = "iops.mesh_hidden_faces_overlay"
     bl_label = "Hidden Faces Overlay"
     bl_options = {"REGISTER"}
@@ -356,18 +370,6 @@ class IOPS_OT_MeshHiddenFacesOverlay(bpy.types.Operator):
     def poll(cls, context):
         # Enabling needs Object or Edit Mesh mode; disabling works anywhere.
         return overlay_enabled() or context.mode in MODES
-
-    def invoke(self, context, event):
-        if not event.shift:
-            return self.execute(context)
-        if context.mode not in MODES:
-            self.report({'WARNING'}, "Select hidden faces: Object or "
-                                     "Edit Mode only")
-            return {'CANCELLED'}
-        total = select_flagged(context, flagged_faces(context), "Hidden")
-        report_selected(self, total)
-        _tag_redraw_view3d(context)
-        return {'FINISHED'}
 
     def execute(self, context):
         if overlay_enabled():

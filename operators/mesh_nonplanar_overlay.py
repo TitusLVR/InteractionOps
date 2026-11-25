@@ -33,7 +33,7 @@ from gpu_extras.batch import batch_for_shader
 
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
-from ..utils.overlay_select import report_selected, select_flagged
+from ..utils.overlay_select import run_select
 from ..utils.planarity import (deviation_alpha, face_deviation_deg,
                                overlay_normal_offset)
 
@@ -168,7 +168,7 @@ def _nonplanar_hits(obj, me, threshold):
 
 def flagged_faces(context) -> dict:
     """{object: polygon indices of its original mesh} that are non-planar,
-    for every object in Edit Mode — for the Shift-click selection.
+    for every object in Edit Mode — for the Select button.
     Operator context only (syncs the edit-mesh to the mesh first)."""
     threshold = _threshold_deg()
     out = {}
@@ -362,10 +362,24 @@ def _tag_redraw_view3d(context):
             area.tag_redraw()
 
 
+class IOPS_OT_MeshNonPlanarSelect(bpy.types.Operator):
+    """Select the faces that are non-planar, with the overlay on or off.
+    Edit Mode, every object being edited"""
+    bl_idname = "iops.mesh_nonplanar_select"
+    bl_label = "Select Non-Planar Faces"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in ('EDIT_MESH',)
+
+    def execute(self, context):
+        return run_select(self, context, flagged_faces, "Non-Planar", ('EDIT_MESH',))
+
+
 class IOPS_OT_MeshNonPlanarOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of non-planar faces in Edit Mode.
-    Fill intensity scales with how far each face is from planar.
-    Shift-click: select the non-planar faces instead"""
+    Fill intensity scales with how far each face is from planar"""
     bl_idname = "iops.mesh_nonplanar_overlay"
     bl_label = "Non-Planar Faces Overlay"
     bl_options = {"REGISTER"}
@@ -375,17 +389,6 @@ class IOPS_OT_MeshNonPlanarOverlay(bpy.types.Operator):
         # Enabling needs an edit-mesh; disabling is allowed from anywhere.
         return overlay_enabled() or (context.mode == 'EDIT_MESH'
                                      and context.edit_object is not None)
-
-    def invoke(self, context, event):
-        if not event.shift:
-            return self.execute(context)
-        if context.mode != 'EDIT_MESH':
-            self.report({'WARNING'}, "Select non-planar faces: Edit Mode only")
-            return {'CANCELLED'}
-        total = select_flagged(context, flagged_faces(context), "Non-Planar")
-        report_selected(self, total)
-        _tag_redraw_view3d(context)
-        return {'FINISHED'}
 
     def execute(self, context):
         if overlay_enabled():

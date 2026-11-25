@@ -1,5 +1,7 @@
-"""Shift-click on an overlay toggle (Non-Planar, Z-Fight, Hidden Faces):
-select the faces the overlay would flag instead of toggling it.
+"""The Select button next to an overlay toggle (Non-Planar, Z-Fight, Hidden
+Faces): select the faces the overlay would flag, with the overlay on or off.
+From Object Mode the objects owning those faces are selected and taken into
+Edit Mode with the faces selected.
 
 The overlays draw the EVALUATED mesh; the selection works on the ORIGINAL
 mesh (no modifiers), whose polygon indices are the ones the user edits.
@@ -74,8 +76,10 @@ def _write_mesh_selection(me, indices):
 
 
 def _select_in_object_mode(context, flagged) -> int:
-    """Objects owning flagged faces become the selection; their flagged
-    faces are written as the mesh selection."""
+    """Objects owning flagged faces become the selection, their flagged
+    faces are written as the mesh selection, and the objects enter Edit
+    Mode in face select mode. Linked or overridden meshes cannot be edited
+    and are left out."""
     for obj in context.selected_objects:
         obj.select_set(False)
     total = 0
@@ -84,24 +88,31 @@ def _select_in_object_mode(context, flagged) -> int:
     for obj, indices in flagged.items():
         if not len(indices):
             continue
+        me = obj.data
+        if me.library is not None or me.override_library is not None:
+            continue
         owners.append(obj)
         total += len(indices)
         prev = by_mesh.get(obj.data)
         by_mesh[obj.data] = (indices if prev is None
                              else np.union1d(prev, indices))
     for me, indices in by_mesh.items():
-        if me.library is not None or me.override_library is not None:
-            continue   # linked or overridden data can't keep a selection
         _write_mesh_selection(me, np.asarray(indices, np.int64))
+    selected = []
     for obj in owners:
         try:
             obj.select_set(True)
         except RuntimeError:
-            pass   # not in the view layer
-    if owners:
-        active = context.view_layer.objects.active
-        if active not in owners:
-            context.view_layer.objects.active = owners[0]
+            continue   # not in the view layer
+        selected.append(obj)
+    if selected:
+        if context.view_layer.objects.active not in selected:
+            context.view_layer.objects.active = selected[0]
+        context.tool_settings.mesh_select_mode = (False, False, True)
+        try:
+            bpy.ops.object.mode_set(mode='EDIT')
+        except RuntimeError:
+            pass   # stays in Object Mode; the mesh selection is written
     return total
 
 
@@ -119,3 +130,18 @@ def select_flagged(context, flagged, label) -> int:
 def report_selected(op, total):
     noun = "face" if total == 1 else "faces"
     op.report({'INFO'}, f"{total} {noun} selected")
+
+
+def run_select(op, context, flagged_faces, label, modes):
+    """execute() of an overlay's Select operator: select what
+    `flagged_faces(context)` returns and report the count."""
+    if context.mode not in modes:
+        op.report({'WARNING'}, f"Select {label} Faces: wrong mode")
+        return {'CANCELLED'}
+    total = select_flagged(context, flagged_faces(context), label)
+    report_selected(op, total)
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+    return {'FINISHED'}

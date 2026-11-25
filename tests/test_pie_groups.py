@@ -57,6 +57,13 @@ def test_overlays_column_on_top_in_both_modes():
     assert ('"iops.mesh_hidden_faces_overlay": ("hidden_faces_rays", '
             '"hidden_faces_in_front")') in src
     assert '"iops.mesh_zfight_overlay": ("zfight_in_front",)' in src
+    assert ('"iops.mesh_hidden_faces_overlay": '
+            '"iops.mesh_hidden_faces_select"') in src
+    idnames = _source_idnames()
+    for name in ("nonplanar", "zfight", "hidden_faces"):
+        assert f"iops.mesh_{name}_select" in idnames
+        overlay = _read(os.path.join("operators", f"mesh_{name}_overlay.py"))
+        assert "event.shift" not in overlay
     prefs_src = _read(os.path.join("prefs", "addon_preferences.py"))
     for name in ("zfight_in_front", "hidden_faces_in_front"):
         assert f"{name}: BoolProperty(" in prefs_src

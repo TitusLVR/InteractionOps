@@ -54,7 +54,7 @@ from gpu_extras.batch import batch_for_shader
 from ..ui.draw import (Role, draw_scope, get_theme,
                        safe_handler_add, safe_handler_remove)
 from ..utils.planarity import overlay_normal_offset
-from ..utils.overlay_select import report_selected, select_flagged
+from ..utils.overlay_select import run_select
 from ..utils.zfight_core import (candidate_pairs, cross_pair_faces,
                                  degenerate_floor, tri_double_areas,
                                  triangle_boxes, zfight_faces)
@@ -223,7 +223,7 @@ def mesh_arrays(me, edit_mode) -> dict:
     """Local-space arrays of a plain Mesh via foreach_get: n_poly, co,
     tri_verts, tri_poly, normals, visible (n_poly 0 and nothing else for an
     empty mesh). Shared by the overlays (evaluated mesh) and by their
-    Shift-click selection (original mesh)."""
+    Select button (original mesh)."""
     n_poly = len(me.polygons)
     if n_poly == 0 or len(me.vertices) == 0:
         return {"n_poly": 0}
@@ -336,7 +336,7 @@ def split_hits(hits, objs_items, soup):
 
 def flagged_faces(context) -> dict:
     """{object: polygon indices of its original mesh} the Z-Fight check
-    flags in the current scope — for the Shift-click selection."""
+    flags in the current scope — for the Select button."""
     objs = _scope(context, context_view_space(context))
     edit_mode = context.mode == 'EDIT_MESH'
     items = original_items(objs, edit_mode)
@@ -854,15 +854,28 @@ def _tag_redraw_view3d(context):
                 area.tag_redraw()
 
 
+class IOPS_OT_MeshZFightSelect(bpy.types.Operator):
+    """Select the faces that z-fight, with the overlay on or off.
+    From Object Mode their objects enter Edit Mode with the faces selected"""
+    bl_idname = "iops.mesh_zfight_select"
+    bl_label = "Select Z-Fighting Faces"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in MODES
+
+    def execute(self, context):
+        return run_select(self, context, flagged_faces, "Z-Fighting", MODES)
+
+
 class IOPS_OT_MeshZFightOverlay(bpy.types.Operator):
     """Toggle a real-time highlight of faces that z-fight: faces that lie
     in the same plane, face the same way and overlap, inside one object or
     between objects.
     Object Mode checks every mesh object visible in the viewport (Local
     View respected); Edit Mode checks every object being edited.
-    In Front draws the highlight on top of all geometry.
-    Shift-click: select those faces instead (Object Mode selects their
-    objects and marks the faces for Edit Mode)"""
+    In Front draws the highlight on top of all geometry"""
     bl_idname = "iops.mesh_zfight_overlay"
     bl_label = "Z-Fight Overlay"
     bl_options = {"REGISTER"}
@@ -871,18 +884,6 @@ class IOPS_OT_MeshZFightOverlay(bpy.types.Operator):
     def poll(cls, context):
         # Enabling needs Object or Edit Mesh mode; disabling works anywhere.
         return overlay_enabled() or context.mode in MODES
-
-    def invoke(self, context, event):
-        if not event.shift:
-            return self.execute(context)
-        if context.mode not in MODES:
-            self.report({'WARNING'}, "Select z-fighting faces: Object or "
-                                     "Edit Mode only")
-            return {'CANCELLED'}
-        total = select_flagged(context, flagged_faces(context), "Z-Fighting")
-        report_selected(self, total)
-        _tag_redraw_view3d(context)
-        return {'FINISHED'}
 
     def execute(self, context):
         if overlay_enabled():

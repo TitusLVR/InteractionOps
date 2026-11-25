@@ -15,14 +15,25 @@ DEPRESS_STATE = {
     "iops.object_negative_scale_overlay": negative_scale_overlay_enabled,
 }
 
-# Addon preferences drawn as fields on the same row, right of the button.
+# Addon preferences drawn on the same row, right of the button: a bool as
+# an icon toggle, a number as a narrow field without its label.
 BESIDE_PREF = {
     "iops.mesh_zfight_overlay": ("zfight_in_front",),
     "iops.mesh_hidden_faces_overlay": ("hidden_faces_rays", "hidden_faces_in_front"),
 }
-# Width of a number field and of a checkbox with its label, in UI units.
-_BESIDE_PREF_WIDTH = 4.5
-_BESIDE_CHECKBOX_WIDTH = 3.5
+# Operator drawn as an icon button on the same row, after the fields.
+BESIDE_OP = {
+    "iops.mesh_nonplanar_overlay": "iops.mesh_nonplanar_select",
+    "iops.mesh_zfight_overlay": "iops.mesh_zfight_select",
+    "iops.mesh_hidden_faces_overlay": "iops.mesh_hidden_faces_select",
+}
+_BESIDE_OP_ICON = "RESTRICT_SELECT_OFF"
+_BESIDE_PREF_ICON = {
+    "zfight_in_front": "XRAY",
+    "hidden_faces_in_front": "XRAY",
+}
+# Width of a number field, in UI units.
+_BESIDE_PREF_WIDTH = 2.5
 
 # Diagonal pie slots overlap the side columns, so the diagonal groups are
 # drawn as extra columns of the top / bottom panel instead.
@@ -134,25 +145,34 @@ def draw_group(col, group):
             for cell, (idname, text, props) in zip(_even_cells(target, len(row)), row):
                 state = DEPRESS_STATE.get(idname)
                 names = BESIDE_PREF.get(idname, ())
-                target_line = cell.row(align=True) if names else cell
+                beside_op = BESIDE_OP.get(idname)
+                target_line = (cell.row(align=True) if names or beside_op
+                               else cell)
                 btn = op_if_poll(target_line, idname, text=text,
                                  depress=state() if state else None, **props)
                 if btn is not None:
                     for name in names:
                         _draw_beside_pref(target_line, name)
+                    if beside_op:
+                        op_if_poll(target_line, beside_op, text="",
+                                   icon=_BESIDE_OP_ICON)
 
 
 def _draw_beside_pref(line, name):
-    """Addon preference `name` as a narrow field at the end of `line`: a
-    checkbox with its label for a bool, a number field otherwise."""
+    """Addon preference `name` at the end of `line`: an icon toggle for a
+    bool, a narrow number field without its label otherwise (the tooltip
+    names it)."""
     addon = bpy.context.preferences.addons.get("InteractionOps")
     prefs = getattr(addon, "preferences", None)
     if prefs is None or not hasattr(prefs, name):
         return
-    is_bool = isinstance(getattr(prefs, name), bool)
+    if isinstance(getattr(prefs, name), bool):
+        line.prop(prefs, name, text="", toggle=True,
+                  icon=_BESIDE_PREF_ICON.get(name, "CHECKMARK"))
+        return
     field = line.row(align=True)
-    field.ui_units_x = _BESIDE_CHECKBOX_WIDTH if is_bool else _BESIDE_PREF_WIDTH
-    field.prop(prefs, name)
+    field.ui_units_x = _BESIDE_PREF_WIDTH
+    field.prop(prefs, name, text="")
 
 
 def _even_cells(layout, count):

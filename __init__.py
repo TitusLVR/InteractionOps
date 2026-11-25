@@ -423,9 +423,12 @@ from .ui.iops_selection_sets_panel import (
 )
 
 from .operators.mesh_visual_uv import IOPS_OT_MeshVisualUV
-from .operators.mesh_nonplanar_overlay import IOPS_OT_MeshNonPlanarOverlay
-from .operators.mesh_zfight_overlay import IOPS_OT_MeshZFightOverlay
-from .operators.mesh_hidden_faces_overlay import IOPS_OT_MeshHiddenFacesOverlay
+from .operators.mesh_nonplanar_overlay import (
+    IOPS_OT_MeshNonPlanarOverlay, IOPS_OT_MeshNonPlanarSelect)
+from .operators.mesh_zfight_overlay import (
+    IOPS_OT_MeshZFightOverlay, IOPS_OT_MeshZFightSelect)
+from .operators.mesh_hidden_faces_overlay import (
+    IOPS_OT_MeshHiddenFacesOverlay, IOPS_OT_MeshHiddenFacesSelect)
 from .operators.object_negative_scale_overlay import IOPS_OT_ObjectNegativeScaleOverlay
 from .operators import mesh_attribute_editor as _attr_editor
 from .ui import iops_attribute_panel as _attr_panel
@@ -816,8 +819,11 @@ classes = (
     IOPS_OT_mesh_extrude_ex,
     IOPS_OT_MeshVisualUV,
     IOPS_OT_MeshNonPlanarOverlay,
+    IOPS_OT_MeshNonPlanarSelect,
     IOPS_OT_MeshZFightOverlay,
+    IOPS_OT_MeshZFightSelect,
     IOPS_OT_MeshHiddenFacesOverlay,
+    IOPS_OT_MeshHiddenFacesSelect,
     IOPS_OT_ObjectNegativeScaleOverlay,
     IOPS_OT_Mesh_UV_Shortest_Mark,
     IOPS_OT_Mesh_UV_Stripe,
