@@ -1136,6 +1136,24 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "shelf changes it",
         default=72, min=40, max=256,
     )
+    materials_shelf_align: EnumProperty(
+        name="Shelf Materials Alignment",
+        description="Where the materials sit in the iOps shelf",
+        items=(
+            ("LEFT", "Left", "From the left edge"),
+            ("CENTER", "Center", "Each row centred"),
+            ("RIGHT", "Right", "Up to the right edge"),
+        ),
+        default="CENTER",
+        update=_materials_redraw_update,
+    )
+    materials_shelf_width: IntProperty(
+        name="Shelf Width",
+        description="Width of the iOps shelf as a share of the viewport "
+                    "width; a narrower shelf is centred",
+        default=100, min=20, max=100, subtype="PERCENTAGE",
+        update=_materials_redraw_update,
+    )
     materials_shelf_tools_direction: EnumProperty(
         name="Shelf Tools",
         description="Lay out the iOps shelf's tool icons as one row "
@@ -1707,6 +1725,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.prop(self, "materials_shelf_height")
                 col.prop(self, "materials_shelf_thumbnail")
                 col.prop(self, "materials_highlight_hover")
+                col.prop(self, "materials_shelf_width")
+                col.row(align=True).prop(self, "materials_shelf_align",
+                                         expand=True)
                 row = col.row(align=True)
                 row.prop(self, "materials_shelf_tools_direction",
                          expand=True)

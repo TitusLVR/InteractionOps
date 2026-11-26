@@ -279,3 +279,44 @@ def test_loops_close_and_fit_snaps_to_pixel_centres():
 def test_glyphs_differ():
     shapes = {name: repr(glyphs.GLYPHS[name]) for name in glyphs.TOOLS}
     assert len(set(shapes.values())) == len(shapes)
+
+
+def test_tool_order_new_first_menu_last():
+    lay = layout(show_empty=True, position="LEFT")
+    xs = [lay.tools[n].x for n in TOOL_NAMES]
+    assert xs == sorted(xs)
+    assert TOOL_NAMES[0] == "new" and TOOL_NAMES[1] == "search"
+    assert TOOL_NAMES[-1] == "functions"
+
+
+def test_cells_align_left_centre_right():
+    def first_x(align):
+        lay = compute_layout(1000, 600, NO_INSETS, 200, 64, 3, 0, 1.0,
+                             False, "ROW", "RIGHT", align, 100)
+        return lay, lay.cells[0].rect.x, lay.cells[-1].rect
+
+    lay, left, _ = first_x("LEFT")
+    assert left == lay.grid.x
+    lay, mid, last = first_x("CENTER")
+    free_left = mid - lay.grid.x
+    free_right = lay.grid.x + lay.grid.w - (last.x + last.w)
+    assert abs(free_left - free_right) <= 1 and free_left > 0
+    lay, _, last = first_x("RIGHT")
+    assert abs(last.x + last.w - (lay.grid.x + lay.grid.w)) <= 1
+
+
+def test_shelf_width_percent_is_centred():
+    full = compute_layout(1000, 600, NO_INSETS, 200, 64, 3, 0, 1.0, False,
+                          "ROW", "RIGHT", "LEFT", 100)
+    half = compute_layout(1000, 600, NO_INSETS, 200, 64, 3, 0, 1.0, False,
+                          "ROW", "RIGHT", "LEFT", 50)
+    assert abs(half.shelf.w - full.shelf.w / 2) <= 1
+    mid = full.shelf.x + full.shelf.w / 2
+    assert abs(half.shelf.x + half.shelf.w / 2 - mid) <= 1
+    # every tool and cell stays inside the narrowed shelf
+    for r in list(half.tools.values()) + [c.rect for c in half.cells]:
+        assert r.x >= half.shelf.x and r.x + r.w <= half.shelf.x + half.shelf.w
+    # out-of-range values are clamped, not an error
+    tiny = compute_layout(1000, 600, NO_INSETS, 200, 64, 3, 0, 1.0, False,
+                          "ROW", "RIGHT", "LEFT", 5)
+    assert tiny.shelf.w >= full.shelf.w * 0.2 - 1

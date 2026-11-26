@@ -388,6 +388,47 @@ _EVENTS = (
 )
 
 
+MODE_KEYMAPS = ("Object Mode", "Mesh", "Curve", "Curves", "Armature",
+                "Metaball", "Lattice", "Font")
+
+
+def _new_mode_item(km):
+    return km.keymap_items.new(IOPS_OT_material_shelf_event.bl_idname,
+                               "LEFTMOUSE", "PRESS", any=True)
+
+
+def ensure_mode_priority():
+    """Keep the shelf's press the last item of each mode keymap of the
+    add-on keyconfig. Blender merges add-on items into the active keymap
+    last-added-first, so the last one is the first to see an event; an
+    add-on registered later (its Alt+click select, say) would otherwise
+    take clicks on the shelf. Returns the number of items moved."""
+    moved = 0
+    for i, (km, kmi) in enumerate(_KMI):
+        if km.name not in MODE_KEYMAPS:
+            continue
+        try:
+            items = km.keymap_items
+            if len(items) and items[len(items) - 1] == kmi:
+                continue
+            items.remove(kmi)
+        except (ReferenceError, RuntimeError):
+            pass
+        _KMI[i] = (km, _new_mode_item(km))
+        moved += 1
+    if moved:
+        bpy.context.window_manager.keyconfigs.update()
+    return moved
+
+
+def _priority_tick():
+    try:
+        ensure_mode_priority()
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
+    return None
+
+
 def register_keymap():
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None or _KMI:
@@ -395,8 +436,18 @@ def register_keymap():
     km = kc.keymaps.new("3D View", space_type="VIEW_3D")
     for etype, value in _EVENTS:
         kmi = km.keymap_items.new(IOPS_OT_material_shelf_event.bl_idname,
-                                  etype, value, any=True)
+                                  etype, value, any=True, head=True)
         _KMI.append((km, kmi))
+    # Mode keymaps are handled before "3D View": another add-on's
+    # Alt+LMB press in "Mesh" (a loop / group select) would take a click on
+    # the shelf first, so the press is in each mode keymap too. Outside the
+    # strip it passes through and those tools keep working.
+    for name in MODE_KEYMAPS:
+        km = kc.keymaps.new(name, space_type="EMPTY")
+        _KMI.append((km, _new_mode_item(km)))
+    if not bpy.app.background and             not bpy.app.timers.is_registered(_priority_tick):
+        # add-ons registered after this one put their items behind ours
+        bpy.app.timers.register(_priority_tick, first_interval=1.0)
     # merge the new addon items into the active keymaps now, not at the
     # next keyconfig refresh (otherwise the first events miss them)
     bpy.context.window_manager.keyconfigs.update()
@@ -404,6 +455,8 @@ def register_keymap():
 
 def unregister_keymap():
     cancel_tooltip_timer()
+    if bpy.app.timers.is_registered(_priority_tick):
+        bpy.app.timers.unregister(_priority_tick)
     for km, kmi in _KMI:
         try:
             km.keymap_items.remove(kmi)

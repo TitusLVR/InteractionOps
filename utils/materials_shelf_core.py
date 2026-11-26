@@ -26,8 +26,10 @@ DRAG_THRESHOLD = 6
 DIRECTIONS = ("ROW", "COLUMN")
 POSITIONS = ("LEFT", "CENTER", "RIGHT")
 # toolbar order; "empty" only while there are empty slots
-TOOL_NAMES = ("functions", "new", "search", "src_SCENE", "src_SELECTED",
-              "src_FILE", "empty")
+TOOL_NAMES = ("new", "search", "src_SCENE", "src_SELECTED", "src_FILE",
+              "empty", "functions")
+ALIGNS = ("LEFT", "CENTER", "RIGHT")
+WIDTH_MIN = 20
 
 
 def contains(r, x, y):
@@ -119,12 +121,14 @@ def toolbar(names, x0, x1, top, bottom, scale=1.0, direction="ROW",
 
 def compute_layout(region_w, region_h, insets, height, thumb, count,
                    scroll=0, scale=1.0, show_empty=False, direction="ROW",
-                   position="RIGHT"):
+                   position="RIGHT", align="LEFT", width_pct=100):
     """Layout of the shelf in a region of `region_w` x `region_h` with
     `insets` = (left, right, top, bottom) hidden under overlapping regions.
     `count` cells, `scroll` in pixels from the top of the cell grid,
     toolbar per `direction` (ROW / COLUMN) and `position` (LEFT / CENTER /
-    RIGHT)."""
+    RIGHT). `align` places each row of cells at the left, centre or right
+    of the grid; `width_pct` narrows the shelf to that share of the usable
+    width, centred."""
     s = scale
     if direction not in DIRECTIONS:
         direction = "ROW"
@@ -134,8 +138,14 @@ def compute_layout(region_w, region_h, insets, height, thumb, count,
     thumb = clamp_thumb(thumb)
     usable_h = region_h - top - bottom
     h = clamp_height(height, thumb, usable_h, s, direction=direction)
+    if align not in ALIGNS:
+        align = "LEFT"
     x0 = left + MARGIN * s
     x1 = region_w - right - MARGIN * s
+    pct = max(WIDTH_MIN, min(100, width_pct)) / 100.0
+    if pct < 1.0:
+        cut = (x1 - x0) * (1.0 - pct) / 2
+        x0, x1 = x0 + cut, x1 - cut
     y0 = bottom
     shelf = Rect(x0, y0, max(0, x1 - x0), h)
     edge = Rect(x0, y0 + h - EDGE_H * s, shelf.w, EDGE_H * s)
@@ -175,7 +185,12 @@ def compute_layout(region_w, region_h, insets, height, thumb, count,
     stop = min(count, (first_row + rows_visible) * cols)
     for i in range(start, stop):
         r, c = divmod(i, cols)
-        cx = gx0 + c * cell_w
+        # each row is aligned by its own number of cells
+        in_row = min(cols, count - r * cols)
+        free = max(0.0, grid.w - in_row * cell_w)
+        shift = 0.0 if align == "LEFT" else (
+            free if align == "RIGHT" else free / 2)
+        cx = gx0 + int(shift) + c * cell_w
         ctop = gy1 - (r - first_row) * cell_h
         rect = Rect(cx, ctop - cell_h, cell_w, cell_h)
         g = GAP * s / 2

@@ -104,6 +104,8 @@ In *Preferences › iOps › Materials*:
 - **Shelf Height**, **Shelf Thumbnail Size** — the iOps shelf's height and preview size in pixels (also changed by dragging its top edge and by <kbd>Ctrl</kbd>+wheel over it).
 - **Highlight On Hover** — highlight the faces of the material under the mouse in the iOps shelf (default on).
 - **Shelf Tools** — Row (default): the icons in one row at the top of the shelf, the materials below using its full width; Column: the icons in one column at the left or right edge, wrapping into another column when the shelf is too short for all of them.
+- **Shelf Width** — width of the shelf as a share of the viewport width (20–100 %); a narrower shelf is centred.
+- **Shelf Materials Alignment** — Left, Center (default) or Right: where each row of materials sits in the shelf.
 - **Shelf Tools Position** — Left, Center (default) or Right. A column goes to the left edge with Left, to the right edge with Center or Right.
 - **Library** — the Blender asset library whose materials the shelf shows; empty shows all libraries. The folder button picks a folder and registers it as an asset library (this changes your Blender Preferences, *File Paths › Asset Libraries*); a folder already registered is only selected.
 - **Import** — Append (Reuse) or Link, for library assets the shelf assigns.

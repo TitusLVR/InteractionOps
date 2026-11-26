@@ -1098,7 +1098,8 @@ def test_prefs_json_roundtrip():
              "materials_shelf_height": 230, "materials_shelf_thumbnail": 96,
              "materials_highlight_hover": False,
              "materials_shelf_tools_direction": "COLUMN",
-             "materials_shelf_tools_position": "LEFT"}
+             "materials_shelf_tools_position": "LEFT",
+             "materials_shelf_align": "RIGHT", "materials_shelf_width": 60}
     original = {k: getattr(prefs, k) for k in saved}
     try:
         for k, v in saved.items():
@@ -1311,11 +1312,25 @@ def test_shelf_unregister_is_clean():
     timer and textures are gone; enable it again afterwards."""
     from InteractionOps.ui.materials_shelf import draw, events, highlight, thumbs
     assert draw.handler_installed() and highlight.handler_installed()
-    assert events.keymap_item_count() == 5
+    assert events.keymap_item_count() == 5 + len(events.MODE_KEYMAPS)
     kc = bpy.context.window_manager.keyconfigs.addon
     km = kc.keymaps["3D View"]
     assert sum(k.idname == "iops.material_shelf_event"
                for k in km.keymap_items) == 5
+    # the press is also in each mode keymap, and moves back to the last
+    # place (first to see events) when another add-on registers after it
+    for name in events.MODE_KEYMAPS:
+        assert any(k.idname == "iops.material_shelf_event"
+                   for k in kc.keymaps[name].keymap_items), name
+    mesh = kc.keymaps["Mesh"]
+    rival = mesh.keymap_items.new("mesh.loop_select", "LEFTMOUSE", "PRESS",
+                                  alt=True)
+    assert mesh.keymap_items[-1].idname == "mesh.loop_select"
+    assert events.ensure_mode_priority() == 1
+    assert mesh.keymap_items[-1].idname == "iops.material_shelf_event"
+    assert events.ensure_mode_priority() == 0
+    mesh.keymap_items.remove(rival)
+    assert events.keymap_item_count() == 5 + len(events.MODE_KEYMAPS)
     bpy.ops.preferences.addon_disable(module=ADDON)
     assert not draw.handler_installed() and not highlight.handler_installed()
     assert events.keymap_item_count() == 0
@@ -1323,6 +1338,9 @@ def test_shelf_unregister_is_clean():
     assert thumbs.texture_count() == 0
     assert not any(k.idname == "iops.material_shelf_event"
                    for k in km.keymap_items)
+    for name in events.MODE_KEYMAPS:
+        assert not any(k.idname == "iops.material_shelf_event"
+                       for k in kc.keymaps[name].keymap_items), name
     assert thumbs._on_load not in bpy.app.handlers.load_post
     assert not bpy.app.timers.is_registered(events._tooltip_redraw)
     bpy.ops.preferences.addon_enable(module=ADDON)

@@ -115,7 +115,8 @@ def compute(context, area, region, show_empty=None):
         prefs.materials_shelf_thumbnail,
         len(rows), STATE["scroll"].get(key, 0), ui_scale(context),
         show_empty, prefs.materials_shelf_tools_direction,
-        prefs.materials_shelf_tools_position)
+        prefs.materials_shelf_tools_position,
+        prefs.materials_shelf_align, prefs.materials_shelf_width)
     STATE["scroll"][key] = lay.scroll
     return lay, rows, by_key
 
@@ -136,6 +137,10 @@ def tag_redraw_all(context=None):
 def toggle_visible(context):
     STATE["visible"] = not STATE["visible"]
     STATE["hover"] = STATE["hover_key"] = None
+    if STATE["visible"]:
+        # an add-on enabled since start-up may have gone ahead of the shelf
+        from . import events
+        events.ensure_mode_priority()
     tag_redraw_all(context)
     return STATE["visible"]
 
