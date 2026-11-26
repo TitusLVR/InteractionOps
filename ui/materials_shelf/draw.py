@@ -2,12 +2,14 @@
 cells (preview, name, duplicate and user badges, active / hover marks),
 scroll bar and the drag ghost. Everything goes through ui/draw primitives
 and HUD text in theme roles."""
+import time
+
 import bpy
 import gpu
 
 from ...operators.materials import common, state
-from ...utils import materials_core as mcore
 from ...utils import materials_shelf_core as core
+from ...utils import materials_shelf_glyphs as glyphs
 from ..draw import Role, draw_scope, get_theme, primitives, \
     safe_handler_add, safe_handler_remove
 from ..hud import text as hud_text
@@ -16,25 +18,31 @@ from . import STATE, compute, shelf_active, shelf_region, thumbs
 TOKEN = "hud_label"
 _HANDLE = {"pixel": None}
 
-TOOL_TEXT = {
-    "src_SCENE": "Scene", "src_SELECTED": "Selected", "src_FILE": "File",
-}
 
 
-def _glyph(name, r, theme, color, scale):
-    """The menu (three lines) and new (plus) marks, as thin rects."""
-    t = max(1.0, round(scale))
-    cx, cy = r.x + r.w / 2, r.y + r.h / 2
-    half = round(r.h * 0.26)
-    if name == "functions":
-        for dy in (-half * 0.75, 0, half * 0.75):
-            primitives.rect_2d(cx - half, round(cy + dy - t / 2), 2 * half, t,
-                               color=color, theme=theme)
-    else:
-        primitives.rect_2d(cx - half, round(cy - t / 2), 2 * half, t,
-                           color=color, theme=theme)
-        primitives.rect_2d(round(cx - t / 2), cy - half, t, 2 * half,
-                           color=color, theme=theme)
+def _icon(name, r, theme, color, scale):
+    """Stroke glyph `name` (utils/materials_shelf_glyphs.py) into button
+    `r`: hairlines of about 1 px at 1.0 UI scale, anti-aliased."""
+    width = max(1.0, scale)
+    inset = round(2 * scale)
+    bx, by = round(r.x + inset), round(r.y + inset)
+    bs = round(r.w - 2 * inset)
+    lines, curves, dots = glyphs.strokes(name, segments=max(16, int(bs)))
+    for poly in lines:
+        primitives.polyline(glyphs.fit(poly, bx, by, bs), color=color,
+                            width=width, theme=theme)
+    for poly in curves:
+        primitives.polyline(glyphs.fit(poly, bx, by, bs, snap=False),
+                            color=color, width=width, theme=theme)
+    for cx, cy, rad in dots:
+        ring = glyphs.circle_points(cx, cy, rad, 12)[:-1]
+        c = (bx + cx * bs, by + cy * bs)
+        tris = []
+        for i in range(len(ring)):
+            p, q = ring[i], ring[(i + 1) % len(ring)]
+            tris += [c, (bx + p[0] * bs, by + p[1] * bs),
+                     (bx + q[0] * bs, by + q[1] * bs)]
+        primitives.tris(tris, color=color, theme=theme)
 
 
 def _blend():
@@ -74,8 +82,9 @@ def _text_in(text, r, theme, color, align="center", pad=4):
     _blend()
 
 
-def _button(r, text, theme, *, on=False, hot=False, alert=False):
-    # borderless buttons: a quiet translucent fill, tinted when on / hot
+def _plate(r, theme, *, on=False, hot=False, alert=False):
+    """Borderless button background: a faint fill, a soft accent plate on
+    hover, a slightly stronger one when on. No outlines."""
     bg = theme.hud.bg_color
     accent = theme.color_for(Role.ERROR_LINE if alert else
                              Role.HUD_ACTIVE_VALUE)
@@ -86,11 +95,7 @@ def _button(r, text, theme, *, on=False, hot=False, alert=False):
     else:
         # just enough to read as a button over any scene
         fill = _alpha(theme.color_for(Role.HUD_LABEL), 0.08)
-    primitives.rect_2d(r.x + 1, r.y + 1, r.w - 2, r.h - 2, color=fill,
-                       theme=theme)
-    color = theme.color_for(Role.HUD_STATS_ERROR if alert else
-                            (Role.HUD_ACTIVE_VALUE if on else Role.HUD_LABEL))
-    _text_in(text, r, theme, color)
+    primitives.rect_2d(r.x, r.y, r.w, r.h, color=fill, theme=theme)
 
 
 def _badge(r, text, theme, color, hot=False):
@@ -103,24 +108,67 @@ def _badge(r, text, theme, color, hot=False):
 
 def _draw_tools(context, lay, theme, hover_tool):
     st = state.get_state(context)
+    label = theme.color_for(Role.HUD_LABEL)
+    accent = theme.color_for(Role.HUD_ACTIVE_VALUE)
     for name, r in lay.tools.items():
         hot = name == hover_tool
-        if name.startswith("src_"):
-            _button(r, TOOL_TEXT[name], theme, on=st.source == name[4:],
-                    hot=hot)
-        elif name == "search":
-            text = st.search or "Search"
-            _button(r, text, theme, on=bool(st.search), hot=hot)
-        elif name in {"functions", "new"}:
-            _button(r, "", theme, hot=hot)
-            _glyph(name, r, theme, theme.color_for(
-                Role.HUD_ACTIVE_VALUE if hot else Role.HUD_LABEL), lay.scale)
-        elif name == "empty":
+        if name == "empty":
+            alert = theme.color_for(Role.HUD_STATS_ERROR)
+            _plate(r, theme, hot=hot, alert=True)
+            _blend()
+            _icon(name, r, theme, alert, lay.scale)
             n = state.empty_slot_count(context)
-            _button(r, f"{mcore.plural(n, 'empty slot')}  Remove", theme,
-                    alert=True, hot=hot)
+            _small_text(core.short_count(n), r, theme, alert, lay.scale)
+            continue
+        if name.startswith("src_"):
+            on = st.source == name[4:]
+        elif name == "search":
+            on = bool(st.search)
         else:
-            _button(r, TOOL_TEXT[name], theme, hot=hot)
+            on = False
+        _plate(r, theme, on=on, hot=hot)
+        _blend()
+        _icon(name, r, theme, accent if on or hot else label, lay.scale)
+
+
+def _small_text(text, r, theme, color, scale):
+    size = max(7, int(round(9 * scale)))
+    w, _ = hud_text.measure(text, theme=theme, size_px=size)
+    cap = hud_text.measure("8", theme=theme, size_px=size)[1]
+    hud_text.draw(text, int(r.x + (r.w - w) / 2 + 0.5),
+                  int(r.y + (r.h - cap) / 2 + 0.5), theme=theme, color=color,
+                  size_px=size)
+    _blend()
+
+
+def _draw_tooltip(context, lay, theme, name):
+    from .events import TOOLTIP_DELAY
+    if time.monotonic() - STATE.get("hover_since", 0.0) < TOOLTIP_DELAY:
+        return
+    r = lay.tools.get(name)
+    if r is None:
+        return
+    st = state.get_state(context)
+    text = core.tooltip_text(name, st.source, st.search,
+                             state.empty_slot_count(context))
+    if not text:
+        return
+    w, _ = hud_text.measure(text, theme=theme, size_token=TOKEN)
+    cap = hud_text.measure("X", theme=theme, size_token=TOKEN)[1]
+    pad = 5 * lay.scale
+    region = context.region
+    tip = core.tooltip_rect(r, w + 2 * pad, cap + 2 * pad, region.width,
+                            region.height)
+    # the HUD background darkened: the plain HUD grey can equal the
+    # viewport's, which leaves the tooltip without a visible plate
+    plate = _mix(theme.hud.bg_color, (0.0, 0.0, 0.0, 1.0), 0.45)
+    primitives.rect_2d(tip.x, tip.y, tip.w, tip.h, color=_alpha(plate, 0.92),
+                       theme=theme)
+    _frame(tip, _alpha(theme.color_for(Role.HUD_LABEL), 0.14), theme,
+           lay.scale)
+    hud_text.draw(text, int(tip.x + pad), int(tip.y + pad), theme=theme,
+                  color=theme.color_for(Role.HUD_LABEL), size_token=TOKEN)
+    _blend()
 
 
 def _draw_cells(context, lay, rows, by_key, theme, hover):
@@ -237,6 +285,8 @@ def _draw_pixel():
                      theme.color_for(Role.HUD_LABEL_INACTIVE))
         _draw_cells(context, lay, rows, by_key, theme, hover_here)
         _draw_scrollbar(lay, theme)
+        if hover_tool not in (None, "resize") and not STATE["drag"]:
+            _draw_tooltip(context, lay, theme, hover_tool)
         _draw_ghost(context, theme)
 
 

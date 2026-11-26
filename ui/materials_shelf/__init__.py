@@ -29,6 +29,7 @@ STATE = {
     "scroll": {},        # area pointer -> scroll px
     "hover": None,       # (area pointer, cell index, hit kind)
     "hover_key": None,   # material key of the hovered cell
+    "hover_since": 0.0,  # time the hover target last changed
     "drag": None,        # dict while a cell is dragged
 }
 
@@ -113,7 +114,8 @@ def compute(context, area, region, show_empty=None):
         prefs.materials_shelf_height * ui_scale(context),
         prefs.materials_shelf_thumbnail,
         len(rows), STATE["scroll"].get(key, 0), ui_scale(context),
-        show_empty)
+        show_empty, prefs.materials_shelf_tools_direction,
+        prefs.materials_shelf_tools_position)
     STATE["scroll"][key] = lay.scroll
     return lay, rows, by_key
 

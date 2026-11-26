@@ -267,6 +267,35 @@ addon-drawn strip; the native shelf stays as "Library Shelf".
   default 150), `materials_shelf_thumbnail` (px, default 72),
   `materials_highlight_hover` (default on).
 
+## Shelf toolbar icons (built)
+
+The iOps shelf's tools are square icon buttons without labels: Functions,
+New, Search, Scene, Selected, File, plus an empty-slots button (slot mark
+and count) that exists only while there are empty slots.
+
+- Glyphs: normalised strokes in a 0..1 box in
+  `utils/materials_shelf_glyphs.py` (lines, closed loops, circles, dots),
+  pytest-checked; drawn as anti-aliased hairlines of max(1, UI scale) px
+  through `primitives.polyline`, which now takes a pixel width as well as
+  a theme token. Straight strokes snap to pixel centres; circles do not.
+  The repo had no icon system: only the widget title bar's pen and close
+  marks (`ui/widgets/panel.py`), pure rect-fitted geometry, which set the
+  pattern.
+- Layout (`utils/materials_shelf_core.toolbar`): Row = one row at the top
+  of the shelf, aligned left / centre / right, the cell grid under it at
+  full width; Column = one column at the left or right edge (Center =
+  right), wrapping column-first when the shelf is too short, the grid
+  beside it at full height. Minimum height: Row = toolbar + one cell row,
+  Column = one cell row.
+- States: the current source and an active search get the accent glyph on
+  a stronger plate; hover gives the soft plate; no outlines.
+- Tooltips: after 0.4 s at rest on an icon (a one-shot timer asks for the
+  redraw), a one-line label on a darkened HUD plate with a faint hairline,
+  above the icon or below it when there is no room, clamped to the region.
+- Preferences (three places): `materials_shelf_tools_direction` (Row /
+  Column, default Row), `materials_shelf_tools_position` (Left / Center /
+  Right, default Center).
+
 ## Stage 3 (planned, not built)
 
 A viewport eyedropper (pick the material under the cursor, click to apply

@@ -15,6 +15,8 @@ Clicks run the existing operators (iops.material_assign,
 iops.materials_merge_duplicates, iops.materials_select_users,
 iops.material_new, ...), so undo and reports match the panel.
 """
+import time
+
 import bpy
 from bpy_extras import view3d_utils
 from mathutils import Vector
@@ -26,6 +28,25 @@ from . import STATE, compute, highlight, shelf_active, shelf_region, \
     tag_redraw_all, ui_scale
 
 MOVE = {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}
+# a toolbar tooltip shows after the mouse rested on the button this long
+TOOLTIP_DELAY = 0.4
+
+
+def _tooltip_redraw():
+    tag_redraw_all()
+    return None
+
+
+def _schedule_tooltip():
+    # one redraw once the delay passed (draw.py checks the elapsed time)
+    if bpy.app.timers.is_registered(_tooltip_redraw):
+        bpy.app.timers.unregister(_tooltip_redraw)
+    bpy.app.timers.register(_tooltip_redraw, first_interval=TOOLTIP_DELAY)
+
+
+def cancel_tooltip_timer():
+    if bpy.app.timers.is_registered(_tooltip_redraw):
+        bpy.app.timers.unregister(_tooltip_redraw)
 
 
 def _has_dup(rows, by_key):
@@ -50,7 +71,10 @@ def _set_hover(context, area, kind, data, rows, by_key):
         new, mat = None, None
     if new != STATE["hover"]:
         STATE["hover"] = new
+        STATE["hover_since"] = time.monotonic()
         area.tag_redraw()
+        if new is not None and new[2] == "tool" and new[1] != "resize":
+            _schedule_tooltip()
     try:
         on = common.addon_prefs(context).materials_highlight_hover
     except (KeyError, AttributeError):
@@ -230,8 +254,10 @@ class IOPS_OT_material_shelf_event(bpy.types.Operator):
 
     def _resize(self, context, event):
         s = ui_scale(context)
-        h = core.resize_height(self.start_h, self.start_y, event.mouse_y,
-                               self.thumb, self.region.height, s)
+        h = core.resize_height(
+            self.start_h, self.start_y, event.mouse_y, self.thumb,
+            self.region.height, s,
+            common.addon_prefs(context).materials_shelf_tools_direction)
         common.addon_prefs(context).materials_shelf_height = max(
             60, int(round(h / s)))
         self.area.tag_redraw()
@@ -313,7 +339,6 @@ class IOPS_OT_material_shelf_event(bpy.types.Operator):
 
     def _tool(self, context, event, name):
         st = state.get_state(context)
-        prefs = common.addon_prefs(context)
         if name == "new":
             bpy.ops.iops.material_new(
                 assign=event.shift,
@@ -325,10 +350,6 @@ class IOPS_OT_material_shelf_event(bpy.types.Operator):
         elif name == "search":
             bpy.ops.wm.call_panel(name="IOPS_PT_materials_shelf_search",
                                   keep_open=False)
-        elif name in {"size_down", "size_up"}:
-            step = core.THUMB_STEP * (1 if name == "size_up" else -1)
-            prefs.materials_shelf_thumbnail = core.clamp_thumb(
-                prefs.materials_shelf_thumbnail + step)
         elif name == "empty":
             bpy.ops.iops.materials_remove_empty_slots(scope="SELECTED")
         tag_redraw_all()
@@ -382,6 +403,7 @@ def register_keymap():
 
 
 def unregister_keymap():
+    cancel_tooltip_timer()
     for km, kmi in _KMI:
         try:
             km.keymap_items.remove(kmi)

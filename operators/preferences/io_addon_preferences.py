@@ -371,6 +371,8 @@ def load_iops_preferences():
                                 ("materials_shelf_height", 150),
                                 ("materials_shelf_thumbnail", 72),
                                 ("materials_highlight_hover", True),
+                                ("materials_shelf_tools_direction", "ROW"),
+                                ("materials_shelf_tools_position", "CENTER"),
                             ):
                                 if hasattr(prefs, key_):
                                     try:

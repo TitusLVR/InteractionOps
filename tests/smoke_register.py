@@ -154,7 +154,9 @@ for prop_name in ("materials_thumbnail_size", "materials_list_rows",
                   "materials_default_view", "materials_ui_mode",
                   "materials_import_method", "materials_library",
                   "materials_popup_width", "materials_shelf_height",
-                  "materials_shelf_thumbnail", "materials_highlight_hover"):
+                  "materials_shelf_thumbnail", "materials_highlight_hover",
+                  "materials_shelf_tools_direction",
+                  "materials_shelf_tools_position"):
     assert hasattr(prefs, prop_name), f"missing pref: {prop_name}"
 from InteractionOps.prefs.iops_prefs import get_iops_prefs  # noqa: E402
 assert "MATERIALS_PANEL" in get_iops_prefs(), "prefs JSON lacks MATERIALS_PANEL"

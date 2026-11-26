@@ -1,16 +1,19 @@
+from utils import materials_shelf_glyphs as glyphs
 from utils.materials_shelf_core import (
-    DragTracker, Rect, clamp_height, clamp_scroll, clamp_thumb,
-    compute_layout, contains, hit_test, min_height, resize_height,
-    scroll_step, scroll_to_index, short_count,
+    ICON, TOOL_NAMES, DragTracker, Rect, clamp_height, clamp_scroll,
+    clamp_thumb, compute_layout, contains, hit_test, min_height, overlaps,
+    resize_height, scroll_step, scroll_to_index, short_count, tooltip_rect,
+    tooltip_text,
 )
 
 NO_INSETS = (0, 0, 0, 0)
 
 
 def layout(count=20, w=1000, h=600, height=200, thumb=64, scroll=0,
-           insets=NO_INSETS, scale=1.0, show_empty=False):
+           insets=NO_INSETS, scale=1.0, show_empty=False, direction="ROW",
+           position="RIGHT"):
     return compute_layout(w, h, insets, height, thumb, count, scroll, scale,
-                          show_empty)
+                          show_empty, direction, position)
 
 
 def test_shelf_sits_at_the_bottom_inside_insets():
@@ -23,7 +26,7 @@ def test_shelf_sits_at_the_bottom_inside_insets():
 
 
 def test_cells_wrap_and_rows_follow_height():
-    lay = layout(height=200, thumb=64)
+    lay = layout(height=260, thumb=64)
     # cell 70 x 86; grid width 1000-8 margins - tools - pads
     assert lay.cols == int(lay.grid.w // 70)
     assert lay.rows_visible == int(lay.grid.h // 86)
@@ -131,3 +134,148 @@ def test_contains_and_short_count():
     assert contains(r, 0, 0) and not contains(r, 10, 5)
     assert short_count(7) == "7" and short_count(1234) == "1.2k"
     assert short_count(15000) == "15k"
+
+
+# ----------------------------------------------------------------------
+# icon toolbar: direction x position
+# ----------------------------------------------------------------------
+COMBOS = [(d, p) for d in ("ROW", "COLUMN") for p in ("LEFT", "CENTER", "RIGHT")]
+
+
+def _all_inside(lay):
+    s = lay.shelf
+    return all(r.x >= s.x and r.x + r.w <= s.x + s.w + 1e-6 and r.y >= s.y
+               and r.y + r.h <= s.y + s.h + 1e-6 for r in lay.tools.values())
+
+
+def test_every_layout_keeps_tools_inside_and_apart_from_cells():
+    for direction, position in COMBOS:
+        for show_empty in (False, True):
+            lay = layout(count=40, height=260, direction=direction,
+                         position=position, show_empty=show_empty)
+            n = 7 if show_empty else 6
+            assert len(lay.tools) == n, (direction, position)
+            assert all(r.w == ICON and r.h == ICON for r in lay.tools.values())
+            assert _all_inside(lay), (direction, position)
+            # toolbar and grid never overlap; no cell touches a tool
+            assert not overlaps(lay.toolbar, lay.grid), (direction, position)
+            for cell in lay.cells:
+                for r in lay.tools.values():
+                    assert not overlaps(cell.rect, r), (direction, position)
+            # buttons do not overlap each other
+            rs = list(lay.tools.values())
+            assert not any(overlaps(a, b) for i, a in enumerate(rs)
+                           for b in rs[i + 1:])
+
+
+def test_row_toolbar_sits_at_the_top_and_aligns():
+    right = layout(direction="ROW", position="RIGHT")
+    left = layout(direction="ROW", position="LEFT")
+    center = layout(direction="ROW", position="CENTER")
+    for lay in (right, left, center):
+        bar = lay.toolbar
+        assert bar.h == ICON
+        # top of the shelf, under the resize edge
+        assert bar.y + bar.h <= lay.edge.y
+        assert bar.y + bar.h > lay.edge.y - 3 * ICON
+        # the cells use the full width under it
+        assert lay.grid.y + lay.grid.h <= bar.y
+        assert lay.grid.x == lay.shelf.x + 6
+    s = right.shelf
+    assert abs((right.toolbar.x + right.toolbar.w) - (s.x + s.w - 6)) < 1e-6
+    assert abs(left.toolbar.x - (s.x + 6)) < 1e-6
+    mid = center.toolbar.x + center.toolbar.w / 2
+    assert abs(mid - (s.x + s.w / 2)) < 1e-6
+    # the default order runs left to right
+    xs = [right.tools[n].x for n in TOOL_NAMES if n in right.tools]
+    assert xs == sorted(xs)
+
+
+def test_column_toolbar_runs_down_an_edge_center_is_right():
+    left = layout(direction="COLUMN", position="LEFT", height=260)
+    right = layout(direction="COLUMN", position="RIGHT", height=260)
+    center = layout(direction="COLUMN", position="CENTER", height=260)
+    assert center.toolbar == right.toolbar
+    assert left.toolbar.w == ICON and right.toolbar.w == ICON
+    assert left.grid.x >= left.toolbar.x + left.toolbar.w
+    assert right.grid.x + right.grid.w <= right.toolbar.x
+    ys = [left.tools[n].y for n in TOOL_NAMES if n in left.tools]
+    assert ys == sorted(ys, reverse=True)
+    # the grid uses the full height in Column mode
+    assert left.grid.h > layout(direction="ROW", height=260).grid.h
+
+
+def test_column_wraps_when_the_shelf_is_short():
+    lay = layout(direction="COLUMN", position="LEFT", height=10,
+                 show_empty=True)
+    xs = sorted({r.x for r in lay.tools.values()})
+    assert len(xs) >= 2, "a short shelf must wrap the column"
+    assert lay.toolbar.w == len(xs) * ICON + (len(xs) - 1) * 3
+    assert _all_inside(lay)
+    assert lay.grid.x >= lay.toolbar.x + lay.toolbar.w
+
+
+def test_min_height_follows_the_layout():
+    row = min_height(64, 1.0, "ROW")
+    col = min_height(64, 1.0, "COLUMN")
+    assert row == col + ICON + 6
+    assert layout(height=10, direction="ROW").shelf.h == row
+    assert layout(height=10, direction="COLUMN").shelf.h == col
+    # one full cell row always fits
+    lay = layout(height=10, direction="ROW", count=5)
+    assert lay.rows_visible == 1 and len(lay.cells) == 5
+    assert resize_height(100, 0, -500, 64, 600, 1.0, "COLUMN") == col
+
+
+def test_unknown_layout_values_fall_back():
+    lay = layout(direction="DIAGONAL", position="UP")
+    assert lay.direction == "ROW" and lay.position == "RIGHT"
+
+
+def test_tooltip_rect_stays_inside_the_region():
+    anchor = Rect(980, 150, 20, 20)
+    r = tooltip_rect(anchor, 160, 20, 1000, 600)
+    assert r.x + r.w <= 1000 and r.y == 176
+    top = tooltip_rect(Rect(10, 590, 20, 20), 160, 20, 1000, 600)
+    assert top.y + top.h <= 600 and top.y < 590 and top.x == 0
+
+
+def test_tooltip_text():
+    assert tooltip_text("functions") == "Material Functions"
+    assert tooltip_text("new") == "New Material"
+    assert tooltip_text("search") == "Search"
+    assert tooltip_text("search", search="steel") == "Search: steel"
+    assert tooltip_text("src_SELECTED") == "Source: Selected"
+    assert tooltip_text("empty", empty=1) == "1 empty slot: click to remove"
+    assert tooltip_text("empty", empty=3) == "3 empty slots: click to remove"
+
+
+# ----------------------------------------------------------------------
+# glyph data
+# ----------------------------------------------------------------------
+def test_every_tool_has_a_glyph_inside_the_unit_box():
+    assert set(TOOL_NAMES) == set(glyphs.GLYPHS) == set(glyphs.TOOLS)
+    for name in TOOL_NAMES:
+        lines, curves, dots = glyphs.strokes(name)
+        assert lines or curves, name
+        for poly in lines + curves:
+            assert len(poly) >= 2
+            for x, y in poly:
+                assert -1e-9 <= x <= 1 + 1e-9 and -1e-9 <= y <= 1 + 1e-9, name
+        for cx, cy, r in dots:
+            assert 0 <= cx - r and cx + r <= 1 and 0 <= cy - r and cy + r <= 1
+
+
+def test_loops_close_and_fit_snaps_to_pixel_centres():
+    lines, curves, _ = glyphs.strokes("src_FILE")
+    assert lines[-1][0] == lines[-1][-1] or lines[0][0] == lines[0][-1]
+    assert curves == []
+    pts = glyphs.fit([(0.0, 0.0), (1.0, 1.0), (0.5, 0.5)], 10, 20, 20)
+    assert pts == [(10.5, 20.5), (30.5, 40.5), (20.5, 30.5)]
+    raw = glyphs.fit([(0.5, 0.5)], 10, 20, 20, snap=False)
+    assert raw == [(20.0, 30.0)]
+
+
+def test_glyphs_differ():
+    shapes = {name: repr(glyphs.GLYPHS[name]) for name in glyphs.TOOLS}
+    assert len(set(shapes.values())) == len(shapes)

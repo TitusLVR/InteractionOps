@@ -10,39 +10,55 @@ Rect = namedtuple("Rect", "x y w h")
 # base sizes in pixels at 1.0 resolution scale
 PAD = 6
 GAP = 6
-ROW_H = 20
-TOOL_W = 170
+ICON = 20           # toolbar icon buttons: squares of this size
+ICON_GAP = 3
 EDGE_H = 6
 NAME_H = 16
 BADGE_H = 15
 BADGE_W = 26
 SCROLLBAR_W = 5
 MARGIN = 4
+TOOLTIP_GAP = 6
 
 THUMB_MIN, THUMB_MAX, THUMB_STEP = 40, 256, 8
-TOOL_ROWS = 3
 DRAG_THRESHOLD = 6
+
+DIRECTIONS = ("ROW", "COLUMN")
+POSITIONS = ("LEFT", "CENTER", "RIGHT")
+# toolbar order; "empty" only while there are empty slots
+TOOL_NAMES = ("functions", "new", "search", "src_SCENE", "src_SELECTED",
+              "src_FILE", "empty")
 
 
 def contains(r, x, y):
     return r.x <= x < r.x + r.w and r.y <= y < r.y + r.h
 
 
+def overlaps(a, b):
+    return (a.x < b.x + b.w and b.x < a.x + a.w
+            and a.y < b.y + b.h and b.y < a.y + a.h)
+
+
 def clamp_thumb(px):
     return max(THUMB_MIN, min(THUMB_MAX, int(px)))
 
 
-def min_height(thumb, scale=1.0):
-    """Smallest shelf height: the tool cluster or one cell row."""
-    tools = TOOL_ROWS * ROW_H * scale + 2 * PAD * scale + EDGE_H * scale
-    cell = thumb * scale + NAME_H * scale + GAP * scale + 2 * PAD * scale \
-        + EDGE_H * scale
-    return int(max(tools, cell))
+def min_height(thumb, scale=1.0, direction="ROW"):
+    """Smallest shelf height for the toolbar layout: one cell row, plus the
+    toolbar row above it in Row mode; in Column mode a tall column wraps,
+    so one icon or one cell row is the floor."""
+    s = scale
+    cell = (thumb + NAME_H + GAP) * s
+    frame = (EDGE_H + 2 * PAD) * s
+    if direction == "COLUMN":
+        return int(frame + max(ICON * s, cell))
+    return int(frame + ICON * s + GAP * s + cell)
 
 
-def clamp_height(h, thumb, region_h, scale=1.0, top_reserve=40):
+def clamp_height(h, thumb, region_h, scale=1.0, top_reserve=40,
+                 direction="ROW"):
     """Shelf height within [min_height, region height - top_reserve]."""
-    lo = min_height(thumb, scale)
+    lo = min_height(thumb, scale, direction)
     hi = max(lo, int(region_h - top_reserve * scale))
     return max(lo, min(hi, int(h)))
 
@@ -60,61 +76,88 @@ def clamp_scroll(scroll, content_h, view_h, row_h=None):
 
 Cell = namedtuple("Cell", "index rect thumb name dup users")
 Layout = namedtuple(
-    "Layout", "shelf edge tools grid cells cols rows_visible content_h "
-    "max_scroll scroll cell_w cell_h scale")
+    "Layout", "shelf edge tools toolbar grid cells cols rows_visible "
+    "content_h max_scroll scroll cell_w cell_h scale direction position")
 
-TOOL_NAMES = ("new", "functions", "src_SCENE", "src_SELECTED", "src_FILE",
-              "search", "empty")
+
+def toolbar(names, x0, x1, top, bottom, scale=1.0, direction="ROW",
+            position="RIGHT"):
+    """({name: Rect}, toolbar Rect) for square icon buttons inside the box
+    x0..x1 / bottom..top. Row: one row along the top, aligned left, centre
+    or right. Column: from the top down along the left or right edge
+    (Center counts as Right), wrapping into more columns when the box is
+    not tall enough."""
+    icon, gap = ICON * scale, ICON_GAP * scale
+    n = len(names)
+    if not n:
+        return {}, Rect(x1, top, 0, 0)
+    rects = {}
+    if direction == "COLUMN":
+        per_col = max(1, int((top - bottom + gap) // (icon + gap)))
+        cols = -(-n // per_col)
+        w = cols * icon + (cols - 1) * gap
+        sx = x0 if position == "LEFT" else x1 - w
+        for i, name in enumerate(names):
+            c, r = divmod(i, per_col)
+            rects[name] = Rect(sx + c * (icon + gap),
+                               top - icon - r * (icon + gap), icon, icon)
+        rows = min(n, per_col)
+        h = rows * icon + (rows - 1) * gap
+        return rects, Rect(sx, top - h, w, h)
+    w = n * icon + (n - 1) * gap
+    if position == "LEFT":
+        sx = x0
+    elif position == "CENTER":
+        sx = x0 + (x1 - x0 - w) / 2
+    else:
+        sx = x1 - w
+    sx = max(x0, sx)
+    for i, name in enumerate(names):
+        rects[name] = Rect(sx + i * (icon + gap), top - icon, icon, icon)
+    return rects, Rect(sx, top - icon, w, icon)
 
 
 def compute_layout(region_w, region_h, insets, height, thumb, count,
-                   scroll=0, scale=1.0, show_empty=False):
+                   scroll=0, scale=1.0, show_empty=False, direction="ROW",
+                   position="RIGHT"):
     """Layout of the shelf in a region of `region_w` x `region_h` with
     `insets` = (left, right, top, bottom) hidden under overlapping regions.
-    `count` cells, `scroll` in pixels from the top of the cell grid."""
+    `count` cells, `scroll` in pixels from the top of the cell grid,
+    toolbar per `direction` (ROW / COLUMN) and `position` (LEFT / CENTER /
+    RIGHT)."""
     s = scale
+    if direction not in DIRECTIONS:
+        direction = "ROW"
+    if position not in POSITIONS:
+        position = "RIGHT"
     left, right, top, bottom = insets
     thumb = clamp_thumb(thumb)
     usable_h = region_h - top - bottom
-    h = clamp_height(height, thumb, usable_h, s)
+    h = clamp_height(height, thumb, usable_h, s, direction=direction)
     x0 = left + MARGIN * s
     x1 = region_w - right - MARGIN * s
     y0 = bottom
     shelf = Rect(x0, y0, max(0, x1 - x0), h)
     edge = Rect(x0, y0 + h - EDGE_H * s, shelf.w, EDGE_H * s)
 
-    # tool cluster, rows from the top
-    pad, row_h, tool_w = PAD * s, ROW_H * s, TOOL_W * s
-    tx = x0 + pad
-    top_y = y0 + h - EDGE_H * s - pad
+    pad = PAD * s
+    ix0, ix1 = x0 + pad, x1 - pad
+    itop, ibottom = y0 + h - EDGE_H * s - pad, y0 + pad
+    names = [n for n in TOOL_NAMES if n != "empty" or show_empty]
+    tools, bar = toolbar(names, ix0, ix1, itop, ibottom, s, direction,
+                         position)
 
-    def row_rect(i):
-        return Rect(tx, top_y - row_h * (i + 1), tool_w, row_h - 2 * s)
-
-    def split(r, n, k, span=1):
-        w = r.w / n
-        return Rect(r.x + w * k, r.y, w * span - 2 * s, r.h)
-
-    tools = {}
-    # row 0: menu and new as square icon buttons, search takes the rest;
-    # row 1: the source as one segmented control; row 2: empty-slot notice
-    r0, r1, r2 = (row_rect(i) for i in range(TOOL_ROWS))
-    sq = r0.h
-    tools["functions"] = Rect(r0.x, r0.y, sq, r0.h)
-    tools["new"] = Rect(r0.x + sq + 2 * s, r0.y, sq, r0.h)
-    sx = r0.x + 2 * (sq + 2 * s)
-    tools["search"] = Rect(sx, r0.y, r0.x + r0.w - 2 * s - sx, r0.h)
-    for k, src in enumerate(("SCENE", "SELECTED", "FILE")):
-        tools["src_" + src] = split(r1, 3, k)
-    if show_empty:
-        tools["empty"] = Rect(r2.x, r2.y, r2.w - 2 * s, r2.h)
-    tools = {k: r for k, r in tools.items() if r.y >= y0 + pad * 0.5}
-
-    # cell grid
-    gx0 = tx + tool_w + GAP * s
-    gx1 = x1 - pad - SCROLLBAR_W * s
-    gy0 = y0 + pad
-    gy1 = y0 + h - EDGE_H * s - pad
+    # cell grid: under the toolbar row, or beside the toolbar column
+    sb = SCROLLBAR_W * s
+    if direction == "ROW":
+        gx0, gx1 = ix0, ix1 - sb
+        gy0, gy1 = ibottom, bar.y - GAP * s
+    elif position == "LEFT":
+        gx0, gx1 = bar.x + bar.w + GAP * s, ix1 - sb
+        gy0, gy1 = ibottom, itop
+    else:
+        gx0, gx1 = ix0, bar.x - GAP * s - sb
+        gy0, gy1 = ibottom, itop
     grid = Rect(gx0, gy0, max(0, gx1 - gx0), max(0, gy1 - gy0))
     cell_w = thumb * s + GAP * s
     cell_h = thumb * s + NAME_H * s + GAP * s
@@ -143,8 +186,21 @@ def compute_layout(region_w, region_h, insets, height, thumb, count,
         users_r = Rect(thumb_r.x + thumb_r.w - bw, thumb_r.y + thumb_r.h - bh,
                        bw, bh)
         cells.append(Cell(i, rect, thumb_r, name_r, dup_r, users_r))
-    return Layout(shelf, edge, tools, grid, cells, cols, rows_visible,
-                  content_h, max_scroll, scroll, cell_w, cell_h, s)
+    return Layout(shelf, edge, tools, bar, grid, cells, cols, rows_visible,
+                  content_h, max_scroll, scroll, cell_w, cell_h, s,
+                  direction, position)
+
+
+def tooltip_rect(anchor, w, h, region_w, region_h, gap=TOOLTIP_GAP):
+    """Rect of a w x h tooltip for the button `anchor`: centred above it,
+    below it when there is no room above, always inside the region."""
+    x = anchor.x + anchor.w / 2 - w / 2
+    y = anchor.y + anchor.h + gap
+    if y + h > region_h:
+        y = anchor.y - gap - h
+    x = max(0.0, min(x, region_w - w))
+    y = max(0.0, min(y, region_h - h))
+    return Rect(x, y, w, h)
 
 
 def hit_test(layout, x, y, has_dup=lambda i: False):
@@ -204,9 +260,11 @@ class DragTracker:
         return self.dragging
 
 
-def resize_height(start_h, start_y, y, thumb, region_h, scale=1.0):
+def resize_height(start_h, start_y, y, thumb, region_h, scale=1.0,
+                  direction="ROW"):
     """Shelf height while dragging its top edge from `start_y` to `y`."""
-    return clamp_height(start_h + (y - start_y), thumb, region_h, scale)
+    return clamp_height(start_h + (y - start_y), thumb, region_h, scale,
+                        direction=direction)
 
 
 def short_count(n):
@@ -216,3 +274,19 @@ def short_count(n):
     if n < 10000:
         return f"{n / 1000:.1f}k"
     return f"{n // 1000}k"
+
+
+def tooltip_text(name, source="SCENE", search="", empty=0):
+    """One-line tooltip of toolbar button `name`."""
+    if name == "functions":
+        return "Material Functions"
+    if name == "new":
+        return "New Material"
+    if name == "search":
+        return f"Search: {search}" if search else "Search"
+    if name.startswith("src_"):
+        return "Source: " + name[4:].title()
+    if name == "empty":
+        word = "slot" if empty == 1 else "slots"
+        return f"{empty} empty {word}: click to remove"
+    return ""

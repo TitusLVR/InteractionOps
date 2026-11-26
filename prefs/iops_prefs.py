@@ -337,6 +337,8 @@ def get_iops_prefs():
             "materials_shelf_height": safe("materials_shelf_height", 150),
             "materials_shelf_thumbnail": safe("materials_shelf_thumbnail", 72),
             "materials_highlight_hover": safe("materials_highlight_hover", True),
+            "materials_shelf_tools_direction": safe("materials_shelf_tools_direction", "ROW"),
+            "materials_shelf_tools_position": safe("materials_shelf_tools_position", "CENTER"),
         },
     }
 

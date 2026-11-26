@@ -1136,6 +1136,34 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                     "shelf changes it",
         default=72, min=40, max=256,
     )
+    materials_shelf_tools_direction: EnumProperty(
+        name="Shelf Tools",
+        description="Lay out the iOps shelf's tool icons as one row "
+                    "above the materials or one column beside them",
+        items=(
+            ("ROW", "Row", "One row of icons at the top of the shelf, "
+             "above the materials"),
+            ("COLUMN", "Column", "One column of icons at the left or "
+             "right edge of the shelf; wraps into a second column on a "
+             "short shelf"),
+        ),
+        default="ROW",
+        update=_materials_redraw_update,
+    )
+    materials_shelf_tools_position: EnumProperty(
+        name="Shelf Tools Position",
+        description="Where the iOps shelf's tool icons sit: in a row at "
+                    "the left, centre or right; in a column at the left "
+                    "or right edge (Center places a column on the right)",
+        items=(
+            ("LEFT", "Left", "At the left"),
+            ("CENTER", "Center", "In the middle of the row (a column "
+             "goes to the right edge)"),
+            ("RIGHT", "Right", "At the right"),
+        ),
+        default="CENTER",
+        update=_materials_redraw_update,
+    )
     materials_highlight_hover: BoolProperty(
         name="Highlight On Hover",
         description="While the mouse is over a material in the iOps "
@@ -1679,6 +1707,12 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 col.prop(self, "materials_shelf_height")
                 col.prop(self, "materials_shelf_thumbnail")
                 col.prop(self, "materials_highlight_hover")
+                row = col.row(align=True)
+                row.prop(self, "materials_shelf_tools_direction",
+                         expand=True)
+                row = col.row(align=True)
+                row.prop(self, "materials_shelf_tools_position",
+                         expand=True)
                 col.prop(self, "materials_list_rows")
                 col.prop(self, "materials_thumbnail_size")
                 col.prop(self, "materials_gallery_rows")

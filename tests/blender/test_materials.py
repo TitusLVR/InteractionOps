@@ -1096,7 +1096,9 @@ def test_prefs_json_roundtrip():
              "materials_library": "Some Library",
              "materials_popup_width": 14,
              "materials_shelf_height": 230, "materials_shelf_thumbnail": 96,
-             "materials_highlight_hover": False}
+             "materials_highlight_hover": False,
+             "materials_shelf_tools_direction": "COLUMN",
+             "materials_shelf_tools_position": "LEFT"}
     original = {k: getattr(prefs, k) for k in saved}
     try:
         for k, v in saved.items():
@@ -1322,6 +1324,7 @@ def test_shelf_unregister_is_clean():
     assert not any(k.idname == "iops.material_shelf_event"
                    for k in km.keymap_items)
     assert thumbs._on_load not in bpy.app.handlers.load_post
+    assert not bpy.app.timers.is_registered(events._tooltip_redraw)
     bpy.ops.preferences.addon_enable(module=ADDON)
     from InteractionOps.ui.materials_shelf import draw as draw2
     assert draw2.handler_installed()

@@ -17,7 +17,7 @@ Collapsible sections, top to bottom:
 - **Snap Combo** — which modifier key saves a slot in [Snap Combos](operators/op_snap_combos.md).
 - **Modifier Window** — how the floating modifier window is created.
 - **Modifiers Panel** — grid layout, per-type defaults and stack options for the [Modifiers panel](ui/ui_menus.md#modifiers).
-- **Materials** — interface (panel, iOps shelf or Library Shelf), iOps shelf height, preview size and hover highlight, library shelf library and import method, default view, list rows, thumbnail size, gallery rows and duplicate stacking for the [Materials panel](operators/op_materials_panel.md).
+- **Materials** — interface (panel, iOps shelf or Library Shelf), iOps shelf height, preview size, hover highlight and the layout of its tool icons (row or column; left, center or right), library shelf library and import method, default view, list rows, thumbnail size, gallery rows and duplicate stacking for the [Materials panel](operators/op_materials_panel.md).
 - **Split Pie Layout** — editor, alternate editor, side and size for each slot of the [Split pie](ui/ui_pies.md#split-pie).
 - **Shading Pie Layout** — up to eight viewport shading presets for the [Shading pie](ui/ui_pies.md#shading-pie).
 - **Edit Pie Layout** — custom tools for the diagonal slots of the [Edit pie](ui/ui_pies.md#edit-pie).

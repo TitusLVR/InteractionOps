@@ -46,12 +46,16 @@ def line(p1, p2, *, role: Role | None = None,
 
 def polyline(coords: Sequence, *, role: Role | None = None,
              color: tuple[float, float, float, float] | None = None,
-             width: str | None = None,
+             width: str | float | None = None,
              theme: Theme | None = None, context=None) -> None:
+    """Anti-aliased line strip. `width` is a theme width token or a width
+    in pixels (e.g. 1.0 * UI scale for hairline icon strokes)."""
     th = _resolve_theme(theme, context)
     shader = shaders.polyline_uniform_color()
     batch = batch_for_shader(shader, "LINE_STRIP", {"pos": list(coords)})
-    if width is not None:
+    if isinstance(width, (int, float)):
+        w = float(width)
+    elif width is not None:
         w = th.width(width)
     elif role is not None:
         w = th.line_width_for(role)

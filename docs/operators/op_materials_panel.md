@@ -61,7 +61,7 @@ In the gallery the **×N** button next to a name merges that family, as the badg
 
 Set *Preferences › iOps › Materials › Interface* to **Shelf** to work from the iOps shelf: a strip along the bottom of the 3D Viewport, drawn in the iOps theme, with the same materials and tools as the panel (the same search, source filter, duplicate stacking and active material, so the two never disagree). The sidebar panel is hidden then, and the Materials hotkey (<kbd>F16</kbd> by default) shows or hides the shelf in every 3D Viewport. It shows in Object Mode and Edit Mode. Clicks, the wheel and drags on the strip belong to the shelf; everywhere else the viewport works as usual.
 
-On the left: **New**, **Functions** (the Functions menu), **Scene / Selected / File**, **Search** (opens a small search field; the button shows the current search), the preview size (**−** / **+**), and, only when the selected objects have empty slots, a red *N empty slots  Remove* button.
+The tools are small icons, by default in a row at the top right of the shelf: **Functions** (three lines; the Functions menu, with the preview size at its top), **New** (plus), **Search** (magnifier; opens a small search field), the sources **Scene** (sphere on a ground line), **Selected** (selection corners) and **File** (sheet), and, only while the selected objects have empty slots, a red slot icon with their count (click: remove them). The current source, and Search while a search is set, are tinted. Rest the mouse on an icon for a moment to see its name. *Preferences › iOps › Materials* sets the icons in a **Row** above the materials or a **Column** beside them, at the **Left**, **Center** or **Right**.
 
 | Action on a material | What it does |
 | --- | --- |
@@ -103,6 +103,8 @@ In *Preferences › iOps › Materials*:
 - **Interface** — Panel (sidebar panel and popup), Shelf (the iOps shelf) or Library Shelf (Blender's asset shelf for asset libraries). A saved Shelf setting from before the iOps shelf existed becomes Library Shelf.
 - **Shelf Height**, **Shelf Thumbnail Size** — the iOps shelf's height and preview size in pixels (also changed by dragging its top edge and by <kbd>Ctrl</kbd>+wheel over it).
 - **Highlight On Hover** — highlight the faces of the material under the mouse in the iOps shelf (default on).
+- **Shelf Tools** — Row (default): the icons in one row at the top of the shelf, the materials below using its full width; Column: the icons in one column at the left or right edge, wrapping into another column when the shelf is too short for all of them.
+- **Shelf Tools Position** — Left, Center (default) or Right. A column goes to the left edge with Left, to the right edge with Center or Right.
 - **Library** — the Blender asset library whose materials the shelf shows; empty shows all libraries. The folder button picks a folder and registers it as an asset library (this changes your Blender Preferences, *File Paths › Asset Libraries*); a folder already registered is only selected.
 - **Import** — Append (Reuse) or Link, for library assets the shelf assigns.
 
