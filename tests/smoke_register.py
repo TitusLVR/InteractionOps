@@ -99,6 +99,17 @@ assert any(
     for kmi in km.keymap_items
 ), "iops.cursor_place not bound to Shift+RMB in 3D View keymap"
 
+# Visual UV runs in the 3D viewport ("Mesh") and the UV Editor: its binding
+# is mirrored into "UV Editor" once (utils/functions.MIRROR_KEYMAPS), and the
+# mirror is not saved with the user's hotkeys.
+for km_name in ("Mesh", "UV Editor"):
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps.get(km_name)
+    hits = [kmi for kmi in km.keymap_items if kmi.idname == "iops.mesh_visual_uv"]
+    assert len(hits) == 1, f"iops.mesh_visual_uv bound {len(hits)} times in {km_name}"
+    assert (hits[0].type, hits[0].ctrl, hits[0].alt) == ("U", True, True), f"{km_name}: {hits[0].type}"
+from InteractionOps.operators.hotkeys.save_hotkeys import get_iops_keys  # noqa: E402
+assert sum(1 for k in get_iops_keys() if k[0] == "iops.mesh_visual_uv") == 1, "the mirror would be saved"
+
 # iOps Attributes (Task 4 operators)
 for op_name in ("attr_set_value", "attr_fill", "attr_new", "attr_remove",
                 "attr_duplicate", "attr_convert", "attr_refresh"):

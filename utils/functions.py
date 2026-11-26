@@ -706,6 +706,19 @@ def keymap_name_for_idname(idname):
     return "Window"
 
 
+# Operators that also work in another editor: their binding is mirrored into
+# that editor's keymap at registration (Visual UV runs in the UV Editor too,
+# whose main region never reads the "Mesh" keymap). The mirror is derived from
+# the primary binding and never saved or listed on its own, so the primary
+# keymap stays the one place the binding lives.
+MIRROR_KEYMAPS = {"iops.mesh_visual_uv": ("UV Editor",)}
+
+
+def is_keymap_mirror(keymap_name, idname):
+    """True for a mirrored keymap item (see MIRROR_KEYMAPS)."""
+    return keymap_name in MIRROR_KEYMAPS.get(idname, ())
+
+
 def register_keymaps(keys):
     kc = bpy.context.window_manager.keyconfigs.addon
     km_cache = {}
@@ -727,9 +740,10 @@ def register_keymaps(keys):
         items_for(name)
 
     for k in keys:
-        items_for(keymap_name_for_idname(k[0])).new(
-            k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
-        )
+        for name in (keymap_name_for_idname(k[0]),) + MIRROR_KEYMAPS.get(k[0], ()):
+            items_for(name).new(
+                k[0], k[1], k[2], ctrl=k[3], alt=k[4], shift=k[5], oskey=k[6]
+            )
     print("IOPS Keymaps registered")
 
 

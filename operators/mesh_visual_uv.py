@@ -43,6 +43,21 @@ from ..utils.uv_utils import (
     island_centroid_uv,
     get_unselected_face_islands,
     collect_island_edges,
+    get_uv_selected_islands,
+    get_island_uv_layout_data,
+)
+from ..utils.visual_uv_core import (
+    PIVOT_ANCHOR,
+    CENTER_HANDLE,
+    ViewMapping,
+    anchor_uv,
+    face_at_uv,
+    is_drag,
+    next_pivot,
+    pivot_after_click,
+    pivot_label,
+    point_in_triangle,
+    uv_mode_handles,
 )
 
 # ---------------------------------------------------------------------------
@@ -108,6 +123,13 @@ STITCH_SNAP_PX = HIT_RADIUS * 3
 
 PIVOT_CENTER = 'CENTER'
 PIVOT_CURSOR = 'CURSOR'
+# PIVOT_ANCHOR (utils/visual_uv_core): a gizmo point picked by a click,
+# its name in op.pivot_anchor.
+
+# UV Editor mode: keys of the viewport-only tools (Align to Edge, Stitch,
+# pins, Unwrap, Straighten Chain, Align View, Clean View, Pause Modifiers)
+# are ignored there.
+UV_MODE_IGNORED_KEYS = {'A', 'E', 'M', 'U', 'T', 'V', 'Q'}
 
 SCOPE_ALL = 'ALL'
 SCOPE_ACTIVE = 'ACTIVE'
@@ -372,6 +394,30 @@ def _uv_screen_affine(geo, region, rv3d, nrm, nrm_off):
     return rx, ry
 
 
+def _uv_mode(op):
+    """True when the session runs in the UV Editor (see invoke)."""
+    return getattr(op, '_uv_mode', False)
+
+
+def _projector(op, context):
+    """The projection seam: a callable taking a geo3d point to region
+    pixels as a Vector (None when it cannot be projected). 3D viewport:
+    the region's 3D projection. UV Editor: geo3d holds the UV layout
+    itself (u, v, 0), mapped through the editor's View2D; the mapping is
+    rebuilt on every call, so pan and zoom are always current."""
+    if _uv_mode(op):
+        m = op._view_mapping()
+
+        def proj(p):
+            return Vector(m.to_region(p[0], p[1]))
+        return proj
+    region, rv3d = context.region, context.region_data
+
+    def proj(p):
+        return location_3d_to_region_2d(region, rv3d, p)
+    return proj
+
+
 def _compute_screen_handles(op, context):
     """Screen-space gizmo for the active island: a tight axis-aligned
     rectangle around the island's projected vertices, so the box always
@@ -379,13 +425,20 @@ def _compute_screen_handles(op, context):
     names stay UV-semantic (R = UV u max, T = UV v max, ...) — an
     affine UV->screen fit decides which rectangle side each handle sits
     on and provides the axes used to decompose mouse motion back into
-    UV space."""
+    UV space. In the UV Editor the box is the island's UV bounding box
+    mapped through the View2D (utils/visual_uv_core.uv_mode_handles)."""
     if not (0 <= op.active_island_idx < len(op.islands_data)):
         return {}
     idata = op.islands_data[op.active_island_idx]
     geo = idata.get('geo3d')
     if not geo or not geo['verts_3d']:
         return {}
+    if _uv_mode(op):
+        m = op._view_mapping()
+        h = uv_mode_handles(idata['bbox_min'], idata['bbox_max'],
+                            m.to_region, pad=14.0,
+                            rot_offset=ROT_HANDLE_OFFSET)
+        return {k: Vector(v) for k, v in h.items()}
 
     region = context.region
     rv3d = context.region_data
@@ -610,12 +663,59 @@ def draw_3d_callback(op, context):
     gpu.state.blend_set('NONE')
 
 
+def _draw_uv_island(geo, proj, *, fill, edge_role, context):
+    """One island in the UV Editor: fill and UV-boundary outline in
+    region pixels (geo3d positions are the UV layout, see _projector)."""
+    tv = []
+    for tri in geo['face_tris']:
+        tv.extend(_v3(proj(p)) for p in tri)
+    if tv:
+        draw_prim.tris(tv, color=fill, context=context)
+    ep = []
+    for pa, pb in geo['boundary_edges_3d']:
+        ep.extend((_v3(proj(pa)), _v3(proj(pb))))
+    if ep:
+        draw_prim.edges_3d(ep, role=edge_role, width="active",
+                           context=context)
+
+
+def draw_uv_islands_callback(op, context):
+    """UV Editor counterpart of draw_3d_callback: the island fills and
+    outlines, drawn in POST_PIXEL through the projection seam so they
+    share the exact mapping the gizmo and the picking use."""
+    if context.area != op._area:
+        return
+    import gpu
+    proj = _projector(op, context)
+    theme = get_theme(context)
+    gpu.state.blend_set('ALPHA')
+    for idx, idata in enumerate(op.islands_data):
+        geo = idata.get('geo3d')
+        if not geo:
+            continue
+        is_active = (idx == op.active_island_idx)
+        is_selected = idx in op._transform_targets()
+        fill_role, edge_role = _island_roles(
+            is_active, idx == op.hover_island_idx)
+        fill = theme.color_for(fill_role)
+        if not (is_active or is_selected):
+            fill = (fill[0], fill[1], fill[2], fill[3] * 0.35)
+        _draw_uv_island(geo, proj, fill=fill, edge_role=edge_role,
+                        context=context)
+    # Island under the mouse that is not selected yet: a click picks it.
+    geo = op.hover_pick if op.state == STATE_IDLE else None
+    if geo:
+        fill_role, edge_role = _island_roles(False, True)
+        _draw_uv_island(geo, proj, fill=theme.color_for(fill_role),
+                        edge_role=edge_role, context=context)
+    gpu.state.blend_set('NONE')
+
+
 def draw_pixel_callback(op, context):
     if context.area != op._area:
         return
     import gpu
-    region = context.region
-    rv3d = context.region_data
+    proj = _projector(op, context)
     prefs = bpy.context.preferences.addons["InteractionOps"].preferences
     nrm_off = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
     theme = get_theme(context)
@@ -629,7 +729,7 @@ def draw_pixel_callback(op, context):
         nrm = geo['normal_avg']
         center_off = _island_center_3d(idata) + nrm * nrm_off
 
-        csp = location_3d_to_region_2d(region, rv3d, center_off)
+        csp = proj(center_off)
 
         # Pivot ring sits where the UV-center pivot actually lies on the
         # mesh, so rotation visually spins around the marker. (With the
@@ -700,13 +800,23 @@ def draw_pixel_callback(op, context):
                          (hsize_hover if hovered else hsize) * 0.8,
                          role=hc_role)
 
+    # Pivot picked by a click on a gizmo point: the pivot marker (the
+    # one the centre pivot gets) sits on that point, drawn over the
+    # handle like the C cursor anchor below.
+    asp = _pivot_anchor_screen(op, handles)
+    if asp is not None:
+        _draw_ring(asp.x, asp.y, pvs * 0.75, role=Role.PIVOT,
+                   width="active")
+        _draw_circle(asp.x, asp.y, pvs * 0.5, role=Role.PIVOT)
+
     # UV Cursor: while it still sits on the anchor it was snapped to,
     # draw it on that handle -- cursor_3d maps the UV onto the surface
-    # and would land off the screen-space gizmo box.
-    if op.cursor_3d is not None:
+    # and would land off the screen-space gizmo box. The UV Editor shows
+    # its own 2D cursor, which the session keeps on the UV cursor.
+    if op.cursor_3d is not None and not _uv_mode(op):
         csp = _cursor_anchor_screen(op, handles)
         if csp is None:
-            csp = location_3d_to_region_2d(region, rv3d, op.cursor_3d)
+            csp = proj(op.cursor_3d)
         if csp:
             csize = theme.point_size_for(Role.CURSOR)
             arm = csize * 1.25
@@ -854,9 +964,24 @@ def _cursor_anchor_screen(op, handles):
     return handles.get(anchor['name'])
 
 
+def _pivot_anchor_screen(op, handles):
+    """Screen position of the gizmo point picked as the pivot, or None
+    when the pivot is not a picked point."""
+    if getattr(op, 'pivot_mode', None) != PIVOT_ANCHOR or not handles:
+        return None
+    return handles.get(getattr(op, 'pivot_anchor', None))
+
+
 def _get_pivot_uv(op, idata):
+    """UV pivot of a transform, read when it begins. A picked gizmo
+    point is looked up on the given (active) island's current bbox, so
+    it follows the island as it moves and follows the active island
+    when that changes."""
     if op.pivot_mode == PIVOT_CURSOR:
         return op.uv_cursor.copy()
+    if op.pivot_mode == PIVOT_ANCHOR and getattr(op, 'pivot_anchor', None):
+        return Vector(anchor_uv(idata['bbox_min'], idata['bbox_max'],
+                                op.pivot_anchor))
     return idata['center'].copy()
 
 
@@ -905,9 +1030,258 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return (obj is not None and obj.type == 'MESH'
-                and obj.mode == 'EDIT' and context.area
-                and context.area.type == 'VIEW_3D')
+        if not (obj is not None and obj.type == 'MESH'
+                and obj.mode == 'EDIT' and context.area):
+            return False
+        if context.area.type == 'VIEW_3D':
+            return True
+        # UV Editor: an Image Editor showing the UVs of the edit mesh.
+        space = context.space_data
+        return (context.area.type == 'IMAGE_EDITOR'
+                and getattr(space, 'show_uvedit', False))
+
+    # ------------------------------------------------------------------
+    # UV Editor mode
+    # ------------------------------------------------------------------
+
+    def _view_mapping(self):
+        """UV <-> region pixel mapping of the UV Editor's main region,
+        read from its View2D now (never cached across events)."""
+        region = self._region
+        return ViewMapping.from_region_to_view(
+            region.view2d.region_to_view, region.width, region.height)
+
+    def _win_region(self, context):
+        """Region the mouse coordinates and the gizmo live in: the
+        operator's region in the viewport, the editor's main (WINDOW)
+        region in the UV Editor (the operator may start from a sidebar
+        button there)."""
+        return self._region if _uv_mode(self) else context.region
+
+    def _event_mouse(self, event):
+        """Mouse position in _win_region pixels."""
+        if _uv_mode(self):
+            return (event.mouse_x - self._region.x,
+                    event.mouse_y - self._region.y)
+        return event.mouse_region_x, event.mouse_region_y
+
+    def _island_geo(self, context, faces):
+        """Drawing / picking geometry of an island: on the mesh surface
+        in the viewport, the UV layout itself in the UV Editor."""
+        if _uv_mode(self):
+            return get_island_uv_layout_data(self.bm, faces, self.uv_layer)
+        return get_island_3d_data(self.bm, faces, self.uv_layer,
+                                  context.active_object.matrix_world)
+
+    def _displayed_faces(self):
+        """Faces the UV Editor shows: every visible face with UV sync on,
+        the selected visible faces with it off."""
+        return [f.index for f in self.bm.faces
+                if not f.hide and (self._uv_sync or f.select)]
+
+    def _uv_face_polygons(self):
+        """UV polygons of the displayed faces for picking, rebuilt after
+        UVs change (_uv_pick_polys is reset by rebuild / refresh)."""
+        polys = getattr(self, '_uv_pick_polys', None)
+        if polys is None:
+            uv = self.uv_layer
+            self.bm.faces.ensure_lookup_table()
+            faces = self.bm.faces
+            polys = [(fi, [(lp[uv].uv.x, lp[uv].uv.y)
+                           for lp in faces[fi].loops])
+                     for fi in self._displayed_faces()]
+            self._uv_pick_polys = polys
+        return polys
+
+    def _face_at_uv_screen(self, mx, my):
+        """UV Editor picking: the displayed face whose UV polygon is
+        under a region pixel, or -1."""
+        uv = self._view_mapping().to_view(mx, my)
+        return face_at_uv(self._uv_face_polygons(), uv)
+
+    @staticmethod
+    def _read_uv_flags(bm, uv_layer):
+        """UV selection flags of every face and loop (Esc puts them
+        back): Blender 5.x keeps them on the loops / faces, older
+        versions on the UV layer."""
+        flags = []
+        for f in bm.faces:
+            loops = []
+            for lp in f.loops:
+                if hasattr(lp, 'uv_select_vert'):
+                    loops.append((lp.uv_select_vert, lp.uv_select_edge))
+                else:
+                    luv = lp[uv_layer]
+                    loops.append((luv.select, luv.select_edge))
+            flags.append((f, getattr(f, 'uv_select', None), loops))
+        return {'faces': flags,
+                'sync_valid': getattr(bm, 'uv_select_sync_valid', None)}
+
+    @staticmethod
+    def _write_uv_face(f, uv_layer, face_flag, loop_flags):
+        if face_flag is not None and hasattr(f, 'uv_select'):
+            f.uv_select = face_flag
+        for lp, (vert, edge) in zip(f.loops, loop_flags):
+            if hasattr(lp, 'uv_select_vert'):
+                lp.uv_select_vert = vert
+                lp.uv_select_edge = edge
+            else:
+                luv = lp[uv_layer]
+                luv.select = vert
+                luv.select_edge = edge
+
+    def _restore_uv_flags(self):
+        saved = getattr(self, '_orig_uv_flags', None)
+        if not saved:
+            return
+        try:
+            for f, face_flag, loops in saved['faces']:
+                self._write_uv_face(f, self.uv_layer, face_flag, loops)
+            if saved['sync_valid'] is not None:
+                self.bm.uv_select_sync_valid = saved['sync_valid']
+        except ReferenceError:
+            pass
+
+    def _sync_uv_selection(self, context):
+        """UV Editor counterpart of _sync_uv_editor: the session islands
+        are the UV selection. With UV sync off the mesh face selection
+        is what the editor shows, so it stays untouched and only the UV
+        flags of the shown faces change; with sync on the UV selection
+        is the mesh selection, mirrored as in the viewport."""
+        bm = self.bm
+        session = set()
+        for isl in self.islands:
+            session.update(isl)
+        if self._uv_sync:
+            dropped = False
+            for f in bm.faces:
+                if f.select and f.index not in session:
+                    f.select_set(False)
+                    dropped = True
+            for f in bm.faces:
+                if f.index in session and (dropped or not f.select):
+                    f.select_set(True)
+            bm.select_history.validate()
+            # The stored UV selection no longer matches the mesh one:
+            # let Blender derive it from the mesh selection.
+            if hasattr(bm, 'uv_select_sync_valid'):
+                bm.uv_select_sync_valid = False
+        else:
+            for f in bm.faces:
+                if not f.select:
+                    continue
+                state = f.index in session
+                self._write_uv_face(f, self.uv_layer, state,
+                                    [(state, state)] * len(f.loops))
+        has_active = 0 <= self.active_island_idx < len(self.islands_data)
+        active_faces = (self.islands[self.active_island_idx]
+                        if has_active else set())
+        active_face = bm.faces.active
+        if active_face is None or active_face.index not in active_faces:
+            if active_faces:
+                bm.faces.ensure_lookup_table()
+                bm.faces.active = bm.faces[min(active_faces)]
+            else:
+                bm.faces.active = None
+        bmesh.update_edit_mesh(context.active_object.data,
+                               loop_triangles=False, destructive=False)
+        if self._area is not None:
+            self._area.tag_redraw()
+
+    def _set_uv_cursor(self, uv):
+        """UV cursor of the session; in the UV Editor it is the editor's
+        own 2D cursor as well (put back on Esc)."""
+        self.uv_cursor = Vector((uv[0], uv[1]))
+        if _uv_mode(self):
+            self.cursor_3d = Vector((uv[0], uv[1], 0.0))
+            space = getattr(self, '_space', None)
+            if space is not None:
+                try:
+                    space.cursor_location = (uv[0], uv[1])
+                except (AttributeError, ReferenceError):
+                    pass
+
+    def _set_pivot_point(self, name):
+        """A click (no drag) on gizmo point `name`: it becomes the pivot;
+        the centre point returns to the Center pivot."""
+        self.pivot_mode, self.pivot_anchor = pivot_after_click(
+            name, self.pivot_mode, getattr(self, 'pivot_anchor', None))
+        self.report({'INFO'}, "Pivot: "
+                    f"{pivot_label(self.pivot_mode, self.pivot_anchor)}")
+
+    def _pivot_screen(self, context, idata, pivot_uv, handles):
+        """Screen centre that angles and scales are measured around:
+        the projection of the actual UV pivot (centre, cursor or picked
+        point) mapped onto what the gizmo is drawn on -- the mesh surface
+        in the viewport, the UV layout in the UV Editor. Measuring around
+        anything else (the gizmo box centre) makes rotation orbit."""
+        geo = idata['geo3d']
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        noff = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
+        pos = _nearest_3d_for_uv(geo, pivot_uv.x, pivot_uv.y)
+        if pos is None:
+            pos = geo['center_3d']
+        csp = _projector(self, context)(pos + geo['normal_avg'] * noff)
+        if csp is None and handles:
+            csp = handles.get('_C')
+        return csp
+
+    def _point_screen(self, context, idata, name, handles):
+        """Screen position used for gizmo point `name` in the transform
+        maths: the drawn handle in the viewport (its box is a screen
+        approximation), the exact projection of the UV point in the UV
+        Editor (the box there is padded around the exact UV bbox)."""
+        if _uv_mode(self):
+            uv = anchor_uv(idata['bbox_min'], idata['bbox_max'], name)
+            return Vector(self._view_mapping().to_region(*uv))
+        return handles.get(name) if handles else None
+
+    def _modal_press(self, context, event):
+        """LMB held on a gizmo point (self._press): past the drag
+        threshold the press becomes the handle drag it always was,
+        released before that it is a click that picks the pivot."""
+        press = self._press
+        if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            self._press = None
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._press = None
+            self._set_pivot_point(press['handle'])
+            return {'RUNNING_MODAL'}
+        if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+            threshold = context.preferences.inputs.drag_threshold_mouse
+            cur = (self.mouse_x, self.mouse_y)
+            if is_drag(press['pos'], cur, threshold):
+                self._press = None
+                self._start_handle_drag(context, press, cur, event)
+        return {'RUNNING_MODAL'}
+
+    def _start_handle_drag(self, context, press, cur, event):
+        """Begin the drag a press on a gizmo point used to begin at
+        once, as of the press position, then apply the current mouse:
+        the island ends up where an immediate drag would have put it, so
+        the threshold adds no jump."""
+        name = press['handle']
+        self.hover_handle = name
+        self.mouse_x, self.mouse_y = press['pos']
+        started = False
+        if name == CENTER_HANDLE:
+            self.scale_handle_name = None
+            self.grab_axis = None
+            started = self._begin_transform(context, STATE_GRAB)
+        elif name in HANDLE_OPPOSITE:
+            self.scale_handle_name = name
+            piv_uv, piv_scr, h_scr = self._handle_pivot_data(context, name)
+            started = self._begin_transform(
+                context, STATE_HANDLE_SCALE, pivot_uv=piv_uv,
+                pivot_screen=piv_scr, handle_screen=h_scr)
+        self.mouse_x, self.mouse_y = cur
+        if not started:
+            return
+        if self.state == STATE_GRAB:
+            self._apply_grab(context, cur[0], cur[1], event)
+        elif self.state == STATE_HANDLE_SCALE:
+            self._apply_scale(context, cur[0], cur[1], event)
 
     # ------------------------------------------------------------------
     # Data
@@ -921,8 +1295,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         obj = context.active_object
         self.bm = bmesh.from_edit_mesh(obj.data)
         self.uv_layer = get_uv_layer(self.bm)
-        world = obj.matrix_world
-        if reseed:
+        self._uv_pick_polys = None
+        if reseed and _uv_mode(self):
+            # UV Editor: the selected UV islands, flooded only over the
+            # faces the editor shows.
+            islands = get_uv_selected_islands(
+                self.bm, self.uv_layer, self._uv_sync,
+                restrict_to=self._displayed_faces())
+        elif reseed:
             islands, _ = get_selected_face_islands(self.bm, self.uv_layer)
         else:
             # Mid-session rebuild: keep the island partition stable.
@@ -946,8 +1326,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 idata['face_indices'] = island
                 idata['texel_density'] = compute_texel_density(
                     self.bm, island, self.uv_layer)
-                idata['geo3d'] = get_island_3d_data(
-                    self.bm, island, self.uv_layer, world)
+                idata['geo3d'] = self._island_geo(context, island)
                 self.islands.append(island)
                 self.islands_data.append(idata)
         n = len(self.islands_data)
@@ -1015,6 +1394,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         The mesh face selection mirrors the session exactly: faces of
         islands that left it are deselected. The stitch / align target
         pool reads unselected faces as "not in the session"."""
+        if _uv_mode(self):
+            self._sync_uv_selection(context)
+            return
         bm = self.bm
         session = set()
         for isl in self.islands:
@@ -1128,11 +1510,14 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if name is None:
             return None
         idata = self.islands_data[ai]
-        self.uv_cursor = _handle_uv_pos(idata, name)
-        geo = idata.get('geo3d')
-        self.cursor_3d = (_nearest_3d_for_uv(geo, self.uv_cursor.x,
-                                             self.uv_cursor.y)
-                          if geo else None)
+        if _uv_mode(self):
+            self._set_uv_cursor(_handle_uv_pos(idata, name))
+        else:
+            self.uv_cursor = _handle_uv_pos(idata, name)
+            geo = idata.get('geo3d')
+            self.cursor_3d = (_nearest_3d_for_uv(geo, self.uv_cursor.x,
+                                                 self.uv_cursor.y)
+                              if geo else None)
         # Remembered by a face, not the island index: the marker is
         # drawn on the handle only while this island stays active.
         self._cursor_anchor = {'face': min(self.islands[ai]), 'name': name}
@@ -1144,7 +1529,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
     def _face_at_screen(self, context, mx, my):
         """Index of the visible mesh face under a region pixel, or -1.
-        Hidden faces are not drawn, so the ray carries on behind them."""
+        Hidden faces are not drawn, so the ray carries on behind them.
+        In the UV Editor: the displayed face whose UV polygon holds the
+        pixel's UV position."""
+        if _uv_mode(self):
+            return self._face_at_uv_screen(mx, my)
         region, rv3d = context.region, context.region_data
         if region is None or rv3d is None:
             return -1
@@ -1194,8 +1583,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             faces = self._flood_island_from_face(fi)
             if not faces:
                 return
-            geo = get_island_3d_data(self.bm, faces, self.uv_layer,
-                                     context.active_object.matrix_world)
+            geo = self._island_geo(context, faces)
             if not geo:
                 return
             for f in faces:
@@ -1215,8 +1603,13 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         taken = set()
         for isl in self.islands:
             taken.update(isl)
-        allowed = [f.index for f in self.bm.faces
-                   if not f.hide and f.index not in taken]
+        if _uv_mode(self):
+            # UV Editor: only faces the editor shows.
+            allowed = [fi for fi in self._displayed_faces()
+                       if fi not in taken]
+        else:
+            allowed = [f.index for f in self.bm.faces
+                       if not f.hide and f.index not in taken]
         if fi not in allowed:
             return None
         parts, _ = get_selected_face_islands(
@@ -1374,8 +1767,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     def _refresh_active(self, context):
         """Lightweight refresh of selected islands so helpers track
         live UV coordinates during interactive transforms."""
-        obj = context.active_object
-        world = obj.matrix_world
+        self._uv_pick_polys = None
         for idx in self.selected_islands:
             if not (0 <= idx < len(self.islands)):
                 continue
@@ -1384,8 +1776,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             if not idata:
                 continue
             idata['face_indices'] = island
-            geo = get_island_3d_data(
-                self.bm, island, self.uv_layer, world)
+            geo = self._island_geo(context, island)
             if geo:
                 idata['geo3d'] = geo
             self.islands_data[idx] = idata
@@ -1431,6 +1822,21 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             if csp and (mouse - csp).length <= hit_r:
                 self.hover_handle = 'CENTER'
                 return
+
+        if _uv_mode(self):
+            # UV Editor: no vertex or edge hover; the session island
+            # whose UV triangle holds the mouse's UV position.
+            uv = self._view_mapping().to_view(mx, my)
+            for idx, idata in enumerate(self.islands_data):
+                geo = idata.get('geo3d')
+                if not geo:
+                    continue
+                for v0, v1, v2 in geo['face_tris']:
+                    if point_in_triangle(uv, (v0.x, v0.y), (v1.x, v1.y),
+                                         (v2.x, v2.y)):
+                        self.hover_island_idx = idx
+                        return
+            return
 
         # Candidates within the hit radius are tried nearest-first and
         # the first one not hidden behind the mesh wins, so picking
@@ -1510,14 +1916,17 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         hud = self._hud = HUDOverlay("visual_uv")
         hud.title = "Visual UV"
         hud.bind_region(region)
-        hud.add_param(HUDParam("Pivot (P)", lambda: self.pivot_mode.title(), "enum"))
+        uv_mode = _uv_mode(self)
+        hud.add_param(HUDParam(
+            "Pivot (P)", lambda: pivot_label(self.pivot_mode, getattr(self, "pivot_anchor", None)), "enum"))
         hud.add_param(HUDParam("Scope (I)", lambda: self.transform_scope.title(), "enum"))
         hud.add_param(HUDParam("Islands", lambda: len(self.islands_data), "int"))
         hud.add_param(HUDParam(
             "Axis Lock (X / Y)", lambda: self.grab_axis or "None", "enum",
             visible_getter=lambda: self.state in (STATE_GRAB, STATE_SCALE, STATE_HANDLE_SCALE)))
-        hud.add_param(HUDParam("Modifiers Paused (Shift + Q)", lambda: bool(self._suspended_mods), "bool",
-                               visible_getter=lambda: bool(self._suspended_mods)))
+        if not uv_mode:
+            hud.add_param(HUDParam("Modifiers Paused (Shift + Q)", lambda: bool(self._suspended_mods), "bool",
+                                   visible_getter=lambda: bool(self._suspended_mods)))
         hud.add_param(more.row())
 
         def tab(name, getter, kind, away=None):
@@ -1528,22 +1937,49 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             lambda: self.grab_sensitivity != GRAB_SENS_DEFAULT)
         tab("Rotation Step (Ctrl + Wheel)", lambda: f"{ROTATION_STEPS[self.rotation_step_idx]}\u00b0", "str",
             lambda: self.rotation_step_idx != ROTATION_STEP_DEFAULT_IDX)
-        tab("Unwrap Method (Shift + U)", lambda: UNWRAP_METHOD_NAMES.get(self.unwrap_method, "None"), "enum",
-            lambda: self.unwrap_method != UNWRAP_METHODS[0][0])
-        tab("Keep Mirror (Shift + M)", lambda: self.unwrap_keep_flip, "bool",
-            lambda: not self.unwrap_keep_flip)
+        if not uv_mode:
+            tab("Unwrap Method (Shift + U)", lambda: UNWRAP_METHOD_NAMES.get(self.unwrap_method, "None"), "enum",
+                lambda: self.unwrap_method != UNWRAP_METHODS[0][0])
+            tab("Keep Mirror (Shift + M)", lambda: self.unwrap_keep_flip, "bool",
+                lambda: not self.unwrap_keep_flip)
+
+        transform = ("Transform", [
+            ("Move / Rotate / Scale", "G / R / S"),
+            ("Axis Lock (while moving or scaling)", "X / Y"),
+            ("Sensitivity", "Alt + Wheel"),
+            ("Rotation Step (while rotating)", "Ctrl + Wheel"),
+            ("Pivot", "P"),
+            ("Set Pivot", "Click Gizmo Point"),
+            ("UV Cursor to Nearest Anchor", "C"),
+            ("Scope All / Active", "I"),
+        ])
+        if uv_mode:
+            # UV Editor: the viewport-only tools are left out.
+            self._help = build_help("visual_uv", [
+                transform,
+                ("Islands", [
+                    ("Select Island", "LMB"),
+                    ("Add / Remove Island", "Shift + LMB"),
+                    ("Deselect All", "Z"),
+                    ("Next Active Island", "W"),
+                    ("Fit to Active", "D"),
+                    ("Fit Width / Height to Active", "Shift + D / Ctrl + D"),
+                    ("Flip Horizontal / Vertical", "F / Shift + F"),
+                    ("Randomize UV / U / V", "N / Shift + N / Ctrl + N"),
+                ]),
+                ("View and Session", [
+                    MORE_OPTIONS_HELP,
+                    ("Undo / Redo", "Ctrl + Z / Ctrl + Shift + Z"),
+                    ("Confirm", "Enter / Space"),
+                    ("Stop dragging", "Esc / RMB"),
+                    ("Cancel", "Esc"),
+                ]),
+            ], region)
+            return
 
         # Every key, hidden until H
         self._help = build_help("visual_uv", [
-            ("Transform", [
-                ("Move / Rotate / Scale", "G / R / S"),
-                ("Axis Lock (while moving or scaling)", "X / Y"),
-                ("Sensitivity", "Alt + Wheel"),
-                ("Rotation Step (while rotating)", "Ctrl + Wheel"),
-                ("Pivot", "P"),
-                ("UV Cursor to Nearest Anchor", "C"),
-                ("Scope All / Active", "I"),
-            ]),
+            transform,
             ("Islands", [
                 ("Select Island", "LMB"),
                 ("Add / Remove Island", "Shift + LMB"),
@@ -1593,6 +2029,20 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         self._area = context.area
         self._region = context.region
+        # UV Editor mode: the gizmo works on the UV layout in the Image
+        # Editor; everything space-specific branches on _uv_mode.
+        self._uv_mode = context.area.type == 'IMAGE_EDITOR'
+        self._space_type = (bpy.types.SpaceImageEditor if self._uv_mode
+                            else bpy.types.SpaceView3D)
+        self._uv_sync = bool(context.scene.tool_settings.use_uv_select_sync)
+        self._space = context.space_data
+        if self._uv_mode:
+            # The editor's main region even when started from its sidebar.
+            self._region = next((r for r in context.area.regions
+                                 if r.type == 'WINDOW'), context.region)
+        self._press = None
+        self.pivot_anchor = None
+        self._uv_pick_polys = None
         self.state = STATE_IDLE
         self.active_island_idx = 0
         self.hover_island_idx = -1
@@ -1639,8 +2089,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         self.stitch_pool = None
         self.stitch_pool_view = None
         # Object-space BVH of the mesh for pick occlusion. Geometry is
-        # fixed for the session (only UVs move) so it is built once.
-        self._pick_bvh = BVHTree.FromBMesh(self.bm)
+        # fixed for the session (only UVs move) so it is built once. The
+        # UV Editor has no occlusion: every UV is visible there.
+        self._pick_bvh = (None if self._uv_mode
+                          else BVHTree.FromBMesh(self.bm))
         self._world_inv = obj.matrix_world.inverted()
         self.scale_handle_name = None
         self.transform_pivot_uv = None
@@ -1661,13 +2113,24 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         # UV cursor anchor from C ({'face', 'name'}), see
         # _cursor_anchor_screen.
         self._cursor_anchor = None
+        self._orig_uv_flags = None
+        self._orig_cursor_location = None
+        if self._uv_mode:
+            # The UV selection is the session there; the UV cursor is
+            # the editor's 2D cursor. Esc puts both back.
+            self._orig_uv_flags = self._read_uv_flags(self.bm, self.uv_layer)
+            loc = tuple(self._space.cursor_location)
+            self._orig_cursor_location = loc
+            self.uv_cursor = Vector(loc)
+            self.cursor_3d = Vector((loc[0], loc[1], 0.0))
 
         self.islands = []
         self.islands_data = []
         self.selected_islands = set()
         self.rebuild_data(context, reseed=True, sync=False)
         if not self.islands_data:
-            self.report({'WARNING'}, "No UV islands found on selected faces")
+            self.report({'WARNING'}, "No UV islands selected" if self._uv_mode
+                        else "No UV islands found on selected faces")
             return {'CANCELLED'}
         self.selected_islands = set(range(len(self.islands_data)))
         # The island holding the mesh's active face starts as the active
@@ -1681,26 +2144,40 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                     break
         self._sync_uv_editor(context)
 
-        self._overlay_was_on = context.space_data.overlay.show_overlays
         # Shift+Q pauses the edit-mode modifier stack for the session
         # (some GN setups rebuild UVs and hide every preview); restored
         # on exit.
         self._suspended_mods = []
-        # Clean view (the Q mode) is on by default: Blender overlays and
-        # the island fills stay hidden so textures are readable, only
-        # the gizmo remains. Q toggles it all back. Restored on exit.
-        self._clean_view = True
-        context.space_data.overlay.show_overlays = False
-
-        self._build_overlays(context.region)
+        if self._uv_mode:
+            # The UV Editor's overlays are the UV wireframe itself: they
+            # stay as they are, and the island fills stay on.
+            self._clean_view = False
+            self._build_overlays(self._region)
+        else:
+            self._overlay_was_on = context.space_data.overlay.show_overlays
+            # Clean view (the Q mode) is on by default: Blender overlays
+            # and the island fills stay hidden so textures are readable,
+            # only the gizmo remains. Q toggles it all back. Restored on
+            # exit.
+            self._clean_view = True
+            context.space_data.overlay.show_overlays = False
+            self._build_overlays(context.region)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
 
-        self._handle_3d = safe_handler_add(
-            bpy.types.SpaceView3D, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW', tick=True)
+        if self._uv_mode:
+            # POST_PIXEL only: fills and outlines are projected through
+            # the same View2D mapping as the gizmo and the picking.
+            space = bpy.types.SpaceImageEditor
+            self._handle_3d = safe_handler_add(
+                space, draw_uv_islands_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
+        else:
+            space = bpy.types.SpaceView3D
+            self._handle_3d = safe_handler_add(
+                space, draw_3d_callback, (self, context), 'WINDOW', 'POST_VIEW', tick=True)
         self._handle_pixel = safe_handler_add(
-            bpy.types.SpaceView3D, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
+            space, draw_pixel_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
         self._handle_shortcuts = safe_handler_add(
-            bpy.types.SpaceView3D, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
+            space, draw_shortcuts_callback, (self, context), 'WINDOW', 'POST_PIXEL', tick=True)
         self._timer = context.window_manager.event_timer_add(
             0.05, window=context.window)
 
@@ -1726,8 +2203,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                           'NDOF_MOTION', 'NDOF_BUTTON_PANZOOM'}:
             return {'PASS_THROUGH'}
 
-        self.mouse_x = event.mouse_region_x
-        self.mouse_y = event.mouse_region_y
+        self.mouse_x, self.mouse_y = self._event_mouse(event)
         self._last_event = capture_event(event, getattr(self, "_last_event", None))
         try:
             theme_prefs = context.preferences.addons["InteractionOps"]\
@@ -1749,6 +2225,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if self._more.handle(event):   # Tab: only the HUD changes
             return {'RUNNING_MODAL'}
 
+        if self._press is not None:    # LMB held on a gizmo point
+            return self._modal_press(context, event)
+
         if self.state in (STATE_GRAB, STATE_ROTATE, STATE_SCALE,
                           STATE_HANDLE_SCALE, STATE_HANDLE_ROTATE,
                           STATE_STITCH_DRAG, STATE_ALIGN_DRAG):
@@ -1762,6 +2241,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         if event.type == 'ESC' and event.value == 'PRESS':
             restore_uvs(self.uv_cache, self.uv_layer)
             self._restore_selection()
+            if self._uv_mode:
+                self._restore_uv_flags()
+                if self._orig_cursor_location is not None:
+                    self._set_uv_cursor(self._orig_cursor_location)
             self._push_mesh(context)
             self._cleanup(context)
             self.report({'INFO'}, "Visual UV cancelled")
@@ -1779,8 +2262,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.report({'INFO'}, "Visual UV applied")
             return {'FINISHED'}
 
-        self.hit_test(context, event.mouse_region_x,
-                      event.mouse_region_y)
+        self.hit_test(context, self.mouse_x, self.mouse_y)
         self._update_hover_pick(context)
 
         if event.type == 'Z' and event.value == 'PRESS' and event.ctrl:
@@ -1801,7 +2283,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         cursor is warped back in from the opposite region edge."""
         acc = self._warp_acc
         vx, vy = mx + acc.x, my + acc.y
-        region = context.region
+        region = self._win_region(context)
         w, h = region.width, region.height
         nx, ny = mx, my
         if mx < 0:
@@ -1819,7 +2301,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         return vx, vy
 
     def _modal_transform(self, context, event):
-        mx, my = event.mouse_region_x, event.mouse_region_y
+        mx, my = self._event_mouse(event)
         if self.state in WRAP_STATES:
             mx, my = self._wrap_cursor(context, mx, my)
 
@@ -1922,11 +2404,12 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             context.space_data.overlay.show_overlays = self._overlay_was_on
         self._set_modifiers_paused(context, False)
         self._release_session_pins(context)
+        space = getattr(self, '_space_type', bpy.types.SpaceView3D)
         for h in (self._handle_3d, self._handle_pixel,
                   self._handle_shortcuts):
             if h:
                 try:
-                    safe_handler_remove(h, bpy.types.SpaceView3D, 'WINDOW')
+                    safe_handler_remove(h, space, 'WINDOW')
                 except ValueError:
                     pass
         if self._timer:
@@ -2276,28 +2759,29 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             # the center mid-drag makes the pivot chase the rotation and
             # the island drifts away.
             pivot_uv = _get_pivot_uv(self, idata)
-        region, rv3d = context.region, context.region_data
         handles = _compute_screen_handles(self, context)
         if pivot_screen is not None:
             csp = pivot_screen
         else:
             # Angles/scales are measured around the screen projection of
-            # the actual UV pivot (island center), NOT the gizmo box
-            # center — they differ on curved islands and a mismatch
-            # makes rotation orbit instead of spin.
-            prefs = bpy.context.preferences.addons[
-                "InteractionOps"].preferences
-            noff = getattr(prefs, 'visual_uv_normal_offset', NORMAL_OFFSET)
-            center = _island_center_3d(idata) + geo['normal_avg'] * noff
-            csp = location_3d_to_region_2d(region, rv3d, center)
-            if csp is None and handles:
-                csp = handles.get('_C')
+            # the actual UV pivot (island center, UV cursor or picked
+            # gizmo point), NOT the gizmo box center — they differ on
+            # curved islands and a mismatch makes rotation orbit instead
+            # of spin.
+            csp = self._pivot_screen(context, idata, pivot_uv, handles)
         if not csp:
             return False
 
         self.pre_drag_cache = cache_all_uvs(self.bm, self.uv_layer)
         self._warp_acc = Vector((0.0, 0.0))
         self.drag_start = Vector((self.mouse_x, self.mouse_y))
+        # UV Editor: the handle point used in the maths is the exact UV
+        # point while the drawn handle sits on the padded box; the press
+        # offset between them is taken out of the mouse so the scale
+        # starts at 1 and the box edge then tracks the mouse exactly.
+        self._handle_offset = Vector((0.0, 0.0))
+        if _uv_mode(self) and handle_screen is not None:
+            self._handle_offset = self.drag_start - handle_screen
         self.drag_center_screen = csp
         self.transform_pivot_uv = pivot_uv
         self.drag_handle_screen = handle_screen
@@ -2320,8 +2804,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         opp = HANDLE_OPPOSITE[handle_name]
         piv_uv = _handle_uv_pos(idata, opp)
         handles = _compute_screen_handles(self, context)
-        piv_scr = handles.get(opp) if handles else None
-        h_scr = handles.get(handle_name) if handles else None
+        piv_scr = self._point_screen(context, idata, opp, handles)
+        h_scr = self._point_screen(context, idata, handle_name, handles)
         return piv_uv, piv_scr, h_scr
 
     # ------------------------------------------------------------------
@@ -2535,7 +3019,12 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         uv_w = max(bmax.x - bmin.x, 1e-8)
         uv_h = max(bmax.y - bmin.y, 1e-8)
 
-        if u_dir and v_dir and u_dir.length > 1 and v_dir.length > 1:
+        if _uv_mode(self):
+            # UV Editor: the island moves with the mouse (in the viewport
+            # the texture does, so the UVs move the other way).
+            uv_off = Vector(self._view_mapping().delta_to_view(
+                pixel_delta.x, pixel_delta.y))
+        elif u_dir and v_dir and u_dir.length > 1 and v_dir.length > 1:
             comps = _decompose_screen(pixel_delta, u_dir, v_dir)
             if comps:
                 uv_off = Vector((-comps[0] * uv_w, -comps[1] * uv_h))
@@ -2586,6 +3075,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             cross_z = u_dir.x * v_dir.y - u_dir.y * v_dir.x
             if cross_z < 0:
                 delta = -delta
+        if _uv_mode(self):
+            # UV Editor: the island turns with the mouse (in the viewport
+            # the texture does, so the UVs turn the other way).
+            delta = -delta
 
         if event.ctrl:
             step = math.radians(ROTATION_STEPS[self.rotation_step_idx])
@@ -2626,8 +3119,13 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         pivot = (self.transform_pivot_uv if self.transform_pivot_uv
                  is not None else _get_pivot_uv(self, idata))
         restore_uvs(self.pre_drag_cache, self.uv_layer)
-        isx = 1.0 / sx if abs(sx) > 1e-6 else 1.0
-        isy = 1.0 / sy if abs(sy) > 1e-6 else 1.0
+        if _uv_mode(self):
+            # UV Editor: the island grows with the gizmo (in the viewport
+            # the texture does, so the UVs shrink).
+            isx, isy = sx, sy
+        else:
+            isx = 1.0 / sx if abs(sx) > 1e-6 else 1.0
+            isy = 1.0 / sy if abs(sy) > 1e-6 else 1.0
         for si in self._transform_targets():
             if 0 <= si < len(self.islands_data):
                 scale_island_uv(self.islands_data[si]['loops'],
@@ -2638,6 +3136,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                            u_dir, v_dir, have_axes, event):
         handle_delta = hs - cs
         mouse_delta = Vector((mx, my)) - cs
+        if _uv_mode(self):
+            mouse_delta -= getattr(self, '_handle_offset', Vector((0.0, 0.0)))
 
         if have_axes:
             hc = _decompose_screen(handle_delta, u_dir, v_dir)
@@ -2771,23 +3271,15 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             self.state = STATE_IDLE
             return {'RUNNING_MODAL'}
 
-        # Center handle drag -- move (it has no opposite handle to
-        # pivot a scale on, so treat it as grab)
-        if self.hover_handle == 'CENTER':
-            self.scale_handle_name = None
-            self.grab_axis = None
-            if self._begin_transform(context, STATE_GRAB):
-                return {'RUNNING_MODAL'}
-
-        # Handle drag -- scale with opposite handle as pivot
-        if self.hover_handle in HANDLE_OPPOSITE:
-            self.scale_handle_name = self.hover_handle
-            piv_uv, piv_scr, h_scr = self._handle_pivot_data(
-                context, self.hover_handle)
-            if self._begin_transform(context, STATE_HANDLE_SCALE,
-                                     pivot_uv=piv_uv, pivot_screen=piv_scr,
-                                     handle_screen=h_scr):
-                return {'RUNNING_MODAL'}
+        # Press on a gizmo point: a drag past the threshold moves (centre)
+        # or scales with the opposite handle as pivot (corners, sides),
+        # a click without a drag makes the point the pivot. Resolved in
+        # _modal_press.
+        if (self.hover_handle == CENTER_HANDLE
+                or self.hover_handle in HANDLE_OPPOSITE):
+            self._press = {'handle': self.hover_handle,
+                           'pos': (self.mouse_x, self.mouse_y)}
+            return {'RUNNING_MODAL'}
 
         # Rotation handle drag
         if self.hover_rotate_handle:
@@ -2809,8 +3301,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         # also respects occlusion, which the session-only hover does
         # not. A hover that the ray misses (vertex just past the
         # silhouette) still counts for its session island.
-        if self._select_island_at(context, event.mouse_region_x,
-                                  event.mouse_region_y, extend=event.shift):
+        if self._select_island_at(context, self.mouse_x, self.mouse_y,
+                                  extend=event.shift):
             return {'RUNNING_MODAL'}
         if self.hover_island_idx >= 0:
             self._click_session_island(context, self.hover_island_idx,
@@ -2824,6 +3316,9 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def _on_key(self, context, event):
+        if _uv_mode(self) and event.type in UV_MODE_IGNORED_KEYS:
+            return {'RUNNING_MODAL'}
+
         if event.type == 'G' and not event.ctrl and not event.alt:
             self.scale_handle_name = None
             self.grab_axis = None
@@ -2843,12 +3338,13 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 idata = self.islands_data[self.active_island_idx]
                 piv_uv = _handle_uv_pos(idata, self.hover_handle)
                 handles = _compute_screen_handles(self, context)
-                piv_scr = (handles.get(self.hover_handle)
-                           if handles else None)
+                piv_scr = self._point_screen(context, idata,
+                                             self.hover_handle, handles)
             if self._begin_transform(context, STATE_ROTATE,
                                      pivot_uv=piv_uv,
                                      pivot_screen=piv_scr):
-                where = self.hover_handle or self.pivot_mode
+                where = self.hover_handle or pivot_label(
+                    self.pivot_mode, self.pivot_anchor)
                 self.report({'INFO'},
                             f"R: Rotate around {where} -- Ctrl snap 5\u00b0")
             return {'RUNNING_MODAL'}
@@ -3121,11 +3617,10 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         if event.type == 'P':
-            modes = [PIVOT_CENTER, PIVOT_CURSOR]
-            ci = (modes.index(self.pivot_mode)
-                  if self.pivot_mode in modes else 0)
-            self.pivot_mode = modes[(ci + 1) % len(modes)]
-            self.report({'INFO'}, f"Pivot: {self.pivot_mode}")
+            # Center -> Cursor -> picked gizmo point (once one was picked)
+            self.pivot_mode = next_pivot(self.pivot_mode, self.pivot_anchor)
+            self.report({'INFO'}, "Pivot: "
+                        f"{pivot_label(self.pivot_mode, self.pivot_anchor)}")
             return {'RUNNING_MODAL'}
 
         if event.type == 'W':

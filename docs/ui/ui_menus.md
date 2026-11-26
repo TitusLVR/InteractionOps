@@ -261,9 +261,10 @@ The layout keys behind this (`span`, `SPACER`, cell `show_if`) are documented in
 
 ![UV Tools panel](../img/ui/panels/panel_uv_tools.png)
 
-A small sidebar panel in the UV Editor (*N-panel › iOps*) with the two UV helpers.
+A small sidebar panel in the UV Editor (*N-panel › iOps*) with the UV helpers.
 
 | Button | What it does |
 | --- | --- |
 | UV Info Rect | Drag a rectangle in the UV editor to read its min / max / size; the values are copied to the clipboard |
 | Drag Snap UV | [Drag Snap UV](../operators/op_drag_snap_uv.md): drag a UV vertex onto another one |
+| Visual UV | [Visual UV](../operators/op_mesh_visual_uv.md) in the UV Editor: move, rotate and scale the selected UV islands with a gizmo |

@@ -44,6 +44,7 @@ from ..ui.iops_pie_edit import (
 )
 # from ..utils.functions import ShowMessageBox
 from ..utils import node_pie_rules as nr
+from ..utils.functions import is_keymap_mirror
 from ..utils.split_areas_dict import (
     # split_areas_dict,
     split_areas_list,
@@ -1171,6 +1172,9 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
             for km in keymaps:
                 for kmi in km.keymap_items:
+                    # A mirrored entry follows its primary one: one row.
+                    if is_keymap_mirror(km.name, kmi.idname):
+                        continue
                     if kmi.idname.startswith("iops.function_"):
                         try:
                             rna_keymap_ui.draw_kmi(

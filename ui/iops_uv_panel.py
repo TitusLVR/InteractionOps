@@ -23,3 +23,4 @@ class IOPS_PT_UV_Panel(bpy.types.Panel):
         col.scale_y = 1.1
         col.operator("iops.uv_info_rect", icon="MESH_PLANE", text="UV Info Rect")
         col.operator("iops.uv_drag_snap_uv", icon="SNAP_ON", text="Drag Snap UV")
+        col.operator("iops.mesh_visual_uv", icon="UV", text="Visual UV")

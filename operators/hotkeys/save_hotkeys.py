@@ -4,7 +4,7 @@ import json
 import shutil
 
 
-from ...utils.functions import merge_missing_defaults
+from ...utils.functions import is_keymap_mirror, merge_missing_defaults
 
 # Programmatically managed keymap entries that must NEVER be serialized:
 # the save tuple can't round-trip them. iops.widget_interact: no `any`
@@ -47,10 +47,14 @@ def get_iops_keys():
     for keymap in keyconfig.keymaps:
         if keymap:
             keymapItems = keymap.keymap_items
+            # A mirrored entry (utils/functions.MIRROR_KEYMAPS) is rebuilt
+            # from the primary one at registration: saving it too would
+            # register the binding twice in every keymap on the next load.
             toSave = tuple(
                 item for item in keymapItems
                 if item.idname.startswith("iops.")
                 and item.idname not in NEVER_SAVE
+                and not is_keymap_mirror(keymap.name, item.idname)
             )
             for item in toSave:
                 entry = (

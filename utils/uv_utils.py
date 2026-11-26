@@ -75,7 +75,7 @@ def get_selected_face_islands(bm, uv_layer, seed_faces=None,
     return islands, uv_to_faces
 
 
-def get_uv_selected_islands(bm, uv_layer, use_sync=False):
+def get_uv_selected_islands(bm, uv_layer, use_sync=False, restrict_to=None):
     """Detect complete UV islands that contain at least one UV-selected loop.
 
     Seeds from the UV editor's own selection (Blender-5.0+ `loop.uv_select_vert`,
@@ -90,7 +90,9 @@ def get_uv_selected_islands(bm, uv_layer, use_sync=False):
 
     Returns a list of islands, each a set of face indices (expanded to the
     island's full extent via UV-weld connectivity, matching
-    `get_selected_face_islands`).
+    `get_selected_face_islands`). With `restrict_to` (face indices) only
+    those faces seed and take part in the connectivity, e.g. the faces the
+    UV editor shows.
     """
     def _loop_selected(loop):
         sel = getattr(loop, "uv_select_vert", None)
@@ -98,8 +100,14 @@ def get_uv_selected_islands(bm, uv_layer, use_sync=False):
             sel = loop[uv_layer].select
         return sel
 
+    if restrict_to is None:
+        faces = list(bm.faces)
+    else:
+        allowed = set(restrict_to)
+        faces = [f for f in bm.faces if f.index in allowed]
+
     seed = set()
-    for f in bm.faces:
+    for f in faces:
         if use_sync:
             if any(_loop_selected(lp) for lp in f.loops):
                 seed.add(f.index)
@@ -110,14 +118,14 @@ def get_uv_selected_islands(bm, uv_layer, use_sync=False):
 
     # UV connectivity: key = (vert_index, rounded_u, rounded_v) = a weld point.
     uv_to_faces = {}
-    for f in bm.faces:
+    for f in faces:
         for loop in f.loops:
             uv = loop[uv_layer].uv
             key = (loop.vert.index, round(uv.x, 6), round(uv.y, 6))
             uv_to_faces.setdefault(key, set()).add(f.index)
 
     face_to_neighbors = {}
-    for f in bm.faces:
+    for f in faces:
         neighbors = set()
         for loop in f.loops:
             uv = loop[uv_layer].uv
@@ -319,6 +327,70 @@ def get_island_3d_data(bm, island_face_indices, uv_layer, world_matrix):
         'verts_3d': verts_3d,
         'center_3d': center_3d,
         'normal_avg': normal_avg,
+        'face_tris': face_tris,
+        'uv_tris': uv_tris,
+    }
+
+
+def get_island_uv_layout_data(bm, island_face_indices, uv_layer):
+    """`get_island_3d_data` for the UV editor: the same keys, with every
+    position taken from the UV layout itself as (u, v, 0) and the normal
+    +Z, so code that draws and picks on the 3D data works on the UV
+    layout unchanged (a projection maps (u, v) to the editor's pixels).
+    Returns None for an island without faces."""
+    face_lookup = {f.index: f for f in bm.faces}
+    island_set = set(island_face_indices)
+    edges_3d = []
+    boundary_edges_3d = []
+    edge_uv_pairs = []
+    edge_loop_ids = []
+    boundary_edge_uv_pairs = []
+    verts_3d = {}
+    all_positions = []
+    face_tris = []
+    uv_tris = []
+
+    for fi in island_face_indices:
+        f = face_lookup.get(fi)
+        if not f:
+            continue
+        loops_list = list(f.loops)
+        uvs = [lp[uv_layer].uv.copy() for lp in loops_list]
+        pos = [Vector((uv.x, uv.y, 0.0)) for uv in uvs]
+        for i in range(1, len(pos) - 1):
+            face_tris.append((pos[0], pos[i], pos[i + 1]))
+            uv_tris.append((((uvs[0].x, uvs[0].y), (uvs[i].x, uvs[i].y),
+                             (uvs[i + 1].x, uvs[i + 1].y)),
+                            (pos[0], pos[i], pos[i + 1])))
+        n = len(loops_list)
+        for i, loop in enumerate(loops_list):
+            j = (i + 1) % n
+            uv, uv_next = uvs[i], uvs[j]
+            pos_a, pos_b = pos[i], pos[j]
+            edges_3d.append((pos_a, pos_b))
+            edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
+            edge_loop_ids.append((fi, i))
+            if loop_is_uv_boundary(loop, uv_layer, island_set):
+                boundary_edges_3d.append((pos_a, pos_b))
+                boundary_edge_uv_pairs.append(((uv, uv_next), (pos_a, pos_b)))
+            uv_key = (round(uv.x, 5), round(uv.y, 5))
+            if uv_key not in verts_3d:
+                verts_3d[uv_key] = pos_a.copy()
+                all_positions.append(pos_a)
+
+    if not all_positions:
+        return None
+
+    center_3d = sum(all_positions, Vector((0, 0, 0))) / len(all_positions)
+    return {
+        'edges_3d': edges_3d,
+        'boundary_edges_3d': boundary_edges_3d,
+        'edge_uv_pairs': edge_uv_pairs,
+        'edge_loop_ids': edge_loop_ids,
+        'boundary_edge_uv_pairs': boundary_edge_uv_pairs,
+        'verts_3d': verts_3d,
+        'center_3d': center_3d,
+        'normal_avg': Vector((0.0, 0.0, 1.0)),
         'face_tris': face_tris,
         'uv_tris': uv_tris,
     }
