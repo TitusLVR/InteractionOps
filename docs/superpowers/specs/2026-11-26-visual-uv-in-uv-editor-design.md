@@ -88,9 +88,10 @@ mesh in the 3D viewport. Two additions:
   with X / Y, handles, pivot (click, P, C), scope, flip, fit, randomise,
   sensitivity, rotation step, undo / redo, confirm / cancel. Ignored (and left
   out of the help and HUD): Align to Edge, Stitch, pins, Unwrap and its
-  options, Straighten Chain, Align View, Clean View, Pause Modifiers, edge and
-  vertex hover / selection. The editor's overlays are never touched (hiding
-  them would hide the UV wireframe).
+  options, Straighten Chain, Align View, Pause Modifiers, edge and
+  vertex hover / selection. Clean View (Q) is on by default as in the
+  viewport: it hides the island fills and outlines; the editor's overlays are
+  never touched (hiding them would hide the UV wireframe).
 - **Reachability.** The default hotkey lives in the "Mesh" keymap, which the
   Image Editor's main region never reads. A `MIRROR_KEYMAPS` table in
   `utils/functions.py` registers the binding a second time in "UV Editor"; the

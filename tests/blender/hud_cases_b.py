@@ -53,11 +53,11 @@ CASES = [
               ({"pivot_mode": "ANCHOR", "pivot_anchor": "TL"}, "Pivot (P)")],
         keys=["G", "R", "S", "X", "Y", "Alt + Wheel", "Ctrl + Wheel", "P", "Click Gizmo Point", "C", "I", "LMB",
               "Shift + LMB", "Z", "W", "D", "Shift + D", "Ctrl + D", "F", "Shift + F", "N", "Shift + N", "Ctrl + N",
-              "Ctrl + Z", "Ctrl + Shift + Z", "Tab", "Enter", "Space", "Esc", "RMB"],
+              "Q", "Ctrl + Z", "Ctrl + Shift + Z", "Tab", "Enter", "Space", "Esc", "RMB"],
         state={"_uv_mode": True, "state": "IDLE", "pivot_mode": "CENTER", "pivot_anchor": None,
                "transform_scope": "ALL", "islands_data": [1, 2, 3], "grab_axis": None, "_suspended_mods": [],
                "uv_layer": None, "grab_sensitivity": 1.0, "rotation_step_idx": 6},
         # The viewport-only tools are ignored in the UV Editor (UV_MODE_IGNORED_KEYS) and left out of its help.
-        ignore_events={"A", "E", "M", "U", "T", "V", "Q"},
+        ignore_events={"A", "E", "M", "U", "T", "V"},
     ),
 ]

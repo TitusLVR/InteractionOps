@@ -127,9 +127,9 @@ PIVOT_CURSOR = 'CURSOR'
 # its name in op.pivot_anchor.
 
 # UV Editor mode: keys of the viewport-only tools (Align to Edge, Stitch,
-# pins, Unwrap, Straighten Chain, Align View, Clean View, Pause Modifiers)
-# are ignored there.
-UV_MODE_IGNORED_KEYS = {'A', 'E', 'M', 'U', 'T', 'V', 'Q'}
+# pins, Unwrap, Straighten Chain, Align View) are ignored there, and so is
+# Shift + Q (Pause Modifiers); plain Q stays Clean View.
+UV_MODE_IGNORED_KEYS = {'A', 'E', 'M', 'U', 'T', 'V'}
 
 SCOPE_ALL = 'ALL'
 SCOPE_ACTIVE = 'ACTIVE'
@@ -684,6 +684,11 @@ def draw_uv_islands_callback(op, context):
     outlines, drawn in POST_PIXEL through the projection seam so they
     share the exact mapping the gizmo and the picking use."""
     if context.area != op._area:
+        return
+    # Clean view (Q, on by default): no fills or outlines over the
+    # texture; the editor's own UV wireframe shows the islands and only
+    # the gizmo is drawn on top.
+    if op._clean_view:
         return
     import gpu
     proj = _projector(op, context)
@@ -1969,6 +1974,7 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
                 ]),
                 ("View and Session", [
                     MORE_OPTIONS_HELP,
+                    ("Clean View", "Q"),
                     ("Undo / Redo", "Ctrl + Z / Ctrl + Shift + Z"),
                     ("Confirm", "Enter / Space"),
                     ("Stop dragging", "Esc / RMB"),
@@ -2149,9 +2155,11 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
         # on exit.
         self._suspended_mods = []
         if self._uv_mode:
-            # The UV Editor's overlays are the UV wireframe itself: they
-            # stay as they are, and the island fills stay on.
-            self._clean_view = False
+            # Clean view is on by default here too: the island fills and
+            # outlines stay hidden so the texture is readable, Q brings
+            # them back. The UV Editor's overlays are the UV wireframe
+            # itself, so they are never touched.
+            self._clean_view = True
             self._build_overlays(self._region)
         else:
             self._overlay_was_on = context.space_data.overlay.show_overlays
@@ -3316,7 +3324,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
     # ------------------------------------------------------------------
 
     def _on_key(self, context, event):
-        if _uv_mode(self) and event.type in UV_MODE_IGNORED_KEYS:
+        if _uv_mode(self) and (event.type in UV_MODE_IGNORED_KEYS
+                               or (event.type == 'Q' and event.shift)):
             return {'RUNNING_MODAL'}
 
         if event.type == 'G' and not event.ctrl and not event.alt:
@@ -3606,7 +3615,8 @@ class IOPS_OT_MeshVisualUV(bpy.types.Operator):
 
         if event.type == 'Q':
             self._clean_view = not self._clean_view
-            context.space_data.overlay.show_overlays = not self._clean_view
+            if not _uv_mode(self):
+                context.space_data.overlay.show_overlays = not self._clean_view
             state = "ON" if self._clean_view else "OFF"
             self.report({'INFO'}, f"Clean view {state}")
             return {'RUNNING_MODAL'}

@@ -50,7 +50,8 @@ Start the tool in a UV Editor (an Image Editor showing the UVs of a mesh in Edit
 - Picking: <kbd>LMB</kbd> selects the island whose UV faces are under the mouse, <kbd>Shift</kbd>+<kbd>LMB</kbd> adds or removes it; any island the editor shows can be picked. The session islands are the UV selection (with UV Sync on, the face selection).
 - Available: island select / add / remove (<kbd>LMB</kbd>, <kbd>Shift</kbd>+<kbd>LMB</kbd>, <kbd>Z</kbd>, <kbd>W</kbd>), <kbd>G</kbd> / <kbd>R</kbd> / <kbd>S</kbd> with <kbd>X</kbd> / <kbd>Y</kbd>, the handles, the pivot (gizmo point click, <kbd>P</kbd>, <kbd>C</kbd>), scope (<kbd>I</kbd>), flip, fit, randomise, sensitivity, rotation step, undo / redo, confirm and cancel.
 - The UV cursor is the editor's 2D cursor: the Cursor pivot starts on it and <kbd>C</kbd> moves it.
-- Not in the UV Editor (the keys do nothing there): Align to Edge, Stitch, pins, Unwrap and its options, Straighten Chain, Align View, Clean View, Pause Modifiers, and edge / vertex hover and selection. The editor's overlays are left as they are.
+- Not in the UV Editor (the keys do nothing there): Align to Edge, Stitch, pins, Unwrap and its options, Straighten Chain, Align View, Pause Modifiers, and edge / vertex hover and selection.
+- Clean View (<kbd>Q</kbd>) is on by default here as well: the island fills and outlines are hidden and only the gizmo is drawn over the texture; <kbd>Q</kbd> brings them back. The editor's own overlays (the UV wireframe) are left as they are.
 - <kbd>Esc</kbd> also puts back the UV selection and the 2D cursor.
 
 ## HUD

@@ -372,6 +372,8 @@ def test_hover_and_click_pick_islands_in_uv_space():
         op.active_island_idx = island_of_face(op, 1)
         x, y = px(0.85, 0.15)
         send(op, ctx, ev(ctx, "MOUSEMOVE", "NOTHING", x, y))
+        assert op.hover_pick is None, "clean view (the default) draws no preview"
+        send(op, ctx, ev(ctx, "Q", "PRESS", x, y), ev(ctx, "MOUSEMOVE", "NOTHING", x, y))
         assert op.hover_pick is not None, "the island under the mouse is previewed"
         send(op, ctx, ev(ctx, "LEFTMOUSE", "PRESS", x, y))
         assert [min(i) for i in op.islands] == [2], op.islands
@@ -576,16 +578,22 @@ def test_viewport_only_keys_are_ignored():
     try:
         before = face_uvs(obj, 0)
         x, y = px(0.2, 0.2)
-        # The fake space has no overlay: touching it (Q) would raise.
         for key, mods in (("U", {}), ("U", {"ctrl": True}), ("M", {}), ("E", {}), ("A", {}), ("T", {}),
-                          ("V", {}), ("Q", {}), ("Q", {"shift": True})):
+                          ("V", {}), ("Q", {"shift": True})):
             send(op, ctx, ev(ctx, key, "PRESS", x, y, **mods))
             assert op.state == "IDLE", (key, op.state)
         assert all(close(a, b) for a, b in zip(before, face_uvs(obj, 0)))
         assert not op._suspended_mods
+        # Clean view: on by default, Q toggles the island fills. The fake
+        # space has no overlay: touching it would raise.
+        assert op._clean_view is True
+        send(op, ctx, ev(ctx, "Q", "PRESS", x, y))
+        assert op._clean_view is False and op.state == "IDLE"
+        send(op, ctx, ev(ctx, "Q", "PRESS", x, y))
+        assert op._clean_view is True
         help_keys = {it.key for s in op._help.sections for it in s.items}
-        assert "Click Gizmo Point" in help_keys
-        assert not ({"A", "E", "M", "T", "V", "Q"} & help_keys), help_keys
+        assert "Click Gizmo Point" in help_keys and "Q" in help_keys
+        assert not ({"A", "E", "M", "T", "V"} & help_keys), help_keys
         names = {p.name for s in op._hud.param_sections for p in s.params}
         assert "Unwrap Method (Shift + U)" not in names and "Modifiers Paused (Shift + Q)" not in names
         # F flips, N randomizes, I toggles the scope: still there.
