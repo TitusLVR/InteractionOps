@@ -350,10 +350,23 @@ Shift+Alt+click: also assign it to the selected faces"""
         return {"FINISHED"}
 
 
+def _face_selected_in_edit(obj, face_index):
+    """True when `obj` is a mesh in Edit Mode and that face is selected."""
+    data = getattr(obj, "data", None)
+    if not isinstance(data, bpy.types.Mesh) or not data.is_editmode:
+        return False
+    bm = bmesh.from_edit_mesh(data)
+    if not 0 <= face_index < len(bm.faces):
+        return False
+    bm.faces.ensure_lookup_table()
+    return bm.faces[face_index].select
+
+
 class IOPS_OT_MaterialAssignDrop(bpy.types.Operator):
     """Assign a material to one object (whole object), or to one face of
     it: what dropping a material from the iOps shelf onto the viewport
-    does"""
+    does. In Edit Mode a drop on a selected face goes to the whole face
+    selection"""
 
     bl_idname = "iops.material_assign_drop"
     bl_label = "Drop Material"
@@ -379,6 +392,15 @@ class IOPS_OT_MaterialAssignDrop(bpy.types.Operator):
         state.set_active(mat, context)
         if self.face < 0:
             result = assign_material(mat, [obj], "OBJECT")
+            state.invalidate_sources()
+            if not _report_result(self, mat, result):
+                return {"CANCELLED"}
+            return {"FINISHED"}
+        if _face_selected_in_edit(obj, self.face):
+            # Edit Mode shows the selection: a drop on a selected face means
+            # the selection, on an unselected face just that face
+            result = assign_material(mat, common.target_objects(context),
+                                     "FACES")
             state.invalidate_sources()
             if not _report_result(self, mat, result):
                 return {"CANCELLED"}

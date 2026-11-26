@@ -1225,6 +1225,37 @@ def test_assign_face_edit_mode_and_drop_operator():
         material="A", object="Empty", face=-1) == {"CANCELLED"}
 
 
+def test_drop_on_selected_face_takes_the_selection():
+    import bmesh
+    reset()
+    a = mat("A")
+    mat("Steel")
+    mat("Red")
+    box = cube("Box")
+    give_slots(box, a)
+    select(box)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bm = bmesh.from_edit_mesh(box.data)
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        f.select = f.index in (0, 1, 2)
+    bmesh.update_edit_mesh(box.data)
+    # a selected face: the three selected faces get it
+    assert bpy.ops.iops.material_assign_drop(
+        material="Steel", object="Box", face=1) == {"FINISHED"}
+    # an unselected face: only that face
+    assert bpy.ops.iops.material_assign_drop(
+        material="Red", object="Box", face=5) == {"FINISHED"}
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert slot_mats(box) == ["A", "Steel", "Red"]
+    assert face_indices(box) == [1, 1, 1, 0, 0, 2]
+    # Object Mode keeps the single face even when the stored selection
+    # holds it (the selection is not visible there)
+    assert bpy.ops.iops.material_assign_drop(
+        material="Red", object="Box", face=0) == {"FINISHED"}
+    assert face_indices(box) == [2, 1, 1, 0, 0, 2]
+
+
 def test_highlight_collect():
     from InteractionOps.ui.materials_shelf import highlight
     reset()
@@ -1302,6 +1333,7 @@ TESTS = [
     test_ui_mode_migration,
     test_assign_face_engine,
     test_assign_face_edit_mode_and_drop_operator,
+    test_drop_on_selected_face_takes_the_selection,
     test_highlight_collect,
     test_highlight_cost_heavy_mesh,
     test_library_add_is_idempotent,
