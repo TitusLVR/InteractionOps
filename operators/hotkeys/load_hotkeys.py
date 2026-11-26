@@ -9,6 +9,7 @@ from ...utils.functions import (
     register_ui_toggle_keymaps,
 )
 from ...ui.widgets import events as widget_events
+from ...ui.materials_shelf import events as shelf_events
 
 
 def _reload_keymaps(keys):
@@ -20,10 +21,12 @@ def _reload_keymaps(keys):
     # Detach the widget entry cleanly first so events._keymap_items never
     # holds references the iops.* sweep below already removed.
     widget_events.unregister_keymap()
+    shelf_events.unregister_keymap()
     unregister_keymaps()
     register_keymaps(keys)
     register_ui_toggle_keymaps()
     widget_events.register_keymap()
+    shelf_events.register_keymap()
     # Per-widget toggle entries are NEVER_SAVE (the saved tuple can't
     # carry the widget-name property) — rebuild them from the registry.
     widget_events.sync_toggle_kmis()

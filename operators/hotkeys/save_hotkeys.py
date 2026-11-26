@@ -16,7 +16,9 @@ from ...utils.functions import is_keymap_mirror, merge_missing_defaults
 # iops.widget_editor_key: transient, exists only during a widget edit
 # session (events.add_editor_kmis / remove_editor_kmis).
 NEVER_SAVE = {"iops.widget_interact", "iops.widget_toggle",
-              "iops.widget_editor_key"}
+              "iops.widget_editor_key",
+              # the iOps material shelf's input entries (ui/materials_shelf)
+              "iops.material_shelf_event"}
 
 
 def save_hotkeys():

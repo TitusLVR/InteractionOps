@@ -161,6 +161,12 @@ from .ui.iops_modifiers_panel import (
     IOPS_PT_Modifiers_Panel,
     IOPS_OT_Call_Modifiers_Panel,
 )
+# iOps Materials panel (operators/materials + ui/iops_materials_panel.py)
+from .operators import materials as _materials
+from .ui import iops_materials_panel as _materials_panel
+from .ui import iops_materials_shelf as _materials_shelf
+from .ui import materials_shelf as _material_strip
+from .ui.materials_shelf import events as _material_strip_events
 
 # iOps Modifiers module: descriptor files register themselves into
 # iops_mod_registry.REGISTRY on import; tool modules carry the operators.
@@ -757,6 +763,10 @@ classes = (
     *_modifiers_classes,
     IOPS_PT_Modifiers_Panel,
     IOPS_OT_Call_Modifiers_Panel,
+    *_materials.CLASSES,   # IOPS_MaterialsState first: WM PointerProperty target
+    *_materials_panel.UI_CLASSES,
+    *_materials_shelf.UI_CLASSES,
+    *_material_strip_events.CLASSES,
     IOPS_OT_MeshToTrisToQuads,
     IOPS_OT_straight_bevel,
     IOPS_OT_inset,
@@ -927,6 +937,8 @@ def register():
     register_slot_props()
     register_selection_sets_ui()
     _attr_panel.register_attribute_ui()
+    _materials.register_props()
+    _materials_shelf.register_shelf_ui()
 
     from .ui.iops_pie_edit import register_empty_size_prop
     register_empty_size_prop()
@@ -970,7 +982,17 @@ def register():
         print("IOPS Statistics Disabled!")
 
     load_iops_preferences()
+    # the shelf's default preview size follows the thumbnail-size pref
+    try:
+        _materials_shelf.apply_preview_size()
+    except Exception as e:
+        print(f"IOPS materials: shelf preview size not applied: {e}")
     keymap_registration()
+    # iOps material shelf: draw handlers, thumbnail timer, input keymap
+    try:
+        _material_strip.register()
+    except Exception as e:
+        print(f"IOPS materials: shelf register failed: {e}")
 
     # Seed the modifiers grid list with the curated set on first run.
     # Deferred to a timer: prefs can't be written from register() while
@@ -1025,6 +1047,15 @@ def unregister():
     except Exception as exc:
         print(f"IOPS attributes: unregister failed: {exc}")
     unregister_selection_sets_ui()
+    try:
+        _material_strip.unregister()
+    except Exception as exc:
+        print(f"IOPS materials: shelf unregister failed: {exc}")
+    try:
+        _materials_shelf.unregister_shelf_ui()
+        _materials.unregister_props()
+    except Exception as exc:
+        print(f"IOPS materials: unregister failed: {exc}")
     # GPU widget teardown first (reverse of register): concrete widgets,
     # then the framework — saves widget state to prefs, removes ONLY its
     # own keymap entry and app/draw handlers. Guarded so a failure here

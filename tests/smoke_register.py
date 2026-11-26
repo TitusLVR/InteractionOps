@@ -132,6 +132,33 @@ assert "preview" in wm.iops_attr.bl_rna.properties, "missing preview toggle"
 assert hasattr(bpy.types, "IOPS_PT_attributes_preview"), "preview sub-panel not registered"
 assert hasattr(prefs, "attr_preview_max_labels"), "missing pref: attr_preview_max_labels"
 
+# iOps Materials panel
+for op_name in ("material_assign", "material_new", "materials_merge_duplicates",
+                "materials_remap", "materials_remove_empty_slots",
+                "materials_copy_from_active",
+                "materials_select_users", "materials_remove_unused_slots",
+                "materials_clear", "materials_delete_unused",
+                "materials_gallery_page", "call_panel_materials",
+                "material_assign_asset", "material_asset_select_users",
+                "materials_mark_asset", "materials_clear_asset",
+                "materials_library_add", "material_assign_drop",
+                "material_shelf_event"):
+    getattr(bpy.ops.iops, op_name).get_rna_type()
+for cls_name in ("IOPS_PT_Materials_Panel", "IOPS_UL_Materials",
+                 "IOPS_MT_materials_functions", "IOPS_AST_materials",
+                 "IOPS_PT_materials_shelf_search"):
+    assert hasattr(bpy.types, cls_name), f"{cls_name} not registered"
+assert hasattr(wm, "iops_materials"), "missing WM prop: iops_materials"
+for prop_name in ("materials_thumbnail_size", "materials_list_rows",
+                  "materials_gallery_rows", "materials_stack_duplicates",
+                  "materials_default_view", "materials_ui_mode",
+                  "materials_import_method", "materials_library",
+                  "materials_popup_width", "materials_shelf_height",
+                  "materials_shelf_thumbnail", "materials_highlight_hover"):
+    assert hasattr(prefs, prop_name), f"missing pref: {prop_name}"
+from InteractionOps.prefs.iops_prefs import get_iops_prefs  # noqa: E402
+assert "MATERIALS_PANEL" in get_iops_prefs(), "prefs JSON lacks MATERIALS_PANEL"
+
 # not the preferences operator: it also re-syncs the extension wheels of the
 # user resource folder for the (empty) set of extensions a factory session has
 addon_utils.disable("InteractionOps", default_set=True, refresh_handled=True)

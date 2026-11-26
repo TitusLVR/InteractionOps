@@ -116,6 +116,7 @@ Every iOps tool on one page. Most tools are reached through the F1–F5 keys, th
 - [Render Asset Thumbnail](operators/op_render_asset_thumbnail.md) — render a preview for the active asset.
 
 ## Material & Texture
+- [Materials](operators/op_materials_panel.md) — material list: click to assign to objects or faces, merge numbered duplicates, cleanup functions.
 - [Material Override](operators/op_material_override.md) — view layer material override from a list.
 - [Materials from Textures](operators/op_materials_from_textures.md) — build materials from texture names.
 - [Image Reload](operators/op_image_reload.md) — reload every image in the file.

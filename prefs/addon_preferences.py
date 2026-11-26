@@ -86,6 +86,19 @@ def _section(parent, prefs, prop_name, title, *, icon="NONE"):
     return body
 
 
+def _materials_thumbnail_update(self, context):
+    from ..ui.iops_materials_shelf import apply_preview_size
+    apply_preview_size(self)
+
+
+def _materials_redraw_update(self, context):
+    wm = getattr(context, "window_manager", None)
+    for window in (wm.windows if wm is not None else ()):
+        if window.screen is not None:
+            for area in window.screen.areas:
+                area.tag_redraw()
+
+
 _CURSOR_PLACE_AXIS_ITEMS = (("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", ""))
 _cursor_place_guard = False
 # Last known distinct (normal, edge) pair — update callbacks get no "old
@@ -394,6 +407,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
     show_section_edit_pie_edit: BoolProperty(default=False)
     show_section_edit_pie_uv: BoolProperty(default=False)
     show_section_modifiers_panel: BoolProperty(default=False)
+    show_section_materials: BoolProperty(default=False)
     show_section_mirror_rotate: BoolProperty(default=False)
     show_section_node_pie: BoolProperty(default=False)
 
@@ -1018,6 +1032,110 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    # iOps Materials panel
+    materials_thumbnail_size: IntProperty(
+        name="Thumbnail Size",
+        description="Size of a gallery preview in the Materials panel, "
+                    "in interface units",
+        default=4, min=2, max=12,
+        update=_materials_thumbnail_update,
+    )
+    materials_list_rows: IntProperty(
+        name="List Rows",
+        description="Most rows the Materials panel list shows before it "
+                    "scrolls; a shorter list is as tall as its materials",
+        default=8, min=3, max=40,
+    )
+    materials_gallery_rows: IntProperty(
+        name="Gallery Rows",
+        description="Rows per gallery page in the Materials panel; the "
+                    "number of columns follows from the panel width",
+        default=3, min=1, max=20,
+    )
+    materials_stack_duplicates: BoolProperty(
+        name="Stack Numbered Duplicates",
+        description="List numbered duplicates (Steel.001, Steel.002) as "
+                    "one row under the base name with a count badge",
+        default=True,
+    )
+    materials_default_view: EnumProperty(
+        name="Default View",
+        description="How the Materials panel shows materials until the "
+                    "panel's own toggle is used",
+        items=(
+            ("LIST", "List", "One row per material"),
+            ("GALLERY", "Gallery", "Grid of previews"),
+        ),
+        default="LIST",
+    )
+    materials_ui_mode: EnumProperty(
+        name="Interface",
+        description="Show materials in the iOps sidebar panel, in the "
+                    "iOps shelf along the bottom of the 3D Viewport, or "
+                    "in Blender's asset shelf for asset libraries",
+        # explicit values: 1 was the asset shelf (then called Shelf), so
+        # a stored 1 still means the asset shelf
+        items=(
+            ("PANEL", "Panel", "The Materials panel in the sidebar (iOps tab) "
+             "and its popup", 0),
+            ("IOPS_SHELF", "Shelf", "The iOps shelf along the bottom of "
+             "the 3D Viewport: the panel's materials and tools; the "
+             "Materials hotkey shows / hides it", 2),
+            ("LIBRARY_SHELF", "Library Shelf", "Blender's asset shelf of "
+             "material assets from an asset library; the Materials "
+             "hotkey shows / hides it", 1),
+        ),
+        default="PANEL",
+        update=_materials_redraw_update,
+    )
+    materials_import_method: EnumProperty(
+        name="Import",
+        description="How a material asset from a library gets into the "
+                    "file when the shelf assigns it",
+        items=(
+            ("APPEND_REUSE", "Append (Reuse)", "Append a local copy; a "
+             "material appended earlier from the same library file is "
+             "reused"),
+            ("LINK", "Link", "Link the material from the library file"),
+        ),
+        default="APPEND_REUSE",
+    )
+    materials_library: StringProperty(
+        name="Library",
+        description="Asset library whose materials the shelf shows "
+                    "(empty: all libraries). Current-file material "
+                    "assets always show",
+        default="",
+        update=_materials_redraw_update,
+    )
+    materials_popup_width: IntProperty(
+        name="Popup Width",
+        description="Width of the Materials popup in interface units; "
+                    "the Remap Materials dialog is 1.8 times as wide",
+        default=12, min=8, max=24,
+    )
+    materials_shelf_height: IntProperty(
+        name="Shelf Height",
+        description="Height of the iOps material shelf in pixels (at "
+                    "1.0 resolution scale); drag the shelf's top edge "
+                    "to change it",
+        default=150, min=60, max=2000,
+    )
+    materials_shelf_thumbnail: IntProperty(
+        name="Shelf Thumbnail Size",
+        description="Preview size in the iOps material shelf in pixels "
+                    "(at 1.0 resolution scale); Ctrl+wheel over the "
+                    "shelf changes it",
+        default=72, min=40, max=256,
+    )
+    materials_highlight_hover: BoolProperty(
+        name="Highlight On Hover",
+        description="While the mouse is over a material in the iOps "
+                    "shelf, highlight the faces that use it in the "
+                    "viewport",
+        default=True,
+    )
+
     # (Distance text is now rendered through the HUD header — no separate
     # position offsets needed.)
 
@@ -1528,6 +1646,34 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
 
                 body.separator()
                 draw_sort_order(body, self)
+
+            # iOps Materials panel
+            body = _section(column_main, self, "show_section_materials",
+                            "Materials", icon="MATERIAL")
+            if body is not None:
+                col = body.column(align=True)
+                col.use_property_split = True
+                col.use_property_decorate = False
+                col.prop(self, "materials_ui_mode", expand=True)
+                row = col.row(align=True)
+                row.prop_search(self, "materials_library",
+                                context.preferences.filepaths,
+                                "asset_libraries",
+                                results_are_suggestions=False)
+                row.operator("iops.materials_library_add", text="",
+                             icon="FILE_FOLDER")
+                col.prop(self, "materials_import_method")
+                col.separator()
+                col.prop(self, "materials_default_view")
+                col.prop(self, "materials_popup_width")
+                col.separator()
+                col.prop(self, "materials_shelf_height")
+                col.prop(self, "materials_shelf_thumbnail")
+                col.prop(self, "materials_highlight_hover")
+                col.prop(self, "materials_list_rows")
+                col.prop(self, "materials_thumbnail_size")
+                col.prop(self, "materials_gallery_rows")
+                col.prop(self, "materials_stack_duplicates")
 
             # Mirror Rotate defaults
             body = _section(column_main, self, "show_section_mirror_rotate",

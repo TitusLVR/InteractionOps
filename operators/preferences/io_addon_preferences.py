@@ -351,6 +351,34 @@ def load_iops_preferences():
                                     value, "attr_preview_max_labels",
                                     defaults.get("attr_preview_max_labels", 2000))
 
+                    case "MATERIALS_PANEL":
+                        if isinstance(value, dict):
+                            defaults = default_prefs.get("MATERIALS_PANEL", {})
+                            # "SHELF" was Blender's asset shelf before the
+                            # iOps shelf took the Shelf name
+                            if value.get("materials_ui_mode") == "SHELF":
+                                value = dict(value, materials_ui_mode="LIBRARY_SHELF")
+                            for key_, default_ in (
+                                ("materials_thumbnail_size", 4),
+                                ("materials_list_rows", 8),
+                                ("materials_gallery_rows", 3),
+                                ("materials_stack_duplicates", True),
+                                ("materials_default_view", "LIST"),
+                                ("materials_ui_mode", "PANEL"),
+                                ("materials_import_method", "APPEND_REUSE"),
+                                ("materials_library", ""),
+                                ("materials_popup_width", 12),
+                                ("materials_shelf_height", 150),
+                                ("materials_shelf_thumbnail", 72),
+                                ("materials_highlight_hover", True),
+                            ):
+                                if hasattr(prefs, key_):
+                                    try:
+                                        setattr(prefs, key_,
+                                                safe_get(value, key_, defaults.get(key_, default_)))
+                                    except (TypeError, ValueError) as e:
+                                        print(f"IOPS Prefs: Skipping invalid value for {key_} - {e}")
+
                     case "UI_TEXT_STAT":
                         if isinstance(value, dict):
                             defaults = default_prefs.get("UI_TEXT_STAT", {})

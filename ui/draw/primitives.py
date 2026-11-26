@@ -369,3 +369,30 @@ def edges_colored_world(coord_pairs, colors, *, width: float,
         batch.draw(shader)
 
     _draw_occluded(th, draw_pass, occluded_min)
+
+
+def image_2d(texture, x: float, y: float, w: float, h: float) -> None:
+    """Draw a GPUTexture into the rect (x, y, w, h), region pixels. The
+    texture's values go to the framebuffer as they are (display-referred
+    previews look as in Blender's own UI)."""
+    from gpu_extras.presets import draw_texture_2d
+    draw_texture_2d(texture, (x, y), w, h)
+
+
+def tris_batch(coords):
+    """A reusable TRIS batch for the uniform-colour shader from an (N, 3)
+    or (N, 2) float array: build once, draw each frame with draw_batch()."""
+    shader = shaders.uniform_color()
+    data = np.ascontiguousarray(coords, dtype=np.float32)
+    return batch_for_shader(shader, "TRIS", {"pos": data})
+
+
+def draw_batch(batch, *, role: Role | None = None,
+               color: tuple[float, float, float, float] | None = None,
+               theme: Theme | None = None, context=None) -> None:
+    """Draw a batch from tris_batch() in a theme colour."""
+    th = _resolve_theme(theme, context)
+    shader = shaders.uniform_color()
+    shader.bind()
+    shader.uniform_float("color", _resolve_color(role, color, th))
+    batch.draw(shader)

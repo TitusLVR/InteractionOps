@@ -323,6 +323,20 @@ def get_iops_prefs():
         "ATTRIBUTES": {
             "attr_preview_max_labels": safe("attr_preview_max_labels", 2000),
         },
+        "MATERIALS_PANEL": {
+            "materials_thumbnail_size": safe("materials_thumbnail_size", 4),
+            "materials_list_rows": safe("materials_list_rows", 8),
+            "materials_gallery_rows": safe("materials_gallery_rows", 3),
+            "materials_stack_duplicates": safe("materials_stack_duplicates", True),
+            "materials_default_view": safe("materials_default_view", "LIST"),
+            "materials_ui_mode": safe("materials_ui_mode", "PANEL"),
+            "materials_import_method": safe("materials_import_method", "APPEND_REUSE"),
+            "materials_library": safe("materials_library", ""),
+            "materials_popup_width": safe("materials_popup_width", 12),
+            "materials_shelf_height": safe("materials_shelf_height", 150),
+            "materials_shelf_thumbnail": safe("materials_shelf_thumbnail", 72),
+            "materials_highlight_hover": safe("materials_highlight_hover", True),
+        },
     }
 
     return iops_prefs

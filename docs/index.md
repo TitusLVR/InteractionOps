@@ -106,6 +106,7 @@ It is a set of operators which boost Blender interactivity between user and appl
         - [Open Asset in New Blender](operators/op_open_asset_in_new_blender.md)
         - [Render Asset Thumbnail](operators/op_render_asset_thumbnail.md)
     - **Material & Texture**
+        - [Materials](operators/op_materials_panel.md)
         - [Material Override](operators/op_material_override.md)
         - [Materials from Textures](operators/op_materials_from_textures.md)
         - [Image Reload](operators/op_image_reload.md)
