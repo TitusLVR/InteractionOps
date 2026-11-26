@@ -278,6 +278,7 @@ def get_iops_prefs():
         "VISUAL_UV": {
             "visual_uv_normal_offset": safe("visual_uv_normal_offset", 0.002),
             "visual_uv_random_range": safe("visual_uv_random_range", 2),
+            "visual_uv_gizmo_padding": safe("visual_uv_gizmo_padding", 0),
             **{
                 f"island_palette_{i}": safelist(
                     f"island_palette_{i}", (0.5, 0.5, 0.5, 0.1))

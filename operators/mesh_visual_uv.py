@@ -418,6 +418,17 @@ def _projector(op, context):
     return proj
 
 
+def _gizmo_padding():
+    """Gap in pixels between the island and the gizmo box (add-on
+    preferences, Visual UV > Gizmo Padding). 0 by default: the box and
+    its handles sit exactly on the island's bounds."""
+    try:
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        return max(0.0, float(prefs.visual_uv_gizmo_padding))
+    except (KeyError, AttributeError):
+        return 0.0
+
+
 def _compute_screen_handles(op, context):
     """Screen-space gizmo for the active island: a tight axis-aligned
     rectangle around the island's projected vertices, so the box always
@@ -436,7 +447,7 @@ def _compute_screen_handles(op, context):
     if _uv_mode(op):
         m = op._view_mapping()
         h = uv_mode_handles(idata['bbox_min'], idata['bbox_max'],
-                            m.to_region, pad=14.0,
+                            m.to_region, pad=_gizmo_padding(),
                             rot_offset=ROT_HANDLE_OFFSET)
         return {k: Vector(v) for k, v in h.items()}
 
@@ -453,7 +464,7 @@ def _compute_screen_handles(op, context):
             pts.append(sp)
     if len(pts) < 3:
         return {}
-    pad = 14
+    pad = _gizmo_padding()
     xmin = min(p.x for p in pts) - pad
     xmax = max(p.x for p in pts) + pad
     ymin = min(p.y for p in pts) - pad

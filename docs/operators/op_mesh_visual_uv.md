@@ -54,6 +54,9 @@ Start the tool in a UV Editor (an Image Editor showing the UVs of a mesh in Edit
 - Clean View (<kbd>Q</kbd>) is on by default here as well: the island fills and outlines are hidden and only the gizmo is drawn over the texture; <kbd>Q</kbd> brings them back. The editor's own overlays (the UV wireframe) are left as they are.
 - <kbd>Esc</kbd> also puts back the UV selection and the 2D cursor.
 
+## Preferences
+Add-on preferences, Visual UV section: Normal offset (how far the overlay floats above the mesh), Randomize Range (tiles Randomize may use) and Gizmo Padding (gap in pixels between the island and the gizmo box, in the viewport and in the UV Editor; 0 by default, so the box and its handles sit exactly on the island's bounds).
+
 ## HUD
 The HUD always shows Pivot (P) (Center, Cursor or the picked point by its full name, such as Top Left Corner or Left Side), Scope (I) and the island count; Axis Lock (X / Y) appears during a move or scale and Modifiers Paused (Shift + Q) while the modifiers are paused. <kbd>Tab</kbd> adds UV Map, Sensitivity (Alt + Wheel), Rotation Step (Ctrl + Wheel), Unwrap Method (Shift + U) and Keep Mirror (Shift + M); with Tab off a row still appears while its value is away from its default. In the UV Editor the unwrap and modifier rows are left out. Every key works whether its row is shown or not; the help (<kbd>H</kbd>) lists them all.
 

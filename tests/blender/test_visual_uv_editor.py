@@ -349,14 +349,22 @@ def test_gizmo_follows_pan_and_zoom():
     try:
         op.active_island_idx = island_of_face(op, 0)
         h = mod._compute_screen_handles(op, ctx)
-        assert close(h["BL"], (px(0.1, 0.1)[0] - 14, px(0.1, 0.1)[1] - 14))
-        assert close(h["TR"], (px(0.3, 0.3)[0] + 14, px(0.3, 0.3)[1] + 14))
+        # Gizmo Padding is 0 by default: the box sits exactly on the island.
+        prefs = bpy.context.preferences.addons["InteractionOps"].preferences
+        assert prefs.visual_uv_gizmo_padding == 0
+        assert close(h["BL"], px(0.1, 0.1)) and close(h["TR"], px(0.3, 0.3))
         assert close(h["_u_dir"], (0.2 * ZOOM, 0.0)) and close(h["_v_dir"], (0.0, 0.2 * ZOOM))
         ctx.region.view2d.ox += 37.0          # pan
         ctx.region.view2d.zoom = 800.0        # zoom
         h2 = mod._compute_screen_handles(op, ctx)
-        assert close(h2["BL"], (OX + 37.0 + 0.1 * 800.0 - 14, OY + 0.1 * 800.0 - 14))
+        assert close(h2["BL"], (OX + 37.0 + 0.1 * 800.0, OY + 0.1 * 800.0))
+        # The preference moves the box out by that many pixels.
+        prefs.visual_uv_gizmo_padding = 14
+        h3 = mod._compute_screen_handles(op, ctx)
+        assert close(h3["BL"], (h2["BL"].x - 14, h2["BL"].y - 14))
+        assert close(h3["TR"], (h2["TR"].x + 14, h2["TR"].y + 14))
     finally:
+        bpy.context.preferences.addons["InteractionOps"].preferences.visual_uv_gizmo_padding = 0
         send(op, ctx, ev(ctx, "ESC"))
 
 
@@ -666,7 +674,7 @@ def test_viewport_click_on_corner_picks_the_pivot():
         op.active_island_idx = island_of_face(op, 0)
         before = face_uvs(obj, 0)
         tl = mod._compute_screen_handles(op, ctx)["TL"]
-        assert close(tl, (wpx(0, 1)[0] - 14, wpx(0, 1)[1] + 14), 1e-3), tl
+        assert close(tl, wpx(0, 1), 1e-3), tl
         send(op, ctx, ev(ctx, "MOUSEMOVE", "NOTHING", tl.x, tl.y), ev(ctx, "LEFTMOUSE", "PRESS", tl.x, tl.y),
              ev(ctx, "LEFTMOUSE", "RELEASE", tl.x, tl.y))
         assert (op.pivot_mode, op.pivot_anchor) == ("ANCHOR", "TL")

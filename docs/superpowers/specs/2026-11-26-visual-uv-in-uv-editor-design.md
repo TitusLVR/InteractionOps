@@ -70,7 +70,7 @@ mesh in the 3D viewport. Two additions:
   move, turn and scale the other way; in the UV Editor the island itself
   follows the mouse (grab offset, rotation angle and scale factor are not
   inverted there). The UV-Editor handle maths use the exact UV points while the
-  drawn handles sit on a box padded by 14 px; the press offset is taken out of
+  drawn handles sit on a box padded by the Gizmo Padding preference (0 px by default); the press offset is taken out of
   the mouse so a scale starts at 1 and the box edge tracks the mouse.
 - **Session islands** are the selected UV islands (`get_uv_selected_islands`,
   UV sync honoured), flooded only over the faces the editor shows (new

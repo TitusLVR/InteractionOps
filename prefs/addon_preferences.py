@@ -790,6 +790,14 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
         min=1,
         soft_max=8,
     )
+    visual_uv_gizmo_padding: IntProperty(
+        name="Gizmo Padding",
+        description="Gap in pixels between the island and the gizmo box. 0 puts the box and its handles exactly on the island's bounds",
+        default=0,
+        min=0,
+        soft_max=64,
+        subtype="PIXEL",
+    )
 
     # Cursor Bisect Drawing Properties — colors and sizes moved to IOPS_Theme.
     # Only operational params (face depth, subdivisions, snap threshold,
@@ -1468,6 +1476,7 @@ class IOPS_AddonPreferences(bpy.types.AddonPreferences):
                 body.label(text="Point size, edge width and fill opacity live in the Theme tab.", icon="INFO")
                 body.prop(self, "visual_uv_normal_offset")
                 body.prop(self, "visual_uv_random_range")
+                body.prop(self, "visual_uv_gizmo_padding")
                 body.separator()
                 body.label(text="Island palette (per-island, indexed by island_id % 8):")
                 row = body.row(align=True)
