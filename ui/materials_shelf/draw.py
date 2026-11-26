@@ -3,6 +3,7 @@ cells (preview, name, duplicate and user badges, active / hover marks),
 scroll bar and the drag ghost. Everything goes through ui/draw primitives
 and HUD text in theme roles."""
 import bpy
+import gpu
 
 from ...operators.materials import common, state
 from ...utils import materials_core as mcore
@@ -16,16 +17,44 @@ TOKEN = "hud_label"
 _HANDLE = {"pixel": None}
 
 TOOL_TEXT = {
-    "new": "New", "functions": "Functions", "src_SCENE": "Scene",
-    "src_SELECTED": "Selected", "src_FILE": "File", "size_down": "−",
-    "size_up": "+",
+    "src_SCENE": "Scene", "src_SELECTED": "Selected", "src_FILE": "File",
 }
 
 
-def _outline(r, color, theme, width="default"):
-    pts = [(r.x, r.y), (r.x + r.w, r.y), (r.x + r.w, r.y + r.h),
-           (r.x, r.y + r.h), (r.x, r.y)]
-    primitives.polyline(pts, color=color, width=width, theme=theme)
+def _glyph(name, r, theme, color, scale):
+    """The menu (three lines) and new (plus) marks, as thin rects."""
+    t = max(1.0, round(scale))
+    cx, cy = r.x + r.w / 2, r.y + r.h / 2
+    half = round(r.h * 0.26)
+    if name == "functions":
+        for dy in (-half * 0.75, 0, half * 0.75):
+            primitives.rect_2d(cx - half, round(cy + dy - t / 2), 2 * half, t,
+                               color=color, theme=theme)
+    else:
+        primitives.rect_2d(cx - half, round(cy - t / 2), 2 * half, t,
+                           color=color, theme=theme)
+        primitives.rect_2d(round(cx - t / 2), cy - half, t, 2 * half,
+                           color=color, theme=theme)
+
+
+def _blend():
+    # text drawing leaves the blend state off; everything here is translucent
+    gpu.state.blend_set("ALPHA")
+
+
+def _frame(r, color, theme, t=1.0):
+    """A crisp frame of `t` pixels, drawn as four thin rects (GPU lines of
+    the theme's widths read too heavy on a UI strip)."""
+    t = max(1.0, round(t))
+    primitives.rect_2d(r.x, r.y, r.w, t, color=color, theme=theme)
+    primitives.rect_2d(r.x, r.y + r.h - t, r.w, t, color=color, theme=theme)
+    primitives.rect_2d(r.x, r.y + t, t, r.h - 2 * t, color=color, theme=theme)
+    primitives.rect_2d(r.x + r.w - t, r.y + t, t, r.h - 2 * t, color=color,
+                       theme=theme)
+
+
+def _alpha(color, a):
+    return tuple(color[:3]) + (a,)
 
 
 def _mix(a, b, t):
@@ -42,17 +71,23 @@ def _text_in(text, r, theme, color, align="center", pad=4):
     x = r.x + (r.w - w) / 2 if align == "center" else r.x + pad
     hud_text.draw(text, int(x), int(r.y + (r.h - cap) / 2), theme=theme,
                   color=color, size_token=TOKEN)
+    _blend()
 
 
 def _button(r, text, theme, *, on=False, hot=False, alert=False):
+    # borderless buttons: a quiet translucent fill, tinted when on / hot
     bg = theme.hud.bg_color
-    accent = theme.color_for(Role.HUD_ACTIVE_VALUE)
-    if on or hot:
-        primitives.rect_2d(r.x, r.y, r.w, r.h,
-                           color=_mix(bg, accent, 0.35 if on else 0.18),
-                           theme=theme)
-    line = theme.color_for(Role.ERROR_LINE if alert else Role.LINE)
-    _outline(r, line, theme)
+    accent = theme.color_for(Role.ERROR_LINE if alert else
+                             Role.HUD_ACTIVE_VALUE)
+    if on:
+        fill = _alpha(_mix(bg, accent, 0.45), 0.6)
+    elif hot:
+        fill = _alpha(_mix(bg, accent, 0.25), 0.55)
+    else:
+        # just enough to read as a button over any scene
+        fill = _alpha(theme.color_for(Role.HUD_LABEL), 0.08)
+    primitives.rect_2d(r.x + 1, r.y + 1, r.w - 2, r.h - 2, color=fill,
+                       theme=theme)
     color = theme.color_for(Role.HUD_STATS_ERROR if alert else
                             (Role.HUD_ACTIVE_VALUE if on else Role.HUD_LABEL))
     _text_in(text, r, theme, color)
@@ -61,14 +96,13 @@ def _button(r, text, theme, *, on=False, hot=False, alert=False):
 def _badge(r, text, theme, color, hot=False):
     bg = theme.hud.bg_color
     fill = _mix(bg, theme.color_for(Role.HUD_ACTIVE_VALUE), 0.3 if hot else 0.0)
-    primitives.rect_2d(r.x, r.y, r.w, r.h, color=fill[:3] + (0.85,),
-                       theme=theme)
+    primitives.rect_2d(r.x, r.y, r.w, r.h,
+                       color=_alpha(fill, 0.7 if hot else 0.45), theme=theme)
     _text_in(text, r, theme, color, pad=1)
 
 
 def _draw_tools(context, lay, theme, hover_tool):
     st = state.get_state(context)
-    prefs = common.addon_prefs(context)
     for name, r in lay.tools.items():
         hot = name == hover_tool
         if name.startswith("src_"):
@@ -77,9 +111,10 @@ def _draw_tools(context, lay, theme, hover_tool):
         elif name == "search":
             text = st.search or "Search"
             _button(r, text, theme, on=bool(st.search), hot=hot)
-        elif name == "size_label":
-            _text_in(f"{prefs.materials_shelf_thumbnail} px", r, theme,
-                     theme.color_for(Role.HUD_LABEL_INACTIVE))
+        elif name in {"functions", "new"}:
+            _button(r, "", theme, hot=hot)
+            _glyph(name, r, theme, theme.color_for(
+                Role.HUD_ACTIVE_VALUE if hot else Role.HUD_LABEL), lay.scale)
         elif name == "empty":
             n = state.empty_slot_count(context)
             _button(r, f"{mcore.plural(n, 'empty slot')}  Remove", theme,
@@ -101,18 +136,21 @@ def _draw_cells(context, lay, rows, by_key, theme, hover):
         if mat is None:
             continue
         t = cell.thumb
+        is_hover = cell.index == hover_index
+        if is_hover or mat == active:
+            # a soft plate behind the preview instead of a heavy outline
+            primitives.rect_2d(t.x, t.y, t.w, t.h,
+                               color=_alpha(accent, 0.16 if mat == active
+                                            else 0.09), theme=theme)
         tex = thumbs.texture(mat)
+        _blend()
         if tex is not None:
             primitives.image_2d(tex, t.x, t.y, t.w, t.h)
         else:
             primitives.rect_2d(t.x, t.y, t.w, t.h,
-                               color=_mix(theme.hud.bg_color, label, 0.12),
-                               theme=theme)
-        is_hover = cell.index == hover_index
+                               color=_alpha(label, 0.06), theme=theme)
         if mat == active:
-            _outline(t, theme.color_for(Role.ACTIVE_LINE), theme, "active")
-        elif is_hover:
-            _outline(t, accent, theme)
+            _frame(t, _alpha(accent, 0.9), theme, lay.scale)
         _text_in(row.display, cell.name, theme,
                  accent if mat == active else label)
         if row.count > 1:
@@ -133,7 +171,8 @@ def _draw_scrollbar(lay, theme):
     y = g.y + g.h - h - (g.h - h) * (lay.scroll / lay.max_scroll)
     x = g.x + g.w + 1 * lay.scale
     primitives.rect_2d(x, y, core.SCROLLBAR_W * lay.scale * 0.6, h,
-                       color=theme.color_for(Role.HUD_LABEL_INACTIVE),
+                       color=_alpha(
+                           theme.color_for(Role.HUD_LABEL_INACTIVE), 0.6),
                        theme=theme)
 
 
@@ -150,9 +189,11 @@ def _draw_ghost(context, theme):
     mat = common.find_material(*drag["key"])
     r = core.Rect(x + 12, y - size - 12, size, size)
     tex = thumbs.texture(mat) if mat is not None else None
+    _blend()
     if tex is not None:
         primitives.image_2d(tex, r.x, r.y, r.w, r.h)
-    _outline(r, theme.color_for(Role.ACTIVE_LINE), theme, "active")
+    else:
+        _frame(r, _alpha(theme.color_for(Role.HUD_ACTIVE_VALUE), 0.9), theme)
     if mat is not None:
         hint = mat.name + ("  (face)" if drag.get("alt") else "")
         _text_in(hint, core.Rect(r.x, r.y - 18, 240, 16), theme,
@@ -181,19 +222,15 @@ def _draw_pixel():
         else:
             hover_here = (hover[1], hover[2])
     with draw_scope(blend="ALPHA"):
-        s = lay.shelf
-        bg = theme.hud.bg_color
-        # the theme's HUD background, at least 85 % opaque so cells stay
-        # readable over the scene
-        primitives.rect_2d(s.x, s.y, s.w, s.h,
-                           color=bg[:3] + (max(bg[3], 0.85),), theme=theme)
+        # the strip itself is transparent: previews, names and buttons
+        # float over the viewport
         grip_w = 40 * lay.scale
         e = lay.edge
         grip_color = theme.color_for(Role.HUD_ACTIVE_VALUE if hover_tool ==
                                      "resize" else Role.HUD_LABEL_INACTIVE)
-        primitives.rect_2d(e.x + (e.w - grip_w) / 2, e.y + e.h / 2 - 1,
-                           grip_w, 2 * lay.scale, color=grip_color,
-                           theme=theme)
+        primitives.rect_2d(e.x + (e.w - grip_w) / 2, e.y + e.h / 2,
+                           grip_w, max(1.0, round(lay.scale)),
+                           color=_alpha(grip_color, 0.8), theme=theme)
         _draw_tools(context, lay, theme, hover_tool)
         if not rows:
             _text_in("No materials", lay.grid, theme,

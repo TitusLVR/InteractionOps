@@ -11,7 +11,7 @@ Rect = namedtuple("Rect", "x y w h")
 PAD = 6
 GAP = 6
 ROW_H = 20
-TOOL_W = 186
+TOOL_W = 170
 EDGE_H = 6
 NAME_H = 16
 BADGE_H = 15
@@ -20,7 +20,7 @@ SCROLLBAR_W = 5
 MARGIN = 4
 
 THUMB_MIN, THUMB_MAX, THUMB_STEP = 40, 256, 8
-TOOL_ROWS = 5
+TOOL_ROWS = 3
 DRAG_THRESHOLD = 6
 
 
@@ -64,7 +64,7 @@ Layout = namedtuple(
     "max_scroll scroll cell_w cell_h scale")
 
 TOOL_NAMES = ("new", "functions", "src_SCENE", "src_SELECTED", "src_FILE",
-              "search", "size_down", "size_label", "size_up", "empty")
+              "search", "empty")
 
 
 def compute_layout(region_w, region_h, insets, height, thumb, count,
@@ -96,17 +96,18 @@ def compute_layout(region_w, region_h, insets, height, thumb, count,
         return Rect(r.x + w * k, r.y, w * span - 2 * s, r.h)
 
     tools = {}
-    r0, r1, r2, r3, r4 = (row_rect(i) for i in range(TOOL_ROWS))
-    tools["new"] = split(r0, 2, 0)
-    tools["functions"] = split(r0, 2, 1)
+    # row 0: menu and new as square icon buttons, search takes the rest;
+    # row 1: the source as one segmented control; row 2: empty-slot notice
+    r0, r1, r2 = (row_rect(i) for i in range(TOOL_ROWS))
+    sq = r0.h
+    tools["functions"] = Rect(r0.x, r0.y, sq, r0.h)
+    tools["new"] = Rect(r0.x + sq + 2 * s, r0.y, sq, r0.h)
+    sx = r0.x + 2 * (sq + 2 * s)
+    tools["search"] = Rect(sx, r0.y, r0.x + r0.w - 2 * s - sx, r0.h)
     for k, src in enumerate(("SCENE", "SELECTED", "FILE")):
         tools["src_" + src] = split(r1, 3, k)
-    tools["search"] = r2
-    tools["size_down"] = split(r3, 4, 0)
-    tools["size_label"] = split(r3, 4, 1, 2)
-    tools["size_up"] = split(r3, 4, 3)
     if show_empty:
-        tools["empty"] = r4
+        tools["empty"] = Rect(r2.x, r2.y, r2.w - 2 * s, r2.h)
     tools = {k: r for k, r in tools.items() if r.y >= y0 + pad * 0.5}
 
     # cell grid
