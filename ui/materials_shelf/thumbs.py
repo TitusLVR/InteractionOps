@@ -5,7 +5,8 @@
   preview's pixels are only what Blender already rendered).
 - A material without a rendered preview is queued; a timer asks Blender to
   render it with ID.asset_generate_preview(), which schedules a background
-  job in a UI session (never from the draw callback).
+  job in a UI session (never from the draw callback). One request at a
+  time and never while a preview job runs, see _tick().
 - The timer also re-reads the pixels of recently drawn materials every
   CHECK_INTERVAL seconds and drops a texture whose preview changed (a
   finished render job, an edited material), so the next draw rebuilds it.
@@ -20,7 +21,7 @@ from bpy.app.handlers import persistent
 from ...operators.materials import common
 
 MAX_NEW_PER_DRAW = 6
-MAX_REQUESTS_PER_TICK = 4
+REQUEST_COOLDOWN = 5.0  # seconds before a preview is asked for again
 CHECK_INTERVAL = 0.5
 RECENT = 2.0            # seconds a drawn material counts as visible
 
@@ -92,18 +93,22 @@ def _ui_override():
     return None
 
 
+def _preview_job_running():
+    return bpy.app.is_job_running("RENDER_PREVIEW")
+
+
 def _tick():
     now = time.monotonic()
-    # 1. ask Blender to render missing previews (background jobs)
-    if _PENDING:
+    # 1. ask Blender to render one missing preview, and only while no
+    #    preview job runs: asset_generate_preview() stops the running jobs
+    #    and waits for them, and a Cycles preview thread that needs the
+    #    Python lock at that moment never ends (Blender freezes for good)
+    if _PENDING and not _preview_job_running():
         override = _ui_override()
-        done = 0
-        for key in list(_PENDING):
-            if done >= MAX_REQUESTS_PER_TICK:
-                break
-            _PENDING.discard(key)
-            if now - _REQUESTED.get(key, -10.0) < 5.0:
+        for key in sorted(_PENDING):
+            if now - _REQUESTED.get(key, -10.0) < REQUEST_COOLDOWN:
                 continue
+            _PENDING.discard(key)
             mat = common.find_material(*key)
             if mat is None or override is None:
                 continue
@@ -113,7 +118,7 @@ def _tick():
                     mat.asset_generate_preview()
             except (RuntimeError, TypeError, AttributeError):
                 pass
-            done += 1
+            break
     # 2. drop textures whose preview changed (render finished / edited)
     for key in list(_TEX):
         if now - _SEEN.get(key, 0.0) > RECENT:

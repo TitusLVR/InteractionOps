@@ -1307,6 +1307,46 @@ def test_highlight_cost_heavy_mesh():
     assert capped and tris == highlight.MAX_TRIS
 
 
+def test_shelf_preview_requests_wait_for_jobs():
+    """A preview is never asked for while a preview job runs (that froze
+    Blender on a Cycles scene), and one tick asks for a single preview."""
+    from InteractionOps.ui.materials_shelf import thumbs
+
+    class Stub:
+        calls = []
+
+        def __init__(self, name):
+            self.name = name
+
+        def asset_generate_preview(self):
+            Stub.calls.append(self.name)
+
+    saved = (thumbs._preview_job_running, thumbs._ui_override,
+             thumbs.common.find_material)
+    thumbs.free_all()
+    try:
+        thumbs._ui_override = dict
+        thumbs.common.find_material = lambda name, library="": Stub(name)
+        keys = {("A", ""), ("B", ""), ("C", "")}
+        thumbs._PENDING.update(keys)
+        thumbs._preview_job_running = lambda: True
+        thumbs._tick()
+        assert Stub.calls == [] and thumbs._PENDING == keys
+        thumbs._preview_job_running = lambda: False
+        thumbs._tick()
+        assert Stub.calls == ["A"] and len(thumbs._PENDING) == 2
+        thumbs._tick()
+        assert Stub.calls == ["A", "B"]
+        # asked a moment ago: not asked again until the cooldown is over
+        thumbs._PENDING.add(("A", ""))
+        thumbs._tick()
+        assert Stub.calls == ["A", "B", "C"] and ("A", "") in thumbs._PENDING
+    finally:
+        (thumbs._preview_job_running, thumbs._ui_override,
+         thumbs.common.find_material) = saved
+        thumbs.free_all()
+
+
 def test_shelf_unregister_is_clean():
     """Disable the add-on: the shelf's draw handlers, keymap entries,
     timer and textures are gone; enable it again afterwards."""
@@ -1357,6 +1397,7 @@ TESTS = [
     test_drop_on_selected_face_takes_the_selection,
     test_highlight_collect,
     test_highlight_cost_heavy_mesh,
+    test_shelf_preview_requests_wait_for_jobs,
     test_library_add_is_idempotent,
     test_append_reuse,
     test_link,

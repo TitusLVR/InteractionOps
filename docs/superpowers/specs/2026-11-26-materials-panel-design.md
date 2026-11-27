@@ -239,7 +239,10 @@ addon-drawn strip; the native shelf stays as "Library Shelf".
   rebuilt when the preview pixels change (checked by a 0.5 s timer for
   recently drawn materials), freed on unregister and file load. Missing
   previews are requested from the timer with `asset_generate_preview()`
-  (a background job), never from the draw callback.
+  (a background job), never from the draw callback, one at a time and
+  only while no preview job runs: the call stops running preview jobs and
+  waits for them, which freezes Blender when a Cycles preview thread is
+  waiting for Python.
 - **Input** (`events.py`): the widget framework's contract, not its control
   model. Addon "3D View" keymap entries (LMB / RMB press, wheel, mouse
   move, any modifiers) call `iops.material_shelf_event`; poll is the fast
