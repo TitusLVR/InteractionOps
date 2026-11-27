@@ -182,9 +182,10 @@ class IOPS_MT_materials_functions(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         if ui_mode(context) == "IOPS_SHELF":
-            # the shelf has no size buttons: here, or Ctrl+wheel over it
-            layout.prop(common.addon_prefs(context),
-                        "materials_shelf_thumbnail")
+            # shelf options: it has no buttons of its own for them
+            prefs = common.addon_prefs(context)
+            layout.prop(prefs, "materials_shelf_thumbnail")
+            layout.prop(prefs, "materials_highlight_hover")
             layout.separator()
         layout.operator_context = "INVOKE_DEFAULT"
         layout.operator("iops.materials_merge_duplicates",
